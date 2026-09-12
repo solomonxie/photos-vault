@@ -7,6 +7,7 @@ import 'package:back_your_own_photos/storage/asset_record.dart';
 import 'package:back_your_own_photos/storage/asset_record_store.dart';
 import 'package:back_your_own_photos/upload/backup_coordinator.dart';
 import 'package:back_your_own_photos/upload/s3_uploader.dart';
+import 'package:back_your_own_photos/viewer/detail_screen.dart';
 import 'package:back_your_own_photos/viewer/library_screen.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/material.dart';
@@ -101,6 +102,43 @@ void main() {
 
     expect(find.text('library_screen_test.jpg'), findsOneWidget);
     expect(find.text('Pending'), findsOneWidget);
+  });
+
+  testWidgets('tapping a listed file opens the detail screen', (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:abc',
+      contentHash: 'abc',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/library_screen_test.jpg',
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('library_screen_test.jpg'));
+    // A couple of bounded pumps, not pumpAndSettle: DetailScreen's image
+    // decode is real file I/O, which never resolves under testWidgets'
+    // fake-async zone — we only need the push transition to finish, not
+    // the image actually rendered.
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    expect(find.byType(DetailScreen), findsOneWidget);
   });
 
   testWidgets('tapping Add Files with nothing picked reports zero added', (tester) async {

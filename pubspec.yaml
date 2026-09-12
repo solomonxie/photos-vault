@@ -24,6 +24,8 @@ dependencies:
   background_downloader: ^9.6.1
   crypto: ^3.0.7
   xml: ^7.0.1
+  video_player: ^2.14.0
+  path_provider: ^2.1.6
 
 dev_dependencies:
   flutter_test:

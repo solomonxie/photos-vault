@@ -8,6 +8,7 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/backup_coordinator.dart';
 import '../widgets/placeholder_screen.dart';
+import 'detail_screen.dart';
 
 /// The photo grid lands in T4.1; until then this tab is also the entry
 /// point for the manual add flow (T2.5) — pick files from the Files app /
@@ -101,6 +102,14 @@ class _LibraryScreenState extends State<LibraryScreen> {
     await _reload();
   }
 
+  void _openRecord(AssetRecord record) {
+    final path = record.sourcePath;
+    if (path == null) return;
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => DetailScreen(filePath: path, title: path.split('/').last)),
+    );
+  }
+
   String _statusLabel(AppLocalizations l10n, AssetRecord record) {
     final status = record.stateOf(DerivativeKind.original).status;
     return switch (status) {
@@ -155,6 +164,7 @@ class _LibraryScreenState extends State<LibraryScreen> {
                   leading: const Icon(Icons.insert_drive_file_outlined),
                   title: Text(record.sourcePath?.split('/').last ?? record.localId),
                   subtitle: Text(_statusLabel(l10n, record)),
+                  onTap: () => _openRecord(record),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline),
                     tooltip: l10n.libraryDeleteTooltip,
