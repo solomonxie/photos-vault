@@ -1,6 +1,6 @@
 # Back Your Own Photos
 
-Flutter app (iOS + Android) that backs up Photos/Videos to your own S3 bucket, with thumbnail-first browsing and storage tiering via your bucket's own Lifecycle Rules.
+Flutter app (iOS first, Android backlog) that backs up Photos/Videos to your own S3 bucket, with thumbnail-first browsing and storage tiering via your bucket's own Lifecycle Rules. Localized (English, Mandarin) from the start.
 
 Design: `docs/design/photo-backup-app.md`
 Plan: `docs/design/photo-backup-app-plan.md`

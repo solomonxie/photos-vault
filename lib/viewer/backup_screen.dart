@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../widgets/placeholder_screen.dart';
 
 class BackupScreen extends StatelessWidget {
@@ -7,12 +8,13 @@ class BackupScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(title: const Text('Backup')),
-      body: const PlaceholderScreen(
+      appBar: AppBar(title: Text(l10n.tabBackup)),
+      body: PlaceholderScreen(
         icon: Icons.cloud_upload_outlined,
-        title: 'Nothing Backed Up Yet',
-        note: 'The upload dashboard (queued/uploading/done/failed) lands in T4.3.',
+        title: l10n.backupEmptyTitle,
+        note: l10n.backupEmptyNote,
       ),
     );
   }

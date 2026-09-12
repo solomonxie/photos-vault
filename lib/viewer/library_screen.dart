@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 
+import '../l10n/app_localizations.dart';
 import '../widgets/placeholder_screen.dart';
 
 class LibraryScreen extends StatelessWidget {
@@ -7,12 +8,13 @@ class LibraryScreen extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Scaffold(
-      appBar: AppBar(title: const Text('Library')),
-      body: const PlaceholderScreen(
+      appBar: AppBar(title: Text(l10n.tabLibrary)),
+      body: PlaceholderScreen(
         icon: Icons.photo_library_outlined,
-        title: 'No Photos Yet',
-        note: 'The photo_manager-backed thumbnail grid lands in T4.1.',
+        title: l10n.libraryEmptyTitle,
+        note: l10n.libraryEmptyNote,
       ),
     );
   }
