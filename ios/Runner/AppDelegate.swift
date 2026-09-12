@@ -12,6 +12,5 @@ import UIKit
 
   func didInitializeImplicitFlutterEngine(_ engineBridge: FlutterImplicitEngineBridge) {
     GeneratedPluginRegistrant.register(with: engineBridge.pluginRegistry)
-    SecurityScopedBookmarkChannel.register(with: engineBridge.pluginRegistry)
   }
 }

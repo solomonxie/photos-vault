@@ -1,12 +1,11 @@
 import 'package:aws_common/aws_common.dart';
 import 'package:aws_signature_v4/aws_signature_v4.dart';
 
-import '../settings/backup_target.dart';
+import '../settings/s3_backup_target.dart';
 
-/// Builds the key layout every derivative lands under, kept identical across
-/// S3 and local-folder targets (`thumbnails/`, `medium/`, `originals/` under
-/// the target's configured prefix) so the user's own S3 Lifecycle Rules can
-/// target each class independently.
+/// Builds the key layout every derivative lands under (`thumbnails/`,
+/// `medium/`, `originals/` under the target's configured prefix) so the
+/// user's own S3 Lifecycle Rules can target each class independently.
 String derivativeKey({required String prefix, required String derivativeDir, required String fileName}) {
   final normalizedPrefix = prefix.isEmpty || prefix.endsWith('/') ? prefix : '$prefix/';
   return '$normalizedPrefix$derivativeDir/$fileName';

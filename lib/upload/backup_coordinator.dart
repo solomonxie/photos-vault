@@ -1,10 +1,8 @@
 import 'package:path/path.dart' as p;
 
-import '../settings/backup_target.dart';
 import '../settings/backup_targets_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import 'local_folder_writer.dart';
 import 's3_uploader.dart';
 import 'signing.dart';
 
@@ -14,8 +12,7 @@ const _derivativeDirs = {
   DerivativeKind.original: 'originals',
 };
 
-/// Fans one derivative file out to every configured backup target — the
-/// single place that picks S3 (T3.2) vs local-folder (T3.5) delivery.
+/// Fans one derivative file out to every configured S3 target.
 ///
 /// Known limitation: `asset_record` (T1.5) tracks one status/key per
 /// derivative, not one per target, so with multiple targets configured the
@@ -23,18 +20,12 @@ const _derivativeDirs = {
 /// state. Fine for today's common single-target case; a schema change would
 /// be needed to track per-target state precisely.
 class BackupCoordinator {
-  BackupCoordinator({
-    required this.targetsStore,
-    required this.recordStore,
-    S3Uploader? s3Uploader,
-    LocalFolderWriter? localFolderWriter,
-  }) : _s3Uploader = s3Uploader ?? S3Uploader(),
-       _localFolderWriter = localFolderWriter ?? LocalFolderWriter();
+  BackupCoordinator({required this.targetsStore, required this.recordStore, S3Uploader? s3Uploader})
+    : _s3Uploader = s3Uploader ?? S3Uploader();
 
   final BackupTargetsStore targetsStore;
   final AssetRecordStore recordStore;
   final S3Uploader _s3Uploader;
-  final LocalFolderWriter _localFolderWriter;
 
   static String _safeFileName(AssetRecord record, String filePath) {
     final base = record.localId.replaceAll(RegExp(r'[^a-zA-Z0-9_.-]'), '_');
@@ -58,12 +49,8 @@ class BackupCoordinator {
     var succeeded = 0;
     String? firstDestinationKey;
     for (final target in targets) {
-      final prefix = switch (target) { S3BackupTarget(:final prefix) => prefix, LocalFolderBackupTarget(:final prefix) => prefix };
-      final key = derivativeKey(prefix: prefix, derivativeDir: derivativeDir, fileName: fileName);
-      final ok = switch (target) {
-        S3BackupTarget() => await _s3Uploader.put(filePath: filePath, key: key, target: target),
-        LocalFolderBackupTarget() => (await _localFolderWriter.write(filePath: filePath, key: key, target: target)).isOk,
-      };
+      final key = derivativeKey(prefix: target.prefix, derivativeDir: derivativeDir, fileName: fileName);
+      final ok = await _s3Uploader.put(filePath: filePath, key: key, target: target);
       if (ok) {
         succeeded++;
         firstDestinationKey ??= key;

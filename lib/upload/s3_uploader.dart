@@ -1,7 +1,7 @@
 import 'package:background_downloader/background_downloader.dart';
 import 'package:path/path.dart' as p;
 
-import '../settings/backup_target.dart';
+import '../settings/s3_backup_target.dart';
 import 'signing.dart';
 
 /// Puts one derivative file to one [S3BackupTarget] via a presigned URL,

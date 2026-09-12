@@ -1,11 +1,9 @@
 import 'package:back_your_own_photos/l10n/app_localizations.dart';
 import 'package:back_your_own_photos/photos/manual_add.dart';
-import 'package:back_your_own_photos/settings/backup_target.dart';
 import 'package:back_your_own_photos/settings/backup_targets_store.dart';
-import 'package:back_your_own_photos/settings/security_scoped_bookmark.dart';
+import 'package:back_your_own_photos/settings/s3_backup_target.dart';
 import 'package:back_your_own_photos/storage/asset_record.dart';
 import 'package:back_your_own_photos/upload/backup_coordinator.dart';
-import 'package:back_your_own_photos/upload/local_folder_writer.dart';
 import 'package:back_your_own_photos/upload/s3_uploader.dart';
 import 'package:back_your_own_photos/viewer/library_screen.dart';
 import 'package:file_picker/file_picker.dart';
@@ -15,25 +13,13 @@ import 'package:flutter_test/flutter_test.dart';
 import '../settings/fake_secure_store.dart';
 import '../support/fake_asset_record_store.dart';
 
-// Never touches the real `background_downloader`/security-scoped-bookmark
-// platform channels — this screen's tests only cover the no-targets-configured
-// path, where these are never actually invoked.
+// Never touches the real `background_downloader` platform channel — this
+// screen's tests only cover the no-targets-configured path, where it's
+// never actually invoked.
 class _UnusedS3Uploader implements S3Uploader {
   @override
   Future<bool> put({required String filePath, required String key, required S3BackupTarget target}) =>
       throw UnimplementedError();
-}
-
-class _UnusedLocalFolderWriter implements LocalFolderWriter {
-  @override
-  SecurityScopedBookmarkResolver get resolver => throw UnimplementedError();
-
-  @override
-  Future<LocalFolderWriteResult> write({
-    required String filePath,
-    required String key,
-    required LocalFolderBackupTarget target,
-  }) => throw UnimplementedError();
 }
 
 Widget _wrap(Widget child) => MaterialApp(
@@ -55,7 +41,6 @@ void main() {
             targetsStore: targetsStore,
             recordStore: recordStore,
             s3Uploader: _UnusedS3Uploader(),
-            localFolderWriter: _UnusedLocalFolderWriter(),
           ),
         ),
       ),
@@ -85,7 +70,6 @@ void main() {
             targetsStore: targetsStore,
             recordStore: recordStore,
             s3Uploader: _UnusedS3Uploader(),
-            localFolderWriter: _UnusedLocalFolderWriter(),
           ),
         ),
       ),
@@ -116,7 +100,6 @@ void main() {
             targetsStore: targetsStore,
             recordStore: recordStore,
             s3Uploader: _UnusedS3Uploader(),
-            localFolderWriter: _UnusedLocalFolderWriter(),
           ),
         ),
       ),

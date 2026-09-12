@@ -1,6 +1,5 @@
 import 'package:back_your_own_photos/l10n/app_localizations.dart';
 import 'package:back_your_own_photos/settings/add_s3_backup_screen.dart';
-import 'package:back_your_own_photos/settings/backup_target.dart';
 import 'package:back_your_own_photos/settings/backup_targets_store.dart';
 import 'package:back_your_own_photos/settings/s3_connectivity.dart';
 import 'package:back_your_own_photos/settings/s3_region_detection.dart';
@@ -96,7 +95,7 @@ void main() {
     expect(find.byType(AddS3BackupScreen), findsNothing);
     final saved = await store.loadAll();
     expect(saved, hasLength(1));
-    final target = saved.single as S3BackupTarget;
+    final target = saved.single;
     expect(target.bucket, 'my-bucket');
     expect(target.region, 'eu-west-1');
     expect(target.prefix, defaultS3Prefix);

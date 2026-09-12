@@ -24,16 +24,12 @@
   "backupEmptyTitle": "Nothing Backed Up Yet",
   "backupEmptyNote": "The upload dashboard (queued/uploading/done/failed) lands in T4.3.",
 
-  "settingsEmptyTitle": "No Backups Yet",
+  "settingsEmptyTitle": "No S3 Backups Yet",
   "settingsEmptyNote": "Add one to start backing up your photos and videos.",
-  "settingsAddButton": "Add Backup",
-  "settingsAddedMessage": "Backup added",
+  "settingsAddButton": "Add S3 Backup",
+  "settingsAddedMessage": "S3 backup added",
   "settingsDeleteConfirmTitle": "Remove this backup target?",
-  "settingsDeleteConfirmBody": "This won't delete any files already backed up — just this app's saved configuration for it.",
-
-  "settingsAddChoiceTitle": "Add a backup",
-  "settingsAddS3Option": "S3 Bucket",
-  "settingsAddLocalFolderOption": "iCloud Folder",
+  "settingsDeleteConfirmBody": "This won't delete any files already in the bucket — just this app's saved configuration for it.",
 
   "settingsAccessKeyIdLabel": "Access key ID",
   "settingsSecretAccessKeyLabel": "Secret access key",
@@ -46,18 +42,6 @@
   "settingsAccessCheckNotFound": "Bucket not found. Check the bucket name.",
   "settingsAccessCheckNetworkError": "Could not reach S3. Check your network and try again.",
   "settingsRegionDetectionError": "Couldn't detect this bucket's region automatically. Check the bucket name.",
-
-  "settingsAddLocalFolderTitle": "Add iCloud Folder Backup",
-  "settingsLocalFolderNameLabel": "Name",
-  "settingsLocalFolderPickButton": "Choose Folder…",
-  "settingsLocalFolderNoneChosen": "No folder chosen yet",
-  "settingsLocalFolderValidatingMessage": "Checking folder access…",
-  "settingsLocalFolderAccessError": "Couldn't open that folder. Try picking it again.",
-  "settingsLocalFolderRequiredError": "Choose a folder first",
-
-  "settingsLocalFolderStaleTitle": "Folder access lost",
-  "settingsLocalFolderStaleBody": "This app can no longer open that folder. It may have been moved, renamed, or access revoked.",
-  "settingsLocalFolderRepickButton": "Re-pick Folder",
 
   "actionCancel": "Cancel",
   "actionDelete": "Delete"
