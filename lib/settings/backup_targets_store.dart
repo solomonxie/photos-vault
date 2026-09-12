@@ -53,6 +53,37 @@ class BackupTargetsStore {
     return target;
   }
 
+  /// Adds a local-folder target, assigning it a fresh id, and persists the
+  /// updated list. [bookmarkData] must come from a successful
+  /// `checkFolderAccess` call — this store doesn't validate it itself.
+  Future<LocalFolderBackupTarget> addLocalFolder({
+    required String displayName,
+    required String bookmarkData,
+    String prefix = '',
+  }) async {
+    final target = LocalFolderBackupTarget(
+      id: _uuid.v4(),
+      displayName: displayName,
+      bookmarkData: bookmarkData,
+      prefix: prefix,
+    );
+    await _add(target);
+    return target;
+  }
+
+  /// Replaces a local-folder target's bookmark after a successful re-pick
+  /// (see T1.8) — everything else about the target is left as-is.
+  Future<void> updateLocalFolderBookmark(String id, String bookmarkData) async {
+    final targets = await loadAll();
+    await _saveAll([
+      for (final t in targets)
+        if (t.id == id && t is LocalFolderBackupTarget)
+          LocalFolderBackupTarget(id: t.id, displayName: t.displayName, bookmarkData: bookmarkData, prefix: t.prefix)
+        else
+          t,
+    ]);
+  }
+
   Future<void> remove(String id) async {
     final targets = await loadAll();
     await _saveAll(targets.where((t) => t.id != id).toList());

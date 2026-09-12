@@ -18,6 +18,10 @@ ios/.symlinks/
 ios/Flutter/Flutter.framework
 ios/Flutter/Flutter.podspec
 
+# Local CocoaPods install (see bundle config in Gemfile), not system-wide
+.bundle/
+vendor/bundle/
+
 # Android
 android/.gradle/
 android/local.properties
