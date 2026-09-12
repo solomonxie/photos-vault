@@ -14,5 +14,18 @@
   "backupEmptyNote": "上传仪表盘(排队中/上传中/已完成/失败)将在 T4.3 中实现。",
 
   "settingsSectionTitle": "AWS 设置",
-  "settingsNote": "访问密钥、密钥、区域、存储桶、前缀(基于 flutter_secure_storage 存储)将在 T1.2 中实现。"
+  "settingsAccessKeyIdLabel": "访问密钥 ID",
+  "settingsSecretAccessKeyLabel": "私有访问密钥",
+  "settingsRegionLabel": "区域",
+  "settingsBucketLabel": "存储桶",
+  "settingsPrefixLabel": "键前缀(可选)",
+  "settingsRequiredFieldError": "必填项",
+  "settingsStorageClassSectionTitle": "存储类别覆盖设置",
+  "settingsStorageClassSectionNote": "可选。设置上传时各层级的初始 S3 存储类别;后续的转换仍由您存储桶自身的生命周期规则管理。",
+  "settingsThumbnailStorageClassLabel": "缩略图",
+  "settingsMediumStorageClassLabel": "中等分辨率",
+  "settingsOriginalStorageClassLabel": "原图",
+  "settingsBucketDefaultOption": "存储桶默认值",
+  "settingsSaveButton": "保存",
+  "settingsSavedMessage": "设置已保存"
 }

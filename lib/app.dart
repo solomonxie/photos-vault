@@ -1,12 +1,17 @@
 import 'package:flutter/material.dart';
 
 import 'l10n/app_localizations.dart';
+import 'settings/aws_settings_store.dart';
 import 'settings/settings_screen.dart';
 import 'viewer/backup_screen.dart';
 import 'viewer/library_screen.dart';
 
 class App extends StatelessWidget {
-  const App({super.key});
+  const App({super.key, this.settingsStore});
+
+  /// Overridable for tests so widget tests never touch the real
+  /// secure-storage platform channel.
+  final AwsSettingsStore? settingsStore;
 
   @override
   Widget build(BuildContext context) {
@@ -15,13 +20,15 @@ class App extends StatelessWidget {
       theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: const HomeTabs(),
+      home: HomeTabs(settingsStore: settingsStore),
     );
   }
 }
 
 class HomeTabs extends StatefulWidget {
-  const HomeTabs({super.key});
+  const HomeTabs({super.key, this.settingsStore});
+
+  final AwsSettingsStore? settingsStore;
 
   @override
   State<HomeTabs> createState() => _HomeTabsState();
@@ -30,10 +37,10 @@ class HomeTabs extends StatefulWidget {
 class _HomeTabsState extends State<HomeTabs> {
   int _index = 0;
 
-  static const _screens = [
-    LibraryScreen(),
-    BackupScreen(),
-    SettingsScreen(),
+  late final List<Widget> _screens = [
+    const LibraryScreen(),
+    const BackupScreen(),
+    SettingsScreen(store: widget.settingsStore),
   ];
 
   @override

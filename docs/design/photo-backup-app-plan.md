@@ -5,7 +5,7 @@ Everything else needs credentials and a place to record upload state — build t
 
 - [x] T1.1 Project scaffold (Flutter app, iOS focus, Android backlog) — see `lib/` — depends: none
 - [x] T1.2 i18n scaffold: `flutter_localizations` + `intl` + `flutter gen-l10n`, English + Mandarin (Simplified) ARB files, all placeholder screens wired through `AppLocalizations` — see `lib/l10n/` — depends: T1.1
-- [ ] T1.3 Settings screen + `flutter_secure_storage`-backed AWS config (access key, secret, region, bucket, prefix, per-tier storage-class overrides) — see `lib/settings/` — depends: T1.1
+- [x] T1.3 Settings screen + `flutter_secure_storage`-backed AWS config (access key, secret, region, bucket, prefix, per-tier storage-class overrides) — see `lib/settings/` — depends: T1.1
 - [ ] T1.4 S3 connectivity test (list bucket / head bucket using entered creds) — validates Settings before use — see `lib/settings/` — depends: T1.3
 - [ ] T1.5 SQLite schema (`sqflite`): `asset_record` (localId, contentHash, per-derivative upload state + S3 key, platform, timestamps) — see `lib/storage/` — depends: T1.1
 

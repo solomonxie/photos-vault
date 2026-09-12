@@ -15,5 +15,18 @@
   "backupEmptyNote": "The upload dashboard (queued/uploading/done/failed) lands in T4.3.",
 
   "settingsSectionTitle": "AWS Settings",
-  "settingsNote": "Access key, secret, region, bucket, prefix (flutter_secure_storage-backed) land in T1.2."
+  "settingsAccessKeyIdLabel": "Access key ID",
+  "settingsSecretAccessKeyLabel": "Secret access key",
+  "settingsRegionLabel": "Region",
+  "settingsBucketLabel": "Bucket",
+  "settingsPrefixLabel": "Key prefix (optional)",
+  "settingsRequiredFieldError": "Required",
+  "settingsStorageClassSectionTitle": "Storage class overrides",
+  "settingsStorageClassSectionNote": "Optional. Sets the initial S3 storage class per tier at upload time; your bucket's own Lifecycle Rules still own transitions after that.",
+  "settingsThumbnailStorageClassLabel": "Thumbnails",
+  "settingsMediumStorageClassLabel": "Medium",
+  "settingsOriginalStorageClassLabel": "Originals",
+  "settingsBucketDefaultOption": "Bucket default",
+  "settingsSaveButton": "Save",
+  "settingsSavedMessage": "Settings saved"
 }
