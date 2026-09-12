@@ -9,7 +9,17 @@
   "tabSettings": "Settings",
 
   "libraryEmptyTitle": "No Photos Yet",
-  "libraryEmptyNote": "The photo_manager-backed thumbnail grid lands in T4.1.",
+  "libraryEmptyNote": "The photo_manager-backed thumbnail grid lands in T4.1. Tap + to manually add files from the Files app.",
+
+  "libraryAddFilesButton": "Add Files",
+  "libraryAddFilesResult": "Added {picked} file(s), backed up {succeeded}.",
+  "@libraryAddFilesResult": {
+    "placeholders": {"picked": {"type": "int"}, "succeeded": {"type": "int"}}
+  },
+  "libraryStatusPending": "Pending",
+  "libraryStatusUploading": "Uploading…",
+  "libraryStatusUploaded": "Backed up",
+  "libraryStatusFailed": "Failed",
 
   "backupEmptyTitle": "Nothing Backed Up Yet",
   "backupEmptyNote": "The upload dashboard (queued/uploading/done/failed) lands in T4.3.",
@@ -27,15 +37,15 @@
 
   "settingsAccessKeyIdLabel": "Access key ID",
   "settingsSecretAccessKeyLabel": "Secret access key",
-  "settingsRegionLabel": "Region",
   "settingsBucketLabel": "Bucket",
-  "settingsPrefixLabel": "Key prefix (optional)",
+  "settingsPrefixLabel": "Key prefix",
   "settingsRequiredFieldError": "Required",
   "settingsSaveButton": "Save",
   "settingsValidatingMessage": "Validating bucket access…",
   "settingsAccessCheckForbidden": "Access denied. Check the access key, secret, and that this bucket allows it.",
-  "settingsAccessCheckNotFound": "Bucket not found. Check the bucket name and region.",
+  "settingsAccessCheckNotFound": "Bucket not found. Check the bucket name.",
   "settingsAccessCheckNetworkError": "Could not reach S3. Check your network and try again.",
+  "settingsRegionDetectionError": "Couldn't detect this bucket's region automatically. Check the bucket name.",
 
   "settingsAddLocalFolderTitle": "Add iCloud Folder Backup",
   "settingsLocalFolderNameLabel": "Name",

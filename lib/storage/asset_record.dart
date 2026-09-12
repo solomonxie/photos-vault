@@ -1,3 +1,9 @@
+/// Where an asset's bytes come from. `photoManager` assets are resolved
+/// on-demand via `localId` through the `photo_manager` plugin (T2.1);
+/// `manualFile` assets (manual add, T2.5, or the share extension, T2.6)
+/// carry their own `sourcePath` since there's no photo-library id for them.
+enum AssetSourceType { photoManager, manualFile }
+
 /// One of the derivatives generated per asset — each uploads independently.
 enum DerivativeKind { thumbnail, medium, original }
 
@@ -27,6 +33,8 @@ class AssetRecord {
     required this.platform,
     required this.createdAt,
     required this.updatedAt,
+    this.sourceType = AssetSourceType.photoManager,
+    this.sourcePath,
     this.derivatives = const {},
   });
 
@@ -35,6 +43,10 @@ class AssetRecord {
   final String platform;
   final DateTime createdAt;
   final DateTime updatedAt;
+  final AssetSourceType sourceType;
+
+  /// Absolute file path, set only for [AssetSourceType.manualFile].
+  final String? sourcePath;
   final Map<DerivativeKind, DerivativeState> derivatives;
 
   DerivativeState stateOf(DerivativeKind kind) => derivatives[kind] ?? const DerivativeState();
@@ -46,6 +58,8 @@ class AssetRecord {
         platform: platform,
         createdAt: createdAt,
         updatedAt: DateTime.now(),
+        sourceType: sourceType,
+        sourcePath: sourcePath,
         derivatives: {...derivatives, kind: state},
       );
 }

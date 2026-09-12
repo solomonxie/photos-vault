@@ -3,15 +3,20 @@ import 'package:flutter/material.dart';
 import 'l10n/app_localizations.dart';
 import 'settings/backup_targets_store.dart';
 import 'settings/settings_screen.dart';
+import 'storage/asset_record_store.dart';
 import 'viewer/backup_screen.dart';
 import 'viewer/library_screen.dart';
 
 class App extends StatelessWidget {
-  const App({super.key, this.settingsStore});
+  const App({super.key, this.settingsStore, this.assetRecordStore});
 
   /// Overridable for tests so widget tests never touch the real
   /// secure-storage platform channel.
   final BackupTargetsStore? settingsStore;
+
+  /// Overridable for tests so widget tests never touch the real sqflite
+  /// platform channel.
+  final AssetRecordStore? assetRecordStore;
 
   @override
   Widget build(BuildContext context) {
@@ -20,15 +25,16 @@ class App extends StatelessWidget {
       theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
-      home: HomeTabs(settingsStore: settingsStore),
+      home: HomeTabs(settingsStore: settingsStore, assetRecordStore: assetRecordStore),
     );
   }
 }
 
 class HomeTabs extends StatefulWidget {
-  const HomeTabs({super.key, this.settingsStore});
+  const HomeTabs({super.key, this.settingsStore, this.assetRecordStore});
 
   final BackupTargetsStore? settingsStore;
+  final AssetRecordStore? assetRecordStore;
 
   @override
   State<HomeTabs> createState() => _HomeTabsState();
@@ -38,7 +44,7 @@ class _HomeTabsState extends State<HomeTabs> {
   int _index = 0;
 
   late final List<Widget> _screens = [
-    const LibraryScreen(),
+    LibraryScreen(assetRecordStore: widget.assetRecordStore, backupTargetsStore: widget.settingsStore),
     const BackupScreen(),
     SettingsScreen(store: widget.settingsStore),
   ];

@@ -9,8 +9,8 @@ Everything else needs credentials and a place to record upload state — build t
 - [x] T1.4 S3 connectivity check (`HEAD` bucket, signed with `aws_signature_v4`) run before a new target is saved, inline error on failure (forbidden/not-found/network) — see `lib/settings/s3_connectivity.dart` — depends: T1.3
 - [x] T1.5 SQLite schema (`sqflite`): `asset_record` (localId, contentHash, per-derivative upload state + destination key, platform, timestamps) — see `lib/storage/` — depends: T1.1
 - [x] T1.6 Generalize the settings store to a sealed `BackupTarget` list (`S3BackupTarget | LocalFolderBackupTarget`) instead of S3-only; list screen renders both kinds — see `lib/settings/` — depends: T1.3
-- [ ] T1.7 `LocalFolderBackupTarget` add flow: native folder picker (`file_picker`'s directory picker) resolved to a persisted security-scoped bookmark, add-button offers an S3-vs-iCloud-Folder type choice, "Add iCloud Folder Backup" screen verifies the folder opens before saving (mirrors T1.4's validate-first shape) — see `lib/settings/` — depends: T1.6
-- [ ] T1.8 Bookmark resolution + re-pick recovery: detect a stale/revoked security-scoped bookmark and prompt the user to re-authorize instead of failing silently — see `lib/settings/` — depends: T1.7
+- [x] T1.7 `LocalFolderBackupTarget` add flow: native folder picker (`file_picker`'s directory picker) resolved to a persisted security-scoped bookmark, add-button offers an S3-vs-iCloud-Folder type choice, "Add iCloud Folder Backup" screen verifies the folder opens before saving (mirrors T1.4's validate-first shape) — see `lib/settings/` — depends: T1.6
+- [x] T1.8 Bookmark resolution + re-pick recovery: detect a stale/revoked security-scoped bookmark and prompt the user to re-authorize instead of failing silently — see `lib/settings/` — depends: T1.7
 
 ## Phase 2: Photo Processing Pipeline
 Turns raw `photo_manager` assets into the derivatives the upload engine will send. Depends on the SQLite schema to record what's been processed.
@@ -19,17 +19,17 @@ Turns raw `photo_manager` assets into the derivatives the upload engine will sen
 - [ ] T2.2 Image derivative generator: thumbnail + medium + original passthrough via the `image` package — see `lib/photos/image_pipeline.dart` — depends: T2.1
 - [ ] T2.3 Video derivative generator: poster-frame thumbnail via `video_thumbnail`, original file passthrough — see `lib/photos/video_pipeline.dart` — depends: T2.1
 - [ ] T2.4 Live Photo / burst / iCloud-only-asset handling — see `docs/design/photo-backup-app-t2.4.md` — depends: T2.2, T2.3
-- [ ] T2.5 Manual add flow: multi-select files via `file_picker` (Files app / iCloud Drive) or photos/videos via `photo_manager`'s picker, enqueued into `asset_record` alongside auto-detected assets — see `lib/photos/manual_add.dart` — depends: T1.5, T2.1
+- [ ] T2.5 Manual add flow: multi-select files via `file_picker` (Files app / iCloud Drive) — done, see `lib/photos/manual_add.dart`; still needs the photos/videos-via-`photo_manager`'s-picker half once T2.1 lands — depends: T1.5, T2.1
 - [ ] T2.6 iOS Share Extension: accept photos/videos/files shared from other apps via the Share Sheet (native `Runner` extension target + `receive_sharing_intent`), enqueued into the same pipeline as T2.5 — see `ios/ShareExtension/`, `lib/photos/share_intent.dart` — depends: T2.5
 
 ## Phase 3: Upload Engine
 Moves derivatives to S3. Needs Settings (creds) from Phase 1 and derivatives to upload from Phase 2.
 
-- [ ] T3.1 On-device SigV4 presigned-URL signer via `aws_signature_v4` (single-part PUT) — see `lib/upload/signing.dart` — depends: T1.3
-- [ ] T3.2 S3 upload task manager on `background_downloader` (completion/retry handling, prefix-based key layout) — see `lib/upload/upload_manager.dart` — depends: T3.1, T2.2, T2.3
+- [x] T3.1 On-device SigV4 presigned-URL signer via `aws_signature_v4` (single-part PUT) — see `lib/upload/signing.dart` — depends: T1.3
+- [x] T3.2 S3 upload on `background_downloader` (prefix-based key layout) — see `lib/upload/s3_uploader.dart`, `lib/upload/backup_coordinator.dart` (fans a derivative out to every configured target); retry/backoff still lands in T3.4 — depends: T3.1, T2.2, T2.3
 - [ ] T3.3 Multipart upload flow for large files (per-part presign, ETag tracking, complete-multipart) — see `lib/upload/multipart.dart` — depends: T3.1
 - [ ] T3.4 Retry/backoff + periodic background scheduling (`background_downloader`'s native iOS queue) to resume pending uploads — see `lib/upload/scheduler.dart` — depends: T3.2, T3.3
-- [ ] T3.5 Local-folder writer: writes derivatives directly into a `LocalFolderBackupTarget`'s bookmarked folder under the same prefix layout as S3, no network — resolves/starts the security-scoped bookmark per write — see `lib/upload/local_folder_writer.dart` — depends: T1.7, T2.2, T2.3
+- [x] T3.5 Local-folder writer: writes derivatives directly into a `LocalFolderBackupTarget`'s bookmarked folder under the same prefix layout as S3, no network — resolves/starts the security-scoped bookmark per write — see `lib/upload/local_folder_writer.dart` — depends: T1.7, T2.2, T2.3
 
 ## Phase 4: Viewer UI
 The user-facing payoff — browsing what's backed up. Needs derivative files (Phase 2) and live upload status (Phase 3) for badges.

@@ -5,12 +5,15 @@ import 'package:back_your_own_photos/app.dart';
 import 'package:back_your_own_photos/settings/backup_targets_store.dart';
 
 import 'settings/fake_secure_store.dart';
+import 'support/fake_asset_record_store.dart';
 
 BackupTargetsStore _fakeSettingsStore() => BackupTargetsStore(store: FakeSecureStore());
 
+FakeAssetRecordStore _fakeAssetRecordStore() => FakeAssetRecordStore();
+
 void main() {
   testWidgets('shows the three main tab destinations', (tester) async {
-    await tester.pumpWidget(App(settingsStore: _fakeSettingsStore()));
+    await tester.pumpWidget(App(settingsStore: _fakeSettingsStore(), assetRecordStore: _fakeAssetRecordStore()));
 
     expect(find.byIcon(Icons.photo_library), findsOneWidget);
     expect(find.byIcon(Icons.cloud_upload), findsOneWidget);
@@ -25,7 +28,7 @@ void main() {
       tester.platformDispatcher.clearLocaleTestValue();
     });
 
-    await tester.pumpWidget(App(settingsStore: _fakeSettingsStore()));
+    await tester.pumpWidget(App(settingsStore: _fakeSettingsStore(), assetRecordStore: _fakeAssetRecordStore()));
     await tester.pumpAndSettle();
 
     // Each label appears twice: once in the nav bar, once in that screen's
