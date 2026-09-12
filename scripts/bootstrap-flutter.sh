@@ -12,4 +12,5 @@ if [ ! -x "$FLUTTER_BIN" ]; then
 fi
 
 "$FLUTTER_BIN" pub get
+"$FLUTTER_BIN" gen-l10n
 echo "Run with: $FLUTTER_BIN run"

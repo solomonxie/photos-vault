@@ -1,0 +1,19 @@
+{
+  "@@locale": "en",
+
+  "appTitle": "Back Your Own Photos",
+  "@appTitle": {"description": "App name, shown in the OS task switcher"},
+
+  "tabLibrary": "Library",
+  "tabBackup": "Backup",
+  "tabSettings": "Settings",
+
+  "libraryEmptyTitle": "No Photos Yet",
+  "libraryEmptyNote": "The photo_manager-backed thumbnail grid lands in T4.1.",
+
+  "backupEmptyTitle": "Nothing Backed Up Yet",
+  "backupEmptyNote": "The upload dashboard (queued/uploading/done/failed) lands in T4.3.",
+
+  "settingsSectionTitle": "AWS Settings",
+  "settingsNote": "Access key, secret, region, bucket, prefix (flutter_secure_storage-backed) land in T1.2."
+}

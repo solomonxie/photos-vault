@@ -10,6 +10,7 @@ Photo apps like Google Photos/iCloud lock the user's photos into a vendor's stor
 - Upload each derivative to a distinct S3 prefix so the user's own bucket Lifecycle Rules (Standard/IA/Glacier/…) can tier each class independently — app never manages tiering itself.
 - In-app viewer: thumbnail-first grid, progressive load to full res on open.
 - Survive backgrounding/app kill/network loss; resumable uploads for large videos.
+- i18n from the start: every user-facing string goes through the localization layer, not hardcoded — English and Mandarin (Simplified) supported now, more locales just add an ARB file later.
 
 ## Non-goals (v1)
 - **Android build/test/release — backlog, not abandoned.** The Flutter codebase already runs on Android (scaffold builds for both), but Android-specific verification, permission-flow testing, and Play Store release are deferred until iOS is solid.
@@ -28,9 +29,10 @@ Photo apps like Google Photos/iCloud lock the user's photos into a vendor's stor
 - **Large file transfer**: single PUT vs S3 multipart → multipart above a size threshold: resumability over cellular, each part as its own `background_downloader` upload task.
 - **State/metadata store**: local SQLite (`sqflite`) vs S3-hosted manifest → local SQLite: v1 is single-device, no cross-device merge needed; S3 only holds asset bytes (+ optional per-asset JSON sidecar for future multi-device use).
 - **Storage-class control**: 100% lifecycle-rule-driven vs app sets `x-amz-storage-class` at upload → app supports an optional per-tier default storage-class override in Settings (falls back to STANDARD), lifecycle rules still own time-based transitions after that — avoids paying Standard rates for originals until the first nightly lifecycle evaluation.
+- **i18n**: retrofit later vs wire it in at the scaffold stage → wire it in now, via Flutter's own `flutter_localizations` + `intl` + ARB files (`flutter gen-l10n`) rather than a third-party package — it's the framework-native approach, and retrofitting after screens exist means re-touching every hardcoded string later.
 
 ## Decision
-Flutter app, developed and tested against **iOS first**; Android stays buildable from the same codebase but is backlog for verification/release. `photo_manager` enumerates the camera roll; a local pipeline (`image` package + `video_thumbnail`) generates {thumbnail, medium, original-passthrough} derivatives; each derivative is PUT via a presigned URL (signed with `aws_signature_v4`) through `background_downloader` upload tasks (multipart for large files), landing under prefix-separated S3 keys (`thumbnails/`, `medium/`, `originals/`) so the user's own bucket Lifecycle Rules do all tiering. Credentials live in `flutter_secure_storage` (Keychain on iOS) only. Upload/dedup state lives in local `sqflite`.
+Flutter app, developed and tested against **iOS first**; Android stays buildable from the same codebase but is backlog for verification/release. `photo_manager` enumerates the camera roll; a local pipeline (`image` package + `video_thumbnail`) generates {thumbnail, medium, original-passthrough} derivatives; each derivative is PUT via a presigned URL (signed with `aws_signature_v4`) through `background_downloader` upload tasks (multipart for large files), landing under prefix-separated S3 keys (`thumbnails/`, `medium/`, `originals/`) so the user's own bucket Lifecycle Rules do all tiering. Credentials live in `flutter_secure_storage` (Keychain on iOS) only. Upload/dedup state lives in local `sqflite`. All UI strings are routed through `AppLocalizations` (generated from `lib/l10n/app_{en,zh}.arb`) from the first screen onward — `en` and `zh` (Simplified) ship now.
 
 ## Risks / open questions
 - If a lifecycle rule has already moved an original to Glacier/Deep Archive, viewing it requires a `RestoreObject` call and a multi-hour wait — app must detect `InvalidObjectState` and show "restoring", not fail silently.
@@ -38,3 +40,4 @@ Flutter app, developed and tested against **iOS first**; Android stays buildable
 - `photo_manager` exposes less low-level resource detail than PhotoKit directly — Live Photos and bursts need explicit verification.
 - Static long-lived IAM keys stored on a phone is an accepted risk for a single-user app with no backend — mitigated only by secure-storage + a least-privilege IAM policy scoped to one bucket/prefix.
 - **Backlogged, revisit when Android is prioritized**: WorkManager can be killed early by aggressive manufacturer battery-optimization (Xiaomi/Huawei/OnePlus); Android scoped-storage rules (API 29+) may limit media access without extra permission flows. Neither blocks iOS-only work now.
+- "Mandarin" was assumed to mean Simplified Chinese (`zh`, matching mainland China's writing system) rather than Traditional (`zh-Hant`, Taiwan/Hong Kong) — flag if Traditional was actually wanted, it's a one-ARB-file swap.

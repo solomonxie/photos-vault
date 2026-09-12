@@ -1,0 +1,18 @@
+{
+  "@@locale": "zh",
+
+  "appTitle": "备份我的照片",
+
+  "tabLibrary": "图库",
+  "tabBackup": "备份",
+  "tabSettings": "设置",
+
+  "libraryEmptyTitle": "暂无照片",
+  "libraryEmptyNote": "基于 photo_manager 的缩略图网格将在 T4.1 中实现。",
+
+  "backupEmptyTitle": "暂无备份",
+  "backupEmptyNote": "上传仪表盘(排队中/上传中/已完成/失败)将在 T4.3 中实现。",
+
+  "settingsSectionTitle": "AWS 设置",
+  "settingsNote": "访问密钥、密钥、区域、存储桶、前缀(基于 flutter_secure_storage 存储)将在 T1.2 中实现。"
+}
