@@ -1,0 +1,26 @@
+# Flutter/Dart
+.dart_tool/
+.flutter-plugins
+.flutter-plugins-dependencies
+.pub-cache/
+.pub/
+build/
+*.iml
+.idea/
+
+# iOS
+ios/Pods/
+ios/.symlinks/
+ios/Flutter/Flutter.framework
+ios/Flutter/Flutter.podspec
+
+# Android
+android/.gradle/
+android/local.properties
+android/**/gradle-wrapper.jar
+
+# macOS
+.DS_Store
+
+# Local Flutter SDK checkout (see scripts/bootstrap-flutter.sh)
+.tools/
