@@ -1,6 +1,7 @@
 import 'package:back_your_own_photos/l10n/app_localizations.dart';
 import 'package:back_your_own_photos/settings/add_s3_backup_screen.dart';
-import 'package:back_your_own_photos/settings/s3_backup_targets_store.dart';
+import 'package:back_your_own_photos/settings/backup_target.dart';
+import 'package:back_your_own_photos/settings/backup_targets_store.dart';
 import 'package:back_your_own_photos/settings/s3_connectivity.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -24,7 +25,7 @@ Future<void> _fillForm(WidgetTester tester) async {
 
 void main() {
   testWidgets('shows a validation error when saving with empty required fields', (tester) async {
-    final store = S3BackupTargetsStore(store: FakeSecureStore());
+    final store = BackupTargetsStore(store: FakeSecureStore());
     await tester.pumpWidget(
       _wrap(
         AddS3BackupScreen(
@@ -46,7 +47,7 @@ void main() {
   });
 
   testWidgets('validates access before saving, then pops on success', (tester) async {
-    final store = S3BackupTargetsStore(store: FakeSecureStore());
+    final store = BackupTargetsStore(store: FakeSecureStore());
     var checkedWith = '';
     await tester.pumpWidget(
       _wrap(
@@ -83,11 +84,11 @@ void main() {
     expect(find.byType(AddS3BackupScreen), findsNothing);
     final saved = await store.loadAll();
     expect(saved, hasLength(1));
-    expect(saved.single.bucket, 'my-bucket');
+    expect((saved.single as S3BackupTarget).bucket, 'my-bucket');
   });
 
   testWidgets('shows an inline error and does not save when access is forbidden', (tester) async {
-    final store = S3BackupTargetsStore(store: FakeSecureStore());
+    final store = BackupTargetsStore(store: FakeSecureStore());
     await tester.pumpWidget(
       _wrap(
         AddS3BackupScreen(

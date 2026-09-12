@@ -2,22 +2,22 @@ import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
 import 'add_s3_backup_screen.dart';
-import 's3_backup_target.dart';
-import 's3_backup_targets_store.dart';
+import 'backup_target.dart';
+import 'backup_targets_store.dart';
 
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({super.key, this.store});
 
-  final S3BackupTargetsStore? store;
+  final BackupTargetsStore? store;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
 class _SettingsScreenState extends State<SettingsScreen> {
-  late final S3BackupTargetsStore _store = widget.store ?? S3BackupTargetsStore();
+  late final BackupTargetsStore _store = widget.store ?? BackupTargetsStore();
 
-  List<S3BackupTarget>? _targets;
+  List<BackupTarget>? _targets;
 
   @override
   void initState() {
@@ -26,7 +26,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   }
 
   Future<void> _reload() async {
-    List<S3BackupTarget> targets = const [];
+    List<BackupTarget> targets = const [];
     try {
       targets = await _store.loadAll();
     } catch (_) {
@@ -50,7 +50,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  Future<void> _confirmDelete(S3BackupTarget target) async {
+  Future<void> _confirmDelete(BackupTarget target) async {
     final l10n = AppLocalizations.of(context)!;
     final confirmed = await showDialog<bool>(
       context: context,
@@ -69,6 +69,21 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
+  IconData _iconFor(BackupTarget target) => switch (target) {
+    S3BackupTarget() => Icons.cloud_outlined,
+    LocalFolderBackupTarget() => Icons.folder_outlined,
+  };
+
+  String _titleFor(BackupTarget target) => switch (target) {
+    S3BackupTarget(:final bucket) => bucket,
+    LocalFolderBackupTarget(:final displayName) => displayName,
+  };
+
+  String _subtitleFor(BackupTarget target) => switch (target) {
+    S3BackupTarget(:final region, :final prefix) => prefix.isEmpty ? region : '$region · $prefix',
+    LocalFolderBackupTarget(:final prefix) => prefix,
+  };
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -86,11 +101,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
               itemCount: targets.length,
               itemBuilder: (context, index) {
                 final target = targets[index];
-                final subtitle = target.prefix.isEmpty ? target.region : '${target.region} · ${target.prefix}';
                 return ListTile(
-                  leading: const Icon(Icons.cloud_outlined),
-                  title: Text(target.bucket),
-                  subtitle: Text(subtitle),
+                  leading: Icon(_iconFor(target)),
+                  title: Text(_titleFor(target)),
+                  subtitle: Text(_subtitleFor(target)),
                   trailing: IconButton(
                     icon: const Icon(Icons.delete_outline),
                     onPressed: () => _confirmDelete(target),

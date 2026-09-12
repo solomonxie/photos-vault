@@ -1,6 +1,6 @@
 import 'package:back_your_own_photos/l10n/app_localizations.dart';
 import 'package:back_your_own_photos/settings/add_s3_backup_screen.dart';
-import 'package:back_your_own_photos/settings/s3_backup_targets_store.dart';
+import 'package:back_your_own_photos/settings/backup_targets_store.dart';
 import 'package:back_your_own_photos/settings/settings_screen.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -17,7 +17,7 @@ Widget _wrap(Widget child) {
 
 void main() {
   testWidgets('shows empty state with an add button when no backups configured', (tester) async {
-    final store = S3BackupTargetsStore(store: FakeSecureStore());
+    final store = BackupTargetsStore(store: FakeSecureStore());
     await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
     await tester.pumpAndSettle();
 
@@ -26,8 +26,8 @@ void main() {
   });
 
   testWidgets('lists configured backup targets', (tester) async {
-    final store = S3BackupTargetsStore(store: FakeSecureStore());
-    await store.add(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'my-bucket', prefix: 'p/');
+    final store = BackupTargetsStore(store: FakeSecureStore());
+    await store.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'my-bucket', prefix: 'p/');
 
     await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
     await tester.pumpAndSettle();
@@ -37,7 +37,7 @@ void main() {
   });
 
   testWidgets('tapping add navigates to the add-backup screen', (tester) async {
-    final store = S3BackupTargetsStore(store: FakeSecureStore());
+    final store = BackupTargetsStore(store: FakeSecureStore());
     await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
     await tester.pumpAndSettle();
 
@@ -48,8 +48,8 @@ void main() {
   });
 
   testWidgets('deleting a target asks for confirmation, then removes it', (tester) async {
-    final store = S3BackupTargetsStore(store: FakeSecureStore());
-    await store.add(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'my-bucket', prefix: '');
+    final store = BackupTargetsStore(store: FakeSecureStore());
+    await store.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'my-bucket', prefix: '');
 
     await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
     await tester.pumpAndSettle();

@@ -1,13 +1,13 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
-import 's3_backup_targets_store.dart';
+import 'backup_targets_store.dart';
 import 's3_connectivity.dart';
 
 class AddS3BackupScreen extends StatefulWidget {
   const AddS3BackupScreen({super.key, required this.store, this.checkAccess = checkBucketAccess});
 
-  final S3BackupTargetsStore store;
+  final BackupTargetsStore store;
 
   /// Overridable for tests so they never make a real network call.
   final Future<S3AccessCheckResult> Function({
@@ -94,7 +94,7 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
       return;
     }
 
-    await widget.store.add(
+    await widget.store.addS3(
       accessKeyId: accessKeyId,
       secretAccessKey: secretAccessKey,
       region: region,
