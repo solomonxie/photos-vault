@@ -143,6 +143,8 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
             TextFormField(
               controller: _accessKeyIdController,
               enabled: !_saving,
+              autocorrect: false,
+              enableSuggestions: false,
               decoration: InputDecoration(labelText: l10n.settingsAccessKeyIdLabel),
               validator: (v) => _required(l10n, v),
             ),
@@ -151,6 +153,10 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
               controller: _secretAccessKeyController,
               enabled: !_saving,
               obscureText: _obscureSecret,
+              autocorrect: false,
+              enableSuggestions: false,
+              smartDashesType: SmartDashesType.disabled,
+              smartQuotesType: SmartQuotesType.disabled,
               decoration: InputDecoration(
                 labelText: l10n.settingsSecretAccessKeyLabel,
                 suffixIcon: IconButton(
@@ -164,6 +170,9 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
             TextFormField(
               controller: _bucketController,
               enabled: !_saving,
+              autocorrect: false,
+              enableSuggestions: false,
+              smartDashesType: SmartDashesType.disabled,
               decoration: InputDecoration(labelText: l10n.settingsBucketLabel),
               validator: (v) => _required(l10n, v),
             ),
