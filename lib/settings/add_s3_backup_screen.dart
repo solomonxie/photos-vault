@@ -61,17 +61,17 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
     return (value == null || value.trim().isEmpty) ? l10n.settingsRequiredFieldError : null;
   }
 
-  String _messageFor(AppLocalizations l10n, S3AccessCheckOutcome outcome) {
-    switch (outcome) {
-      case S3AccessCheckOutcome.forbidden:
-        return l10n.settingsAccessCheckForbidden;
-      case S3AccessCheckOutcome.notFound:
-        return l10n.settingsAccessCheckNotFound;
-      case S3AccessCheckOutcome.networkError:
-        return l10n.settingsAccessCheckNetworkError;
-      case S3AccessCheckOutcome.ok:
-        return '';
-    }
+  String _messageFor(AppLocalizations l10n, S3AccessCheckResult result) {
+    final base = switch (result.outcome) {
+      S3AccessCheckOutcome.forbidden => l10n.settingsAccessCheckForbidden,
+      S3AccessCheckOutcome.notFound => l10n.settingsAccessCheckNotFound,
+      S3AccessCheckOutcome.networkError => l10n.settingsAccessCheckNetworkError,
+      S3AccessCheckOutcome.ok => '',
+    };
+    // Surface AWS's own error code (InvalidAccessKeyId, SignatureDoesNotMatch,
+    // AccessDenied, ...) — each points at a different field to fix.
+    final detail = result.detail;
+    return detail == null ? base : '$base ($detail)';
   }
 
   Future<void> _save() async {
@@ -113,7 +113,7 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
     if (!result.isOk) {
       setState(() {
         _saving = false;
-        _error = _messageFor(l10n, result.outcome);
+        _error = _messageFor(l10n, result);
       });
       return;
     }
