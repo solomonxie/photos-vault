@@ -4,6 +4,7 @@
   "appTitle": "备份我的照片",
 
   "tabLibrary": "图库",
+  "tabCollections": "合集",
   "tabBackup": "备份",
   "tabSettings": "设置",
 
@@ -18,11 +19,27 @@
   "libraryStatusFailed": "失败",
   "libraryAddDemoButton": "使用演示照片试用",
   "libraryDeleteTooltip": "移除",
+  "libraryToday": "今天",
+  "libraryYesterday": "昨天",
 
   "detailFileUnavailable": "该文件已不可用。",
+  "detailDoneButton": "完成",
+  "detailShareComingSoon": "分享功能尚未实现。",
+  "detailFavoriteComingSoon": "收藏功能尚未实现。",
+  "detailInfoAdded": "添加时间",
+  "detailInfoStatus": "备份状态",
+
+  "collectionsRecentlyAdded": "最近添加",
+  "collectionsMediaTypes": "媒体类型",
+  "collectionsPhotosRow": "照片",
+  "collectionsVideosRow": "视频",
+  "collectionsUtilities": "实用工具",
+  "collectionsBackupStatusRow": "备份状态",
+  "collectionsSettingsRow": "S3 设置",
 
   "backupEmptyTitle": "暂无备份",
   "backupEmptyNote": "上传仪表盘(排队中/上传中/已完成/失败)将在 T4.3 中实现。",
+  "backupStatusSectionHeader": "按状态",
 
   "settingsEmptyTitle": "暂无 S3 备份",
   "settingsEmptyNote": "添加一个以开始备份您的照片和视频。",

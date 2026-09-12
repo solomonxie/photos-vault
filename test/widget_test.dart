@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:back_your_own_photos/app.dart';
@@ -12,12 +12,12 @@ BackupTargetsStore _fakeSettingsStore() => BackupTargetsStore(store: FakeSecureS
 FakeAssetRecordStore _fakeAssetRecordStore() => FakeAssetRecordStore();
 
 void main() {
-  testWidgets('shows the three main tab destinations', (tester) async {
+  testWidgets('shows the two main tab destinations', (tester) async {
     await tester.pumpWidget(App(settingsStore: _fakeSettingsStore(), assetRecordStore: _fakeAssetRecordStore()));
+    await tester.pumpAndSettle();
 
-    expect(find.byIcon(Icons.photo_library), findsOneWidget);
-    expect(find.byIcon(Icons.cloud_upload), findsOneWidget);
-    expect(find.byIcon(Icons.settings), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.photo_fill), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.square_grid_2x2_fill), findsOneWidget);
   });
 
   testWidgets('renders Mandarin labels under zh locale', (tester) async {
@@ -31,10 +31,9 @@ void main() {
     await tester.pumpWidget(App(settingsStore: _fakeSettingsStore(), assetRecordStore: _fakeAssetRecordStore()));
     await tester.pumpAndSettle();
 
-    // Each label appears twice: once in the nav bar, once in that screen's
-    // own AppBar (IndexedStack keeps all three screens mounted).
+    // Each label appears at least twice: once in the tab bar, once as that
+    // tab's own large title (both tabs stay mounted, offstage, like Photos).
     expect(find.text('图库'), findsWidgets);
-    expect(find.text('备份'), findsWidgets);
-    expect(find.text('设置'), findsWidgets);
+    expect(find.text('合集'), findsWidgets);
   });
 }
