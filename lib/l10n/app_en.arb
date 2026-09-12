@@ -5,6 +5,7 @@
   "@appTitle": {"description": "App name, shown in the OS task switcher"},
 
   "tabLibrary": "Library",
+  "tabCollections": "Collections",
   "tabBackup": "Backup",
   "tabSettings": "Settings",
 
@@ -22,11 +23,27 @@
   "libraryStatusFailed": "Failed",
   "libraryAddDemoButton": "Try with Demo Photos",
   "libraryDeleteTooltip": "Remove",
+  "libraryToday": "Today",
+  "libraryYesterday": "Yesterday",
 
   "detailFileUnavailable": "This file is no longer available.",
+  "detailDoneButton": "Done",
+  "detailShareComingSoon": "Sharing isn't wired up yet.",
+  "detailFavoriteComingSoon": "Favorites aren't wired up yet.",
+  "detailInfoAdded": "Added",
+  "detailInfoStatus": "Backup status",
+
+  "collectionsRecentlyAdded": "Recently Added",
+  "collectionsMediaTypes": "Media Types",
+  "collectionsPhotosRow": "Photos",
+  "collectionsVideosRow": "Videos",
+  "collectionsUtilities": "Utilities",
+  "collectionsBackupStatusRow": "Backup Status",
+  "collectionsSettingsRow": "S3 Settings",
 
   "backupEmptyTitle": "Nothing Backed Up Yet",
   "backupEmptyNote": "The upload dashboard (queued/uploading/done/failed) lands in T4.3.",
+  "backupStatusSectionHeader": "By Status",
 
   "settingsEmptyTitle": "No S3 Backups Yet",
   "settingsEmptyNote": "Add one to start backing up your photos and videos.",

@@ -34,9 +34,9 @@ Moves derivatives to S3. Needs Settings (creds) from Phase 1 and derivatives to 
 ## Phase 4: Viewer UI
 The user-facing payoff — browsing what's backed up. Needs derivative files (Phase 2) and live upload status (Phase 3) for badges.
 
-- [ ] T4.1 Photo grid (camera roll) with backup-status badges, thumbnail-first progressive loading — see `lib/viewer/library_screen.dart` — depends: T2.2, T3.2
-- [ ] T4.2 Detail viewer: thumbnail → medium → original progressive load, video playback (`video_player`) — see `lib/viewer/detail_screen.dart` — depends: T2.2, T2.3
-- [ ] T4.3 Backup dashboard: queued/uploading/done/failed counts, storage used per tier — see `lib/viewer/backup_screen.dart` — depends: T3.4
+- [ ] T4.1 Photo grid (camera roll) with backup-status badges, thumbnail-first progressive loading — see `lib/viewer/library_screen.dart` — depends: T2.2, T3.2. **Visual shell done**: Photos-app-style (iOS 18) day-grouped square grid, swipe viewer, long-press-to-delete, 2-tab `Library`/`Collections` IA — but it's grouping/displaying manually-added files, not a real camera-roll grid (still needs `photo_manager`, T2.1) or real thumbnails (still needs T2.2/T2.3 — video tiles are a placeholder icon, not an extracted frame).
+- [ ] T4.2 Detail viewer: thumbnail → medium → original progressive load, video playback (`video_player`) — see `lib/viewer/detail_screen.dart` — depends: T2.2, T2.3. **Visual shell done**: swipeable full-screen viewer with Photos-style bottom bar (share/favorite are inert stubs, info/delete are real) opening the original file directly — progressive load needs the derivative pipeline.
+- [ ] T4.3 Backup dashboard: queued/uploading/done/failed counts, storage used per tier — see `lib/viewer/backup_screen.dart` — depends: T3.4. **Partial**: real per-status counts from `asset_record` already shown; storage-used-per-tier still pending.
 
 ## Phase 5: Reliability & Polish
 Hardens the app against the real-world edge cases identified in the design doc's risks. Comes last because it needs the full pipeline (Phases 2-4) working end-to-end to test against.

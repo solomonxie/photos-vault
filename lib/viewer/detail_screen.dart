@@ -1,40 +1,168 @@
 import 'dart:io';
 
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:video_player/video_player.dart';
 
 import '../l10n/app_localizations.dart';
+import '../storage/asset_record.dart';
 
 const _videoExtensions = {'.mp4', '.mov', '.m4v'};
 
-/// Minimal preview for a manually-added file — full detail viewer with
-/// thumbnail->medium->original progressive load (T4.2) lands once the
-/// derivative pipeline (Phase 2) exists; this just opens the original file
-/// directly so there's something to see today.
+bool isVideoPath(String path) {
+  final lower = path.toLowerCase();
+  return _videoExtensions.any(lower.endsWith);
+}
+
+/// Full-screen, swipe-between-items viewer — the Photos-app pattern: black
+/// background, "Done" to dismiss, a bottom action bar. Not the full
+/// thumbnail->medium->original progressive load (T4.2, needs the derivative
+/// pipeline from Phase 2); it opens the original file directly.
 class DetailScreen extends StatefulWidget {
-  const DetailScreen({super.key, required this.filePath, required this.title});
+  const DetailScreen({super.key, required this.records, required this.initialIndex, required this.onDelete});
 
-  final String filePath;
-  final String title;
-
-  static bool isVideoPath(String path) {
-    final lower = path.toLowerCase();
-    return _videoExtensions.any(lower.endsWith);
-  }
+  final List<AssetRecord> records;
+  final int initialIndex;
+  final Future<void> Function(AssetRecord record) onDelete;
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
 }
 
 class _DetailScreenState extends State<DetailScreen> {
+  late final PageController _pageController = PageController(initialPage: widget.initialIndex);
+  late int _index = widget.initialIndex;
+  late List<AssetRecord> _records = widget.records;
+
+  Future<void> _delete() async {
+    final record = _records[_index];
+    await widget.onDelete(record);
+    if (!mounted) return;
+    if (_records.length <= 1) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() {
+      _records = [..._records]..removeAt(_index);
+      if (_index >= _records.length) _index = _records.length - 1;
+    });
+  }
+
+  void _showComingSoon(String message) {
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        message: Text(message),
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(AppLocalizations.of(context)!.actionCancel),
+        ),
+      ),
+    );
+  }
+
+  void _showInfo() {
+    final l10n = AppLocalizations.of(context)!;
+    final record = _records[_index];
+    final path = record.sourcePath ?? record.localId;
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: Text(path.split('/').last),
+        message: Text(
+          '${l10n.detailInfoAdded}: ${record.createdAt.toLocal()}\n'
+          '${l10n.detailInfoStatus}: ${record.stateOf(DerivativeKind.original).status.name}',
+        ),
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return CupertinoPageScaffold(
+      backgroundColor: CupertinoColors.black,
+      child: SafeArea(
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () => Navigator.of(context).pop(),
+                    child: Text(l10n.detailDoneButton, style: const TextStyle(color: CupertinoColors.systemYellow)),
+                  ),
+                ],
+              ),
+            ),
+            Expanded(
+              child: PageView.builder(
+                controller: _pageController,
+                itemCount: _records.length,
+                onPageChanged: (i) => setState(() => _index = i),
+                itemBuilder: (context, i) => _MediaPage(record: _records[i]),
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () => _showComingSoon(l10n.detailShareComingSoon),
+                    child: const Icon(CupertinoIcons.share, color: CupertinoColors.systemYellow),
+                  ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: () => _showComingSoon(l10n.detailFavoriteComingSoon),
+                    child: const Icon(CupertinoIcons.heart, color: CupertinoColors.systemYellow),
+                  ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: _showInfo,
+                    child: const Icon(CupertinoIcons.info_circle, color: CupertinoColors.systemYellow),
+                  ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: _delete,
+                    child: const Icon(CupertinoIcons.trash, color: CupertinoColors.systemYellow),
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+class _MediaPage extends StatefulWidget {
+  const _MediaPage({required this.record});
+
+  final AssetRecord record;
+
+  @override
+  State<_MediaPage> createState() => _MediaPageState();
+}
+
+class _MediaPageState extends State<_MediaPage> {
   VideoPlayerController? _videoController;
-  Object? _videoError;
+  Object? _error;
 
   @override
   void initState() {
     super.initState();
-    if (DetailScreen.isVideoPath(widget.filePath)) {
-      final controller = VideoPlayerController.file(File(widget.filePath));
+    final path = widget.record.sourcePath;
+    if (path != null && isVideoPath(path)) {
+      final controller = VideoPlayerController.file(File(path));
       _videoController = controller;
       controller
           .initialize()
@@ -42,7 +170,7 @@ class _DetailScreenState extends State<DetailScreen> {
             if (mounted) setState(() {});
           })
           .catchError((Object e) {
-            if (mounted) setState(() => _videoError = e);
+            if (mounted) setState(() => _error = e);
           });
     }
   }
@@ -55,45 +183,43 @@ class _DetailScreenState extends State<DetailScreen> {
 
   @override
   Widget build(BuildContext context) {
-    return Scaffold(
-      appBar: AppBar(title: Text(widget.title)),
-      backgroundColor: Colors.black,
-      body: Center(child: _videoController != null ? _buildVideo() : _buildImage()),
-    );
-  }
-
-  Widget _buildImage() {
     final l10n = AppLocalizations.of(context)!;
-    return Image.file(
-      File(widget.filePath),
-      fit: BoxFit.contain,
-      errorBuilder: (context, error, stackTrace) => _MissingFileNote(message: l10n.detailFileUnavailable),
-    );
-  }
-
-  Widget _buildVideo() {
-    final l10n = AppLocalizations.of(context)!;
-    if (_videoError != null) {
+    final path = widget.record.sourcePath;
+    if (path == null) {
       return _MissingFileNote(message: l10n.detailFileUnavailable);
     }
-    final controller = _videoController!;
-    if (!controller.value.isInitialized) {
-      return const CircularProgressIndicator();
+    if (_error != null) {
+      return _MissingFileNote(message: l10n.detailFileUnavailable);
     }
-    return AspectRatio(
-      aspectRatio: controller.value.aspectRatio,
-      child: GestureDetector(
-        onTap: () => setState(() {
-          controller.value.isPlaying ? controller.pause() : controller.play();
-        }),
-        child: Stack(
-          alignment: Alignment.center,
-          children: [
-            VideoPlayer(controller),
-            if (!controller.value.isPlaying)
-              const Icon(Icons.play_circle_outline, size: 64, color: Colors.white70),
-          ],
+    final controller = _videoController;
+    if (controller != null) {
+      if (!controller.value.isInitialized) {
+        return const Center(child: CupertinoActivityIndicator(color: CupertinoColors.white));
+      }
+      return Center(
+        child: AspectRatio(
+          aspectRatio: controller.value.aspectRatio,
+          child: GestureDetector(
+            onTap: () => setState(() {
+              controller.value.isPlaying ? controller.pause() : controller.play();
+            }),
+            child: Stack(
+              alignment: Alignment.center,
+              children: [
+                VideoPlayer(controller),
+                if (!controller.value.isPlaying)
+                  const Icon(CupertinoIcons.play_circle, size: 64, color: CupertinoColors.white),
+              ],
+            ),
+          ),
         ),
+      );
+    }
+    return Center(
+      child: Image.file(
+        File(path),
+        fit: BoxFit.contain,
+        errorBuilder: (context, error, stackTrace) => _MissingFileNote(message: l10n.detailFileUnavailable),
       ),
     );
   }
@@ -106,13 +232,15 @@ class _MissingFileNote extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        const Icon(Icons.broken_image_outlined, size: 48, color: Colors.white54),
-        const SizedBox(height: 12),
-        Text(message, style: const TextStyle(color: Colors.white54)),
-      ],
+    return Center(
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          const Icon(CupertinoIcons.exclamationmark_triangle, size: 48, color: CupertinoColors.systemGrey),
+          const SizedBox(height: 12),
+          Text(message, style: const TextStyle(color: CupertinoColors.systemGrey)),
+        ],
+      ),
     );
   }
 }

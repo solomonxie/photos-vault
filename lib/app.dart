@@ -1,12 +1,12 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show BottomNavigationBarItem, Colors, Theme, ThemeData;
 
 import 'l10n/app_localizations.dart';
 import 'photos/demo_assets_service.dart';
 import 'photos/manual_add.dart';
 import 'settings/backup_targets_store.dart';
-import 'settings/settings_screen.dart';
 import 'storage/asset_record_store.dart';
-import 'viewer/backup_screen.dart';
+import 'viewer/collections_screen.dart';
 import 'viewer/library_screen.dart';
 
 class App extends StatelessWidget {
@@ -22,9 +22,12 @@ class App extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    return MaterialApp(
+    return CupertinoApp(
       title: 'Bring Your Own Photos',
-      theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
+      theme: const CupertinoThemeData(primaryColor: CupertinoColors.systemBlue),
+      // Some settings/add-target screens are still Material underneath —
+      // gives them a sane theme rather than Material's default fallback.
+      builder: (context, child) => Theme(data: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true), child: child!),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       home: HomeTabs(settingsStore: settingsStore, assetRecordStore: assetRecordStore),
@@ -43,39 +46,35 @@ class HomeTabs extends StatefulWidget {
 }
 
 class _HomeTabsState extends State<HomeTabs> {
-  int _index = 0;
-
-  // Shared across Library and Settings so a demo photo deleted in one tab
+  // Shared across Library and Collections so a demo photo deleted in one
   // and reset from the other stay in sync with the same underlying store.
   late final AssetRecordStore _assetRecordStore = widget.assetRecordStore ?? AssetRecordStore();
   late final ManualAddService _manualAddService = ManualAddService(store: _assetRecordStore);
   late final DemoAssetsService _demoAssetsService = DemoAssetsService(manualAddService: _manualAddService);
 
-  late final List<Widget> _screens = [
-    LibraryScreen(
-      assetRecordStore: _assetRecordStore,
-      backupTargetsStore: widget.settingsStore,
-      manualAddService: _manualAddService,
-      demoAssetsService: _demoAssetsService,
-    ),
-    const BackupScreen(),
-    SettingsScreen(store: widget.settingsStore, assetRecordStore: _assetRecordStore, demoAssetsService: _demoAssetsService),
-  ];
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return Scaffold(
-      body: IndexedStack(index: _index, children: _screens),
-      bottomNavigationBar: NavigationBar(
-        selectedIndex: _index,
-        onDestinationSelected: (i) => setState(() => _index = i),
-        destinations: [
-          NavigationDestination(icon: const Icon(Icons.photo_library), label: l10n.tabLibrary),
-          NavigationDestination(icon: const Icon(Icons.cloud_upload), label: l10n.tabBackup),
-          NavigationDestination(icon: const Icon(Icons.settings), label: l10n.tabSettings),
+    return CupertinoTabScaffold(
+      tabBar: CupertinoTabBar(
+        items: [
+          BottomNavigationBarItem(icon: const Icon(CupertinoIcons.photo_fill), label: l10n.tabLibrary),
+          BottomNavigationBarItem(icon: const Icon(CupertinoIcons.square_grid_2x2_fill), label: l10n.tabCollections),
         ],
       ),
+      tabBuilder: (context, index) {
+        return CupertinoTabView(
+          builder: (context) => switch (index) {
+            0 => LibraryScreen(
+              assetRecordStore: _assetRecordStore,
+              backupTargetsStore: widget.settingsStore,
+              manualAddService: _manualAddService,
+              demoAssetsService: _demoAssetsService,
+            ),
+            _ => CollectionsScreen(assetRecordStore: _assetRecordStore, backupTargetsStore: widget.settingsStore),
+          },
+        );
+      },
     );
   }
 }
