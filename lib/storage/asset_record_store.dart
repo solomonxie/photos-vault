@@ -35,6 +35,8 @@ class AssetRecordStore {
       local_id TEXT PRIMARY KEY,
       content_hash TEXT NOT NULL,
       platform TEXT NOT NULL,
+      source_type TEXT NOT NULL DEFAULT 'photoManager',
+      source_path TEXT,
       thumbnail_status TEXT NOT NULL DEFAULT 'pending',
       thumbnail_key TEXT,
       medium_status TEXT NOT NULL DEFAULT 'pending',
@@ -52,7 +54,13 @@ class AssetRecordStore {
   }
 
   /// Inserts a new record if `localId` isn't tracked yet; no-op otherwise.
-  Future<AssetRecord> upsert({required String localId, required String contentHash, required String platform}) async {
+  Future<AssetRecord> upsert({
+    required String localId,
+    required String contentHash,
+    required String platform,
+    AssetSourceType sourceType = AssetSourceType.photoManager,
+    String? sourcePath,
+  }) async {
     final db = await _open();
     final existing = await getByLocalId(localId);
     if (existing != null) return existing;
@@ -62,10 +70,20 @@ class AssetRecordStore {
       'local_id': localId,
       'content_hash': contentHash,
       'platform': platform,
+      'source_type': sourceType.name,
+      'source_path': sourcePath,
       'created_at': now.millisecondsSinceEpoch,
       'updated_at': now.millisecondsSinceEpoch,
     });
-    return AssetRecord(localId: localId, contentHash: contentHash, platform: platform, createdAt: now, updatedAt: now);
+    return AssetRecord(
+      localId: localId,
+      contentHash: contentHash,
+      platform: platform,
+      sourceType: sourceType,
+      sourcePath: sourcePath,
+      createdAt: now,
+      updatedAt: now,
+    );
   }
 
   Future<AssetRecord?> getByLocalId(String localId) async {
@@ -113,6 +131,8 @@ class AssetRecordStore {
       localId: row['local_id'] as String,
       contentHash: row['content_hash'] as String,
       platform: row['platform'] as String,
+      sourceType: AssetSourceType.values.byName(row['source_type'] as String),
+      sourcePath: row['source_path'] as String?,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
       derivatives: {for (final kind in DerivativeKind.values) kind: stateFor(kind)},

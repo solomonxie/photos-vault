@@ -3,9 +3,19 @@ import 'package:flutter/material.dart';
 import '../l10n/app_localizations.dart';
 import 'backup_targets_store.dart';
 import 's3_connectivity.dart';
+import 's3_region_detection.dart';
+
+/// Default key prefix for a freshly added S3 target: the app's own folder,
+/// so the user never has to think one up. Editable before saving.
+const defaultS3Prefix = 'back-your-own-photos/';
 
 class AddS3BackupScreen extends StatefulWidget {
-  const AddS3BackupScreen({super.key, required this.store, this.checkAccess = checkBucketAccess});
+  const AddS3BackupScreen({
+    super.key,
+    required this.store,
+    this.checkAccess = checkBucketAccess,
+    this.detectRegion = detectBucketRegion,
+  });
 
   final BackupTargetsStore store;
 
@@ -18,6 +28,10 @@ class AddS3BackupScreen extends StatefulWidget {
   })
   checkAccess;
 
+  /// Overridable for tests so they never make a real network call. Region
+  /// is auto-detected from the bucket name — the user never types it.
+  final Future<S3RegionDetectionResult> Function(String bucket) detectRegion;
+
   @override
   State<AddS3BackupScreen> createState() => _AddS3BackupScreenState();
 }
@@ -27,9 +41,8 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
 
   final _accessKeyIdController = TextEditingController();
   final _secretAccessKeyController = TextEditingController();
-  final _regionController = TextEditingController();
   final _bucketController = TextEditingController();
-  final _prefixController = TextEditingController();
+  final _prefixController = TextEditingController(text: defaultS3Prefix);
 
   bool _obscureSecret = true;
   bool _saving = false;
@@ -39,7 +52,6 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
   void dispose() {
     _accessKeyIdController.dispose();
     _secretAccessKeyController.dispose();
-    _regionController.dispose();
     _bucketController.dispose();
     _prefixController.dispose();
     super.dispose();
@@ -73,9 +85,21 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
 
     final accessKeyId = _accessKeyIdController.text.trim();
     final secretAccessKey = _secretAccessKeyController.text.trim();
-    final region = _regionController.text.trim();
     final bucket = _bucketController.text.trim();
     final prefix = _prefixController.text.trim();
+
+    final regionResult = await widget.detectRegion(bucket);
+    if (!mounted) return;
+    if (!regionResult.isOk) {
+      setState(() {
+        _saving = false;
+        _error = regionResult.outcome == S3RegionDetectionOutcome.notFound
+            ? l10n.settingsAccessCheckNotFound
+            : l10n.settingsRegionDetectionError;
+      });
+      return;
+    }
+    final region = regionResult.region!;
 
     final result = await widget.checkAccess(
       accessKeyId: accessKeyId,
@@ -134,13 +158,6 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
                   onPressed: () => setState(() => _obscureSecret = !_obscureSecret),
                 ),
               ),
-              validator: (v) => _required(l10n, v),
-            ),
-            const SizedBox(height: 12),
-            TextFormField(
-              controller: _regionController,
-              enabled: !_saving,
-              decoration: InputDecoration(labelText: l10n.settingsRegionLabel, hintText: 'us-east-1'),
               validator: (v) => _required(l10n, v),
             ),
             const SizedBox(height: 12),

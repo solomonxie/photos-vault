@@ -8,7 +8,14 @@
   "tabSettings": "设置",
 
   "libraryEmptyTitle": "暂无照片",
-  "libraryEmptyNote": "基于 photo_manager 的缩略图网格将在 T4.1 中实现。",
+  "libraryEmptyNote": "基于 photo_manager 的缩略图网格将在 T4.1 中实现。点击 + 可从“文件”App 手动添加文件。",
+
+  "libraryAddFilesButton": "添加文件",
+  "libraryAddFilesResult": "已添加 {picked} 个文件,已备份 {succeeded} 个。",
+  "libraryStatusPending": "待处理",
+  "libraryStatusUploading": "上传中…",
+  "libraryStatusUploaded": "已备份",
+  "libraryStatusFailed": "失败",
 
   "backupEmptyTitle": "暂无备份",
   "backupEmptyNote": "上传仪表盘(排队中/上传中/已完成/失败)将在 T4.3 中实现。",
@@ -26,15 +33,15 @@
 
   "settingsAccessKeyIdLabel": "访问密钥 ID",
   "settingsSecretAccessKeyLabel": "私有访问密钥",
-  "settingsRegionLabel": "区域",
   "settingsBucketLabel": "存储桶",
-  "settingsPrefixLabel": "键前缀(可选)",
+  "settingsPrefixLabel": "键前缀",
   "settingsRequiredFieldError": "必填项",
   "settingsSaveButton": "保存",
   "settingsValidatingMessage": "正在验证存储桶访问权限…",
   "settingsAccessCheckForbidden": "访问被拒绝。请检查访问密钥、私有密钥,以及该存储桶是否允许访问。",
-  "settingsAccessCheckNotFound": "未找到存储桶。请检查存储桶名称和区域。",
+  "settingsAccessCheckNotFound": "未找到存储桶。请检查存储桶名称。",
   "settingsAccessCheckNetworkError": "无法连接到 S3。请检查网络后重试。",
+  "settingsRegionDetectionError": "无法自动检测该存储桶所在区域,请检查存储桶名称。",
 
   "settingsAddLocalFolderTitle": "添加 iCloud 文件夹备份",
   "settingsLocalFolderNameLabel": "名称",
