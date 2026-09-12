@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:back_your_own_photos/photos/demo_assets_service.dart';
 import 'package:back_your_own_photos/photos/manual_add.dart';
 import 'package:back_your_own_photos/storage/asset_record.dart';
@@ -17,7 +19,10 @@ void main() {
 
   test('addAll enqueues every bundled demo asset as a manual file', () async {
     final store = newStore();
-    final service = DemoAssetsService(manualAddService: ManualAddService(store: store));
+    final service = DemoAssetsService(
+      manualAddService: ManualAddService(store: store),
+      targetDirectory: () async => Directory.systemTemp,
+    );
 
     final added = await service.addAll();
 
@@ -31,7 +36,10 @@ void main() {
 
   test('addAll is a no-op for demo assets already present', () async {
     final store = newStore();
-    final service = DemoAssetsService(manualAddService: ManualAddService(store: store));
+    final service = DemoAssetsService(
+      manualAddService: ManualAddService(store: store),
+      targetDirectory: () async => Directory.systemTemp,
+    );
 
     await service.addAll();
     await service.addAll();
@@ -41,7 +49,10 @@ void main() {
 
   test('addAll re-creates a demo asset that was deleted (reset behavior)', () async {
     final store = newStore();
-    final service = DemoAssetsService(manualAddService: ManualAddService(store: store));
+    final service = DemoAssetsService(
+      manualAddService: ManualAddService(store: store),
+      targetDirectory: () async => Directory.systemTemp,
+    );
     await service.addAll();
     final firstRecord = (await store.listAll()).first;
 

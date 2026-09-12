@@ -19,6 +19,8 @@
   "libraryAddDemoButton": "使用演示照片试用",
   "libraryDeleteTooltip": "移除",
 
+  "detailFileUnavailable": "该文件已不可用。",
+
   "backupEmptyTitle": "暂无备份",
   "backupEmptyNote": "上传仪表盘(排队中/上传中/已完成/失败)将在 T4.3 中实现。",
 

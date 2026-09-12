@@ -23,6 +23,8 @@
   "libraryAddDemoButton": "Try with Demo Photos",
   "libraryDeleteTooltip": "Remove",
 
+  "detailFileUnavailable": "This file is no longer available.",
+
   "backupEmptyTitle": "Nothing Backed Up Yet",
   "backupEmptyNote": "The upload dashboard (queued/uploading/done/failed) lands in T4.3.",
 
