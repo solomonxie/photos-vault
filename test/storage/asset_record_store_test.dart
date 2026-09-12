@@ -78,4 +78,39 @@ void main() {
     final recreated = await store.upsert(localId: 'asset-1', contentHash: 'hash-2', platform: 'ios');
     expect(recreated.contentHash, 'hash-2');
   });
+
+  test('setFavorite toggles the favorite flag', () async {
+    final store = newStore();
+    await store.upsert(localId: 'asset-1', contentHash: 'hash-1', platform: 'ios');
+
+    await store.setFavorite('asset-1', true);
+    expect((await store.getByLocalId('asset-1'))!.isFavorite, isTrue);
+
+    await store.setFavorite('asset-1', false);
+    expect((await store.getByLocalId('asset-1'))!.isFavorite, isFalse);
+  });
+
+  test('setHidden toggles the hidden flag', () async {
+    final store = newStore();
+    await store.upsert(localId: 'asset-1', contentHash: 'hash-1', platform: 'ios');
+
+    await store.setHidden('asset-1', true);
+    expect((await store.getByLocalId('asset-1'))!.isHidden, isTrue);
+
+    await store.setHidden('asset-1', false);
+    expect((await store.getByLocalId('asset-1'))!.isHidden, isFalse);
+  });
+
+  test('softDelete sets deletedAt, restore clears it', () async {
+    final store = newStore();
+    await store.upsert(localId: 'asset-1', contentHash: 'hash-1', platform: 'ios');
+
+    await store.softDelete('asset-1');
+    final deleted = await store.getByLocalId('asset-1');
+    expect(deleted!.isDeleted, isTrue);
+
+    await store.restore('asset-1');
+    final restored = await store.getByLocalId('asset-1');
+    expect(restored!.isDeleted, isFalse);
+  });
 }

@@ -5,7 +5,6 @@
   "@appTitle": {"description": "App name, shown in the OS task switcher"},
 
   "tabLibrary": "Library",
-  "tabCollections": "Collections",
   "tabBackup": "Backup",
   "tabSettings": "Settings",
 
@@ -22,22 +21,35 @@
   "libraryStatusUploaded": "Backed up",
   "libraryStatusFailed": "Failed",
   "libraryAddDemoButton": "Try with Demo Photos",
-  "libraryDeleteTooltip": "Remove",
+  "libraryDeleteTooltip": "Delete",
   "libraryToday": "Today",
   "libraryYesterday": "Yesterday",
+
+  "libraryFavorite": "Favorite",
+  "libraryUnfavorite": "Unfavorite",
+  "libraryHide": "Hide",
+  "libraryUnhide": "Unhide",
+  "libraryRecover": "Recover",
+  "libraryFavoritesEmpty": "No favorites yet.",
+  "libraryHiddenEmpty": "Nothing hidden.",
+  "libraryRecentlyDeletedEmpty": "No recently deleted items.",
+  "libraryDeletePermanentlyTitle": "Delete Permanently?",
+  "libraryDeletePermanentlyBody": "This can't be undone.",
+  "libraryDeletePermanentlyAction": "Delete Permanently",
 
   "detailFileUnavailable": "This file is no longer available.",
   "detailDoneButton": "Done",
   "detailShareComingSoon": "Sharing isn't wired up yet.",
-  "detailFavoriteComingSoon": "Favorites aren't wired up yet.",
   "detailInfoAdded": "Added",
   "detailInfoStatus": "Backup status",
 
-  "collectionsRecentlyAdded": "Recently Added",
   "collectionsMediaTypes": "Media Types",
   "collectionsPhotosRow": "Photos",
   "collectionsVideosRow": "Videos",
   "collectionsUtilities": "Utilities",
+  "collectionsFavoritesRow": "Favorites",
+  "collectionsHiddenRow": "Hidden",
+  "collectionsRecentlyDeletedRow": "Recently Deleted",
   "collectionsBackupStatusRow": "Backup Status",
   "collectionsSettingsRow": "S3 Settings",
 
@@ -53,6 +65,10 @@
   "settingsDeleteConfirmBody": "This won't delete any files already in the bucket — just this app's saved configuration for it.",
 
   "settingsAccessKeyIdLabel": "Access key ID",
+  "settingsLengthHint": "{actual} characters — AWS keys are usually {expected}. Check for a bad paste.",
+  "@settingsLengthHint": {
+    "placeholders": {"actual": {"type": "int"}, "expected": {"type": "int"}}
+  },
   "settingsSecretAccessKeyLabel": "Secret access key",
   "settingsBucketLabel": "Bucket",
   "settingsPrefixLabel": "Key prefix",

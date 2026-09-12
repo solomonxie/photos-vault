@@ -18,11 +18,18 @@ bool isVideoPath(String path) {
 /// thumbnail->medium->original progressive load (T4.2, needs the derivative
 /// pipeline from Phase 2); it opens the original file directly.
 class DetailScreen extends StatefulWidget {
-  const DetailScreen({super.key, required this.records, required this.initialIndex, required this.onDelete});
+  const DetailScreen({
+    super.key,
+    required this.records,
+    required this.initialIndex,
+    required this.onDelete,
+    required this.onToggleFavorite,
+  });
 
   final List<AssetRecord> records;
   final int initialIndex;
   final Future<void> Function(AssetRecord record) onDelete;
+  final Future<void> Function(AssetRecord record) onToggleFavorite;
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -45,6 +52,13 @@ class _DetailScreenState extends State<DetailScreen> {
       _records = [..._records]..removeAt(_index);
       if (_index >= _records.length) _index = _records.length - 1;
     });
+  }
+
+  Future<void> _toggleFavorite() async {
+    final record = _records[_index];
+    await widget.onToggleFavorite(record);
+    if (!mounted) return;
+    setState(() => _records = [..._records]..[_index] = record.withFavorite(!record.isFavorite));
   }
 
   void _showComingSoon(String message) {
@@ -121,8 +135,11 @@ class _DetailScreenState extends State<DetailScreen> {
                   ),
                   CupertinoButton(
                     padding: EdgeInsets.zero,
-                    onPressed: () => _showComingSoon(l10n.detailFavoriteComingSoon),
-                    child: const Icon(CupertinoIcons.heart, color: CupertinoColors.systemYellow),
+                    onPressed: _toggleFavorite,
+                    child: Icon(
+                      _records[_index].isFavorite ? CupertinoIcons.heart_fill : CupertinoIcons.heart,
+                      color: CupertinoColors.systemYellow,
+                    ),
                   ),
                   CupertinoButton(
                     padding: EdgeInsets.zero,
