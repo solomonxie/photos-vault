@@ -1,3 +1,5 @@
+part of 'backup_target.dart';
+
 /// One configured S3 destination the user backs photos up to. The app
 /// supports multiple — each with its own credentials/bucket/prefix.
 ///
@@ -5,9 +7,9 @@
 /// concern, set up as Lifecycle Rules in their own AWS account. This app's
 /// only job is to keep derivatives (thumbnails/medium/originals) under
 /// clearly separate key prefixes so those rules can target each one.
-class S3BackupTarget {
+class S3BackupTarget extends BackupTarget {
   const S3BackupTarget({
-    required this.id,
+    required super.id,
     required this.accessKeyId,
     required this.secretAccessKey,
     required this.region,
@@ -15,14 +17,17 @@ class S3BackupTarget {
     this.prefix = '',
   });
 
-  final String id;
+  static const jsonType = 's3';
+
   final String accessKeyId;
   final String secretAccessKey;
   final String region;
   final String bucket;
   final String prefix;
 
+  @override
   Map<String, dynamic> toJson() => {
+    'type': jsonType,
     'id': id,
     'accessKeyId': accessKeyId,
     'secretAccessKey': secretAccessKey,
