@@ -1,4 +1,4 @@
-# Back Your Own Photos
+# Bring Your Own Photos
 
 Flutter app (iOS first, Android backlog) that backs up Photos/Videos to your own S3 bucket, with thumbnail-first browsing and storage tiering via your bucket's own Lifecycle Rules. Localized (English, Mandarin) from the start.
 

@@ -21,7 +21,7 @@ class App extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return MaterialApp(
-      title: 'Back Your Own Photos',
+      title: 'Bring Your Own Photos',
       theme: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
