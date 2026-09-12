@@ -14,19 +14,25 @@
   "backupEmptyTitle": "Nothing Backed Up Yet",
   "backupEmptyNote": "The upload dashboard (queued/uploading/done/failed) lands in T4.3.",
 
-  "settingsSectionTitle": "AWS Settings",
+  "settingsEmptyTitle": "No S3 Backups Yet",
+  "settingsEmptyNote": "Add one to start backing up your photos and videos.",
+  "settingsAddButton": "Add S3 Backup",
+  "settingsAddedMessage": "S3 backup added",
+  "settingsDeleteConfirmTitle": "Remove this backup target?",
+  "settingsDeleteConfirmBody": "This won't delete any files already in the bucket — just this app's saved configuration for it.",
+
   "settingsAccessKeyIdLabel": "Access key ID",
   "settingsSecretAccessKeyLabel": "Secret access key",
   "settingsRegionLabel": "Region",
   "settingsBucketLabel": "Bucket",
   "settingsPrefixLabel": "Key prefix (optional)",
   "settingsRequiredFieldError": "Required",
-  "settingsStorageClassSectionTitle": "Storage class overrides",
-  "settingsStorageClassSectionNote": "Optional. Sets the initial S3 storage class per tier at upload time; your bucket's own Lifecycle Rules still own transitions after that.",
-  "settingsThumbnailStorageClassLabel": "Thumbnails",
-  "settingsMediumStorageClassLabel": "Medium",
-  "settingsOriginalStorageClassLabel": "Originals",
-  "settingsBucketDefaultOption": "Bucket default",
   "settingsSaveButton": "Save",
-  "settingsSavedMessage": "Settings saved"
+  "settingsValidatingMessage": "Validating bucket access…",
+  "settingsAccessCheckForbidden": "Access denied. Check the access key, secret, and that this bucket allows it.",
+  "settingsAccessCheckNotFound": "Bucket not found. Check the bucket name and region.",
+  "settingsAccessCheckNetworkError": "Could not reach S3. Check your network and try again.",
+
+  "actionCancel": "Cancel",
+  "actionDelete": "Delete"
 }

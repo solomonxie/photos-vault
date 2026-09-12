@@ -13,19 +13,25 @@
   "backupEmptyTitle": "暂无备份",
   "backupEmptyNote": "上传仪表盘(排队中/上传中/已完成/失败)将在 T4.3 中实现。",
 
-  "settingsSectionTitle": "AWS 设置",
+  "settingsEmptyTitle": "暂无 S3 备份",
+  "settingsEmptyNote": "添加一个以开始备份您的照片和视频。",
+  "settingsAddButton": "添加 S3 备份",
+  "settingsAddedMessage": "S3 备份已添加",
+  "settingsDeleteConfirmTitle": "移除此备份目标?",
+  "settingsDeleteConfirmBody": "此操作不会删除存储桶中已有的文件,只会移除本应用保存的该配置。",
+
   "settingsAccessKeyIdLabel": "访问密钥 ID",
   "settingsSecretAccessKeyLabel": "私有访问密钥",
   "settingsRegionLabel": "区域",
   "settingsBucketLabel": "存储桶",
   "settingsPrefixLabel": "键前缀(可选)",
   "settingsRequiredFieldError": "必填项",
-  "settingsStorageClassSectionTitle": "存储类别覆盖设置",
-  "settingsStorageClassSectionNote": "可选。设置上传时各层级的初始 S3 存储类别;后续的转换仍由您存储桶自身的生命周期规则管理。",
-  "settingsThumbnailStorageClassLabel": "缩略图",
-  "settingsMediumStorageClassLabel": "中等分辨率",
-  "settingsOriginalStorageClassLabel": "原图",
-  "settingsBucketDefaultOption": "存储桶默认值",
   "settingsSaveButton": "保存",
-  "settingsSavedMessage": "设置已保存"
+  "settingsValidatingMessage": "正在验证存储桶访问权限…",
+  "settingsAccessCheckForbidden": "访问被拒绝。请检查访问密钥、私有密钥,以及该存储桶是否允许访问。",
+  "settingsAccessCheckNotFound": "未找到存储桶。请检查存储桶名称和区域。",
+  "settingsAccessCheckNetworkError": "无法连接到 S3。请检查网络后重试。",
+
+  "actionCancel": "取消",
+  "actionDelete": "删除"
 }
