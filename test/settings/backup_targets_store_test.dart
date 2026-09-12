@@ -1,4 +1,3 @@
-import 'package:back_your_own_photos/settings/backup_target.dart';
 import 'package:back_your_own_photos/settings/backup_targets_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -25,7 +24,7 @@ void main() {
     expect(added.id, isNotEmpty);
     final all = await store.loadAll();
     expect(all, hasLength(1));
-    expect((all.single as S3BackupTarget).bucket, 'my-photos');
+    expect(all.single.bucket, 'my-photos');
     expect(all.single.id, added.id);
   });
 
@@ -37,7 +36,7 @@ void main() {
 
     final all = await store.loadAll();
     expect(all, hasLength(2));
-    expect(all.map((t) => (t as S3BackupTarget).bucket), containsAll(['bucket-one', 'bucket-two']));
+    expect(all.map((t) => t.bucket), containsAll(['bucket-one', 'bucket-two']));
     expect(all[0].id, isNot(all[1].id));
   });
 

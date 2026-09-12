@@ -1,10 +1,8 @@
-import 'package:back_your_own_photos/settings/backup_target.dart';
 import 'package:back_your_own_photos/settings/backup_targets_store.dart';
-import 'package:back_your_own_photos/settings/security_scoped_bookmark.dart';
+import 'package:back_your_own_photos/settings/s3_backup_target.dart';
 import 'package:back_your_own_photos/storage/asset_record.dart';
 import 'package:back_your_own_photos/storage/asset_record_store.dart';
 import 'package:back_your_own_photos/upload/backup_coordinator.dart';
-import 'package:back_your_own_photos/upload/local_folder_writer.dart';
 import 'package:back_your_own_photos/upload/s3_uploader.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -21,21 +19,6 @@ class _FakeS3Uploader implements S3Uploader {
     keys.add(key);
     return result;
   }
-}
-
-class _FakeLocalFolderWriter implements LocalFolderWriter {
-  _FakeLocalFolderWriter(this.outcome);
-  final LocalFolderWriteOutcome outcome;
-
-  @override
-  SecurityScopedBookmarkResolver get resolver => throw UnimplementedError();
-
-  @override
-  Future<LocalFolderWriteResult> write({
-    required String filePath,
-    required String key,
-    required LocalFolderBackupTarget target,
-  }) async => LocalFolderWriteResult(outcome);
 }
 
 void main() {
@@ -82,13 +65,13 @@ void main() {
 
   test('marks the derivative failed when every target fails', () async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-    await targetsStore.addLocalFolder(displayName: 'Photos', bookmarkData: 'b');
+    await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: '');
     final recordStore = newRecordStore();
     final record = await recordStore.upsert(localId: 'manual:abc', contentHash: 'abc', platform: 'ios');
     final coordinator = BackupCoordinator(
       targetsStore: targetsStore,
       recordStore: recordStore,
-      localFolderWriter: _FakeLocalFolderWriter(LocalFolderWriteOutcome.staleBookmark),
+      s3Uploader: _FakeS3Uploader(false),
     );
 
     final succeeded = await coordinator.backUpDerivative(record: record, kind: DerivativeKind.original, filePath: '/tmp/a.jpg');

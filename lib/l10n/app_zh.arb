@@ -20,16 +20,12 @@
   "backupEmptyTitle": "暂无备份",
   "backupEmptyNote": "上传仪表盘(排队中/上传中/已完成/失败)将在 T4.3 中实现。",
 
-  "settingsEmptyTitle": "暂无备份",
+  "settingsEmptyTitle": "暂无 S3 备份",
   "settingsEmptyNote": "添加一个以开始备份您的照片和视频。",
-  "settingsAddButton": "添加备份",
-  "settingsAddedMessage": "备份已添加",
+  "settingsAddButton": "添加 S3 备份",
+  "settingsAddedMessage": "S3 备份已添加",
   "settingsDeleteConfirmTitle": "移除此备份目标?",
-  "settingsDeleteConfirmBody": "此操作不会删除已备份的文件,只会移除本应用保存的该配置。",
-
-  "settingsAddChoiceTitle": "添加备份",
-  "settingsAddS3Option": "S3 存储桶",
-  "settingsAddLocalFolderOption": "iCloud 文件夹",
+  "settingsDeleteConfirmBody": "此操作不会删除存储桶中已有的文件,只会移除本应用保存的该配置。",
 
   "settingsAccessKeyIdLabel": "访问密钥 ID",
   "settingsSecretAccessKeyLabel": "私有访问密钥",
@@ -42,18 +38,6 @@
   "settingsAccessCheckNotFound": "未找到存储桶。请检查存储桶名称。",
   "settingsAccessCheckNetworkError": "无法连接到 S3。请检查网络后重试。",
   "settingsRegionDetectionError": "无法自动检测该存储桶所在区域,请检查存储桶名称。",
-
-  "settingsAddLocalFolderTitle": "添加 iCloud 文件夹备份",
-  "settingsLocalFolderNameLabel": "名称",
-  "settingsLocalFolderPickButton": "选择文件夹…",
-  "settingsLocalFolderNoneChosen": "尚未选择文件夹",
-  "settingsLocalFolderValidatingMessage": "正在检查文件夹访问权限…",
-  "settingsLocalFolderAccessError": "无法打开该文件夹,请重新选择。",
-  "settingsLocalFolderRequiredError": "请先选择一个文件夹",
-
-  "settingsLocalFolderStaleTitle": "文件夹访问已失效",
-  "settingsLocalFolderStaleBody": "本应用无法再打开该文件夹,它可能已被移动、重命名或撤销了访问权限。",
-  "settingsLocalFolderRepickButton": "重新选择文件夹",
 
   "actionCancel": "取消",
   "actionDelete": "删除"
