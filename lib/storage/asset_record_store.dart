@@ -114,6 +114,11 @@ class AssetRecordStore {
     return rows.map(_fromRow).toList();
   }
 
+  Future<void> remove(String localId) async {
+    final db = await _open();
+    await db.delete(_table, where: 'local_id = ?', whereArgs: [localId]);
+  }
+
   static String _columnPrefix(DerivativeKind kind) => switch (kind) {
     DerivativeKind.thumbnail => 'thumbnail',
     DerivativeKind.medium => 'medium',

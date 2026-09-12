@@ -6,8 +6,14 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 void main() {
   setUpAll(sqfliteFfiInit);
 
-  AssetRecordStore newStore() =>
-      AssetRecordStore(databaseFactory: databaseFactoryFfi, path: inMemoryDatabasePath);
+  // sqflite_common_ffi caches in-memory DBs by path (singleInstance
+  // default), so distinct stores using the same sentinel path leak state
+  // across tests unless each is explicitly closed.
+  AssetRecordStore newStore() {
+    final store = AssetRecordStore(databaseFactory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    addTearDown(store.close);
+    return store;
+  }
 
   test('upsert creates a record with all derivatives pending', () async {
     final store = newStore();
@@ -60,5 +66,16 @@ void main() {
     final store = newStore();
 
     expect(await store.getByLocalId('missing'), isNull);
+  });
+
+  test('remove deletes the record so a later upsert re-creates it fresh', () async {
+    final store = newStore();
+    await store.upsert(localId: 'asset-1', contentHash: 'hash-1', platform: 'ios');
+
+    await store.remove('asset-1');
+
+    expect(await store.getByLocalId('asset-1'), isNull);
+    final recreated = await store.upsert(localId: 'asset-1', contentHash: 'hash-2', platform: 'ios');
+    expect(recreated.contentHash, 'hash-2');
   });
 }

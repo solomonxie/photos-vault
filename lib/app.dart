@@ -1,6 +1,8 @@
 import 'package:flutter/material.dart';
 
 import 'l10n/app_localizations.dart';
+import 'photos/demo_assets_service.dart';
+import 'photos/manual_add.dart';
 import 'settings/backup_targets_store.dart';
 import 'settings/settings_screen.dart';
 import 'storage/asset_record_store.dart';
@@ -43,10 +45,21 @@ class HomeTabs extends StatefulWidget {
 class _HomeTabsState extends State<HomeTabs> {
   int _index = 0;
 
+  // Shared across Library and Settings so a demo photo deleted in one tab
+  // and reset from the other stay in sync with the same underlying store.
+  late final AssetRecordStore _assetRecordStore = widget.assetRecordStore ?? AssetRecordStore();
+  late final ManualAddService _manualAddService = ManualAddService(store: _assetRecordStore);
+  late final DemoAssetsService _demoAssetsService = DemoAssetsService(manualAddService: _manualAddService);
+
   late final List<Widget> _screens = [
-    LibraryScreen(assetRecordStore: widget.assetRecordStore, backupTargetsStore: widget.settingsStore),
+    LibraryScreen(
+      assetRecordStore: _assetRecordStore,
+      backupTargetsStore: widget.settingsStore,
+      manualAddService: _manualAddService,
+      demoAssetsService: _demoAssetsService,
+    ),
     const BackupScreen(),
-    SettingsScreen(store: widget.settingsStore),
+    SettingsScreen(store: widget.settingsStore, assetRecordStore: _assetRecordStore, demoAssetsService: _demoAssetsService),
   ];
 
   @override

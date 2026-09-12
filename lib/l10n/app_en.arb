@@ -20,6 +20,8 @@
   "libraryStatusUploading": "Uploading…",
   "libraryStatusUploaded": "Backed up",
   "libraryStatusFailed": "Failed",
+  "libraryAddDemoButton": "Try with Demo Photos",
+  "libraryDeleteTooltip": "Remove",
 
   "backupEmptyTitle": "Nothing Backed Up Yet",
   "backupEmptyNote": "The upload dashboard (queued/uploading/done/failed) lands in T4.3.",
@@ -42,6 +44,13 @@
   "settingsAccessCheckNotFound": "Bucket not found. Check the bucket name.",
   "settingsAccessCheckNetworkError": "Could not reach S3. Check your network and try again.",
   "settingsRegionDetectionError": "Couldn't detect this bucket's region automatically. Check the bucket name.",
+
+  "settingsDraftsTitle": "Drafts",
+  "settingsDraftUntitled": "(no bucket yet)",
+  "settingsDraftDeleteTooltip": "Delete draft",
+
+  "settingsResetDemoButton": "Reset Demo Data",
+  "settingsResetDemoResult": "Demo photos are ready in Library.",
 
   "actionCancel": "Cancel",
   "actionDelete": "Delete"
