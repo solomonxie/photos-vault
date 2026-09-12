@@ -1,4 +1,4 @@
-import 'package:flutter/cupertino.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:back_your_own_photos/app.dart';
@@ -12,12 +12,12 @@ BackupTargetsStore _fakeSettingsStore() => BackupTargetsStore(store: FakeSecureS
 FakeAssetRecordStore _fakeAssetRecordStore() => FakeAssetRecordStore();
 
 void main() {
-  testWidgets('shows the two main tab destinations', (tester) async {
+  testWidgets('shows the Library page with no bottom tab bar', (tester) async {
     await tester.pumpWidget(App(settingsStore: _fakeSettingsStore(), assetRecordStore: _fakeAssetRecordStore()));
     await tester.pumpAndSettle();
 
-    expect(find.byIcon(CupertinoIcons.photo_fill), findsOneWidget);
-    expect(find.byIcon(CupertinoIcons.square_grid_2x2_fill), findsOneWidget);
+    expect(find.text('Library'), findsOneWidget);
+    expect(find.text('Utilities'), findsOneWidget);
   });
 
   testWidgets('renders Mandarin labels under zh locale', (tester) async {
@@ -31,9 +31,7 @@ void main() {
     await tester.pumpWidget(App(settingsStore: _fakeSettingsStore(), assetRecordStore: _fakeAssetRecordStore()));
     await tester.pumpAndSettle();
 
-    // Each label appears at least twice: once in the tab bar, once as that
-    // tab's own large title (both tabs stay mounted, offstage, like Photos).
-    expect(find.text('图库'), findsWidgets);
-    expect(find.text('合集'), findsWidgets);
+    expect(find.text('图库'), findsOneWidget);
+    expect(find.text('实用工具'), findsOneWidget);
   });
 }

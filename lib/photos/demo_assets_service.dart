@@ -23,9 +23,8 @@ class DemoAssetsService {
   final ManualAddService manualAddService;
   final Future<Directory> Function() _targetDirectory;
 
-  static const assetPaths = [
-    'assets/demo/demo_photo_1.jpg',
-    'assets/demo/demo_photo_2.jpg',
+  static final assetPaths = [
+    for (var i = 1; i <= 50; i++) 'assets/demo/demo_photo_${i.toString().padLeft(2, '0')}.jpg',
     'assets/demo/demo_video_1.mp4',
   ];
 

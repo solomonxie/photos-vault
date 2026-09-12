@@ -36,6 +36,9 @@ class AssetRecord {
     this.sourceType = AssetSourceType.photoManager,
     this.sourcePath,
     this.derivatives = const {},
+    this.isFavorite = false,
+    this.isHidden = false,
+    this.deletedAt,
   });
 
   final String localId;
@@ -49,17 +52,42 @@ class AssetRecord {
   final String? sourcePath;
   final Map<DerivativeKind, DerivativeState> derivatives;
 
+  final bool isFavorite;
+  final bool isHidden;
+
+  /// Set when soft-deleted (Photos' "Recently Deleted") — `remove()` in the
+  /// store is the separate, permanent delete.
+  final DateTime? deletedAt;
+
+  bool get isDeleted => deletedAt != null;
+
   DerivativeState stateOf(DerivativeKind kind) => derivatives[kind] ?? const DerivativeState();
 
+  AssetRecord _copyWith({
+    Map<DerivativeKind, DerivativeState>? derivatives,
+    bool? isFavorite,
+    bool? isHidden,
+    DateTime? Function()? deletedAt,
+  }) => AssetRecord(
+    localId: localId,
+    contentHash: contentHash,
+    platform: platform,
+    createdAt: createdAt,
+    updatedAt: DateTime.now(),
+    sourceType: sourceType,
+    sourcePath: sourcePath,
+    derivatives: derivatives ?? this.derivatives,
+    isFavorite: isFavorite ?? this.isFavorite,
+    isHidden: isHidden ?? this.isHidden,
+    deletedAt: deletedAt != null ? deletedAt() : this.deletedAt,
+  );
+
   AssetRecord withDerivative(DerivativeKind kind, DerivativeState state) =>
-      AssetRecord(
-        localId: localId,
-        contentHash: contentHash,
-        platform: platform,
-        createdAt: createdAt,
-        updatedAt: DateTime.now(),
-        sourceType: sourceType,
-        sourcePath: sourcePath,
-        derivatives: {...derivatives, kind: state},
-      );
+      _copyWith(derivatives: {...derivatives, kind: state});
+
+  AssetRecord withFavorite(bool value) => _copyWith(isFavorite: value);
+
+  AssetRecord withHidden(bool value) => _copyWith(isHidden: value);
+
+  AssetRecord withDeletedAt(DateTime? value) => _copyWith(deletedAt: () => value);
 }

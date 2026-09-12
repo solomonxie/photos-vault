@@ -60,10 +60,20 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
   void initState() {
     super.initState();
     _reloadDrafts();
+    // Live length check: AWS access key IDs are always 20 characters, secret
+    // keys always 40 — a paste that picked up an extra/missing/invisible
+    // character (common cause of a SignatureDoesNotMatch) shows up
+    // immediately, before Save even runs a network call.
+    _accessKeyIdController.addListener(_onCredentialFieldChanged);
+    _secretAccessKeyController.addListener(_onCredentialFieldChanged);
   }
+
+  void _onCredentialFieldChanged() => setState(() {});
 
   @override
   void dispose() {
+    _accessKeyIdController.removeListener(_onCredentialFieldChanged);
+    _secretAccessKeyController.removeListener(_onCredentialFieldChanged);
     _accessKeyIdController.dispose();
     _secretAccessKeyController.dispose();
     _bucketController.dispose();
@@ -102,6 +112,15 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
 
   String? _required(AppLocalizations l10n, String? value) {
     return (value == null || value.trim().isEmpty) ? l10n.settingsRequiredFieldError : null;
+  }
+
+  /// Non-blocking: static IAM keys are always exactly these lengths, but
+  /// this only ever warns — never stops Save — since other credential
+  /// shapes (e.g. temporary STS keys) do exist.
+  String? _lengthHint(AppLocalizations l10n, String text, int expectedLength) {
+    final trimmed = text.trim();
+    if (trimmed.isEmpty || trimmed.length == expectedLength) return null;
+    return l10n.settingsLengthHint(trimmed.length, expectedLength);
   }
 
   String _messageFor(AppLocalizations l10n, S3AccessCheckResult result) {
@@ -202,7 +221,11 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
               enabled: !_saving,
               autocorrect: false,
               enableSuggestions: false,
-              decoration: InputDecoration(labelText: l10n.settingsAccessKeyIdLabel),
+              decoration: InputDecoration(
+                labelText: l10n.settingsAccessKeyIdLabel,
+                helperText: _lengthHint(l10n, _accessKeyIdController.text, 20),
+                helperMaxLines: 2,
+              ),
               validator: (v) => _required(l10n, v),
             ),
             const SizedBox(height: 12),
@@ -216,6 +239,8 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
               smartQuotesType: SmartQuotesType.disabled,
               decoration: InputDecoration(
                 labelText: l10n.settingsSecretAccessKeyLabel,
+                helperText: _lengthHint(l10n, _secretAccessKeyController.text, 40),
+                helperMaxLines: 2,
                 suffixIcon: IconButton(
                   icon: Icon(_obscureSecret ? Icons.visibility_off : Icons.visibility),
                   onPressed: () => setState(() => _obscureSecret = !_obscureSecret),

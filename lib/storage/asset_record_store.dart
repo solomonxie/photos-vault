@@ -43,6 +43,9 @@ class AssetRecordStore {
       medium_key TEXT,
       original_status TEXT NOT NULL DEFAULT 'pending',
       original_key TEXT,
+      is_favorite INTEGER NOT NULL DEFAULT 0,
+      is_hidden INTEGER NOT NULL DEFAULT 0,
+      deleted_at INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -108,12 +111,57 @@ class AssetRecordStore {
     );
   }
 
+  Future<void> setFavorite(String localId, bool value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {'is_favorite': value ? 1 : 0, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  Future<void> setHidden(String localId, bool value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {'is_hidden': value ? 1 : 0, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  /// Moves a record to "Recently Deleted" — `remove` is the separate,
+  /// permanent delete.
+  Future<void> softDelete(String localId) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {'deleted_at': DateTime.now().millisecondsSinceEpoch, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  Future<void> restore(String localId) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {'deleted_at': null, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
   Future<List<AssetRecord>> listAll() async {
     final db = await _open();
     final rows = await db.query(_table, orderBy: 'created_at ASC');
     return rows.map(_fromRow).toList();
   }
 
+  /// Permanently deletes — used for real deletion from "Recently Deleted",
+  /// or (today) the Library's own delete action until that also routes
+  /// through the trash.
   Future<void> remove(String localId) async {
     final db = await _open();
     await db.delete(_table, where: 'local_id = ?', whereArgs: [localId]);
@@ -132,6 +180,8 @@ class AssetRecordStore {
       return DerivativeState(status: status, destinationKey: row['${column}_key'] as String?);
     }
 
+    final deletedAtMillis = row['deleted_at'] as int?;
+
     return AssetRecord(
       localId: row['local_id'] as String,
       contentHash: row['content_hash'] as String,
@@ -141,6 +191,9 @@ class AssetRecordStore {
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
       derivatives: {for (final kind in DerivativeKind.values) kind: stateFor(kind)},
+      isFavorite: (row['is_favorite'] as int? ?? 0) != 0,
+      isHidden: (row['is_hidden'] as int? ?? 0) != 0,
+      deletedAt: deletedAtMillis == null ? null : DateTime.fromMillisecondsSinceEpoch(deletedAtMillis),
     );
   }
 }

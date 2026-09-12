@@ -55,4 +55,32 @@ class FakeAssetRecordStore implements AssetRecordStore {
 
   @override
   Future<void> remove(String localId) async => _records.remove(localId);
+
+  @override
+  Future<void> setFavorite(String localId, bool value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withFavorite(value);
+  }
+
+  @override
+  Future<void> setHidden(String localId, bool value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withHidden(value);
+  }
+
+  @override
+  Future<void> softDelete(String localId) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withDeletedAt(DateTime.now());
+  }
+
+  @override
+  Future<void> restore(String localId) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withDeletedAt(null);
+  }
 }

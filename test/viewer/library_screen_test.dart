@@ -200,11 +200,11 @@ void main() {
     expect(find.byKey(const ValueKey('manual:demo1')), findsOneWidget);
   });
 
-  testWidgets('tiles offer a long-press context menu with Remove', (tester) async {
+  testWidgets('tiles offer a long-press context menu for favorite/hide/delete', (tester) async {
     // CupertinoContextMenu's actual open gesture is finicky to drive
     // reliably in a widget test (real Haptic Touch timing); this checks the
-    // delete affordance is wired up structurally. AssetRecordStore.remove
-    // itself is covered in asset_record_store_test.dart.
+    // affordance is wired up structurally. The underlying store methods are
+    // covered in asset_record_store_test.dart.
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     final recordStore = FakeAssetRecordStore();
     await recordStore.upsert(
@@ -234,5 +234,43 @@ void main() {
       find.descendant(of: find.byKey(const ValueKey('manual:abc')), matching: find.byType(CupertinoContextMenu)),
       findsOneWidget,
     );
+  });
+
+  testWidgets('shows Utilities rows with real counts and navigates to each screen', (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:fav',
+      contentHash: 'fav',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/fav.jpg',
+    );
+    await recordStore.setFavorite('manual:fav', true);
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Favorites'), findsOneWidget);
+    expect(find.text('Hidden'), findsOneWidget);
+    expect(find.text('Recently Deleted'), findsOneWidget);
+    expect(find.text('Backup Status'), findsOneWidget);
+    expect(find.text('S3 Settings'), findsOneWidget);
+
+    await tester.tap(find.text('Favorites'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('manual:fav')), findsOneWidget);
   });
 }
