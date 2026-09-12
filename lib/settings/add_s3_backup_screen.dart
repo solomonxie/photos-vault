@@ -4,10 +4,12 @@ import '../l10n/app_localizations.dart';
 import 'backup_targets_store.dart';
 import 's3_connectivity.dart';
 import 's3_region_detection.dart';
+import 's3_target_draft.dart';
+import 's3_target_drafts_store.dart';
 
 /// Default key prefix for a freshly added S3 target: the app's own folder,
 /// so the user never has to think one up. Editable before saving.
-const defaultS3Prefix = 'back-your-own-photos/';
+const defaultS3Prefix = 'bring-your-own-photos/';
 
 class AddS3BackupScreen extends StatefulWidget {
   const AddS3BackupScreen({
@@ -15,6 +17,7 @@ class AddS3BackupScreen extends StatefulWidget {
     required this.store,
     this.checkAccess = checkBucketAccess,
     this.detectRegion = detectBucketRegion,
+    this.draftsStore,
   });
 
   final BackupTargetsStore store;
@@ -32,11 +35,15 @@ class AddS3BackupScreen extends StatefulWidget {
   /// is auto-detected from the bucket name — the user never types it.
   final Future<S3RegionDetectionResult> Function(String bucket) detectRegion;
 
+  final S3TargetDraftsStore? draftsStore;
+
   @override
   State<AddS3BackupScreen> createState() => _AddS3BackupScreenState();
 }
 
 class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
+  late final S3TargetDraftsStore _draftsStore = widget.draftsStore ?? S3TargetDraftsStore();
+
   final _formKey = GlobalKey<FormState>();
 
   final _accessKeyIdController = TextEditingController();
@@ -47,6 +54,13 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
   bool _obscureSecret = true;
   bool _saving = false;
   String? _error;
+  List<S3TargetDraft> _drafts = const [];
+
+  @override
+  void initState() {
+    super.initState();
+    _reloadDrafts();
+  }
 
   @override
   void dispose() {
@@ -55,6 +69,35 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
     _bucketController.dispose();
     _prefixController.dispose();
     super.dispose();
+  }
+
+  Future<void> _reloadDrafts() async {
+    List<S3TargetDraft> drafts = const [];
+    try {
+      drafts = await _draftsStore.loadAll();
+    } catch (_) {
+      // Secure storage unavailable/unreadable — show no drafts rather than
+      // crashing the screen over what's just a convenience feature.
+    }
+    if (!mounted) return;
+    setState(() => _drafts = drafts);
+  }
+
+  void _fillFromDraft(S3TargetDraft draft) {
+    _accessKeyIdController.text = draft.accessKeyId;
+    _secretAccessKeyController.text = draft.secretAccessKey;
+    _bucketController.text = draft.bucket;
+    _prefixController.text = draft.prefix;
+  }
+
+  Future<void> _deleteDraft(S3TargetDraft draft) async {
+    await _draftsStore.remove(draft.id);
+    await _reloadDrafts();
+  }
+
+  String _maskedAccessKeyId(String accessKeyId) {
+    if (accessKeyId.length <= 8) return accessKeyId;
+    return '${accessKeyId.substring(0, 4)}…${accessKeyId.substring(accessKeyId.length - 4)}';
   }
 
   String? _required(AppLocalizations l10n, String? value) {
@@ -76,17 +119,30 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
 
   Future<void> _save() async {
     final l10n = AppLocalizations.of(context)!;
+
+    final accessKeyId = _accessKeyIdController.text.trim();
+    final secretAccessKey = _secretAccessKeyController.text.trim();
+    final bucket = _bucketController.text.trim();
+    final prefix = _prefixController.text.trim();
+
+    // Save a draft of this attempt before validating — so even a failed or
+    // abandoned save doesn't mean retyping everything next time. Best-effort:
+    // a secure-storage hiccup here shouldn't block the actual save attempt.
+    if (accessKeyId.isNotEmpty || secretAccessKey.isNotEmpty || bucket.isNotEmpty) {
+      try {
+        await _draftsStore.save(accessKeyId: accessKeyId, secretAccessKey: secretAccessKey, bucket: bucket, prefix: prefix);
+      } catch (_) {
+        // Ignored — see above.
+      }
+      await _reloadDrafts();
+    }
+
     if (!_formKey.currentState!.validate()) return;
 
     setState(() {
       _saving = true;
       _error = null;
     });
-
-    final accessKeyId = _accessKeyIdController.text.trim();
-    final secretAccessKey = _secretAccessKeyController.text.trim();
-    final bucket = _bucketController.text.trim();
-    final prefix = _prefixController.text.trim();
 
     final regionResult = await widget.detectRegion(bucket);
     if (!mounted) return;
@@ -125,6 +181,7 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
       bucket: bucket,
       prefix: prefix,
     );
+    await _draftsStore.removeMatching(accessKeyId: accessKeyId, bucket: bucket);
 
     if (!mounted) return;
     Navigator.of(context).pop(true);
@@ -204,6 +261,42 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
                     )
                   : Text(l10n.settingsSaveButton),
             ),
+            if (_drafts.isNotEmpty) ...[
+              const SizedBox(height: 32),
+              const Divider(),
+              const SizedBox(height: 8),
+              Text(l10n.settingsDraftsTitle, style: Theme.of(context).textTheme.titleSmall),
+              for (final draft in _drafts)
+                InkWell(
+                  onTap: _saving ? null : () => _fillFromDraft(draft),
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 8),
+                    child: Row(
+                      children: [
+                        Expanded(
+                          child: Column(
+                            crossAxisAlignment: CrossAxisAlignment.start,
+                            children: [
+                              Text(draft.bucket.isEmpty ? l10n.settingsDraftUntitled : draft.bucket),
+                              if (draft.accessKeyId.isNotEmpty)
+                                Text(
+                                  _maskedAccessKeyId(draft.accessKeyId),
+                                  style: Theme.of(context).textTheme.bodySmall?.copyWith(color: Colors.grey),
+                                ),
+                            ],
+                          ),
+                        ),
+                        IconButton(
+                          icon: const Icon(Icons.close, size: 18),
+                          color: Colors.grey,
+                          tooltip: l10n.settingsDraftDeleteTooltip,
+                          onPressed: _saving ? null : () => _deleteDraft(draft),
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+            ],
           ],
         ),
       ),

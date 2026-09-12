@@ -52,4 +52,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
   @override
   Future<List<AssetRecord>> listAll() async =>
       _records.values.toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+
+  @override
+  Future<void> remove(String localId) async => _records.remove(localId);
 }

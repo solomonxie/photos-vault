@@ -1,8 +1,10 @@
 import 'package:back_your_own_photos/l10n/app_localizations.dart';
+import 'package:back_your_own_photos/photos/demo_assets_service.dart';
 import 'package:back_your_own_photos/photos/manual_add.dart';
 import 'package:back_your_own_photos/settings/backup_targets_store.dart';
 import 'package:back_your_own_photos/settings/s3_backup_target.dart';
 import 'package:back_your_own_photos/storage/asset_record.dart';
+import 'package:back_your_own_photos/storage/asset_record_store.dart';
 import 'package:back_your_own_photos/upload/backup_coordinator.dart';
 import 'package:back_your_own_photos/upload/s3_uploader.dart';
 import 'package:back_your_own_photos/viewer/library_screen.dart';
@@ -20,6 +22,27 @@ class _UnusedS3Uploader implements S3Uploader {
   @override
   Future<bool> put({required String filePath, required String key, required S3BackupTarget target}) =>
       throw UnimplementedError();
+}
+
+// Never touches the real asset bundle / disk — inserts straight into the
+// given store instead, like the real service would after copying bytes out.
+class _FakeDemoAssetsService implements DemoAssetsService {
+  _FakeDemoAssetsService(this.store);
+  final AssetRecordStore store;
+
+  @override
+  ManualAddService get manualAddService => throw UnimplementedError();
+
+  @override
+  Future<List<AssetRecord>> addAll() async => [
+    await store.upsert(
+      localId: 'manual:demo1',
+      contentHash: 'demo1',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/demo_photo_1.jpg',
+    ),
+  ];
 }
 
 Widget _wrap(Widget child) => MaterialApp(
@@ -110,5 +133,64 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Added 0 file(s), backed up 0.'), findsOneWidget);
+  });
+
+  testWidgets('tapping Try with Demo Photos adds and lists the demo asset', (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          backupTargetsStore: targetsStore,
+          demoAssetsService: _FakeDemoAssetsService(recordStore),
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Try with Demo Photos'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('demo_photo_1.jpg'), findsOneWidget);
+  });
+
+  testWidgets('deleting a listed file removes it from the store', (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:abc',
+      contentHash: 'abc',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/library_screen_test.jpg',
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byTooltip('Remove'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('library_screen_test.jpg'), findsNothing);
+    expect(await recordStore.getByLocalId('manual:abc'), isNull);
   });
 }

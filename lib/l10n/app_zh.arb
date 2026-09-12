@@ -16,6 +16,8 @@
   "libraryStatusUploading": "上传中…",
   "libraryStatusUploaded": "已备份",
   "libraryStatusFailed": "失败",
+  "libraryAddDemoButton": "使用演示照片试用",
+  "libraryDeleteTooltip": "移除",
 
   "backupEmptyTitle": "暂无备份",
   "backupEmptyNote": "上传仪表盘(排队中/上传中/已完成/失败)将在 T4.3 中实现。",
@@ -38,6 +40,13 @@
   "settingsAccessCheckNotFound": "未找到存储桶。请检查存储桶名称。",
   "settingsAccessCheckNetworkError": "无法连接到 S3。请检查网络后重试。",
   "settingsRegionDetectionError": "无法自动检测该存储桶所在区域,请检查存储桶名称。",
+
+  "settingsDraftsTitle": "草稿",
+  "settingsDraftUntitled": "(尚未填写存储桶)",
+  "settingsDraftDeleteTooltip": "删除草稿",
+
+  "settingsResetDemoButton": "重置演示数据",
+  "settingsResetDemoResult": "演示照片已准备好,请查看图库。",
 
   "actionCancel": "取消",
   "actionDelete": "删除"
