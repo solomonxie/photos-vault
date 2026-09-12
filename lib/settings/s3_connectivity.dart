@@ -1,0 +1,48 @@
+import 'package:aws_common/aws_common.dart';
+import 'package:aws_signature_v4/aws_signature_v4.dart';
+import 'package:http/http.dart' as http;
+
+enum S3AccessCheckOutcome { ok, forbidden, notFound, networkError }
+
+class S3AccessCheckResult {
+  const S3AccessCheckResult(this.outcome, [this.detail]);
+
+  final S3AccessCheckOutcome outcome;
+  final String? detail;
+
+  bool get isOk => outcome == S3AccessCheckOutcome.ok;
+}
+
+/// Verifies the given credentials can reach [bucket] in [region] — a signed
+/// `HEAD` request to the bucket root, which requires `s3:ListBucket` (the
+/// same permission the app needs later to check what's already backed up).
+Future<S3AccessCheckResult> checkBucketAccess({
+  required String accessKeyId,
+  required String secretAccessKey,
+  required String region,
+  required String bucket,
+}) async {
+  final signer = AWSSigV4Signer(
+    credentialsProvider: AWSCredentialsProvider(AWSCredentials(accessKeyId, secretAccessKey)),
+  );
+  final scope = AWSCredentialScope.raw(region: region, service: 's3');
+  final uri = Uri.https('$bucket.s3.$region.amazonaws.com', '/');
+  final request = AWSHttpRequest.head(uri);
+
+  try {
+    final signed = await signer.sign(request, credentialScope: scope, serviceConfiguration: S3ServiceConfiguration());
+    final response = await http.head(signed.uri, headers: signed.headers);
+    switch (response.statusCode) {
+      case 200:
+        return const S3AccessCheckResult(S3AccessCheckOutcome.ok);
+      case 403:
+        return S3AccessCheckResult(S3AccessCheckOutcome.forbidden, response.statusCode.toString());
+      case 404:
+        return S3AccessCheckResult(S3AccessCheckOutcome.notFound, response.statusCode.toString());
+      default:
+        return S3AccessCheckResult(S3AccessCheckOutcome.networkError, response.statusCode.toString());
+    }
+  } catch (e) {
+    return S3AccessCheckResult(S3AccessCheckOutcome.networkError, e.toString());
+  }
+}

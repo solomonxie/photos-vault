@@ -1,7 +1,7 @@
 import 'package:flutter/material.dart';
 
 import 'l10n/app_localizations.dart';
-import 'settings/aws_settings_store.dart';
+import 'settings/s3_backup_targets_store.dart';
 import 'settings/settings_screen.dart';
 import 'viewer/backup_screen.dart';
 import 'viewer/library_screen.dart';
@@ -11,7 +11,7 @@ class App extends StatelessWidget {
 
   /// Overridable for tests so widget tests never touch the real
   /// secure-storage platform channel.
-  final AwsSettingsStore? settingsStore;
+  final S3BackupTargetsStore? settingsStore;
 
   @override
   Widget build(BuildContext context) {
@@ -28,7 +28,7 @@ class App extends StatelessWidget {
 class HomeTabs extends StatefulWidget {
   const HomeTabs({super.key, this.settingsStore});
 
-  final AwsSettingsStore? settingsStore;
+  final S3BackupTargetsStore? settingsStore;
 
   @override
   State<HomeTabs> createState() => _HomeTabsState();

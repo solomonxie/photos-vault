@@ -2,11 +2,11 @@ import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:back_your_own_photos/app.dart';
-import 'package:back_your_own_photos/settings/aws_settings_store.dart';
+import 'package:back_your_own_photos/settings/s3_backup_targets_store.dart';
 
 import 'settings/fake_secure_store.dart';
 
-AwsSettingsStore _fakeSettingsStore() => AwsSettingsStore(store: FakeSecureStore());
+S3BackupTargetsStore _fakeSettingsStore() => S3BackupTargetsStore(store: FakeSecureStore());
 
 void main() {
   testWidgets('shows the three main tab destinations', (tester) async {

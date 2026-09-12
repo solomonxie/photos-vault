@@ -28,3 +28,6 @@ android/**/gradle-wrapper.jar
 
 # Local Flutter SDK checkout (see scripts/bootstrap-flutter.sh)
 .tools/
+
+# Claude Code session-local state, not project config
+.claude/scheduled_tasks.lock
