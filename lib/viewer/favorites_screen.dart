@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
+import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 
 class FavoritesScreen extends StatefulWidget {
@@ -38,9 +39,11 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     await _reload();
   }
 
-  Future<void> _delete(AssetRecord record) async {
+  Future<bool> _delete(AssetRecord record) async {
+    if (!await confirmSoftDelete(context)) return false;
     await widget.assetRecordStore.softDelete(record.localId);
     await _reload();
+    return true;
   }
 
   void _open(AssetRecord record) {

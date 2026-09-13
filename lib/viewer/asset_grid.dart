@@ -1,11 +1,14 @@
 import 'dart:io';
+import 'dart:math' as math;
+import 'dart:typed_data';
 
 import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
+import 'package:photo_manager/photo_manager.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/photo_library_service.dart';
 import '../storage/asset_record.dart';
-import 'detail_screen.dart';
 
 /// One long-press context-menu action offered on a grid tile (e.g.
 /// Favorite/Unfavorite, Hide, Delete, Recover) — each screen that shows a
@@ -85,7 +88,7 @@ class AssetTile extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final path = record.sourcePath;
-    final video = path != null && isVideoPath(path);
+    final video = record.isVideo;
 
     return CupertinoContextMenu(
       actions: [
@@ -119,6 +122,8 @@ class AssetTile extends StatelessWidget {
                   errorBuilder: (context, error, stackTrace) =>
                       const ColoredBox(color: CupertinoColors.systemGrey5, child: Icon(CupertinoIcons.photo)),
                 )
+              else if (record.sourceType == AssetSourceType.photoManager)
+                PhotoManagerThumbnail(assetId: record.localId)
               else
                 const ColoredBox(color: CupertinoColors.systemGrey5, child: Icon(CupertinoIcons.photo)),
               if (video)
@@ -142,6 +147,9 @@ class AssetTile extends StatelessWidget {
   }
 }
 
+/// Marks only not-yet-backed-up tiles — a light dotted ring, bottom-right —
+/// synced tiles get no badge at all, so a fully backed-up library reads as
+/// clean instead of every tile carrying a green checkmark.
 class StatusDot extends StatelessWidget {
   const StatusDot({super.key, required this.record});
 
@@ -150,12 +158,85 @@ class StatusDot extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final status = record.stateOf(DerivativeKind.original).status;
-    final (icon, color) = switch (status) {
-      UploadStatus.pending => (CupertinoIcons.clock, CupertinoColors.systemGrey),
-      UploadStatus.uploading => (CupertinoIcons.cloud_upload, CupertinoColors.systemBlue),
-      UploadStatus.uploaded => (CupertinoIcons.checkmark_circle_fill, CupertinoColors.systemGreen),
-      UploadStatus.failed => (CupertinoIcons.exclamationmark_circle_fill, CupertinoColors.systemRed),
-    };
-    return Icon(icon, size: 14, color: color);
+    if (status == UploadStatus.uploaded) return const SizedBox.shrink();
+    return const SizedBox(width: 14, height: 14, child: CustomPaint(painter: _DottedRingPainter()));
   }
+}
+
+/// Loads and caches a camera-roll asset's thumbnail bytes on demand —
+/// `photoManager` records carry no `sourcePath`, only the id needed to
+/// resolve one via `photo_manager`. See IMPLEMENTATION_PLAN.md T2.1.
+class PhotoManagerThumbnail extends StatefulWidget {
+  const PhotoManagerThumbnail({super.key, required this.assetId});
+
+  final String assetId;
+
+  @override
+  State<PhotoManagerThumbnail> createState() => _PhotoManagerThumbnailState();
+}
+
+class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
+  static final _cache = <String, Uint8List>{};
+
+  Uint8List? _bytes;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final cached = _cache[widget.assetId];
+    if (cached != null) {
+      setState(() => _bytes = cached);
+      return;
+    }
+    final id = PhotoLibraryService.entityIdFrom(widget.assetId);
+    if (id == null) return;
+    try {
+      final entity = await AssetEntity.fromId(id);
+      final bytes = await entity?.thumbnailData;
+      if (bytes == null || !mounted) return;
+      _cache[widget.assetId] = bytes;
+      setState(() => _bytes = bytes);
+    } catch (_) {
+      // Asset removed from the library since, or plugin unavailable in
+      // tests — falls through to the placeholder below.
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final bytes = _bytes;
+    if (bytes == null) return const ColoredBox(color: CupertinoColors.systemGrey5);
+    return Image.memory(
+      bytes,
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) =>
+          const ColoredBox(color: CupertinoColors.systemGrey5, child: Icon(CupertinoIcons.photo)),
+    );
+  }
+}
+
+class _DottedRingPainter extends CustomPainter {
+  const _DottedRingPainter();
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final paint = Paint()
+      ..color = const Color(0xE6FFFFFF)
+      ..style = PaintingStyle.stroke
+      ..strokeWidth = 1.6
+      ..strokeCap = StrokeCap.round;
+    final rect = Rect.fromCircle(center: size.center(Offset.zero), radius: size.width / 2 - 1);
+    const dashCount = 8;
+    const sweep = 2 * math.pi / dashCount;
+    for (var i = 0; i < dashCount; i++) {
+      canvas.drawArc(rect, i * sweep, sweep * 0.5, false, paint);
+    }
+  }
+
+  @override
+  bool shouldRepaint(_DottedRingPainter oldDelegate) => false;
 }

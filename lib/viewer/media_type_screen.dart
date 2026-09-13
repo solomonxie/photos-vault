@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
+import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 
 /// Media Types' "Photos" and "Videos" rows — same active-library set as the
@@ -29,11 +30,7 @@ class _MediaTypeScreenState extends State<MediaTypeScreen> {
     _reload();
   }
 
-  bool _matches(AssetRecord r) {
-    final path = r.sourcePath;
-    final isVideo = path != null && isVideoPath(path);
-    return isVideo == widget.isVideo;
-  }
+  bool _matches(AssetRecord r) => r.isVideo == widget.isVideo;
 
   Future<void> _reload() async {
     final all = await widget.assetRecordStore.listAll();
@@ -54,9 +51,11 @@ class _MediaTypeScreenState extends State<MediaTypeScreen> {
     await _reload();
   }
 
-  Future<void> _delete(AssetRecord record) async {
+  Future<bool> _delete(AssetRecord record) async {
+    if (!await confirmSoftDelete(context)) return false;
     await widget.assetRecordStore.softDelete(record.localId);
     await _reload();
+    return true;
   }
 
   void _open(AssetRecord record) {

@@ -3,6 +3,10 @@ import 'package:back_your_own_photos/settings/secure_store.dart';
 class FakeSecureStore implements SecureStore {
   final Map<String, String> _values = {};
 
+  /// Synchronous test-setup helper — primes a value without going through
+  /// the (trivially-resolving, but still async) [write].
+  void seed(String key, String value) => _values[key] = value;
+
   @override
   Future<String?> read(String key) async => _values[key];
 

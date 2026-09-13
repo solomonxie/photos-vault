@@ -35,7 +35,15 @@ class AssetRecordStore {
     final path = _path ?? p.join(await _databaseFactory.getDatabasesPath(), 'back_your_own_photos.db');
     final db = await _databaseFactory.openDatabase(
       path,
-      options: OpenDatabaseOptions(version: 1, onCreate: (db, version) => db.execute(_createTableSql)),
+      options: OpenDatabaseOptions(
+        version: 2,
+        onCreate: (db, version) => db.execute(_createTableSql),
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) {
+            await db.execute('ALTER TABLE $_table ADD COLUMN is_video INTEGER NOT NULL DEFAULT 0');
+          }
+        },
+      ),
     );
     _db = db;
     return db;
@@ -48,6 +56,7 @@ class AssetRecordStore {
       platform TEXT NOT NULL,
       source_type TEXT NOT NULL DEFAULT 'photoManager',
       source_path TEXT,
+      is_video INTEGER NOT NULL DEFAULT 0,
       thumbnail_status TEXT NOT NULL DEFAULT 'pending',
       thumbnail_key TEXT,
       medium_status TEXT NOT NULL DEFAULT 'pending',
@@ -81,6 +90,7 @@ class AssetRecordStore {
     required String platform,
     AssetSourceType sourceType = AssetSourceType.photoManager,
     String? sourcePath,
+    bool isVideo = false,
     DateTime? createdAt,
   }) async {
     final db = await _open();
@@ -104,6 +114,7 @@ class AssetRecordStore {
       'platform': platform,
       'source_type': sourceType.name,
       'source_path': sourcePath,
+      'is_video': isVideo ? 1 : 0,
       'created_at': now.millisecondsSinceEpoch,
       'updated_at': now.millisecondsSinceEpoch,
     });
@@ -113,6 +124,7 @@ class AssetRecordStore {
       platform: platform,
       sourceType: sourceType,
       sourcePath: sourcePath,
+      isVideo: isVideo,
       createdAt: now,
       updatedAt: now,
     );
@@ -238,6 +250,7 @@ class AssetRecordStore {
       platform: row['platform'] as String,
       sourceType: AssetSourceType.values.byName(row['source_type'] as String),
       sourcePath: row['source_path'] as String?,
+      isVideo: (row['is_video'] as int? ?? 0) != 0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
       derivatives: {for (final kind in DerivativeKind.values) kind: stateFor(kind)},

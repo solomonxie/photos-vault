@@ -27,6 +27,17 @@ void main() {
     }
   });
 
+  test('upsert persists isVideo, defaulting to false', () async {
+    final store = newStore();
+
+    final photo = await store.upsert(localId: 'asset-1', contentHash: 'hash-1', platform: 'ios');
+    final video = await store.upsert(localId: 'asset-2', contentHash: 'hash-2', platform: 'ios', isVideo: true);
+
+    expect(photo.isVideo, isFalse);
+    expect(video.isVideo, isTrue);
+    expect((await store.getByLocalId('asset-2'))!.isVideo, isTrue);
+  });
+
   test('upsert is idempotent for an already-tracked localId', () async {
     final store = newStore();
     final first = await store.upsert(localId: 'asset-1', contentHash: 'hash-1', platform: 'ios');

@@ -9,7 +9,7 @@
   "tabSettings": "Settings",
 
   "libraryEmptyTitle": "No Photos Yet",
-  "libraryEmptyNote": "The photo_manager-backed thumbnail grid lands in T4.1. Tap + to manually add files from the Files app.",
+  "libraryEmptyNote": "Grant Photos access to back up your camera roll, or tap + to manually add files from the Files app.",
 
   "libraryAddFilesButton": "Add Files",
   "libraryAddFilesResult": "Added {picked} file(s), backed up {succeeded}.",
@@ -36,6 +36,8 @@
   "libraryDeletePermanentlyTitle": "Delete Permanently?",
   "libraryDeletePermanentlyBody": "This can't be undone.",
   "libraryDeletePermanentlyAction": "Delete Permanently",
+  "libraryDeleteConfirmTitle": "Delete this item?",
+  "libraryDeleteConfirmBody": "It moves to Recently Deleted.",
   "libraryAlbumEmpty": "No photos in this album.",
   "libraryRemoveFromAlbum": "Remove from Album",
 
@@ -50,10 +52,34 @@
   "detailInfoNoLocation": "No Location",
   "detailInfoDuration": "Duration",
 
+  "collectionsCollections": "Collections",
   "collectionsAlbums": "Albums",
   "albumDeleteAction": "Delete Album",
   "albumDeleteConfirmTitle": "Delete this album?",
   "albumDeleteConfirmBody": "The photos and videos inside stay in your library.",
+  "collectionsPeopleRow": "People",
+  "collectionsPlacesRow": "Places",
+  "collectionsEventsRow": "Events",
+  "collectionsComingSoonTitle": "Coming Soon",
+  "collectionsPlacesComingSoonBody": "Places will be grouped automatically using each photo's location data. Not implemented yet.",
+
+  "smartCollectionsAnalyzeButton": "{count, plural, one{Analyze 1 Photo} other{Analyze {count} Photos}}",
+  "@smartCollectionsAnalyzeButton": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "smartCollectionsAnalyzing": "Analyzing… {done} of {total}",
+  "@smartCollectionsAnalyzing": {
+    "placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}
+  },
+  "smartCollectionsEmpty": "No photos to analyze yet.",
+  "smartCollectionsCardLabel": "Tap to Analyze",
+  "smartCollectionsUncategorized": "Uncategorized",
+  "smartCollectionsNoPeople": "No People",
+  "smartCollectionsOnePerson": "1 Person",
+  "smartCollectionsPeopleCount": "{count} People",
+  "@smartCollectionsPeopleCount": {
+    "placeholders": {"count": {"type": "int"}}
+  },
 
   "collectionsMediaTypes": "Media Types",
   "collectionsPhotosRow": "Photos",
@@ -64,6 +90,7 @@
   "collectionsRecentlyDeletedRow": "Recently Deleted",
   "collectionsBackupStatusRow": "Backup Status",
   "collectionsSettingsRow": "S3 Settings",
+  "collectionsAiSettingsRow": "AI Settings",
   "collectionsImportPhotosRow": "Import Photos",
 
   "backupEmptyTitle": "Nothing Backed Up Yet",
@@ -98,7 +125,13 @@
   "settingsDraftDeleteTooltip": "Delete draft",
 
   "settingsResetDemoButton": "Reset Demo Data",
-  "settingsResetDemoResult": "Demo photos are ready in Library.",
+
+  "settingsAiTodoNote": "This key powers AI-recognized People and Events smart collections. Places (GPS-based) doesn't need it.",
+  "settingsAiApiKeyLabel": "OpenAI API key",
+  "settingsAiClearButton": "Remove Key",
+  "settingsAiSavedMessage": "API key saved",
+  "settingsAiClearedMessage": "API key removed",
+  "settingsAiUsageWarning": "Enabling this sends photo data to OpenAI and incurs API usage charges billed to your OpenAI account.",
 
   "bucketBrowserEmpty": "This folder is empty.",
   "bucketBrowserLoadMore": "Load More",

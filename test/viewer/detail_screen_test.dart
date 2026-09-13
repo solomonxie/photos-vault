@@ -31,7 +31,7 @@ void main() {
         DetailScreen(
           records: [record],
           initialIndex: 0,
-          onDelete: (_) async {},
+          onDelete: (_) async => true,
           onToggleFavorite: (r) async => toggledId = r.localId,
         ),
       ),
@@ -59,7 +59,7 @@ void main() {
                 builder: (_) => DetailScreen(
                   records: [record],
                   initialIndex: 0,
-                  onDelete: (_) async {},
+                  onDelete: (_) async => true,
                   onToggleFavorite: (_) async {},
                 ),
               ),
@@ -85,7 +85,7 @@ void main() {
 
     await tester.pumpWidget(
       _wrap(
-        DetailScreen(records: [record], initialIndex: 0, onDelete: (_) async {}, onToggleFavorite: (_) async {}),
+        DetailScreen(records: [record], initialIndex: 0, onDelete: (_) async => true, onToggleFavorite: (_) async {}),
       ),
     );
     await tester.pump();
@@ -108,7 +108,7 @@ void main() {
                 builder: (_) => DetailScreen(
                   records: [record],
                   initialIndex: 0,
-                  onDelete: (_) async {},
+                  onDelete: (_) async => true,
                   onToggleFavorite: (_) async {},
                 ),
               ),

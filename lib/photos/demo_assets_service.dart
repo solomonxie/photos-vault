@@ -48,7 +48,7 @@ class DemoAssetsService {
 
   Future<List<AssetRecord>> addAll() async {
     final dir = await _targetDirectory();
-    final now = DateTime.now();
+    final demoDays = _demoDays(DateTime.now());
     final added = <AssetRecord>[];
     for (var i = 0; i < assetPaths.length; i++) {
       final assetPath = assetPaths[i];
@@ -56,18 +56,25 @@ class DemoAssetsService {
       final fileName = assetPath.split('/').last;
       final file = File('${dir.path}/$fileName');
       await file.writeAsBytes(data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes), flush: true);
-      added.add(await manualAddService.enqueueFile(file.path, createdAt: _staggeredCreatedAt(now, i)));
+      added.add(await manualAddService.enqueueFile(file.path, createdAt: demoDays[i % demoDays.length]));
     }
     await _seedDemoAlbums(added);
     return added;
   }
 
-  /// Backdates demo asset [index] by a growing number of days, so the
-  /// day-grouped Library grid shows several distinct days/years right out
-  /// of the box instead of one giant "Today" pile — only applied on first
-  /// insert (see `AssetRecordStore.upsert`), so a reset doesn't shuffle
-  /// dates on items already present.
-  static DateTime _staggeredCreatedAt(DateTime now, int index) => now.subtract(Duration(days: index * 26));
+  /// Five fixed days spanning three different years — assets are distributed
+  /// round-robin across these instead of each getting its own unique day, so
+  /// the Library grid shows a handful of grouped days/years rather than one
+  /// pile per item. Only applied on first insert (see
+  /// `AssetRecordStore.upsert`), so a reset doesn't shuffle dates on items
+  /// already present.
+  static List<DateTime> _demoDays(DateTime now) => [
+    DateTime(now.year, now.month, now.day),
+    DateTime(now.year, now.month, now.day).subtract(const Duration(days: 45)),
+    DateTime(now.year - 1, now.month, now.day),
+    DateTime(now.year - 1, now.month, now.day).subtract(const Duration(days: 60)),
+    DateTime(now.year - 2, now.month, now.day),
+  ];
 
   Future<void> _seedDemoAlbums(List<AssetRecord> added) async {
     for (final spec in _demoAlbums) {

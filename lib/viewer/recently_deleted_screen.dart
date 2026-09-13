@@ -37,7 +37,7 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
     await _reload();
   }
 
-  Future<void> _deletePermanently(AssetRecord record) async {
+  Future<bool> _deletePermanently(AssetRecord record) async {
     final l10n = AppLocalizations.of(context)!;
     final confirmed = await showCupertinoDialog<bool>(
       context: context,
@@ -54,9 +54,10 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true) return false;
     await widget.assetRecordStore.remove(record.localId);
     await _reload();
+    return true;
   }
 
   Future<void> _toggleFavorite(AssetRecord record) async {

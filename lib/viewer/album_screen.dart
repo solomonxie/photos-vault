@@ -6,6 +6,7 @@ import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
+import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 
 /// One album's contents — same active-library set as the main grid, filtered
@@ -52,9 +53,11 @@ class _AlbumScreenState extends State<AlbumScreen> {
     await _reload();
   }
 
-  Future<void> _delete(AssetRecord record) async {
+  Future<bool> _delete(AssetRecord record) async {
+    if (!await confirmSoftDelete(context)) return false;
     await widget.assetRecordStore.softDelete(record.localId);
     await _reload();
+    return true;
   }
 
   Future<void> _removeFromAlbum(AssetRecord record) async {
