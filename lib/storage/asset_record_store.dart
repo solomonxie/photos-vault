@@ -71,12 +71,17 @@ class AssetRecordStore {
   /// exists, refreshes `sourcePath` when it's changed (e.g. demo/manual
   /// files re-copied to a new app container path after a reinstall) —
   /// otherwise a stale path could never heal.
+  /// [createdAt] backdates a freshly-inserted record (used by
+  /// `DemoAssetsService` to spread demo assets across days/years so the
+  /// day-grouped grid isn't just one giant "Today" section); ignored for an
+  /// already-tracked `localId`, and defaults to now.
   Future<AssetRecord> upsert({
     required String localId,
     required String contentHash,
     required String platform,
     AssetSourceType sourceType = AssetSourceType.photoManager,
     String? sourcePath,
+    DateTime? createdAt,
   }) async {
     final db = await _open();
     final existing = await getByLocalId(localId);
@@ -92,7 +97,7 @@ class AssetRecordStore {
       return existing.withSourcePath(sourcePath, now);
     }
 
-    final now = DateTime.now();
+    final now = createdAt ?? DateTime.now();
     await db.insert(_table, {
       'local_id': localId,
       'content_hash': contentHash,

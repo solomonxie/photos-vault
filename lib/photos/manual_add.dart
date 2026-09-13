@@ -51,7 +51,7 @@ class ManualAddService {
   /// the share extension's intent handler. Copies it into app-owned storage
   /// first, keyed by content hash, so re-adding the same content is a no-op
   /// and the record never points at a path this app doesn't control.
-  Future<AssetRecord> enqueueFile(String path) async {
+  Future<AssetRecord> enqueueFile(String path, {DateTime? createdAt}) async {
     final hash = await _hashFile(path);
     final dir = await _targetDirectory();
     final owned = File(p.join(dir.path, '$hash${p.extension(path)}'));
@@ -62,6 +62,7 @@ class ManualAddService {
       platform: Platform.isIOS ? 'ios' : 'android',
       sourceType: AssetSourceType.manualFile,
       sourcePath: owned.path,
+      createdAt: createdAt,
     );
   }
 

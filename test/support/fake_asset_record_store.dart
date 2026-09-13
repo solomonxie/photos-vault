@@ -22,10 +22,11 @@ class FakeAssetRecordStore implements AssetRecordStore {
     required String platform,
     AssetSourceType sourceType = AssetSourceType.photoManager,
     String? sourcePath,
+    DateTime? createdAt,
   }) async {
     final existing = _records[localId];
     if (existing != null) return existing;
-    final now = DateTime.now();
+    final now = createdAt ?? DateTime.now();
     final record = AssetRecord(
       localId: localId,
       contentHash: contentHash,

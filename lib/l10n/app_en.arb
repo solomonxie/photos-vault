@@ -36,6 +36,8 @@
   "libraryDeletePermanentlyTitle": "Delete Permanently?",
   "libraryDeletePermanentlyBody": "This can't be undone.",
   "libraryDeletePermanentlyAction": "Delete Permanently",
+  "libraryAlbumEmpty": "No photos in this album.",
+  "libraryRemoveFromAlbum": "Remove from Album",
 
   "detailFileUnavailable": "This file is no longer available.",
   "detailDoneButton": "Done",
@@ -47,6 +49,11 @@
   "detailInfoLocation": "Location",
   "detailInfoNoLocation": "No Location",
   "detailInfoDuration": "Duration",
+
+  "collectionsAlbums": "Albums",
+  "albumDeleteAction": "Delete Album",
+  "albumDeleteConfirmTitle": "Delete this album?",
+  "albumDeleteConfirmBody": "The photos and videos inside stay in your library.",
 
   "collectionsMediaTypes": "Media Types",
   "collectionsPhotosRow": "Photos",
