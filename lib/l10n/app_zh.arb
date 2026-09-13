@@ -93,6 +93,9 @@
   "settingsResetDemoButton": "重置演示数据",
   "settingsResetDemoResult": "演示照片已准备好,请查看图库。",
 
+  "bucketBrowserEmpty": "该文件夹为空。",
+  "bucketBrowserLoadMore": "加载更多",
+
   "actionCancel": "取消",
   "actionDelete": "删除"
 }
