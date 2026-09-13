@@ -13,3 +13,7 @@ Plan: `docs/design/photo-backup-app-plan.md`
 ```
 
 Or, if you already have Flutter installed system-wide: `flutter run`.
+
+## Screenshots
+
+![Screenshot](screenshot.png)
