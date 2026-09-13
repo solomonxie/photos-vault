@@ -168,7 +168,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(CupertinoIcons.add_circled));
+    await tester.tap(find.text('Import Photos'));
     await tester.pumpAndSettle();
 
     expect(find.text('Added 0 file(s), backed up 0.'), findsOneWidget);

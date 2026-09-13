@@ -20,7 +20,7 @@ void main() {
   test('addAll enqueues every bundled demo asset as a manual file', () async {
     final store = newStore();
     final service = DemoAssetsService(
-      manualAddService: ManualAddService(store: store),
+      manualAddService: ManualAddService(store: store, targetDirectory: () async => Directory.systemTemp),
       targetDirectory: () async => Directory.systemTemp,
     );
 
@@ -37,7 +37,7 @@ void main() {
   test('addAll is a no-op for demo assets already present', () async {
     final store = newStore();
     final service = DemoAssetsService(
-      manualAddService: ManualAddService(store: store),
+      manualAddService: ManualAddService(store: store, targetDirectory: () async => Directory.systemTemp),
       targetDirectory: () async => Directory.systemTemp,
     );
 
@@ -50,7 +50,7 @@ void main() {
   test('addAll re-creates a demo asset that was deleted (reset behavior)', () async {
     final store = newStore();
     final service = DemoAssetsService(
-      manualAddService: ManualAddService(store: store),
+      manualAddService: ManualAddService(store: store, targetDirectory: () async => Directory.systemTemp),
       targetDirectory: () async => Directory.systemTemp,
     );
     await service.addAll();

@@ -21,10 +21,11 @@ class App extends StatelessWidget {
   Widget build(BuildContext context) {
     return CupertinoApp(
       title: 'Bring Your Own Photos',
-      theme: const CupertinoThemeData(primaryColor: CupertinoColors.systemBlue),
+      theme: const CupertinoThemeData(brightness: Brightness.dark, primaryColor: CupertinoColors.systemBlue),
       // Settings/add-target screens are still Material underneath — gives
       // them a sane theme rather than Material's default fallback.
-      builder: (context, child) => Theme(data: ThemeData(colorSchemeSeed: Colors.indigo, useMaterial3: true), child: child!),
+      builder: (context, child) =>
+          Theme(data: ThemeData(brightness: Brightness.dark, colorSchemeSeed: Colors.indigo, useMaterial3: true), child: child!),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       // One page, no bottom tab bar — matches Photos: a day-grouped grid

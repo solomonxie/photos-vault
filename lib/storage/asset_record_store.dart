@@ -1,4 +1,7 @@
+import 'dart:io';
+
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:sqflite/sqflite.dart' show Database, DatabaseFactory, OpenDatabaseOptions;
 
@@ -8,11 +11,19 @@ import 'asset_record.dart';
 /// truth for what's been uploaded, so a restart or a killed background task
 /// resumes without re-scanning derivatives from scratch.
 class AssetRecordStore {
-  AssetRecordStore({DatabaseFactory? databaseFactory, this._path})
-    : _databaseFactory = databaseFactory ?? sqflite.databaseFactory;
+  AssetRecordStore({DatabaseFactory? databaseFactory, this._path, Future<Directory> Function()? appSupportDirectory})
+    : _databaseFactory = databaseFactory ?? sqflite.databaseFactory,
+      _appSupportDirectory = appSupportDirectory ?? getApplicationSupportDirectory;
 
   final DatabaseFactory _databaseFactory;
   final String? _path;
+
+  /// Where `ManualAddService`/`DemoAssetsService` copy owned files into —
+  /// used to re-resolve a `manualFile` record's `sourcePath` by filename
+  /// when its stored absolute path goes stale (the app container's UUID
+  /// isn't stable across reinstalls, even though the files inside it move
+  /// together).
+  final Future<Directory> Function() _appSupportDirectory;
 
   Database? _db;
 
@@ -56,7 +67,10 @@ class AssetRecordStore {
     _db = null;
   }
 
-  /// Inserts a new record if `localId` isn't tracked yet; no-op otherwise.
+  /// Inserts a new record if `localId` isn't tracked yet. If one already
+  /// exists, refreshes `sourcePath` when it's changed (e.g. demo/manual
+  /// files re-copied to a new app container path after a reinstall) —
+  /// otherwise a stale path could never heal.
   Future<AssetRecord> upsert({
     required String localId,
     required String contentHash,
@@ -66,7 +80,17 @@ class AssetRecordStore {
   }) async {
     final db = await _open();
     final existing = await getByLocalId(localId);
-    if (existing != null) return existing;
+    if (existing != null) {
+      if (sourcePath == null || sourcePath == existing.sourcePath) return existing;
+      final now = DateTime.now();
+      await db.update(
+        _table,
+        {'source_path': sourcePath, 'updated_at': now.millisecondsSinceEpoch},
+        where: 'local_id = ?',
+        whereArgs: [localId],
+      );
+      return existing.withSourcePath(sourcePath, now);
+    }
 
     final now = DateTime.now();
     await db.insert(_table, {
@@ -93,7 +117,28 @@ class AssetRecordStore {
     final db = await _open();
     final rows = await db.query(_table, where: 'local_id = ?', whereArgs: [localId], limit: 1);
     if (rows.isEmpty) return null;
-    return _fromRow(rows.single);
+    return _healed(_fromRow(rows.single));
+  }
+
+  /// Repairs a `manualFile` record whose `sourcePath` no longer exists by
+  /// re-resolving its filename under the current app-support directory. A
+  /// no-op (and no `path_provider` call) when the path already resolves.
+  Future<AssetRecord> _healed(AssetRecord record) async {
+    final path = record.sourcePath;
+    if (record.sourceType != AssetSourceType.manualFile || path == null || File(path).existsSync()) return record;
+    final dir = await _appSupportDirectory();
+    final healedPath = p.join(dir.path, p.basename(path));
+    if (healedPath == path || !File(healedPath).existsSync()) return record;
+
+    final now = DateTime.now();
+    final db = await _open();
+    await db.update(
+      _table,
+      {'source_path': healedPath, 'updated_at': now.millisecondsSinceEpoch},
+      where: 'local_id = ?',
+      whereArgs: [record.localId],
+    );
+    return record.withSourcePath(healedPath, now);
   }
 
   Future<void> updateDerivative(String localId, DerivativeKind kind, DerivativeState state) async {
@@ -156,7 +201,7 @@ class AssetRecordStore {
   Future<List<AssetRecord>> listAll() async {
     final db = await _open();
     final rows = await db.query(_table, orderBy: 'created_at ASC');
-    return rows.map(_fromRow).toList();
+    return Future.wait(rows.map(_fromRow).map(_healed));
   }
 
   /// Permanently deletes — used for real deletion from "Recently Deleted",

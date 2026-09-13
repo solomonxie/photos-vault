@@ -13,12 +13,13 @@ import 'manual_add.dart';
 /// Enqueueing goes through [ManualAddService], which keys `localId` off the
 /// file's content hash — re-adding an already-present demo item is a no-op,
 /// and re-adding one the user deleted (Settings' "Reset Demo Data") brings
-/// it right back. Copies land in application-support storage, not the
-/// system temp dir — the OS can clear temp between launches, which would
-/// leave a saved record pointing at a file that's silently gone.
+/// it right back. `targetDirectory` here is just scratch space to
+/// materialize the bundled bytes into a real file — [ManualAddService]
+/// copies it into its own durable, app-owned storage from there, so this
+/// one doesn't need to be persistent.
 class DemoAssetsService {
   DemoAssetsService({required this.manualAddService, Future<Directory> Function()? targetDirectory})
-    : _targetDirectory = targetDirectory ?? getApplicationSupportDirectory;
+    : _targetDirectory = targetDirectory ?? getTemporaryDirectory;
 
   final ManualAddService manualAddService;
   final Future<Directory> Function() _targetDirectory;

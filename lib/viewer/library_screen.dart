@@ -13,6 +13,7 @@ import 'backup_screen.dart';
 import 'detail_screen.dart';
 import 'favorites_screen.dart';
 import 'hidden_screen.dart';
+import 'media_type_screen.dart';
 import 'recently_deleted_screen.dart';
 
 /// The whole app, one page — matches real Photos: no separate "Library" vs
@@ -193,14 +194,7 @@ class LibraryScreenState extends State<LibraryScreen> {
         bottom: false,
         child: CustomScrollView(
           slivers: [
-            CupertinoSliverNavigationBar(
-              largeTitle: Text(l10n.tabLibrary),
-              trailing: CupertinoButton(
-                padding: EdgeInsets.zero,
-                onPressed: _busy ? null : addFiles,
-                child: _busy ? const CupertinoActivityIndicator() : const Icon(CupertinoIcons.add_circled),
-              ),
-            ),
+            CupertinoSliverNavigationBar(largeTitle: Text(l10n.tabLibrary)),
             if (_all.isNotEmpty)
               SliverToBoxAdapter(
                 child: Padding(
@@ -224,8 +218,24 @@ class LibraryScreenState extends State<LibraryScreen> {
                 child: CupertinoListSection.insetGrouped(
                   margin: const EdgeInsets.symmetric(horizontal: 16),
                   children: [
-                    _row(icon: CupertinoIcons.photo, color: CupertinoColors.systemGreen, title: l10n.collectionsPhotosRow, count: _photoCount),
-                    _row(icon: CupertinoIcons.video_camera_solid, color: CupertinoColors.systemPurple, title: l10n.collectionsVideosRow, count: _videoCount),
+                    _row(
+                      icon: CupertinoIcons.photo,
+                      color: CupertinoColors.systemGreen,
+                      title: l10n.collectionsPhotosRow,
+                      count: _photoCount,
+                      onTap: () => _push(
+                        MediaTypeScreen(assetRecordStore: assetRecordStore, isVideo: false, title: l10n.collectionsPhotosRow),
+                      ),
+                    ),
+                    _row(
+                      icon: CupertinoIcons.video_camera_solid,
+                      color: CupertinoColors.systemPurple,
+                      title: l10n.collectionsVideosRow,
+                      count: _videoCount,
+                      onTap: () => _push(
+                        MediaTypeScreen(assetRecordStore: assetRecordStore, isVideo: true, title: l10n.collectionsVideosRow),
+                      ),
+                    ),
                   ],
                 ),
               ),
@@ -235,6 +245,12 @@ class LibraryScreenState extends State<LibraryScreen> {
               child: CupertinoListSection.insetGrouped(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
                 children: [
+                  _row(
+                    icon: CupertinoIcons.square_arrow_up,
+                    color: CupertinoColors.systemIndigo,
+                    title: l10n.collectionsImportPhotosRow,
+                    onTap: _busy ? null : addFiles,
+                  ),
                   _row(
                     icon: CupertinoIcons.heart_fill,
                     color: CupertinoColors.systemRed,

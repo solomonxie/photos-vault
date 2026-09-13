@@ -47,6 +47,55 @@ void main() {
     expect(find.byIcon(CupertinoIcons.heart_fill), findsOneWidget);
   });
 
+  testWidgets('dragging the photo down past the threshold dismisses the screen', (tester) async {
+    final record = _record(localId: 'a');
+
+    await tester.pumpWidget(
+      _wrap(
+        Builder(
+          builder: (context) => CupertinoButton(
+            onPressed: () => Navigator.of(context).push(
+              CupertinoPageRoute(
+                builder: (_) => DetailScreen(
+                  records: [record],
+                  initialIndex: 0,
+                  onDelete: (_) async {},
+                  onToggleFavorite: (_) async {},
+                ),
+              ),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.byType(DetailScreen), findsOneWidget);
+
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 150));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DetailScreen), findsNothing);
+  });
+
+  testWidgets('a small downward drag snaps back instead of dismissing', (tester) async {
+    final record = _record(localId: 'a');
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(records: [record], initialIndex: 0, onDelete: (_) async {}, onToggleFavorite: (_) async {}),
+      ),
+    );
+    await tester.pump();
+
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 20));
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DetailScreen), findsOneWidget);
+  });
+
   testWidgets('Done pops the screen', (tester) async {
     final record = _record(localId: 'a');
 

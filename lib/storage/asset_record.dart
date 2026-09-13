@@ -68,14 +68,16 @@ class AssetRecord {
     bool? isFavorite,
     bool? isHidden,
     DateTime? Function()? deletedAt,
+    String? sourcePath,
+    DateTime? updatedAt,
   }) => AssetRecord(
     localId: localId,
     contentHash: contentHash,
     platform: platform,
     createdAt: createdAt,
-    updatedAt: DateTime.now(),
+    updatedAt: updatedAt ?? DateTime.now(),
     sourceType: sourceType,
-    sourcePath: sourcePath,
+    sourcePath: sourcePath ?? this.sourcePath,
     derivatives: derivatives ?? this.derivatives,
     isFavorite: isFavorite ?? this.isFavorite,
     isHidden: isHidden ?? this.isHidden,
@@ -90,4 +92,8 @@ class AssetRecord {
   AssetRecord withHidden(bool value) => _copyWith(isHidden: value);
 
   AssetRecord withDeletedAt(DateTime? value) => _copyWith(deletedAt: () => value);
+
+  /// Used by [AssetRecordStore.upsert] to heal a stale `sourcePath`.
+  AssetRecord withSourcePath(String value, DateTime updatedAt) =>
+      _copyWith(sourcePath: value, updatedAt: updatedAt);
 }
