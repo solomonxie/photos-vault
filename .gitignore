@@ -33,5 +33,8 @@ android/**/gradle-wrapper.jar
 # Local Flutter SDK checkout (see scripts/bootstrap-flutter.sh)
 .tools/
 
+# Local venv for scripts/generate_icon.py (Pillow), project-scoped
+venv/
+
 # Claude Code session-local state, not project config
 .claude/scheduled_tasks.lock
