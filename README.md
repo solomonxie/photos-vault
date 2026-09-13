@@ -16,4 +16,11 @@ Or, if you already have Flutter installed system-wide: `flutter run`.
 
 ## Screenshots
 
-![Screenshot](screenshot.png)
+**Photo Library**
+![Photo Library](screenshot-photos.png)
+
+**Collections**
+![Collections](screenshot-collections.png)
+
+**Media Types & Utilities**
+![Media Types & Utilities](screenshot-utilities.png)
