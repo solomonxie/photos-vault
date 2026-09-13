@@ -67,6 +67,14 @@ class _BackupScreenState extends State<BackupScreen> {
                 children: [
                   CupertinoListSection.insetGrouped(
                     header: Text(l10n.backupStatusSectionHeader),
+                    // Un-overridden, this defaults to systemGroupedBackground
+                    // (pure black in dark mode) — a harsher black than the
+                    // page's own charcoal, visible as a seam around the card.
+                    backgroundColor: const Color(0xFF1C1C1E),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF2C2C2E),
+                      borderRadius: BorderRadius.all(Radius.circular(10)),
+                    ),
                     children: [
                       _statusTile(l10n.libraryStatusPending, _countOf(UploadStatus.pending), CupertinoColors.systemGrey),
                       _statusTile(l10n.libraryStatusUploading, _countOf(UploadStatus.uploading), CupertinoColors.systemBlue),
