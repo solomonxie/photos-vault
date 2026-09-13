@@ -7,14 +7,8 @@ import 'package:path/path.dart' as p;
 import 'package:video_player/video_player.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/photo_library_service.dart';
 import '../storage/asset_record.dart';
-
-const _videoExtensions = {'.mp4', '.mov', '.m4v'};
-
-bool isVideoPath(String path) {
-  final lower = path.toLowerCase();
-  return _videoExtensions.any(lower.endsWith);
-}
 
 /// Full-screen, swipe-between-items viewer — the Photos-app pattern: black
 /// background, "Done" to dismiss, a bottom action bar, and — scroll down
@@ -29,6 +23,7 @@ class DetailScreen extends StatefulWidget {
     required this.initialIndex,
     required this.onDelete,
     required this.onToggleFavorite,
+    this.resolvePhotoManagerFile,
   });
 
   final List<AssetRecord> records;
@@ -38,6 +33,11 @@ class DetailScreen extends StatefulWidget {
   /// cancelled the confirmation, in which case nothing here should change.
   final Future<bool> Function(AssetRecord record) onDelete;
   final Future<void> Function(AssetRecord record) onToggleFavorite;
+
+  /// Resolves a `photoManager` record's on-disk file. Defaults to
+  /// [PhotoLibraryService.resolveFile]; overridable so widget tests never
+  /// touch the real `photo_manager` platform channel.
+  final Future<File?> Function(AssetRecord record)? resolvePhotoManagerFile;
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -108,7 +108,8 @@ class _DetailScreenState extends State<DetailScreen> {
                 controller: _pageController,
                 itemCount: _records.length,
                 onPageChanged: (i) => setState(() => _index = i),
-                itemBuilder: (context, i) => _MediaPage(record: _records[i]),
+                itemBuilder: (context, i) =>
+                    _MediaPage(record: _records[i], resolveFile: widget.resolvePhotoManagerFile),
               ),
             ),
             Padding(
@@ -145,9 +146,10 @@ class _DetailScreenState extends State<DetailScreen> {
 }
 
 class _MediaPage extends StatefulWidget {
-  const _MediaPage({required this.record});
+  const _MediaPage({required this.record, this.resolveFile});
 
   final AssetRecord record;
+  final Future<File?> Function(AssetRecord record)? resolveFile;
 
   @override
   State<_MediaPage> createState() => _MediaPageState();
@@ -156,6 +158,13 @@ class _MediaPage extends StatefulWidget {
 class _MediaPageState extends State<_MediaPage> {
   VideoPlayerController? _videoController;
   Object? _error;
+
+  /// `photoManager` records carry no `sourcePath` — it's resolved on demand
+  /// here via `photo_manager`, same as the library grid does. `null` while
+  /// still resolving; stays `null` for good if the asset's gone from the
+  /// library or was never resolvable.
+  String? _path;
+  bool _resolvingPath = false;
 
   /// Pulling down while already at the top rubber-bands the scroll position
   /// negative (`BouncingScrollPhysics`) instead of doing nothing — past
@@ -181,19 +190,46 @@ class _MediaPageState extends State<_MediaPage> {
   @override
   void initState() {
     super.initState();
-    final path = widget.record.sourcePath;
-    if (path != null && isVideoPath(path)) {
-      final controller = VideoPlayerController.file(File(path));
-      _videoController = controller;
-      controller
-          .initialize()
-          .then((_) {
-            if (mounted) setState(() {});
-          })
-          .catchError((Object e) {
-            if (mounted) setState(() => _error = e);
-          });
+    final direct = widget.record.sourcePath;
+    if (direct != null) {
+      _path = direct;
+      _initVideoIfNeeded();
+    } else if (widget.record.sourceType == AssetSourceType.photoManager) {
+      // Set directly rather than via setState: this runs synchronously
+      // during initState, before the first build, so the field's starting
+      // value is picked up without needing to mark the tree dirty.
+      _resolvingPath = true;
+      _resolvePath();
     }
+  }
+
+  Future<void> _resolvePath() async {
+    final resolver = widget.resolveFile ?? PhotoLibraryService.resolveFile;
+    File? file;
+    try {
+      file = await resolver(widget.record);
+    } catch (_) {}
+    if (!mounted) return;
+    setState(() {
+      _resolvingPath = false;
+      _path = file?.path;
+    });
+    _initVideoIfNeeded();
+  }
+
+  void _initVideoIfNeeded() {
+    final path = _path;
+    if (path == null || !widget.record.isVideo) return;
+    final controller = VideoPlayerController.file(File(path));
+    _videoController = controller;
+    controller
+        .initialize()
+        .then((_) {
+          if (mounted) setState(() {});
+        })
+        .catchError((Object e) {
+          if (mounted) setState(() => _error = e);
+        });
   }
 
   @override
@@ -203,8 +239,14 @@ class _MediaPageState extends State<_MediaPage> {
   }
 
   Widget _media(AppLocalizations l10n) {
-    final path = widget.record.sourcePath;
-    if (path == null || _error != null) {
+    final path = _path;
+    if (path == null) {
+      if (_resolvingPath) {
+        return const Center(child: CupertinoActivityIndicator(color: CupertinoColors.white));
+      }
+      return _MissingFileNote(message: l10n.detailFileUnavailable);
+    }
+    if (_error != null) {
       return _MissingFileNote(message: l10n.detailFileUnavailable);
     }
     final controller = _videoController;
@@ -250,7 +292,7 @@ class _MediaPageState extends State<_MediaPage> {
           physics: const BouncingScrollPhysics(),
           slivers: [
             SliverToBoxAdapter(child: SizedBox(height: constraints.maxHeight, child: _media(l10n))),
-            SliverToBoxAdapter(child: _InfoPanel(record: widget.record, videoController: _videoController)),
+            SliverToBoxAdapter(child: _InfoPanel(record: widget.record, resolvedPath: _path, videoController: _videoController)),
           ],
         ),
       ),
@@ -282,9 +324,13 @@ class _MissingFileNote extends StatelessWidget {
 /// image — date/time header, then a plain list of file facts. Location is
 /// always "No Location": this app doesn't read EXIF GPS tags (T4.x).
 class _InfoPanel extends StatefulWidget {
-  const _InfoPanel({required this.record, required this.videoController});
+  const _InfoPanel({required this.record, required this.resolvedPath, required this.videoController});
 
   final AssetRecord record;
+
+  /// Same value `_MediaPage` resolved and rendered — `photoManager` records
+  /// have no `record.sourcePath` of their own.
+  final String? resolvedPath;
   final VideoPlayerController? videoController;
 
   @override
@@ -302,15 +348,23 @@ class _InfoPanelState extends State<_InfoPanel> {
     _load();
   }
 
+  @override
+  void didUpdateWidget(_InfoPanel oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    // `resolvedPath` starts null for `photoManager` records and arrives
+    // once `_MediaPage` finishes resolving it — reload when that happens.
+    if (oldWidget.resolvedPath != widget.resolvedPath) _load();
+  }
+
   Future<void> _load() async {
-    final path = widget.record.sourcePath;
+    final path = widget.resolvedPath;
     if (path == null) return;
     final file = File(path);
     int? bytes, width, height;
     try {
       bytes = (await file.stat()).size;
     } catch (_) {}
-    if (!isVideoPath(path)) {
+    if (!widget.record.isVideo) {
       try {
         final codec = await ui.instantiateImageCodec(await file.readAsBytes());
         final frame = await codec.getNextFrame();
@@ -355,7 +409,7 @@ class _InfoPanelState extends State<_InfoPanel> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final record = widget.record;
-    final path = record.sourcePath;
+    final path = widget.resolvedPath;
     final format = path != null && p.extension(path).isNotEmpty ? p.extension(path).substring(1).toUpperCase() : null;
     final duration = widget.videoController?.value.duration;
 

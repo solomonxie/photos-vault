@@ -1,3 +1,6 @@
+import 'dart:io';
+import 'dart:typed_data';
+
 import 'package:back_your_own_photos/l10n/app_localizations.dart';
 import 'package:back_your_own_photos/storage/asset_record.dart';
 import 'package:back_your_own_photos/viewer/detail_screen.dart';
@@ -20,6 +23,24 @@ AssetRecord _record({required String localId, bool isFavorite = false}) => Asset
   sourcePath: '/tmp/$localId.jpg',
   isFavorite: isFavorite,
 );
+
+AssetRecord _photoManagerRecord({required String localId}) => AssetRecord(
+  localId: 'photo:$localId',
+  contentHash: localId,
+  platform: 'ios',
+  createdAt: DateTime(2026, 1, 1),
+  updatedAt: DateTime(2026, 1, 1),
+  sourceType: AssetSourceType.photoManager,
+);
+
+// Smallest possible valid PNG (1x1, transparent).
+final _tinyPngBytes = Uint8List.fromList([
+  0x89, 0x50, 0x4E, 0x47, 0x0D, 0x0A, 0x1A, 0x0A, 0x00, 0x00, 0x00, 0x0D, 0x49, 0x48, 0x44, 0x52, //
+  0x00, 0x00, 0x00, 0x01, 0x00, 0x00, 0x00, 0x01, 0x08, 0x06, 0x00, 0x00, 0x00, 0x1F, 0x15, 0xC4,
+  0x89, 0x00, 0x00, 0x00, 0x0A, 0x49, 0x44, 0x41, 0x54, 0x78, 0x9C, 0x63, 0x00, 0x01, 0x00, 0x00,
+  0x05, 0x00, 0x01, 0x0D, 0x0A, 0x2D, 0xB4, 0x00, 0x00, 0x00, 0x00, 0x49, 0x45, 0x4E, 0x44, 0xAE,
+  0x42, 0x60, 0x82,
+]);
 
 void main() {
   testWidgets('tapping the heart toggles favorite and calls back', (tester) async {
@@ -126,5 +147,52 @@ void main() {
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
     expect(find.byType(DetailScreen), findsNothing);
+  });
+
+  testWidgets('a photoManager record resolves its file instead of showing unavailable', (tester) async {
+    final record = _photoManagerRecord(localId: 'a1');
+    final tempFile = File('${Directory.systemTemp.path}/detail_screen_test_a1.png')..writeAsBytesSync(_tinyPngBytes);
+    addTearDown(() => tempFile.deleteSync());
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [record],
+          initialIndex: 0,
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+          resolvePhotoManagerFile: (_) async => tempFile,
+        ),
+      ),
+    );
+    // Still resolving: a spinner, not the "unavailable" note.
+    await tester.pump();
+    expect(find.byIcon(CupertinoIcons.exclamationmark_triangle), findsNothing);
+
+    // Let the resolver's future complete and the widget rebuild.
+    await tester.pump();
+
+    expect(find.byIcon(CupertinoIcons.exclamationmark_triangle), findsNothing);
+    expect(find.byType(Image), findsOneWidget);
+  });
+
+  testWidgets('a photoManager record removed from the library shows the unavailable note', (tester) async {
+    final record = _photoManagerRecord(localId: 'gone');
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [record],
+          initialIndex: 0,
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+          resolvePhotoManagerFile: (_) async => null,
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 50));
+
+    expect(find.byIcon(CupertinoIcons.exclamationmark_triangle), findsOneWidget);
   });
 }
