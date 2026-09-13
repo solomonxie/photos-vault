@@ -273,12 +273,9 @@ class _MediaPageState extends State<_MediaPage> {
         ),
       );
     }
-    return Center(
-      child: Image.file(
-        File(path),
-        fit: BoxFit.contain,
-        errorBuilder: (context, error, stackTrace) => _MissingFileNote(message: l10n.detailFileUnavailable),
-      ),
+    return _ZoomableImage(
+      file: File(path),
+      errorBuilder: (context, error, stackTrace) => _MissingFileNote(message: l10n.detailFileUnavailable),
     );
   }
 
@@ -315,6 +312,85 @@ class _MissingFileNote extends StatelessWidget {
           const SizedBox(height: 12),
           Text(message, style: const TextStyle(color: CupertinoColors.systemGrey)),
         ],
+      ),
+    );
+  }
+}
+
+/// Pinch (via [InteractiveViewer]) and double-tap to zoom, same as Photos —
+/// double-tap zooms in centered on the tap point, or back out if already
+/// zoomed. `panEnabled` tracks the current scale rather than staying on:
+/// left on permanently, dragging while unzoomed would fight the page's own
+/// pull-down-to-dismiss gesture on [_MediaPage]'s `CustomScrollView`.
+class _ZoomableImage extends StatefulWidget {
+  const _ZoomableImage({required this.file, required this.errorBuilder});
+
+  final File file;
+  final ImageErrorWidgetBuilder errorBuilder;
+
+  @override
+  State<_ZoomableImage> createState() => _ZoomableImageState();
+}
+
+class _ZoomableImageState extends State<_ZoomableImage> with SingleTickerProviderStateMixin {
+  static const _zoomedScale = 3.0;
+
+  final _transformation = TransformationController();
+  late final AnimationController _animController = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 200),
+  );
+  Animation<Matrix4>? _animation;
+  Offset _doubleTapPosition = Offset.zero;
+
+  bool get _isZoomed => _transformation.value.getMaxScaleOnAxis() > 1.01;
+
+  @override
+  void initState() {
+    super.initState();
+    _animController.addListener(() {
+      final animation = _animation;
+      if (animation != null) _transformation.value = animation.value;
+    });
+  }
+
+  @override
+  void dispose() {
+    _animController.dispose();
+    _transformation.dispose();
+    super.dispose();
+  }
+
+  void _onDoubleTap() {
+    final end = _isZoomed
+        ? Matrix4.identity()
+        : (Matrix4.identity()
+            ..translateByDouble(
+              -_doubleTapPosition.dx * (_zoomedScale - 1),
+              -_doubleTapPosition.dy * (_zoomedScale - 1),
+              0,
+              1,
+            )
+            ..scaleByDouble(_zoomedScale, _zoomedScale, _zoomedScale, 1));
+    _animation = Matrix4Tween(
+      begin: _transformation.value,
+      end: end,
+    ).animate(CurvedAnimation(parent: _animController, curve: Curves.easeOut));
+    _animController.forward(from: 0);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onDoubleTapDown: (details) => _doubleTapPosition = details.localPosition,
+      onDoubleTap: _onDoubleTap,
+      child: InteractiveViewer(
+        transformationController: _transformation,
+        minScale: 1,
+        maxScale: _zoomedScale,
+        panEnabled: _isZoomed,
+        onInteractionEnd: (_) => setState(() {}),
+        child: Center(child: Image.file(widget.file, fit: BoxFit.contain, errorBuilder: widget.errorBuilder)),
       ),
     );
   }
