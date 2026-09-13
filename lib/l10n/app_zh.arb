@@ -36,8 +36,13 @@
   "detailFileUnavailable": "该文件已不可用。",
   "detailDoneButton": "完成",
   "detailShareComingSoon": "分享功能尚未实现。",
-  "detailInfoAdded": "添加时间",
   "detailInfoStatus": "备份状态",
+  "detailInfoDimensions": "尺寸",
+  "detailInfoFileSize": "文件大小",
+  "detailInfoFormat": "格式",
+  "detailInfoLocation": "位置",
+  "detailInfoNoLocation": "无位置信息",
+  "detailInfoDuration": "时长",
 
   "collectionsMediaTypes": "媒体类型",
   "collectionsPhotosRow": "照片",
@@ -48,6 +53,7 @@
   "collectionsRecentlyDeletedRow": "最近删除",
   "collectionsBackupStatusRow": "备份状态",
   "collectionsSettingsRow": "S3 设置",
+  "collectionsImportPhotosRow": "导入照片",
 
   "backupEmptyTitle": "暂无备份",
   "backupEmptyNote": "上传仪表盘(排队中/上传中/已完成/失败)将在 T4.3 中实现。",

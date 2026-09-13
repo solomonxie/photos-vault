@@ -40,8 +40,13 @@
   "detailFileUnavailable": "This file is no longer available.",
   "detailDoneButton": "Done",
   "detailShareComingSoon": "Sharing isn't wired up yet.",
-  "detailInfoAdded": "Added",
   "detailInfoStatus": "Backup status",
+  "detailInfoDimensions": "Dimensions",
+  "detailInfoFileSize": "File Size",
+  "detailInfoFormat": "Format",
+  "detailInfoLocation": "Location",
+  "detailInfoNoLocation": "No Location",
+  "detailInfoDuration": "Duration",
 
   "collectionsMediaTypes": "Media Types",
   "collectionsPhotosRow": "Photos",
@@ -52,6 +57,7 @@
   "collectionsRecentlyDeletedRow": "Recently Deleted",
   "collectionsBackupStatusRow": "Backup Status",
   "collectionsSettingsRow": "S3 Settings",
+  "collectionsImportPhotosRow": "Import Photos",
 
   "backupEmptyTitle": "Nothing Backed Up Yet",
   "backupEmptyNote": "The upload dashboard (queued/uploading/done/failed) lands in T4.3.",

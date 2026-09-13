@@ -21,16 +21,23 @@ void main() {
     return store;
   }
 
-  test('enqueueFile stores a manual-file record hashed from content', () async {
+  Future<Directory> Function() tempTargetDir() {
+    final dir = Directory.systemTemp.createTempSync('manual_add_test_');
+    addTearDown(() => dir.delete(recursive: true));
+    return () async => dir;
+  }
+
+  test('enqueueFile copies the file into app-owned storage, hashed from content', () async {
     final store = newStore();
     final file = await File('${Directory.systemTemp.path}/manual_add_test.txt').writeAsString('hello');
     addTearDown(() => file.delete());
 
-    final service = ManualAddService(store: store);
+    final service = ManualAddService(store: store, targetDirectory: tempTargetDir());
     final record = await service.enqueueFile(file.path);
 
     expect(record.sourceType, AssetSourceType.manualFile);
-    expect(record.sourcePath, file.path);
+    expect(record.sourcePath, isNot(file.path));
+    expect(await File(record.sourcePath!).readAsString(), 'hello');
     expect(record.localId, 'manual:${record.contentHash}');
   });
 
@@ -39,7 +46,7 @@ void main() {
     final file = await File('${Directory.systemTemp.path}/manual_add_test_2.txt').writeAsString('same content');
     addTearDown(() => file.delete());
 
-    final service = ManualAddService(store: store);
+    final service = ManualAddService(store: store, targetDirectory: tempTargetDir());
     await service.enqueueFile(file.path);
     await service.enqueueFile(file.path);
 
@@ -53,12 +60,13 @@ void main() {
 
     final service = ManualAddService(
       store: store,
+      targetDirectory: tempTargetDir(),
       picker: ({type = FileType.any, allowMultiple = false}) async => [TestPlatformFile(file.path)],
     );
 
     final added = await service.pickAndEnqueue();
 
     expect(added, hasLength(1));
-    expect(added.single.sourcePath, file.path);
+    expect(await File(added.single.sourcePath!).readAsString(), 'picked');
   });
 }

@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
@@ -11,10 +13,21 @@ import '../storage/asset_record_store.dart';
 /// enqueues them into `asset_record` alongside auto-detected camera-roll
 /// assets. This is also how the iOS Share Extension (T2.6) feeds the same
 /// queue for anything shared in from another app.
+///
+/// The picked path is a picker-owned temp copy, not something this app owns
+/// — the OS can clear it any time, and its absolute prefix goes stale on
+/// every reinstall regardless (container UUIDs aren't stable across
+/// installs). So the file is copied into app-owned storage, hash-named,
+/// before it's ever recorded — same fix `DemoAssetsService` already needed.
 class ManualAddService {
-  ManualAddService({required this.store, this.picker = FilePicker.pickFiles});
+  ManualAddService({
+    required this.store,
+    this.picker = FilePicker.pickFiles,
+    Future<Directory> Function()? targetDirectory,
+  }) : _targetDirectory = targetDirectory ?? getApplicationSupportDirectory;
 
   final AssetRecordStore store;
+  final Future<Directory> Function() _targetDirectory;
 
   /// Overridable for tests so they never touch the real file picker.
   final Future<List<PlatformFile>> Function({FileType type, bool allowMultiple}) picker;
@@ -35,15 +48,20 @@ class ManualAddService {
   }
 
   /// Enqueues a single file already on disk — shared by [pickAndEnqueue] and
-  /// the share extension's intent handler.
+  /// the share extension's intent handler. Copies it into app-owned storage
+  /// first, keyed by content hash, so re-adding the same content is a no-op
+  /// and the record never points at a path this app doesn't control.
   Future<AssetRecord> enqueueFile(String path) async {
     final hash = await _hashFile(path);
+    final dir = await _targetDirectory();
+    final owned = File(p.join(dir.path, '$hash${p.extension(path)}'));
+    if (!await owned.exists()) await File(path).copy(owned.path);
     return store.upsert(
       localId: 'manual:$hash',
       contentHash: hash,
       platform: Platform.isIOS ? 'ios' : 'android',
       sourceType: AssetSourceType.manualFile,
-      sourcePath: path,
+      sourcePath: owned.path,
     );
   }
 
