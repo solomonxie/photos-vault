@@ -6,6 +6,7 @@ import '../photos/manual_add.dart';
 import '../storage/asset_record_store.dart';
 import 'add_s3_backup_screen.dart';
 import 'backup_targets_store.dart';
+import 'bucket_browser_screen.dart';
 import 's3_backup_target.dart';
 
 class SettingsScreen extends StatefulWidget {
@@ -123,6 +124,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           icon: const Icon(Icons.delete_outline),
                           onPressed: () => _confirmDelete(target),
                         ),
+                        onTap: () => Navigator.of(
+                          context,
+                        ).push(MaterialPageRoute(builder: (_) => BucketBrowserScreen(target: target))),
                       );
                     },
                   ),

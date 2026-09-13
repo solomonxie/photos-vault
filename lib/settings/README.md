@@ -26,6 +26,15 @@ BackupTargetsStore.addS3(...)                         backup_targets_store.dart
 S3TargetDraftsStore.removeMatching(...)  — draft graduated, drop it
   ▼
 pop(true) ──► SettingsScreen reloads target list
+
+SettingsScreen (tap a target row)                     settings_screen.dart
+  ▼
+BucketBrowserScreen(target, prefix: target.prefix)    bucket_browser_screen.dart
+  │ listBucket(target, prefix)                         s3_listing.dart
+  │ signed ListObjectsV2, delimiter=/ — folders come back as CommonPrefixes
+  ▼
+folders ──► tap ──► push BucketBrowserScreen(prefix: folder)  (drill down)
+objects ──► shown with size; "Load More" pages via nextToken
 ```
 
 Both `backup_targets_store.dart` and `s3_target_drafts_store.dart` sit on the
@@ -35,3 +44,5 @@ same `secure_store.dart` (`SecureStore` abstraction over
 - `s3_backup_target.dart` / `s3_target_draft.dart` — the two persisted models.
 - `s3_connectivity.dart` / `s3_region_detection.dart` — the two unauthenticated
   and authenticated network checks run before a target is ever saved.
+- `s3_listing.dart` — paginated `ListObjectsV2` for `bucket_browser_screen.dart`,
+  same signing approach as `s3_connectivity.dart`.
