@@ -5,6 +5,7 @@ import 'package:back_your_own_photos/l10n/app_localizations.dart';
 import 'package:back_your_own_photos/storage/asset_record.dart';
 import 'package:back_your_own_photos/viewer/detail_screen.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/gestures.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 Widget _wrap(Widget child) => CupertinoApp(
@@ -194,5 +195,38 @@ void main() {
     await tester.pump(const Duration(milliseconds: 50));
 
     expect(find.byIcon(CupertinoIcons.exclamationmark_triangle), findsOneWidget);
+  });
+
+  testWidgets('double-tapping a photo zooms in, and again zooms back out', (tester) async {
+    final tempFile = File('${Directory.systemTemp.path}/detail_screen_test_zoom.png')..writeAsBytesSync(_tinyPngBytes);
+    addTearDown(() => tempFile.deleteSync());
+    final record = _record(localId: 'zoom').withSourcePath(tempFile.path, DateTime(2026, 1, 1));
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(records: [record], initialIndex: 0, onDelete: (_) async => true, onToggleFavorite: (_) async {}),
+      ),
+    );
+    await tester.pump();
+
+    final viewerFinder = find.byType(InteractiveViewer);
+    expect(viewerFinder, findsOneWidget);
+    double scale() => tester.widget<InteractiveViewer>(viewerFinder).transformationController!.value.getMaxScaleOnAxis();
+    expect(scale(), closeTo(1, 0.01));
+
+    Future<void> doubleTapAt(Offset position) async {
+      await tester.tapAt(position);
+      await tester.pump(kDoubleTapMinTime);
+      await tester.tapAt(position);
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 250));
+    }
+
+    final center = tester.getCenter(viewerFinder);
+    await doubleTapAt(center);
+    expect(scale(), greaterThan(2));
+
+    await doubleTapAt(center);
+    expect(scale(), closeTo(1, 0.01));
   });
 }
