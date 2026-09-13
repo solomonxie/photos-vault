@@ -4,6 +4,7 @@ import 'package:back_your_own_photos/photos/manual_add.dart';
 import 'package:back_your_own_photos/settings/add_s3_backup_screen.dart';
 import 'package:back_your_own_photos/settings/backup_targets_store.dart';
 import 'package:back_your_own_photos/settings/settings_screen.dart';
+import 'package:back_your_own_photos/storage/album_store.dart';
 import 'package:back_your_own_photos/storage/asset_record.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -24,6 +25,9 @@ class _FakeDemoAssetsService implements DemoAssetsService {
 
   @override
   ManualAddService get manualAddService => throw UnimplementedError();
+
+  @override
+  AlbumStore get albumStore => throw UnimplementedError();
 
   @override
   Future<List<AssetRecord>> addAll() async {

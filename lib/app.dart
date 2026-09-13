@@ -3,11 +3,12 @@ import 'package:flutter/material.dart' show Colors, Theme, ThemeData;
 
 import 'l10n/app_localizations.dart';
 import 'settings/backup_targets_store.dart';
+import 'storage/album_store.dart';
 import 'storage/asset_record_store.dart';
 import 'viewer/library_screen.dart';
 
 class App extends StatelessWidget {
-  const App({super.key, this.settingsStore, this.assetRecordStore});
+  const App({super.key, this.settingsStore, this.assetRecordStore, this.albumStore});
 
   /// Overridable for tests so widget tests never touch the real
   /// secure-storage platform channel.
@@ -16,6 +17,10 @@ class App extends StatelessWidget {
   /// Overridable for tests so widget tests never touch the real sqflite
   /// platform channel.
   final AssetRecordStore? assetRecordStore;
+
+  /// Overridable for tests so widget tests never touch the real sqflite
+  /// platform channel.
+  final AlbumStore? albumStore;
 
   @override
   Widget build(BuildContext context) {
@@ -30,7 +35,7 @@ class App extends StatelessWidget {
       supportedLocales: AppLocalizations.supportedLocales,
       // One page, no bottom tab bar — matches Photos: a day-grouped grid
       // with Media Types/Utilities sections below, not separate tabs.
-      home: LibraryScreen(assetRecordStore: assetRecordStore, backupTargetsStore: settingsStore),
+      home: LibraryScreen(assetRecordStore: assetRecordStore, backupTargetsStore: settingsStore, albumStore: albumStore),
     );
   }
 }

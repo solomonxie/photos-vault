@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
@@ -5,9 +7,12 @@ import '../photos/demo_assets_service.dart';
 import '../photos/manual_add.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/settings_screen.dart';
+import '../storage/album.dart';
+import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/backup_coordinator.dart';
+import 'album_screen.dart';
 import 'asset_grid.dart';
 import 'backup_screen.dart';
 import 'detail_screen.dart';
@@ -27,6 +32,7 @@ class LibraryScreen extends StatefulWidget {
     super.key,
     this.assetRecordStore,
     this.backupTargetsStore,
+    this.albumStore,
     this.manualAddService,
     this.demoAssetsService,
     this.backupCoordinator,
@@ -34,6 +40,7 @@ class LibraryScreen extends StatefulWidget {
 
   final AssetRecordStore? assetRecordStore;
   final BackupTargetsStore? backupTargetsStore;
+  final AlbumStore? albumStore;
 
   /// Overridable for tests so they never open the real file picker.
   final ManualAddService? manualAddService;
@@ -52,14 +59,17 @@ class LibraryScreen extends StatefulWidget {
 class LibraryScreenState extends State<LibraryScreen> {
   late final AssetRecordStore assetRecordStore = widget.assetRecordStore ?? AssetRecordStore();
   late final BackupTargetsStore _backupTargetsStore = widget.backupTargetsStore ?? BackupTargetsStore();
+  late final AlbumStore _albumStore = widget.albumStore ?? AlbumStore();
   late final ManualAddService _manualAddService =
       widget.manualAddService ?? ManualAddService(store: assetRecordStore);
   late final DemoAssetsService _demoAssetsService =
-      widget.demoAssetsService ?? DemoAssetsService(manualAddService: _manualAddService);
+      widget.demoAssetsService ?? DemoAssetsService(manualAddService: _manualAddService, albumStore: _albumStore);
   late final BackupCoordinator _coordinator =
       widget.backupCoordinator ?? BackupCoordinator(targetsStore: _backupTargetsStore, recordStore: assetRecordStore);
 
   List<AssetRecord> _all = const [];
+  List<Album> _albums = const [];
+  Map<String, List<AssetRecord>> _albumAssets = const {};
   String _query = '';
   bool _busy = false;
 
@@ -71,8 +81,18 @@ class LibraryScreenState extends State<LibraryScreen> {
 
   Future<void> reload() async {
     final all = await assetRecordStore.listAll();
+    final albums = await _albumStore.listAll();
+    final albumAssets = <String, List<AssetRecord>>{};
+    for (final album in albums) {
+      final memberIds = (await _albumStore.localIdsIn(album.id)).toSet();
+      albumAssets[album.id] = all.where((r) => !r.isDeleted && !r.isHidden && memberIds.contains(r.localId)).toList();
+    }
     if (!mounted) return;
-    setState(() => _all = all.where((r) => r.sourceType == AssetSourceType.manualFile).toList());
+    setState(() {
+      _all = all.where((r) => r.sourceType == AssetSourceType.manualFile).toList();
+      _albums = albums;
+      _albumAssets = albumAssets;
+    });
   }
 
   List<AssetRecord> get _active =>
@@ -184,6 +204,31 @@ class LibraryScreenState extends State<LibraryScreen> {
     await reload();
   }
 
+  void _openAlbum(Album album) =>
+      _push(AlbumScreen(album: album, assetRecordStore: assetRecordStore, albumStore: _albumStore));
+
+  Future<void> _confirmDeleteAlbum(Album album) async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: Text(l10n.albumDeleteConfirmTitle),
+        content: Text(l10n.albumDeleteConfirmBody),
+        actions: [
+          CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(false), child: Text(l10n.actionCancel)),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.albumDeleteAction),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _albumStore.remove(album.id);
+    await reload();
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -213,6 +258,29 @@ class LibraryScreenState extends State<LibraryScreen> {
                 onTap: _openRecord,
                 actionsFor: (r) => _actionsFor(l10n, r),
               ),
+              if (_albums.isNotEmpty) ...[
+                SliverToBoxAdapter(child: _SectionHeader(title: l10n.collectionsAlbums)),
+                SliverPadding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  sliver: SliverGrid(
+                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                      crossAxisCount: 2,
+                      crossAxisSpacing: 12,
+                      mainAxisSpacing: 16,
+                      childAspectRatio: 0.85,
+                    ),
+                    delegate: SliverChildBuilderDelegate(
+                      (context, i) => _AlbumCard(
+                        album: _albums[i],
+                        records: _albumAssets[_albums[i].id] ?? const [],
+                        onTap: () => _openAlbum(_albums[i]),
+                        onDelete: () => _confirmDeleteAlbum(_albums[i]),
+                      ),
+                      childCount: _albums.length,
+                    ),
+                  ),
+                ),
+              ],
               SliverToBoxAdapter(child: _SectionHeader(title: l10n.collectionsMediaTypes)),
               SliverToBoxAdapter(
                 child: CupertinoListSection.insetGrouped(
@@ -319,6 +387,80 @@ class LibraryScreenState extends State<LibraryScreen> {
         ],
       ),
       onTap: onTap,
+    );
+  }
+}
+
+class _AlbumCard extends StatelessWidget {
+  const _AlbumCard({required this.album, required this.records, required this.onTap, required this.onDelete});
+
+  final Album album;
+  final List<AssetRecord> records;
+  final VoidCallback onTap;
+  final VoidCallback onDelete;
+
+  void _showActions(BuildContext context, AppLocalizations l10n) {
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: Text(album.name),
+        actions: [
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () {
+              Navigator.of(context).pop();
+              onDelete();
+            },
+            child: Text(l10n.albumDeleteAction),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final cover = records.isEmpty ? null : records.first.sourcePath;
+    final coverIsVideo = cover != null && isVideoPath(cover);
+
+    return GestureDetector(
+      onTap: onTap,
+      onLongPress: () => _showActions(context, l10n),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Expanded(
+            child: ClipRRect(
+              borderRadius: BorderRadius.circular(10),
+              child: coverIsVideo
+                  ? const ColoredBox(
+                      color: CupertinoColors.darkBackgroundGray,
+                      child: Icon(CupertinoIcons.play_circle_fill, color: CupertinoColors.white, size: 28),
+                    )
+                  : cover != null
+                  ? Image.file(
+                      File(cover),
+                      fit: BoxFit.cover,
+                      width: double.infinity,
+                      errorBuilder: (context, error, stackTrace) =>
+                          const ColoredBox(color: CupertinoColors.systemGrey5, child: Icon(CupertinoIcons.photo)),
+                    )
+                  : const ColoredBox(
+                      color: CupertinoColors.systemGrey5,
+                      child: Icon(CupertinoIcons.photo_on_rectangle),
+                    ),
+            ),
+          ),
+          const SizedBox(height: 6),
+          Text(album.name, maxLines: 1, overflow: TextOverflow.ellipsis),
+          Text('${records.length}', style: const TextStyle(color: CupertinoColors.systemGrey, fontSize: 13)),
+        ],
+      ),
     );
   }
 }

@@ -3,6 +3,7 @@ import 'package:back_your_own_photos/photos/demo_assets_service.dart';
 import 'package:back_your_own_photos/photos/manual_add.dart';
 import 'package:back_your_own_photos/settings/backup_targets_store.dart';
 import 'package:back_your_own_photos/settings/s3_backup_target.dart';
+import 'package:back_your_own_photos/storage/album_store.dart';
 import 'package:back_your_own_photos/storage/asset_record.dart';
 import 'package:back_your_own_photos/storage/asset_record_store.dart';
 import 'package:back_your_own_photos/upload/backup_coordinator.dart';
@@ -14,6 +15,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../settings/fake_secure_store.dart';
+import '../support/fake_album_store.dart';
 import '../support/fake_asset_record_store.dart';
 
 // Never touches the real `background_downloader` platform channel — this
@@ -33,6 +35,9 @@ class _FakeDemoAssetsService implements DemoAssetsService {
 
   @override
   ManualAddService get manualAddService => throw UnimplementedError();
+
+  @override
+  AlbumStore get albumStore => throw UnimplementedError();
 
   @override
   Future<List<AssetRecord>> addAll() async => [
@@ -60,6 +65,7 @@ void main() {
       _wrap(
         LibraryScreen(
           assetRecordStore: recordStore,
+          albumStore: FakeAlbumStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -89,6 +95,7 @@ void main() {
       _wrap(
         LibraryScreen(
           assetRecordStore: recordStore,
+          albumStore: FakeAlbumStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -120,6 +127,7 @@ void main() {
       _wrap(
         LibraryScreen(
           assetRecordStore: recordStore,
+          albumStore: FakeAlbumStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -156,6 +164,7 @@ void main() {
       _wrap(
         LibraryScreen(
           assetRecordStore: recordStore,
+          albumStore: FakeAlbumStore(),
           backupTargetsStore: targetsStore,
           manualAddService: manualAdd,
           backupCoordinator: BackupCoordinator(
@@ -182,6 +191,7 @@ void main() {
       _wrap(
         LibraryScreen(
           assetRecordStore: recordStore,
+          albumStore: FakeAlbumStore(),
           backupTargetsStore: targetsStore,
           demoAssetsService: _FakeDemoAssetsService(recordStore),
           backupCoordinator: BackupCoordinator(
@@ -219,6 +229,7 @@ void main() {
       _wrap(
         LibraryScreen(
           assetRecordStore: recordStore,
+          albumStore: FakeAlbumStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -252,6 +263,7 @@ void main() {
       _wrap(
         LibraryScreen(
           assetRecordStore: recordStore,
+          albumStore: FakeAlbumStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -272,5 +284,53 @@ void main() {
     await tester.tap(find.text('Favorites'));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('manual:fav')), findsOneWidget);
+  });
+
+  testWidgets('shows an Albums section before Media Types, and opens an album on tap', (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    final albumStore = FakeAlbumStore();
+    await recordStore.upsert(
+      localId: 'manual:trip',
+      contentHash: 'trip',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/trip.jpg',
+    );
+    await albumStore.upsert(id: 'demo-album-nature', name: 'Nature', isDemo: true);
+    await albumStore.addAssets('demo-album-nature', ['manual:trip']);
+
+    // Tall surface so the Albums section and Media Types header — below
+    // both the main grid and the album grid — are simultaneously built by
+    // the lazy CustomScrollView, rather than one requiring a scroll that
+    // would un-build the other.
+    await tester.binding.setSurfaceSize(const Size(400, 2000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          albumStore: albumStore,
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final albumsY = tester.getCenter(find.text('Albums')).dy;
+    final mediaTypesY = tester.getCenter(find.text('Media Types')).dy;
+    expect(albumsY, lessThan(mediaTypesY));
+    expect(find.text('Nature'), findsOneWidget);
+
+    await tester.tap(find.text('Nature'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('manual:trip')), findsOneWidget);
   });
 }

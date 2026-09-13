@@ -32,6 +32,8 @@
   "libraryDeletePermanentlyTitle": "永久删除?",
   "libraryDeletePermanentlyBody": "此操作无法撤销。",
   "libraryDeletePermanentlyAction": "永久删除",
+  "libraryAlbumEmpty": "该相册暂无照片。",
+  "libraryRemoveFromAlbum": "从相册中移除",
 
   "detailFileUnavailable": "该文件已不可用。",
   "detailDoneButton": "完成",
@@ -43,6 +45,11 @@
   "detailInfoLocation": "位置",
   "detailInfoNoLocation": "无位置信息",
   "detailInfoDuration": "时长",
+
+  "collectionsAlbums": "相册",
+  "albumDeleteAction": "删除相册",
+  "albumDeleteConfirmTitle": "删除该相册?",
+  "albumDeleteConfirmBody": "相册内的照片和视频仍会保留在图库中。",
 
   "collectionsMediaTypes": "媒体类型",
   "collectionsPhotosRow": "照片",
