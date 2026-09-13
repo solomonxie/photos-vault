@@ -38,3 +38,7 @@ venv/
 
 # Claude Code session-local state, not project config
 .claude/scheduled_tasks.lock
+
+# Python
+__pycache__/
+*.pyc
