@@ -7,54 +7,37 @@ import 'asset_grid.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 
-/// Media Types' "Photos" and "Videos" rows — same active-library set as the
-/// main grid, filtered to one kind. Shares the Favorite/Hide/Delete actions
-/// with [LibraryScreenState] rather than introducing a fourth variant.
-class MediaTypeScreen extends StatefulWidget {
-  const MediaTypeScreen({super.key, required this.assetRecordStore, required this.isVideo, required this.title});
+/// Grid screen for a fixed list of records — used to drill into one
+/// People/Events group from [SmartCollectionScreen].
+class AssetGroupScreen extends StatefulWidget {
+  const AssetGroupScreen({super.key, required this.title, required this.records, required this.assetRecordStore});
 
-  final AssetRecordStore assetRecordStore;
-  final bool isVideo;
   final String title;
+  final List<AssetRecord> records;
+  final AssetRecordStore assetRecordStore;
 
   @override
-  State<MediaTypeScreen> createState() => _MediaTypeScreenState();
+  State<AssetGroupScreen> createState() => _AssetGroupScreenState();
 }
 
-class _MediaTypeScreenState extends State<MediaTypeScreen> {
-  List<AssetRecord> _records = const [];
-
-  @override
-  void initState() {
-    super.initState();
-    _reload();
-  }
-
-  bool _matches(AssetRecord r) => r.isVideo == widget.isVideo;
-
-  Future<void> _reload() async {
-    final all = await widget.assetRecordStore.listAll();
-    if (!mounted) return;
-    setState(
-      () => _records = all.where((r) => !r.isDeleted && !r.isHidden && _matches(r)).toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
-    );
-  }
+class _AssetGroupScreenState extends State<AssetGroupScreen> {
+  late List<AssetRecord> _records = widget.records;
 
   Future<void> _toggleFavorite(AssetRecord record) async {
-    await widget.assetRecordStore.setFavorite(record.localId, !record.isFavorite);
-    await _reload();
+    final value = !record.isFavorite;
+    await widget.assetRecordStore.setFavorite(record.localId, value);
+    setState(() => _records = [for (final r in _records) r.localId == record.localId ? r.withFavorite(value) : r]);
   }
 
   Future<void> _hide(AssetRecord record) async {
     await widget.assetRecordStore.setHidden(record.localId, true);
-    await _reload();
+    setState(() => _records = _records.where((r) => r.localId != record.localId).toList());
   }
 
   Future<bool> _delete(AssetRecord record) async {
     if (!await confirmSoftDelete(context)) return false;
     await widget.assetRecordStore.softDelete(record.localId);
-    await _reload();
+    setState(() => _records = _records.where((r) => r.localId != record.localId).toList());
     return true;
   }
 

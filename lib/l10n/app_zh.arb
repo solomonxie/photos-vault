@@ -8,7 +8,7 @@
   "tabSettings": "设置",
 
   "libraryEmptyTitle": "暂无照片",
-  "libraryEmptyNote": "基于 photo_manager 的缩略图网格将在 T4.1 中实现。点击 + 可从“文件”App 手动添加文件。",
+  "libraryEmptyNote": "授权访问“照片”即可备份您的相机胶卷,或点击 + 从“文件”App 手动添加文件。",
 
   "libraryAddFilesButton": "添加文件",
   "libraryAddFilesResult": "已添加 {picked} 个文件,已备份 {succeeded} 个。",
@@ -32,6 +32,8 @@
   "libraryDeletePermanentlyTitle": "永久删除?",
   "libraryDeletePermanentlyBody": "此操作无法撤销。",
   "libraryDeletePermanentlyAction": "永久删除",
+  "libraryDeleteConfirmTitle": "删除此项目?",
+  "libraryDeleteConfirmBody": "将移至“最近删除”。",
   "libraryAlbumEmpty": "该相册暂无照片。",
   "libraryRemoveFromAlbum": "从相册中移除",
 
@@ -46,10 +48,25 @@
   "detailInfoNoLocation": "无位置信息",
   "detailInfoDuration": "时长",
 
+  "collectionsCollections": "合集",
   "collectionsAlbums": "相册",
   "albumDeleteAction": "删除相册",
   "albumDeleteConfirmTitle": "删除该相册?",
   "albumDeleteConfirmBody": "相册内的照片和视频仍会保留在图库中。",
+  "collectionsPeopleRow": "人物",
+  "collectionsPlacesRow": "地点",
+  "collectionsEventsRow": "事件",
+  "collectionsComingSoonTitle": "即将推出",
+  "collectionsPlacesComingSoonBody": "地点将根据每张照片的位置信息自动分组。尚未实现。",
+
+  "smartCollectionsAnalyzeButton": "{count, plural, other{分析 {count} 张照片}}",
+  "smartCollectionsAnalyzing": "正在分析… {done}/{total}",
+  "smartCollectionsEmpty": "暂无可分析的照片。",
+  "smartCollectionsCardLabel": "点击分析",
+  "smartCollectionsUncategorized": "未分类",
+  "smartCollectionsNoPeople": "无人物",
+  "smartCollectionsOnePerson": "1 人",
+  "smartCollectionsPeopleCount": "{count} 人",
 
   "collectionsMediaTypes": "媒体类型",
   "collectionsPhotosRow": "照片",
@@ -60,6 +77,7 @@
   "collectionsRecentlyDeletedRow": "最近删除",
   "collectionsBackupStatusRow": "备份状态",
   "collectionsSettingsRow": "S3 设置",
+  "collectionsAiSettingsRow": "AI 设置",
   "collectionsImportPhotosRow": "导入照片",
 
   "backupEmptyTitle": "暂无备份",
@@ -91,7 +109,13 @@
   "settingsDraftDeleteTooltip": "删除草稿",
 
   "settingsResetDemoButton": "重置演示数据",
-  "settingsResetDemoResult": "演示照片已准备好,请查看图库。",
+
+  "settingsAiTodoNote": "此密钥用于 AI 识别的人物和事件智能合集。地点(基于 GPS)无需此密钥。",
+  "settingsAiApiKeyLabel": "OpenAI API 密钥",
+  "settingsAiClearButton": "移除密钥",
+  "settingsAiSavedMessage": "API 密钥已保存",
+  "settingsAiClearedMessage": "API 密钥已移除",
+  "settingsAiUsageWarning": "启用后会将照片数据发送给 OpenAI,并产生记入您 OpenAI 账户的 API 使用费用。",
 
   "bucketBrowserEmpty": "该文件夹为空。",
   "bucketBrowserLoadMore": "加载更多",

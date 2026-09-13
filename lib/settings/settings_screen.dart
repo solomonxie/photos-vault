@@ -1,22 +1,15 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
-import '../photos/demo_assets_service.dart';
-import '../photos/manual_add.dart';
-import '../storage/asset_record_store.dart';
 import 'add_s3_backup_screen.dart';
 import 'backup_targets_store.dart';
 import 'bucket_browser_screen.dart';
 import 's3_backup_target.dart';
 
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, this.store, this.assetRecordStore, this.demoAssetsService});
+  const SettingsScreen({super.key, this.store});
 
   final BackupTargetsStore? store;
-  final AssetRecordStore? assetRecordStore;
-
-  /// Overridable for tests so they never touch the real asset bundle / disk.
-  final DemoAssetsService? demoAssetsService;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -24,12 +17,8 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late final BackupTargetsStore _store = widget.store ?? BackupTargetsStore();
-  late final AssetRecordStore _assetRecordStore = widget.assetRecordStore ?? AssetRecordStore();
-  late final DemoAssetsService _demoAssetsService =
-      widget.demoAssetsService ?? DemoAssetsService(manualAddService: ManualAddService(store: _assetRecordStore));
 
   List<S3BackupTarget>? _targets;
-  bool _resettingDemo = false;
 
   @override
   void initState() {
@@ -81,21 +70,6 @@ class _SettingsScreenState extends State<SettingsScreen> {
     }
   }
 
-  /// Re-adds any bundled demo photos/videos missing from the Library (e.g.
-  /// deleted there) — a no-op for ones already present, keyed by content hash.
-  Future<void> _resetDemoData() async {
-    setState(() => _resettingDemo = true);
-    try {
-      await _demoAssetsService.addAll();
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.settingsResetDemoResult)));
-    } finally {
-      if (mounted) setState(() => _resettingDemo = false);
-    }
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -105,16 +79,15 @@ class _SettingsScreenState extends State<SettingsScreen> {
         title: Text(l10n.tabSettings),
         actions: [IconButton(icon: const Icon(Icons.add), onPressed: _addBackup, tooltip: l10n.settingsAddButton)],
       ),
-      body: Column(
-        children: [
-          Expanded(
-            child: targets == null
-                ? const Center(child: CircularProgressIndicator())
-                : targets.isEmpty
-                ? _EmptyState(onAdd: _addBackup)
-                : ListView.builder(
-                    itemCount: targets.length,
-                    itemBuilder: (context, index) {
+      body: targets == null
+          ? const Center(child: CircularProgressIndicator())
+          : CustomScrollView(
+              slivers: [
+                if (targets.isEmpty)
+                  SliverToBoxAdapter(child: _EmptyState(onAdd: _addBackup))
+                else
+                  SliverList(
+                    delegate: SliverChildBuilderDelegate((context, index) {
                       final target = targets[index];
                       return ListTile(
                         leading: const Icon(Icons.cloud_outlined),
@@ -128,22 +101,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                           context,
                         ).push(MaterialPageRoute(builder: (_) => BucketBrowserScreen(target: target))),
                       );
-                    },
+                    }, childCount: targets.length),
                   ),
-          ),
-          const Divider(height: 1),
-          Padding(
-            padding: const EdgeInsets.all(16),
-            child: OutlinedButton.icon(
-              onPressed: _resettingDemo ? null : _resetDemoData,
-              icon: _resettingDemo
-                  ? const SizedBox(width: 16, height: 16, child: CircularProgressIndicator(strokeWidth: 2))
-                  : const Icon(Icons.restore_outlined),
-              label: Text(l10n.settingsResetDemoButton),
+              ],
             ),
-          ),
-        ],
-      ),
     );
   }
 }

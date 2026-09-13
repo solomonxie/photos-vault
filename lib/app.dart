@@ -26,7 +26,14 @@ class App extends StatelessWidget {
   Widget build(BuildContext context) {
     return CupertinoApp(
       title: 'Bring Your Own Photos',
-      theme: const CupertinoThemeData(brightness: Brightness.dark, primaryColor: CupertinoColors.systemBlue),
+      theme: const CupertinoThemeData(
+        brightness: Brightness.dark,
+        primaryColor: CupertinoColors.systemBlue,
+        // A dark charcoal, not pure black — list-row backgrounds (e.g.
+        // Utilities' cards) are a step lighter still, so sections stay
+        // visually separated from the page instead of both being #000.
+        scaffoldBackgroundColor: Color(0xFF1C1C1E),
+      ),
       // Settings/add-target screens are still Material underneath — gives
       // them a sane theme rather than Material's default fallback.
       builder: (context, child) =>

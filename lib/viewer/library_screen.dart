@@ -1,10 +1,15 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/ai_analysis_store.dart';
 import '../photos/demo_assets_service.dart';
+import '../photos/demo_seed_store.dart';
 import '../photos/manual_add.dart';
+import '../photos/photo_library_service.dart';
+import '../settings/ai_settings_screen.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/settings_screen.dart';
 import '../storage/album.dart';
@@ -15,11 +20,14 @@ import '../upload/backup_coordinator.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
 import 'backup_screen.dart';
+import 'coming_soon_screen.dart';
+import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'favorites_screen.dart';
 import 'hidden_screen.dart';
 import 'media_type_screen.dart';
 import 'recently_deleted_screen.dart';
+import 'smart_collection_screen.dart';
 
 /// The whole app, one page — matches real Photos: no separate "Library" vs
 /// "Collections" tabs, just a day-grouped grid up top and Media
@@ -35,18 +43,32 @@ class LibraryScreen extends StatefulWidget {
     this.albumStore,
     this.manualAddService,
     this.demoAssetsService,
+    this.demoSeedStore,
     this.backupCoordinator,
+    this.aiAnalysisStore,
+    this.photoLibraryService,
   });
 
   final AssetRecordStore? assetRecordStore;
   final BackupTargetsStore? backupTargetsStore;
   final AlbumStore? albumStore;
 
+  /// Overridable for tests so the People/Events smart collections never open
+  /// the real (platform-backed) `sqflite` factory.
+  final AiAnalysisStore? aiAnalysisStore;
+
+  /// Overridable for tests so they never touch the real `photo_manager`
+  /// platform channel.
+  final PhotoLibraryService? photoLibraryService;
+
   /// Overridable for tests so they never open the real file picker.
   final ManualAddService? manualAddService;
 
   /// Overridable for tests so they never touch the real asset bundle / disk.
   final DemoAssetsService? demoAssetsService;
+
+  /// Overridable for tests so they never touch real secure storage.
+  final DemoSeedStore? demoSeedStore;
 
   /// Overridable for tests so they never construct a real `S3Uploader`
   /// (which touches the `background_downloader` platform channel).
@@ -64,8 +86,12 @@ class LibraryScreenState extends State<LibraryScreen> {
       widget.manualAddService ?? ManualAddService(store: assetRecordStore);
   late final DemoAssetsService _demoAssetsService =
       widget.demoAssetsService ?? DemoAssetsService(manualAddService: _manualAddService, albumStore: _albumStore);
+  late final DemoSeedStore _demoSeedStore = widget.demoSeedStore ?? DemoSeedStore();
   late final BackupCoordinator _coordinator =
       widget.backupCoordinator ?? BackupCoordinator(targetsStore: _backupTargetsStore, recordStore: assetRecordStore);
+  late final AiAnalysisStore _aiAnalysisStore = widget.aiAnalysisStore ?? AiAnalysisStore();
+  late final PhotoLibraryService _photoLibraryService =
+      widget.photoLibraryService ?? PhotoLibraryService(store: assetRecordStore);
 
   List<AssetRecord> _all = const [];
   List<Album> _albums = const [];
@@ -76,7 +102,51 @@ class LibraryScreenState extends State<LibraryScreen> {
   @override
   void initState() {
     super.initState();
-    reload();
+    _init();
+  }
+
+  /// A fresh install seeds the bundled demo photos automatically — no
+  /// "Try with Demo Photos" tap required — but only once ever: after that,
+  /// deleting them stays deleted until the user explicitly resets via
+  /// Utilities' "Reset Demo Data". Also backs them up right away (silently,
+  /// no result dialog) to any already-configured S3 target, same as a
+  /// manual add — otherwise they'd sit as "pending" forever despite the
+  /// files already existing in a bucket configured before this launch.
+  Future<void> _init() async {
+    try {
+      if (!await _demoSeedStore.hasSeeded()) {
+        final added = await _demoAssetsService.addAll();
+        await _demoSeedStore.markSeeded();
+        await _backUpRecords(added);
+      }
+    } catch (_) {
+      // Secure storage unavailable/unreadable — skip auto-seeding rather
+      // than risk doing it on every launch; "Reset Demo Data" in Utilities
+      // still works.
+    }
+    await reload();
+    // Fire-and-forget: a full camera-roll scan (and any iCloud downloads it
+    // triggers for backup) can be slow, and must never block showing the
+    // manual/demo assets already on hand. Re-`reload()`s itself once done.
+    unawaited(_syncPhotoLibrary());
+  }
+
+  /// Pulls in the real camera roll (T2.1) — permission prompt on first run,
+  /// silent on every launch after. Backs up anything newly seen the same
+  /// way a manual add is, so granting access alone starts a backup.
+  Future<void> _syncPhotoLibrary() async {
+    try {
+      final access = await _photoLibraryService.requestAccess();
+      if (access == PhotoLibraryAccess.denied) return;
+      final added = await _photoLibraryService.syncAll();
+      if (added.isEmpty) return;
+      await _backUpRecords(added);
+      await reload();
+    } catch (_) {
+      // No `photo_manager` platform channel (tests, unsupported platform)
+      // or the permission flow failed — leave the camera roll unsynced
+      // rather than crash; manual add/demo photos still work.
+    }
   }
 
   Future<void> reload() async {
@@ -89,7 +159,7 @@ class LibraryScreenState extends State<LibraryScreen> {
     }
     if (!mounted) return;
     setState(() {
-      _all = all.where((r) => r.sourceType == AssetSourceType.manualFile).toList();
+      _all = all;
       _albums = albums;
       _albumAssets = albumAssets;
     });
@@ -102,24 +172,44 @@ class LibraryScreenState extends State<LibraryScreen> {
       ? _active
       : _active.where((r) => (r.sourcePath ?? r.localId).toLowerCase().contains(_query.toLowerCase())).toList();
 
-  bool _isVideo(AssetRecord r) => r.sourcePath != null && isVideoPath(r.sourcePath!);
-
-  int get _photoCount => _active.where((r) => !_isVideo(r)).length;
-  int get _videoCount => _active.where(_isVideo).length;
+  int get _photoCount => _active.where((r) => !r.isVideo).length;
+  int get _videoCount => _active.where((r) => r.isVideo).length;
   int get _favoriteCount => _all.where((r) => r.isFavorite && !r.isDeleted).length;
   int get _hiddenCount => _all.where((r) => r.isHidden && !r.isDeleted).length;
   int get _deletedCount => _all.where((r) => r.isDeleted).length;
   int get _pendingCount =>
       _active.where((r) => r.stateOf(DerivativeKind.original).status != UploadStatus.uploaded).length;
 
-  Future<void> _backUpAndReport(List<AssetRecord> records) async {
+  Future<int> _backUpRecords(List<AssetRecord> records) async {
     var succeeded = 0;
     for (final record in records) {
-      final path = record.sourcePath;
-      if (path == null) continue;
-      final count = await _coordinator.backUpDerivative(record: record, kind: DerivativeKind.original, filePath: path);
-      if (count > 0) succeeded++;
+      try {
+        final path = await _filePathFor(record);
+        if (path == null) continue;
+        final count = await _coordinator.backUpDerivative(record: record, kind: DerivativeKind.original, filePath: path);
+        if (count > 0) succeeded++;
+      } catch (_) {
+        // One asset's file couldn't be resolved (e.g. an iCloud fetch
+        // failed, or it was removed from the library mid-sync) — skip just
+        // that one rather than aborting the rest of the batch.
+      }
     }
+    return succeeded;
+  }
+
+  /// [AssetRecord.sourcePath] direct for `manualFile`; for `photoManager`
+  /// it's resolved on demand via `photo_manager` — may trigger an iCloud
+  /// download on iOS, so can be slow the first time.
+  Future<String?> _filePathFor(AssetRecord record) async {
+    final path = record.sourcePath;
+    if (path != null) return path;
+    if (record.sourceType != AssetSourceType.photoManager) return null;
+    final file = await _photoLibraryService.fileFor(record);
+    return file?.path;
+  }
+
+  Future<void> _backUpAndReport(List<AssetRecord> records) async {
+    final succeeded = await _backUpRecords(records);
     await reload();
     if (!mounted) return;
     final l10n = AppLocalizations.of(context)!;
@@ -153,6 +243,9 @@ class LibraryScreenState extends State<LibraryScreen> {
 
   Future<void> addFiles() => _runBusy(_manualAddService.pickAndEnqueue);
 
+  /// Also doubles as Utilities' "Reset Demo Data": re-adds any bundled demo
+  /// photos/videos missing from the Library (e.g. deleted there) and backs
+  /// them up — a no-op add for ones already present, keyed by content hash.
   Future<void> _addDemoPhotos() => _runBusy(_demoAssetsService.addAll);
 
   Future<void> _toggleFavorite(AssetRecord record) async {
@@ -165,9 +258,11 @@ class LibraryScreenState extends State<LibraryScreen> {
     await reload();
   }
 
-  Future<void> _softDelete(AssetRecord record) async {
+  Future<bool> _softDelete(AssetRecord record) async {
+    if (!await confirmSoftDelete(context)) return false;
     await assetRecordStore.softDelete(record.localId);
     await reload();
+    return true;
   }
 
   List<TileAction> _actionsFor(AppLocalizations l10n, AssetRecord record) => [
@@ -258,33 +353,86 @@ class LibraryScreenState extends State<LibraryScreen> {
                 onTap: _openRecord,
                 actionsFor: (r) => _actionsFor(l10n, r),
               ),
+              SliverToBoxAdapter(child: _SectionHeader(title: l10n.collectionsCollections)),
               if (_albums.isNotEmpty) ...[
-                SliverToBoxAdapter(child: _SectionHeader(title: l10n.collectionsAlbums)),
-                SliverPadding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16),
-                  sliver: SliverGrid(
-                    gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                      crossAxisCount: 2,
-                      crossAxisSpacing: 12,
-                      mainAxisSpacing: 16,
-                      childAspectRatio: 0.85,
-                    ),
-                    delegate: SliverChildBuilderDelegate(
-                      (context, i) => _AlbumCard(
-                        album: _albums[i],
-                        records: _albumAssets[_albums[i].id] ?? const [],
-                        onTap: () => _openAlbum(_albums[i]),
-                        onDelete: () => _confirmDeleteAlbum(_albums[i]),
+                SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsAlbums)),
+                SliverToBoxAdapter(
+                  child: SizedBox(
+                    height: 190,
+                    child: ListView.separated(
+                      scrollDirection: Axis.horizontal,
+                      padding: const EdgeInsets.symmetric(horizontal: 16),
+                      itemCount: _albums.length,
+                      separatorBuilder: (context, i) => const SizedBox(width: 12),
+                      itemBuilder: (context, i) => SizedBox(
+                        width: 140,
+                        child: _AlbumCard(
+                          album: _albums[i],
+                          records: _albumAssets[_albums[i].id] ?? const [],
+                          onTap: () => _openAlbum(_albums[i]),
+                          onDelete: () => _confirmDeleteAlbum(_albums[i]),
+                        ),
                       ),
-                      childCount: _albums.length,
                     ),
                   ),
                 ),
               ],
+              SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsPeopleRow)),
+              SliverToBoxAdapter(
+                child: _PlaceholderCollectionRow(
+                  icon: CupertinoIcons.person_2_fill,
+                  color: CupertinoColors.systemYellow,
+                  label: l10n.smartCollectionsCardLabel,
+                  onTap: () => _push(
+                    SmartCollectionScreen(
+                      kind: SmartCollectionKind.people,
+                      assetRecordStore: assetRecordStore,
+                      aiAnalysisStore: _aiAnalysisStore,
+                    ),
+                  ),
+                ),
+              ),
+              SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsPlacesRow)),
+              SliverToBoxAdapter(
+                child: _PlaceholderCollectionRow(
+                  icon: CupertinoIcons.map_pin_ellipse,
+                  color: CupertinoColors.systemTeal,
+                  onTap: () => _push(
+                    ComingSoonScreen(
+                      title: l10n.collectionsPlacesRow,
+                      body: l10n.collectionsPlacesComingSoonBody,
+                      icon: CupertinoIcons.map_pin_ellipse,
+                    ),
+                  ),
+                ),
+              ),
+              SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsEventsRow)),
+              SliverToBoxAdapter(
+                child: _PlaceholderCollectionRow(
+                  icon: CupertinoIcons.calendar,
+                  color: CupertinoColors.systemOrange,
+                  label: l10n.smartCollectionsCardLabel,
+                  onTap: () => _push(
+                    SmartCollectionScreen(
+                      kind: SmartCollectionKind.events,
+                      assetRecordStore: assetRecordStore,
+                      aiAnalysisStore: _aiAnalysisStore,
+                    ),
+                  ),
+                ),
+              ),
               SliverToBoxAdapter(child: _SectionHeader(title: l10n.collectionsMediaTypes)),
               SliverToBoxAdapter(
                 child: CupertinoListSection.insetGrouped(
                   margin: const EdgeInsets.symmetric(horizontal: 16),
+                  // Un-overridden, this defaults to systemGroupedBackground
+                  // (pure black in dark mode) — a harsher black than the
+                  // page's own charcoal, visible as a seam around the card.
+                  backgroundColor: const Color(0xFF1C1C1E),
+                  decoration: const BoxDecoration(
+                    color: Color(0xFF2C2C2E),
+                    borderRadius: BorderRadius.all(Radius.circular(10)),
+                  ),
                   children: [
                     _row(
                       icon: CupertinoIcons.photo,
@@ -312,6 +460,11 @@ class LibraryScreenState extends State<LibraryScreen> {
             SliverToBoxAdapter(
               child: CupertinoListSection.insetGrouped(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
+                backgroundColor: const Color(0xFF1C1C1E),
+                decoration: const BoxDecoration(
+                  color: Color(0xFF2C2C2E),
+                  borderRadius: BorderRadius.all(Radius.circular(10)),
+                ),
                 children: [
                   _row(
                     icon: CupertinoIcons.square_arrow_up,
@@ -352,6 +505,18 @@ class LibraryScreenState extends State<LibraryScreen> {
                     color: CupertinoColors.systemGrey2,
                     title: l10n.collectionsSettingsRow,
                     onTap: () => _push(SettingsScreen(store: _backupTargetsStore)),
+                  ),
+                  _row(
+                    icon: CupertinoIcons.sparkles,
+                    color: CupertinoColors.systemIndigo,
+                    title: l10n.collectionsAiSettingsRow,
+                    onTap: () => _push(const AiSettingsScreen()),
+                  ),
+                  _row(
+                    icon: CupertinoIcons.arrow_2_circlepath,
+                    color: CupertinoColors.systemGreen,
+                    title: l10n.settingsResetDemoButton,
+                    onTap: _busy ? null : _addDemoPhotos,
                   ),
                 ],
               ),
@@ -426,13 +591,13 @@ class _AlbumCard extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final cover = records.isEmpty ? null : records.first.sourcePath;
-    final coverIsVideo = cover != null && isVideoPath(cover);
+    final coverIsVideo = records.isNotEmpty && records.first.isVideo;
 
     return GestureDetector(
       onTap: onTap,
       onLongPress: () => _showActions(context, l10n),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
+        crossAxisAlignment: CrossAxisAlignment.stretch,
         children: [
           Expanded(
             child: ClipRRect(
@@ -473,8 +638,88 @@ class _SectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 32, 16, 8),
       child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
+    );
+  }
+}
+
+class _SubsectionHeader extends StatelessWidget {
+  const _SubsectionHeader({required this.title});
+
+  final String title;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 17)),
+    );
+  }
+}
+
+/// A single-line, horizontally-scrolling row of album-card-shaped
+/// placeholders — People/Places/Events have no real data to group by yet
+/// (see IMPLEMENTATION_PLAN.md T4.4), but still look like a populated
+/// Collections subsection rather than a bare row. Every card opens the same
+/// "coming soon" screen.
+class _PlaceholderCollectionRow extends StatelessWidget {
+  const _PlaceholderCollectionRow({required this.icon, required this.color, required this.onTap, this.label});
+
+  final IconData icon;
+  final Color color;
+  final VoidCallback onTap;
+
+  /// Card caption — defaults to "Coming Soon"; People/Events pass their own
+  /// since they open a real (opt-in AI analysis) screen, not a stub.
+  final String? label;
+
+  static const _cardCount = 4;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return SizedBox(
+      height: 150,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: _cardCount,
+        separatorBuilder: (context, i) => const SizedBox(width: 12),
+        itemBuilder: (context, i) => GestureDetector(
+          onTap: onTap,
+          child: SizedBox(
+            width: 110,
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.stretch,
+              children: [
+                Expanded(
+                  child: ClipRRect(
+                    borderRadius: BorderRadius.circular(10),
+                    // Flat neutral card, same as an album with no cover yet
+                    // — a translucent tint over a dark page reads as a muddy
+                    // smear rather than a clean pastel. `systemGrey5` must be
+                    // resolved explicitly: as a bare Color (not routed
+                    // through a Cupertino-aware widget) it otherwise paints
+                    // its light-mode value even in dark mode.
+                    child: ColoredBox(
+                      color: CupertinoDynamicColor.resolve(CupertinoColors.systemGrey5, context),
+                      child: Icon(icon, color: color, size: 32),
+                    ),
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Text(
+                  label ?? l10n.collectionsComingSoonTitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: const TextStyle(color: CupertinoColors.systemGrey, fontSize: 13),
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
     );
   }
 }

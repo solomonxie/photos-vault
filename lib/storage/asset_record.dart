@@ -35,6 +35,7 @@ class AssetRecord {
     required this.updatedAt,
     this.sourceType = AssetSourceType.photoManager,
     this.sourcePath,
+    this.isVideo = false,
     this.derivatives = const {},
     this.isFavorite = false,
     this.isHidden = false,
@@ -50,6 +51,11 @@ class AssetRecord {
 
   /// Absolute file path, set only for [AssetSourceType.manualFile].
   final String? sourcePath;
+
+  /// Set once at creation (from the file extension for `manualFile`, from
+  /// `AssetEntity.type` for `photoManager`) — `photoManager` assets have no
+  /// `sourcePath` to derive it from on demand.
+  final bool isVideo;
   final Map<DerivativeKind, DerivativeState> derivatives;
 
   final bool isFavorite;
@@ -78,6 +84,7 @@ class AssetRecord {
     updatedAt: updatedAt ?? DateTime.now(),
     sourceType: sourceType,
     sourcePath: sourcePath ?? this.sourcePath,
+    isVideo: isVideo,
     derivatives: derivatives ?? this.derivatives,
     isFavorite: isFavorite ?? this.isFavorite,
     isHidden: isHidden ?? this.isHidden,

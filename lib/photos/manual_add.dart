@@ -8,6 +8,10 @@ import 'package:path_provider/path_provider.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 
+const _videoExtensions = {'.mp4', '.mov', '.m4v'};
+
+bool _isVideoPath(String path) => _videoExtensions.any(path.toLowerCase().endsWith);
+
 /// Manual add flow (T2.5): lets the user pick files directly — from the
 /// Files app / iCloud Drive, or photos/videos via the system picker — and
 /// enqueues them into `asset_record` alongside auto-detected camera-roll
@@ -62,6 +66,7 @@ class ManualAddService {
       platform: Platform.isIOS ? 'ios' : 'android',
       sourceType: AssetSourceType.manualFile,
       sourcePath: owned.path,
+      isVideo: _isVideoPath(path),
       createdAt: createdAt,
     );
   }

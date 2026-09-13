@@ -33,7 +33,10 @@ class DetailScreen extends StatefulWidget {
 
   final List<AssetRecord> records;
   final int initialIndex;
-  final Future<void> Function(AssetRecord record) onDelete;
+
+  /// Returns whether the delete actually happened — `false` if the user
+  /// cancelled the confirmation, in which case nothing here should change.
+  final Future<bool> Function(AssetRecord record) onDelete;
   final Future<void> Function(AssetRecord record) onToggleFavorite;
 
   @override
@@ -47,8 +50,8 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Future<void> _delete() async {
     final record = _records[_index];
-    await widget.onDelete(record);
-    if (!mounted) return;
+    final deleted = await widget.onDelete(record);
+    if (!deleted || !mounted) return;
     if (_records.length <= 1) {
       Navigator.of(context).pop();
       return;

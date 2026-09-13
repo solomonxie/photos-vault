@@ -58,13 +58,15 @@ void main() {
     expect(await store.listAll(), hasLength(DemoAssetsService.assetPaths.length));
   });
 
-  test('addAll spreads demo assets across different days', () async {
+  test('addAll groups demo assets into 5 days across 3 years, not one day each', () async {
     final service = newService();
 
     final added = await service.addAll();
 
     final days = added.map((r) => DateTime(r.createdAt.year, r.createdAt.month, r.createdAt.day)).toSet();
-    expect(days.length, greaterThan(1));
+    final years = added.map((r) => r.createdAt.year).toSet();
+    expect(days, hasLength(5));
+    expect(years, hasLength(3));
   });
 
   test('addAll is a no-op for demo assets already present', () async {
