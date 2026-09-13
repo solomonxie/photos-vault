@@ -1,11 +1,10 @@
-"""One-off app-icon generator (Pillow, project-local venv only — not a
-runtime dependency). Draws a 1024x1024 master icon: a diagonal
-violet->blue->cyan "aurora" gradient with a soft glow, a drop-shadowed
-photo-frame glyph, and a cloud-upload badge signaling "back up your own
-photos" rather than a generic gallery icon.
+"""App-icon generator (Pillow, project-local venv only — not a runtime
+dependency). Draws a 1024x1024 master icon with three explicit glyphs
+rather than one clever shape trying to carry multiple meanings: a photo
+frame (main, center) for "your own photo", a cloud worn like a hat on top
+of it for "your own cloud", and a padlock badge overlaid on the photo
+itself for "kept private".
 """
-
-import math
 
 from PIL import Image, ImageDraw, ImageFilter
 
@@ -19,7 +18,7 @@ def lerp(a, b, t):
 
 def make_background(size):
     # Diagonal aurora gradient: violet -> electric blue -> cyan, top-left to
-    # bottom-right, cooler and more energetic than the old flat indigo fade.
+    # bottom-right.
     stops = [
         (0.0, (129, 61, 224)),  # violet
         (0.55, (59, 92, 233)),  # electric blue
@@ -41,147 +40,151 @@ def make_background(size):
     return img
 
 
-def add_glow(img):
-    # Soft white radial glow behind where the glyph sits, for depth — a
-    # blurred bright ellipse composited under the opaque foreground layers.
-    size = img.size[0]
-    glow = Image.new("L", (size, size), 0)
-    gd = ImageDraw.Draw(glow)
-    cx, cy, r = size * 0.42, size * 0.40, size * 0.46
-    gd.ellipse([cx - r, cy - r, cx + r, cy + r], fill=90)
-    glow = glow.filter(ImageFilter.GaussianBlur(size * 0.12))
-    white = Image.new("RGB", (size, size), (255, 255, 255))
-    return Image.composite(white, img, glow)
-
-
-def drop_shadow(mask_img, blur, offset, opacity=110):
-    size = mask_img.size[0]
+def drop_shadow(alpha_mask, blur, offset, opacity=120):
+    size = alpha_mask.size[0]
     shadow = Image.new("L", (size, size), 0)
-    shadow.paste(mask_img.split()[-1] if mask_img.mode == "RGBA" else mask_img, offset)
+    shadow.paste(alpha_mask, offset)
     shadow = shadow.filter(ImageFilter.GaussianBlur(blur))
     layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
     layer.putalpha(shadow.point(lambda a: min(a, opacity)))
     return layer
 
 
-def main():
-    size = SIZE * SS
-    img = make_background(size)
-    img = add_glow(img)
-    canvas = Image.new("RGBA", (size, size))
-    canvas.paste(img, (0, 0))
-    draw = ImageDraw.Draw(canvas)
+def draw_photo_frame(canvas, size, ss):
+    """Main glyph: white rounded square with a gradient-tinted sun+mountain
+    cutout inside — "your own photo"."""
 
-    # --- Photo-frame glyph -------------------------------------------------
-    frame_margin = int(260 * SS)
-    frame_box = [frame_margin, frame_margin, size - frame_margin, size - frame_margin - int(40 * SS)]
+    def s(v):
+        return v * ss
 
+    frame_box = [s(277), s(360), s(747), s(790)]
     frame_mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(frame_mask).rounded_rectangle(frame_box, radius=int(70 * SS), fill=255)
-    shadow = drop_shadow(frame_mask, blur=size * 0.02, offset=(0, int(18 * SS)), opacity=130)
-    canvas = Image.alpha_composite(canvas, shadow)
+    ImageDraw.Draw(frame_mask).rounded_rectangle(frame_box, radius=s(70), fill=255)
+    canvas = Image.alpha_composite(canvas, drop_shadow(frame_mask, size * 0.02, (0, int(18 * ss)), opacity=130))
     draw = ImageDraw.Draw(canvas)
+    draw.rounded_rectangle(frame_box, radius=s(70), fill=(255, 255, 255, 255))
 
-    draw.rounded_rectangle(frame_box, radius=int(70 * SS), fill=(255, 255, 255, 255))
-
-    inner_pad = int(40 * SS)
-    inner_box = [frame_box[0] + inner_pad, frame_box[1] + inner_pad, frame_box[2] - inner_pad, frame_box[3] - inner_pad]
-
-    # Gradient-tinted cutout (violet->blue) instead of a flat accent, so the
-    # glyph itself carries a slice of the background's energy.
-    cutout = Image.new("RGBA", (size, size), (0, 0, 0, 0))
-    cutout_grad = Image.new(
-        "RGB",
-        (inner_box[2] - inner_box[0], inner_box[3] - inner_box[1]),
-    )
-    cpx = cutout_grad.load()
-    w, h = cutout_grad.size
+    inner_pad = s(36)
+    inner = [frame_box[0] + inner_pad, frame_box[1] + inner_pad, frame_box[2] - inner_pad, frame_box[3] - inner_pad]
+    w, h = int(inner[2] - inner[0]), int(inner[3] - inner[1])
+    grad = Image.new("RGB", (w, h))
+    gpx = grad.load()
     top, bottom = (94, 66, 220), (56, 132, 224)
     for yy in range(h):
-        t = yy / max(1, h - 1)
-        cpx_row = tuple(int(v) for v in lerp(top, bottom, t))
+        row = tuple(int(v) for v in lerp(top, bottom, yy / max(1, h - 1)))
         for xx in range(w):
-            cpx[xx, yy] = cpx_row
-    mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(mask).rounded_rectangle(inner_box, radius=int(36 * SS), fill=255)
-    cutout.paste(cutout_grad, (inner_box[0], inner_box[1]))
-    canvas = Image.composite(cutout, canvas, mask)
+            gpx[xx, yy] = row
+    inner_mask = Image.new("L", (size, size), 0)
+    ImageDraw.Draw(inner_mask).rounded_rectangle(inner, radius=s(30), fill=255)
+    grad_layer = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    grad_layer.paste(grad, (int(inner[0]), int(inner[1])))
+    canvas = Image.composite(grad_layer, canvas, inner_mask)
     draw = ImageDraw.Draw(canvas)
 
-    # Sun.
-    sun_r = int(42 * SS)
-    sun_cx = inner_box[0] + int(110 * SS)
-    sun_cy = inner_box[1] + int(100 * SS)
+    sun_r = s(30)
+    # Kept low enough in the frame to clear the cloud hat's overlap area
+    # (see draw_cloud_hat) — otherwise its bottom edge peeks out from
+    # under the cloud.
+    sun_cx, sun_cy = inner[0] + s(90), inner[1] + s(150)
     draw.ellipse([sun_cx - sun_r, sun_cy - sun_r, sun_cx + sun_r, sun_cy + sun_r], fill=(255, 255, 255, 255))
-
-    # Mountains (two overlapping triangles).
-    base_y = inner_box[3] - int(50 * SS)
+    base_y = inner[3] - s(40)
     draw.polygon(
-        [
-            (inner_box[0] + int(40 * SS), base_y),
-            (inner_box[0] + int(220 * SS), inner_box[1] + int(140 * SS)),
-            (inner_box[0] + int(400 * SS), base_y),
-        ],
+        [(inner[0] + s(30), base_y), (inner[0] + s(190), inner[1] + s(120)), (inner[0] + s(350), base_y)],
         fill=(255, 255, 255, 255),
     )
     draw.polygon(
-        [
-            (inner_box[0] + int(260 * SS), base_y),
-            (inner_box[0] + int(430 * SS), inner_box[1] + int(190 * SS)),
-            (inner_box[2] - int(40 * SS), base_y),
-        ],
+        [(inner[0] + s(230), base_y), (inner[0] + s(370), inner[1] + s(160)), (inner[2] - s(30), base_y)],
         fill=(224, 242, 254, 255),
     )
+    return canvas, frame_box, inner
 
-    # --- Cloud-upload badge -------------------------------------------------
-    badge_cx, badge_cy, badge_r = size - int(300 * SS), size - int(340 * SS), int(195 * SS)
 
-    badge_mask = Image.new("L", (size, size), 0)
-    ImageDraw.Draw(badge_mask).ellipse(
-        [badge_cx - badge_r, badge_cy - badge_r, badge_cx + badge_r, badge_cy + badge_r], fill=255
-    )
-    badge_shadow = drop_shadow(badge_mask, blur=size * 0.018, offset=(0, int(14 * SS)), opacity=150)
-    canvas = Image.alpha_composite(canvas, badge_shadow)
+def draw_cloud_hat(canvas, size, ss, frame_box):
+    """A cloud worn like a hat on top of the frame — "your own cloud". White,
+    like the frame, with a thin colored rim so it still reads as a distinct
+    shape rather than blending into the frame's border."""
+
+    def s(v):
+        return v * ss
+
+    cx = (frame_box[0] + frame_box[2]) / 2
+    base_bottom = frame_box[1] + s(130)  # sits well over the photo, not just tucked at the edge
+    base_top = base_bottom - s(90)
+    base_left, base_right = cx - s(185), cx + s(185)
+    bump_top = base_top - s(110)
+
+    def paint(draw_or_fn, fill):
+        draw_or_fn.ellipse([base_left - s(15), bump_top, base_left + s(155), base_top + s(70)], fill=fill)
+        draw_or_fn.ellipse([cx - s(110), bump_top - s(32), cx + s(110), base_top + s(58)], fill=fill)
+        draw_or_fn.ellipse([base_right - s(155), bump_top, base_right + s(15), base_top + s(70)], fill=fill)
+        draw_or_fn.rounded_rectangle([base_left, base_top, base_right, base_bottom], radius=s(46), fill=fill)
+
+    cloud_mask = Image.new("L", (size, size), 0)
+    paint(ImageDraw.Draw(cloud_mask), 255)
+    canvas = Image.alpha_composite(canvas, drop_shadow(cloud_mask, size * 0.014, (0, int(10 * ss)), opacity=110))
+
+    rim_color = (34, 197, 217, 255)
     draw = ImageDraw.Draw(canvas)
+    paint(draw, rim_color)
 
-    draw.ellipse(
-        [badge_cx - badge_r, badge_cy - badge_r, badge_cx + badge_r, badge_cy + badge_r],
+    inner_mask = cloud_mask.filter(ImageFilter.MinFilter(int(9 * ss) * 2 + 1))
+    white = Image.new("RGBA", (size, size), (255, 255, 255, 255))
+    canvas = Image.composite(white, canvas, inner_mask)
+    return canvas
+
+
+def draw_lock_overlay(canvas, size, ss, inner):
+    """A padlock badge tilted at the photo's bottom-right corner, straddling
+    it (part over the photo, part hanging off the edge) rather than sitting
+    fully inside — this photo is "kept private"."""
+
+    def s(v):
+        return v * ss
+
+    # Drawn upright on its own square layer first, then rotated as a whole
+    # — compound shapes like this can't be rotated via ImageDraw directly.
+    dim = int(340 * ss)
+    layer = Image.new("RGBA", (dim, dim), (0, 0, 0, 0))
+    ld = ImageDraw.Draw(layer)
+    cx = dim / 2
+    shackle_r = s(56)
+    body_w, body_h = s(150), s(128)
+    body_top = cx + s(4)
+
+    ld.arc(
+        [cx - shackle_r, body_top - shackle_r, cx + shackle_r, body_top + shackle_r],
+        start=180,
+        end=360,
         fill=(255, 255, 255, 255),
+        width=s(22),
     )
-    # Thin bright rim instead of the old flat dark outline — reads as glass,
-    # not a decal.
-    draw.ellipse(
-        [badge_cx - badge_r, badge_cy - badge_r, badge_cx + badge_r, badge_cy + badge_r],
-        outline=(34, 197, 217, 255),
-        width=int(10 * SS),
+    ld.rounded_rectangle(
+        [cx - body_w / 2, body_top, cx + body_w / 2, body_top + body_h], radius=s(20), fill=(255, 255, 255, 255)
     )
+    lock_color = (63, 55, 130, 255)
+    ld.ellipse([cx - s(11), body_top + s(24), cx + s(11), body_top + s(46)], fill=lock_color)
+    ld.rectangle([cx - s(5.5), body_top + s(38), cx + s(5.5), body_top + s(68)], fill=lock_color)
 
-    cloud_color = (56, 97, 224, 255)
+    rotated = layer.rotate(-22, resample=Image.BICUBIC, expand=True)
 
-    base_top, base_bottom = badge_cy + int(15 * SS), badge_cy + int(75 * SS)
-    base_left, base_right = badge_cx - int(105 * SS), badge_cx + int(105 * SS)
-    bump_top = base_top - int(55 * SS)
-    draw.ellipse(
-        [base_left - int(5 * SS), bump_top, base_left + int(85 * SS), base_top + int(40 * SS)], fill=cloud_color
-    )
-    draw.ellipse(
-        [badge_cx - int(55 * SS), bump_top - int(15 * SS), badge_cx + int(55 * SS), base_top + int(30 * SS)],
-        fill=cloud_color,
-    )
-    draw.ellipse(
-        [base_right - int(85 * SS), bump_top, base_right + int(5 * SS), base_top + int(40 * SS)], fill=cloud_color
-    )
-    draw.rounded_rectangle([base_left, base_top, base_right, base_bottom], radius=int(28 * SS), fill=cloud_color)
+    # Centered on the photo's bottom-right corner, so it visibly straddles
+    # the edge instead of sitting fully inside it.
+    target_cx, target_cy = inner[2], inner[3]
+    pos = (int(target_cx - rotated.width / 2), int(target_cy - rotated.height / 2))
+    full = Image.new("RGBA", (size, size), (0, 0, 0, 0))
+    full.paste(rotated, pos, rotated)
 
-    ax = badge_cx
-    shaft_bottom = bump_top - int(15 * SS)
-    shaft_top = shaft_bottom - int(55 * SS)
-    draw.line([(ax, shaft_top), (ax, shaft_bottom)], fill=cloud_color, width=int(24 * SS))
-    head_base = shaft_top + int(20 * SS)
-    draw.polygon(
-        [(ax - int(38 * SS), head_base), (ax + int(38 * SS), head_base), (ax, shaft_top - int(35 * SS))],
-        fill=cloud_color,
-    )
+    canvas = Image.alpha_composite(canvas, drop_shadow(full.split()[-1], size * 0.012, (0, int(8 * ss)), opacity=150))
+    canvas = Image.alpha_composite(canvas, full)
+    return canvas
+
+
+def main():
+    size = SIZE * SS
+    canvas = make_background(size).convert("RGBA")
+    canvas, frame_box, inner = draw_photo_frame(canvas, size, SS)
+    canvas = draw_cloud_hat(canvas, size, SS, frame_box)
+    canvas = draw_lock_overlay(canvas, size, SS, inner)
 
     final = canvas.convert("RGB").resize((SIZE, SIZE), Image.LANCZOS)
     final.save("assets/icon/app_icon.png")
