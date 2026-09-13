@@ -96,4 +96,14 @@ class PhotoLibraryService {
     final entity = await entityFor(record);
     return entity?.file;
   }
+
+  /// Same resolution as [fileFor], without needing a [PhotoLibraryService]
+  /// instance (a [store] to construct one) — for read-only call sites like
+  /// the detail viewer that only ever look up, never sync.
+  static Future<File?> resolveFile(AssetRecord record) async {
+    final id = entityIdFrom(record.localId);
+    if (id == null) return null;
+    final entity = await AssetEntity.fromId(id);
+    return entity?.file;
+  }
 }
