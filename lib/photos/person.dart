@@ -20,6 +20,8 @@ bool relationshipNeedsOrganization(RelationshipType type) =>
 /// See DESIGN.md: explicitly excludes travel/vacation history.
 enum LocationKind { origin, relocation }
 
+enum Gender { male, female }
+
 /// A recognized, named person — more than the AI-vision people-*count*
 /// grouping (`SmartCollectionScreen`): a persistent identity with its own
 /// editable profile. See IMPLEMENTATION_PLAN.md Phase 7.
@@ -31,6 +33,9 @@ class Person {
     required this.updatedAt,
     this.avatarLocalId,
     this.bio = '',
+    this.birthDate,
+    this.gender,
+    this.customFields = const [],
     this.locked = false,
     this.passcodeHash,
     this.passcodeHint,
@@ -48,10 +53,17 @@ class Person {
 
   final String bio;
 
-  /// When `true`, [PersonProfileScreen] hides [bio] and the Education/Job
-  /// [PersonHistoryEntry] lists until unlocked with [passcodeHash] — their
-  /// tagged photos stay visible either way (see DESIGN.md's risk note on
-  /// lock scope).
+  /// Stored as a birth date (not a raw age number) so the displayed age
+  /// stays correct without re-entering it — see [PersonProfileScreen]'s age
+  /// row.
+  final DateTime? birthDate;
+  final Gender? gender;
+  final List<PersonCustomField> customFields;
+
+  /// When `true`, [PersonProfileScreen] hides [bio], [birthDate], [gender],
+  /// [customFields], and the Education/Job [PersonHistoryEntry] lists until
+  /// unlocked with [passcodeHash] — their tagged photos stay visible either
+  /// way (see DESIGN.md's risk note on lock scope).
   final bool locked;
   final String? passcodeHash;
   final String? passcodeHint;
@@ -64,6 +76,9 @@ class Person {
     String? name,
     String? avatarLocalId,
     String? bio,
+    DateTime? Function()? birthDate,
+    Gender? Function()? gender,
+    List<PersonCustomField>? customFields,
     bool? locked,
     String? Function()? passcodeHash,
     String? Function()? passcodeHint,
@@ -74,11 +89,23 @@ class Person {
     updatedAt: DateTime.now(),
     avatarLocalId: avatarLocalId ?? this.avatarLocalId,
     bio: bio ?? this.bio,
+    birthDate: birthDate != null ? birthDate() : this.birthDate,
+    gender: gender != null ? gender() : this.gender,
+    customFields: customFields ?? this.customFields,
     locked: locked ?? this.locked,
     passcodeHash: passcodeHash != null ? passcodeHash() : this.passcodeHash,
     passcodeHint: passcodeHint != null ? passcodeHint() : this.passcodeHint,
     isDemo: isDemo,
   );
+}
+
+/// Whole-years age as of today — `null` if [Person.birthDate] isn't set.
+int? ageFrom(DateTime? birthDate) {
+  if (birthDate == null) return null;
+  final now = DateTime.now();
+  var age = now.year - birthDate.year;
+  if (now.month < birthDate.month || (now.month == birthDate.month && now.day < birthDate.day)) age--;
+  return age;
 }
 
 /// A directed link from one [Person] to another — the graph screen renders
@@ -131,6 +158,83 @@ class PersonCustomField {
       PersonCustomField(label: json['label'] as String? ?? '', value: json['value'] as String? ?? '');
 }
 
+/// A role/title held at a job (or a major/degree at a school), or an award
+/// — all three are just a name, an optional description, and an optional
+/// date range. Shared shape, different section on the entry's detail page.
+class TimelineEntry {
+  const TimelineEntry({required this.id, required this.title, this.description = '', this.startDate, this.endDate});
+
+  final String id;
+  final String title;
+  final String description;
+  final DateTime? startDate;
+
+  /// `null` means "present" / still ongoing.
+  final DateTime? endDate;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'title': title,
+    'description': description,
+    'startDate': startDate?.millisecondsSinceEpoch,
+    'endDate': endDate?.millisecondsSinceEpoch,
+  };
+
+  static TimelineEntry fromJson(Map<String, Object?> json) {
+    final start = json['startDate'] as int?;
+    final end = json['endDate'] as int?;
+    return TimelineEntry(
+      id: json['id'] as String? ?? '',
+      title: json['title'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      startDate: start == null ? null : DateTime.fromMillisecondsSinceEpoch(start),
+      endDate: end == null ? null : DateTime.fromMillisecondsSinceEpoch(end),
+    );
+  }
+}
+
+/// A project done during a job or while at school — like [TimelineEntry]
+/// plus free-form tags.
+class CareerProject {
+  const CareerProject({
+    required this.id,
+    required this.name,
+    this.description = '',
+    this.tags = const [],
+    this.startDate,
+    this.endDate,
+  });
+
+  final String id;
+  final String name;
+  final String description;
+  final List<String> tags;
+  final DateTime? startDate;
+  final DateTime? endDate;
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'name': name,
+    'description': description,
+    'tags': tags,
+    'startDate': startDate?.millisecondsSinceEpoch,
+    'endDate': endDate?.millisecondsSinceEpoch,
+  };
+
+  static CareerProject fromJson(Map<String, Object?> json) {
+    final start = json['startDate'] as int?;
+    final end = json['endDate'] as int?;
+    return CareerProject(
+      id: json['id'] as String? ?? '',
+      name: json['name'] as String? ?? '',
+      description: json['description'] as String? ?? '',
+      tags: (json['tags'] as List<dynamic>? ?? const []).cast<String>(),
+      startDate: start == null ? null : DateTime.fromMillisecondsSinceEpoch(start),
+      endDate: end == null ? null : DateTime.fromMillisecondsSinceEpoch(end),
+    );
+  }
+}
+
 /// One school attended or job held.
 class PersonHistoryEntry {
   const PersonHistoryEntry({
@@ -142,6 +246,9 @@ class PersonHistoryEntry {
     this.endDate,
     this.notes = '',
     this.customFields = const [],
+    this.titles = const [],
+    this.projects = const [],
+    this.awards = const [],
   });
 
   final String id;
@@ -160,12 +267,35 @@ class PersonHistoryEntry {
   final String notes;
   final List<PersonCustomField> customFields;
 
+  /// Role/title changes over time at this job (or majors/degrees at this
+  /// school) — the most recent one displays in place of [title] on the
+  /// profile's Education/Job row.
+  final List<TimelineEntry> titles;
+  final List<CareerProject> projects;
+  final List<TimelineEntry> awards;
+
+  /// The latest [titles] entry (by start date, or the one still ongoing),
+  /// or `null` if none have been added yet.
+  TimelineEntry? get latestTitle {
+    if (titles.isEmpty) return null;
+    final ongoing = titles.where((t) => t.endDate == null).toList();
+    if (ongoing.isNotEmpty) {
+      ongoing.sort((a, b) => (b.startDate ?? DateTime(0)).compareTo(a.startDate ?? DateTime(0)));
+      return ongoing.first;
+    }
+    final sorted = [...titles]..sort((a, b) => (b.startDate ?? DateTime(0)).compareTo(a.startDate ?? DateTime(0)));
+    return sorted.first;
+  }
+
   PersonHistoryEntry copyWith({
     String? title,
     DateTime? Function()? startDate,
     DateTime? Function()? endDate,
     String? notes,
     List<PersonCustomField>? customFields,
+    List<TimelineEntry>? titles,
+    List<CareerProject>? projects,
+    List<TimelineEntry>? awards,
   }) => PersonHistoryEntry(
     id: id,
     personId: personId,
@@ -173,6 +303,9 @@ class PersonHistoryEntry {
     title: title ?? this.title,
     startDate: startDate != null ? startDate() : this.startDate,
     endDate: endDate != null ? endDate() : this.endDate,
+    titles: titles ?? this.titles,
+    projects: projects ?? this.projects,
+    awards: awards ?? this.awards,
     notes: notes ?? this.notes,
     customFields: customFields ?? this.customFields,
   );

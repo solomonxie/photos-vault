@@ -92,12 +92,15 @@ class LibraryScreen extends StatefulWidget {
 }
 
 class LibraryScreenState extends State<LibraryScreen> {
-  late final AssetRecordStore assetRecordStore = widget.assetRecordStore ?? AssetRecordStore();
-  late final BackupTargetsStore _backupTargetsStore = widget.backupTargetsStore ?? BackupTargetsStore();
+  late final AssetRecordStore assetRecordStore =
+      widget.assetRecordStore ?? AssetRecordStore();
+  late final BackupTargetsStore _backupTargetsStore =
+      widget.backupTargetsStore ?? BackupTargetsStore();
   late final AlbumStore _albumStore = widget.albumStore ?? AlbumStore();
   late final ManualAddService _manualAddService =
       widget.manualAddService ?? ManualAddService(store: assetRecordStore);
-  late final PrivateAlbumStore _privateAlbumStore = widget.privateAlbumStore ?? PrivateAlbumStore();
+  late final PrivateAlbumStore _privateAlbumStore =
+      widget.privateAlbumStore ?? PrivateAlbumStore();
   late final PersonStore _personStore = widget.personStore ?? PersonStore();
   late final DemoAssetsService _demoAssetsService =
       widget.demoAssetsService ??
@@ -107,12 +110,19 @@ class LibraryScreenState extends State<LibraryScreen> {
         privateAlbumStore: _privateAlbumStore,
         personStore: _personStore,
       );
-  late final DemoSeedStore _demoSeedStore = widget.demoSeedStore ?? DemoSeedStore();
+  late final DemoSeedStore _demoSeedStore =
+      widget.demoSeedStore ?? DemoSeedStore();
   late final BackupCoordinator _coordinator =
-      widget.backupCoordinator ?? BackupCoordinator(targetsStore: _backupTargetsStore, recordStore: assetRecordStore);
-  late final AiAnalysisStore _aiAnalysisStore = widget.aiAnalysisStore ?? AiAnalysisStore();
+      widget.backupCoordinator ??
+      BackupCoordinator(
+        targetsStore: _backupTargetsStore,
+        recordStore: assetRecordStore,
+      );
+  late final AiAnalysisStore _aiAnalysisStore =
+      widget.aiAnalysisStore ?? AiAnalysisStore();
   late final PhotoLibraryService _photoLibraryService =
-      widget.photoLibraryService ?? PhotoLibraryService(store: assetRecordStore);
+      widget.photoLibraryService ??
+      PhotoLibraryService(store: assetRecordStore);
 
   List<AssetRecord> _all = const [];
   List<Album> _albums = const [];
@@ -178,12 +188,17 @@ class LibraryScreenState extends State<LibraryScreen> {
     final albumAssets = <String, List<AssetRecord>>{};
     for (final album in albums) {
       final memberIds = (await _albumStore.localIdsIn(album.id)).toSet();
-      albumAssets[album.id] = all.where((r) => !r.isDeleted && !r.isHidden && memberIds.contains(r.localId)).toList();
+      albumAssets[album.id] = all
+          .where(
+            (r) => !r.isDeleted && !r.isHidden && memberIds.contains(r.localId),
+          )
+          .toList();
     }
     final people = await _personStore.listAll();
     final personPhotoCounts = <String, int>{};
     for (final person in people) {
-      personPhotoCounts[person.id] = (await _personStore.localIdsIn(person.id)).length;
+      personPhotoCounts[person.id] = (await _personStore.localIdsIn(person.id))
+          .length;
     }
     if (!mounted) return;
     setState(() {
@@ -196,19 +211,31 @@ class LibraryScreenState extends State<LibraryScreen> {
   }
 
   List<AssetRecord> get _active =>
-      _all.where((r) => !r.isDeleted && !r.isHidden).toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      _all.where((r) => !r.isDeleted && !r.isHidden).toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
   List<AssetRecord> get _filtered => _query.isEmpty
       ? _active
-      : _active.where((r) => (r.sourcePath ?? r.localId).toLowerCase().contains(_query.toLowerCase())).toList();
+      : _active
+            .where(
+              (r) => (r.sourcePath ?? r.localId).toLowerCase().contains(
+                _query.toLowerCase(),
+              ),
+            )
+            .toList();
 
   int get _photoCount => _active.where((r) => !r.isVideo).length;
   int get _videoCount => _active.where((r) => r.isVideo).length;
-  int get _favoriteCount => _all.where((r) => r.isFavorite && !r.isDeleted).length;
+  int get _favoriteCount =>
+      _all.where((r) => r.isFavorite && !r.isDeleted).length;
   int get _hiddenCount => _all.where((r) => r.isHidden && !r.isDeleted).length;
   int get _deletedCount => _all.where((r) => r.isDeleted).length;
-  int get _pendingCount =>
-      _active.where((r) => r.stateOf(DerivativeKind.original).status != UploadStatus.uploaded).length;
+  int get _pendingCount => _active
+      .where(
+        (r) =>
+            r.stateOf(DerivativeKind.original).status != UploadStatus.uploaded,
+      )
+      .length;
 
   Future<int> _backUpRecords(List<AssetRecord> records) async {
     var succeeded = 0;
@@ -216,7 +243,11 @@ class LibraryScreenState extends State<LibraryScreen> {
       try {
         final path = await _filePathFor(record);
         if (path == null) continue;
-        final count = await _coordinator.backUpDerivative(record: record, kind: DerivativeKind.original, filePath: path);
+        final count = await _coordinator.backUpDerivative(
+          record: record,
+          kind: DerivativeKind.original,
+          filePath: path,
+        );
         if (count > 0) succeeded++;
       } catch (_) {
         // One asset's file couldn't be resolved (e.g. an iCloud fetch
@@ -302,11 +333,17 @@ class LibraryScreenState extends State<LibraryScreen> {
 
   List<TileAction> _actionsFor(AppLocalizations l10n, AssetRecord record) => [
     TileAction(
-      icon: record.isFavorite ? CupertinoIcons.heart_slash : CupertinoIcons.heart,
+      icon: record.isFavorite
+          ? CupertinoIcons.heart_slash
+          : CupertinoIcons.heart,
       label: record.isFavorite ? l10n.libraryUnfavorite : l10n.libraryFavorite,
       onPressed: () => _toggleFavorite(record),
     ),
-    TileAction(icon: CupertinoIcons.eye_slash, label: l10n.libraryHide, onPressed: () => _hide(record)),
+    TileAction(
+      icon: CupertinoIcons.eye_slash,
+      label: l10n.libraryHide,
+      onPressed: () => _hide(record),
+    ),
     TileAction(
       icon: CupertinoIcons.delete,
       label: l10n.libraryDeleteTooltip,
@@ -330,12 +367,17 @@ class LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _push(Widget screen) async {
-    await Navigator.of(context).push(CupertinoPageRoute(builder: (_) => screen));
+    await Navigator.of(context)
+        .push(CupertinoPageRoute(builder: (_) => screen));
     await reload();
   }
 
   Future<void> _openPrivateAlbums() async {
-    await openPrivateAlbums(context, assetRecordStore: assetRecordStore, privateAlbumStore: _privateAlbumStore);
+    await openPrivateAlbums(
+      context,
+      assetRecordStore: assetRecordStore,
+      privateAlbumStore: _privateAlbumStore,
+    );
     await reload();
   }
 
@@ -348,11 +390,20 @@ class LibraryScreenState extends State<LibraryScreen> {
     ),
   );
 
-  void _openPerson(Person person) =>
-      _push(PersonPageScreen(person: person, personStore: _personStore, assetRecordStore: assetRecordStore));
+  void _openPerson(Person person) => _push(
+    PersonPageScreen(
+      person: person,
+      personStore: _personStore,
+      assetRecordStore: assetRecordStore,
+    ),
+  );
 
   void _openPeopleScreen() => _push(
-    PeopleScreen(personStore: _personStore, assetRecordStore: assetRecordStore, aiAnalysisStore: _aiAnalysisStore),
+    PeopleScreen(
+      personStore: _personStore,
+      assetRecordStore: assetRecordStore,
+      aiAnalysisStore: _aiAnalysisStore,
+    ),
   );
 
   Future<void> _confirmDeleteAlbum(Album album) async {
@@ -363,7 +414,10 @@ class LibraryScreenState extends State<LibraryScreen> {
         title: Text(l10n.albumDeleteConfirmTitle),
         content: Text(l10n.albumDeleteConfirmBody),
         actions: [
-          CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(false), child: Text(l10n.actionCancel)),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
           CupertinoDialogAction(
             isDestructiveAction: true,
             onPressed: () => Navigator.of(context).pop(true),
@@ -392,12 +446,18 @@ class LibraryScreenState extends State<LibraryScreen> {
               SliverToBoxAdapter(
                 child: Padding(
                   padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                  child: CupertinoSearchTextField(onChanged: (v) => setState(() => _query = v)),
+                  child: CupertinoSearchTextField(
+                    onChanged: (v) => setState(() => _query = v),
+                  ),
                 ),
               ),
             if (_all.isEmpty)
               SliverToBoxAdapter(
-                child: _EmptyState(busy: _busy, onAddDemo: _addDemoPhotos, onAddFiles: addFiles),
+                child: _EmptyState(
+                  busy: _busy,
+                  onAddDemo: _addDemoPhotos,
+                  onAddFiles: addFiles,
+                ),
               )
             else ...[
               ...assetGridSlivers(
@@ -406,9 +466,13 @@ class LibraryScreenState extends State<LibraryScreen> {
                 onTap: _openRecord,
                 actionsFor: (r) => _actionsFor(l10n, r),
               ),
-              SliverToBoxAdapter(child: _SectionHeader(title: l10n.collectionsCollections)),
+              SliverToBoxAdapter(
+                child: _SectionHeader(title: l10n.collectionsCollections),
+              ),
               if (_albums.isNotEmpty) ...[
-                SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsAlbums)),
+                SliverToBoxAdapter(
+                  child: _SubsectionHeader(title: l10n.collectionsAlbums),
+                ),
                 SliverToBoxAdapter(
                   child: SizedBox(
                     height: 190,
@@ -416,7 +480,8 @@ class LibraryScreenState extends State<LibraryScreen> {
                       scrollDirection: Axis.horizontal,
                       padding: const EdgeInsets.symmetric(horizontal: 16),
                       itemCount: _albums.length,
-                      separatorBuilder: (context, i) => const SizedBox(width: 12),
+                      separatorBuilder: (context, i) =>
+                          const SizedBox(width: 12),
                       itemBuilder: (context, i) => SizedBox(
                         width: 140,
                         child: _AlbumCard(
@@ -430,38 +495,49 @@ class LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ),
               ],
-              SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsPeopleRow, onMore: _openPeopleScreen)),
+              SliverToBoxAdapter(
+                child: _SubsectionHeader(
+                  title: l10n.collectionsPeopleRow,
+                  onMore: _openPeopleScreen,
+                ),
+              ),
               SliverToBoxAdapter(
                 child: _people.isEmpty
                     ? Padding(
                         padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Text(l10n.peopleEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)),
+                        child: Text(
+                          l10n.peopleEmpty,
+                          style: const TextStyle(
+                            color: CupertinoColors.systemGrey,
+                          ),
+                        ),
                       )
                     : SizedBox(
-                        height: 200,
-                        child: GridView.builder(
+                        height: 100,
+                        child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           padding: const EdgeInsets.symmetric(horizontal: 16),
-                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 2,
-                            mainAxisSpacing: 12,
-                            crossAxisSpacing: 8,
-                            childAspectRatio: 0.85,
-                          ),
                           itemCount: _people.length,
+                          separatorBuilder: (context, i) =>
+                              const SizedBox(width: 8),
                           itemBuilder: (context, i) {
                             final person = _people[i];
-                            return _PersonCard(
-                              person: person,
-                              assetRecordStore: assetRecordStore,
-                              photoCount: _personPhotoCounts[person.id] ?? 0,
-                              onTap: () => _openPerson(person),
+                            return SizedBox(
+                              width: 64,
+                              child: _PersonCard(
+                                person: person,
+                                assetRecordStore: assetRecordStore,
+                                photoCount: _personPhotoCounts[person.id] ?? 0,
+                                onTap: () => _openPerson(person),
+                              ),
                             );
                           },
                         ),
                       ),
               ),
-              SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsPlacesRow)),
+              SliverToBoxAdapter(
+                child: _SubsectionHeader(title: l10n.collectionsPlacesRow),
+              ),
               SliverToBoxAdapter(
                 child: _PlaceholderCollectionRow(
                   icon: CupertinoIcons.map_pin_ellipse,
@@ -475,7 +551,9 @@ class LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ),
               ),
-              SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsEventsRow)),
+              SliverToBoxAdapter(
+                child: _SubsectionHeader(title: l10n.collectionsEventsRow),
+              ),
               SliverToBoxAdapter(
                 child: _PlaceholderCollectionRow(
                   icon: CupertinoIcons.calendar,
@@ -490,7 +568,9 @@ class LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ),
               ),
-              SliverToBoxAdapter(child: _SectionHeader(title: l10n.collectionsMediaTypes)),
+              SliverToBoxAdapter(
+                child: _SectionHeader(title: l10n.collectionsMediaTypes),
+              ),
               SliverToBoxAdapter(
                 child: CupertinoListSection.insetGrouped(
                   margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -535,7 +615,9 @@ class LibraryScreenState extends State<LibraryScreen> {
                 ),
               ),
             ],
-            SliverToBoxAdapter(child: _SectionHeader(title: l10n.collectionsUtilities)),
+            SliverToBoxAdapter(
+              child: _SectionHeader(title: l10n.collectionsUtilities),
+            ),
             SliverToBoxAdapter(
               child: CupertinoListSection.insetGrouped(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -556,7 +638,9 @@ class LibraryScreenState extends State<LibraryScreen> {
                     color: CupertinoColors.systemRed,
                     title: l10n.collectionsFavoritesRow,
                     count: _favoriteCount,
-                    onTap: () => _push(FavoritesScreen(assetRecordStore: assetRecordStore)),
+                    onTap: () => _push(
+                      FavoritesScreen(assetRecordStore: assetRecordStore),
+                    ),
                   ),
                   _row(
                     icon: CupertinoIcons.eye_slash_fill,
@@ -570,20 +654,24 @@ class LibraryScreenState extends State<LibraryScreen> {
                     color: CupertinoColors.systemRed,
                     title: l10n.collectionsRecentlyDeletedRow,
                     count: _deletedCount,
-                    onTap: () => _push(RecentlyDeletedScreen(assetRecordStore: assetRecordStore)),
+                    onTap: () => _push(
+                      RecentlyDeletedScreen(assetRecordStore: assetRecordStore),
+                    ),
                   ),
                   _row(
                     icon: CupertinoIcons.cloud_upload_fill,
                     color: CupertinoColors.systemBlue,
                     title: l10n.collectionsBackupStatusRow,
                     count: _pendingCount,
-                    onTap: () => _push(BackupScreen(assetRecordStore: assetRecordStore)),
+                    onTap: () =>
+                        _push(BackupScreen(assetRecordStore: assetRecordStore)),
                   ),
                   _row(
                     icon: CupertinoIcons.gear_alt_fill,
                     color: CupertinoColors.systemGrey2,
                     title: l10n.collectionsSettingsRow,
-                    onTap: () => _push(SettingsScreen(store: _backupTargetsStore)),
+                    onTap: () =>
+                        _push(SettingsScreen(store: _backupTargetsStore)),
                   ),
                   _row(
                     icon: CupertinoIcons.sparkles,
@@ -618,16 +706,27 @@ class LibraryScreenState extends State<LibraryScreen> {
       leading: Container(
         width: 29,
         height: 29,
-        decoration: BoxDecoration(color: color, borderRadius: BorderRadius.circular(7)),
+        decoration: BoxDecoration(
+          color: color,
+          borderRadius: BorderRadius.circular(7),
+        ),
         child: Icon(icon, color: CupertinoColors.white, size: 17),
       ),
       title: Text(title),
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (count != null) Text('$count', style: const TextStyle(color: CupertinoColors.systemGrey)),
+          if (count != null)
+            Text(
+              '$count',
+              style: const TextStyle(color: CupertinoColors.systemGrey),
+            ),
           const SizedBox(width: 4),
-          const Icon(CupertinoIcons.chevron_forward, size: 18, color: CupertinoColors.systemGrey2),
+          const Icon(
+            CupertinoIcons.chevron_forward,
+            size: 18,
+            color: CupertinoColors.systemGrey2,
+          ),
         ],
       ),
       onTap: onTap,
@@ -636,7 +735,12 @@ class LibraryScreenState extends State<LibraryScreen> {
 }
 
 class _AlbumCard extends StatelessWidget {
-  const _AlbumCard({required this.album, required this.records, required this.onTap, required this.onDelete});
+  const _AlbumCard({
+    required this.album,
+    required this.records,
+    required this.onTap,
+    required this.onDelete,
+  });
 
   final Album album;
   final List<AssetRecord> records;
@@ -684,7 +788,11 @@ class _AlbumCard extends StatelessWidget {
               child: coverIsVideo
                   ? const ColoredBox(
                       color: CupertinoColors.darkBackgroundGray,
-                      child: Icon(CupertinoIcons.play_circle_fill, color: CupertinoColors.white, size: 28),
+                      child: Icon(
+                        CupertinoIcons.play_circle_fill,
+                        color: CupertinoColors.white,
+                        size: 28,
+                      ),
                     )
                   : cover != null
                   ? Image.file(
@@ -692,7 +800,10 @@ class _AlbumCard extends StatelessWidget {
                       fit: BoxFit.cover,
                       width: double.infinity,
                       errorBuilder: (context, error, stackTrace) =>
-                          const ColoredBox(color: CupertinoColors.systemGrey5, child: Icon(CupertinoIcons.photo)),
+                          const ColoredBox(
+                            color: CupertinoColors.systemGrey5,
+                            child: Icon(CupertinoIcons.photo),
+                          ),
                     )
                   : const ColoredBox(
                       color: CupertinoColors.systemGrey5,
@@ -702,7 +813,13 @@ class _AlbumCard extends StatelessWidget {
           ),
           const SizedBox(height: 6),
           Text(album.name, maxLines: 1, overflow: TextOverflow.ellipsis),
-          Text('${records.length}', style: const TextStyle(color: CupertinoColors.systemGrey, fontSize: 13)),
+          Text(
+            '${records.length}',
+            style: const TextStyle(
+              color: CupertinoColors.systemGrey,
+              fontSize: 13,
+            ),
+          ),
         ],
       ),
     );
@@ -715,7 +832,12 @@ class _AlbumCard extends StatelessWidget {
 /// one big card per person, since a name+count needs far less width than an
 /// album cover.
 class _PersonCard extends StatelessWidget {
-  const _PersonCard({required this.person, required this.assetRecordStore, required this.photoCount, required this.onTap});
+  const _PersonCard({
+    required this.person,
+    required this.assetRecordStore,
+    required this.photoCount,
+    required this.onTap,
+  });
 
   final Person person;
   final AssetRecordStore assetRecordStore;
@@ -728,10 +850,26 @@ class _PersonCard extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        PersonAvatar(assetRecordStore: assetRecordStore, localId: person.avatarLocalId, size: 56),
+        PersonAvatar(
+          assetRecordStore: assetRecordStore,
+          localId: person.avatarLocalId,
+          size: 56,
+        ),
         const SizedBox(height: 4),
-        Text(person.name, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
-        Text('$photoCount', style: const TextStyle(color: CupertinoColors.systemGrey, fontSize: 11)),
+        Text(
+          person.name,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: const TextStyle(fontSize: 12),
+        ),
+        Text(
+          '$photoCount',
+          style: const TextStyle(
+            color: CupertinoColors.systemGrey,
+            fontSize: 11,
+          ),
+        ),
       ],
     ),
   );
@@ -746,7 +884,10 @@ class _SectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 32, 16, 8),
-      child: Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22)),
+      child: Text(
+        title,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
+      ),
     );
   }
 }
@@ -769,7 +910,10 @@ class _SubsectionHeader extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 17)),
+          Text(
+            title,
+            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 17),
+          ),
           if (onMore != null)
             CupertinoButton(
               padding: EdgeInsets.zero,
@@ -777,8 +921,15 @@ class _SubsectionHeader extends StatelessWidget {
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  Text(l10n.collectionsMoreButton, style: const TextStyle(color: CupertinoColors.systemGrey)),
-                  const Icon(CupertinoIcons.chevron_forward, size: 16, color: CupertinoColors.systemGrey),
+                  Text(
+                    l10n.collectionsMoreButton,
+                    style: const TextStyle(color: CupertinoColors.systemGrey),
+                  ),
+                  const Icon(
+                    CupertinoIcons.chevron_forward,
+                    size: 16,
+                    color: CupertinoColors.systemGrey,
+                  ),
                 ],
               ),
             ),
@@ -794,7 +945,12 @@ class _SubsectionHeader extends StatelessWidget {
 /// Collections subsection rather than a bare row. Every card opens the same
 /// "coming soon" screen.
 class _PlaceholderCollectionRow extends StatelessWidget {
-  const _PlaceholderCollectionRow({required this.icon, required this.color, required this.onTap, this.label});
+  const _PlaceholderCollectionRow({
+    required this.icon,
+    required this.color,
+    required this.onTap,
+    this.label,
+  });
 
   final IconData icon;
   final Color color;
@@ -833,7 +989,10 @@ class _PlaceholderCollectionRow extends StatelessWidget {
                     // through a Cupertino-aware widget) it otherwise paints
                     // its light-mode value even in dark mode.
                     child: ColoredBox(
-                      color: CupertinoDynamicColor.resolve(CupertinoColors.systemGrey5, context),
+                      color: CupertinoDynamicColor.resolve(
+                        CupertinoColors.systemGrey5,
+                        context,
+                      ),
                       child: Icon(icon, color: color, size: 32),
                     ),
                   ),
@@ -843,7 +1002,10 @@ class _PlaceholderCollectionRow extends StatelessWidget {
                   label ?? l10n.collectionsComingSoonTitle,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(color: CupertinoColors.systemGrey, fontSize: 13),
+                  style: const TextStyle(
+                    color: CupertinoColors.systemGrey,
+                    fontSize: 13,
+                  ),
                 ),
               ],
             ),
@@ -855,7 +1017,11 @@ class _PlaceholderCollectionRow extends StatelessWidget {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.busy, required this.onAddDemo, required this.onAddFiles});
+  const _EmptyState({
+    required this.busy,
+    required this.onAddDemo,
+    required this.onAddFiles,
+  });
 
   final bool busy;
   final VoidCallback onAddDemo;
@@ -870,9 +1036,16 @@ class _EmptyState extends StatelessWidget {
         child: Column(
           mainAxisSize: MainAxisSize.min,
           children: [
-            const Icon(CupertinoIcons.photo_on_rectangle, size: 56, color: CupertinoColors.systemGrey),
+            const Icon(
+              CupertinoIcons.photo_on_rectangle,
+              size: 56,
+              color: CupertinoColors.systemGrey,
+            ),
             const SizedBox(height: 12),
-            Text(l10n.libraryEmptyTitle, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600)),
+            Text(
+              l10n.libraryEmptyTitle,
+              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+            ),
             const SizedBox(height: 4),
             Text(
               l10n.libraryEmptyNote,
@@ -880,8 +1053,14 @@ class _EmptyState extends StatelessWidget {
               style: const TextStyle(color: CupertinoColors.systemGrey),
             ),
             const SizedBox(height: 20),
-            CupertinoButton.filled(onPressed: busy ? null : onAddDemo, child: Text(l10n.libraryAddDemoButton)),
-            CupertinoButton(onPressed: busy ? null : onAddFiles, child: Text(l10n.libraryAddFilesButton)),
+            CupertinoButton.filled(
+              onPressed: busy ? null : onAddDemo,
+              child: Text(l10n.libraryAddDemoButton),
+            ),
+            CupertinoButton(
+              onPressed: busy ? null : onAddFiles,
+              child: Text(l10n.libraryAddFilesButton),
+            ),
           ],
         ),
       ),

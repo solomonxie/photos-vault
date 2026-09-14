@@ -34,13 +34,26 @@ class PersonStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await db.execute('ALTER TABLE $_relationshipTable ADD COLUMN organization TEXT');
           }
           if (oldVersion < 3) {
             await db.execute(_createHistoryTableSql);
+          }
+          if (oldVersion < 4) {
+            await db.execute('ALTER TABLE $_personTable ADD COLUMN birth_date INTEGER');
+            await db.execute('ALTER TABLE $_personTable ADD COLUMN gender TEXT');
+            await db.execute("ALTER TABLE $_personTable ADD COLUMN custom_fields TEXT NOT NULL DEFAULT '[]'");
+            // A device already at v3 has $_historyTable without these —
+            // one already at v2 got it fresh (with them) from the v2->v3
+            // step just above, so this is a no-op there.
+            if (oldVersion >= 3) {
+              await db.execute("ALTER TABLE $_historyTable ADD COLUMN titles TEXT NOT NULL DEFAULT '[]'");
+              await db.execute("ALTER TABLE $_historyTable ADD COLUMN projects TEXT NOT NULL DEFAULT '[]'");
+              await db.execute("ALTER TABLE $_historyTable ADD COLUMN awards TEXT NOT NULL DEFAULT '[]'");
+            }
           }
         },
         onCreate: (db, version) async {
@@ -50,6 +63,9 @@ class PersonStore {
               name TEXT NOT NULL,
               avatar_local_id TEXT,
               bio TEXT NOT NULL DEFAULT '',
+              birth_date INTEGER,
+              gender TEXT,
+              custom_fields TEXT NOT NULL DEFAULT '[]',
               locked INTEGER NOT NULL DEFAULT 0,
               passcode_hash TEXT,
               passcode_hint TEXT,
@@ -102,7 +118,10 @@ class PersonStore {
       start_date INTEGER,
       end_date INTEGER,
       notes TEXT NOT NULL DEFAULT '',
-      custom_fields TEXT NOT NULL DEFAULT '[]'
+      custom_fields TEXT NOT NULL DEFAULT '[]',
+      titles TEXT NOT NULL DEFAULT '[]',
+      projects TEXT NOT NULL DEFAULT '[]',
+      awards TEXT NOT NULL DEFAULT '[]'
     )
   ''';
 
@@ -310,6 +329,9 @@ class PersonStore {
       'end_date': entry.endDate?.millisecondsSinceEpoch,
       'notes': entry.notes,
       'custom_fields': jsonEncode(entry.customFields.map((f) => f.toJson()).toList()),
+      'titles': jsonEncode(entry.titles.map((t) => t.toJson()).toList()),
+      'projects': jsonEncode(entry.projects.map((p) => p.toJson()).toList()),
+      'awards': jsonEncode(entry.awards.map((a) => a.toJson()).toList()),
     }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
   }
 
@@ -347,6 +369,9 @@ class PersonStore {
     final startMillis = row['start_date'] as int?;
     final endMillis = row['end_date'] as int?;
     final customFieldsJson = jsonDecode(row['custom_fields'] as String? ?? '[]') as List<dynamic>;
+    final titlesJson = jsonDecode(row['titles'] as String? ?? '[]') as List<dynamic>;
+    final projectsJson = jsonDecode(row['projects'] as String? ?? '[]') as List<dynamic>;
+    final awardsJson = jsonDecode(row['awards'] as String? ?? '[]') as List<dynamic>;
     return PersonHistoryEntry(
       id: row['id'] as String,
       personId: row['person_id'] as String,
@@ -356,6 +381,9 @@ class PersonStore {
       endDate: endMillis == null ? null : DateTime.fromMillisecondsSinceEpoch(endMillis),
       notes: row['notes'] as String? ?? '',
       customFields: customFieldsJson.map((f) => PersonCustomField.fromJson(f as Map<String, Object?>)).toList(),
+      titles: titlesJson.map((t) => TimelineEntry.fromJson(t as Map<String, Object?>)).toList(),
+      projects: projectsJson.map((p) => CareerProject.fromJson(p as Map<String, Object?>)).toList(),
+      awards: awardsJson.map((a) => TimelineEntry.fromJson(a as Map<String, Object?>)).toList(),
     );
   }
 
@@ -366,6 +394,9 @@ class PersonStore {
     'name': person.name,
     'avatar_local_id': person.avatarLocalId,
     'bio': person.bio,
+    'birth_date': person.birthDate?.millisecondsSinceEpoch,
+    'gender': person.gender?.name,
+    'custom_fields': jsonEncode(person.customFields.map((f) => f.toJson()).toList()),
     'locked': person.locked ? 1 : 0,
     'passcode_hash': person.passcodeHash,
     'passcode_hint': person.passcodeHint,
@@ -374,18 +405,26 @@ class PersonStore {
     'updated_at': person.updatedAt.millisecondsSinceEpoch,
   };
 
-  static Person _fromRow(Map<String, Object?> row) => Person(
-    id: row['id'] as String,
-    name: row['name'] as String,
-    avatarLocalId: row['avatar_local_id'] as String?,
-    bio: row['bio'] as String? ?? '',
-    locked: (row['locked'] as int? ?? 0) != 0,
-    passcodeHash: row['passcode_hash'] as String?,
-    passcodeHint: row['passcode_hint'] as String?,
-    isDemo: (row['is_demo'] as int? ?? 0) != 0,
-    createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
-    updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
-  );
+  static Person _fromRow(Map<String, Object?> row) {
+    final birthMillis = row['birth_date'] as int?;
+    final genderName = row['gender'] as String?;
+    final customFieldsJson = jsonDecode(row['custom_fields'] as String? ?? '[]') as List<dynamic>;
+    return Person(
+      id: row['id'] as String,
+      name: row['name'] as String,
+      avatarLocalId: row['avatar_local_id'] as String?,
+      bio: row['bio'] as String? ?? '',
+      birthDate: birthMillis == null ? null : DateTime.fromMillisecondsSinceEpoch(birthMillis),
+      gender: genderName == null ? null : Gender.values.byName(genderName),
+      customFields: customFieldsJson.map((f) => PersonCustomField.fromJson(f as Map<String, Object?>)).toList(),
+      locked: (row['locked'] as int? ?? 0) != 0,
+      passcodeHash: row['passcode_hash'] as String?,
+      passcodeHint: row['passcode_hint'] as String?,
+      isDemo: (row['is_demo'] as int? ?? 0) != 0,
+      createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
+      updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
+    );
+  }
 
   static PersonRelationship _relationshipFromRow(Map<String, Object?> row) => PersonRelationship(
     personId: row['person_id'] as String,
