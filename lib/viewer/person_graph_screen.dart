@@ -238,6 +238,8 @@ class _EdgePainter extends CustomPainter {
         return paint..color = CupertinoColors.systemBlue;
       case RelationshipType.colleague:
         return paint..color = CupertinoColors.systemGreen;
+      case RelationshipType.schoolmate:
+        return paint..color = CupertinoColors.systemOrange;
       case RelationshipType.other:
         return paint
           ..color = CupertinoColors.systemGrey2

@@ -9,13 +9,16 @@ import '../storage/passcode_hash.dart';
 import 'passcode_prompt.dart';
 import 'person_avatar.dart';
 import 'person_graph_screen.dart';
+import 'person_picker_screen.dart';
+import 'string_picker_screen.dart';
 
-/// The full editable profile behind a person page's name chevron: bio
-/// fields (education/job/about), an optional passcode+hint lock over those
-/// fields (photos and identity stay visible either way — see DESIGN.md's
-/// risk note), relationships to other people (family/relatives lives here,
-/// as typed links, not a free-text field) with a link to the net graph, and
-/// geolocation location history. See IMPLEMENTATION_PLAN.md T7.3-T7.7.
+/// The full editable profile behind a person page's name chevron: Name/About,
+/// Education and Job as their own pick-or-type sections, an optional
+/// passcode+hint lock over those sections (photos and identity stay visible
+/// either way — see DESIGN.md's risk note), Relationships (family/relatives
+/// lives here, as typed links, not a free-text field) with a link to the net
+/// graph, and Places Lived (always last). See IMPLEMENTATION_PLAN.md
+/// T7.3-T7.7.
 class PersonProfileScreen extends StatefulWidget {
   const PersonProfileScreen({super.key, required this.person, required this.personStore, required this.assetRecordStore});
 
@@ -28,10 +31,11 @@ class PersonProfileScreen extends StatefulWidget {
 }
 
 class _PersonProfileScreenState extends State<PersonProfileScreen> {
+  static const _cardBackground = Color(0xFF1C1C1E);
+  static const _cardDecoration = BoxDecoration(color: Color(0xFF2C2C2E), borderRadius: BorderRadius.all(Radius.circular(10)));
+
   late Person _person = widget.person;
   late final TextEditingController _name = TextEditingController(text: _person.name);
-  late final TextEditingController _education = TextEditingController(text: _person.education);
-  late final TextEditingController _job = TextEditingController(text: _person.job);
   late final TextEditingController _bio = TextEditingController(text: _person.bio);
 
   bool _unlocked = false;
@@ -43,6 +47,13 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   void initState() {
     super.initState();
     _reload();
+  }
+
+  @override
+  void dispose() {
+    _name.dispose();
+    _bio.dispose();
+    super.dispose();
   }
 
   Future<void> _reload() async {
@@ -60,6 +71,35 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   Future<void> _persist(Person updated) async {
     setState(() => _person = updated);
     await widget.personStore.update(updated);
+  }
+
+  /// Education/job values already used by *other* people in the registry —
+  /// tap either row to pick one of these, or type a new value straight in
+  /// (no separate "create" step needed).
+  Set<String> get _educationOptions => _allPeople.map((p) => p.education).where((v) => v.trim().isNotEmpty).toSet();
+
+  Set<String> get _jobOptions => _allPeople.map((p) => p.job).where((v) => v.trim().isNotEmpty).toSet();
+
+  Future<void> _pickEducation() async {
+    final l10n = AppLocalizations.of(context)!;
+    final value = await Navigator.of(context).push<String>(
+      CupertinoPageRoute(
+        builder: (_) => StringPickerScreen(title: l10n.personProfileEducationLabel, options: _educationOptions, initialQuery: _person.education),
+      ),
+    );
+    if (value == null) return;
+    await _persist(_person.copyWith(education: value));
+  }
+
+  Future<void> _pickJob() async {
+    final l10n = AppLocalizations.of(context)!;
+    final value = await Navigator.of(context).push<String>(
+      CupertinoPageRoute(
+        builder: (_) => StringPickerScreen(title: l10n.personProfileJobLabel, options: _jobOptions, initialQuery: _person.job),
+      ),
+    );
+    if (value == null) return;
+    await _persist(_person.copyWith(job: value));
   }
 
   bool get _fieldsVisible => !_person.locked || _unlocked;
@@ -114,74 +154,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     await _persist(_person.copyWith(locked: false, passcodeHash: () => null, passcodeHint: () => null));
   }
 
-  /// Prompts for a name and creates a brand-new [Person] — no photo
-  /// required, same as `PeopleScreen`'s "+". Used when linking a relative
-  /// who isn't in the photo registry yet.
-  Future<Person?> _createPerson() async {
-    final l10n = AppLocalizations.of(context)!;
-    final controller = TextEditingController();
-    final name = await showCupertinoDialog<String>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => CupertinoAlertDialog(
-          title: Text(l10n.peopleNamePromptTitle),
-          content: Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: CupertinoTextField(controller: controller, autofocus: true, onChanged: (_) => setState(() {})),
-          ),
-          actions: [
-            CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.actionCancel)),
-            CupertinoDialogAction(
-              onPressed: controller.text.trim().isEmpty ? null : () => Navigator.of(context).pop(controller.text.trim()),
-              child: Text(l10n.actionAdd),
-            ),
-          ],
-        ),
-      ),
-    );
-    if (name == null || name.isEmpty) return null;
-    final created = await widget.personStore.create(name: name);
-    if (mounted) setState(() => _allPeople = [..._allPeople, created]);
-    return created;
-  }
-
-  /// The relationship "+" popup: pick an existing person from [candidates],
-  /// or "New Person…" to create one on the spot (no photo required).
-  Future<Person?> _pickOrCreatePerson(List<Person> candidates) async {
-    final l10n = AppLocalizations.of(context)!;
-    Person? picked;
-    var wantsNew = false;
-    await showCupertinoModalPopup<void>(
-      context: context,
-      builder: (sheetContext) => CupertinoActionSheet(
-        title: Text(l10n.relationshipPickerTitle),
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () {
-              wantsNew = true;
-              Navigator.of(sheetContext).pop();
-            },
-            child: Text(l10n.personProfileNewPersonOption),
-          ),
-          for (final p in candidates)
-            CupertinoActionSheetAction(
-              onPressed: () {
-                picked = p;
-                Navigator.of(sheetContext).pop();
-              },
-              child: Text(p.name),
-            ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(sheetContext).pop(),
-          child: Text(l10n.actionCancel),
-        ),
-      ),
-    );
-    if (wantsNew) return mounted ? _createPerson() : null;
-    return picked;
-  }
-
   String _relationshipLabel(AppLocalizations l10n, RelationshipType type) => switch (type) {
     RelationshipType.family => l10n.relationshipTypeFamily,
     RelationshipType.spouse => l10n.relationshipTypeSpouse,
@@ -190,7 +162,16 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     RelationshipType.sibling => l10n.relationshipTypeSibling,
     RelationshipType.friend => l10n.relationshipTypeFriend,
     RelationshipType.colleague => l10n.relationshipTypeColleague,
+    RelationshipType.schoolmate => l10n.relationshipTypeSchoolmate,
     RelationshipType.other => l10n.relationshipTypeOther,
+  };
+
+  /// Label for the organization prompt — "Company" for colleague, "School"
+  /// for schoolmate, generic "Organization" for other (church/club/...).
+  String _organizationLabel(AppLocalizations l10n, RelationshipType type) => switch (type) {
+    RelationshipType.colleague => l10n.relationshipOrganizationCompanyLabel,
+    RelationshipType.schoolmate => l10n.relationshipOrganizationSchoolLabel,
+    _ => l10n.relationshipOrganizationOtherLabel,
   };
 
   Future<RelationshipType?> _pickRelationshipType() {
@@ -211,23 +192,45 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     );
   }
 
-  Future<void> _addRelationship() async {
-    final linkedIds = _relationships.map((r) => r.relatedPersonId).toSet();
+  /// Shared by "+" (new relationship) and tapping an existing row (full
+  /// re-pick of person + type + organization) — [existing] is removed
+  /// first if the target person changed, so editing never leaves a stale
+  /// link behind.
+  Future<void> _addOrEditRelationship({PersonRelationship? existing}) async {
+    final l10n = AppLocalizations.of(context)!;
+    final linkedIds = _relationships
+        .map((r) => r.relatedPersonId)
+        .where((id) => id != existing?.relatedPersonId)
+        .toSet();
     final candidates = _allPeople.where((p) => p.id != _person.id && !linkedIds.contains(p.id)).toList();
-    final other = await _pickOrCreatePerson(candidates);
+    final other = await Navigator.of(context).push<Person>(
+      CupertinoPageRoute(builder: (_) => PersonPickerScreen(candidates: candidates, personStore: widget.personStore)),
+    );
     if (other == null || !mounted) return;
-    final type = await _pickRelationshipType();
-    if (type == null) return;
-    await widget.personStore.addRelationship(_person.id, other.id, type);
-    await _reload();
-  }
 
-  /// Tapping an existing relationship row re-picks its type — `addRelationship`
-  /// replaces the row (same personId/relatedPersonId), so this doubles as edit.
-  Future<void> _editRelationship(PersonRelationship relationship) async {
     final type = await _pickRelationshipType();
     if (type == null) return;
-    await widget.personStore.addRelationship(_person.id, relationship.relatedPersonId, type);
+
+    String? organization;
+    if (relationshipNeedsOrganization(type)) {
+      final orgOptions = await widget.personStore.allOrganizations();
+      if (!mounted) return;
+      organization = await Navigator.of(context).push<String>(
+        CupertinoPageRoute(
+          builder: (_) => StringPickerScreen(
+            title: _organizationLabel(l10n, type),
+            options: orgOptions,
+            initialQuery: existing?.organization ?? '',
+          ),
+        ),
+      );
+      if (organization == null) return;
+    }
+
+    if (existing != null && existing.relatedPersonId != other.id) {
+      await widget.personStore.removeRelationship(_person.id, existing.relatedPersonId);
+    }
+    await widget.personStore.addRelationship(_person.id, other.id, type, organization: organization);
     await _reload();
   }
 
@@ -360,6 +363,8 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
             const SizedBox(height: 20),
             CupertinoFormSection.insetGrouped(
               margin: const EdgeInsets.symmetric(horizontal: 16),
+              backgroundColor: _cardBackground,
+              decoration: _cardDecoration,
               children: [
                 CupertinoTextFormFieldRow(
                   prefix: Text(l10n.personProfileNameLabel),
@@ -393,17 +398,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
             else ...[
               CupertinoFormSection.insetGrouped(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
+                backgroundColor: _cardBackground,
+                decoration: _cardDecoration,
                 children: [
-                  CupertinoTextFormFieldRow(
-                    prefix: Text(l10n.personProfileEducationLabel),
-                    controller: _education,
-                    onChanged: (v) => _persist(_person.copyWith(education: v)),
-                  ),
-                  CupertinoTextFormFieldRow(
-                    prefix: Text(l10n.personProfileJobLabel),
-                    controller: _job,
-                    onChanged: (v) => _persist(_person.copyWith(job: v)),
-                  ),
                   CupertinoTextFormFieldRow(
                     prefix: Text(l10n.personProfileBioLabel),
                     controller: _bio,
@@ -413,24 +410,34 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                 ],
               ),
               const SizedBox(height: 20),
-              _sectionHeader(l10n.personProfileRelationshipsHeader, onAdd: _addRelationship),
+              _sectionHeader(l10n.personProfileEducationLabel),
+              _pickRow(value: _person.education, onTap: _pickEducation),
+              const SizedBox(height: 20),
+              _sectionHeader(l10n.personProfileJobLabel),
+              _pickRow(value: _person.job, onTap: _pickJob),
+              const SizedBox(height: 20),
+              _sectionHeader(l10n.personProfileRelationshipsHeader, onAdd: () => _addOrEditRelationship()),
               CupertinoListSection.insetGrouped(
                 margin: const EdgeInsets.symmetric(horizontal: 16),
-                backgroundColor: const Color(0xFF1C1C1E),
-                decoration: const BoxDecoration(color: Color(0xFF2C2C2E), borderRadius: BorderRadius.all(Radius.circular(10))),
+                backgroundColor: _cardBackground,
+                decoration: _cardDecoration,
                 children: [
                   for (final relationship in _relationships)
                     CupertinoListTile(
                       title: Text(
                         _allPeople.where((p) => p.id == relationship.relatedPersonId).map((p) => p.name).firstOrNull ?? '?',
                       ),
-                      subtitle: Text(_relationshipLabel(l10n, relationship.type)),
+                      subtitle: Text(
+                        relationship.organization == null || relationship.organization!.isEmpty
+                            ? _relationshipLabel(l10n, relationship.type)
+                            : '${_relationshipLabel(l10n, relationship.type)} · ${relationship.organization}',
+                      ),
                       trailing: CupertinoButton(
                         padding: EdgeInsets.zero,
                         onPressed: () => _removeRelationship(relationship),
                         child: const Icon(CupertinoIcons.xmark_circle, color: CupertinoColors.systemGrey),
                       ),
-                      onTap: () => _editRelationship(relationship),
+                      onTap: () => _addOrEditRelationship(existing: relationship),
                     ),
                   CupertinoListTile(
                     title: Center(child: Text(l10n.personProfileViewGraph, style: const TextStyle(color: CupertinoColors.activeBlue))),
@@ -451,8 +458,8 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
               if (_locations.isNotEmpty)
                 CupertinoListSection.insetGrouped(
                   margin: const EdgeInsets.symmetric(horizontal: 16),
-                  backgroundColor: const Color(0xFF1C1C1E),
-                  decoration: const BoxDecoration(color: Color(0xFF2C2C2E), borderRadius: BorderRadius.all(Radius.circular(10))),
+                  backgroundColor: _cardBackground,
+                  decoration: _cardDecoration,
                   children: [
                     for (final location in _locations)
                       CupertinoListTile(
@@ -483,13 +490,33 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     );
   }
 
-  Widget _sectionHeader(String title, {required VoidCallback onAdd}) => Padding(
+  Widget _pickRow({required String value, required VoidCallback onTap}) {
+    final l10n = AppLocalizations.of(context)!;
+    return CupertinoListSection.insetGrouped(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      backgroundColor: _cardBackground,
+      decoration: _cardDecoration,
+      children: [
+        CupertinoListTile(
+          title: Text(
+            value.isEmpty ? l10n.personProfileNotSet : value,
+            style: value.isEmpty ? const TextStyle(color: CupertinoColors.systemGrey) : null,
+          ),
+          trailing: const Icon(CupertinoIcons.chevron_forward, size: 18, color: CupertinoColors.systemGrey2),
+          onTap: onTap,
+        ),
+      ],
+    );
+  }
+
+  Widget _sectionHeader(String title, {VoidCallback? onAdd}) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
     child: Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
         Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-        CupertinoButton(padding: EdgeInsets.zero, onPressed: onAdd, child: const Icon(CupertinoIcons.add_circled)),
+        if (onAdd != null)
+          CupertinoButton(padding: EdgeInsets.zero, onPressed: onAdd, child: const Icon(CupertinoIcons.add_circled)),
       ],
     ),
   );

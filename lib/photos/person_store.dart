@@ -31,7 +31,12 @@ class PersonStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 1,
+        version: 2,
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) {
+            await db.execute('ALTER TABLE $_relationshipTable ADD COLUMN organization TEXT');
+          }
+        },
         onCreate: (db, version) async {
           await db.execute('''
             CREATE TABLE $_personTable (
@@ -62,6 +67,7 @@ class PersonStore {
               person_id TEXT NOT NULL,
               related_person_id TEXT NOT NULL,
               type TEXT NOT NULL,
+              organization TEXT,
               created_at INTEGER NOT NULL,
               PRIMARY KEY (person_id, related_person_id)
             )
@@ -163,7 +169,9 @@ class PersonStore {
   /// Links [personId] to [relatedPersonId] with [type] — stored both ways
   /// (mirrored, `type`'s inverse for `parent`/`child`) so either profile's
   /// relationship list, and the graph, see it without a second query.
-  Future<void> addRelationship(String personId, String relatedPersonId, RelationshipType type) async {
+  /// [organization] (company/school/org) is shared as-is by both directions
+  /// — only meaningful when `relationshipNeedsOrganization(type)`.
+  Future<void> addRelationship(String personId, String relatedPersonId, RelationshipType type, {String? organization}) async {
     final db = await _open();
     final now = DateTime.now().millisecondsSinceEpoch;
     final inverse = switch (type) {
@@ -176,12 +184,14 @@ class PersonStore {
       'person_id': personId,
       'related_person_id': relatedPersonId,
       'type': type.name,
+      'organization': organization,
       'created_at': now,
     }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
     batch.insert(_relationshipTable, {
       'person_id': relatedPersonId,
       'related_person_id': personId,
       'type': inverse.name,
+      'organization': organization,
       'created_at': now,
     }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
     await batch.commit(noResult: true);
@@ -214,6 +224,19 @@ class PersonStore {
     final db = await _open();
     final rows = await db.query(_relationshipTable);
     return rows.map(_relationshipFromRow).toList();
+  }
+
+  /// Every distinct organization used so far — the searchable-picker's
+  /// "select if exists" list for colleague/schoolmate/other relationships.
+  Future<Set<String>> allOrganizations() async {
+    final db = await _open();
+    final rows = await db.query(
+      _relationshipTable,
+      columns: ['organization'],
+      distinct: true,
+      where: "organization IS NOT NULL AND organization != ''",
+    );
+    return rows.map((r) => r['organization'] as String).toSet();
   }
 
   // --- Location history ---
@@ -288,5 +311,6 @@ class PersonStore {
     personId: row['person_id'] as String,
     relatedPersonId: row['related_person_id'] as String,
     type: RelationshipType.values.byName(row['type'] as String),
+    organization: row['organization'] as String?,
   );
 }

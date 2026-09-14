@@ -430,32 +430,36 @@ class LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ),
               ],
-              SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsPeopleRow)),
+              SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsPeopleRow, onAdd: _openPeopleScreen)),
               SliverToBoxAdapter(
-                child: SizedBox(
-                  height: 132,
-                  child: ListView.separated(
-                    scrollDirection: Axis.horizontal,
-                    padding: const EdgeInsets.symmetric(horizontal: 16),
-                    itemCount: _people.length + 1,
-                    separatorBuilder: (context, i) => const SizedBox(width: 12),
-                    itemBuilder: (context, i) {
-                      if (i == _people.length) {
-                        return SizedBox(width: 84, child: _AddPersonCard(onTap: _openPeopleScreen));
-                      }
-                      final person = _people[i];
-                      return SizedBox(
-                        width: 84,
-                        child: _PersonCard(
-                          person: person,
-                          assetRecordStore: assetRecordStore,
-                          photoCount: _personPhotoCounts[person.id] ?? 0,
-                          onTap: () => _openPerson(person),
+                child: _people.isEmpty
+                    ? Padding(
+                        padding: const EdgeInsets.symmetric(horizontal: 16),
+                        child: Text(l10n.peopleEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)),
+                      )
+                    : SizedBox(
+                        height: 252,
+                        child: GridView.builder(
+                          scrollDirection: Axis.horizontal,
+                          padding: const EdgeInsets.symmetric(horizontal: 16),
+                          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
+                            crossAxisCount: 3,
+                            mainAxisSpacing: 12,
+                            crossAxisSpacing: 8,
+                            childAspectRatio: 0.82,
+                          ),
+                          itemCount: _people.length,
+                          itemBuilder: (context, i) {
+                            final person = _people[i];
+                            return _PersonCard(
+                              person: person,
+                              assetRecordStore: assetRecordStore,
+                              photoCount: _personPhotoCounts[person.id] ?? 0,
+                              onTap: () => _openPerson(person),
+                            );
+                          },
                         ),
-                      );
-                    },
-                  ),
-                ),
+                      ),
               ),
               SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsPlacesRow)),
               SliverToBoxAdapter(
@@ -707,7 +711,9 @@ class _AlbumCard extends StatelessWidget {
 
 /// One Collections' "People" card — a round avatar (Photos-style, unlike
 /// Albums' square covers) + name + tagged-photo count, opening that
-/// person's page directly.
+/// person's page directly. Small and grid-packed (2-3 per row) rather than
+/// one big card per person, since a name+count needs far less width than an
+/// album cover.
 class _PersonCard extends StatelessWidget {
   const _PersonCard({required this.person, required this.assetRecordStore, required this.photoCount, required this.onTap});
 
@@ -720,45 +726,15 @@ class _PersonCard extends StatelessWidget {
   Widget build(BuildContext context) => GestureDetector(
     onTap: onTap,
     child: Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        PersonAvatar(assetRecordStore: assetRecordStore, localId: person.avatarLocalId, size: 84),
-        const SizedBox(height: 6),
-        Text(person.name, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
-        Text('$photoCount', style: const TextStyle(color: CupertinoColors.systemGrey, fontSize: 13)),
+        PersonAvatar(assetRecordStore: assetRecordStore, localId: person.avatarLocalId, size: 42),
+        const SizedBox(height: 4),
+        Text(person.name, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
+        Text('$photoCount', style: const TextStyle(color: CupertinoColors.systemGrey, fontSize: 11)),
       ],
     ),
   );
-}
-
-/// Trailing card in the People row — opens the full `PeopleScreen` (add a
-/// person, or fall back to the older AI people-count grouping).
-class _AddPersonCard extends StatelessWidget {
-  const _AddPersonCard({required this.onTap});
-
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return GestureDetector(
-      onTap: onTap,
-      child: Column(
-        children: [
-          Container(
-            width: 84,
-            height: 84,
-            decoration: BoxDecoration(
-              shape: BoxShape.circle,
-              color: CupertinoDynamicColor.resolve(CupertinoColors.systemGrey5, context),
-            ),
-            child: const Icon(CupertinoIcons.person_add, size: 30),
-          ),
-          const SizedBox(height: 6),
-          Text(l10n.actionAdd, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
-        ],
-      ),
-    );
-  }
 }
 
 class _SectionHeader extends StatelessWidget {
@@ -776,15 +752,26 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _SubsectionHeader extends StatelessWidget {
-  const _SubsectionHeader({required this.title});
+  const _SubsectionHeader({required this.title, this.onAdd});
 
   final String title;
+
+  /// Shows a "+" beside the title (People's "add a person") instead of a
+  /// separate trailing card in the row below.
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 17)),
+      child: Row(
+        mainAxisAlignment: MainAxisAlignment.spaceBetween,
+        children: [
+          Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 17)),
+          if (onAdd != null)
+            CupertinoButton(padding: EdgeInsets.zero, onPressed: onAdd, child: const Icon(CupertinoIcons.add_circled)),
+        ],
+      ),
     );
   }
 }

@@ -15,7 +15,7 @@ Widget _wrap(Widget child) => CupertinoApp(
 );
 
 void main() {
-  testWidgets('editing a field persists it to the store', (tester) async {
+  testWidgets('editing the About field persists it to the store', (tester) async {
     final personStore = FakePersonStore();
     final person = await personStore.create(name: 'Mia');
 
@@ -24,14 +24,57 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Fields render in order: Name, Education, Job, About.
-    await tester.enterText(find.byType(CupertinoTextField).at(1), 'MIT');
+    // Fields render in order: Name, About.
+    await tester.enterText(find.byType(CupertinoTextField).at(1), 'Loves hiking.');
     await tester.pump();
 
-    expect((await personStore.getById(person.id))!.education, 'MIT');
+    expect((await personStore.getById(person.id))!.bio, 'Loves hiking.');
   });
 
-  testWidgets('locked profile hides fields until the correct passcode is entered', (tester) async {
+  testWidgets('tapping Education opens a pick-or-type screen and persists the typed value', (tester) async {
+    final personStore = FakePersonStore();
+    final person = await personStore.create(name: 'Mia');
+
+    await tester.pumpWidget(
+      _wrap(PersonProfileScreen(person: person, personStore: personStore, assetRecordStore: FakeAssetRecordStore())),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Not set'), findsWidgets);
+    // The "Not set" row under the Education header (Job's own row looks
+    // identical, so pick the first — Education renders above Job).
+    await tester.tap(find.text('Not set').first);
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(CupertinoSearchTextField), 'UC Berkeley');
+    await tester.pump();
+    await tester.tap(find.text('Use "UC Berkeley"'));
+    await tester.pumpAndSettle();
+
+    expect((await personStore.getById(person.id))!.education, 'UC Berkeley');
+    expect(find.text('UC Berkeley'), findsOneWidget);
+  });
+
+  testWidgets('Education offers an existing value from another person to pick', (tester) async {
+    final personStore = FakePersonStore();
+    final daniel = await personStore.create(name: 'Daniel');
+    await personStore.update(daniel.copyWith(education: 'MIT'));
+    final mia = await personStore.create(name: 'Mia');
+
+    await tester.pumpWidget(
+      _wrap(PersonProfileScreen(person: mia, personStore: personStore, assetRecordStore: FakeAssetRecordStore())),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Not set').first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('MIT'));
+    await tester.pumpAndSettle();
+
+    expect((await personStore.getById(mia.id))!.education, 'MIT');
+  });
+
+  testWidgets('locked profile hides sections until the correct passcode is entered', (tester) async {
     final personStore = FakePersonStore();
     final locked = await personStore.create(name: 'Mia');
     await personStore.update(
@@ -51,8 +94,9 @@ void main() {
 
     expect(find.text("This profile's details are locked."), findsOneWidget);
     expect(find.text('Hint: pet name'), findsOneWidget);
-    // Only the Name field renders while locked.
+    // Only the Name field renders while locked — Education isn't reachable.
     expect(find.byType(CupertinoTextField), findsOneWidget);
+    expect(find.text('Education'), findsNothing);
 
     await tester.tap(find.widgetWithText(CupertinoButton, 'Unlock'));
     await tester.pumpAndSettle();
@@ -72,8 +116,8 @@ void main() {
     await tester.tap(find.widgetWithText(CupertinoDialogAction, 'Unlock'));
     await tester.pumpAndSettle();
 
-    // Name + Education + Job + About, all unlocked now.
-    expect(find.byType(CupertinoTextField), findsNWidgets(4));
+    expect(find.text('Education'), findsOneWidget);
+    expect(find.text('MIT'), findsOneWidget);
   });
 
   testWidgets('linking two people creates a mirrored relationship', (tester) async {
@@ -87,7 +131,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // The "+" next to the Relationships header (the first of two —
-    // Location History has its own further down).
+    // Places Lived has its own further down).
     await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
     await tester.pumpAndSettle();
     expect(find.text('Daniel'), findsOneWidget);
@@ -97,8 +141,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // The new relationship row lands below the fold in the profile's
-    // ListView (Education/Job/About push it down), so it's offstage rather
-    // than absent.
+    // ListView, so it's offstage rather than absent.
     expect(find.text('Daniel', skipOffstage: false), findsOneWidget);
     final relationships = await personStore.relationshipsFor(mia.id);
     expect(relationships.single.type, RelationshipType.friend);
@@ -131,7 +174,37 @@ void main() {
     expect(relationships.single.type, RelationshipType.family);
   });
 
-  testWidgets('tapping a relationship row lets you change its type', (tester) async {
+  testWidgets('picking Colleague prompts for a company, saved with the relationship', (tester) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.create(name: 'Daniel');
+
+    await tester.pumpWidget(
+      _wrap(PersonProfileScreen(person: mia, personStore: personStore, assetRecordStore: FakeAssetRecordStore())),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Daniel'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Colleague'));
+    await tester.pumpAndSettle();
+
+    // The organization prompt is labeled "Company" for colleagues.
+    expect(find.text('Company'), findsWidgets);
+    await tester.enterText(find.byType(CupertinoSearchTextField), 'Acme Corp');
+    await tester.pump();
+    await tester.tap(find.text('Use "Acme Corp"'));
+    await tester.pumpAndSettle();
+
+    final relationships = await personStore.relationshipsFor(mia.id);
+    expect(relationships.single.type, RelationshipType.colleague);
+    expect(relationships.single.organization, 'Acme Corp');
+    expect(find.textContaining('Acme Corp', skipOffstage: false), findsOneWidget);
+  });
+
+  testWidgets('tapping an existing relationship row re-opens the picker to edit it', (tester) async {
     final personStore = FakePersonStore();
     final mia = await personStore.create(name: 'Mia');
     final daniel = await personStore.create(name: 'Daniel');
@@ -142,13 +215,19 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Daniel', skipOffstage: false), warnIfMissed: false);
+    await tester.ensureVisible(find.text('Daniel', skipOffstage: false));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Colleague'));
+    await tester.tap(find.text('Daniel'));
+    await tester.pumpAndSettle();
+    // Re-opens the searchable person picker (Daniel is still selectable —
+    // editing doesn't exclude the relationship's own current target).
+    await tester.tap(find.text('Daniel'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sibling'));
     await tester.pumpAndSettle();
 
     final relationships = await personStore.relationshipsFor(mia.id);
-    expect(relationships.single.type, RelationshipType.colleague);
+    expect(relationships.single.type, RelationshipType.sibling);
   });
 
   testWidgets('tapping a location row edits it in place, without duplicating', (tester) async {
@@ -163,7 +242,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Shanghai', skipOffstage: false), warnIfMissed: false);
+    await tester.ensureVisible(find.text('Shanghai', skipOffstage: false));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Shanghai'));
     await tester.pumpAndSettle();
     // Pre-filled from the existing entry.
     expect(find.text('Edit Location'), findsOneWidget);
