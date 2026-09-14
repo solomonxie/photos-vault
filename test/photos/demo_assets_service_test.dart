@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:back_your_own_photos/photos/demo_assets_service.dart';
 import 'package:back_your_own_photos/photos/manual_add.dart';
+import 'package:back_your_own_photos/photos/person.dart';
 import 'package:back_your_own_photos/photos/person_store.dart';
 import 'package:back_your_own_photos/storage/album_store.dart';
 import 'package:back_your_own_photos/storage/asset_record.dart';
@@ -179,8 +180,9 @@ void main() {
     await service.addAll();
 
     final people = await personStore.listAll();
-    expect(people.map((p) => p.name), unorderedEquals(['Mia Chen', 'Daniel Wong', 'Grandma Lily']));
-    for (final person in people) {
+    expect(people.map((p) => p.name), containsAll(['Mia Chen', 'Daniel Wong', 'Grandma Lily']));
+    final trio = people.where((p) => p.id.startsWith('demo-person-mia') || p.id == 'demo-person-daniel' || p.id == 'demo-person-grandma-lily');
+    for (final person in trio) {
       expect(person.isDemo, isTrue);
       expect(person.avatarLocalId, isNotNull);
       expect(await personStore.localIdsIn(person.id), isNotEmpty);
@@ -196,9 +198,50 @@ void main() {
     final service = newService(personStore: personStore);
 
     await service.addAll();
+    final countAfterFirst = (await personStore.listAll()).length;
     await service.addAll();
 
-    expect(await personStore.listAll(), hasLength(3));
+    expect(await personStore.listAll(), hasLength(countAfterFirst));
     expect(await personStore.locationsFor('demo-person-grandma-lily'), hasLength(2));
+  });
+
+  test('addAll seeds Marcus Bennett\'s network covering every relationship type', () async {
+    final personStore = newPersonStore();
+    final service = newService(personStore: personStore);
+
+    await service.addAll();
+
+    final marcus = await personStore.getById('demo-person-marcus');
+    expect(marcus, isNotNull);
+    expect(marcus!.isDemo, isTrue);
+    expect(marcus.avatarLocalId, isNotNull);
+
+    final relationships = await personStore.relationshipsFor('demo-person-marcus');
+    expect(relationships, hasLength(15));
+    expect(relationships.map((r) => r.type).toSet(), RelationshipType.values.toSet());
+
+    final colleague = relationships.singleWhere((r) => r.relatedPersonId == 'demo-person-sarah-kim');
+    expect(colleague.type, RelationshipType.colleague);
+    expect(colleague.organization, 'Nimbus Systems');
+    final schoolmate = relationships.singleWhere((r) => r.relatedPersonId == 'demo-person-ben');
+    expect(schoolmate.organization, 'Ohio State University');
+
+    expect(await personStore.allOrganizations(), containsAll(['Nimbus Systems', 'BrightPath Retail', 'Ohio State University', 'Cleveland Heights High School', 'Seattle Road Runners']));
+
+    final locations = await personStore.locationsFor('demo-person-marcus');
+    expect(locations, hasLength(4));
+    expect(locations.first.place, 'Cleveland, OH');
+    expect(locations.first.kind, LocationKind.origin);
+  });
+
+  test('addAll is idempotent for Marcus\'s network (no duplicate relationships/locations on reset)', () async {
+    final personStore = newPersonStore();
+    final service = newService(personStore: personStore);
+
+    await service.addAll();
+    await service.addAll();
+
+    expect(await personStore.relationshipsFor('demo-person-marcus'), hasLength(15));
+    expect(await personStore.locationsFor('demo-person-marcus'), hasLength(4));
   });
 }
