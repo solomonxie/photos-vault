@@ -158,6 +158,7 @@
   "personProfileEducationLabel": "教育经历",
   "personProfileJobLabel": "职业",
   "personProfileBioLabel": "简介",
+  "personProfileNotSet": "未设置",
   "personProfileLockButton": "锁定资料",
   "personProfileUnlockButton": "解锁",
   "personProfileRemoveLockTitle": "移除该资料的锁定?",
@@ -187,7 +188,14 @@
   "relationshipTypeSibling": "兄弟姐妹",
   "relationshipTypeFriend": "朋友",
   "relationshipTypeColleague": "同事",
+  "relationshipTypeSchoolmate": "同学",
   "relationshipTypeOther": "其他",
+  "relationshipOrganizationCompanyLabel": "公司",
+  "relationshipOrganizationSchoolLabel": "学校",
+  "relationshipOrganizationOtherLabel": "组织",
+
+  "stringPickerUseValue": "使用“{query}”",
+  "stringPickerTypeToCreate": "输入以搜索或创建新值。",
 
   "locationAddTitle": "添加地点",
   "locationEditTitle": "编辑地点",

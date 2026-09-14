@@ -183,6 +183,7 @@
   "personProfileEducationLabel": "Education",
   "personProfileJobLabel": "Job",
   "personProfileBioLabel": "About",
+  "personProfileNotSet": "Not set",
   "personProfileLockButton": "Lock Profile",
   "personProfileUnlockButton": "Unlock",
   "personProfileRemoveLockTitle": "Remove the lock on this profile?",
@@ -199,7 +200,7 @@
   "personProfileWrongPasscode": "Incorrect passcode.",
   "personProfileRelationshipsHeader": "Relationships",
   "personProfileViewGraph": "View Relationship Graph",
-  "personProfileLocationHeader": "Locations",
+  "personProfileLocationHeader": "Places Lived",
   "personProfileLocationOrigin": "Origin",
   "personProfileLocationRelocation": "Relocation",
   "personProfileDeletePerson": "Delete Person",
@@ -215,7 +216,17 @@
   "relationshipTypeSibling": "Sibling",
   "relationshipTypeFriend": "Friend",
   "relationshipTypeColleague": "Colleague",
+  "relationshipTypeSchoolmate": "Schoolmate",
   "relationshipTypeOther": "Other",
+  "relationshipOrganizationCompanyLabel": "Company",
+  "relationshipOrganizationSchoolLabel": "School",
+  "relationshipOrganizationOtherLabel": "Organization",
+
+  "stringPickerUseValue": "Use \"{query}\"",
+  "@stringPickerUseValue": {
+    "placeholders": {"query": {"type": "String"}}
+  },
+  "stringPickerTypeToCreate": "Type to search or create a new value.",
 
   "locationAddTitle": "Add Location",
   "locationEditTitle": "Edit Location",

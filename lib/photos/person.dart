@@ -1,14 +1,20 @@
 /// How two [Person]s relate — drives both the profile's relationship list
 /// and the net graph's line color/style (T7.5/T7.6). `family`/`spouse`/
 /// `parent`/`child`/`sibling` cluster together in the graph's family circle;
-/// `friend`/`colleague`/`other` are drawn as plain cross-cluster lines.
-enum RelationshipType { family, spouse, parent, child, sibling, friend, colleague, other }
+/// `friend`/`colleague`/`schoolmate`/`other` are drawn as plain cross-cluster
+/// lines.
+enum RelationshipType { family, spouse, parent, child, sibling, friend, colleague, schoolmate, other }
 
 bool isFamilyRelationship(RelationshipType type) => switch (type) {
   RelationshipType.family || RelationshipType.spouse || RelationshipType.parent ||
   RelationshipType.child || RelationshipType.sibling => true,
-  RelationshipType.friend || RelationshipType.colleague || RelationshipType.other => false,
+  RelationshipType.friend || RelationshipType.colleague || RelationshipType.schoolmate || RelationshipType.other => false,
 };
+
+/// `colleague` (company), `schoolmate` (school), and `other` (church/other
+/// org) each carry an associated [PersonRelationship.organization].
+bool relationshipNeedsOrganization(RelationshipType type) =>
+    type == RelationshipType.colleague || type == RelationshipType.schoolmate || type == RelationshipType.other;
 
 /// Where a [Person] has lived — an origin or a relocation, never a trip.
 /// See DESIGN.md: explicitly excludes travel/vacation history.
@@ -85,11 +91,15 @@ class Person {
 /// A directed link from one [Person] to another — the graph screen renders
 /// it as a single undirected edge, styled by [type].
 class PersonRelationship {
-  const PersonRelationship({required this.personId, required this.relatedPersonId, required this.type});
+  const PersonRelationship({required this.personId, required this.relatedPersonId, required this.type, this.organization});
 
   final String personId;
   final String relatedPersonId;
   final RelationshipType type;
+
+  /// The company/school/org connecting the two — only meaningful when
+  /// [relationshipNeedsOrganization] is true for [type].
+  final String? organization;
 }
 
 /// One entry in a person's geolocation movement history.

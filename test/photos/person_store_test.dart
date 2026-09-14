@@ -93,6 +93,28 @@ void main() {
     expect(locations.map((l) => l.place), ['Guangzhou', 'Vancouver']);
   });
 
+  test('addRelationship stores an organization, shared by both directions', () async {
+    final store = newStore();
+    final a = await store.create(name: 'A');
+    final b = await store.create(name: 'B');
+
+    await store.addRelationship(a.id, b.id, RelationshipType.colleague, organization: 'Acme Corp');
+
+    expect((await store.relationshipsFor(a.id)).single.organization, 'Acme Corp');
+    expect((await store.relationshipsFor(b.id)).single.organization, 'Acme Corp');
+  });
+
+  test('allOrganizations returns distinct, non-empty organizations across all relationships', () async {
+    final store = newStore();
+    final a = await store.create(name: 'A');
+    final b = await store.create(name: 'B');
+    final c = await store.create(name: 'C');
+    await store.addRelationship(a.id, b.id, RelationshipType.colleague, organization: 'Acme Corp');
+    await store.addRelationship(a.id, c.id, RelationshipType.friend);
+
+    expect(await store.allOrganizations(), {'Acme Corp'});
+  });
+
   test('remove deletes the person, their memberships, relationships, and locations', () async {
     final store = newStore();
     final a = await store.create(name: 'A');

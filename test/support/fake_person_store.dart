@@ -60,7 +60,7 @@ class FakePersonStore implements PersonStore {
   Future<List<String>> localIdsIn(String personId) async => _members[personId]?.toList() ?? const [];
 
   @override
-  Future<void> addRelationship(String personId, String relatedPersonId, RelationshipType type) async {
+  Future<void> addRelationship(String personId, String relatedPersonId, RelationshipType type, {String? organization}) async {
     final inverse = switch (type) {
       RelationshipType.parent => RelationshipType.child,
       RelationshipType.child => RelationshipType.parent,
@@ -70,11 +70,13 @@ class FakePersonStore implements PersonStore {
       personId: personId,
       relatedPersonId: relatedPersonId,
       type: type,
+      organization: organization,
     );
     _relationships.putIfAbsent(relatedPersonId, () => {})[personId] = PersonRelationship(
       personId: relatedPersonId,
       relatedPersonId: personId,
       type: inverse,
+      organization: organization,
     );
   }
 
@@ -91,6 +93,14 @@ class FakePersonStore implements PersonStore {
   @override
   Future<List<PersonRelationship>> allRelationships() async =>
       _relationships.values.expand((m) => m.values).toList();
+
+  @override
+  Future<Set<String>> allOrganizations() async => _relationships.values
+      .expand((m) => m.values)
+      .map((r) => r.organization)
+      .whereType<String>()
+      .where((o) => o.isNotEmpty)
+      .toSet();
 
   @override
   Future<void> addLocation(PersonLocation location) async {
