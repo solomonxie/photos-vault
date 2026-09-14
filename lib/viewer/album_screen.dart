@@ -5,26 +5,36 @@ import '../storage/album.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/private_album_store.dart';
 import 'asset_grid.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
+import 'private_album_gate.dart';
 
 /// One album's contents — same active-library set as the main grid, filtered
 /// to this album's membership (`AlbumStore.localIdsIn`). Shares the
 /// Favorite/Hide/Delete actions with [LibraryScreenState], plus a
 /// "Remove from Album" action that only affects membership, not the asset.
 class AlbumScreen extends StatefulWidget {
-  const AlbumScreen({super.key, required this.album, required this.assetRecordStore, required this.albumStore});
+  const AlbumScreen({
+    super.key,
+    required this.album,
+    required this.assetRecordStore,
+    required this.albumStore,
+    this.privateAlbumStore,
+  });
 
   final Album album;
   final AssetRecordStore assetRecordStore;
   final AlbumStore albumStore;
+  final PrivateAlbumStore? privateAlbumStore;
 
   @override
   State<AlbumScreen> createState() => _AlbumScreenState();
 }
 
 class _AlbumScreenState extends State<AlbumScreen> {
+  late final PrivateAlbumStore _privateAlbumStore = widget.privateAlbumStore ?? PrivateAlbumStore();
   List<AssetRecord> _records = const [];
 
   @override
@@ -49,7 +59,12 @@ class _AlbumScreenState extends State<AlbumScreen> {
   }
 
   Future<void> _hide(AssetRecord record) async {
-    await widget.assetRecordStore.setHidden(record.localId, true);
+    await hideIntoPrivateAlbum(
+      context,
+      assetRecordStore: widget.assetRecordStore,
+      privateAlbumStore: _privateAlbumStore,
+      record: record,
+    );
     await _reload();
   }
 

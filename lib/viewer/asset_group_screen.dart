@@ -3,24 +3,34 @@ import 'package:flutter/cupertino.dart';
 import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/private_album_store.dart';
 import 'asset_grid.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
+import 'private_album_gate.dart';
 
 /// Grid screen for a fixed list of records — used to drill into one
 /// People/Events group from [SmartCollectionScreen].
 class AssetGroupScreen extends StatefulWidget {
-  const AssetGroupScreen({super.key, required this.title, required this.records, required this.assetRecordStore});
+  const AssetGroupScreen({
+    super.key,
+    required this.title,
+    required this.records,
+    required this.assetRecordStore,
+    this.privateAlbumStore,
+  });
 
   final String title;
   final List<AssetRecord> records;
   final AssetRecordStore assetRecordStore;
+  final PrivateAlbumStore? privateAlbumStore;
 
   @override
   State<AssetGroupScreen> createState() => _AssetGroupScreenState();
 }
 
 class _AssetGroupScreenState extends State<AssetGroupScreen> {
+  late final PrivateAlbumStore _privateAlbumStore = widget.privateAlbumStore ?? PrivateAlbumStore();
   late List<AssetRecord> _records = widget.records;
 
   Future<void> _toggleFavorite(AssetRecord record) async {
@@ -30,7 +40,13 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
   }
 
   Future<void> _hide(AssetRecord record) async {
-    await widget.assetRecordStore.setHidden(record.localId, true);
+    final hidden = await hideIntoPrivateAlbum(
+      context,
+      assetRecordStore: widget.assetRecordStore,
+      privateAlbumStore: _privateAlbumStore,
+      record: record,
+    );
+    if (!hidden) return;
     setState(() => _records = _records.where((r) => r.localId != record.localId).toList());
   }
 

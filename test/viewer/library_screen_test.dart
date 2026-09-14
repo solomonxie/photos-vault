@@ -22,6 +22,8 @@ import '../settings/fake_secure_store.dart';
 import '../support/fake_ai_analysis_store.dart';
 import '../support/fake_album_store.dart';
 import '../support/fake_asset_record_store.dart';
+import '../support/fake_person_store.dart';
+import '../support/fake_private_album_store.dart';
 
 // Never touches the real `background_downloader` platform channel — this
 // screen's tests only cover the no-targets-configured path, where it's
@@ -78,6 +80,8 @@ void main() {
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           albumStore: FakeAlbumStore(),
+          privateAlbumStore: FakePrivateAlbumStore(),
+          personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -111,6 +115,8 @@ void main() {
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           albumStore: FakeAlbumStore(),
+          privateAlbumStore: FakePrivateAlbumStore(),
+          personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -143,6 +149,8 @@ void main() {
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           albumStore: FakeAlbumStore(),
+          privateAlbumStore: FakePrivateAlbumStore(),
+          personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -176,6 +184,8 @@ void main() {
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           albumStore: FakeAlbumStore(),
+          privateAlbumStore: FakePrivateAlbumStore(),
+          personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -215,6 +225,8 @@ void main() {
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           albumStore: FakeAlbumStore(),
+          privateAlbumStore: FakePrivateAlbumStore(),
+          personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -266,6 +278,8 @@ void main() {
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           albumStore: FakeAlbumStore(),
+          privateAlbumStore: FakePrivateAlbumStore(),
+          personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           manualAddService: manualAdd,
           backupCoordinator: BackupCoordinator(
@@ -294,6 +308,8 @@ void main() {
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           albumStore: FakeAlbumStore(),
+          privateAlbumStore: FakePrivateAlbumStore(),
+          personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           demoAssetsService: _FakeDemoAssetsService(recordStore),
           backupCoordinator: BackupCoordinator(
@@ -323,6 +339,8 @@ void main() {
           demoSeedStore: demoSeedStore,
           assetRecordStore: recordStore,
           albumStore: FakeAlbumStore(),
+          privateAlbumStore: FakePrivateAlbumStore(),
+          personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           demoAssetsService: _FakeDemoAssetsService(recordStore),
           backupCoordinator: BackupCoordinator(
@@ -360,6 +378,8 @@ void main() {
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           albumStore: FakeAlbumStore(),
+          privateAlbumStore: FakePrivateAlbumStore(),
+          personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -401,6 +421,8 @@ void main() {
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           albumStore: FakeAlbumStore(),
+          privateAlbumStore: FakePrivateAlbumStore(),
+          personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -451,6 +473,8 @@ void main() {
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           albumStore: albumStore,
+          privateAlbumStore: FakePrivateAlbumStore(),
+          personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -476,7 +500,7 @@ void main() {
     expect(find.byKey(const ValueKey('manual:trip')), findsOneWidget);
   });
 
-  testWidgets('People/Places/Events rows are Collections placeholders; People opens the AI smart collection', (
+  testWidgets('People/Places/Events rows are Collections placeholders; People opens the People screen', (
     tester,
   ) async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
@@ -501,6 +525,8 @@ void main() {
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           albumStore: FakeAlbumStore(),
+          privateAlbumStore: FakePrivateAlbumStore(),
+          personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -526,10 +552,11 @@ void main() {
     // a "Coming Soon" placeholder; People/Events now open a real screen.
     expect(find.byIcon(CupertinoIcons.person_2_fill), findsWidgets);
     expect(find.text('Coming Soon'), findsWidgets);
+    expect(find.text('View People'), findsWidgets);
     expect(find.text('Tap to Analyze'), findsWidgets);
 
     await tester.tap(find.byIcon(CupertinoIcons.person_2_fill).first);
     await tester.pumpAndSettle();
-    expect(find.text('Analyze 1 Photo'), findsOneWidget);
+    expect(find.text('No people yet. Tap + to add someone.'), findsOneWidget);
   });
 }
