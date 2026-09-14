@@ -31,7 +31,7 @@ void main() {
     expect((await personStore.getById(person.id))!.bio, 'Loves hiking.');
   });
 
-  testWidgets('tapping Education opens a pick-or-type screen and persists the typed value', (tester) async {
+  testWidgets('+ on Education opens a pick-or-type screen, creates an entry, and opens its details', (tester) async {
     final personStore = FakePersonStore();
     final person = await personStore.create(name: 'Mia');
 
@@ -40,25 +40,32 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Not set'), findsWidgets);
-    // The "Not set" row under the Education header (Job's own row looks
-    // identical, so pick the first — Education renders above Job).
-    await tester.tap(find.text('Not set').first);
+    // add_circled buttons appear in order: Education, Job, Relationships,
+    // Places Lived — Education's is first.
+    await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
     await tester.pumpAndSettle();
-
     await tester.enterText(find.byType(CupertinoSearchTextField), 'UC Berkeley');
     await tester.pump();
     await tester.tap(find.text('Use "UC Berkeley"'));
     await tester.pumpAndSettle();
 
-    expect((await personStore.getById(person.id))!.education, 'UC Berkeley');
+    // Lands on the new entry's detail page.
+    expect(find.text('UC Berkeley'), findsOneWidget);
+    final education = await personStore.historyFor(person.id, HistoryCategory.education);
+    expect(education.single.title, 'UC Berkeley');
+
+    await tester.tap(find.byType(CupertinoNavigationBarBackButton));
+    await tester.pumpAndSettle();
+
     expect(find.text('UC Berkeley'), findsOneWidget);
   });
 
-  testWidgets('Education offers an existing value from another person to pick', (tester) async {
+  testWidgets('Education offers an existing title from another person to pick', (tester) async {
     final personStore = FakePersonStore();
     final daniel = await personStore.create(name: 'Daniel');
-    await personStore.update(daniel.copyWith(education: 'MIT'));
+    await personStore.addHistoryEntry(
+      PersonHistoryEntry(id: 'e1', personId: daniel.id, category: HistoryCategory.education, title: 'MIT'),
+    );
     final mia = await personStore.create(name: 'Mia');
 
     await tester.pumpWidget(
@@ -66,12 +73,13 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Not set').first);
+    await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
     await tester.pumpAndSettle();
     await tester.tap(find.text('MIT'));
     await tester.pumpAndSettle();
 
-    expect((await personStore.getById(mia.id))!.education, 'MIT');
+    final education = await personStore.historyFor(mia.id, HistoryCategory.education);
+    expect(education.single.title, 'MIT');
   });
 
   testWidgets('locked profile hides sections until the correct passcode is entered', (tester) async {
@@ -80,10 +88,12 @@ void main() {
     await personStore.update(
       locked.copyWith(
         locked: true,
-        education: 'MIT',
         passcodeHash: () => hashPasscode('secret'),
         passcodeHint: () => 'pet name',
       ),
+    );
+    await personStore.addHistoryEntry(
+      PersonHistoryEntry(id: 'e1', personId: locked.id, category: HistoryCategory.education, title: 'MIT'),
     );
     final reloaded = (await personStore.getById(locked.id))!;
 
@@ -130,9 +140,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // The "+" next to the Relationships header (the first of two —
-    // Places Lived has its own further down).
-    await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
+    // add_circled buttons: Education, Job, Relationships, Places Lived —
+    // Relationships' is the third.
+    await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
     await tester.pumpAndSettle();
     expect(find.text('Daniel'), findsOneWidget);
     await tester.tap(find.text('Daniel'));
@@ -156,7 +166,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
+    await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
     await tester.pumpAndSettle();
     await tester.tap(find.text('New Person…'));
     await tester.pumpAndSettle();
@@ -184,7 +194,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
+    await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Daniel'));
     await tester.pumpAndSettle();

@@ -26,11 +26,82 @@ void main() {
     final store = newStore();
     final person = await store.create(name: 'Mia');
 
-    await store.update(person.copyWith(education: 'MIT', job: 'Engineer'));
+    await store.update(person.copyWith(bio: 'Loves hiking.'));
 
     final reloaded = await store.getById(person.id);
-    expect(reloaded!.education, 'MIT');
-    expect(reloaded.job, 'Engineer');
+    expect(reloaded!.bio, 'Loves hiking.');
+  });
+
+  test('addHistoryEntry / historyFor track education and job separately, ordered by start date', () async {
+    final store = newStore();
+    final person = await store.create(name: 'Mia');
+    await store.addHistoryEntry(
+      PersonHistoryEntry(id: 'e2', personId: person.id, category: HistoryCategory.education, title: 'MIT', startDate: DateTime(2010)),
+    );
+    await store.addHistoryEntry(
+      PersonHistoryEntry(id: 'e1', personId: person.id, category: HistoryCategory.education, title: 'Cleveland High', startDate: DateTime(2006)),
+    );
+    await store.addHistoryEntry(
+      PersonHistoryEntry(id: 'j1', personId: person.id, category: HistoryCategory.job, title: 'Acme Corp'),
+    );
+
+    final education = await store.historyFor(person.id, HistoryCategory.education);
+    expect(education.map((e) => e.title), ['Cleveland High', 'MIT']);
+    expect(await store.historyFor(person.id, HistoryCategory.job), hasLength(1));
+  });
+
+  test('addHistoryEntry insert-or-replaces by id, and round-trips custom fields', () async {
+    final store = newStore();
+    final person = await store.create(name: 'Mia');
+    await store.addHistoryEntry(PersonHistoryEntry(id: 'e1', personId: person.id, category: HistoryCategory.job, title: 'Acme Corp'));
+
+    await store.addHistoryEntry(
+      PersonHistoryEntry(
+        id: 'e1',
+        personId: person.id,
+        category: HistoryCategory.job,
+        title: 'Acme Corp',
+        notes: 'Great team.',
+        customFields: const [PersonCustomField(label: 'Title', value: 'Senior Engineer')],
+      ),
+    );
+
+    final jobs = await store.historyFor(person.id, HistoryCategory.job);
+    expect(jobs, hasLength(1));
+    expect(jobs.single.notes, 'Great team.');
+    expect(jobs.single.customFields.single.label, 'Title');
+    expect(jobs.single.customFields.single.value, 'Senior Engineer');
+  });
+
+  test('allHistoryTitles returns distinct, non-empty titles for one category', () async {
+    final store = newStore();
+    final a = await store.create(name: 'A');
+    final b = await store.create(name: 'B');
+    await store.addHistoryEntry(PersonHistoryEntry(id: 'e1', personId: a.id, category: HistoryCategory.education, title: 'MIT'));
+    await store.addHistoryEntry(PersonHistoryEntry(id: 'e2', personId: b.id, category: HistoryCategory.education, title: 'MIT'));
+    await store.addHistoryEntry(PersonHistoryEntry(id: 'j1', personId: a.id, category: HistoryCategory.job, title: 'Acme Corp'));
+
+    expect(await store.allHistoryTitles(HistoryCategory.education), {'MIT'});
+  });
+
+  test('removeHistoryEntry drops just that entry', () async {
+    final store = newStore();
+    final person = await store.create(name: 'Mia');
+    await store.addHistoryEntry(PersonHistoryEntry(id: 'e1', personId: person.id, category: HistoryCategory.education, title: 'MIT'));
+
+    await store.removeHistoryEntry('e1');
+
+    expect(await store.historyFor(person.id, HistoryCategory.education), isEmpty);
+  });
+
+  test('remove deletes a person\'s history entries too', () async {
+    final store = newStore();
+    final person = await store.create(name: 'Mia');
+    await store.addHistoryEntry(PersonHistoryEntry(id: 'e1', personId: person.id, category: HistoryCategory.education, title: 'MIT'));
+
+    await store.remove(person.id);
+
+    expect(await store.historyFor(person.id, HistoryCategory.education), isEmpty);
   });
 
   test('addAssets / localIdsIn track tagged photos, ignoring duplicates', () async {
