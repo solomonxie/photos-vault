@@ -40,6 +40,12 @@ List<Widget> assetGridSlivers({
   required List<AssetRecord> records,
   required void Function(AssetRecord) onTap,
   required List<TileAction> Function(AssetRecord) actionsFor,
+  /// Multi-select mode: non-null shows a checkmark overlay per tile (checked
+  /// iff its `localId` is in the set) instead of the normal favorite/status
+  /// badges — `onTap` is expected to toggle membership rather than open the
+  /// detail viewer while this is set. `null` (the default) is plain
+  /// single-tap browsing, unchanged.
+  Set<String>? selectedIds,
 }) {
   final l10n = AppLocalizations.of(context)!;
   final grouped = <String, List<AssetRecord>>{};
@@ -69,6 +75,7 @@ List<Widget> assetGridSlivers({
               record: entry.value[i],
               onTap: () => onTap(entry.value[i]),
               actions: actionsFor(entry.value[i]),
+              selected: selectedIds?.contains(entry.value[i].localId),
             ),
             childCount: entry.value.length,
           ),
@@ -79,11 +86,15 @@ List<Widget> assetGridSlivers({
 }
 
 class AssetTile extends StatelessWidget {
-  const AssetTile({super.key, required this.record, required this.onTap, required this.actions});
+  const AssetTile({super.key, required this.record, required this.onTap, required this.actions, this.selected});
 
   final AssetRecord record;
   final VoidCallback onTap;
   final List<TileAction> actions;
+
+  /// `null` outside multi-select mode; `true`/`false` while selecting (see
+  /// `assetGridSlivers`' `selectedIds`).
+  final bool? selected;
 
   @override
   Widget build(BuildContext context) {
@@ -139,6 +150,18 @@ class AssetTile extends StatelessWidget {
                   child: Icon(CupertinoIcons.heart_fill, size: 14, color: CupertinoColors.white),
                 ),
               Positioned(bottom: 4, right: 4, child: StatusDot(record: record)),
+              if (selected != null) ...[
+                if (selected!) const ColoredBox(color: Color(0x662E7DFF)),
+                Positioned(
+                  top: 4,
+                  right: 4,
+                  child: Icon(
+                    selected! ? CupertinoIcons.checkmark_circle_fill : CupertinoIcons.circle,
+                    color: selected! ? CupertinoColors.activeBlue : CupertinoColors.white,
+                    size: 20,
+                  ),
+                ),
+              ],
             ],
           ),
         ),

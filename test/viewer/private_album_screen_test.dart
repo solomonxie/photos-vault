@@ -86,4 +86,75 @@ void main() {
       findsOneWidget,
     );
   });
+
+  testWidgets('multi-select "Move to Library" un-hides moved assets and clears the album', (tester) async {
+    final assetStore = FakeAssetRecordStore();
+    final albumStore = FakePrivateAlbumStore();
+    await assetStore.upsert(
+      localId: 'manual:a',
+      contentHash: 'a',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/a.jpg',
+    );
+    await assetStore.upsert(
+      localId: 'manual:b',
+      contentHash: 'b',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/b.jpg',
+    );
+    await assetStore.setHidden('manual:a', true);
+    await assetStore.setHidden('manual:b', true);
+    final album = await albumStore.ensure('1234');
+    await albumStore.addAssets(album.id, ['manual:a', 'manual:b'], moved: true);
+
+    await tester.pumpWidget(
+      _wrap(PrivateAlbumScreen(album: album, assetRecordStore: assetStore, privateAlbumStore: albumStore)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Select'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manual:a')));
+    await tester.tap(find.byKey(const ValueKey('manual:b')));
+    await tester.pump();
+
+    await tester.tap(find.text('Move 2 to Library'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Nothing here yet.'), findsOneWidget);
+    expect((await assetStore.getByLocalId('manual:a'))!.isHidden, isFalse);
+    expect((await assetStore.getByLocalId('manual:b'))!.isHidden, isFalse);
+    expect(await albumStore.localIdsIn(album.id), isEmpty);
+  });
+
+  testWidgets('Cancel during select mode discards the selection', (tester) async {
+    final assetStore = FakeAssetRecordStore();
+    final albumStore = FakePrivateAlbumStore();
+    await assetStore.upsert(
+      localId: 'manual:a',
+      contentHash: 'a',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/a.jpg',
+    );
+    final album = await albumStore.ensure('1234');
+    await albumStore.addAssets(album.id, ['manual:a'], moved: true);
+
+    await tester.pumpWidget(
+      _wrap(PrivateAlbumScreen(album: album, assetRecordStore: assetStore, privateAlbumStore: albumStore)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Select'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manual:a')));
+    await tester.pump();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Select'), findsOneWidget);
+    expect(await albumStore.localIdsIn(album.id), ['manual:a']);
+  });
 }

@@ -20,55 +20,125 @@ class PrivateAlbumChoice {
   final bool createNew;
 }
 
-/// The Utilities "Hidden" row's passcode popup: a 4-digit entry field plus
-/// "Enter"/"Create New" buttons. No distinct "wrong passcode" state — any
-/// 4 digits are valid input, resolved by the caller against
-/// [PrivateAlbumStore].
+/// The Utilities "Hidden" row's passcode popup: a 4-digit numeric keypad
+/// (no system keyboard — tap 4 digits directly) plus "Enter"/"Create New"
+/// buttons. No distinct "wrong passcode" state — any 4 digits are valid
+/// input, resolved by the caller against [PrivateAlbumStore].
 Future<PrivateAlbumChoice?> showPrivateAlbumPasscodeSheet(BuildContext context) {
   final l10n = AppLocalizations.of(context)!;
-  final controller = TextEditingController();
+  var passcode = '';
   return showCupertinoDialog<PrivateAlbumChoice>(
     context: context,
     builder: (context) => StatefulBuilder(
       builder: (context, setState) {
-        final valid = controller.text.length == 4;
+        final valid = passcode.length == 4;
         return CupertinoAlertDialog(
           title: Text(l10n.privateAlbumGateTitle),
           content: Column(
             children: [
               const SizedBox(height: 8),
               Text(l10n.privateAlbumGateBody),
-              const SizedBox(height: 8),
-              CupertinoTextField(
-                controller: controller,
-                autofocus: true,
-                obscureText: true,
-                keyboardType: TextInputType.number,
-                maxLength: 4,
-                textAlign: TextAlign.center,
-                placeholder: l10n.privateAlbumGatePlaceholder,
-                onChanged: (_) => setState(() {}),
+              const SizedBox(height: 16),
+              _PasscodeDots(length: passcode.length),
+              const SizedBox(height: 12),
+              _PasscodeKeypad(
+                onDigit: (digit) {
+                  if (passcode.length >= 4) return;
+                  setState(() => passcode += digit);
+                },
+                onBackspace: passcode.isEmpty
+                    ? null
+                    : () => setState(() => passcode = passcode.substring(0, passcode.length - 1)),
               ),
             ],
           ),
           actions: [
             CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.actionCancel)),
             CupertinoDialogAction(
-              onPressed: valid
-                  ? () => Navigator.of(context).pop(PrivateAlbumChoice(passcode: controller.text, createNew: false))
-                  : null,
+              onPressed: valid ? () => Navigator.of(context).pop(PrivateAlbumChoice(passcode: passcode, createNew: false)) : null,
               child: Text(l10n.privateAlbumEnterButton),
             ),
             CupertinoDialogAction(
-              onPressed: valid
-                  ? () => Navigator.of(context).pop(PrivateAlbumChoice(passcode: controller.text, createNew: true))
-                  : null,
+              onPressed: valid ? () => Navigator.of(context).pop(PrivateAlbumChoice(passcode: passcode, createNew: true)) : null,
               child: Text(l10n.privateAlbumCreateButton),
             ),
           ],
         );
       },
     ),
+  );
+}
+
+/// Four dots, filled left-to-right as digits are entered — same affordance
+/// as iOS' own passcode screens, standing in for the text field's cursor.
+class _PasscodeDots extends StatelessWidget {
+  const _PasscodeDots({required this.length});
+
+  final int length;
+
+  @override
+  Widget build(BuildContext context) => Row(
+    mainAxisAlignment: MainAxisAlignment.center,
+    children: [
+      for (var i = 0; i < 4; i++)
+        Container(
+          margin: const EdgeInsets.symmetric(horizontal: 7),
+          width: 14,
+          height: 14,
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            color: i < length
+                ? CupertinoDynamicColor.resolve(CupertinoColors.label, context)
+                : CupertinoDynamicColor.resolve(CupertinoColors.systemGrey4, context),
+          ),
+        ),
+    ],
+  );
+}
+
+/// 1-9-0 numeric keypad, tap-only — no system keyboard ever pops up.
+class _PasscodeKeypad extends StatelessWidget {
+  const _PasscodeKeypad({required this.onDigit, required this.onBackspace});
+
+  final ValueChanged<String> onDigit;
+  final VoidCallback? onBackspace;
+
+  static const _rows = [
+    ['1', '2', '3'],
+    ['4', '5', '6'],
+    ['7', '8', '9'],
+  ];
+
+  Widget _key(BuildContext context, {String? label, IconData? icon, VoidCallback? onPressed}) => SizedBox(
+    width: 60,
+    height: 44,
+    child: CupertinoButton(
+      padding: EdgeInsets.zero,
+      onPressed: onPressed,
+      child: icon != null
+          ? Icon(icon, size: 20)
+          : Text(label!, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500)),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) => Column(
+    mainAxisSize: MainAxisSize.min,
+    children: [
+      for (final row in _rows)
+        Row(
+          mainAxisAlignment: MainAxisAlignment.center,
+          children: [for (final digit in row) _key(context, label: digit, onPressed: () => onDigit(digit))],
+        ),
+      Row(
+        mainAxisAlignment: MainAxisAlignment.center,
+        children: [
+          const SizedBox(width: 60, height: 44),
+          _key(context, label: '0', onPressed: () => onDigit('0')),
+          _key(context, icon: CupertinoIcons.delete_left, onPressed: onBackspace),
+        ],
+      ),
+    ],
   );
 }
 
