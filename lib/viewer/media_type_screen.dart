@@ -3,25 +3,35 @@ import 'package:flutter/cupertino.dart';
 import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/private_album_store.dart';
 import 'asset_grid.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
+import 'private_album_gate.dart';
 
 /// Media Types' "Photos" and "Videos" rows — same active-library set as the
 /// main grid, filtered to one kind. Shares the Favorite/Hide/Delete actions
 /// with [LibraryScreenState] rather than introducing a fourth variant.
 class MediaTypeScreen extends StatefulWidget {
-  const MediaTypeScreen({super.key, required this.assetRecordStore, required this.isVideo, required this.title});
+  const MediaTypeScreen({
+    super.key,
+    required this.assetRecordStore,
+    required this.isVideo,
+    required this.title,
+    this.privateAlbumStore,
+  });
 
   final AssetRecordStore assetRecordStore;
   final bool isVideo;
   final String title;
+  final PrivateAlbumStore? privateAlbumStore;
 
   @override
   State<MediaTypeScreen> createState() => _MediaTypeScreenState();
 }
 
 class _MediaTypeScreenState extends State<MediaTypeScreen> {
+  late final PrivateAlbumStore _privateAlbumStore = widget.privateAlbumStore ?? PrivateAlbumStore();
   List<AssetRecord> _records = const [];
 
   @override
@@ -47,7 +57,12 @@ class _MediaTypeScreenState extends State<MediaTypeScreen> {
   }
 
   Future<void> _hide(AssetRecord record) async {
-    await widget.assetRecordStore.setHidden(record.localId, true);
+    await hideIntoPrivateAlbum(
+      context,
+      assetRecordStore: widget.assetRecordStore,
+      privateAlbumStore: _privateAlbumStore,
+      record: record,
+    );
     await _reload();
   }
 

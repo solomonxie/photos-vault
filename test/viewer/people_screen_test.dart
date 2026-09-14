@@ -1,0 +1,53 @@
+import 'package:back_your_own_photos/l10n/app_localizations.dart';
+import 'package:back_your_own_photos/viewer/people_screen.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter_test/flutter_test.dart';
+
+import '../support/fake_asset_record_store.dart';
+import '../support/fake_person_store.dart';
+
+Widget _wrap(Widget child) => CupertinoApp(
+  localizationsDelegates: AppLocalizations.localizationsDelegates,
+  supportedLocales: AppLocalizations.supportedLocales,
+  home: child,
+);
+
+void main() {
+  testWidgets('shows the empty state with no people yet', (tester) async {
+    await tester.pumpWidget(
+      _wrap(PeopleScreen(personStore: FakePersonStore(), assetRecordStore: FakeAssetRecordStore())),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('No people yet. Tap + to add someone.'), findsOneWidget);
+  });
+
+  testWidgets('lists existing people with their photo count', (tester) async {
+    final personStore = FakePersonStore();
+    final person = await personStore.create(name: 'Mia');
+    await personStore.addAssets(person.id, ['p1', 'p2']);
+
+    await tester.pumpWidget(_wrap(PeopleScreen(personStore: personStore, assetRecordStore: FakeAssetRecordStore())));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mia'), findsOneWidget);
+    expect(find.text('2'), findsOneWidget);
+  });
+
+  testWidgets('+ adds a new named person', (tester) async {
+    final personStore = FakePersonStore();
+
+    await tester.pumpWidget(_wrap(PeopleScreen(personStore: personStore, assetRecordStore: FakeAssetRecordStore())));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(CupertinoIcons.add));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(CupertinoTextField), 'Daniel');
+    await tester.pump();
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Daniel'), findsOneWidget);
+    expect((await personStore.listAll()).map((p) => p.name), ['Daniel']);
+  });
+}

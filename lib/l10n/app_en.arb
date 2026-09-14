@@ -58,6 +58,7 @@
   "albumDeleteConfirmTitle": "Delete this album?",
   "albumDeleteConfirmBody": "The photos and videos inside stay in your library.",
   "collectionsPeopleRow": "People",
+  "collectionsPeopleCardLabel": "View People",
   "collectionsPlacesRow": "Places",
   "collectionsEventsRow": "Events",
   "collectionsComingSoonTitle": "Coming Soon",
@@ -137,5 +138,85 @@
   "bucketBrowserLoadMore": "Load More",
 
   "actionCancel": "Cancel",
-  "actionDelete": "Delete"
+  "actionDelete": "Delete",
+  "actionAdd": "Add",
+
+  "privateAlbumGateTitle": "Private Album",
+  "privateAlbumGateBody": "Enter a 4-digit passcode.",
+  "privateAlbumGatePlaceholder": "••••",
+  "privateAlbumEnterButton": "Enter",
+  "privateAlbumCreateButton": "Create New",
+  "privateAlbumScreenTitle": "Private Album",
+  "privateAlbumItemCount": "{count, plural, one{1 item} other{{count} items}}",
+  "@privateAlbumItemCount": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "privateAlbumEmpty": "Nothing here yet.",
+  "privateAlbumRemove": "Remove from Private Album",
+  "privateAlbumMoveFromLibrary": "Move from Library",
+  "privateAlbumCopyFromLibrary": "Copy from Library",
+  "privateAlbumDeleteAlbum": "Delete Private Album",
+  "privateAlbumDeleteConfirmTitle": "Delete this private album?",
+  "privateAlbumDeleteConfirmBody": "Moved photos return to your library. Nothing is deleted.",
+  "privateAlbumPickerMoveTitle": "Move to Private Album",
+  "privateAlbumPickerCopyTitle": "Copy to Private Album",
+  "privateAlbumPickerAddButton": "{count, plural, one{Add 1} other{Add {count}}}",
+  "@privateAlbumPickerAddButton": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "privateAlbumPickerEmpty": "No photos available to add.",
+
+  "peopleScreenTitle": "People",
+  "peopleNamePromptTitle": "New Person",
+  "peopleEmpty": "No people yet. Tap + to add someone.",
+  "peopleAiAnalysisRow": "Find People with AI Analysis",
+
+  "personPageAddPhotos": "Add Photos",
+  "personPagePhotosEmpty": "No photos tagged yet.",
+  "personPageRemoveFromPerson": "Remove from Person",
+
+  "personProfileTitle": "Profile",
+  "personProfileNameLabel": "Name",
+  "personProfileEducationLabel": "Education",
+  "personProfileJobLabel": "Job",
+  "personProfileBioLabel": "About",
+  "personProfileRelativesLabel": "Family / Relatives",
+  "personProfileLockButton": "Lock Profile",
+  "personProfileUnlockButton": "Unlock",
+  "personProfileRemoveLockTitle": "Remove the lock on this profile?",
+  "personProfileLockedNote": "This profile's details are locked.",
+  "personProfileHintPrefix": "Hint: {hint}",
+  "@personProfileHintPrefix": {
+    "placeholders": {"hint": {"type": "String"}}
+  },
+  "personProfileSetPasscodeTitle": "Lock Profile",
+  "personProfileSetPasscodeBody": "Choose a passcode to hide this profile's details.",
+  "personProfilePasscodeLabel": "Passcode",
+  "personProfileHintLabel": "Hint (optional)",
+  "personProfileUnlockTitle": "Enter Passcode",
+  "personProfileWrongPasscode": "Incorrect passcode.",
+  "personProfileRelationshipsHeader": "Relationships",
+  "personProfileViewGraph": "View Relationship Graph",
+  "personProfileLocationHeader": "Movement History",
+  "personProfileLocationOrigin": "Origin",
+  "personProfileLocationRelocation": "Relocation",
+  "personProfileDeletePerson": "Delete Person",
+  "personProfileDeleteConfirmTitle": "Delete this person?",
+  "personProfileDeleteConfirmBody": "Removes their profile and relationships. Photos stay in your library.",
+
+  "relationshipPickerTitle": "Link to Person",
+  "relationshipTypeFamily": "Family",
+  "relationshipTypeSpouse": "Spouse",
+  "relationshipTypeParent": "Parent of",
+  "relationshipTypeChild": "Child of",
+  "relationshipTypeSibling": "Sibling",
+  "relationshipTypeFriend": "Friend",
+  "relationshipTypeColleague": "Colleague",
+  "relationshipTypeOther": "Other",
+
+  "locationAddTitle": "Add Location",
+  "locationPlaceLabel": "Place",
+
+  "personGraphTitle": "Relationship Graph",
+  "personGraphEmpty": "Add relationships to see the graph."
 }

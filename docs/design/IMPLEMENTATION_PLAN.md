@@ -47,6 +47,25 @@ Hardens the app against the real-world edge cases identified in the design doc's
 - [ ] T5.3 IAM least-privilege policy + example S3 Lifecycle Rule JSON (Standard→IA→Glacier by prefix), delivered as README docs — see `docs/aws-setup.md` — depends: none
 - [ ] T5.4 On-device testing: real iPhone (not just simulator) for background-upload reliability — see `docs/design/photo-backup-app-t5.4.md` — depends: T3.4
 
+## Phase 6: Private Albums
+Passcode-gated hidden space in Utilities. Needs the asset store (Phase 1) and the shared grid (T4.1).
+
+- [ ] T6.1 `private_album` table (id, passcodeHash, createdAt) + nullable `privateAlbumId` column on `asset_record` — see `lib/storage/private_album_store.dart` — depends: T1.5
+- [ ] T6.2 Passcode sheet (4-digit entry, "Enter" / "Create New") on a new Utilities row — hashed-code lookup, no distinct wrong-passcode state (see DESIGN.md) — see `lib/viewer/private_album_gate.dart` — depends: T6.1
+- [ ] T6.3 Private album screen: reuses `assetGridSlivers()`, header shows item count + total derivative size, "Delete Album" (confirm sheet, deletes album row + all tagged `asset_record`s + their derivative files) — see `lib/viewer/private_album_screen.dart` — depends: T6.2, T4.1
+- [ ] T6.4 Move/copy-from-library picker into a private album (move flips `privateAlbumId` + hides from main grid; copy inserts a new `asset_record` at the same derivative files) — see `lib/viewer/private_album_picker.dart` — depends: T6.3
+
+## Phase 7: People Profiles & Relationship Graph
+Grows T4.4's count-only People grouping into per-person identity + a full profile. Needs T4.4's AI analysis plumbing.
+
+- [ ] T7.1 `Person` identity: manual "tag this person" confirmation flow seeded from existing per-photo AI analysis, persists a stable `Person` per confirmed identity — see `lib/photos/person_store.dart` — depends: T4.4
+- [ ] T7.2 `Person` model/store: name, profile photo, bio fields (education/job/family/relatives), locked flag + passcode hash + hint — see `lib/photos/person.dart`, `lib/photos/person_store.dart` — depends: T7.1
+- [ ] T7.3 `PersonProfileScreen`: header (photo/name), stats (photo count, date range), editable bio sections, chevron-from-name entry point off the People grid, initial AI-assisted auto-fill (suggestion-only, always user-editable) — see `lib/viewer/person_profile_screen.dart` — depends: T7.2
+- [ ] T7.4 Profile lock: set passcode + hint, locked profile hides bio fields until unlocked (photos stay visible — see DESIGN.md risk note) — see `lib/viewer/person_profile_screen.dart` — depends: T7.3
+- [ ] T7.5 Relationship links: person↔person edges with a type (family/spouse/parent-child/friend/colleague/...), "link to existing person" picker from a profile — see `lib/photos/person_relationship_store.dart` — depends: T7.2
+- [ ] T7.6 Relationship net graph screen: `graphview`-based node-link layout, family clustered in a circle, other relation types styled by line color/type — see `lib/viewer/person_graph_screen.dart` — depends: T7.5
+- [ ] T7.7 Geolocation movement history: origin + relocation entries (place + date range), clustered from photo EXIF GPS over time, editable, explicitly excludes short trips/travel — see `lib/photos/person_location_history.dart` — depends: T7.3, Places EXIF extraction (T4.4's stub)
+
 ## Backlog: Android
 Deferred until iOS is solid. The Flutter codebase already builds for Android (`android/` scaffold exists); these are the tasks to pick up when Android gets prioritized, not new platform work.
 

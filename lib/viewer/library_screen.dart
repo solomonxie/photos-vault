@@ -8,6 +8,7 @@ import '../photos/ai_analysis_store.dart';
 import '../photos/demo_assets_service.dart';
 import '../photos/demo_seed_store.dart';
 import '../photos/manual_add.dart';
+import '../photos/person_store.dart';
 import '../photos/photo_library_service.dart';
 import '../settings/ai_settings_screen.dart';
 import '../settings/backup_targets_store.dart';
@@ -16,6 +17,7 @@ import '../storage/album.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/private_album_store.dart';
 import '../upload/backup_coordinator.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
@@ -24,8 +26,9 @@ import 'coming_soon_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'favorites_screen.dart';
-import 'hidden_screen.dart';
 import 'media_type_screen.dart';
+import 'people_screen.dart';
+import 'private_album_gate.dart';
 import 'recently_deleted_screen.dart';
 import 'smart_collection_screen.dart';
 
@@ -47,11 +50,18 @@ class LibraryScreen extends StatefulWidget {
     this.backupCoordinator,
     this.aiAnalysisStore,
     this.photoLibraryService,
+    this.privateAlbumStore,
+    this.personStore,
   });
 
   final AssetRecordStore? assetRecordStore;
   final BackupTargetsStore? backupTargetsStore;
   final AlbumStore? albumStore;
+
+  /// Overridable for tests so Private Albums/People never open the real
+  /// `sqflite` factory.
+  final PrivateAlbumStore? privateAlbumStore;
+  final PersonStore? personStore;
 
   /// Overridable for tests so the People/Events smart collections never open
   /// the real (platform-backed) `sqflite` factory.
@@ -92,6 +102,8 @@ class LibraryScreenState extends State<LibraryScreen> {
   late final AiAnalysisStore _aiAnalysisStore = widget.aiAnalysisStore ?? AiAnalysisStore();
   late final PhotoLibraryService _photoLibraryService =
       widget.photoLibraryService ?? PhotoLibraryService(store: assetRecordStore);
+  late final PrivateAlbumStore _privateAlbumStore = widget.privateAlbumStore ?? PrivateAlbumStore();
+  late final PersonStore _personStore = widget.personStore ?? PersonStore();
 
   List<AssetRecord> _all = const [];
   List<Album> _albums = const [];
@@ -254,7 +266,12 @@ class LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _hide(AssetRecord record) async {
-    await assetRecordStore.setHidden(record.localId, true);
+    await hideIntoPrivateAlbum(
+      context,
+      assetRecordStore: assetRecordStore,
+      privateAlbumStore: _privateAlbumStore,
+      record: record,
+    );
     await reload();
   }
 
@@ -299,8 +316,19 @@ class LibraryScreenState extends State<LibraryScreen> {
     await reload();
   }
 
-  void _openAlbum(Album album) =>
-      _push(AlbumScreen(album: album, assetRecordStore: assetRecordStore, albumStore: _albumStore));
+  Future<void> _openPrivateAlbums() async {
+    await openPrivateAlbums(context, assetRecordStore: assetRecordStore, privateAlbumStore: _privateAlbumStore);
+    await reload();
+  }
+
+  void _openAlbum(Album album) => _push(
+    AlbumScreen(
+      album: album,
+      assetRecordStore: assetRecordStore,
+      albumStore: _albumStore,
+      privateAlbumStore: _privateAlbumStore,
+    ),
+  );
 
   Future<void> _confirmDeleteAlbum(Album album) async {
     final l10n = AppLocalizations.of(context)!;
@@ -382,10 +410,10 @@ class LibraryScreenState extends State<LibraryScreen> {
                 child: _PlaceholderCollectionRow(
                   icon: CupertinoIcons.person_2_fill,
                   color: CupertinoColors.systemYellow,
-                  label: l10n.smartCollectionsCardLabel,
+                  label: l10n.collectionsPeopleCardLabel,
                   onTap: () => _push(
-                    SmartCollectionScreen(
-                      kind: SmartCollectionKind.people,
+                    PeopleScreen(
+                      personStore: _personStore,
                       assetRecordStore: assetRecordStore,
                       aiAnalysisStore: _aiAnalysisStore,
                     ),
@@ -440,7 +468,12 @@ class LibraryScreenState extends State<LibraryScreen> {
                       title: l10n.collectionsPhotosRow,
                       count: _photoCount,
                       onTap: () => _push(
-                        MediaTypeScreen(assetRecordStore: assetRecordStore, isVideo: false, title: l10n.collectionsPhotosRow),
+                        MediaTypeScreen(
+                          assetRecordStore: assetRecordStore,
+                          isVideo: false,
+                          title: l10n.collectionsPhotosRow,
+                          privateAlbumStore: _privateAlbumStore,
+                        ),
                       ),
                     ),
                     _row(
@@ -449,7 +482,12 @@ class LibraryScreenState extends State<LibraryScreen> {
                       title: l10n.collectionsVideosRow,
                       count: _videoCount,
                       onTap: () => _push(
-                        MediaTypeScreen(assetRecordStore: assetRecordStore, isVideo: true, title: l10n.collectionsVideosRow),
+                        MediaTypeScreen(
+                          assetRecordStore: assetRecordStore,
+                          isVideo: true,
+                          title: l10n.collectionsVideosRow,
+                          privateAlbumStore: _privateAlbumStore,
+                        ),
                       ),
                     ),
                   ],
@@ -484,7 +522,7 @@ class LibraryScreenState extends State<LibraryScreen> {
                     color: CupertinoColors.systemGrey,
                     title: l10n.collectionsHiddenRow,
                     count: _hiddenCount,
-                    onTap: () => _push(HiddenScreen(assetRecordStore: assetRecordStore)),
+                    onTap: _openPrivateAlbums,
                   ),
                   _row(
                     icon: CupertinoIcons.trash_fill,
