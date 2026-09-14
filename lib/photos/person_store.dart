@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:sqflite/sqflite.dart' show Database, DatabaseFactory, OpenDatabaseOptions;
@@ -23,6 +25,7 @@ class PersonStore {
   static const _memberTable = 'person_asset';
   static const _relationshipTable = 'person_relationship';
   static const _locationTable = 'person_location';
+  static const _historyTable = 'person_history';
 
   Future<Database> _open() async {
     final existing = _db;
@@ -31,10 +34,13 @@ class PersonStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await db.execute('ALTER TABLE $_relationshipTable ADD COLUMN organization TEXT');
+          }
+          if (oldVersion < 3) {
+            await db.execute(_createHistoryTableSql);
           }
         },
         onCreate: (db, version) async {
@@ -43,8 +49,6 @@ class PersonStore {
               id TEXT PRIMARY KEY,
               name TEXT NOT NULL,
               avatar_local_id TEXT,
-              education TEXT NOT NULL DEFAULT '',
-              job TEXT NOT NULL DEFAULT '',
               bio TEXT NOT NULL DEFAULT '',
               locked INTEGER NOT NULL DEFAULT 0,
               passcode_hash TEXT,
@@ -81,12 +85,26 @@ class PersonStore {
               since INTEGER NOT NULL
             )
           ''');
+          await db.execute(_createHistoryTableSql);
         },
       ),
     );
     _db = db;
     return db;
   }
+
+  static const _createHistoryTableSql = '''
+    CREATE TABLE $_historyTable (
+      id TEXT PRIMARY KEY,
+      person_id TEXT NOT NULL,
+      category TEXT NOT NULL,
+      title TEXT NOT NULL,
+      start_date INTEGER,
+      end_date INTEGER,
+      notes TEXT NOT NULL DEFAULT '',
+      custom_fields TEXT NOT NULL DEFAULT '[]'
+    )
+  ''';
 
   Future<void> close() async {
     await _db?.close();
@@ -127,13 +145,15 @@ class PersonStore {
   }
 
   /// Deletes the person, their photo tags, every relationship touching
-  /// them, and their location history. Tagged photos themselves are
-  /// untouched — same "membership only" precedent as `AlbumStore.remove`.
+  /// them, their location history, and their education/job history.
+  /// Tagged photos themselves are untouched — same "membership only"
+  /// precedent as `AlbumStore.remove`.
   Future<void> remove(String id) async {
     final db = await _open();
     await db.delete(_memberTable, where: 'person_id = ?', whereArgs: [id]);
     await db.delete(_relationshipTable, where: 'person_id = ? OR related_person_id = ?', whereArgs: [id, id]);
     await db.delete(_locationTable, where: 'person_id = ?', whereArgs: [id]);
+    await db.delete(_historyTable, where: 'person_id = ?', whereArgs: [id]);
     await db.delete(_personTable, where: 'id = ?', whereArgs: [id]);
   }
 
@@ -275,14 +295,76 @@ class PersonStore {
         .toList();
   }
 
+  // --- Education/job history ---
+
+  /// Insert-or-replace by [PersonHistoryEntry.id] — also how an existing
+  /// entry gets edited (pass its own `id` back with updated fields).
+  Future<void> addHistoryEntry(PersonHistoryEntry entry) async {
+    final db = await _open();
+    await db.insert(_historyTable, {
+      'id': entry.id,
+      'person_id': entry.personId,
+      'category': entry.category.name,
+      'title': entry.title,
+      'start_date': entry.startDate?.millisecondsSinceEpoch,
+      'end_date': entry.endDate?.millisecondsSinceEpoch,
+      'notes': entry.notes,
+      'custom_fields': jsonEncode(entry.customFields.map((f) => f.toJson()).toList()),
+    }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+  }
+
+  Future<void> removeHistoryEntry(String id) async {
+    final db = await _open();
+    await db.delete(_historyTable, where: 'id = ?', whereArgs: [id]);
+  }
+
+  Future<List<PersonHistoryEntry>> historyFor(String personId, HistoryCategory category) async {
+    final db = await _open();
+    final rows = await db.query(
+      _historyTable,
+      where: 'person_id = ? AND category = ?',
+      whereArgs: [personId, category.name],
+      orderBy: 'start_date ASC',
+    );
+    return rows.map(_historyFromRow).toList();
+  }
+
+  /// Every distinct title already used for [category] across the whole
+  /// registry — the searchable-picker's "select if exists" list.
+  Future<Set<String>> allHistoryTitles(HistoryCategory category) async {
+    final db = await _open();
+    final rows = await db.query(
+      _historyTable,
+      columns: ['title'],
+      distinct: true,
+      where: "category = ? AND title != ''",
+      whereArgs: [category.name],
+    );
+    return rows.map((r) => r['title'] as String).toSet();
+  }
+
+  static PersonHistoryEntry _historyFromRow(Map<String, Object?> row) {
+    final startMillis = row['start_date'] as int?;
+    final endMillis = row['end_date'] as int?;
+    final customFieldsJson = jsonDecode(row['custom_fields'] as String? ?? '[]') as List<dynamic>;
+    return PersonHistoryEntry(
+      id: row['id'] as String,
+      personId: row['person_id'] as String,
+      category: HistoryCategory.values.byName(row['category'] as String),
+      title: row['title'] as String,
+      startDate: startMillis == null ? null : DateTime.fromMillisecondsSinceEpoch(startMillis),
+      endDate: endMillis == null ? null : DateTime.fromMillisecondsSinceEpoch(endMillis),
+      notes: row['notes'] as String? ?? '',
+      customFields: customFieldsJson.map((f) => PersonCustomField.fromJson(f as Map<String, Object?>)).toList(),
+    );
+  }
+
   String newId() => _uuid.v4();
 
   static Map<String, Object?> _toRow(Person person) => {
     'id': person.id,
     'name': person.name,
     'avatar_local_id': person.avatarLocalId,
-    'education': person.education,
-    'job': person.job,
     'bio': person.bio,
     'locked': person.locked ? 1 : 0,
     'passcode_hash': person.passcodeHash,
@@ -296,8 +378,6 @@ class PersonStore {
     id: row['id'] as String,
     name: row['name'] as String,
     avatarLocalId: row['avatar_local_id'] as String?,
-    education: row['education'] as String? ?? '',
-    job: row['job'] as String? ?? '',
     bio: row['bio'] as String? ?? '',
     locked: (row['locked'] as int? ?? 0) != 0,
     passcodeHash: row['passcode_hash'] as String?,

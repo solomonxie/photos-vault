@@ -191,9 +191,11 @@ void main() {
     final relationships = await personStore.relationshipsFor(mia.id);
     expect(relationships, hasLength(2));
     expect(await personStore.locationsFor('demo-person-grandma-lily'), hasLength(2));
+    expect((await personStore.historyFor(mia.id, HistoryCategory.education)).single.title, 'UC Berkeley');
+    expect((await personStore.historyFor(mia.id, HistoryCategory.job)).single.title, 'Product Designer');
   });
 
-  test('addAll is idempotent for demo people (no duplicate locations on reset)', () async {
+  test('addAll is idempotent for demo people (no duplicate locations/history on reset)', () async {
     final personStore = newPersonStore();
     final service = newService(personStore: personStore);
 
@@ -203,6 +205,7 @@ void main() {
 
     expect(await personStore.listAll(), hasLength(countAfterFirst));
     expect(await personStore.locationsFor('demo-person-grandma-lily'), hasLength(2));
+    expect(await personStore.historyFor('demo-person-mia', HistoryCategory.education), hasLength(1));
   });
 
   test('addAll seeds Marcus Bennett\'s network covering every relationship type', () async {
@@ -232,9 +235,13 @@ void main() {
     expect(locations, hasLength(4));
     expect(locations.first.place, 'Cleveland, OH');
     expect(locations.first.kind, LocationKind.origin);
+
+    expect((await personStore.historyFor('demo-person-marcus', HistoryCategory.education)).single.title, 'Ohio State University');
+    expect((await personStore.historyFor('demo-person-marcus', HistoryCategory.job)).single.title, 'Engineering Manager');
+    expect((await personStore.historyFor('demo-person-sarah-kim', HistoryCategory.job)).single.title, 'Product Manager at Nimbus Systems');
   });
 
-  test('addAll is idempotent for Marcus\'s network (no duplicate relationships/locations on reset)', () async {
+  test('addAll is idempotent for Marcus\'s network (no duplicate relationships/locations/history on reset)', () async {
     final personStore = newPersonStore();
     final service = newService(personStore: personStore);
 
@@ -243,5 +250,6 @@ void main() {
 
     expect(await personStore.relationshipsFor('demo-person-marcus'), hasLength(15));
     expect(await personStore.locationsFor('demo-person-marcus'), hasLength(4));
+    expect(await personStore.historyFor('demo-person-marcus', HistoryCategory.education), hasLength(1));
   });
 }

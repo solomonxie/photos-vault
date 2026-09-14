@@ -149,6 +149,23 @@ class DemoAssetsService {
     ),
   ];
 
+  /// Projects a roster entry's `education`/`job` strings into one
+  /// [PersonHistoryEntry] each (T7.3's Education/Job sections are lists, not
+  /// single fields) — a no-op past the first run, same idempotent-by-fixed-id
+  /// trick as everything else here.
+  Future<void> _seedHistoryFromSpec(String personId, {required String education, required String job}) async {
+    if (education.isNotEmpty && (await personStore.historyFor(personId, HistoryCategory.education)).isEmpty) {
+      await personStore.addHistoryEntry(
+        PersonHistoryEntry(id: '$personId-history-education', personId: personId, category: HistoryCategory.education, title: education),
+      );
+    }
+    if (job.isNotEmpty && (await personStore.historyFor(personId, HistoryCategory.job)).isEmpty) {
+      await personStore.addHistoryEntry(
+        PersonHistoryEntry(id: '$personId-history-job', personId: personId, category: HistoryCategory.job, title: job),
+      );
+    }
+  }
+
   /// Three named [Person] profiles (T7) with bios, tagged photos, a
   /// friend + a family relationship between them, and one location history
   /// (T7.7) — enough to see People, the profile lock, and the relationship
@@ -158,12 +175,11 @@ class DemoAssetsService {
     for (final spec in _demoPeople) {
       final person = await personStore.create(name: spec.name, id: spec.id, isDemo: true);
       if (person.avatarLocalId == null) {
-        await personStore.update(
-          person.copyWith(avatarLocalId: added[spec.avatarIndex].localId, education: spec.education, job: spec.job, bio: spec.bio),
-        );
+        await personStore.update(person.copyWith(avatarLocalId: added[spec.avatarIndex].localId, bio: spec.bio));
       }
       final (start, end) = spec.photoRange;
       await personStore.addAssets(spec.id, added.sublist(start, end).map((r) => r.localId));
+      await _seedHistoryFromSpec(spec.id, education: spec.education, job: spec.job);
     }
     await personStore.addRelationship('demo-person-mia', 'demo-person-daniel', RelationshipType.friend);
     await personStore.addRelationship('demo-person-mia', 'demo-person-grandma-lily', RelationshipType.family);
@@ -304,15 +320,14 @@ class DemoAssetsService {
       final avatarIndex = spec.avatarIndex;
       if (avatarIndex != null) {
         if (person.avatarLocalId == null) {
-          await personStore.update(
-            person.copyWith(avatarLocalId: added[avatarIndex].localId, education: spec.education, job: spec.job, bio: spec.bio),
-          );
+          await personStore.update(person.copyWith(avatarLocalId: added[avatarIndex].localId, bio: spec.bio));
         }
         final (start, end) = spec.photoRange!;
         await personStore.addAssets(spec.id, added.sublist(start, end).map((r) => r.localId));
-      } else if (person.education.isEmpty && person.job.isEmpty && person.bio.isEmpty) {
-        await personStore.update(person.copyWith(education: spec.education, job: spec.job, bio: spec.bio));
+      } else if (person.bio.isEmpty) {
+        await personStore.update(person.copyWith(bio: spec.bio));
       }
+      await _seedHistoryFromSpec(spec.id, education: spec.education, job: spec.job);
     }
     for (final rel in _marcusRelationships) {
       await personStore.addRelationship('demo-person-marcus', rel.id, rel.type, organization: rel.organization);

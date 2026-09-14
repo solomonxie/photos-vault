@@ -209,6 +209,18 @@
   "personProfileDeleteConfirmTitle": "Delete this person?",
   "personProfileDeleteConfirmBody": "Removes their profile and relationships. Photos stay in your library.",
 
+  "personHistoryStartLabel": "Start",
+  "personHistoryEndLabel": "End",
+  "personHistoryPresentLabel": "Present",
+  "personHistorySpecificDateOption": "End Date",
+  "personHistoryNotesLabel": "Notes",
+  "personHistoryCustomFieldsHeader": "Custom Fields",
+  "personHistoryAddFieldButton": "Add Field",
+  "personHistoryFieldLabelPlaceholder": "Field",
+  "personHistoryFieldValuePlaceholder": "Value",
+  "personHistoryDeleteButton": "Delete Entry",
+  "personHistoryDeleteConfirmTitle": "Delete this entry?",
+
   "relationshipPickerTitle": "Link to Person",
   "personProfileNewPersonOption": "New Person…",
   "relationshipTypeFamily": "Family",

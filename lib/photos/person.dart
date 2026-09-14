@@ -30,8 +30,6 @@ class Person {
     required this.createdAt,
     required this.updatedAt,
     this.avatarLocalId,
-    this.education = '',
-    this.job = '',
     this.bio = '',
     this.locked = false,
     this.passcodeHash,
@@ -48,13 +46,12 @@ class Person {
   /// their own tagged photos, not a separately uploaded avatar.
   final String? avatarLocalId;
 
-  final String education;
-  final String job;
   final String bio;
 
-  /// When `true`, [PersonProfileScreen] hides [education]/[job]/[bio] until
-  /// unlocked with [passcodeHash] — their tagged photos stay visible either
-  /// way (see DESIGN.md's risk note on lock scope).
+  /// When `true`, [PersonProfileScreen] hides [bio] and the Education/Job
+  /// [PersonHistoryEntry] lists until unlocked with [passcodeHash] — their
+  /// tagged photos stay visible either way (see DESIGN.md's risk note on
+  /// lock scope).
   final bool locked;
   final String? passcodeHash;
   final String? passcodeHint;
@@ -66,8 +63,6 @@ class Person {
   Person copyWith({
     String? name,
     String? avatarLocalId,
-    String? education,
-    String? job,
     String? bio,
     bool? locked,
     String? Function()? passcodeHash,
@@ -78,8 +73,6 @@ class Person {
     createdAt: createdAt,
     updatedAt: DateTime.now(),
     avatarLocalId: avatarLocalId ?? this.avatarLocalId,
-    education: education ?? this.education,
-    job: job ?? this.job,
     bio: bio ?? this.bio,
     locked: locked ?? this.locked,
     passcodeHash: passcodeHash != null ? passcodeHash() : this.passcodeHash,
@@ -117,4 +110,70 @@ class PersonLocation {
   final LocationKind kind;
   final String place;
   final DateTime since;
+}
+
+/// Education or Job — a person can have several over a lifetime, so each is
+/// its own entry (school/employer name, a time range, notes, and
+/// user-defined custom fields), not a single string. See T7.3.
+enum HistoryCategory { education, job }
+
+/// A user-defined label/value pair attached to a [PersonHistoryEntry] — e.g.
+/// "Degree" / "MBA", or "Title" / "Senior Engineer".
+class PersonCustomField {
+  const PersonCustomField({required this.label, required this.value});
+
+  final String label;
+  final String value;
+
+  Map<String, Object?> toJson() => {'label': label, 'value': value};
+
+  static PersonCustomField fromJson(Map<String, Object?> json) =>
+      PersonCustomField(label: json['label'] as String? ?? '', value: json['value'] as String? ?? '');
+}
+
+/// One school attended or job held.
+class PersonHistoryEntry {
+  const PersonHistoryEntry({
+    required this.id,
+    required this.personId,
+    required this.category,
+    required this.title,
+    this.startDate,
+    this.endDate,
+    this.notes = '',
+    this.customFields = const [],
+  });
+
+  final String id;
+  final String personId;
+  final HistoryCategory category;
+
+  /// The school/employer name — picked from a searchable list of every
+  /// title already used across the People registry, or typed fresh.
+  final String title;
+
+  final DateTime? startDate;
+
+  /// `null` means "present" / still ongoing.
+  final DateTime? endDate;
+
+  final String notes;
+  final List<PersonCustomField> customFields;
+
+  PersonHistoryEntry copyWith({
+    String? title,
+    DateTime? Function()? startDate,
+    DateTime? Function()? endDate,
+    String? notes,
+    List<PersonCustomField>? customFields,
+  }) => PersonHistoryEntry(
+    id: id,
+    personId: personId,
+    category: category,
+    title: title ?? this.title,
+    startDate: startDate != null ? startDate() : this.startDate,
+    endDate: endDate != null ? endDate() : this.endDate,
+    notes: notes ?? this.notes,
+    customFields: customFields ?? this.customFields,
+  );
 }

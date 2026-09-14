@@ -9,6 +9,7 @@ import '../storage/passcode_hash.dart';
 import 'passcode_prompt.dart';
 import 'person_avatar.dart';
 import 'person_graph_screen.dart';
+import 'person_history_detail_screen.dart';
 import 'person_picker_screen.dart';
 import 'string_picker_screen.dart';
 
@@ -42,6 +43,8 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   List<PersonRelationship> _relationships = const [];
   List<Person> _allPeople = const [];
   List<PersonLocation> _locations = const [];
+  List<PersonHistoryEntry> _education = const [];
+  List<PersonHistoryEntry> _jobs = const [];
 
   @override
   void initState() {
@@ -60,11 +63,15 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     final relationships = await widget.personStore.relationshipsFor(_person.id);
     final allPeople = await widget.personStore.listAll();
     final locations = await widget.personStore.locationsFor(_person.id);
+    final education = await widget.personStore.historyFor(_person.id, HistoryCategory.education);
+    final jobs = await widget.personStore.historyFor(_person.id, HistoryCategory.job);
     if (!mounted) return;
     setState(() {
       _relationships = relationships;
       _allPeople = allPeople;
       _locations = locations;
+      _education = education;
+      _jobs = jobs;
     });
   }
 
@@ -73,33 +80,33 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     await widget.personStore.update(updated);
   }
 
-  /// Education/job values already used by *other* people in the registry —
-  /// tap either row to pick one of these, or type a new value straight in
-  /// (no separate "create" step needed).
-  Set<String> get _educationOptions => _allPeople.map((p) => p.education).where((v) => v.trim().isNotEmpty).toSet();
-
-  Set<String> get _jobOptions => _allPeople.map((p) => p.job).where((v) => v.trim().isNotEmpty).toSet();
-
-  Future<void> _pickEducation() async {
-    final l10n = AppLocalizations.of(context)!;
-    final value = await Navigator.of(context).push<String>(
+  /// "+": pick (or type) a title first — school/employer name is never
+  /// blank — then open the detail page for dates/notes/custom fields.
+  Future<void> _addHistoryEntry(HistoryCategory category, String categoryLabel) async {
+    final options = await widget.personStore.allHistoryTitles(category);
+    if (!mounted) return;
+    final title = await Navigator.of(context).push<String>(
+      CupertinoPageRoute(builder: (_) => StringPickerScreen(title: categoryLabel, options: options)),
+    );
+    if (title == null || title.isEmpty) return;
+    final entry = PersonHistoryEntry(id: widget.personStore.newId(), personId: _person.id, category: category, title: title);
+    await widget.personStore.addHistoryEntry(entry);
+    if (!mounted) return;
+    await Navigator.of(context).push(
       CupertinoPageRoute(
-        builder: (_) => StringPickerScreen(title: l10n.personProfileEducationLabel, options: _educationOptions, initialQuery: _person.education),
+        builder: (_) => PersonHistoryDetailScreen(entry: entry, categoryLabel: categoryLabel, personStore: widget.personStore),
       ),
     );
-    if (value == null) return;
-    await _persist(_person.copyWith(education: value));
+    await _reload();
   }
 
-  Future<void> _pickJob() async {
-    final l10n = AppLocalizations.of(context)!;
-    final value = await Navigator.of(context).push<String>(
+  Future<void> _openHistoryEntry(PersonHistoryEntry entry, String categoryLabel) async {
+    await Navigator.of(context).push(
       CupertinoPageRoute(
-        builder: (_) => StringPickerScreen(title: l10n.personProfileJobLabel, options: _jobOptions, initialQuery: _person.job),
+        builder: (_) => PersonHistoryDetailScreen(entry: entry, categoryLabel: categoryLabel, personStore: widget.personStore),
       ),
     );
-    if (value == null) return;
-    await _persist(_person.copyWith(job: value));
+    await _reload();
   }
 
   bool get _fieldsVisible => !_person.locked || _unlocked;
@@ -410,11 +417,17 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                 ],
               ),
               const SizedBox(height: 20),
-              _sectionHeader(l10n.personProfileEducationLabel),
-              _pickRow(value: _person.education, onTap: _pickEducation),
+              _sectionHeader(
+                l10n.personProfileEducationLabel,
+                onAdd: () => _addHistoryEntry(HistoryCategory.education, l10n.personProfileEducationLabel),
+              ),
+              _historySection(_education, l10n.personProfileEducationLabel),
               const SizedBox(height: 20),
-              _sectionHeader(l10n.personProfileJobLabel),
-              _pickRow(value: _person.job, onTap: _pickJob),
+              _sectionHeader(
+                l10n.personProfileJobLabel,
+                onAdd: () => _addHistoryEntry(HistoryCategory.job, l10n.personProfileJobLabel),
+              ),
+              _historySection(_jobs, l10n.personProfileJobLabel),
               const SizedBox(height: 20),
               _sectionHeader(l10n.personProfileRelationshipsHeader, onAdd: () => _addOrEditRelationship()),
               for (final type in RelationshipType.values)
@@ -500,21 +513,28 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     );
   }
 
-  Widget _pickRow({required String value, required VoidCallback onTap}) {
+  String? _dateRangeLabel(AppLocalizations l10n, PersonHistoryEntry entry) {
+    if (entry.startDate == null && entry.endDate == null) return null;
+    final start = entry.startDate == null ? '' : DateFormat.y().format(entry.startDate!);
+    final end = entry.endDate == null ? l10n.personHistoryPresentLabel : DateFormat.y().format(entry.endDate!);
+    return start.isEmpty ? end : '$start – $end';
+  }
+
+  Widget _historySection(List<PersonHistoryEntry> entries, String categoryLabel) {
+    if (entries.isEmpty) return const SizedBox.shrink();
     final l10n = AppLocalizations.of(context)!;
     return CupertinoListSection.insetGrouped(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       backgroundColor: _cardBackground,
       decoration: _cardDecoration,
       children: [
-        CupertinoListTile(
-          title: Text(
-            value.isEmpty ? l10n.personProfileNotSet : value,
-            style: value.isEmpty ? const TextStyle(color: CupertinoColors.systemGrey) : null,
+        for (final entry in entries)
+          CupertinoListTile(
+            title: Text(entry.title.isEmpty ? l10n.personProfileNotSet : entry.title),
+            subtitle: switch (_dateRangeLabel(l10n, entry)) { final label? => Text(label), null => null },
+            trailing: const Icon(CupertinoIcons.chevron_forward, size: 18, color: CupertinoColors.systemGrey2),
+            onTap: () => _openHistoryEntry(entry, categoryLabel),
           ),
-          trailing: const Icon(CupertinoIcons.chevron_forward, size: 18, color: CupertinoColors.systemGrey2),
-          onTap: onTap,
-        ),
       ],
     );
   }

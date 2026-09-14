@@ -8,6 +8,7 @@ class FakePersonStore implements PersonStore {
   final _members = <String, Set<String>>{};
   final _relationships = <String, Map<String, PersonRelationship>>{};
   final _locations = <String, List<PersonLocation>>{};
+  final _history = <String, PersonHistoryEntry>{};
   var _nextId = 0;
 
   @override
@@ -44,6 +45,7 @@ class FakePersonStore implements PersonStore {
       map.remove(id);
     }
     _locations.remove(id);
+    _history.removeWhere((_, entry) => entry.personId == id);
   }
 
   @override
@@ -118,6 +120,23 @@ class FakePersonStore implements PersonStore {
 
   @override
   Future<List<PersonLocation>> locationsFor(String personId) async => _locations[personId] ?? const [];
+
+  @override
+  Future<void> addHistoryEntry(PersonHistoryEntry entry) async => _history[entry.id] = entry;
+
+  @override
+  Future<void> removeHistoryEntry(String id) async => _history.remove(id);
+
+  @override
+  Future<List<PersonHistoryEntry>> historyFor(String personId, HistoryCategory category) async =>
+      _history.values.where((e) => e.personId == personId && e.category == category).toList()
+        ..sort((a, b) => (a.startDate ?? DateTime(0)).compareTo(b.startDate ?? DateTime(0)));
+
+  @override
+  Future<Set<String>> allHistoryTitles(HistoryCategory category) async => _history.values
+      .where((e) => e.category == category && e.title.isNotEmpty)
+      .map((e) => e.title)
+      .toSet();
 
   @override
   String newId() => 'fake-person-${_nextId++}';

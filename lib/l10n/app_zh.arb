@@ -181,6 +181,18 @@
   "personProfileDeleteConfirmTitle": "删除该人物?",
   "personProfileDeleteConfirmBody": "将移除其资料与关系,照片仍会保留在图库中。",
 
+  "personHistoryStartLabel": "开始",
+  "personHistoryEndLabel": "结束",
+  "personHistoryPresentLabel": "至今",
+  "personHistorySpecificDateOption": "结束日期",
+  "personHistoryNotesLabel": "备注",
+  "personHistoryCustomFieldsHeader": "自定义字段",
+  "personHistoryAddFieldButton": "添加字段",
+  "personHistoryFieldLabelPlaceholder": "字段名",
+  "personHistoryFieldValuePlaceholder": "值",
+  "personHistoryDeleteButton": "删除该记录",
+  "personHistoryDeleteConfirmTitle": "删除该记录?",
+
   "relationshipPickerTitle": "关联人物",
   "personProfileNewPersonOption": "新建人物…",
   "relationshipTypeFamily": "家人",
