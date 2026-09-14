@@ -29,4 +29,9 @@ ManualAddService.enqueueFile(scratchPath)   ── same hash-named/dedup path as
   manual "Add Files" flow and (T2.6) the share extension.
 - `demo_assets_service.dart` — unpacks bundled demo photos/videos through
   `ManualAddService`; re-running `addAll()` after a demo item is deleted
-  brings it right back (same content hash ⇒ same `localId`).
+  brings it right back (same content hash ⇒ same `localId`). Also seeds a
+  demo Private Album (passcode `1234`) and three demo `Person` profiles with
+  relationships/location history, same idempotent-by-fixed-id trick.
+- `person.dart` / `person_store.dart` — named `Person` profiles (bio fields,
+  tagged photos, relationships, location history) behind
+  `../viewer/people_screen.dart`; see DESIGN.md's "People profiles" section.

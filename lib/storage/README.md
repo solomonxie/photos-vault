@@ -26,3 +26,10 @@ getByLocalId() / listAll() route every row through:
   `withX()` helpers) and the `DerivativeKind`/`UploadStatus` enums.
 - `asset_record_store.dart` — the sqlite table, all reads/writes, and the
   stale-path healing above.
+- `private_album.dart` / `private_album_store.dart` — passcode-gated hidden
+  folders (Utilities' "Hidden" row); a join table over `asset_record`, same
+  shape as `album_store.dart`, plus a `moved` flag per row (moved assets are
+  also `setHidden(true)` by the caller; copied ones stay visible in the main
+  library too). See `../viewer/private_album_gate.dart` and DESIGN.md.
+- `passcode_hash.dart` — SHA-256 hashing shared by private albums (the hash
+  doubles as the album id) and person-profile locks.

@@ -94,16 +94,22 @@ class LibraryScreenState extends State<LibraryScreen> {
   late final AlbumStore _albumStore = widget.albumStore ?? AlbumStore();
   late final ManualAddService _manualAddService =
       widget.manualAddService ?? ManualAddService(store: assetRecordStore);
+  late final PrivateAlbumStore _privateAlbumStore = widget.privateAlbumStore ?? PrivateAlbumStore();
+  late final PersonStore _personStore = widget.personStore ?? PersonStore();
   late final DemoAssetsService _demoAssetsService =
-      widget.demoAssetsService ?? DemoAssetsService(manualAddService: _manualAddService, albumStore: _albumStore);
+      widget.demoAssetsService ??
+      DemoAssetsService(
+        manualAddService: _manualAddService,
+        albumStore: _albumStore,
+        privateAlbumStore: _privateAlbumStore,
+        personStore: _personStore,
+      );
   late final DemoSeedStore _demoSeedStore = widget.demoSeedStore ?? DemoSeedStore();
   late final BackupCoordinator _coordinator =
       widget.backupCoordinator ?? BackupCoordinator(targetsStore: _backupTargetsStore, recordStore: assetRecordStore);
   late final AiAnalysisStore _aiAnalysisStore = widget.aiAnalysisStore ?? AiAnalysisStore();
   late final PhotoLibraryService _photoLibraryService =
       widget.photoLibraryService ?? PhotoLibraryService(store: assetRecordStore);
-  late final PrivateAlbumStore _privateAlbumStore = widget.privateAlbumStore ?? PrivateAlbumStore();
-  late final PersonStore _personStore = widget.personStore ?? PersonStore();
 
   List<AssetRecord> _all = const [];
   List<Album> _albums = const [];

@@ -2,12 +2,14 @@ import 'package:back_your_own_photos/l10n/app_localizations.dart';
 import 'package:back_your_own_photos/photos/demo_assets_service.dart';
 import 'package:back_your_own_photos/photos/demo_seed_store.dart';
 import 'package:back_your_own_photos/photos/manual_add.dart';
+import 'package:back_your_own_photos/photos/person_store.dart';
 import 'package:back_your_own_photos/photos/photo_library_service.dart';
 import 'package:back_your_own_photos/settings/backup_targets_store.dart';
 import 'package:back_your_own_photos/settings/s3_backup_target.dart';
 import 'package:back_your_own_photos/storage/album_store.dart';
 import 'package:back_your_own_photos/storage/asset_record.dart';
 import 'package:back_your_own_photos/storage/asset_record_store.dart';
+import 'package:back_your_own_photos/storage/private_album_store.dart';
 import 'package:back_your_own_photos/upload/backup_coordinator.dart';
 import 'package:back_your_own_photos/upload/s3_uploader.dart';
 import 'package:back_your_own_photos/viewer/asset_grid.dart';
@@ -45,6 +47,12 @@ class _FakeDemoAssetsService implements DemoAssetsService {
 
   @override
   AlbumStore get albumStore => throw UnimplementedError();
+
+  @override
+  PrivateAlbumStore get privateAlbumStore => throw UnimplementedError();
+
+  @override
+  PersonStore get personStore => throw UnimplementedError();
 
   @override
   Future<List<AssetRecord>> addAll() async => [
