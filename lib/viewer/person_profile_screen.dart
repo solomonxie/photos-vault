@@ -11,11 +11,11 @@ import 'person_avatar.dart';
 import 'person_graph_screen.dart';
 
 /// The full editable profile behind a person page's name chevron: bio
-/// fields (education/job/about/family), an optional passcode+hint lock over
-/// those fields (photos and identity stay visible either way — see
-/// DESIGN.md's risk note), relationships to other people with a link to the
-/// net graph, and geolocation movement history. See IMPLEMENTATION_PLAN.md
-/// T7.3-T7.7.
+/// fields (education/job/about), an optional passcode+hint lock over those
+/// fields (photos and identity stay visible either way — see DESIGN.md's
+/// risk note), relationships to other people (family/relatives lives here,
+/// as typed links, not a free-text field) with a link to the net graph, and
+/// geolocation location history. See IMPLEMENTATION_PLAN.md T7.3-T7.7.
 class PersonProfileScreen extends StatefulWidget {
   const PersonProfileScreen({super.key, required this.person, required this.personStore, required this.assetRecordStore});
 
@@ -33,7 +33,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   late final TextEditingController _education = TextEditingController(text: _person.education);
   late final TextEditingController _job = TextEditingController(text: _person.job);
   late final TextEditingController _bio = TextEditingController(text: _person.bio);
-  late final TextEditingController _relatives = TextEditingController(text: _person.relativesNote);
 
   bool _unlocked = false;
   List<PersonRelationship> _relationships = const [];
@@ -115,19 +114,73 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     await _persist(_person.copyWith(locked: false, passcodeHash: () => null, passcodeHint: () => null));
   }
 
-  Future<Person?> _pickPerson(List<Person> candidates) => showCupertinoModalPopup<Person>(
-    context: context,
-    builder: (context) => CupertinoActionSheet(
-      actions: [
-        for (final p in candidates)
-          CupertinoActionSheetAction(onPressed: () => Navigator.of(context).pop(p), child: Text(p.name)),
-      ],
-      cancelButton: CupertinoActionSheetAction(
-        onPressed: () => Navigator.of(context).pop(),
-        child: Text(AppLocalizations.of(context)!.actionCancel),
+  /// Prompts for a name and creates a brand-new [Person] — no photo
+  /// required, same as `PeopleScreen`'s "+". Used when linking a relative
+  /// who isn't in the photo registry yet.
+  Future<Person?> _createPerson() async {
+    final l10n = AppLocalizations.of(context)!;
+    final controller = TextEditingController();
+    final name = await showCupertinoDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => CupertinoAlertDialog(
+          title: Text(l10n.peopleNamePromptTitle),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: CupertinoTextField(controller: controller, autofocus: true, onChanged: (_) => setState(() {})),
+          ),
+          actions: [
+            CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.actionCancel)),
+            CupertinoDialogAction(
+              onPressed: controller.text.trim().isEmpty ? null : () => Navigator.of(context).pop(controller.text.trim()),
+              child: Text(l10n.actionAdd),
+            ),
+          ],
+        ),
       ),
-    ),
-  );
+    );
+    if (name == null || name.isEmpty) return null;
+    final created = await widget.personStore.create(name: name);
+    if (mounted) setState(() => _allPeople = [..._allPeople, created]);
+    return created;
+  }
+
+  /// The relationship "+" popup: pick an existing person from [candidates],
+  /// or "New Person…" to create one on the spot (no photo required).
+  Future<Person?> _pickOrCreatePerson(List<Person> candidates) async {
+    final l10n = AppLocalizations.of(context)!;
+    Person? picked;
+    var wantsNew = false;
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: Text(l10n.relationshipPickerTitle),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              wantsNew = true;
+              Navigator.of(sheetContext).pop();
+            },
+            child: Text(l10n.personProfileNewPersonOption),
+          ),
+          for (final p in candidates)
+            CupertinoActionSheetAction(
+              onPressed: () {
+                picked = p;
+                Navigator.of(sheetContext).pop();
+              },
+              child: Text(p.name),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (wantsNew) return mounted ? _createPerson() : null;
+    return picked;
+  }
 
   String _relationshipLabel(AppLocalizations l10n, RelationshipType type) => switch (type) {
     RelationshipType.family => l10n.relationshipTypeFamily,
@@ -161,12 +214,20 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   Future<void> _addRelationship() async {
     final linkedIds = _relationships.map((r) => r.relatedPersonId).toSet();
     final candidates = _allPeople.where((p) => p.id != _person.id && !linkedIds.contains(p.id)).toList();
-    if (candidates.isEmpty) return;
-    final other = await _pickPerson(candidates);
+    final other = await _pickOrCreatePerson(candidates);
     if (other == null || !mounted) return;
     final type = await _pickRelationshipType();
     if (type == null) return;
     await widget.personStore.addRelationship(_person.id, other.id, type);
+    await _reload();
+  }
+
+  /// Tapping an existing relationship row re-picks its type — `addRelationship`
+  /// replaces the row (same personId/relatedPersonId), so this doubles as edit.
+  Future<void> _editRelationship(PersonRelationship relationship) async {
+    final type = await _pickRelationshipType();
+    if (type == null) return;
+    await widget.personStore.addRelationship(_person.id, relationship.relatedPersonId, type);
     await _reload();
   }
 
@@ -175,16 +236,19 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     await _reload();
   }
 
-  Future<void> _addLocation() async {
+  /// Shared by "+" (adding a new entry) and tapping an existing row (editing
+  /// it in place) — `existing` pre-fills the sheet and, on save, reuses its
+  /// `id` so `PersonStore.addLocation`'s insert-or-replace updates it.
+  Future<void> _editLocation({PersonLocation? existing}) async {
     final l10n = AppLocalizations.of(context)!;
-    final placeController = TextEditingController();
-    var kind = LocationKind.origin;
-    var since = DateTime.now();
+    final placeController = TextEditingController(text: existing?.place ?? '');
+    var kind = existing?.kind ?? LocationKind.origin;
+    var since = existing?.since ?? DateTime.now();
     final saved = await showCupertinoModalPopup<bool>(
       context: context,
       builder: (context) => StatefulBuilder(
         builder: (context, setState) => CupertinoActionSheet(
-          title: Text(l10n.locationAddTitle),
+          title: Text(existing == null ? l10n.locationAddTitle : l10n.locationEditTitle),
           message: Padding(
             padding: const EdgeInsets.only(top: 12),
             child: Column(
@@ -216,7 +280,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           actions: [
             CupertinoActionSheetAction(
               onPressed: () => Navigator.of(context).pop(placeController.text.trim().isNotEmpty),
-              child: Text(l10n.actionAdd),
+              child: Text(existing == null ? l10n.actionAdd : l10n.settingsSaveButton),
             ),
           ],
           cancelButton: CupertinoActionSheetAction(
@@ -228,7 +292,13 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     );
     if (saved != true) return;
     await widget.personStore.addLocation(
-      PersonLocation(id: widget.personStore.newId(), personId: _person.id, kind: kind, place: placeController.text.trim(), since: since),
+      PersonLocation(
+        id: existing?.id ?? widget.personStore.newId(),
+        personId: _person.id,
+        kind: kind,
+        place: placeController.text.trim(),
+        since: since,
+      ),
     );
     await _reload();
   }
@@ -284,19 +354,24 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       ),
       child: SafeArea(
         child: ListView(
-          padding: const EdgeInsets.all(16),
+          padding: const EdgeInsets.symmetric(vertical: 16),
           children: [
             Center(child: PersonAvatar(assetRecordStore: widget.assetRecordStore, localId: _person.avatarLocalId, size: 96)),
-            const SizedBox(height: 16),
-            _label(l10n.personProfileNameLabel),
-            CupertinoTextField(
-              controller: _name,
-              onChanged: (v) => _persist(_person.copyWith(name: v)),
+            const SizedBox(height: 20),
+            CupertinoFormSection.insetGrouped(
+              margin: const EdgeInsets.symmetric(horizontal: 16),
+              children: [
+                CupertinoTextFormFieldRow(
+                  prefix: Text(l10n.personProfileNameLabel),
+                  controller: _name,
+                  onChanged: (v) => _persist(_person.copyWith(name: v)),
+                ),
+              ],
             ),
-            const SizedBox(height: 16),
+            const SizedBox(height: 20),
             if (!_fieldsVisible)
               Padding(
-                padding: const EdgeInsets.symmetric(vertical: 24),
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 24),
                 child: Column(
                   children: [
                     const Icon(CupertinoIcons.lock_fill, size: 32, color: CupertinoColors.systemGrey),
@@ -316,66 +391,90 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                 ),
               )
             else ...[
-              _label(l10n.personProfileEducationLabel),
-              CupertinoTextField(controller: _education, onChanged: (v) => _persist(_person.copyWith(education: v))),
-              const SizedBox(height: 16),
-              _label(l10n.personProfileJobLabel),
-              CupertinoTextField(controller: _job, onChanged: (v) => _persist(_person.copyWith(job: v))),
-              const SizedBox(height: 16),
-              _label(l10n.personProfileBioLabel),
-              CupertinoTextField(controller: _bio, maxLines: 3, onChanged: (v) => _persist(_person.copyWith(bio: v))),
-              const SizedBox(height: 16),
-              _label(l10n.personProfileRelativesLabel),
-              CupertinoTextField(
-                controller: _relatives,
-                maxLines: 2,
-                onChanged: (v) => _persist(_person.copyWith(relativesNote: v)),
+              CupertinoFormSection.insetGrouped(
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                children: [
+                  CupertinoTextFormFieldRow(
+                    prefix: Text(l10n.personProfileEducationLabel),
+                    controller: _education,
+                    onChanged: (v) => _persist(_person.copyWith(education: v)),
+                  ),
+                  CupertinoTextFormFieldRow(
+                    prefix: Text(l10n.personProfileJobLabel),
+                    controller: _job,
+                    onChanged: (v) => _persist(_person.copyWith(job: v)),
+                  ),
+                  CupertinoTextFormFieldRow(
+                    prefix: Text(l10n.personProfileBioLabel),
+                    controller: _bio,
+                    maxLines: null,
+                    onChanged: (v) => _persist(_person.copyWith(bio: v)),
+                  ),
+                ],
               ),
-              const SizedBox(height: 24),
+              const SizedBox(height: 20),
               _sectionHeader(l10n.personProfileRelationshipsHeader, onAdd: _addRelationship),
-              for (final relationship in _relationships)
-                CupertinoListTile(
-                  title: Text(
-                    _allPeople.where((p) => p.id == relationship.relatedPersonId).map((p) => p.name).firstOrNull ?? '?',
-                  ),
-                  subtitle: Text(_relationshipLabel(l10n, relationship.type)),
-                  trailing: CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: () => _removeRelationship(relationship),
-                    child: const Icon(CupertinoIcons.xmark_circle, color: CupertinoColors.systemGrey),
-                  ),
-                ),
-              CupertinoButton(
-                padding: EdgeInsets.zero,
-                onPressed: () => Navigator.of(context).push(
-                  CupertinoPageRoute(
-                    builder: (_) => PersonGraphScreen(
-                      personStore: widget.personStore,
-                      assetRecordStore: widget.assetRecordStore,
-                      focusPersonId: _person.id,
+              CupertinoListSection.insetGrouped(
+                margin: const EdgeInsets.symmetric(horizontal: 16),
+                backgroundColor: const Color(0xFF1C1C1E),
+                decoration: const BoxDecoration(color: Color(0xFF2C2C2E), borderRadius: BorderRadius.all(Radius.circular(10))),
+                children: [
+                  for (final relationship in _relationships)
+                    CupertinoListTile(
+                      title: Text(
+                        _allPeople.where((p) => p.id == relationship.relatedPersonId).map((p) => p.name).firstOrNull ?? '?',
+                      ),
+                      subtitle: Text(_relationshipLabel(l10n, relationship.type)),
+                      trailing: CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        onPressed: () => _removeRelationship(relationship),
+                        child: const Icon(CupertinoIcons.xmark_circle, color: CupertinoColors.systemGrey),
+                      ),
+                      onTap: () => _editRelationship(relationship),
+                    ),
+                  CupertinoListTile(
+                    title: Center(child: Text(l10n.personProfileViewGraph, style: const TextStyle(color: CupertinoColors.activeBlue))),
+                    onTap: () => Navigator.of(context).push(
+                      CupertinoPageRoute(
+                        builder: (_) => PersonGraphScreen(
+                          personStore: widget.personStore,
+                          assetRecordStore: widget.assetRecordStore,
+                          focusPersonId: _person.id,
+                        ),
+                      ),
                     ),
                   ),
-                ),
-                child: Text(l10n.personProfileViewGraph),
+                ],
               ),
-              const SizedBox(height: 24),
-              _sectionHeader(l10n.personProfileLocationHeader, onAdd: _addLocation),
-              for (final location in _locations)
-                CupertinoListTile(
-                  title: Text(location.place),
-                  subtitle: Text(
-                    '${location.kind == LocationKind.origin ? l10n.personProfileLocationOrigin : l10n.personProfileLocationRelocation} · ${DateFormat.yMMM().format(location.since)}',
-                  ),
-                  trailing: CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: () => _removeLocation(location),
-                    child: const Icon(CupertinoIcons.xmark_circle, color: CupertinoColors.systemGrey),
-                  ),
+              const SizedBox(height: 20),
+              _sectionHeader(l10n.personProfileLocationHeader, onAdd: () => _editLocation()),
+              if (_locations.isNotEmpty)
+                CupertinoListSection.insetGrouped(
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
+                  backgroundColor: const Color(0xFF1C1C1E),
+                  decoration: const BoxDecoration(color: Color(0xFF2C2C2E), borderRadius: BorderRadius.all(Radius.circular(10))),
+                  children: [
+                    for (final location in _locations)
+                      CupertinoListTile(
+                        title: Text(location.place),
+                        subtitle: Text(
+                          '${location.kind == LocationKind.origin ? l10n.personProfileLocationOrigin : l10n.personProfileLocationRelocation} · ${DateFormat.yMMM().format(location.since)}',
+                        ),
+                        trailing: CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: () => _removeLocation(location),
+                          child: const Icon(CupertinoIcons.xmark_circle, color: CupertinoColors.systemGrey),
+                        ),
+                        onTap: () => _editLocation(existing: location),
+                      ),
+                  ],
                 ),
               const SizedBox(height: 32),
-              CupertinoButton(
-                onPressed: _confirmDeletePerson,
-                child: Text(l10n.personProfileDeletePerson, style: const TextStyle(color: CupertinoColors.systemRed)),
+              Center(
+                child: CupertinoButton(
+                  onPressed: _confirmDeletePerson,
+                  child: Text(l10n.personProfileDeletePerson, style: const TextStyle(color: CupertinoColors.systemRed)),
+                ),
               ),
             ],
           ],
@@ -384,15 +483,15 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     );
   }
 
-  Widget _label(String text) =>
-      Padding(padding: const EdgeInsets.only(bottom: 4), child: Text(text, style: const TextStyle(color: CupertinoColors.systemGrey)));
-
-  Widget _sectionHeader(String title, {required VoidCallback onAdd}) => Row(
-    mainAxisAlignment: MainAxisAlignment.spaceBetween,
-    children: [
-      Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
-      CupertinoButton(padding: EdgeInsets.zero, onPressed: onAdd, child: const Icon(CupertinoIcons.add_circled)),
-    ],
+  Widget _sectionHeader(String title, {required VoidCallback onAdd}) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+    child: Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(title, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 16)),
+        CupertinoButton(padding: EdgeInsets.zero, onPressed: onAdd, child: const Icon(CupertinoIcons.add_circled)),
+      ],
+    ),
   );
 }
 

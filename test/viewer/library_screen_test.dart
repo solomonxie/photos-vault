@@ -555,16 +555,60 @@ void main() {
     expect(find.text('Places'), findsOneWidget);
     expect(find.text('Events'), findsOneWidget);
 
-    // Each subsection is a single horizontally-scrolling row of
-    // album-card-shaped placeholders, not a plain list row. Places is still
-    // a "Coming Soon" placeholder; People/Events now open a real screen.
-    expect(find.byIcon(CupertinoIcons.person_2_fill), findsWidgets);
+    // Places/Events are still a single horizontally-scrolling row of
+    // placeholder cards. Places is a "Coming Soon" placeholder; Events
+    // opens the AI grouping screen. People (no people configured here)
+    // shows just its trailing "add person" card, opening PeopleScreen.
+    expect(find.byIcon(CupertinoIcons.person_add), findsOneWidget);
     expect(find.text('Coming Soon'), findsWidgets);
-    expect(find.text('View People'), findsWidgets);
     expect(find.text('Tap to Analyze'), findsWidgets);
 
-    await tester.tap(find.byIcon(CupertinoIcons.person_2_fill).first);
+    await tester.tap(find.byIcon(CupertinoIcons.person_add));
     await tester.pumpAndSettle();
     expect(find.text('No people yet. Tap + to add someone.'), findsOneWidget);
+  });
+
+  testWidgets('People cards show each person\'s name and open their page on tap', (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:one',
+      contentHash: 'one',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/one.jpg',
+    );
+    final personStore = FakePersonStore();
+    await personStore.create(name: 'Mia Chen');
+
+    await tester.binding.setSurfaceSize(const Size(400, 3200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          demoSeedStore: _alreadySeededStore(),
+          assetRecordStore: recordStore,
+          albumStore: FakeAlbumStore(),
+          privateAlbumStore: FakePrivateAlbumStore(),
+          personStore: personStore,
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+          aiAnalysisStore: FakeAiAnalysisStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mia Chen'), findsOneWidget);
+
+    await tester.tap(find.text('Mia Chen'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No photos tagged yet.'), findsOneWidget);
   });
 }

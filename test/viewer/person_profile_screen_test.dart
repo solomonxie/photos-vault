@@ -24,7 +24,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Fields render in order: Name, Education, Job, About, Family/Relatives.
+    // Fields render in order: Name, Education, Job, About.
     await tester.enterText(find.byType(CupertinoTextField).at(1), 'MIT');
     await tester.pump();
 
@@ -72,8 +72,8 @@ void main() {
     await tester.tap(find.widgetWithText(CupertinoDialogAction, 'Unlock'));
     await tester.pumpAndSettle();
 
-    // Name + Education + Job + About + Family/Relatives, all unlocked now.
-    expect(find.byType(CupertinoTextField), findsNWidgets(5));
+    // Name + Education + Job + About, all unlocked now.
+    expect(find.byType(CupertinoTextField), findsNWidgets(4));
   });
 
   testWidgets('linking two people creates a mirrored relationship', (tester) async {
@@ -97,10 +97,85 @@ void main() {
     await tester.pumpAndSettle();
 
     // The new relationship row lands below the fold in the profile's
-    // ListView (Education/Job/About/Relatives push it down), so it's
-    // offstage rather than absent.
+    // ListView (Education/Job/About push it down), so it's offstage rather
+    // than absent.
     expect(find.text('Daniel', skipOffstage: false), findsOneWidget);
     final relationships = await personStore.relationshipsFor(mia.id);
     expect(relationships.single.type, RelationshipType.friend);
+  });
+
+  testWidgets('"New Person…" creates and links someone not in the registry', (tester) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+
+    await tester.pumpWidget(
+      _wrap(PersonProfileScreen(person: mia, personStore: personStore, assetRecordStore: FakeAssetRecordStore())),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New Person…'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(CupertinoTextField).last, 'Grandma Lily');
+    await tester.pump();
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Grandma Lily', skipOffstage: false), findsOneWidget);
+    final all = await personStore.listAll();
+    expect(all.map((p) => p.name), containsAll(['Mia', 'Grandma Lily']));
+    final relationships = await personStore.relationshipsFor(mia.id);
+    expect(relationships.single.type, RelationshipType.family);
+  });
+
+  testWidgets('tapping a relationship row lets you change its type', (tester) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final daniel = await personStore.create(name: 'Daniel');
+    await personStore.addRelationship(mia.id, daniel.id, RelationshipType.friend);
+
+    await tester.pumpWidget(
+      _wrap(PersonProfileScreen(person: mia, personStore: personStore, assetRecordStore: FakeAssetRecordStore())),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Daniel', skipOffstage: false), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Colleague'));
+    await tester.pumpAndSettle();
+
+    final relationships = await personStore.relationshipsFor(mia.id);
+    expect(relationships.single.type, RelationshipType.colleague);
+  });
+
+  testWidgets('tapping a location row edits it in place, without duplicating', (tester) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.addLocation(
+      PersonLocation(id: 'loc-1', personId: mia.id, kind: LocationKind.origin, place: 'Shanghai', since: DateTime(1995)),
+    );
+
+    await tester.pumpWidget(
+      _wrap(PersonProfileScreen(person: mia, personStore: personStore, assetRecordStore: FakeAssetRecordStore())),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Shanghai', skipOffstage: false), warnIfMissed: false);
+    await tester.pumpAndSettle();
+    // Pre-filled from the existing entry.
+    expect(find.text('Edit Location'), findsOneWidget);
+    expect(find.widgetWithText(CupertinoTextField, 'Shanghai'), findsOneWidget);
+
+    await tester.enterText(find.widgetWithText(CupertinoTextField, 'Shanghai'), 'Beijing');
+    await tester.pump();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final locations = await personStore.locationsFor(mia.id);
+    expect(locations, hasLength(1));
+    expect(locations.single.place, 'Beijing');
   });
 }
