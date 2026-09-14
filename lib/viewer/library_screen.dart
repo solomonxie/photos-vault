@@ -8,6 +8,7 @@ import '../photos/ai_analysis_store.dart';
 import '../photos/demo_assets_service.dart';
 import '../photos/demo_seed_store.dart';
 import '../photos/manual_add.dart';
+import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/photo_library_service.dart';
 import '../settings/ai_settings_screen.dart';
@@ -28,6 +29,8 @@ import 'detail_screen.dart';
 import 'favorites_screen.dart';
 import 'media_type_screen.dart';
 import 'people_screen.dart';
+import 'person_avatar.dart';
+import 'person_page_screen.dart';
 import 'private_album_gate.dart';
 import 'recently_deleted_screen.dart';
 import 'smart_collection_screen.dart';
@@ -114,6 +117,8 @@ class LibraryScreenState extends State<LibraryScreen> {
   List<AssetRecord> _all = const [];
   List<Album> _albums = const [];
   Map<String, List<AssetRecord>> _albumAssets = const {};
+  List<Person> _people = const [];
+  Map<String, int> _personPhotoCounts = const {};
   String _query = '';
   bool _busy = false;
 
@@ -175,11 +180,18 @@ class LibraryScreenState extends State<LibraryScreen> {
       final memberIds = (await _albumStore.localIdsIn(album.id)).toSet();
       albumAssets[album.id] = all.where((r) => !r.isDeleted && !r.isHidden && memberIds.contains(r.localId)).toList();
     }
+    final people = await _personStore.listAll();
+    final personPhotoCounts = <String, int>{};
+    for (final person in people) {
+      personPhotoCounts[person.id] = (await _personStore.localIdsIn(person.id)).length;
+    }
     if (!mounted) return;
     setState(() {
       _all = all;
       _albums = albums;
       _albumAssets = albumAssets;
+      _people = people;
+      _personPhotoCounts = personPhotoCounts;
     });
   }
 
@@ -336,6 +348,13 @@ class LibraryScreenState extends State<LibraryScreen> {
     ),
   );
 
+  void _openPerson(Person person) =>
+      _push(PersonPageScreen(person: person, personStore: _personStore, assetRecordStore: assetRecordStore));
+
+  void _openPeopleScreen() => _push(
+    PeopleScreen(personStore: _personStore, assetRecordStore: assetRecordStore, aiAnalysisStore: _aiAnalysisStore),
+  );
+
   Future<void> _confirmDeleteAlbum(Album album) async {
     final l10n = AppLocalizations.of(context)!;
     final confirmed = await showCupertinoDialog<bool>(
@@ -413,16 +432,28 @@ class LibraryScreenState extends State<LibraryScreen> {
               ],
               SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsPeopleRow)),
               SliverToBoxAdapter(
-                child: _PlaceholderCollectionRow(
-                  icon: CupertinoIcons.person_2_fill,
-                  color: CupertinoColors.systemYellow,
-                  label: l10n.collectionsPeopleCardLabel,
-                  onTap: () => _push(
-                    PeopleScreen(
-                      personStore: _personStore,
-                      assetRecordStore: assetRecordStore,
-                      aiAnalysisStore: _aiAnalysisStore,
-                    ),
+                child: SizedBox(
+                  height: 132,
+                  child: ListView.separated(
+                    scrollDirection: Axis.horizontal,
+                    padding: const EdgeInsets.symmetric(horizontal: 16),
+                    itemCount: _people.length + 1,
+                    separatorBuilder: (context, i) => const SizedBox(width: 12),
+                    itemBuilder: (context, i) {
+                      if (i == _people.length) {
+                        return SizedBox(width: 84, child: _AddPersonCard(onTap: _openPeopleScreen));
+                      }
+                      final person = _people[i];
+                      return SizedBox(
+                        width: 84,
+                        child: _PersonCard(
+                          person: person,
+                          assetRecordStore: assetRecordStore,
+                          photoCount: _personPhotoCounts[person.id] ?? 0,
+                          onTap: () => _openPerson(person),
+                        ),
+                      );
+                    },
                   ),
                 ),
               ),
@@ -668,6 +699,62 @@ class _AlbumCard extends StatelessWidget {
           const SizedBox(height: 6),
           Text(album.name, maxLines: 1, overflow: TextOverflow.ellipsis),
           Text('${records.length}', style: const TextStyle(color: CupertinoColors.systemGrey, fontSize: 13)),
+        ],
+      ),
+    );
+  }
+}
+
+/// One Collections' "People" card — a round avatar (Photos-style, unlike
+/// Albums' square covers) + name + tagged-photo count, opening that
+/// person's page directly.
+class _PersonCard extends StatelessWidget {
+  const _PersonCard({required this.person, required this.assetRecordStore, required this.photoCount, required this.onTap});
+
+  final Person person;
+  final AssetRecordStore assetRecordStore;
+  final int photoCount;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Column(
+      children: [
+        PersonAvatar(assetRecordStore: assetRecordStore, localId: person.avatarLocalId, size: 84),
+        const SizedBox(height: 6),
+        Text(person.name, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
+        Text('$photoCount', style: const TextStyle(color: CupertinoColors.systemGrey, fontSize: 13)),
+      ],
+    ),
+  );
+}
+
+/// Trailing card in the People row — opens the full `PeopleScreen` (add a
+/// person, or fall back to the older AI people-count grouping).
+class _AddPersonCard extends StatelessWidget {
+  const _AddPersonCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        children: [
+          Container(
+            width: 84,
+            height: 84,
+            decoration: BoxDecoration(
+              shape: BoxShape.circle,
+              color: CupertinoDynamicColor.resolve(CupertinoColors.systemGrey5, context),
+            ),
+            child: const Icon(CupertinoIcons.person_add, size: 30),
+          ),
+          const SizedBox(height: 6),
+          Text(l10n.actionAdd, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center),
         ],
       ),
     );

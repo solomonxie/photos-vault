@@ -53,7 +53,6 @@ Future<PrivateAlbumChoice?> showPrivateAlbumPasscodeSheet(BuildContext context) 
             ],
           ),
           actions: [
-            CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.actionCancel)),
             CupertinoDialogAction(
               onPressed: valid ? () => Navigator.of(context).pop(PrivateAlbumChoice(passcode: passcode, createNew: false)) : null,
               child: Text(l10n.privateAlbumEnterButton),
@@ -62,6 +61,7 @@ Future<PrivateAlbumChoice?> showPrivateAlbumPasscodeSheet(BuildContext context) 
               onPressed: valid ? () => Navigator.of(context).pop(PrivateAlbumChoice(passcode: passcode, createNew: true)) : null,
               child: Text(l10n.privateAlbumCreateButton),
             ),
+            CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.actionCancel)),
           ],
         );
       },

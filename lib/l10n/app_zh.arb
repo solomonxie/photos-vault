@@ -54,7 +54,6 @@
   "albumDeleteConfirmTitle": "删除该相册?",
   "albumDeleteConfirmBody": "相册内的照片和视频仍会保留在图库中。",
   "collectionsPeopleRow": "人物",
-  "collectionsPeopleCardLabel": "查看人物",
   "collectionsPlacesRow": "地点",
   "collectionsEventsRow": "事件",
   "collectionsComingSoonTitle": "即将推出",
@@ -159,7 +158,6 @@
   "personProfileEducationLabel": "教育经历",
   "personProfileJobLabel": "职业",
   "personProfileBioLabel": "简介",
-  "personProfileRelativesLabel": "家庭/亲属",
   "personProfileLockButton": "锁定资料",
   "personProfileUnlockButton": "解锁",
   "personProfileRemoveLockTitle": "移除该资料的锁定?",
@@ -173,7 +171,7 @@
   "personProfileWrongPasscode": "密码不正确。",
   "personProfileRelationshipsHeader": "关系",
   "personProfileViewGraph": "查看关系图谱",
-  "personProfileLocationHeader": "迁居记录",
+  "personProfileLocationHeader": "居住地",
   "personProfileLocationOrigin": "籍贯",
   "personProfileLocationRelocation": "迁居",
   "personProfileDeletePerson": "删除人物",
@@ -181,6 +179,7 @@
   "personProfileDeleteConfirmBody": "将移除其资料与关系,照片仍会保留在图库中。",
 
   "relationshipPickerTitle": "关联人物",
+  "personProfileNewPersonOption": "新建人物…",
   "relationshipTypeFamily": "家人",
   "relationshipTypeSpouse": "配偶",
   "relationshipTypeParent": "父母",
@@ -191,6 +190,7 @@
   "relationshipTypeOther": "其他",
 
   "locationAddTitle": "添加地点",
+  "locationEditTitle": "编辑地点",
   "locationPlaceLabel": "地点",
 
   "personGraphTitle": "关系图谱",

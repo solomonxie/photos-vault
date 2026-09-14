@@ -41,7 +41,6 @@ class PersonStore {
               education TEXT NOT NULL DEFAULT '',
               job TEXT NOT NULL DEFAULT '',
               bio TEXT NOT NULL DEFAULT '',
-              relatives_note TEXT NOT NULL DEFAULT '',
               locked INTEGER NOT NULL DEFAULT 0,
               passcode_hash TEXT,
               passcode_hint TEXT,
@@ -219,6 +218,8 @@ class PersonStore {
 
   // --- Location history ---
 
+  /// Insert-or-replace by [PersonLocation.id] — also how an existing entry
+  /// gets edited (pass its own `id` back with updated fields).
   Future<void> addLocation(PersonLocation location) async {
     final db = await _open();
     await db.insert(_locationTable, {
@@ -227,7 +228,7 @@ class PersonStore {
       'kind': location.kind.name,
       'place': location.place,
       'since': location.since.millisecondsSinceEpoch,
-    });
+    }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
   }
 
   Future<void> removeLocation(String id) async {
@@ -260,7 +261,6 @@ class PersonStore {
     'education': person.education,
     'job': person.job,
     'bio': person.bio,
-    'relatives_note': person.relativesNote,
     'locked': person.locked ? 1 : 0,
     'passcode_hash': person.passcodeHash,
     'passcode_hint': person.passcodeHint,
@@ -276,7 +276,6 @@ class PersonStore {
     education: row['education'] as String? ?? '',
     job: row['job'] as String? ?? '',
     bio: row['bio'] as String? ?? '',
-    relativesNote: row['relatives_note'] as String? ?? '',
     locked: (row['locked'] as int? ?? 0) != 0,
     passcodeHash: row['passcode_hash'] as String?,
     passcodeHint: row['passcode_hint'] as String?,

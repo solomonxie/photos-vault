@@ -58,7 +58,6 @@
   "albumDeleteConfirmTitle": "Delete this album?",
   "albumDeleteConfirmBody": "The photos and videos inside stay in your library.",
   "collectionsPeopleRow": "People",
-  "collectionsPeopleCardLabel": "View People",
   "collectionsPlacesRow": "Places",
   "collectionsEventsRow": "Events",
   "collectionsComingSoonTitle": "Coming Soon",
@@ -184,7 +183,6 @@
   "personProfileEducationLabel": "Education",
   "personProfileJobLabel": "Job",
   "personProfileBioLabel": "About",
-  "personProfileRelativesLabel": "Family / Relatives",
   "personProfileLockButton": "Lock Profile",
   "personProfileUnlockButton": "Unlock",
   "personProfileRemoveLockTitle": "Remove the lock on this profile?",
@@ -201,7 +199,7 @@
   "personProfileWrongPasscode": "Incorrect passcode.",
   "personProfileRelationshipsHeader": "Relationships",
   "personProfileViewGraph": "View Relationship Graph",
-  "personProfileLocationHeader": "Movement History",
+  "personProfileLocationHeader": "Locations",
   "personProfileLocationOrigin": "Origin",
   "personProfileLocationRelocation": "Relocation",
   "personProfileDeletePerson": "Delete Person",
@@ -209,6 +207,7 @@
   "personProfileDeleteConfirmBody": "Removes their profile and relationships. Photos stay in your library.",
 
   "relationshipPickerTitle": "Link to Person",
+  "personProfileNewPersonOption": "New Person…",
   "relationshipTypeFamily": "Family",
   "relationshipTypeSpouse": "Spouse",
   "relationshipTypeParent": "Parent of",
@@ -219,6 +218,7 @@
   "relationshipTypeOther": "Other",
 
   "locationAddTitle": "Add Location",
+  "locationEditTitle": "Edit Location",
   "locationPlaceLabel": "Place",
 
   "personGraphTitle": "Relationship Graph",

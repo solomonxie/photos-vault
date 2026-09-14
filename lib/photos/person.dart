@@ -27,7 +27,6 @@ class Person {
     this.education = '',
     this.job = '',
     this.bio = '',
-    this.relativesNote = '',
     this.locked = false,
     this.passcodeHash,
     this.passcodeHint,
@@ -46,12 +45,10 @@ class Person {
   final String education;
   final String job;
   final String bio;
-  final String relativesNote;
 
-  /// When `true`, [PersonProfileScreen] hides [education]/[job]/[bio]/
-  /// [relativesNote] until unlocked with [passcodeHash] — their tagged
-  /// photos stay visible either way (see DESIGN.md's risk note on lock
-  /// scope).
+  /// When `true`, [PersonProfileScreen] hides [education]/[job]/[bio] until
+  /// unlocked with [passcodeHash] — their tagged photos stay visible either
+  /// way (see DESIGN.md's risk note on lock scope).
   final bool locked;
   final String? passcodeHash;
   final String? passcodeHint;
@@ -66,7 +63,6 @@ class Person {
     String? education,
     String? job,
     String? bio,
-    String? relativesNote,
     bool? locked,
     String? Function()? passcodeHash,
     String? Function()? passcodeHint,
@@ -79,7 +75,6 @@ class Person {
     education: education ?? this.education,
     job: job ?? this.job,
     bio: bio ?? this.bio,
-    relativesNote: relativesNote ?? this.relativesNote,
     locked: locked ?? this.locked,
     passcodeHash: passcodeHash != null ? passcodeHash() : this.passcodeHash,
     passcodeHint: passcodeHint != null ? passcodeHint() : this.passcodeHint,

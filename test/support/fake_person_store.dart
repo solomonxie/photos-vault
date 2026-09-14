@@ -94,7 +94,9 @@ class FakePersonStore implements PersonStore {
 
   @override
   Future<void> addLocation(PersonLocation location) async {
-    _locations.putIfAbsent(location.personId, () => []).add(location);
+    final list = _locations.putIfAbsent(location.personId, () => []);
+    list.removeWhere((l) => l.id == location.id);
+    list.add(location);
   }
 
   @override
