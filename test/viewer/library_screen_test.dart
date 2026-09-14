@@ -558,13 +558,13 @@ void main() {
     // Places/Events are still a single horizontally-scrolling row of
     // placeholder cards. Places is a "Coming Soon" placeholder; Events
     // opens the AI grouping screen. People (no people configured here)
-    // shows an empty-state hint below its header's own "+", which opens
-    // PeopleScreen.
+    // shows an empty-state hint below its header's own "More" button,
+    // which opens PeopleScreen.
     expect(find.text('No people yet. Tap + to add someone.'), findsOneWidget);
     expect(find.text('Coming Soon'), findsWidgets);
     expect(find.text('Tap to Analyze'), findsWidgets);
 
-    await tester.tap(find.byIcon(CupertinoIcons.add_circled));
+    await tester.tap(find.text('More'));
     await tester.pumpAndSettle();
     expect(find.text('No people yet. Tap + to add someone.'), findsWidgets);
   });

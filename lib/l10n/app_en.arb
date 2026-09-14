@@ -58,6 +58,7 @@
   "albumDeleteConfirmTitle": "Delete this album?",
   "albumDeleteConfirmBody": "The photos and videos inside stay in your library.",
   "collectionsPeopleRow": "People",
+  "collectionsMoreButton": "More",
   "collectionsPlacesRow": "Places",
   "collectionsEventsRow": "Events",
   "collectionsComingSoonTitle": "Coming Soon",
@@ -172,6 +173,7 @@
   "peopleScreenTitle": "People",
   "peopleNamePromptTitle": "New Person",
   "peopleEmpty": "No people yet. Tap + to add someone.",
+  "peopleSearchEmpty": "No people match your search.",
   "peopleAiAnalysisRow": "Find People with AI Analysis",
 
   "personPageAddPhotos": "Add Photos",

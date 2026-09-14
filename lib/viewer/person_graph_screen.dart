@@ -83,13 +83,18 @@ class _PersonGraphScreenState extends State<PersonGraphScreen> {
         child: _people.length < 2
             ? Center(child: Text(l10n.personGraphEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)))
             : LayoutBuilder(
-                builder: (context, constraints) => _GraphLayout(
-                  clusters: clusters,
-                  relationships: _relationships,
-                  focusPersonId: widget.focusPersonId,
-                  assetRecordStore: widget.assetRecordStore,
-                  personStore: widget.personStore,
-                  size: Size(constraints.maxWidth, constraints.maxHeight),
+                builder: (context, constraints) => InteractiveViewer(
+                  boundaryMargin: const EdgeInsets.all(200),
+                  minScale: 0.5,
+                  maxScale: 4,
+                  child: _GraphLayout(
+                    clusters: clusters,
+                    relationships: _relationships,
+                    focusPersonId: widget.focusPersonId,
+                    assetRecordStore: widget.assetRecordStore,
+                    personStore: widget.personStore,
+                    size: Size(constraints.maxWidth, constraints.maxHeight),
+                  ),
                 ),
               ),
       ),
