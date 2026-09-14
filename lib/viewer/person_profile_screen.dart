@@ -417,41 +417,51 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
               _pickRow(value: _person.job, onTap: _pickJob),
               const SizedBox(height: 20),
               _sectionHeader(l10n.personProfileRelationshipsHeader, onAdd: () => _addOrEditRelationship()),
-              CupertinoListSection.insetGrouped(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                backgroundColor: _cardBackground,
-                decoration: _cardDecoration,
-                children: [
-                  for (final relationship in _relationships)
-                    CupertinoListTile(
-                      title: Text(
-                        _allPeople.where((p) => p.id == relationship.relatedPersonId).map((p) => p.name).firstOrNull ?? '?',
-                      ),
-                      subtitle: Text(
-                        relationship.organization == null || relationship.organization!.isEmpty
-                            ? _relationshipLabel(l10n, relationship.type)
-                            : '${_relationshipLabel(l10n, relationship.type)} · ${relationship.organization}',
-                      ),
-                      trailing: CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: () => _removeRelationship(relationship),
-                        child: const Icon(CupertinoIcons.xmark_circle, color: CupertinoColors.systemGrey),
-                      ),
-                      onTap: () => _addOrEditRelationship(existing: relationship),
-                    ),
-                  CupertinoListTile(
-                    title: Center(child: Text(l10n.personProfileViewGraph, style: const TextStyle(color: CupertinoColors.activeBlue))),
-                    onTap: () => Navigator.of(context).push(
-                      CupertinoPageRoute(
-                        builder: (_) => PersonGraphScreen(
-                          personStore: widget.personStore,
-                          assetRecordStore: widget.assetRecordStore,
-                          focusPersonId: _person.id,
-                        ),
-                      ),
+              for (final type in RelationshipType.values)
+                if (_relationships.where((r) => r.type == type).toList() case final group when group.isNotEmpty) ...[
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                    child: Text(
+                      _relationshipLabel(l10n, type),
+                      style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600, color: CupertinoColors.systemGrey),
                     ),
                   ),
+                  CupertinoListSection.insetGrouped(
+                    margin: const EdgeInsets.symmetric(horizontal: 16),
+                    backgroundColor: _cardBackground,
+                    decoration: _cardDecoration,
+                    children: [
+                      for (final relationship in group)
+                        CupertinoListTile(
+                          title: Text(
+                            _allPeople.where((p) => p.id == relationship.relatedPersonId).map((p) => p.name).firstOrNull ?? '?',
+                          ),
+                          subtitle: relationship.organization == null || relationship.organization!.isEmpty
+                              ? null
+                              : Text(relationship.organization!),
+                          trailing: CupertinoButton(
+                            padding: EdgeInsets.zero,
+                            onPressed: () => _removeRelationship(relationship),
+                            child: const Icon(CupertinoIcons.xmark_circle, color: CupertinoColors.systemGrey),
+                          ),
+                          onTap: () => _addOrEditRelationship(existing: relationship),
+                        ),
+                    ],
+                  ),
+                  const SizedBox(height: 8),
                 ],
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: () => Navigator.of(context).push(
+                  CupertinoPageRoute(
+                    builder: (_) => PersonGraphScreen(
+                      personStore: widget.personStore,
+                      assetRecordStore: widget.assetRecordStore,
+                      focusPersonId: _person.id,
+                    ),
+                  ),
+                ),
+                child: Text(l10n.personProfileViewGraph),
               ),
               const SizedBox(height: 20),
               _sectionHeader(l10n.personProfileLocationHeader, onAdd: () => _editLocation()),

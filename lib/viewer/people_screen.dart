@@ -26,6 +26,7 @@ class PeopleScreen extends StatefulWidget {
 class _PeopleScreenState extends State<PeopleScreen> {
   List<Person> _people = const [];
   Map<String, int> _counts = const {};
+  String _query = '';
 
   @override
   void initState() {
@@ -99,6 +100,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final query = _query.trim().toLowerCase();
+    final filtered = query.isEmpty ? _people : _people.where((p) => p.name.toLowerCase().contains(query)).toList();
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(l10n.peopleScreenTitle),
@@ -107,6 +110,11 @@ class _PeopleScreenState extends State<PeopleScreen> {
       child: SafeArea(
         child: ListView(
           children: [
+            if (_people.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                child: CupertinoSearchTextField(autofocus: true, onChanged: (v) => setState(() => _query = v)),
+              ),
             if (_people.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 48),
@@ -114,8 +122,15 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   child: Text(l10n.peopleEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)),
                 ),
               )
+            else if (filtered.isEmpty)
+              Padding(
+                padding: const EdgeInsets.only(top: 48),
+                child: Center(
+                  child: Text(l10n.peopleSearchEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)),
+                ),
+              )
             else
-              for (final person in _people)
+              for (final person in filtered)
                 CupertinoListTile(
                   key: ValueKey(person.id),
                   leading: PersonAvatar(assetRecordStore: widget.assetRecordStore, localId: person.avatarLocalId, size: 44),

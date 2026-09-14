@@ -50,4 +50,22 @@ void main() {
     expect(find.text('Daniel'), findsOneWidget);
     expect((await personStore.listAll()).map((p) => p.name), ['Daniel']);
   });
+
+  testWidgets('the search field filters the list by name and autofocuses', (tester) async {
+    final personStore = FakePersonStore();
+    await personStore.create(name: 'Mia Chen');
+    await personStore.create(name: 'Daniel Wong');
+
+    await tester.pumpWidget(_wrap(PeopleScreen(personStore: personStore, assetRecordStore: FakeAssetRecordStore())));
+    await tester.pumpAndSettle();
+
+    final searchField = tester.widget<CupertinoSearchTextField>(find.byType(CupertinoSearchTextField));
+    expect(searchField.autofocus, isTrue);
+
+    await tester.enterText(find.byType(CupertinoSearchTextField), 'Mia');
+    await tester.pump();
+
+    expect(find.text('Mia Chen'), findsOneWidget);
+    expect(find.text('Daniel Wong'), findsNothing);
+  });
 }

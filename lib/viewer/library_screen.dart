@@ -430,7 +430,7 @@ class LibraryScreenState extends State<LibraryScreen> {
                   ),
                 ),
               ],
-              SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsPeopleRow, onAdd: _openPeopleScreen)),
+              SliverToBoxAdapter(child: _SubsectionHeader(title: l10n.collectionsPeopleRow, onMore: _openPeopleScreen)),
               SliverToBoxAdapter(
                 child: _people.isEmpty
                     ? Padding(
@@ -752,24 +752,36 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _SubsectionHeader extends StatelessWidget {
-  const _SubsectionHeader({required this.title, this.onAdd});
+  const _SubsectionHeader({required this.title, this.onMore});
 
   final String title;
 
-  /// Shows a "+" beside the title (People's "add a person") instead of a
-  /// separate trailing card in the row below.
-  final VoidCallback? onAdd;
+  /// Shows a "More" chevron beside the title (People's entry point to the
+  /// full `PeopleScreen`) instead of a separate trailing card in the row
+  /// below.
+  final VoidCallback? onMore;
 
   @override
   Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
     return Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
           Text(title, style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 17)),
-          if (onAdd != null)
-            CupertinoButton(padding: EdgeInsets.zero, onPressed: onAdd, child: const Icon(CupertinoIcons.add_circled)),
+          if (onMore != null)
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: onMore,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Text(l10n.collectionsMoreButton, style: const TextStyle(color: CupertinoColors.systemGrey)),
+                  const Icon(CupertinoIcons.chevron_forward, size: 16, color: CupertinoColors.systemGrey),
+                ],
+              ),
+            ),
         ],
       ),
     );

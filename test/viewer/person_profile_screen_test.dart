@@ -230,6 +230,25 @@ void main() {
     expect(relationships.single.type, RelationshipType.sibling);
   });
 
+  testWidgets('relationships are grouped into subsections by type', (tester) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final daniel = await personStore.create(name: 'Daniel');
+    final lily = await personStore.create(name: 'Grandma Lily');
+    await personStore.addRelationship(mia.id, daniel.id, RelationshipType.friend);
+    await personStore.addRelationship(mia.id, lily.id, RelationshipType.family);
+
+    await tester.pumpWidget(
+      _wrap(PersonProfileScreen(person: mia, personStore: personStore, assetRecordStore: FakeAssetRecordStore())),
+    );
+    await tester.pumpAndSettle();
+
+    // One subsection header per type in use, each above only that type's rows.
+    expect(find.text('Friend', skipOffstage: false), findsOneWidget);
+    expect(find.text('Family', skipOffstage: false), findsOneWidget);
+    expect(find.text('Colleague', skipOffstage: false), findsNothing);
+  });
+
   testWidgets('tapping a location row edits it in place, without duplicating', (tester) async {
     final personStore = FakePersonStore();
     final mia = await personStore.create(name: 'Mia');

@@ -54,6 +54,7 @@
   "albumDeleteConfirmTitle": "删除该相册?",
   "albumDeleteConfirmBody": "相册内的照片和视频仍会保留在图库中。",
   "collectionsPeopleRow": "人物",
+  "collectionsMoreButton": "更多",
   "collectionsPlacesRow": "地点",
   "collectionsEventsRow": "事件",
   "collectionsComingSoonTitle": "即将推出",
@@ -147,6 +148,7 @@
   "peopleScreenTitle": "人物",
   "peopleNamePromptTitle": "新建人物",
   "peopleEmpty": "暂无人物。点击 + 添加。",
+  "peopleSearchEmpty": "没有匹配的人物。",
   "peopleAiAnalysisRow": "使用 AI 分析查找人物",
 
   "personPageAddPhotos": "添加照片",
