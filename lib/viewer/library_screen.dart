@@ -438,15 +438,15 @@ class LibraryScreenState extends State<LibraryScreen> {
                         child: Text(l10n.peopleEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)),
                       )
                     : SizedBox(
-                        height: 252,
+                        height: 200,
                         child: GridView.builder(
                           scrollDirection: Axis.horizontal,
                           padding: const EdgeInsets.symmetric(horizontal: 16),
                           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-                            crossAxisCount: 3,
+                            crossAxisCount: 2,
                             mainAxisSpacing: 12,
                             crossAxisSpacing: 8,
-                            childAspectRatio: 0.82,
+                            childAspectRatio: 0.85,
                           ),
                           itemCount: _people.length,
                           itemBuilder: (context, i) {
@@ -711,7 +711,7 @@ class _AlbumCard extends StatelessWidget {
 
 /// One Collections' "People" card — a round avatar (Photos-style, unlike
 /// Albums' square covers) + name + tagged-photo count, opening that
-/// person's page directly. Small and grid-packed (2-3 per row) rather than
+/// person's page directly. Small and grid-packed (2 rows) rather than
 /// one big card per person, since a name+count needs far less width than an
 /// album cover.
 class _PersonCard extends StatelessWidget {
@@ -728,7 +728,7 @@ class _PersonCard extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        PersonAvatar(assetRecordStore: assetRecordStore, localId: person.avatarLocalId, size: 42),
+        PersonAvatar(assetRecordStore: assetRecordStore, localId: person.avatarLocalId, size: 56),
         const SizedBox(height: 4),
         Text(person.name, maxLines: 1, overflow: TextOverflow.ellipsis, textAlign: TextAlign.center, style: const TextStyle(fontSize: 12)),
         Text('$photoCount', style: const TextStyle(color: CupertinoColors.systemGrey, fontSize: 11)),
