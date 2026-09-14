@@ -36,6 +36,8 @@ class PrivateAlbumScreen extends StatefulWidget {
 class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
   List<AssetRecord> _records = const [];
   int _totalBytes = 0;
+  bool _selecting = false;
+  Set<String> _selectedIds = {};
 
   @override
   void initState() {
@@ -70,11 +72,35 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 
-  Future<void> _removeFromAlbum(AssetRecord record) async {
-    final moved = (await widget.privateAlbumStore.movedLocalIdsIn(widget.album.id)).contains(record.localId);
-    await widget.privateAlbumStore.removeAsset(widget.album.id, record.localId);
-    if (moved) await widget.assetRecordStore.setHidden(record.localId, false);
+  Future<void> _removeFromAlbum(AssetRecord record) => _removeManyFromAlbum([record.localId]);
+
+  /// Un-hides (if it was moved in) and drops membership for every id —
+  /// shared by the single-tile "Remove from Private Album" action and
+  /// multi-select's "Move to Library".
+  Future<void> _removeManyFromAlbum(Iterable<String> localIds) async {
+    final moved = (await widget.privateAlbumStore.movedLocalIdsIn(widget.album.id)).toSet();
+    for (final id in localIds) {
+      await widget.privateAlbumStore.removeAsset(widget.album.id, id);
+      if (moved.contains(id)) await widget.assetRecordStore.setHidden(id, false);
+    }
     await _reload();
+  }
+
+  void _enterSelectMode() => setState(() => _selecting = true);
+
+  void _exitSelectMode() => setState(() {
+    _selecting = false;
+    _selectedIds = {};
+  });
+
+  void _toggleSelected(AssetRecord record) => setState(() {
+    if (!_selectedIds.remove(record.localId)) _selectedIds.add(record.localId);
+  });
+
+  Future<void> _moveSelectedToLibrary() async {
+    if (_selectedIds.isEmpty) return;
+    await _removeManyFromAlbum(_selectedIds);
+    _exitSelectMode();
   }
 
   Future<bool> _delete(AssetRecord record) async {
@@ -176,6 +202,10 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
   }
 
   void _open(AssetRecord record) {
+    if (_selecting) {
+      _toggleSelected(record);
+      return;
+    }
     Navigator.of(context).push(
       CupertinoPageRoute(
         builder: (_) => DetailScreen(
@@ -194,7 +224,27 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(l10n.privateAlbumScreenTitle),
-        trailing: CupertinoButton(padding: EdgeInsets.zero, onPressed: _showMenu, child: const Icon(CupertinoIcons.ellipsis_circle)),
+        leading: _selecting
+            ? CupertinoButton(padding: EdgeInsets.zero, onPressed: _exitSelectMode, child: Text(l10n.actionCancel))
+            : null,
+        trailing: _selecting
+            ? null
+            : Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  if (_records.isNotEmpty)
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _enterSelectMode,
+                      child: Text(l10n.privateAlbumSelectButton),
+                    ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: _showMenu,
+                    child: const Icon(CupertinoIcons.ellipsis_circle),
+                  ),
+                ],
+              ),
       ),
       child: SafeArea(
         child: Column(
@@ -219,6 +269,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
                         context: context,
                         records: _records,
                         onTap: _open,
+                        selectedIds: _selecting ? _selectedIds : null,
                         actionsFor: (r) => [
                           TileAction(
                             icon: r.isFavorite ? CupertinoIcons.heart_slash : CupertinoIcons.heart,
@@ -240,6 +291,17 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
                       ),
                     ),
             ),
+            if (_selecting)
+              SafeArea(
+                top: false,
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  child: CupertinoButton.filled(
+                    onPressed: _selectedIds.isEmpty ? null : _moveSelectedToLibrary,
+                    child: Text(l10n.privateAlbumMoveSelectedToLibrary(_selectedIds.length)),
+                  ),
+                ),
+              ),
           ],
         ),
       ),

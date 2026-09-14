@@ -143,7 +143,6 @@
 
   "privateAlbumGateTitle": "Private Album",
   "privateAlbumGateBody": "Enter a 4-digit passcode.",
-  "privateAlbumGatePlaceholder": "••••",
   "privateAlbumEnterButton": "Enter",
   "privateAlbumCreateButton": "Create New",
   "privateAlbumScreenTitle": "Private Album",
@@ -153,6 +152,11 @@
   },
   "privateAlbumEmpty": "Nothing here yet.",
   "privateAlbumRemove": "Remove from Private Album",
+  "privateAlbumSelectButton": "Select",
+  "privateAlbumMoveSelectedToLibrary": "{count, plural, one{Move 1 to Library} other{Move {count} to Library}}",
+  "@privateAlbumMoveSelectedToLibrary": {
+    "placeholders": {"count": {"type": "int"}}
+  },
   "privateAlbumMoveFromLibrary": "Move from Library",
   "privateAlbumCopyFromLibrary": "Copy from Library",
   "privateAlbumDeleteAlbum": "Delete Private Album",
