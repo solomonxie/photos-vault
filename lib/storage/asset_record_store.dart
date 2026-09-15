@@ -1,9 +1,11 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart' as sqflite;
-import 'package:sqflite/sqflite.dart' show Database, DatabaseFactory, OpenDatabaseOptions;
+import 'package:sqflite/sqflite.dart'
+    show Database, DatabaseFactory, OpenDatabaseOptions;
 
 import 'asset_record.dart';
 
@@ -11,9 +13,13 @@ import 'asset_record.dart';
 /// truth for what's been uploaded, so a restart or a killed background task
 /// resumes without re-scanning derivatives from scratch.
 class AssetRecordStore {
-  AssetRecordStore({DatabaseFactory? databaseFactory, this._path, Future<Directory> Function()? appSupportDirectory})
-    : _databaseFactory = databaseFactory ?? sqflite.databaseFactory,
-      _appSupportDirectory = appSupportDirectory ?? getApplicationSupportDirectory;
+  AssetRecordStore({
+    DatabaseFactory? databaseFactory,
+    this._path,
+    Future<Directory> Function()? appSupportDirectory,
+  }) : _databaseFactory = databaseFactory ?? sqflite.databaseFactory,
+       _appSupportDirectory =
+           appSupportDirectory ?? getApplicationSupportDirectory;
 
   final DatabaseFactory _databaseFactory;
   final String? _path;
@@ -32,15 +38,31 @@ class AssetRecordStore {
   Future<Database> _open() async {
     final existing = _db;
     if (existing != null) return existing;
-    final path = _path ?? p.join(await _databaseFactory.getDatabasesPath(), 'back_your_own_photos.db');
+    final path =
+        _path ??
+        p.join(
+          await _databaseFactory.getDatabasesPath(),
+          'back_your_own_photos.db',
+        );
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onCreate: (db, version) => db.execute(_createTableSql),
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
-            await db.execute('ALTER TABLE $_table ADD COLUMN is_video INTEGER NOT NULL DEFAULT 0');
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN is_video INTEGER NOT NULL DEFAULT 0',
+            );
+          }
+          if (oldVersion < 3) {
+            await db.execute(
+              "ALTER TABLE $_table ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+            );
+            await db.execute(
+              "ALTER TABLE $_table ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+            );
+            await db.execute('ALTER TABLE $_table ADD COLUMN location TEXT');
           }
         },
       ),
@@ -49,7 +71,8 @@ class AssetRecordStore {
     return db;
   }
 
-  static const _createTableSql = '''
+  static const _createTableSql =
+      '''
     CREATE TABLE $_table (
       local_id TEXT PRIMARY KEY,
       content_hash TEXT NOT NULL,
@@ -66,6 +89,9 @@ class AssetRecordStore {
       is_favorite INTEGER NOT NULL DEFAULT 0,
       is_hidden INTEGER NOT NULL DEFAULT 0,
       deleted_at INTEGER,
+      description TEXT NOT NULL DEFAULT '',
+      tags TEXT NOT NULL DEFAULT '[]',
+      location TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -96,7 +122,9 @@ class AssetRecordStore {
     final db = await _open();
     final existing = await getByLocalId(localId);
     if (existing != null) {
-      if (sourcePath == null || sourcePath == existing.sourcePath) return existing;
+      if (sourcePath == null || sourcePath == existing.sourcePath) {
+        return existing;
+      }
       final now = DateTime.now();
       await db.update(
         _table,
@@ -132,7 +160,12 @@ class AssetRecordStore {
 
   Future<AssetRecord?> getByLocalId(String localId) async {
     final db = await _open();
-    final rows = await db.query(_table, where: 'local_id = ?', whereArgs: [localId], limit: 1);
+    final rows = await db.query(
+      _table,
+      where: 'local_id = ?',
+      whereArgs: [localId],
+      limit: 1,
+    );
     if (rows.isEmpty) return null;
     return _healed(_fromRow(rows.single));
   }
@@ -142,7 +175,11 @@ class AssetRecordStore {
   /// no-op (and no `path_provider` call) when the path already resolves.
   Future<AssetRecord> _healed(AssetRecord record) async {
     final path = record.sourcePath;
-    if (record.sourceType != AssetSourceType.manualFile || path == null || File(path).existsSync()) return record;
+    if (record.sourceType != AssetSourceType.manualFile ||
+        path == null ||
+        File(path).existsSync()) {
+      return record;
+    }
     final dir = await _appSupportDirectory();
     final healedPath = p.join(dir.path, p.basename(path));
     if (healedPath == path || !File(healedPath).existsSync()) return record;
@@ -158,7 +195,11 @@ class AssetRecordStore {
     return record.withSourcePath(healedPath, now);
   }
 
-  Future<void> updateDerivative(String localId, DerivativeKind kind, DerivativeState state) async {
+  Future<void> updateDerivative(
+    String localId,
+    DerivativeKind kind,
+    DerivativeState state,
+  ) async {
     final db = await _open();
     final column = _columnPrefix(kind);
     await db.update(
@@ -177,7 +218,59 @@ class AssetRecordStore {
     final db = await _open();
     await db.update(
       _table,
-      {'is_favorite': value ? 1 : 0, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      {
+        'is_favorite': value ? 1 : 0,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  Future<void> setCreatedAt(String localId, DateTime value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {
+        'created_at': value.millisecondsSinceEpoch,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  Future<void> setDescription(String localId, String value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {
+        'description': value,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  Future<void> setTags(String localId, List<String> value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {
+        'tags': jsonEncode(value),
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  Future<void> setLocation(String localId, String? value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {'location': value, 'updated_at': DateTime.now().millisecondsSinceEpoch},
       where: 'local_id = ?',
       whereArgs: [localId],
     );
@@ -187,7 +280,10 @@ class AssetRecordStore {
     final db = await _open();
     await db.update(
       _table,
-      {'is_hidden': value ? 1 : 0, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      {
+        'is_hidden': value ? 1 : 0,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
       where: 'local_id = ?',
       whereArgs: [localId],
     );
@@ -199,7 +295,10 @@ class AssetRecordStore {
     final db = await _open();
     await db.update(
       _table,
-      {'deleted_at': DateTime.now().millisecondsSinceEpoch, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      {
+        'deleted_at': DateTime.now().millisecondsSinceEpoch,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
       where: 'local_id = ?',
       whereArgs: [localId],
     );
@@ -238,11 +337,18 @@ class AssetRecordStore {
   static AssetRecord _fromRow(Map<String, Object?> row) {
     DerivativeState stateFor(DerivativeKind kind) {
       final column = _columnPrefix(kind);
-      final status = UploadStatus.values.byName(row['${column}_status'] as String);
-      return DerivativeState(status: status, destinationKey: row['${column}_key'] as String?);
+      final status = UploadStatus.values.byName(
+        row['${column}_status'] as String,
+      );
+      return DerivativeState(
+        status: status,
+        destinationKey: row['${column}_key'] as String?,
+      );
     }
 
     final deletedAtMillis = row['deleted_at'] as int?;
+    final tagsJson =
+        jsonDecode(row['tags'] as String? ?? '[]') as List<dynamic>;
 
     return AssetRecord(
       localId: row['local_id'] as String,
@@ -253,10 +359,17 @@ class AssetRecordStore {
       isVideo: (row['is_video'] as int? ?? 0) != 0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
-      derivatives: {for (final kind in DerivativeKind.values) kind: stateFor(kind)},
+      derivatives: {
+        for (final kind in DerivativeKind.values) kind: stateFor(kind),
+      },
       isFavorite: (row['is_favorite'] as int? ?? 0) != 0,
       isHidden: (row['is_hidden'] as int? ?? 0) != 0,
-      deletedAt: deletedAtMillis == null ? null : DateTime.fromMillisecondsSinceEpoch(deletedAtMillis),
+      deletedAt: deletedAtMillis == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(deletedAtMillis),
+      description: row['description'] as String? ?? '',
+      tags: tagsJson.cast<String>(),
+      location: row['location'] as String?,
     );
   }
 }

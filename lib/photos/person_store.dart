@@ -2,7 +2,8 @@ import 'dart:convert';
 
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart' as sqflite;
-import 'package:sqflite/sqflite.dart' show Database, DatabaseFactory, OpenDatabaseOptions;
+import 'package:sqflite/sqflite.dart'
+    show Database, DatabaseFactory, OpenDatabaseOptions;
 import 'package:uuid/uuid.dart';
 
 import 'person.dart';
@@ -30,29 +31,44 @@ class PersonStore {
   Future<Database> _open() async {
     final existing = _db;
     if (existing != null) return existing;
-    final path = _path ?? p.join(await _databaseFactory.getDatabasesPath(), 'people.db');
+    final path =
+        _path ?? p.join(await _databaseFactory.getDatabasesPath(), 'people.db');
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
         version: 4,
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
-            await db.execute('ALTER TABLE $_relationshipTable ADD COLUMN organization TEXT');
+            await db.execute(
+              'ALTER TABLE $_relationshipTable ADD COLUMN organization TEXT',
+            );
           }
           if (oldVersion < 3) {
             await db.execute(_createHistoryTableSql);
           }
           if (oldVersion < 4) {
-            await db.execute('ALTER TABLE $_personTable ADD COLUMN birth_date INTEGER');
-            await db.execute('ALTER TABLE $_personTable ADD COLUMN gender TEXT');
-            await db.execute("ALTER TABLE $_personTable ADD COLUMN custom_fields TEXT NOT NULL DEFAULT '[]'");
+            await db.execute(
+              'ALTER TABLE $_personTable ADD COLUMN birth_date INTEGER',
+            );
+            await db.execute(
+              'ALTER TABLE $_personTable ADD COLUMN gender TEXT',
+            );
+            await db.execute(
+              "ALTER TABLE $_personTable ADD COLUMN custom_fields TEXT NOT NULL DEFAULT '[]'",
+            );
             // A device already at v3 has $_historyTable without these —
             // one already at v2 got it fresh (with them) from the v2->v3
             // step just above, so this is a no-op there.
             if (oldVersion >= 3) {
-              await db.execute("ALTER TABLE $_historyTable ADD COLUMN titles TEXT NOT NULL DEFAULT '[]'");
-              await db.execute("ALTER TABLE $_historyTable ADD COLUMN projects TEXT NOT NULL DEFAULT '[]'");
-              await db.execute("ALTER TABLE $_historyTable ADD COLUMN awards TEXT NOT NULL DEFAULT '[]'");
+              await db.execute(
+                "ALTER TABLE $_historyTable ADD COLUMN titles TEXT NOT NULL DEFAULT '[]'",
+              );
+              await db.execute(
+                "ALTER TABLE $_historyTable ADD COLUMN projects TEXT NOT NULL DEFAULT '[]'",
+              );
+              await db.execute(
+                "ALTER TABLE $_historyTable ADD COLUMN awards TEXT NOT NULL DEFAULT '[]'",
+              );
             }
           }
         },
@@ -109,7 +125,8 @@ class PersonStore {
     return db;
   }
 
-  static const _createHistoryTableSql = '''
+  static const _createHistoryTableSql =
+      '''
     CREATE TABLE $_historyTable (
       id TEXT PRIMARY KEY,
       person_id TEXT NOT NULL,
@@ -133,26 +150,46 @@ class PersonStore {
   /// Creates a new person under a fresh id, unless [id] is given (demo
   /// seeding's stable-id-for-idempotent-reset trick, same as `Album.isDemo`)
   /// and one already exists at it — then that existing one is returned.
-  Future<Person> create({required String name, String? id, bool isDemo = false}) async {
+  Future<Person> create({
+    required String name,
+    String? id,
+    bool isDemo = false,
+  }) async {
     if (id != null) {
       final existing = await getById(id);
       if (existing != null) return existing;
     }
     final db = await _open();
     final now = DateTime.now();
-    final person = Person(id: id ?? _uuid.v4(), name: name, createdAt: now, updatedAt: now, isDemo: isDemo);
+    final person = Person(
+      id: id ?? _uuid.v4(),
+      name: name,
+      createdAt: now,
+      updatedAt: now,
+      isDemo: isDemo,
+    );
     await db.insert(_personTable, _toRow(person));
     return person;
   }
 
   Future<void> update(Person person) async {
     final db = await _open();
-    await db.update(_personTable, _toRow(person), where: 'id = ?', whereArgs: [person.id]);
+    await db.update(
+      _personTable,
+      _toRow(person),
+      where: 'id = ?',
+      whereArgs: [person.id],
+    );
   }
 
   Future<Person?> getById(String id) async {
     final db = await _open();
-    final rows = await db.query(_personTable, where: 'id = ?', whereArgs: [id], limit: 1);
+    final rows = await db.query(
+      _personTable,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
     if (rows.isEmpty) return null;
     return _fromRow(rows.single);
   }
@@ -170,7 +207,11 @@ class PersonStore {
   Future<void> remove(String id) async {
     final db = await _open();
     await db.delete(_memberTable, where: 'person_id = ?', whereArgs: [id]);
-    await db.delete(_relationshipTable, where: 'person_id = ? OR related_person_id = ?', whereArgs: [id, id]);
+    await db.delete(
+      _relationshipTable,
+      where: 'person_id = ? OR related_person_id = ?',
+      whereArgs: [id, id],
+    );
     await db.delete(_locationTable, where: 'person_id = ?', whereArgs: [id]);
     await db.delete(_historyTable, where: 'person_id = ?', whereArgs: [id]);
     await db.delete(_personTable, where: 'id = ?', whereArgs: [id]);
@@ -194,13 +235,43 @@ class PersonStore {
 
   Future<void> removeAsset(String personId, String localId) async {
     final db = await _open();
-    await db.delete(_memberTable, where: 'person_id = ? AND local_id = ?', whereArgs: [personId, localId]);
+    await db.delete(
+      _memberTable,
+      where: 'person_id = ? AND local_id = ?',
+      whereArgs: [personId, localId],
+    );
   }
 
   Future<List<String>> localIdsIn(String personId) async {
     final db = await _open();
-    final rows = await db.query(_memberTable, columns: ['local_id'], where: 'person_id = ?', whereArgs: [personId]);
+    final rows = await db.query(
+      _memberTable,
+      columns: ['local_id'],
+      where: 'person_id = ?',
+      whereArgs: [personId],
+    );
     return rows.map((r) => r['local_id'] as String).toList();
+  }
+
+  /// Reverse of [localIdsIn] — every [Person] tagged in one photo, for the
+  /// detail screen's People section.
+  Future<List<Person>> peopleFor(String localId) async {
+    final db = await _open();
+    final memberRows = await db.query(
+      _memberTable,
+      columns: ['person_id'],
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+    final personIds = memberRows.map((r) => r['person_id'] as String).toList();
+    if (personIds.isEmpty) return [];
+    final placeholders = List.filled(personIds.length, '?').join(', ');
+    final rows = await db.query(
+      _personTable,
+      where: 'id IN ($placeholders)',
+      whereArgs: personIds,
+    );
+    return rows.map(_fromRow).toList();
   }
 
   // --- Relationships ---
@@ -210,7 +281,12 @@ class PersonStore {
   /// relationship list, and the graph, see it without a second query.
   /// [organization] (company/school/org) is shared as-is by both directions
   /// — only meaningful when `relationshipNeedsOrganization(type)`.
-  Future<void> addRelationship(String personId, String relatedPersonId, RelationshipType type, {String? organization}) async {
+  Future<void> addRelationship(
+    String personId,
+    String relatedPersonId,
+    RelationshipType type, {
+    String? organization,
+  }) async {
     final db = await _open();
     final now = DateTime.now().millisecondsSinceEpoch;
     final inverse = switch (type) {
@@ -236,7 +312,10 @@ class PersonStore {
     await batch.commit(noResult: true);
   }
 
-  Future<void> removeRelationship(String personId, String relatedPersonId) async {
+  Future<void> removeRelationship(
+    String personId,
+    String relatedPersonId,
+  ) async {
     final db = await _open();
     final batch = db.batch();
     batch.delete(
@@ -254,7 +333,11 @@ class PersonStore {
 
   Future<List<PersonRelationship>> relationshipsFor(String personId) async {
     final db = await _open();
-    final rows = await db.query(_relationshipTable, where: 'person_id = ?', whereArgs: [personId]);
+    final rows = await db.query(
+      _relationshipTable,
+      where: 'person_id = ?',
+      whereArgs: [personId],
+    );
     return rows.map(_relationshipFromRow).toList();
   }
 
@@ -300,7 +383,12 @@ class PersonStore {
 
   Future<List<PersonLocation>> locationsFor(String personId) async {
     final db = await _open();
-    final rows = await db.query(_locationTable, where: 'person_id = ?', whereArgs: [personId], orderBy: 'since ASC');
+    final rows = await db.query(
+      _locationTable,
+      where: 'person_id = ?',
+      whereArgs: [personId],
+      orderBy: 'since ASC',
+    );
     return rows
         .map(
           (r) => PersonLocation(
@@ -328,7 +416,9 @@ class PersonStore {
       'start_date': entry.startDate?.millisecondsSinceEpoch,
       'end_date': entry.endDate?.millisecondsSinceEpoch,
       'notes': entry.notes,
-      'custom_fields': jsonEncode(entry.customFields.map((f) => f.toJson()).toList()),
+      'custom_fields': jsonEncode(
+        entry.customFields.map((f) => f.toJson()).toList(),
+      ),
       'titles': jsonEncode(entry.titles.map((t) => t.toJson()).toList()),
       'projects': jsonEncode(entry.projects.map((p) => p.toJson()).toList()),
       'awards': jsonEncode(entry.awards.map((a) => a.toJson()).toList()),
@@ -340,7 +430,10 @@ class PersonStore {
     await db.delete(_historyTable, where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<List<PersonHistoryEntry>> historyFor(String personId, HistoryCategory category) async {
+  Future<List<PersonHistoryEntry>> historyFor(
+    String personId,
+    HistoryCategory category,
+  ) async {
     final db = await _open();
     final rows = await db.query(
       _historyTable,
@@ -368,22 +461,38 @@ class PersonStore {
   static PersonHistoryEntry _historyFromRow(Map<String, Object?> row) {
     final startMillis = row['start_date'] as int?;
     final endMillis = row['end_date'] as int?;
-    final customFieldsJson = jsonDecode(row['custom_fields'] as String? ?? '[]') as List<dynamic>;
-    final titlesJson = jsonDecode(row['titles'] as String? ?? '[]') as List<dynamic>;
-    final projectsJson = jsonDecode(row['projects'] as String? ?? '[]') as List<dynamic>;
-    final awardsJson = jsonDecode(row['awards'] as String? ?? '[]') as List<dynamic>;
+    final customFieldsJson =
+        jsonDecode(row['custom_fields'] as String? ?? '[]') as List<dynamic>;
+    final titlesJson =
+        jsonDecode(row['titles'] as String? ?? '[]') as List<dynamic>;
+    final projectsJson =
+        jsonDecode(row['projects'] as String? ?? '[]') as List<dynamic>;
+    final awardsJson =
+        jsonDecode(row['awards'] as String? ?? '[]') as List<dynamic>;
     return PersonHistoryEntry(
       id: row['id'] as String,
       personId: row['person_id'] as String,
       category: HistoryCategory.values.byName(row['category'] as String),
       title: row['title'] as String,
-      startDate: startMillis == null ? null : DateTime.fromMillisecondsSinceEpoch(startMillis),
-      endDate: endMillis == null ? null : DateTime.fromMillisecondsSinceEpoch(endMillis),
+      startDate: startMillis == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(startMillis),
+      endDate: endMillis == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(endMillis),
       notes: row['notes'] as String? ?? '',
-      customFields: customFieldsJson.map((f) => PersonCustomField.fromJson(f as Map<String, Object?>)).toList(),
-      titles: titlesJson.map((t) => TimelineEntry.fromJson(t as Map<String, Object?>)).toList(),
-      projects: projectsJson.map((p) => CareerProject.fromJson(p as Map<String, Object?>)).toList(),
-      awards: awardsJson.map((a) => TimelineEntry.fromJson(a as Map<String, Object?>)).toList(),
+      customFields: customFieldsJson
+          .map((f) => PersonCustomField.fromJson(f as Map<String, Object?>))
+          .toList(),
+      titles: titlesJson
+          .map((t) => TimelineEntry.fromJson(t as Map<String, Object?>))
+          .toList(),
+      projects: projectsJson
+          .map((p) => CareerProject.fromJson(p as Map<String, Object?>))
+          .toList(),
+      awards: awardsJson
+          .map((a) => TimelineEntry.fromJson(a as Map<String, Object?>))
+          .toList(),
     );
   }
 
@@ -396,7 +505,9 @@ class PersonStore {
     'bio': person.bio,
     'birth_date': person.birthDate?.millisecondsSinceEpoch,
     'gender': person.gender?.name,
-    'custom_fields': jsonEncode(person.customFields.map((f) => f.toJson()).toList()),
+    'custom_fields': jsonEncode(
+      person.customFields.map((f) => f.toJson()).toList(),
+    ),
     'locked': person.locked ? 1 : 0,
     'passcode_hash': person.passcodeHash,
     'passcode_hint': person.passcodeHint,
@@ -408,15 +519,20 @@ class PersonStore {
   static Person _fromRow(Map<String, Object?> row) {
     final birthMillis = row['birth_date'] as int?;
     final genderName = row['gender'] as String?;
-    final customFieldsJson = jsonDecode(row['custom_fields'] as String? ?? '[]') as List<dynamic>;
+    final customFieldsJson =
+        jsonDecode(row['custom_fields'] as String? ?? '[]') as List<dynamic>;
     return Person(
       id: row['id'] as String,
       name: row['name'] as String,
       avatarLocalId: row['avatar_local_id'] as String?,
       bio: row['bio'] as String? ?? '',
-      birthDate: birthMillis == null ? null : DateTime.fromMillisecondsSinceEpoch(birthMillis),
+      birthDate: birthMillis == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(birthMillis),
       gender: genderName == null ? null : Gender.values.byName(genderName),
-      customFields: customFieldsJson.map((f) => PersonCustomField.fromJson(f as Map<String, Object?>)).toList(),
+      customFields: customFieldsJson
+          .map((f) => PersonCustomField.fromJson(f as Map<String, Object?>))
+          .toList(),
       locked: (row['locked'] as int? ?? 0) != 0,
       passcodeHash: row['passcode_hash'] as String?,
       passcodeHint: row['passcode_hint'] as String?,
@@ -426,10 +542,11 @@ class PersonStore {
     );
   }
 
-  static PersonRelationship _relationshipFromRow(Map<String, Object?> row) => PersonRelationship(
-    personId: row['person_id'] as String,
-    relatedPersonId: row['related_person_id'] as String,
-    type: RelationshipType.values.byName(row['type'] as String),
-    organization: row['organization'] as String?,
-  );
+  static PersonRelationship _relationshipFromRow(Map<String, Object?> row) =>
+      PersonRelationship(
+        personId: row['person_id'] as String,
+        relatedPersonId: row['related_person_id'] as String,
+        type: RelationshipType.values.byName(row['type'] as String),
+        organization: row['organization'] as String?,
+      );
 }

@@ -7,8 +7,13 @@ import 'package:path/path.dart' as p;
 import 'package:video_player/video_player.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/person.dart';
+import '../photos/person_store.dart';
 import '../photos/photo_library_service.dart';
 import '../storage/asset_record.dart';
+import '../storage/asset_record_store.dart';
+import 'person_avatar.dart';
+import 'person_picker_screen.dart';
 
 /// Full-screen, swipe-between-items viewer — the Photos-app pattern: black
 /// background, "Done" to dismiss, a bottom action bar, and — scroll down
@@ -23,6 +28,8 @@ class DetailScreen extends StatefulWidget {
     required this.initialIndex,
     required this.onDelete,
     required this.onToggleFavorite,
+    required this.assetRecordStore,
+    this.personStore,
     this.resolvePhotoManagerFile,
   });
 
@@ -34,6 +41,15 @@ class DetailScreen extends StatefulWidget {
   final Future<bool> Function(AssetRecord record) onDelete;
   final Future<void> Function(AssetRecord record) onToggleFavorite;
 
+  /// Backs the info panel's editable fields (date/time, location,
+  /// description, tags). Required since every caller already holds one.
+  final AssetRecordStore assetRecordStore;
+
+  /// Backs the info panel's People section. Self-constructed (same `?? `
+  /// pattern as `LibraryScreen`'s own) when a caller doesn't already have
+  /// one to pass.
+  final PersonStore? personStore;
+
   /// Resolves a `photoManager` record's on-disk file. Defaults to
   /// [PhotoLibraryService.resolveFile]; overridable so widget tests never
   /// touch the real `photo_manager` platform channel.
@@ -44,9 +60,20 @@ class DetailScreen extends StatefulWidget {
 }
 
 class _DetailScreenState extends State<DetailScreen> {
-  late final PageController _pageController = PageController(initialPage: widget.initialIndex);
+  late final PageController _pageController = PageController(
+    initialPage: widget.initialIndex,
+  );
   late int _index = widget.initialIndex;
   late List<AssetRecord> _records = widget.records;
+  late final PersonStore _personStore = widget.personStore ?? PersonStore();
+
+  void _updateRecord(AssetRecord updated) {
+    setState(() {
+      _records = [..._records];
+      final i = _records.indexWhere((r) => r.localId == updated.localId);
+      if (i != -1) _records[i] = updated;
+    });
+  }
 
   Future<void> _delete() async {
     final record = _records[_index];
@@ -66,7 +93,11 @@ class _DetailScreenState extends State<DetailScreen> {
     final record = _records[_index];
     await widget.onToggleFavorite(record);
     if (!mounted) return;
-    setState(() => _records = [..._records]..[_index] = record.withFavorite(!record.isFavorite));
+    setState(
+      () =>
+          _records = [..._records]
+            ..[_index] = record.withFavorite(!record.isFavorite),
+    );
   }
 
   void _showComingSoon(String message) {
@@ -98,7 +129,10 @@ class _DetailScreenState extends State<DetailScreen> {
                   CupertinoButton(
                     padding: EdgeInsets.zero,
                     onPressed: () => Navigator.of(context).pop(),
-                    child: Text(l10n.detailDoneButton, style: const TextStyle(color: CupertinoColors.white)),
+                    child: Text(
+                      l10n.detailDoneButton,
+                      style: const TextStyle(color: CupertinoColors.white),
+                    ),
                   ),
                 ],
               ),
@@ -108,8 +142,13 @@ class _DetailScreenState extends State<DetailScreen> {
                 controller: _pageController,
                 itemCount: _records.length,
                 onPageChanged: (i) => setState(() => _index = i),
-                itemBuilder: (context, i) =>
-                    _MediaPage(record: _records[i], resolveFile: widget.resolvePhotoManagerFile),
+                itemBuilder: (context, i) => _MediaPage(
+                  record: _records[i],
+                  resolveFile: widget.resolvePhotoManagerFile,
+                  assetRecordStore: widget.assetRecordStore,
+                  personStore: _personStore,
+                  onRecordChanged: _updateRecord,
+                ),
               ),
             ),
             Padding(
@@ -119,21 +158,30 @@ class _DetailScreenState extends State<DetailScreen> {
                 children: [
                   CupertinoButton(
                     padding: EdgeInsets.zero,
-                    onPressed: () => _showComingSoon(l10n.detailShareComingSoon),
-                    child: const Icon(CupertinoIcons.share, color: CupertinoColors.white),
+                    onPressed: () =>
+                        _showComingSoon(l10n.detailShareComingSoon),
+                    child: const Icon(
+                      CupertinoIcons.share,
+                      color: CupertinoColors.white,
+                    ),
                   ),
                   CupertinoButton(
                     padding: EdgeInsets.zero,
                     onPressed: _toggleFavorite,
                     child: Icon(
-                      _records[_index].isFavorite ? CupertinoIcons.heart_fill : CupertinoIcons.heart,
+                      _records[_index].isFavorite
+                          ? CupertinoIcons.heart_fill
+                          : CupertinoIcons.heart,
                       color: CupertinoColors.white,
                     ),
                   ),
                   CupertinoButton(
                     padding: EdgeInsets.zero,
                     onPressed: _delete,
-                    child: const Icon(CupertinoIcons.trash, color: CupertinoColors.white),
+                    child: const Icon(
+                      CupertinoIcons.trash,
+                      color: CupertinoColors.white,
+                    ),
                   ),
                 ],
               ),
@@ -146,10 +194,19 @@ class _DetailScreenState extends State<DetailScreen> {
 }
 
 class _MediaPage extends StatefulWidget {
-  const _MediaPage({required this.record, this.resolveFile});
+  const _MediaPage({
+    required this.record,
+    required this.assetRecordStore,
+    required this.personStore,
+    required this.onRecordChanged,
+    this.resolveFile,
+  });
 
   final AssetRecord record;
   final Future<File?> Function(AssetRecord record)? resolveFile;
+  final AssetRecordStore assetRecordStore;
+  final PersonStore personStore;
+  final ValueChanged<AssetRecord> onRecordChanged;
 
   @override
   State<_MediaPage> createState() => _MediaPageState();
@@ -242,7 +299,9 @@ class _MediaPageState extends State<_MediaPage> {
     final path = _path;
     if (path == null) {
       if (_resolvingPath) {
-        return const Center(child: CupertinoActivityIndicator(color: CupertinoColors.white));
+        return const Center(
+          child: CupertinoActivityIndicator(color: CupertinoColors.white),
+        );
       }
       return _MissingFileNote(message: l10n.detailFileUnavailable);
     }
@@ -252,21 +311,29 @@ class _MediaPageState extends State<_MediaPage> {
     final controller = _videoController;
     if (controller != null) {
       if (!controller.value.isInitialized) {
-        return const Center(child: CupertinoActivityIndicator(color: CupertinoColors.white));
+        return const Center(
+          child: CupertinoActivityIndicator(color: CupertinoColors.white),
+        );
       }
       return Center(
         child: AspectRatio(
           aspectRatio: controller.value.aspectRatio,
           child: GestureDetector(
             onTap: () => setState(() {
-              controller.value.isPlaying ? controller.pause() : controller.play();
+              controller.value.isPlaying
+                  ? controller.pause()
+                  : controller.play();
             }),
             child: Stack(
               alignment: Alignment.center,
               children: [
                 VideoPlayer(controller),
                 if (!controller.value.isPlaying)
-                  const Icon(CupertinoIcons.play_circle, size: 64, color: CupertinoColors.white),
+                  const Icon(
+                    CupertinoIcons.play_circle,
+                    size: 64,
+                    color: CupertinoColors.white,
+                  ),
               ],
             ),
           ),
@@ -275,7 +342,8 @@ class _MediaPageState extends State<_MediaPage> {
     }
     return _ZoomableImage(
       file: File(path),
-      errorBuilder: (context, error, stackTrace) => _MissingFileNote(message: l10n.detailFileUnavailable),
+      errorBuilder: (context, error, stackTrace) =>
+          _MissingFileNote(message: l10n.detailFileUnavailable),
     );
   }
 
@@ -288,8 +356,22 @@ class _MediaPageState extends State<_MediaPage> {
         builder: (context, constraints) => CustomScrollView(
           physics: const BouncingScrollPhysics(),
           slivers: [
-            SliverToBoxAdapter(child: SizedBox(height: constraints.maxHeight, child: _media(l10n))),
-            SliverToBoxAdapter(child: _InfoPanel(record: widget.record, resolvedPath: _path, videoController: _videoController)),
+            SliverToBoxAdapter(
+              child: SizedBox(
+                height: constraints.maxHeight,
+                child: _media(l10n),
+              ),
+            ),
+            SliverToBoxAdapter(
+              child: _InfoPanel(
+                record: widget.record,
+                resolvedPath: _path,
+                videoController: _videoController,
+                assetRecordStore: widget.assetRecordStore,
+                personStore: widget.personStore,
+                onRecordChanged: widget.onRecordChanged,
+              ),
+            ),
           ],
         ),
       ),
@@ -308,9 +390,16 @@ class _MissingFileNote extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          const Icon(CupertinoIcons.exclamationmark_triangle, size: 48, color: CupertinoColors.systemGrey),
+          const Icon(
+            CupertinoIcons.exclamationmark_triangle,
+            size: 48,
+            color: CupertinoColors.systemGrey,
+          ),
           const SizedBox(height: 12),
-          Text(message, style: const TextStyle(color: CupertinoColors.systemGrey)),
+          Text(
+            message,
+            style: const TextStyle(color: CupertinoColors.systemGrey),
+          ),
         ],
       ),
     );
@@ -332,7 +421,8 @@ class _ZoomableImage extends StatefulWidget {
   State<_ZoomableImage> createState() => _ZoomableImageState();
 }
 
-class _ZoomableImageState extends State<_ZoomableImage> with SingleTickerProviderStateMixin {
+class _ZoomableImageState extends State<_ZoomableImage>
+    with SingleTickerProviderStateMixin {
   static const _zoomedScale = 3.0;
 
   final _transformation = TransformationController();
@@ -390,17 +480,31 @@ class _ZoomableImageState extends State<_ZoomableImage> with SingleTickerProvide
         maxScale: _zoomedScale,
         panEnabled: _isZoomed,
         onInteractionEnd: (_) => setState(() {}),
-        child: Center(child: Image.file(widget.file, fit: BoxFit.contain, errorBuilder: widget.errorBuilder)),
+        child: Center(
+          child: Image.file(
+            widget.file,
+            fit: BoxFit.contain,
+            errorBuilder: widget.errorBuilder,
+          ),
+        ),
       ),
     );
   }
 }
 
 /// The "swipe/scroll up for details" panel real Photos shows below the
-/// image — date/time header, then a plain list of file facts. Location is
-/// always "No Location": this app doesn't read EXIF GPS tags (T4.x).
+/// image — date/time header, then a plain list of file facts, then
+/// Description/Tags/People. Date/time, location, description, tags, and
+/// tagged people are all editable in place.
 class _InfoPanel extends StatefulWidget {
-  const _InfoPanel({required this.record, required this.resolvedPath, required this.videoController});
+  const _InfoPanel({
+    required this.record,
+    required this.resolvedPath,
+    required this.videoController,
+    required this.assetRecordStore,
+    required this.personStore,
+    required this.onRecordChanged,
+  });
 
   final AssetRecord record;
 
@@ -408,6 +512,9 @@ class _InfoPanel extends StatefulWidget {
   /// have no `record.sourcePath` of their own.
   final String? resolvedPath;
   final VideoPlayerController? videoController;
+  final AssetRecordStore assetRecordStore;
+  final PersonStore personStore;
+  final ValueChanged<AssetRecord> onRecordChanged;
 
   @override
   State<_InfoPanel> createState() => _InfoPanelState();
@@ -417,11 +524,16 @@ class _InfoPanelState extends State<_InfoPanel> {
   int? _bytes;
   int? _width;
   int? _height;
+  List<Person> _people = const [];
+  late final TextEditingController _description = TextEditingController(
+    text: widget.record.description,
+  );
 
   @override
   void initState() {
     super.initState();
     _load();
+    _loadPeople();
   }
 
   @override
@@ -430,6 +542,163 @@ class _InfoPanelState extends State<_InfoPanel> {
     // `resolvedPath` starts null for `photoManager` records and arrives
     // once `_MediaPage` finishes resolving it — reload when that happens.
     if (oldWidget.resolvedPath != widget.resolvedPath) _load();
+    if (oldWidget.record.localId != widget.record.localId) {
+      _description.text = widget.record.description;
+      _loadPeople();
+    }
+  }
+
+  @override
+  void dispose() {
+    _description.dispose();
+    super.dispose();
+  }
+
+  Future<void> _loadPeople() async {
+    final people = await widget.personStore.peopleFor(widget.record.localId);
+    if (!mounted) return;
+    setState(() => _people = people);
+  }
+
+  Future<void> _editDateTime() async {
+    final l10n = AppLocalizations.of(context)!;
+    var picked = widget.record.createdAt.toLocal();
+    final saved = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: Text(l10n.detailEditDateTimeTitle),
+        message: SizedBox(
+          height: 200,
+          child: CupertinoDatePicker(
+            mode: CupertinoDatePickerMode.dateAndTime,
+            initialDateTime: picked,
+            maximumDate: DateTime.now(),
+            onDateTimeChanged: (value) => picked = value,
+          ),
+        ),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.settingsSaveButton),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (saved != true) return;
+    await widget.assetRecordStore.setCreatedAt(widget.record.localId, picked);
+    widget.onRecordChanged(widget.record.withCreatedAt(picked));
+  }
+
+  Future<void> _editLocation() async {
+    final l10n = AppLocalizations.of(context)!;
+    final controller = TextEditingController(
+      text: widget.record.location ?? '',
+    );
+    final saved = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: Text(l10n.detailInfoLocation),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: CupertinoTextField(
+            controller: controller,
+            placeholder: l10n.detailLocationPlaceholder,
+            autofocus: true,
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.settingsSaveButton),
+          ),
+        ],
+      ),
+    );
+    if (saved != true) return;
+    final value = controller.text.trim().isEmpty
+        ? null
+        : controller.text.trim();
+    await widget.assetRecordStore.setLocation(widget.record.localId, value);
+    widget.onRecordChanged(widget.record.withLocation(value));
+  }
+
+  void _saveDescription(String value) {
+    widget.assetRecordStore.setDescription(widget.record.localId, value);
+    widget.onRecordChanged(widget.record.withDescription(value));
+  }
+
+  Future<void> _addTag() async {
+    final l10n = AppLocalizations.of(context)!;
+    final controller = TextEditingController();
+    final tag = await showCupertinoDialog<String>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: Text(l10n.detailTagsHeader),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 12),
+          child: CupertinoTextField(
+            controller: controller,
+            placeholder: l10n.detailTagPlaceholder,
+            autofocus: true,
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
+            child: Text(l10n.actionAdd),
+          ),
+        ],
+      ),
+    );
+    if (tag == null || tag.isEmpty || widget.record.tags.contains(tag)) return;
+    final updated = [...widget.record.tags, tag];
+    await widget.assetRecordStore.setTags(widget.record.localId, updated);
+    widget.onRecordChanged(widget.record.withTags(updated));
+  }
+
+  Future<void> _removeTag(String tag) async {
+    final updated = widget.record.tags.where((t) => t != tag).toList();
+    await widget.assetRecordStore.setTags(widget.record.localId, updated);
+    widget.onRecordChanged(widget.record.withTags(updated));
+  }
+
+  Future<void> _addPerson() async {
+    final l10n = AppLocalizations.of(context)!;
+    final allPeople = await widget.personStore.listAll();
+    final taggedIds = _people.map((p) => p.id).toSet();
+    final candidates = allPeople
+        .where((p) => !taggedIds.contains(p.id))
+        .toList();
+    if (!mounted) return;
+    final picked = await Navigator.of(context).push<Person>(
+      CupertinoPageRoute(
+        builder: (_) => PersonPickerScreen(
+          candidates: candidates,
+          personStore: widget.personStore,
+          title: l10n.detailPeopleTagPickerTitle,
+        ),
+      ),
+    );
+    if (picked == null) return;
+    await widget.personStore.addAssets(picked.id, [widget.record.localId]);
+    await _loadPeople();
+  }
+
+  Future<void> _removePerson(Person person) async {
+    await widget.personStore.removeAsset(person.id, widget.record.localId);
+    await _loadPeople();
   }
 
   Future<void> _load() async {
@@ -456,12 +725,13 @@ class _InfoPanelState extends State<_InfoPanel> {
     });
   }
 
-  String _statusLabel(AppLocalizations l10n, UploadStatus status) => switch (status) {
-    UploadStatus.pending => l10n.libraryStatusPending,
-    UploadStatus.uploading => l10n.libraryStatusUploading,
-    UploadStatus.uploaded => l10n.libraryStatusUploaded,
-    UploadStatus.failed => l10n.libraryStatusFailed,
-  };
+  String _statusLabel(AppLocalizations l10n, UploadStatus status) =>
+      switch (status) {
+        UploadStatus.pending => l10n.libraryStatusPending,
+        UploadStatus.uploading => l10n.libraryStatusUploading,
+        UploadStatus.uploaded => l10n.libraryStatusUploaded,
+        UploadStatus.failed => l10n.libraryStatusFailed,
+      };
 
   String _formatBytes(int bytes) {
     if (bytes < 1024) return '$bytes B';
@@ -486,7 +756,9 @@ class _InfoPanelState extends State<_InfoPanel> {
     final l10n = AppLocalizations.of(context)!;
     final record = widget.record;
     final path = widget.resolvedPath;
-    final format = path != null && p.extension(path).isNotEmpty ? p.extension(path).substring(1).toUpperCase() : null;
+    final format = path != null && p.extension(path).isNotEmpty
+        ? p.extension(path).substring(1).toUpperCase()
+        : null;
     final duration = widget.videoController?.value.duration;
 
     return Container(
@@ -500,23 +772,93 @@ class _InfoPanelState extends State<_InfoPanel> {
               width: 36,
               height: 5,
               margin: const EdgeInsets.only(bottom: 20),
-              decoration: BoxDecoration(color: CupertinoColors.systemGrey, borderRadius: BorderRadius.circular(3)),
+              decoration: BoxDecoration(
+                color: CupertinoColors.systemGrey,
+                borderRadius: BorderRadius.circular(3),
+              ),
             ),
           ),
-          Text(
-            DateFormat.yMMMMEEEEd().add_jm().format(record.createdAt.toLocal()),
-            style: const TextStyle(color: CupertinoColors.white, fontSize: 20, fontWeight: FontWeight.w600),
+          GestureDetector(
+            onTap: _editDateTime,
+            child: Text(
+              DateFormat.yMMMMEEEEd().add_jm().format(
+                record.createdAt.toLocal(),
+              ),
+              style: const TextStyle(
+                color: CupertinoColors.white,
+                fontSize: 20,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
           ),
           const SizedBox(height: 16),
-          _InfoRow(label: l10n.detailInfoLocation, value: l10n.detailInfoNoLocation),
-          if (_width != null && _height != null) _InfoRow(label: l10n.detailInfoDimensions, value: '$_width × $_height'),
-          if (duration != null) _InfoRow(label: l10n.detailInfoDuration, value: _formatDuration(duration)),
-          if (_bytes != null) _InfoRow(label: l10n.detailInfoFileSize, value: _formatBytes(_bytes!)),
-          if (format != null) _InfoRow(label: l10n.detailInfoFormat, value: format),
+          _InfoRow(
+            label: l10n.detailInfoLocation,
+            value: record.location ?? l10n.detailInfoNoLocation,
+            onTap: _editLocation,
+          ),
+          if (_width != null && _height != null)
+            _InfoRow(
+              label: l10n.detailInfoDimensions,
+              value: '$_width × $_height',
+            ),
+          if (duration != null)
+            _InfoRow(
+              label: l10n.detailInfoDuration,
+              value: _formatDuration(duration),
+            ),
+          if (_bytes != null)
+            _InfoRow(
+              label: l10n.detailInfoFileSize,
+              value: _formatBytes(_bytes!),
+            ),
+          if (format != null)
+            _InfoRow(label: l10n.detailInfoFormat, value: format),
           _InfoRow(
             label: l10n.detailInfoStatus,
-            value: _statusLabel(l10n, record.stateOf(DerivativeKind.original).status),
+            value: _statusLabel(
+              l10n,
+              record.stateOf(DerivativeKind.original).status,
+            ),
             showDivider: false,
+          ),
+          const SizedBox(height: 24),
+          CupertinoTextField.borderless(
+            controller: _description,
+            maxLines: null,
+            placeholder: l10n.detailDescriptionPlaceholder,
+            placeholderStyle: const TextStyle(
+              color: CupertinoColors.systemGrey,
+            ),
+            style: const TextStyle(color: CupertinoColors.white),
+            padding: EdgeInsets.zero,
+            onChanged: _saveDescription,
+          ),
+          const SizedBox(height: 24),
+          _SectionHeader(title: l10n.detailTagsHeader, onAdd: _addTag),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final tag in record.tags)
+                _Chip(label: tag, onRemove: () => _removeTag(tag)),
+            ],
+          ),
+          const SizedBox(height: 24),
+          _SectionHeader(title: l10n.detailPeopleHeader, onAdd: _addPerson),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 16,
+            runSpacing: 12,
+            children: [
+              for (final person in _people)
+                _PersonChip(
+                  person: person,
+                  assetRecordStore: widget.assetRecordStore,
+                  onRemove: () => _removePerson(person),
+                ),
+            ],
           ),
         ],
       ),
@@ -524,29 +866,168 @@ class _InfoPanelState extends State<_InfoPanel> {
   }
 }
 
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({required this.label, required this.value, this.showDivider = true});
+class _SectionHeader extends StatelessWidget {
+  const _SectionHeader({required this.title, required this.onAdd});
+
+  final String title;
+  final VoidCallback onAdd;
+
+  @override
+  Widget build(BuildContext context) {
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.spaceBetween,
+      children: [
+        Text(
+          title,
+          style: const TextStyle(
+            color: CupertinoColors.white,
+            fontWeight: FontWeight.bold,
+            fontSize: 16,
+          ),
+        ),
+        CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: onAdd,
+          child: const Icon(
+            CupertinoIcons.add_circled,
+            color: CupertinoColors.systemGrey,
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+class _Chip extends StatelessWidget {
+  const _Chip({required this.label, required this.onRemove});
 
   final String label;
-  final String value;
-  final bool showDivider;
+  final VoidCallback onRemove;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      decoration: BoxDecoration(
+        color: CupertinoColors.darkBackgroundGray,
+        borderRadius: BorderRadius.circular(16),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            label,
+            style: const TextStyle(color: CupertinoColors.white, fontSize: 13),
+          ),
+          const SizedBox(width: 6),
+          GestureDetector(
+            onTap: onRemove,
+            child: const Icon(
+              CupertinoIcons.xmark_circle_fill,
+              size: 16,
+              color: CupertinoColors.systemGrey,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _PersonChip extends StatelessWidget {
+  const _PersonChip({
+    required this.person,
+    required this.assetRecordStore,
+    required this.onRemove,
+  });
+
+  final Person person;
+  final AssetRecordStore assetRecordStore;
+  final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) {
     return Column(
+      mainAxisSize: MainAxisSize.min,
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 10),
-          child: Row(
-            mainAxisAlignment: MainAxisAlignment.spaceBetween,
-            children: [
-              Text(label, style: const TextStyle(color: CupertinoColors.systemGrey)),
-              Text(value, style: const TextStyle(color: CupertinoColors.white)),
-            ],
+        Stack(
+          clipBehavior: Clip.none,
+          children: [
+            PersonAvatar(
+              assetRecordStore: assetRecordStore,
+              localId: person.avatarLocalId,
+              size: 56,
+            ),
+            Positioned(
+              right: -4,
+              top: -4,
+              child: GestureDetector(
+                onTap: onRemove,
+                child: const Icon(
+                  CupertinoIcons.xmark_circle_fill,
+                  size: 18,
+                  color: CupertinoColors.systemGrey,
+                ),
+              ),
+            ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        SizedBox(
+          width: 64,
+          child: Text(
+            person.name,
+            textAlign: TextAlign.center,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: const TextStyle(color: CupertinoColors.white, fontSize: 12),
           ),
         ),
-        if (showDivider) Container(height: 1, color: CupertinoColors.systemGrey5),
       ],
+    );
+  }
+}
+
+class _InfoRow extends StatelessWidget {
+  const _InfoRow({
+    required this.label,
+    required this.value,
+    this.showDivider = true,
+    this.onTap,
+  });
+
+  final String label;
+  final String value;
+  final bool showDivider;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      onTap: onTap,
+      behavior: HitTestBehavior.opaque,
+      child: Column(
+        children: [
+          Padding(
+            padding: const EdgeInsets.symmetric(vertical: 10),
+            child: Row(
+              mainAxisAlignment: MainAxisAlignment.spaceBetween,
+              children: [
+                Text(
+                  label,
+                  style: const TextStyle(color: CupertinoColors.systemGrey),
+                ),
+                Text(
+                  value,
+                  style: const TextStyle(color: CupertinoColors.white),
+                ),
+              ],
+            ),
+          ),
+          if (showDivider)
+            Container(height: 1, color: CupertinoColors.systemGrey5),
+        ],
+      ),
     );
   }
 }

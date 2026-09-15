@@ -361,6 +361,8 @@ class LibraryScreenState extends State<LibraryScreen> {
           initialIndex: records.indexOf(record),
           onDelete: _softDelete,
           onToggleFavorite: _toggleFavorite,
+          assetRecordStore: assetRecordStore,
+          personStore: _personStore,
         ),
       ),
     );

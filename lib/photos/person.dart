@@ -3,18 +3,36 @@
 /// `parent`/`child`/`sibling` cluster together in the graph's family circle;
 /// `friend`/`colleague`/`schoolmate`/`other` are drawn as plain cross-cluster
 /// lines.
-enum RelationshipType { family, spouse, parent, child, sibling, friend, colleague, schoolmate, other }
+enum RelationshipType {
+  family,
+  spouse,
+  parent,
+  child,
+  sibling,
+  friend,
+  colleague,
+  schoolmate,
+  other,
+}
 
 bool isFamilyRelationship(RelationshipType type) => switch (type) {
-  RelationshipType.family || RelationshipType.spouse || RelationshipType.parent ||
-  RelationshipType.child || RelationshipType.sibling => true,
-  RelationshipType.friend || RelationshipType.colleague || RelationshipType.schoolmate || RelationshipType.other => false,
+  RelationshipType.family ||
+  RelationshipType.spouse ||
+  RelationshipType.parent ||
+  RelationshipType.child ||
+  RelationshipType.sibling => true,
+  RelationshipType.friend ||
+  RelationshipType.colleague ||
+  RelationshipType.schoolmate ||
+  RelationshipType.other => false,
 };
 
 /// `colleague` (company), `schoolmate` (school), and `other` (church/other
 /// org) each carry an associated [PersonRelationship.organization].
 bool relationshipNeedsOrganization(RelationshipType type) =>
-    type == RelationshipType.colleague || type == RelationshipType.schoolmate || type == RelationshipType.other;
+    type == RelationshipType.colleague ||
+    type == RelationshipType.schoolmate ||
+    type == RelationshipType.other;
 
 /// Where a [Person] has lived — an origin or a relocation, never a trip.
 /// See DESIGN.md: explicitly excludes travel/vacation history.
@@ -104,14 +122,22 @@ int? ageFrom(DateTime? birthDate) {
   if (birthDate == null) return null;
   final now = DateTime.now();
   var age = now.year - birthDate.year;
-  if (now.month < birthDate.month || (now.month == birthDate.month && now.day < birthDate.day)) age--;
+  if (now.month < birthDate.month ||
+      (now.month == birthDate.month && now.day < birthDate.day)) {
+    age--;
+  }
   return age;
 }
 
 /// A directed link from one [Person] to another — the graph screen renders
 /// it as a single undirected edge, styled by [type].
 class PersonRelationship {
-  const PersonRelationship({required this.personId, required this.relatedPersonId, required this.type, this.organization});
+  const PersonRelationship({
+    required this.personId,
+    required this.relatedPersonId,
+    required this.type,
+    this.organization,
+  });
 
   final String personId;
   final String relatedPersonId;
@@ -155,14 +181,23 @@ class PersonCustomField {
   Map<String, Object?> toJson() => {'label': label, 'value': value};
 
   static PersonCustomField fromJson(Map<String, Object?> json) =>
-      PersonCustomField(label: json['label'] as String? ?? '', value: json['value'] as String? ?? '');
+      PersonCustomField(
+        label: json['label'] as String? ?? '',
+        value: json['value'] as String? ?? '',
+      );
 }
 
 /// A role/title held at a job (or a major/degree at a school), or an award
 /// — all three are just a name, an optional description, and an optional
 /// date range. Shared shape, different section on the entry's detail page.
 class TimelineEntry {
-  const TimelineEntry({required this.id, required this.title, this.description = '', this.startDate, this.endDate});
+  const TimelineEntry({
+    required this.id,
+    required this.title,
+    this.description = '',
+    this.startDate,
+    this.endDate,
+  });
 
   final String id;
   final String title;
@@ -187,7 +222,9 @@ class TimelineEntry {
       id: json['id'] as String? ?? '',
       title: json['title'] as String? ?? '',
       description: json['description'] as String? ?? '',
-      startDate: start == null ? null : DateTime.fromMillisecondsSinceEpoch(start),
+      startDate: start == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(start),
       endDate: end == null ? null : DateTime.fromMillisecondsSinceEpoch(end),
     );
   }
@@ -229,7 +266,9 @@ class CareerProject {
       name: json['name'] as String? ?? '',
       description: json['description'] as String? ?? '',
       tags: (json['tags'] as List<dynamic>? ?? const []).cast<String>(),
-      startDate: start == null ? null : DateTime.fromMillisecondsSinceEpoch(start),
+      startDate: start == null
+          ? null
+          : DateTime.fromMillisecondsSinceEpoch(start),
       endDate: end == null ? null : DateTime.fromMillisecondsSinceEpoch(end),
     );
   }
@@ -280,10 +319,17 @@ class PersonHistoryEntry {
     if (titles.isEmpty) return null;
     final ongoing = titles.where((t) => t.endDate == null).toList();
     if (ongoing.isNotEmpty) {
-      ongoing.sort((a, b) => (b.startDate ?? DateTime(0)).compareTo(a.startDate ?? DateTime(0)));
+      ongoing.sort(
+        (a, b) =>
+            (b.startDate ?? DateTime(0)).compareTo(a.startDate ?? DateTime(0)),
+      );
       return ongoing.first;
     }
-    final sorted = [...titles]..sort((a, b) => (b.startDate ?? DateTime(0)).compareTo(a.startDate ?? DateTime(0)));
+    final sorted = [...titles]
+      ..sort(
+        (a, b) =>
+            (b.startDate ?? DateTime(0)).compareTo(a.startDate ?? DateTime(0)),
+      );
     return sorted.first;
   }
 

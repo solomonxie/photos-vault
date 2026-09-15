@@ -14,7 +14,12 @@ import '../storage/asset_record.dart';
 /// Favorite/Unfavorite, Hide, Delete, Recover) — each screen that shows a
 /// grid (Library, Favorites, Hidden, Recently Deleted) supplies its own set.
 class TileAction {
-  const TileAction({required this.icon, required this.label, required this.onPressed, this.isDestructive = false});
+  const TileAction({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.isDestructive = false,
+  });
 
   final IconData icon;
   final String label;
@@ -40,6 +45,7 @@ List<Widget> assetGridSlivers({
   required List<AssetRecord> records,
   required void Function(AssetRecord) onTap,
   required List<TileAction> Function(AssetRecord) actionsFor,
+
   /// Multi-select mode: non-null shows a checkmark overlay per tile (checked
   /// iff its `localId` is in the set) instead of the normal favorite/status
   /// badges — `onTap` is expected to toggle membership rather than open the
@@ -58,7 +64,10 @@ List<Widget> assetGridSlivers({
       SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text(entry.key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+          child: Text(
+            entry.key,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+          ),
         ),
       ),
       SliverPadding(
@@ -86,7 +95,13 @@ List<Widget> assetGridSlivers({
 }
 
 class AssetTile extends StatelessWidget {
-  const AssetTile({super.key, required this.record, required this.onTap, required this.actions, this.selected});
+  const AssetTile({
+    super.key,
+    required this.record,
+    required this.onTap,
+    required this.actions,
+    this.selected,
+  });
 
   final AssetRecord record;
   final VoidCallback onTap;
@@ -124,30 +139,48 @@ class AssetTile extends StatelessWidget {
               if (video)
                 const ColoredBox(
                   color: CupertinoColors.darkBackgroundGray,
-                  child: Icon(CupertinoIcons.play_circle_fill, color: CupertinoColors.white, size: 28),
+                  child: Icon(
+                    CupertinoIcons.play_circle_fill,
+                    color: CupertinoColors.white,
+                    size: 28,
+                  ),
                 )
               else if (path != null)
                 Image.file(
                   File(path),
                   fit: BoxFit.cover,
                   errorBuilder: (context, error, stackTrace) =>
-                      const ColoredBox(color: CupertinoColors.systemGrey5, child: Icon(CupertinoIcons.photo)),
+                      const ColoredBox(
+                        color: CupertinoColors.systemGrey5,
+                        child: Icon(CupertinoIcons.photo),
+                      ),
                 )
               else if (record.sourceType == AssetSourceType.photoManager)
                 PhotoManagerThumbnail(assetId: record.localId)
               else
-                const ColoredBox(color: CupertinoColors.systemGrey5, child: Icon(CupertinoIcons.photo)),
+                const ColoredBox(
+                  color: CupertinoColors.systemGrey5,
+                  child: Icon(CupertinoIcons.photo),
+                ),
               if (video)
                 const Positioned(
                   top: 4,
                   right: 4,
-                  child: Icon(CupertinoIcons.video_camera_solid, size: 14, color: CupertinoColors.white),
+                  child: Icon(
+                    CupertinoIcons.video_camera_solid,
+                    size: 14,
+                    color: CupertinoColors.white,
+                  ),
                 ),
               if (record.isFavorite)
                 const Positioned(
                   bottom: 4,
                   left: 4,
-                  child: Icon(CupertinoIcons.heart_fill, size: 14, color: CupertinoColors.white),
+                  child: Icon(
+                    CupertinoIcons.heart_fill,
+                    size: 14,
+                    color: CupertinoColors.white,
+                  ),
                 ),
               Positioned(bottom: 4, right: 4, child: StatusDot(record: record)),
               if (selected != null) ...[
@@ -156,8 +189,12 @@ class AssetTile extends StatelessWidget {
                   top: 4,
                   right: 4,
                   child: Icon(
-                    selected! ? CupertinoIcons.checkmark_circle_fill : CupertinoIcons.circle,
-                    color: selected! ? CupertinoColors.activeBlue : CupertinoColors.white,
+                    selected!
+                        ? CupertinoIcons.checkmark_circle_fill
+                        : CupertinoIcons.circle,
+                    color: selected!
+                        ? CupertinoColors.activeBlue
+                        : CupertinoColors.white,
                     size: 20,
                   ),
                 ),
@@ -182,7 +219,11 @@ class StatusDot extends StatelessWidget {
   Widget build(BuildContext context) {
     final status = record.stateOf(DerivativeKind.original).status;
     if (status == UploadStatus.uploaded) return const SizedBox.shrink();
-    return const SizedBox(width: 14, height: 14, child: CustomPaint(painter: _DottedRingPainter()));
+    return const SizedBox(
+      width: 14,
+      height: 14,
+      child: CustomPaint(painter: _DottedRingPainter()),
+    );
   }
 }
 
@@ -232,12 +273,16 @@ class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
   @override
   Widget build(BuildContext context) {
     final bytes = _bytes;
-    if (bytes == null) return const ColoredBox(color: CupertinoColors.systemGrey5);
+    if (bytes == null) {
+      return const ColoredBox(color: CupertinoColors.systemGrey5);
+    }
     return Image.memory(
       bytes,
       fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) =>
-          const ColoredBox(color: CupertinoColors.systemGrey5, child: Icon(CupertinoIcons.photo)),
+      errorBuilder: (context, error, stackTrace) => const ColoredBox(
+        color: CupertinoColors.systemGrey5,
+        child: Icon(CupertinoIcons.photo),
+      ),
     );
   }
 }
@@ -252,7 +297,10 @@ class _DottedRingPainter extends CustomPainter {
       ..style = PaintingStyle.stroke
       ..strokeWidth = 1.6
       ..strokeCap = StrokeCap.round;
-    final rect = Rect.fromCircle(center: size.center(Offset.zero), radius: size.width / 2 - 1);
+    final rect = Rect.fromCircle(
+      center: size.center(Offset.zero),
+      radius: size.width / 2 - 1,
+    );
     const dashCount = 8;
     const sweep = 2 * math.pi / dashCount;
     for (var i = 0; i < dashCount; i++) {

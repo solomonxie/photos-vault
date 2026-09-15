@@ -46,11 +46,13 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
   }
 
   Future<void> _reload() async {
-    final ids = (await widget.privateAlbumStore.localIdsIn(widget.album.id)).toSet();
+    final ids = (await widget.privateAlbumStore.localIdsIn(widget.album.id))
+        .toSet();
     final all = await widget.assetRecordStore.listAll();
     if (!mounted) return;
-    final records = all.where((r) => !r.isDeleted && ids.contains(r.localId)).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final records =
+        all.where((r) => !r.isDeleted && ids.contains(r.localId)).toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     setState(() {
       _records = records;
       // Best-effort: only sums files already resolvable on disk
@@ -68,20 +70,27 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
   String _formatSize(int bytes) {
     if (bytes < 1024) return '$bytes B';
     if (bytes < 1024 * 1024) return '${(bytes / 1024).toStringAsFixed(1)} KB';
-    if (bytes < 1024 * 1024 * 1024) return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    if (bytes < 1024 * 1024 * 1024) {
+      return '${(bytes / (1024 * 1024)).toStringAsFixed(1)} MB';
+    }
     return '${(bytes / (1024 * 1024 * 1024)).toStringAsFixed(1)} GB';
   }
 
-  Future<void> _removeFromAlbum(AssetRecord record) => _removeManyFromAlbum([record.localId]);
+  Future<void> _removeFromAlbum(AssetRecord record) =>
+      _removeManyFromAlbum([record.localId]);
 
   /// Un-hides (if it was moved in) and drops membership for every id —
   /// shared by the single-tile "Remove from Private Album" action and
   /// multi-select's "Move to Library".
   Future<void> _removeManyFromAlbum(Iterable<String> localIds) async {
-    final moved = (await widget.privateAlbumStore.movedLocalIdsIn(widget.album.id)).toSet();
+    final moved = (await widget.privateAlbumStore.movedLocalIdsIn(
+      widget.album.id,
+    )).toSet();
     for (final id in localIds) {
       await widget.privateAlbumStore.removeAsset(widget.album.id, id);
-      if (moved.contains(id)) await widget.assetRecordStore.setHidden(id, false);
+      if (moved.contains(id)) {
+        await widget.assetRecordStore.setHidden(id, false);
+      }
     }
     await _reload();
   }
@@ -115,7 +124,9 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
     final picked = await Navigator.of(context).push<List<AssetRecord>>(
       CupertinoPageRoute(
         builder: (_) => AssetPickerScreen(
-          title: move ? l10n.privateAlbumPickerMoveTitle : l10n.privateAlbumPickerCopyTitle,
+          title: move
+              ? l10n.privateAlbumPickerMoveTitle
+              : l10n.privateAlbumPickerCopyTitle,
           assetRecordStore: widget.assetRecordStore,
           excludeIds: _records.map((r) => r.localId).toSet(),
         ),
@@ -141,7 +152,10 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
         title: Text(l10n.privateAlbumDeleteConfirmTitle),
         content: Text(l10n.privateAlbumDeleteConfirmBody),
         actions: [
-          CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(false), child: Text(l10n.actionCancel)),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
           CupertinoDialogAction(
             isDestructiveAction: true,
             onPressed: () => Navigator.of(context).pop(true),
@@ -151,7 +165,9 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    final movedIds = await widget.privateAlbumStore.movedLocalIdsIn(widget.album.id);
+    final movedIds = await widget.privateAlbumStore.movedLocalIdsIn(
+      widget.album.id,
+    );
     for (final id in movedIds) {
       await widget.assetRecordStore.setHidden(id, false);
     }
@@ -197,7 +213,10 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
   }
 
   Future<void> _toggleFavorite(AssetRecord record) async {
-    await widget.assetRecordStore.setFavorite(record.localId, !record.isFavorite);
+    await widget.assetRecordStore.setFavorite(
+      record.localId,
+      !record.isFavorite,
+    );
     await _reload();
   }
 
@@ -211,6 +230,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
         builder: (_) => DetailScreen(
           records: _records,
           initialIndex: _records.indexOf(record),
+          assetRecordStore: widget.assetRecordStore,
           onDelete: _delete,
           onToggleFavorite: _toggleFavorite,
         ),
@@ -225,7 +245,11 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
       navigationBar: CupertinoNavigationBar(
         middle: Text(l10n.privateAlbumScreenTitle),
         leading: _selecting
-            ? CupertinoButton(padding: EdgeInsets.zero, onPressed: _exitSelectMode, child: Text(l10n.actionCancel))
+            ? CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: _exitSelectMode,
+                child: Text(l10n.actionCancel),
+              )
             : null,
         trailing: _selecting
             ? null
@@ -262,7 +286,12 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
             Expanded(
               child: _records.isEmpty
                   ? Center(
-                      child: Text(l10n.privateAlbumEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)),
+                      child: Text(
+                        l10n.privateAlbumEmpty,
+                        style: const TextStyle(
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ),
                     )
                   : CustomScrollView(
                       slivers: assetGridSlivers(
@@ -272,8 +301,12 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
                         selectedIds: _selecting ? _selectedIds : null,
                         actionsFor: (r) => [
                           TileAction(
-                            icon: r.isFavorite ? CupertinoIcons.heart_slash : CupertinoIcons.heart,
-                            label: r.isFavorite ? l10n.libraryUnfavorite : l10n.libraryFavorite,
+                            icon: r.isFavorite
+                                ? CupertinoIcons.heart_slash
+                                : CupertinoIcons.heart,
+                            label: r.isFavorite
+                                ? l10n.libraryUnfavorite
+                                : l10n.libraryFavorite,
                             onPressed: () => _toggleFavorite(r),
                           ),
                           TileAction(
@@ -295,10 +328,19 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
               SafeArea(
                 top: false,
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 16,
+                    vertical: 8,
+                  ),
                   child: CupertinoButton.filled(
-                    onPressed: _selectedIds.isEmpty ? null : _moveSelectedToLibrary,
-                    child: Text(l10n.privateAlbumMoveSelectedToLibrary(_selectedIds.length)),
+                    onPressed: _selectedIds.isEmpty
+                        ? null
+                        : _moveSelectedToLibrary,
+                    child: Text(
+                      l10n.privateAlbumMoveSelectedToLibrary(
+                        _selectedIds.length,
+                      ),
+                    ),
                   ),
                 ),
               ),

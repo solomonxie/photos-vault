@@ -30,13 +30,19 @@ class AssetGroupScreen extends StatefulWidget {
 }
 
 class _AssetGroupScreenState extends State<AssetGroupScreen> {
-  late final PrivateAlbumStore _privateAlbumStore = widget.privateAlbumStore ?? PrivateAlbumStore();
+  late final PrivateAlbumStore _privateAlbumStore =
+      widget.privateAlbumStore ?? PrivateAlbumStore();
   late List<AssetRecord> _records = widget.records;
 
   Future<void> _toggleFavorite(AssetRecord record) async {
     final value = !record.isFavorite;
     await widget.assetRecordStore.setFavorite(record.localId, value);
-    setState(() => _records = [for (final r in _records) r.localId == record.localId ? r.withFavorite(value) : r]);
+    setState(
+      () => _records = [
+        for (final r in _records)
+          r.localId == record.localId ? r.withFavorite(value) : r,
+      ],
+    );
   }
 
   Future<void> _hide(AssetRecord record) async {
@@ -47,13 +53,21 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
       record: record,
     );
     if (!hidden) return;
-    setState(() => _records = _records.where((r) => r.localId != record.localId).toList());
+    setState(
+      () => _records = _records
+          .where((r) => r.localId != record.localId)
+          .toList(),
+    );
   }
 
   Future<bool> _delete(AssetRecord record) async {
     if (!await confirmSoftDelete(context)) return false;
     await widget.assetRecordStore.softDelete(record.localId);
-    setState(() => _records = _records.where((r) => r.localId != record.localId).toList());
+    setState(
+      () => _records = _records
+          .where((r) => r.localId != record.localId)
+          .toList(),
+    );
     return true;
   }
 
@@ -63,6 +77,7 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
         builder: (_) => DetailScreen(
           records: _records,
           initialIndex: _records.indexOf(record),
+          assetRecordStore: widget.assetRecordStore,
           onDelete: _delete,
           onToggleFavorite: _toggleFavorite,
         ),
@@ -83,11 +98,19 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
             onTap: _open,
             actionsFor: (r) => [
               TileAction(
-                icon: r.isFavorite ? CupertinoIcons.heart_slash : CupertinoIcons.heart,
-                label: r.isFavorite ? l10n.libraryUnfavorite : l10n.libraryFavorite,
+                icon: r.isFavorite
+                    ? CupertinoIcons.heart_slash
+                    : CupertinoIcons.heart,
+                label: r.isFavorite
+                    ? l10n.libraryUnfavorite
+                    : l10n.libraryFavorite,
                 onPressed: () => _toggleFavorite(r),
               ),
-              TileAction(icon: CupertinoIcons.eye_slash, label: l10n.libraryHide, onPressed: () => _hide(r)),
+              TileAction(
+                icon: CupertinoIcons.eye_slash,
+                label: l10n.libraryHide,
+                onPressed: () => _hide(r),
+              ),
               TileAction(
                 icon: CupertinoIcons.delete,
                 label: l10n.libraryDeleteTooltip,

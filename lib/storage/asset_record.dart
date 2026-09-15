@@ -13,15 +13,19 @@ enum UploadStatus { pending, uploading, uploaded, failed }
 
 /// Upload state for one derivative of an asset.
 class DerivativeState {
-  const DerivativeState({this.status = UploadStatus.pending, this.destinationKey});
+  const DerivativeState({
+    this.status = UploadStatus.pending,
+    this.destinationKey,
+  });
 
   final UploadStatus status;
   final String? destinationKey;
 
-  DerivativeState copyWith({UploadStatus? status, String? destinationKey}) => DerivativeState(
-    status: status ?? this.status,
-    destinationKey: destinationKey ?? this.destinationKey,
-  );
+  DerivativeState copyWith({UploadStatus? status, String? destinationKey}) =>
+      DerivativeState(
+        status: status ?? this.status,
+        destinationKey: destinationKey ?? this.destinationKey,
+      );
 }
 
 /// A tracked camera-roll asset and its backup progress. `localId` is the
@@ -40,6 +44,9 @@ class AssetRecord {
     this.isFavorite = false,
     this.isHidden = false,
     this.deletedAt,
+    this.description = '',
+    this.tags = const [],
+    this.location,
   });
 
   final String localId;
@@ -65,9 +72,17 @@ class AssetRecord {
   /// store is the separate, permanent delete.
   final DateTime? deletedAt;
 
+  final String description;
+  final List<String> tags;
+
+  /// A free-text place name — this app doesn't read EXIF GPS tags, so
+  /// there's no reverse-geocoding; the user types it themselves.
+  final String? location;
+
   bool get isDeleted => deletedAt != null;
 
-  DerivativeState stateOf(DerivativeKind kind) => derivatives[kind] ?? const DerivativeState();
+  DerivativeState stateOf(DerivativeKind kind) =>
+      derivatives[kind] ?? const DerivativeState();
 
   AssetRecord _copyWith({
     Map<DerivativeKind, DerivativeState>? derivatives,
@@ -76,11 +91,15 @@ class AssetRecord {
     DateTime? Function()? deletedAt,
     String? sourcePath,
     DateTime? updatedAt,
+    DateTime? createdAt,
+    String? description,
+    List<String>? tags,
+    String? Function()? location,
   }) => AssetRecord(
     localId: localId,
     contentHash: contentHash,
     platform: platform,
-    createdAt: createdAt,
+    createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? DateTime.now(),
     sourceType: sourceType,
     sourcePath: sourcePath ?? this.sourcePath,
@@ -89,6 +108,9 @@ class AssetRecord {
     isFavorite: isFavorite ?? this.isFavorite,
     isHidden: isHidden ?? this.isHidden,
     deletedAt: deletedAt != null ? deletedAt() : this.deletedAt,
+    description: description ?? this.description,
+    tags: tags ?? this.tags,
+    location: location != null ? location() : this.location,
   );
 
   AssetRecord withDerivative(DerivativeKind kind, DerivativeState state) =>
@@ -98,7 +120,16 @@ class AssetRecord {
 
   AssetRecord withHidden(bool value) => _copyWith(isHidden: value);
 
-  AssetRecord withDeletedAt(DateTime? value) => _copyWith(deletedAt: () => value);
+  AssetRecord withDeletedAt(DateTime? value) =>
+      _copyWith(deletedAt: () => value);
+
+  AssetRecord withCreatedAt(DateTime value) => _copyWith(createdAt: value);
+
+  AssetRecord withDescription(String value) => _copyWith(description: value);
+
+  AssetRecord withTags(List<String> value) => _copyWith(tags: value);
+
+  AssetRecord withLocation(String? value) => _copyWith(location: () => value);
 
   /// Used by [AssetRecordStore.upsert] to heal a stale `sourcePath`.
   AssetRecord withSourcePath(String value, DateTime updatedAt) =>

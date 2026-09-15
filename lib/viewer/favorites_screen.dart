@@ -29,8 +29,9 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     final all = await widget.assetRecordStore.listAll();
     if (!mounted) return;
     setState(
-      () => _records = all.where((r) => r.isFavorite && !r.isDeleted).toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+      () =>
+          _records = all.where((r) => r.isFavorite && !r.isDeleted).toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
     );
   }
 
@@ -52,6 +53,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         builder: (_) => DetailScreen(
           records: _records,
           initialIndex: _records.indexOf(record),
+          assetRecordStore: widget.assetRecordStore,
           onDelete: _delete,
           onToggleFavorite: _unfavorite,
         ),
@@ -63,17 +65,28 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(middle: Text(l10n.collectionsFavoritesRow)),
+      navigationBar: CupertinoNavigationBar(
+        middle: Text(l10n.collectionsFavoritesRow),
+      ),
       child: SafeArea(
         child: _records.isEmpty
-            ? Center(child: Text(l10n.libraryFavoritesEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)))
+            ? Center(
+                child: Text(
+                  l10n.libraryFavoritesEmpty,
+                  style: const TextStyle(color: CupertinoColors.systemGrey),
+                ),
+              )
             : CustomScrollView(
                 slivers: assetGridSlivers(
                   context: context,
                   records: _records,
                   onTap: _open,
                   actionsFor: (r) => [
-                    TileAction(icon: CupertinoIcons.heart_slash, label: l10n.libraryUnfavorite, onPressed: () => _unfavorite(r)),
+                    TileAction(
+                      icon: CupertinoIcons.heart_slash,
+                      label: l10n.libraryUnfavorite,
+                      onPressed: () => _unfavorite(r),
+                    ),
                     TileAction(
                       icon: CupertinoIcons.delete,
                       label: l10n.libraryDeleteTooltip,

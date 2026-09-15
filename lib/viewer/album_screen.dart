@@ -34,7 +34,8 @@ class AlbumScreen extends StatefulWidget {
 }
 
 class _AlbumScreenState extends State<AlbumScreen> {
-  late final PrivateAlbumStore _privateAlbumStore = widget.privateAlbumStore ?? PrivateAlbumStore();
+  late final PrivateAlbumStore _privateAlbumStore =
+      widget.privateAlbumStore ?? PrivateAlbumStore();
   List<AssetRecord> _records = const [];
 
   @override
@@ -44,17 +45,29 @@ class _AlbumScreenState extends State<AlbumScreen> {
   }
 
   Future<void> _reload() async {
-    final memberIds = (await widget.albumStore.localIdsIn(widget.album.id)).toSet();
+    final memberIds = (await widget.albumStore.localIdsIn(widget.album.id))
+        .toSet();
     final all = await widget.assetRecordStore.listAll();
     if (!mounted) return;
     setState(
-      () => _records = all.where((r) => !r.isDeleted && !r.isHidden && memberIds.contains(r.localId)).toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+      () => _records =
+          all
+              .where(
+                (r) =>
+                    !r.isDeleted &&
+                    !r.isHidden &&
+                    memberIds.contains(r.localId),
+              )
+              .toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
     );
   }
 
   Future<void> _toggleFavorite(AssetRecord record) async {
-    await widget.assetRecordStore.setFavorite(record.localId, !record.isFavorite);
+    await widget.assetRecordStore.setFavorite(
+      record.localId,
+      !record.isFavorite,
+    );
     await _reload();
   }
 
@@ -86,6 +99,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
         builder: (_) => DetailScreen(
           records: _records,
           initialIndex: _records.indexOf(record),
+          assetRecordStore: widget.assetRecordStore,
           onDelete: _delete,
           onToggleFavorite: _toggleFavorite,
         ),
@@ -100,7 +114,12 @@ class _AlbumScreenState extends State<AlbumScreen> {
       navigationBar: CupertinoNavigationBar(middle: Text(widget.album.name)),
       child: SafeArea(
         child: _records.isEmpty
-            ? Center(child: Text(l10n.libraryAlbumEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)))
+            ? Center(
+                child: Text(
+                  l10n.libraryAlbumEmpty,
+                  style: const TextStyle(color: CupertinoColors.systemGrey),
+                ),
+              )
             : CustomScrollView(
                 slivers: assetGridSlivers(
                   context: context,
@@ -108,8 +127,12 @@ class _AlbumScreenState extends State<AlbumScreen> {
                   onTap: _open,
                   actionsFor: (r) => [
                     TileAction(
-                      icon: r.isFavorite ? CupertinoIcons.heart_slash : CupertinoIcons.heart,
-                      label: r.isFavorite ? l10n.libraryUnfavorite : l10n.libraryFavorite,
+                      icon: r.isFavorite
+                          ? CupertinoIcons.heart_slash
+                          : CupertinoIcons.heart,
+                      label: r.isFavorite
+                          ? l10n.libraryUnfavorite
+                          : l10n.libraryFavorite,
                       onPressed: () => _toggleFavorite(r),
                     ),
                     TileAction(
@@ -117,7 +140,11 @@ class _AlbumScreenState extends State<AlbumScreen> {
                       label: l10n.libraryRemoveFromAlbum,
                       onPressed: () => _removeFromAlbum(r),
                     ),
-                    TileAction(icon: CupertinoIcons.eye_slash, label: l10n.libraryHide, onPressed: () => _hide(r)),
+                    TileAction(
+                      icon: CupertinoIcons.eye_slash,
+                      label: l10n.libraryHide,
+                      onPressed: () => _hide(r),
+                    ),
                     TileAction(
                       icon: CupertinoIcons.delete,
                       label: l10n.libraryDeleteTooltip,

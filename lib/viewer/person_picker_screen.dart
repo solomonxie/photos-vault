@@ -8,10 +8,20 @@ import '../photos/person_store.dart';
 /// by name, or "New Person…" to create one on the spot (no photo required).
 /// Pops with the chosen/created [Person], or `null` if backed out.
 class PersonPickerScreen extends StatefulWidget {
-  const PersonPickerScreen({super.key, required this.candidates, required this.personStore});
+  const PersonPickerScreen({
+    super.key,
+    required this.candidates,
+    required this.personStore,
+    this.title,
+  });
 
   final List<Person> candidates;
   final PersonStore personStore;
+
+  /// Defaults to [AppLocalizations.relationshipPickerTitle] — overridden
+  /// when this screen is reused for a different kind of "pick a person"
+  /// flow (e.g. tagging someone in a photo).
+  final String? title;
 
   @override
   State<PersonPickerScreen> createState() => _PersonPickerScreenState();
@@ -31,12 +41,21 @@ class _PersonPickerScreenState extends State<PersonPickerScreen> {
           title: Text(l10n.peopleNamePromptTitle),
           content: Padding(
             padding: const EdgeInsets.only(top: 12),
-            child: CupertinoTextField(controller: nameController, autofocus: true, onChanged: (_) => setState(() {})),
+            child: CupertinoTextField(
+              controller: nameController,
+              autofocus: true,
+              onChanged: (_) => setState(() {}),
+            ),
           ),
           actions: [
-            CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.actionCancel)),
             CupertinoDialogAction(
-              onPressed: nameController.text.trim().isEmpty ? null : () => Navigator.of(context).pop(nameController.text.trim()),
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l10n.actionCancel),
+            ),
+            CupertinoDialogAction(
+              onPressed: nameController.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.of(context).pop(nameController.text.trim()),
               child: Text(l10n.actionAdd),
             ),
           ],
@@ -54,10 +73,14 @@ class _PersonPickerScreenState extends State<PersonPickerScreen> {
     final query = _query.trim().toLowerCase();
     final matches = query.isEmpty
         ? widget.candidates
-        : widget.candidates.where((p) => p.name.toLowerCase().contains(query)).toList();
+        : widget.candidates
+              .where((p) => p.name.toLowerCase().contains(query))
+              .toList();
 
     return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(middle: Text(l10n.relationshipPickerTitle)),
+      navigationBar: CupertinoNavigationBar(
+        middle: Text(widget.title ?? l10n.relationshipPickerTitle),
+      ),
       child: SafeArea(
         child: Column(
           children: [
@@ -78,7 +101,10 @@ class _PersonPickerScreenState extends State<PersonPickerScreen> {
                     onTap: _createNew,
                   ),
                   for (final person in matches)
-                    CupertinoListTile(title: Text(person.name), onTap: () => Navigator.of(context).pop(person)),
+                    CupertinoListTile(
+                      title: Text(person.name),
+                      onTap: () => Navigator.of(context).pop(person),
+                    ),
                 ],
               ),
             ),
