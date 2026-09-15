@@ -18,7 +18,9 @@ import '../photos/photo_library_service.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'person_avatar.dart';
+import 'person_page_screen.dart';
 import 'person_picker_screen.dart';
+import 'string_picker_screen.dart';
 
 /// Still-image re-encode formats offered by "Export As…" — decoding and
 /// re-encoding is pure Dart (the `image` package), so this only ever
@@ -90,6 +92,34 @@ class _DetailScreenState extends State<DetailScreen> {
   late List<AssetRecord> _records = widget.records;
   late final PersonStore _personStore = widget.personStore ?? PersonStore();
 
+  /// One per visited page (keyed by `localId`), so the info-circle button
+  /// can reveal the *current* page's info panel without needing a fresh
+  /// controller lookup through the `PageView`.
+  final _scrollControllers = <String, ScrollController>{};
+
+  ScrollController _scrollControllerFor(AssetRecord record) =>
+      _scrollControllers.putIfAbsent(record.localId, () => ScrollController());
+
+  @override
+  void dispose() {
+    for (final controller in _scrollControllers.values) {
+      controller.dispose();
+    }
+    super.dispose();
+  }
+
+  /// Same effect as dragging the photo up: scrolls exactly one viewport's
+  /// worth, landing on the info panel's top instead of anywhere within it.
+  void _revealInfoPanel() {
+    final controller = _scrollControllers[_records[_index].localId];
+    if (controller == null || !controller.hasClients) return;
+    controller.animateTo(
+      controller.position.viewportDimension,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+  }
+
   void _updateRecord(AssetRecord updated) {
     setState(() {
       _records = [..._records];
@@ -144,7 +174,8 @@ class _DetailScreenState extends State<DetailScreen> {
     final direct = record.sourcePath;
     if (direct != null) return direct;
     if (record.sourceType != AssetSourceType.photoManager) return null;
-    final resolver = widget.resolvePhotoManagerFile ?? PhotoLibraryService.resolveFile;
+    final resolver =
+        widget.resolvePhotoManagerFile ?? PhotoLibraryService.resolveFile;
     try {
       return (await resolver(record))?.path;
     } catch (_) {
@@ -216,7 +247,10 @@ class _DetailScreenState extends State<DetailScreen> {
       final encoded = await compute(_reencode, (bytes, format));
       if (encoded == null) throw const FormatException('decode failed');
       final dir = await getTemporaryDirectory();
-      final outPath = p.join(dir.path, 'export-${DateTime.now().millisecondsSinceEpoch}.${format.name}');
+      final outPath = p.join(
+        dir.path,
+        '${p.basenameWithoutExtension(path)}.${format.name}',
+      );
       await File(outPath).writeAsBytes(encoded);
       if (!mounted) return;
       await SharePlus.instance.share(ShareParams(files: [XFile(outPath)]));
@@ -236,7 +270,9 @@ class _DetailScreenState extends State<DetailScreen> {
       return;
     }
     final uri = Uri.parse('photos-redirect://');
-    final opened = await canLaunchUrl(uri) && await launchUrl(uri, mode: LaunchMode.externalApplication);
+    final opened =
+        await canLaunchUrl(uri) &&
+        await launchUrl(uri, mode: LaunchMode.externalApplication);
     if (!opened && mounted) _showMessage(l10n.detailEditNotInLibrary);
   }
 
@@ -261,6 +297,14 @@ class _DetailScreenState extends State<DetailScreen> {
                       style: const TextStyle(color: CupertinoColors.white),
                     ),
                   ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: _editInPhotos,
+                    child: Text(
+                      l10n.detailEditButton,
+                      style: const TextStyle(color: CupertinoColors.white),
+                    ),
+                  ),
                 ],
               ),
             ),
@@ -275,6 +319,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   assetRecordStore: widget.assetRecordStore,
                   personStore: _personStore,
                   onRecordChanged: _updateRecord,
+                  scrollController: _scrollControllerFor(_records[i]),
                 ),
               ),
             ),
@@ -303,9 +348,9 @@ class _DetailScreenState extends State<DetailScreen> {
                   ),
                   CupertinoButton(
                     padding: EdgeInsets.zero,
-                    onPressed: _editInPhotos,
+                    onPressed: _revealInfoPanel,
                     child: const Icon(
-                      CupertinoIcons.pencil,
+                      CupertinoIcons.info_circle,
                       color: CupertinoColors.white,
                     ),
                   ),
@@ -333,6 +378,7 @@ class _MediaPage extends StatefulWidget {
     required this.assetRecordStore,
     required this.personStore,
     required this.onRecordChanged,
+    required this.scrollController,
     this.resolveFile,
   });
 
@@ -341,6 +387,11 @@ class _MediaPage extends StatefulWidget {
   final AssetRecordStore assetRecordStore;
   final PersonStore personStore;
   final ValueChanged<AssetRecord> onRecordChanged;
+
+  /// Owned by `_DetailScreenState` — the info-circle button in the bottom
+  /// bar drives it directly, so this page's `CustomScrollView` just needs
+  /// to use it.
+  final ScrollController scrollController;
 
   @override
   State<_MediaPage> createState() => _MediaPageState();
@@ -488,6 +539,7 @@ class _MediaPageState extends State<_MediaPage> {
       onNotification: _onScrollNotification,
       child: LayoutBuilder(
         builder: (context, constraints) => CustomScrollView(
+          controller: widget.scrollController,
           physics: const BouncingScrollPhysics(),
           slivers: [
             SliverToBoxAdapter(
@@ -727,41 +779,29 @@ class _InfoPanelState extends State<_InfoPanel> {
     widget.onRecordChanged(widget.record.withCreatedAt(picked));
   }
 
+  /// Same "search existing, or type to create" picker used for education/
+  /// job titles and relationship organizations — fuzzy-matches locations
+  /// already used on other photos, no separate "create" affordance needed.
   Future<void> _editLocation() async {
     final l10n = AppLocalizations.of(context)!;
-    final controller = TextEditingController(
-      text: widget.record.location ?? '',
-    );
-    final saved = await showCupertinoDialog<bool>(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: Text(l10n.detailInfoLocation),
-        content: Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: CupertinoTextField(
-            controller: controller,
-            placeholder: l10n.detailLocationPlaceholder,
-            autofocus: true,
-          ),
+    final options = await widget.assetRecordStore.allLocations();
+    if (!mounted) return;
+    final value = await Navigator.of(context).push<String>(
+      CupertinoPageRoute(
+        builder: (_) => StringPickerScreen(
+          title: l10n.detailInfoLocation,
+          options: options,
+          initialQuery: widget.record.location ?? '',
         ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(l10n.actionCancel),
-          ),
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(l10n.settingsSaveButton),
-          ),
-        ],
       ),
     );
-    if (saved != true) return;
-    final value = controller.text.trim().isEmpty
-        ? null
-        : controller.text.trim();
-    await widget.assetRecordStore.setLocation(widget.record.localId, value);
-    widget.onRecordChanged(widget.record.withLocation(value));
+    if (value == null) return;
+    final normalized = value.trim().isEmpty ? null : value.trim();
+    await widget.assetRecordStore.setLocation(
+      widget.record.localId,
+      normalized,
+    );
+    widget.onRecordChanged(widget.record.withLocation(normalized));
   }
 
   void _saveDescription(String value) {
@@ -769,31 +809,17 @@ class _InfoPanelState extends State<_InfoPanel> {
     widget.onRecordChanged(widget.record.withDescription(value));
   }
 
+  /// Same fuzzy search-or-create picker as [_editLocation], scoped to tags
+  /// already used on other photos and not already on this one.
   Future<void> _addTag() async {
     final l10n = AppLocalizations.of(context)!;
-    final controller = TextEditingController();
-    final tag = await showCupertinoDialog<String>(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: Text(l10n.detailTagsHeader),
-        content: Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: CupertinoTextField(
-            controller: controller,
-            placeholder: l10n.detailTagPlaceholder,
-            autofocus: true,
-          ),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(l10n.actionCancel),
-          ),
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(controller.text.trim()),
-            child: Text(l10n.actionAdd),
-          ),
-        ],
+    final allTags = await widget.assetRecordStore.allTags();
+    final options = allTags.difference(widget.record.tags.toSet());
+    if (!mounted) return;
+    final tag = await Navigator.of(context).push<String>(
+      CupertinoPageRoute(
+        builder: (_) =>
+            StringPickerScreen(title: l10n.detailTagsHeader, options: options),
       ),
     );
     if (tag == null || tag.isEmpty || widget.record.tags.contains(tag)) return;
@@ -832,6 +858,19 @@ class _InfoPanelState extends State<_InfoPanel> {
 
   Future<void> _removePerson(Person person) async {
     await widget.personStore.removeAsset(person.id, widget.record.localId);
+    await _loadPeople();
+  }
+
+  Future<void> _openPerson(Person person) async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => PersonPageScreen(
+          person: person,
+          personStore: widget.personStore,
+          assetRecordStore: widget.assetRecordStore,
+        ),
+      ),
+    );
     await _loadPeople();
   }
 
@@ -990,6 +1029,7 @@ class _InfoPanelState extends State<_InfoPanel> {
                 _PersonChip(
                   person: person,
                   assetRecordStore: widget.assetRecordStore,
+                  onTap: () => _openPerson(person),
                   onRemove: () => _removePerson(person),
                 ),
             ],
@@ -1072,52 +1112,63 @@ class _PersonChip extends StatelessWidget {
   const _PersonChip({
     required this.person,
     required this.assetRecordStore,
+    required this.onTap,
     required this.onRemove,
   });
 
   final Person person;
   final AssetRecordStore assetRecordStore;
+
+  /// Opens this person's page — the little x (a separate, smaller tap
+  /// target layered on top) still just untags them.
+  final VoidCallback onTap;
   final VoidCallback onRemove;
 
   @override
   Widget build(BuildContext context) {
-    return Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Stack(
-          clipBehavior: Clip.none,
-          children: [
-            PersonAvatar(
-              assetRecordStore: assetRecordStore,
-              localId: person.avatarLocalId,
-              size: 56,
-            ),
-            Positioned(
-              right: -4,
-              top: -4,
-              child: GestureDetector(
-                onTap: onRemove,
-                child: const Icon(
-                  CupertinoIcons.xmark_circle_fill,
-                  size: 18,
-                  color: CupertinoColors.systemGrey,
+    return GestureDetector(
+      onTap: onTap,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Stack(
+            clipBehavior: Clip.none,
+            children: [
+              PersonAvatar(
+                assetRecordStore: assetRecordStore,
+                localId: person.avatarLocalId,
+                size: 56,
+              ),
+              Positioned(
+                right: -4,
+                top: -4,
+                child: GestureDetector(
+                  onTap: onRemove,
+                  child: const Icon(
+                    CupertinoIcons.xmark_circle_fill,
+                    size: 18,
+                    color: CupertinoColors.systemGrey,
+                  ),
                 ),
               ),
-            ),
-          ],
-        ),
-        const SizedBox(height: 4),
-        SizedBox(
-          width: 64,
-          child: Text(
-            person.name,
-            textAlign: TextAlign.center,
-            maxLines: 1,
-            overflow: TextOverflow.ellipsis,
-            style: const TextStyle(color: CupertinoColors.white, fontSize: 12),
+            ],
           ),
-        ),
-      ],
+          const SizedBox(height: 4),
+          SizedBox(
+            width: 64,
+            child: Text(
+              person.name,
+              textAlign: TextAlign.center,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                color: CupertinoColors.white,
+                fontSize: 12,
+              ),
+            ),
+          ),
+        ],
+      ),
     );
   }
 }

@@ -435,11 +435,11 @@ void main() {
     await tester.tap(find.text('No Location'));
     await tester.pumpAndSettle();
     await tester.enterText(
-      find.byType(CupertinoTextField).last,
+      find.byType(CupertinoSearchTextField),
       'Kyoto, Japan',
     );
     await tester.pump();
-    await tester.tap(find.text('Save'));
+    await tester.tap(find.text('Use "Kyoto, Japan"'));
     await tester.pumpAndSettle();
 
     expect(find.text('Kyoto, Japan'), findsOneWidget);
@@ -523,9 +523,9 @@ void main() {
       find.byIcon(CupertinoIcons.add_circled, skipOffstage: false).first,
     );
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(CupertinoTextField).last, 'sunset');
+    await tester.enterText(find.byType(CupertinoSearchTextField), 'sunset');
     await tester.pump();
-    await tester.tap(find.text('Add'));
+    await tester.tap(find.text('Use "sunset"'));
     await tester.pumpAndSettle();
 
     expect(find.text('sunset'), findsOneWidget);
@@ -590,6 +590,81 @@ void main() {
     expect(tagged, isEmpty);
   });
 
+  testWidgets('tapping a tagged person opens their own page', (tester) async {
+    final record = _record(localId: 'a');
+    final assetRecordStore = FakeAssetRecordStore();
+    await assetRecordStore.upsert(
+      localId: record.localId,
+      contentHash: record.localId,
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: record.sourcePath,
+      createdAt: record.createdAt,
+    );
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.addAssets(mia.id, ['a']);
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [record],
+          initialIndex: 0,
+          assetRecordStore: assetRecordStore,
+          personStore: personStore,
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await _scrollToInfoPanel(tester);
+
+    await tester.tap(find.text('Mia'));
+    await tester.pumpAndSettle();
+
+    // Lands on Mia's own page, not an edit sheet.
+    expect(find.text('Mia'), findsWidgets);
+    expect(find.byType(CupertinoNavigationBarBackButton), findsOneWidget);
+  });
+
+  testWidgets('the info-circle button reveals the info panel below', (
+    tester,
+  ) async {
+    final record = _record(localId: 'a');
+    final assetRecordStore = FakeAssetRecordStore();
+    await assetRecordStore.upsert(
+      localId: record.localId,
+      contentHash: record.localId,
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: record.sourcePath,
+      createdAt: record.createdAt,
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [record],
+          initialIndex: 0,
+          assetRecordStore: assetRecordStore,
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(find.text('No Location', skipOffstage: false), findsOneWidget);
+    expect(find.text('No Location'), findsNothing);
+
+    await tester.tap(find.byIcon(CupertinoIcons.info_circle));
+    await tester.pumpAndSettle();
+
+    expect(find.text('No Location'), findsOneWidget);
+  });
+
   testWidgets('the share sheet offers "Export As…" for a photo, not a video', (
     tester,
   ) async {
@@ -644,7 +719,7 @@ void main() {
       );
       await tester.pump();
 
-      await tester.tap(find.byIcon(CupertinoIcons.pencil));
+      await tester.tap(find.text('Edit'));
       await tester.pumpAndSettle();
 
       expect(

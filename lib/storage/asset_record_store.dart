@@ -276,6 +276,33 @@ class AssetRecordStore {
     );
   }
 
+  /// Every distinct location already used across all photos — the
+  /// searchable-picker's "select if exists" list for the detail screen's
+  /// Location field.
+  Future<Set<String>> allLocations() async {
+    final db = await _open();
+    final rows = await db.query(
+      _table,
+      columns: ['location'],
+      distinct: true,
+      where: "location IS NOT NULL AND location != ''",
+    );
+    return rows.map((r) => r['location'] as String).toSet();
+  }
+
+  /// Every distinct tag already used across all photos — same "select if
+  /// exists" role as [allLocations], for the Tags field.
+  Future<Set<String>> allTags() async {
+    final db = await _open();
+    final rows = await db.query(_table, columns: ['tags']);
+    final result = <String>{};
+    for (final row in rows) {
+      final tags = jsonDecode(row['tags'] as String? ?? '[]') as List<dynamic>;
+      result.addAll(tags.cast<String>());
+    }
+    return result;
+  }
+
   Future<void> setHidden(String localId, bool value) async {
     final db = await _open();
     await db.update(
