@@ -18,17 +18,21 @@ Widget _wrap(Widget child) => CupertinoApp(
   home: child,
 );
 
-AssetRecord _record({required String localId, bool isFavorite = false}) =>
-    AssetRecord(
-      localId: localId,
-      contentHash: localId,
-      platform: 'ios',
-      createdAt: DateTime(2026, 1, 1),
-      updatedAt: DateTime(2026, 1, 1),
-      sourceType: AssetSourceType.manualFile,
-      sourcePath: '/tmp/$localId.jpg',
-      isFavorite: isFavorite,
-    );
+AssetRecord _record({
+  required String localId,
+  bool isFavorite = false,
+  bool isVideo = false,
+}) => AssetRecord(
+  localId: localId,
+  contentHash: localId,
+  platform: 'ios',
+  createdAt: DateTime(2026, 1, 1),
+  updatedAt: DateTime(2026, 1, 1),
+  sourceType: AssetSourceType.manualFile,
+  sourcePath: '/tmp/$localId.jpg',
+  isFavorite: isFavorite,
+  isVideo: isVideo,
+);
 
 AssetRecord _photoManagerRecord({required String localId}) => AssetRecord(
   localId: 'photo:$localId',
@@ -585,4 +589,70 @@ void main() {
     tagged = await personStore.peopleFor('a');
     expect(tagged, isEmpty);
   });
+
+  testWidgets('the share sheet offers "Export As…" for a photo, not a video', (
+    tester,
+  ) async {
+    final photo = _record(localId: 'a');
+    final video = _record(localId: 'b', isVideo: true);
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [photo, video],
+          initialIndex: 0,
+          assetRecordStore: FakeAssetRecordStore(),
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(CupertinoIcons.share));
+    await tester.pumpAndSettle();
+    expect(find.text('Share Original'), findsOneWidget);
+    expect(find.text('Export As…'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(PageView), const Offset(-800, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(CupertinoIcons.share));
+    await tester.pumpAndSettle();
+    expect(find.text('Share Original'), findsOneWidget);
+    expect(find.text('Export As…'), findsNothing);
+  });
+
+  testWidgets(
+    'Edit explains a manual file isn\'t in the Photos library, not the plugin',
+    (tester) async {
+      final record = _record(localId: 'a');
+
+      await tester.pumpWidget(
+        _wrap(
+          DetailScreen(
+            records: [record],
+            initialIndex: 0,
+            assetRecordStore: FakeAssetRecordStore(),
+            personStore: FakePersonStore(),
+            onDelete: (_) async => true,
+            onToggleFavorite: (_) async {},
+          ),
+        ),
+      );
+      await tester.pump();
+
+      await tester.tap(find.byIcon(CupertinoIcons.pencil));
+      await tester.pumpAndSettle();
+
+      expect(
+        find.text(
+          "This isn't in your Photos library, so it can't be edited there.",
+        ),
+        findsOneWidget,
+      );
+    },
+  );
 }

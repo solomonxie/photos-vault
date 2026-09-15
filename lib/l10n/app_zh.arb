@@ -39,7 +39,10 @@
 
   "detailFileUnavailable": "该文件已不可用。",
   "detailDoneButton": "完成",
-  "detailShareComingSoon": "分享功能尚未实现。",
+  "detailShareOriginalOption": "分享原图",
+  "detailExportAsOption": "导出为…",
+  "detailExportFailed": "导出失败。",
+  "detailEditNotInLibrary": "该项目不在您的“照片”图库中,无法在那里编辑。",
   "detailInfoStatus": "备份状态",
   "detailInfoDimensions": "尺寸",
   "detailInfoFileSize": "文件大小",

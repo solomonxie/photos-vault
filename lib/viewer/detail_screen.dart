@@ -2,8 +2,13 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart';
+import 'package:image/image.dart' as img;
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
+import 'package:share_plus/share_plus.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../l10n/app_localizations.dart';
@@ -14,6 +19,24 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'person_avatar.dart';
 import 'person_picker_screen.dart';
+
+/// Still-image re-encode formats offered by "Export As…" — decoding and
+/// re-encoding is pure Dart (the `image` package), so this only ever
+/// touches still images; videos share their original file as-is (no
+/// bundled transcoder).
+enum _ExportFormat { jpg, png, webp }
+
+/// Runs off the UI isolate via [compute] — decode+encode of a full-size
+/// photo is heavy enough to jank a frame otherwise.
+Uint8List? _reencode((Uint8List bytes, _ExportFormat format) args) {
+  final decoded = img.decodeImage(args.$1);
+  if (decoded == null) return null;
+  return switch (args.$2) {
+    _ExportFormat.jpg => Uint8List.fromList(img.encodeJpg(decoded)),
+    _ExportFormat.png => Uint8List.fromList(img.encodePng(decoded)),
+    _ExportFormat.webp => Uint8List.fromList(img.encodeWebP(decoded)),
+  };
+}
 
 /// Full-screen, swipe-between-items viewer — the Photos-app pattern: black
 /// background, "Done" to dismiss, a bottom action bar, and — scroll down
@@ -100,7 +123,7 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  void _showComingSoon(String message) {
+  void _showMessage(String message) {
     showCupertinoModalPopup<void>(
       context: context,
       builder: (context) => CupertinoActionSheet(
@@ -111,6 +134,110 @@ class _DetailScreenState extends State<DetailScreen> {
         ),
       ),
     );
+  }
+
+  /// `manualFile` records already have a `sourcePath`; `photoManager` ones
+  /// are resolved on demand (same as `_MediaPageState` does for display) —
+  /// this doesn't share that widget's cached path since Share/Edit live in
+  /// this state, not that one's.
+  Future<String?> _resolvePath(AssetRecord record) async {
+    final direct = record.sourcePath;
+    if (direct != null) return direct;
+    if (record.sourceType != AssetSourceType.photoManager) return null;
+    final resolver = widget.resolvePhotoManagerFile ?? PhotoLibraryService.resolveFile;
+    try {
+      return (await resolver(record))?.path;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// "Share Original" (as-is, any media type) or — stills only —
+  /// "Export As…" to re-encode into a different image format first.
+  Future<void> _showShareSheet() async {
+    final l10n = AppLocalizations.of(context)!;
+    final record = _records[_index];
+    final path = await _resolvePath(record);
+    if (!mounted) return;
+    if (path == null) {
+      _showMessage(l10n.detailFileUnavailable);
+      return;
+    }
+    final choice = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.detailShareOriginalOption),
+          ),
+          if (!record.isVideo)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(l10n.detailExportAsOption),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    if (choice == false) {
+      await SharePlus.instance.share(ShareParams(files: [XFile(path)]));
+      return;
+    }
+    await _exportAndShare(path);
+  }
+
+  Future<void> _exportAndShare(String path) async {
+    final l10n = AppLocalizations.of(context)!;
+    final format = await showCupertinoModalPopup<_ExportFormat>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: Text(l10n.detailExportAsOption),
+        actions: [
+          for (final format in _ExportFormat.values)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(context).pop(format),
+              child: Text(format.name.toUpperCase()),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (format == null || !mounted) return;
+    try {
+      final bytes = await File(path).readAsBytes();
+      final encoded = await compute(_reencode, (bytes, format));
+      if (encoded == null) throw const FormatException('decode failed');
+      final dir = await getTemporaryDirectory();
+      final outPath = p.join(dir.path, 'export-${DateTime.now().millisecondsSinceEpoch}.${format.name}');
+      await File(outPath).writeAsBytes(encoded);
+      if (!mounted) return;
+      await SharePlus.instance.share(ShareParams(files: [XFile(outPath)]));
+    } catch (_) {
+      if (mounted) _showMessage(l10n.detailExportFailed);
+    }
+  }
+
+  /// iOS gives third-party apps no way to deep-link into the Photos app's
+  /// editor for a specific asset — this opens the Photos app itself (best
+  /// effort) via its unofficial `photos-redirect://` scheme.
+  Future<void> _editInPhotos() async {
+    final l10n = AppLocalizations.of(context)!;
+    final record = _records[_index];
+    if (record.sourceType != AssetSourceType.photoManager) {
+      _showMessage(l10n.detailEditNotInLibrary);
+      return;
+    }
+    final uri = Uri.parse('photos-redirect://');
+    final opened = await canLaunchUrl(uri) && await launchUrl(uri, mode: LaunchMode.externalApplication);
+    if (!opened && mounted) _showMessage(l10n.detailEditNotInLibrary);
   }
 
   @override
@@ -158,8 +285,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 children: [
                   CupertinoButton(
                     padding: EdgeInsets.zero,
-                    onPressed: () =>
-                        _showComingSoon(l10n.detailShareComingSoon),
+                    onPressed: _showShareSheet,
                     child: const Icon(
                       CupertinoIcons.share,
                       color: CupertinoColors.white,
@@ -172,6 +298,14 @@ class _DetailScreenState extends State<DetailScreen> {
                       _records[_index].isFavorite
                           ? CupertinoIcons.heart_fill
                           : CupertinoIcons.heart,
+                      color: CupertinoColors.white,
+                    ),
+                  ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: _editInPhotos,
+                    child: const Icon(
+                      CupertinoIcons.pencil,
                       color: CupertinoColors.white,
                     ),
                   ),
