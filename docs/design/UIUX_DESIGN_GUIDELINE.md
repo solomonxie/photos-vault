@@ -1,0 +1,651 @@
+# UI/UX Design Guideline
+
+This app's UI/UX decisions and the reasoning behind each. Companion to
+[DESIGN.md](DESIGN.md) (architecture) — this one covers what the user sees.
+
+Section headings mirror the personal `my-mobile-design-guideline.md` under the
+`uiux` skill, so anything settled here can be folded back into it.
+
+
+## Overall style
+
+Apple minimalist style, modern, simple, intuitive, clear...
+
+Design against **real screenshots of the app you're imitating**, not from memory. Every IA correction below came from holding the build next to the real thing.
+
+Default section styling for any settings-ish page — **no cards**. Rows sit
+directly on the page background, separated by inset hairlines. A card
+inside an already-dark page is one more edge to get wrong, and the seam it
+leaves is the single most visible dark-mode bug (see Theme below).
+
+Two heading tiers, and only two:
+- **Primary** (the page's subject — the thing being listed): 20px, weight 700, white.
+- **Secondary** (settings that govern it): 12px, weight 600, letter-spacing 0.5, UPPERCASE, muted.
+- Heading row carries **at most one** right-aligned accent control (`Manual Only ▾`, `⊕`) — a text link or a bare glyph, never a filled button.
+- Hint under the heading: 11px muted, ~1.35 line-height. One short paragraph: what it's for, plus any privacy/cost caveat.
+- Row: 15px/w600 title, 11px muted subtitle, 12px muted detail line.
+- Container rows lead with a 44pt rounded square (radius 6) filled with an accent *gradient*, white glyph — flat fill reads dead at that size.
+- Hairline between rows is inset to where the title starts (56 = 44 tile + 12 gap), so it reads as a list, not a table.
+- Stats: a compact one-line footer under the list, never its own row or section. In-progress state rides inline on it.
+- Sections are separated by a full-width hairline with 24px above and below.
+
+```
+Cloud Buckets                                        ⊕   ← 20 · 700 · white
+Photos upload to storage you own. Credentials stay       (one control, right)
+on this device and go straight to the bucket.        ← hint: 11 muted
+┌────┐  slmx-archives2                              ⋯
+│ ☁  │  s3://slmx-archives2/photos/                      ← 15/w600 · 11 muted
+└────┘  ca-central-1                                     ← 12 muted detail
+  44     ────────────────────────────────────────────    ← hairline, inset to 56
+┌────┐  backup-eu                                   ⋯
+│ ☁  │  s3://backup-eu/photos/
+└────┘  eu-west-1
+1 bucket · 56 of 57 photos backed up          ⟳ Syncing…  ← stats, 12 muted;
+Sync queue: 12 pending · 2 at a time  ›                     progress rides inline
+────────────────────────────────────────────────────────  ← 24px · hairline · 24px
+SYNC FREQUENCY                          Manual Only ▾   ← 12 · 600 · UPPERCASE
+Checked opportunistically while the app is open —
+there's no background-sync permission yet.
+Last synced Sep 15 4:26 PM
+Sync Now                                               ← accent link, left-aligned,
+                                                         disabled (not hidden) with
+                                                         no bucket configured
+```
+
+Be honest in copy about limitations. If background sync isn't registered with the OS, say "only while the app is open" rather than implying otherwise.
+
+
+## Languages
+
+Support multi-languages since day1.
+
+Every user-facing string goes through the localization layer from the first screen — retrofitting means re-touching every hardcoded string later.
+
+Decode network payloads explicitly as UTF-8. Don't trust `Content-Type` charset sniffing: S3's XML is UTF-8 but omits the charset param, so default sniffing falls back to latin-1 and turns CJK filenames into mojibake.
+
+```
+bytes on the wire    →  decoded as latin-1  →  "ä¸­æ..."   ✗ mojibake
+(UTF-8, no charset      decoded as UTF-8    →  "中文.mp3"   ✓
+ param in the header)
+```
+
+
+## Navigation & information architecture
+
+- If the content is one library, it's **one scrollable page, not tabs**. Stacked sections (grid → collections → media types → utilities) beat a tab bar.
+- Don't invent a tab for something that is a section.
+- Don't invent a page for something that is a menu. A page whose only job is holding two links should be deleted.
+- Size the surface to the size of the decision:
+  - small/one-off (pick a tag, pick a gender) → compact bottom sheet, ~40% height
+  - larger/repeated (pick a school, employer, location, person) → full page push
+  - a handful of actions on one object → `…` menu
+- Anything that names another entity must be tappable and open that entity. No dead-end references.
+- Label actions by what they do: a `+` that opens a browse screen should say "More".
+- Name things as the user thinks of them: "Places Lived" not "Movement History"; "Private Cloud" not "Cloud Backups".
+
+```
+DO — one scrollable page              DON'T — a tab per section
+┌─────────────────────┐               ┌─────────────────────┐
+│ Library         🔍  │               │ Library         🔍  │
+│ ▦ ▦ ▦ ▦   Yesterday │               │ ▦ ▦ ▦ ▦             │
+│ ▦ ▦ ▦ ▦             │               │ ▦ ▦ ▦ ▦             │
+│ Collections         │               │                     │
+│   Albums · People   │               │                     │
+│ Media Types         │               │                     │
+│   Photos · Videos   │               ├──────────┬──────────┤
+│ Utilities           │               │ Library  │ Collect… │ ← a tab standing in
+│   Favorites · …     │               └──────────┴──────────┘   for a section
+└─────────────────────┘
+```
+
+Surface ladder — match the surface to the weight of the decision:
+
+```
+pick a tag / gender      ─▶  bottom sheet, ~40% height
+pick a school / person   ─▶  full page push  (searchable, create-in-place)
+act on one object        ─▶  ⋯ menu
+confirm something risky  ─▶  alert dialog, Cancel LAST
+```
+
+
+## UI Components
+
+### Theme
+Support light/dark theme by default, and choose theme automatically by system settings.
+
+Dark-theme pitfalls:
+- Page background: a dark charcoal (`0xFF1C1C1E`), never pure black. Cards one step lighter (`0xFF2C2C2E`).
+- Grouped list sections default to `systemGroupedBackground` = pure black in dark mode — harsher than the page, and it renders as a visible seam/void around the card. Override background + decoration **everywhere**, consistently; one missed screen is obvious.
+- Bare text fields are nearly invisible on dark. Use filled form rows/cards.
+
+```
+✗ un-overridden section            ✓ overridden
+  page   #1C1C1E                     page   #1C1C1E
+  ░░░░░░░░░░░░░░░░░░                 ░░░░░░░░░░░░░░░░░░
+  ░ ███████████████ ░  ← #000000     ░ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ ░  ← #2C2C2E card,
+  ░ █ card        █ ░    seam:       ░ ▓ card        ▓ ░    one step LIGHTER
+  ░ ███████████████ ░    a void      ░ ▓▓▓▓▓▓▓▓▓▓▓▓▓▓▓ ░    than the page
+  ░░░░░░░░░░░░░░░░░░                 ░░░░░░░░░░░░░░░░░░
+```
+
+
+### Pop up window
+
+if something / some options aren't many, don't jump to another page, but use propor sized dropdown menu or pop up window instead.
+
+- Put every per-connection/per-object action in one `…` menu: e.g. sync frequency picker, "Last synced: …", Sync Now, Sync Queue, Delete Connection.
+- Transient status lists (a queue) belong in a sheet, not a pushed page.
+- Alert dialogs stack 3+ actions in list order — put Cancel **last**, not first.
+
+One `⋯` menu holds the whole object's surface area:
+
+```
+  ‹ Back        slmx-archives2                  ⋯
+                                                │
+        ┌───────────────────────────────────────┴──┐
+        │ ✓ Manual (no auto sync)                  │  frequency: a checked list,
+        │   Every 15 minutes                       │  not a sub-page
+        │   Every hour                             │
+        │   Every 6 hours                          │
+        │   Every day                              │
+        ├──────────────────────────────────────────┤
+        │   Last synced: 9 hours ago               │  status, not an action
+        ├──────────────────────────────────────────┤
+        │   Sync Now                               │  always available
+        │   Sync Queue                         ☰   │  opens a sheet
+        ├──────────────────────────────────────────┤
+        │   Delete Connection                  🗑   │  destructive, last
+        └──────────────────────────────────────────┘
+```
+
+
+### Diagrams
+
+Trend graphs: by semantic meaning, can prefer stacked line graph, with avg or some baselines (dotted). and have vertical axis to denote number levels. Graph should be horizontally scrollable. and have list icons, click each item, can hide/show that in the diagram/graph.
+
+Relationship/network graphs: wrap in a pinch-zoom + pan viewport; cluster the primary group (e.g. family) and colour-code the rest by type.
+
+```
+ $
+ │      ╭─╮                          ← series, stacked
+ │  ╭───╯ ╰──╮        ╭───╮
+ │──┴────────┴────────┴───┴──  avg   ← dotted baseline
+ │
+ └──────────────────────────────▶    ← horizontally scrollable
+    Jan  Feb  Mar  Apr  May
+
+ ● Groceries   ● Rent   ○ Fuel       ← tap a legend item to hide/show it
+                          ↑ hidden
+```
+
+
+### Buttons
+
+Sometimes text link style look better than big button, depends on the usage.
+
+```
+✓ + Add Cloud Bucket          ✗ ┏━━━━━━━━━━━━━━━━━━━┓
+  (accent text link)             ┃  ADD CLOUD BUCKET ┃
+                                 ┗━━━━━━━━━━━━━━━━━━━┛
+```
+
+
+### Grids and tiles
+
+- Day-grouped square grid under bold date headers ("Today" / "Yesterday" / localized date).
+- Large-title nav bar with a search field above it.
+- Badge only the **exceptional** state. A not-yet-synced dot, nothing at all when it's fine — a healthy library should read clean, not carry a checkmark on every tile.
+- Per-item actions go in a long-press context menu (Haptic Touch), not persistent on-tile buttons.
+- Multi-select reuses the same tile with a checkmark overlay rather than a separate mode/screen.
+- Tile image source order: live local file → OS library thumbnail → app's own cached thumbnail → placeholder. The cache is a *fallback*; preferring it means one stale path blanks a tile whose real photo is right there.
+
+```
+Library                 ← large title
+🔍 Search
+Yesterday               ← bold day header
+┌──────┬──────┬──────┬──────┐
+│      │      │      │      │
+│      │      │      │    ◌ │  ← ONLY the not-yet-synced tile is badged
+└──────┴──────┴──────┴──────┘     (dotted ring, bottom-right)
+Jul 31, 2026
+┌──────┬──────┐
+│    ☁ │   ✓  │  ← ☁ = cloud-only (local original freed)
+└──────┴──────┘     ✓ = selection overlay, same tile, no separate screen
+```
+
+Tile image source — the cache is a fallback, never the preference:
+
+```
+live local file  ──found──▶  draw it
+      │ missing
+      ▼
+OS library thumb ──found──▶  draw it
+      │ missing / cloud-only
+      ▼
+app cached thumb ──found──▶  draw it
+      │ missing
+      ▼
+   placeholder
+
+✗ preferring the cache first = one stale path blanks a tile
+  whose real photo is sitting right there (container UUIDs
+  change on reinstall, so cached absolute paths go stale)
+```
+
+
+### Lists and rows
+
+- A row representing a container (folder, connection, album) carries a one-line stats footer beneath it: `361 episodes synced · 12.14 GB`.
+- Stats come from already-collected local metadata, not a live rescan on open.
+- Destructive actions live in the item's own menu, never as a second tap target beside the disclosure chevron.
+- Once a flat list has categories, group it into typed subsections with their own headers.
+
+```
+📁  bible-audio                                    ›
+─────────────────────────────────────────────────────
+361 episodes synced · 12.14 GB     ← one-line footer, muted, from local
+                                     metadata — NOT a live rescan on open
+
+✗  📁  bible-audio                            🗑   ›
+                                               ↑ second tap target next to
+                                                 the chevron = mis-taps.
+                                                 Delete belongs in ⋯ .
+```
+
+
+### Detail viewer (media)
+
+- Full-screen swipeable pager, dark background, "Done" plus a bottom action bar.
+- Info panel lives **below** the image — scroll or drag down to reach it; past a threshold that same drag dismisses back to the grid. An info button in the bottom bar scrolls to the same place.
+- Pinch to zoom, double-tap to zoom ~3x centred on the tap point, double-tap again to reset. Enable panning **only while zoomed**, or it fights the pull-down-to-dismiss gesture.
+- Info panel is a grouped rounded card with inset dividers, not a flat full-bleed divided list.
+  - Header: date/time, filename as a muted second line.
+  - Free-text fields (caption, location) as their own rounded cards, not bare text on the background.
+  - Every row that can be edited is tappable in place (date/time sheet, pickers, chips).
+- "Edit" sits top-right in the nav bar.
+- Export/share: offer the original always; offer re-encoded formats only where you actually have an encoder, and say why when you don't.
+
+```
+   ▲  drag down past threshold  ⇒  dismiss back to the grid
+   │
+   Done                                              Edit   ← Edit top-right
+   ───────────────────────────────────────────────────────
+                        [  photo  ]        pinch / double-tap 3x at tap point
+                                           pan ONLY while zoomed, or it fights
+                                           the pull-down-to-dismiss drag
+   share    favorite    info    adjust    trash
+                          └── scrolls down to the panel ──┐
+   ───────────────────────────────────────────────────────│
+   │  scroll / drag up                            ◀───────┘
+   ▼
+   Sat · Sep 12, 2026 · 4:13 PM                           ← date/time header
+   IMG_4934                                               ← filename, muted
+   ╭───────────────────────────────────────────╮
+   │ Location                      No Location │  grouped card,
+   ├───────────────────────────────────────────┤  inset dividers —
+   │ Dimensions                      4288×2848 │  NOT a flat full-bleed
+   ├───────────────────────────────────────────┤  divided list
+   │ Backup status                     Pending │
+   ╰───────────────────────────────────────────╯
+   ╭───────────────────────────────────────────╮
+   │ Add a description…                        │  free text = its own card,
+   ╰───────────────────────────────────────────╯  not bare text on the bg
+```
+
+
+### Pickers and inputs
+
+- Any value that is free text but repeats across records (location, tag, school, employer, organization) gets a **fuzzy search-or-create picker**: typing filters existing values across all records, and the same field creates a new one. No separate "create" button, no separate mode.
+- Passcode entry: tap-only numeric keypad with dot indicators, not a system keyboard. Auto-submit on the final digit when there's nothing left to disambiguate.
+- Credential/technical fields: disable autocorrect and smart punctuation. Smart quotes and dashes silently corrupt pasted keys and produce "wrong credentials" errors that aren't.
+- Validate destructively-wrong input before saving, with non-blocking hints (e.g. "20 characters — AWS keys are usually 20") to catch bad pastes.
+- Keep a draft of any failed or abandoned form so nothing is retyped.
+- Surface the provider's own error code verbatim alongside your friendly message — each code points at a different field to fix.
+- Confirm destructive actions, naming the specific thing being removed.
+
+Search-or-create — one field does both, no mode switch:
+
+```
+┌──────────────────────────────────┐
+│ 🔍 seat|                         │  ← typing filters existing values
+├──────────────────────────────────┤     across ALL records…
+│ Seattle                          │
+│ Seatac Airport                   │
+├──────────────────────────────────┤
+│ Use "seat"                       │  ← …and the same field creates.
+└──────────────────────────────────┘     No separate "+ Create" button.
+```
+
+Passcode — tap-only, no system keyboard:
+
+```
+        ● ● ○ ○          ← dot indicators, not a text field
+       ┌───┬───┬───┐
+       │ 1 │ 2 │ 3 │
+       ├───┼───┼───┤
+       │ 4 │ 5 │ 6 │
+       ├───┼───┼───┤
+       │ 7 │ 8 │ 9 │
+       └───┼───┼───┘
+           │ 0 │            auto-submits on the 4th digit when there's
+           └───┘            nothing left to disambiguate
+
+         Cancel             ← LAST. Dialogs stack 3+ actions in list order.
+```
+
+Credential fields — the failure mode is invisible:
+
+```
+typed/pasted:   AKIA...20 chars
+iOS "helpfully" applies smart quotes / autocorrect
+stored:         AKIA…19 chars + a curly quote
+result:         403 SignatureDoesNotMatch  ← looks like bad credentials,
+                                             is actually bad text input
+fix:  autocorrect off · smart quotes off · smart dashes off
+      + non-blocking hint:  "19 characters — AWS keys are usually 20"
+```
+
+
+### Empty state & demo data
+
+- Ship bundled demo data so the app is explorable before anything is configured ("Try with Demo Photos"). Nothing to fetch, no account, no connection.
+- Seeding must be idempotent by fixed id / content hash, with a "Reset Demo Data" action that re-adds only what's missing.
+- Spread demo timestamps across several days and years — otherwise date grouping demos itself as one giant "Today" pile.
+- Demo media should have visible pattern/motion, not flat colour.
+- Demo relationship data should be realistic: only the closest few have avatars or photos; the rest are name-only. Everyone having everything looks fake.
+
+```
+✗ all createdAt = now          ✓ backdated across days/years
+  Today                          Yesterday
+  ▦▦▦▦▦▦▦▦▦▦▦▦▦▦▦▦▦▦▦▦           ▦▦▦▦
+  ▦▦▦▦▦▦▦▦▦▦▦▦▦▦▦▦▦▦▦▦           Jul 31, 2026
+  ▦▦▦▦▦▦▦▦▦▦▦▦                   ▦▦▦▦▦▦▦▦
+  one giant pile — the day        Mar 12, 2011
+  grouping demos nothing          ▦▦▦
+                                  grouping demonstrates itself
+```
+
+
+### Local backup
+
+must natively support backup all configs and app data to mobile local storage, and can import from it.
+Purpose is to survive phone change, app reinstall...
+And can support cloud bucket backup if confirmed in design.
+
+- Never record a file by its picker/temp path. Copy into app-owned storage (hash-named) before recording.
+- Never treat an absolute path as a durable handle: container UUIDs change on reinstall. Re-resolve by filename, and heal stale records on read.
+
+```
+✗  record the picker's path directly
+   /tmp/pick-9f2a/IMG_4934.jpg        ← OS clears temp; container UUID
+                                        changes on reinstall ⇒ silently
+                                        unopenable asset
+
+✓  copy into app-owned storage first, hash-named
+   <appSupport>/<sha256>.jpg
+   and on read, if the stored path is gone, re-find by filename
+   under the CURRENT app-support dir and heal the record
+```
+
+
+### Cloud Bucket Backup
+
+Applicable cloud bucket: S3, S3-compatible, Azure, Google
+
+Call it **Private Cloud** — the point is storage the user owns.
+
+Show the roadmap honestly: a storage-type picker listing every vendor, with unbuilt ones visibly disabled as "(coming soon)" rather than hidden.
+
+Scope rule: object storage the user owns is in scope; consumer cloud *apps* (iCloud Drive, Google Drive, Dropbox) are not — those already have official apps.
+
+Key layout under the connection's prefix: `thumbnails/` `medium/` `originals/`, so the user's own bucket lifecycle rules can target each tier. Storage class/tiering is the bucket owner's business, configured in their cloud console, not in the app.
+
+```
+s3://<bucket>/<prefix>/
+      ├── originals/     full-resolution tier   ← "original" = RESOLUTION tier,
+      ├── medium/        display copies            NOT "unmodified bytes"
+      └── thumbnails/    grid tiles
+
+  each tier separately targetable by the user's OWN lifecycle rules
+  (Standard → IA → Glacier). The app never sets a storage class.
+```
+
+Name collision to pre-empt: `originals/` means *full-resolution tier*, not *unmodified bytes*. If an "optimized" upload option exists, say so in the UI or it reads as a bug.
+
+Page layout — **one flat page, no sub-pages.** The bucket list is the subject; everything else is a setting governing it, stacked below. Two sub-pages ("Backup Queue", "Backup Settings") hanging off it was the worst thing about the old design: the page became a menu of menus, and the thing you came for was two taps away.
+
+```
+✗ page as a menu of menus            ✓ one flat page
+┌──────────────────────────┐         ┌──────────────────────────┐
+│ Backup Queue        ›    │         │ Cloud Buckets        ⊕   │ ← the subject,
+│ Backup Settings     ›    │         │  ☁ slmx-archives2   ⋯    │   first
+│                          │         │  1 bucket · 56 of 57     │
+│ Cloud Buckets       +    │         │  Sync queue: idle   ›    │ ← opens a SHEET
+│  ☁ slmx-archives2   🗑   │         │ ──────────────────────── │
+└──────────────────────────┘         │ SYNC FREQUENCY  Manual ▾ │ ← the settings,
+  the subject is third, and          │ BACKUP FORMAT            │   below it
+  every control is behind a push     └──────────────────────────┘
+```
+
+What goes where:
+- **Per-connection** (browse, sync, delete) → that row's own `⋯` sheet. Never a second tap target beside the row.
+- **Global to syncing** (frequency, format) → a section on the page. A setting whose value needs a sentence of pro/con is a list, not a menu item — menus can't carry the explanation.
+- **Transient** (the queue) → a sheet over the page, opened from the one status line. Not a destination.
+
+Scope a setting where it actually applies, not where a pattern says it should. Per-connection auto-sync is right when each connection is an independent source; here every connection *mirrors the same library*, so one sync run always fans out to all of them — a per-connection frequency would be a lie. It stays global, and says so by living on the page rather than in each bucket's menu.
+
+
+Add connection:
+- Ask for bucket + credentials + prefix. Nothing else.
+- **Auto-detect the region** from the bucket name; never make the user type it. (S3's global endpoint returns `x-amz-bucket-region` even unauthenticated.)
+- Validate real access *before* saving, using the same permission real syncs need — use a request that returns a diagnostic body (`GET`/list), not one that can't (`HEAD`), or failures degrade to a bare status code.
+- Connection row: bucket name, `s3://bucket/prefix/`, region, and the row's `⋯`. The full path is the subtitle because two connections to the same bucket differ only by prefix — showing the region alone can't tell them apart.
+
+```
+Cloud Buckets                                             ⊕
+Photos upload to storage you own. Credentials stay on
+this device and go straight to the bucket.
+
+┌────┐  slmx-archives2                                    ⋯
+│ ☁  │  s3://slmx-archives2/bible-audio/photos/
+└────┘  ca-central-1              ↑ the prefix is what tells two
+                                    connections to one bucket apart
+
+1 bucket · 56 of 57 photos backed up      ← stats footer: per-BUCKET counts
+Sync queue: idle  ›                         aren't shown, because every bucket
+                                            mirrors the same library — repeating
+   ↑ global across connections, so it        one number per row is noise, not data
+     lives here once, not behind each
+     bucket's menu. Opens a sheet.
+```
+
+Browsing:
+- Root the browser at the connection's **prefix**, and don't allow navigating above it. That prefix *is* the connection.
+- Recurse by pushing the same screen with a deeper prefix — no separate detail screen, no per-level differences.
+- Every level carries the same `…` menu and the same one-line stats footer.
+- Page past listing limits with an explicit "Load More".
+- Tapping a file previews it: presigned GET (never make the object public), images inline with pinch-zoom, anything else offers "Open Externally".
+
+```
+   s3://bucket/          ╳  NOT reachable — outside the connection
+        │
+        └── photos/      ◀── browser ROOT ( = the connection's prefix)
+             ├── originals/        push the SAME screen, deeper prefix
+             │    └── 2026/        …and again. No per-level differences:
+             │         └── …        same ⋯ menu, same stats footer, every level
+             ├── thumbnails/
+             └── notes.txt         tap ⇒ preview via presigned GET
+                                   (image inline · else "Open Externally")
+```
+
+
+Sync frequency:
+Manual, every xx...
+- Manual (default, no auto sync) / 15 min / 30 min / hourly / 6h / 12h / daily.
+- Show "Last synced: …" in the same menu, directly under the options.
+- "Sync Now" is always available regardless of the frequency setting.
+- Without a registered OS background task, a frequency only fires while the app is foregrounded — say that in the hint.
+
+
+Queue:
+
+**A real, persisted queue — not a view derived from record statuses.** If "the queue" is just a filter over states, there is no queue: nothing can be paused, retried, or run concurrently.
+
+```
+✗ FAKE — a view over record statuses     ✓ REAL — its own job table
+  SELECT * FROM photos                     ┌──────────────────────────┐
+  WHERE status != 'uploaded'               │ id · ref · kind · status │
+                                           │ error · timestamps       │
+  nothing to pause                         └──────────────────────────┘
+  nothing to retry individually              claim on dequeue (in a txn)
+  no concurrency                             pause · speed · retry · clear
+  "clear" can only mean "delete data"        "clear" just drops jobs
+```
+
+- Job table: id, target/asset ref, kind, display name, status (pending/running/done/failed), error message, timestamps.
+- **Every** unit of work is a job — metadata/hash checks and thumbnail work too, not just the big uploads. If the app is doing something, it must be a visible row.
+- Label each row by kind ("Backing up original", "Backing up thumbnail", "Checking for changes") so the list explains itself.
+- Claim on dequeue inside a transaction, so two workers can't take the same job.
+- Bounded concurrency, user-visible and adjustable: "Speed: N at a time", default 2, range 1–8.
+- Pause / resume, persisted.
+- Clear Finished and Clear Queue as separate actions. Clearing changes **no** underlying data — the next manual or scheduled sync simply re-queues it.
+- Per-job Retry on failure, with the error text inline on the row.
+- Requeue jobs orphaned as `running` at launch: a kill mid-sync must not strand them.
+- A job may enqueue follow-up jobs (a change check that finds drift queues its own re-upload).
+- Never await a whole sync inline on a UI call stack. Enqueue and return.
+- Summary line where connections are listed: `Sync queue: idle` / `Sync queue: 12 pending · 2 at a time`.
+- Long queues: paginate the visible list, but count totals in the query, not off the visible page.
+
+```
+                    Sync Queue
+Queue (45)                                      ⏸    ⋯
+╭──────────────────────────────────────────────────────╮
+│ beach.jpg                                    Waiting │
+│ Backing up original            ← kind, so the list   │
+├──────────────────────────────────  explains itself ──┤
+│ sunset.jpg                                       ◐   │  running
+│ Checking for changes             ← metadata work is  │
+├──────────────────────────────────  a job too ────────┤
+│ harbour.jpg                                      ✓   │  done
+│ Backing up thumbnail                                 │
+├──────────────────────────────────────────────────────┤
+│ cliff.jpg                                    ↻       │  failed → retry
+│ Backing up original                                  │
+│ Access denied                  ← error inline, orange│
+╰──────────────────────────────────────────────────────╯
+
+⋯  Speed: 2 at a time      [ − ]  [ + ]      ← bounded concurrency, visible
+   Clear Finished                              and adjustable (1–8)
+   Clear Queue             (destructive)     ← drops JOBS, never data
+```
+
+State machine — nothing is ever stranded:
+
+```
+   enqueue ──▶ pending ──claim (txn)──▶ running ──▶ done
+                  ▲                        │
+                  │                        └─ throw ──▶ failed ──┐
+                  │                                              │
+                  └──── retry ◀─────────────────────────────────-┘
+                  ▲
+                  └──── requeueStaleRunning() at launch
+                        (a kill mid-sync must not strand a `running` row)
+```
+
+Change detection (has this file changed since backup?):
+- Re-hash the local file and compare against the hash stored at the **last successful upload**.
+- Don't compare against the provider's ETag — not a reliable MD5 for multipart uploads, so large files false-positive.
+- Drift → mark pending → re-upload.
+
+```
+local file ──hash──▶ ┌── same as hash-at-last-upload? ──▶ yes ⇒ nothing to do
+                     └─────────────────────────────────▶ no  ⇒ pending ⇒ re-upload
+
+✗ compare against the provider's ETag — not a real MD5 for multipart
+  uploads, so every large file false-positives as "changed"
+```
+
+Upload format options:
+- Original vs Optimized (re-encoded), each with a one-sentence pro/con on the option itself. Two options with a sentence each is a list of rows, not a menu.
+- Videos upload as-is unless there's a real transcoder — don't imply otherwise.
+
+Delete a control the engine stopped consulting. A "backup order" toggle (mirror each photo across buckets, vs fill one bucket first) was real while a batch loop walked the targets; once sync became per-file jobs that each fan out to every target, nothing read it any more. It looked like a working preference and changed nothing — worse than never having shipped it. Either the job model regains the granularity the control describes, or the control goes.
+
+Sync should be **metadata-only by default**, with bytes fetched lazily per visible cell. Never turn a sync into a bulk local copy of the whole remote library. Say so in the section hint: "Sync only fetches metadata — files download when you open them."
+
+Reclaiming device space:
+- "Remove from Device" keeps the cloud copy. The item stays in every library view, drawn from a locally cached thumbnail, badged as cloud-only.
+- Cache a thumbnail locally for **every** item — including ones too small to warrant a separate cloud thumbnail — precisely so there's something to draw afterwards.
+- The detail screen then offers "Download Full Resolution".
+- Don't offer it for items that aren't backed up, or have no thumbnail to fall back on.
+- Deleting: offer "Remove from Device" vs a real delete. Keep the trash/Recently Deleted safety net, and purge the remote copy at *permanent* delete — not at soft delete, or "Restore" is lying.
+
+```
+  on device, backed up          Remove from Device            Download Full Resolution
+  ┌──────────┐                  ┌──────────┐                  ┌──────────┐
+  │  full    │  ─────────────▶  │ ☁ thumb  │  ─────────────▶  │  full    │
+  │  photo   │                  │  only    │                  │  photo   │
+  └──────────┘                  └──────────┘                  └──────────┘
+   original on disk              space freed;                  re-fetched from
+                                 STILL in every                originals/ on demand
+                                 library view
+
+  ⇒ cache a thumbnail for EVERY photo — including ones too small to be worth a
+    separate cloud thumbnail — or there's nothing left to draw afterwards.
+
+  delete ⋯                                 remote purge timing
+  ├─ Remove from Device  (keeps cloud)     soft delete ─▶ Recently Deleted
+  └─ Delete Photo        (to the trash)                      │  keep remote
+                                                             ▼
+                                            permanent delete ─▶ purge remote
+                                            (purging at soft-delete makes
+                                             "Restore" a lie)
+```
+
+Thumbnails:
+- ~320px longest edge, quality ~70 → roughly 15–30 KB. Bigger is wasted on a grid tile.
+- If the original is already under ~64 KB, skip the separate cloud thumbnail (the original is no bigger) but still keep the local cache copy.
+
+
+### AI Intelligence
+
+Ask input of API key.
+Support multiple vendors.
+Ask method of how to use API key.
+Can support multiple model selections under each vendor, if confirmed by design decicion.
+
+- Multiple keys, any mix of vendors, added one at a time.
+- Fallback strategy as an accent control on the section heading row: `Sequential ▾` / `Round Robin ▾`. Sequential is sticky (moves on only when a key errors); round-robin spreads load every call.
+- Order matters — reorder rows with ↑/↓; delete via the row's own menu.
+- Show a per-key request count as the row's secondary value, so it's obvious which keys carry traffic.
+- Hint must state: what it's used for, that keys go straight from the device to the chosen vendor, that they never leave the device otherwise (including backups), and that adding more than one gives automatic fallback on rate limit / quota.
+- Warn that usage is billed to the user's own account with that vendor.
+- Only list vendors that can actually do the job (don't offer a vision feature a vendor has no vision model for) — a key that can never work is worse than no option.
+- Expensive analysis is **opt-in per run** ("Analyze"), never automatic, and results are cached locally.
+
+Layout follows the standard section anatomy at the top of this doc. The two strategies:
+
+```
+Sequential ▾   key1 ──✓──▶ done      sticky: stays on key1 until it errors
+               key1 ──✗──▶ key2      (rate limit / quota / revoked)
+
+Round Robin ▾  call 1 ─▶ key1        advances every call, win or lose —
+               call 2 ─▶ key2        spreads load instead of favouring one
+               call 3 ─▶ key1
+```
+
+
+### App icon
+
+- Generate to the full icon set from a single source, scripted and re-runnable.
+- Full-bleed to 1024×1024 and let the OS do the corner rounding. A source that bakes in its own rounded card or drop shadow produces a visible double edge against the OS mask.
+- Flat single-hue reads generic — gradient + soft glow + a little depth carries better at small sizes.
+
+```
+✗ source bakes in its own card     ✓ full-bleed 1024×1024
+  ╭──────────────╮                   ┌──────────────┐
+  │ ╭──────────╮ │ ← source's own    │              │
+  │ │  glyph   │ │   rounded edge    │    glyph     │   OS mask does ALL
+  │ ╰──────────╯ │ + iOS mask        │              │   the rounding
+  ╰──────────────╯ = double edge     └──────────────┘
+```
