@@ -5,29 +5,27 @@ import 'package:flutter/cupertino.dart';
 import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import '../storage/private_album.dart';
-import '../storage/private_album_store.dart';
 import 'asset_grid.dart';
 import 'asset_picker_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 
-/// Contents of one passcode-gated private album — reached via Utilities'
-/// "Hidden" row through `private_album_gate.dart`. Header shows item count +
-/// total size; the "..." menu offers Move/Copy from the full library and
-/// deleting the album itself (moved-in assets return to the library, mirrors
-/// `AlbumStore.remove` — nothing is destroyed). See DESIGN.md.
+/// Contents of a private "album" — every [AssetRecord] currently tagged
+/// with [passcodeHash]. There's no separate album entity to load: this
+/// *is* the query. Reached via Utilities' "Hidden" row through
+/// `private_album_gate.dart`. Header shows item count + total size; the
+/// "..." menu offers adding from the full library and clearing the group
+/// (every member's `passcodeHash` back to `null` — nothing is destroyed).
+/// See DESIGN.md.
 class PrivateAlbumScreen extends StatefulWidget {
   const PrivateAlbumScreen({
     super.key,
-    required this.album,
+    required this.passcodeHash,
     required this.assetRecordStore,
-    required this.privateAlbumStore,
   });
 
-  final PrivateAlbum album;
+  final String passcodeHash;
   final AssetRecordStore assetRecordStore;
-  final PrivateAlbumStore privateAlbumStore;
 
   @override
   State<PrivateAlbumScreen> createState() => _PrivateAlbumScreenState();
@@ -46,13 +44,12 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
   }
 
   Future<void> _reload() async {
-    final ids = (await widget.privateAlbumStore.localIdsIn(widget.album.id))
-        .toSet();
-    final all = await widget.assetRecordStore.listAll();
+    final all = await widget.assetRecordStore.forPasscodeHash(
+      widget.passcodeHash,
+    );
     if (!mounted) return;
-    final records =
-        all.where((r) => !r.isDeleted && ids.contains(r.localId)).toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final records = all.where((r) => !r.isDeleted).toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     setState(() {
       _records = records;
       // Best-effort: only sums files already resolvable on disk
@@ -79,18 +76,12 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
   Future<void> _removeFromAlbum(AssetRecord record) =>
       _removeManyFromAlbum([record.localId]);
 
-  /// Un-hides (if it was moved in) and drops membership for every id —
-  /// shared by the single-tile "Remove from Private Album" action and
+  /// Clears `passcodeHash` (back to the main library) for every id — shared
+  /// by the single-tile "Remove from Private Album" action and
   /// multi-select's "Move to Library".
   Future<void> _removeManyFromAlbum(Iterable<String> localIds) async {
-    final moved = (await widget.privateAlbumStore.movedLocalIdsIn(
-      widget.album.id,
-    )).toSet();
     for (final id in localIds) {
-      await widget.privateAlbumStore.removeAsset(widget.album.id, id);
-      if (moved.contains(id)) {
-        await widget.assetRecordStore.setHidden(id, false);
-      }
+      await widget.assetRecordStore.setPasscodeHash(id, null);
     }
     await _reload();
   }
@@ -119,27 +110,23 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
     return true;
   }
 
-  Future<void> _addFromLibrary({required bool move}) async {
+  Future<void> _addFromLibrary() async {
     final l10n = AppLocalizations.of(context)!;
     final picked = await Navigator.of(context).push<List<AssetRecord>>(
       CupertinoPageRoute(
         builder: (_) => AssetPickerScreen(
-          title: move
-              ? l10n.privateAlbumPickerMoveTitle
-              : l10n.privateAlbumPickerCopyTitle,
+          title: l10n.privateAlbumPickerMoveTitle,
           assetRecordStore: widget.assetRecordStore,
           excludeIds: _records.map((r) => r.localId).toSet(),
         ),
       ),
     );
     if (picked == null || picked.isEmpty) return;
-    final album = await widget.privateAlbumStore.ensureById(widget.album.id);
-    final ids = picked.map((r) => r.localId);
-    await widget.privateAlbumStore.addAssets(album.id, ids, moved: move);
-    if (move) {
-      for (final id in ids) {
-        await widget.assetRecordStore.setHidden(id, true);
-      }
+    for (final record in picked) {
+      await widget.assetRecordStore.setPasscodeHash(
+        record.localId,
+        widget.passcodeHash,
+      );
     }
     await _reload();
   }
@@ -165,13 +152,9 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    final movedIds = await widget.privateAlbumStore.movedLocalIdsIn(
-      widget.album.id,
-    );
-    for (final id in movedIds) {
-      await widget.assetRecordStore.setHidden(id, false);
+    for (final record in _records) {
+      await widget.assetRecordStore.setPasscodeHash(record.localId, null);
     }
-    await widget.privateAlbumStore.remove(widget.album.id);
     if (mounted) Navigator.of(context).pop();
   }
 
@@ -184,16 +167,9 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
           CupertinoActionSheetAction(
             onPressed: () {
               Navigator.of(context).pop();
-              _addFromLibrary(move: true);
+              _addFromLibrary();
             },
             child: Text(l10n.privateAlbumMoveFromLibrary),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _addFromLibrary(move: false);
-            },
-            child: Text(l10n.privateAlbumCopyFromLibrary),
           ),
           CupertinoActionSheetAction(
             isDestructiveAction: true,

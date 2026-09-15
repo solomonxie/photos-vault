@@ -47,6 +47,7 @@ class AssetRecord {
     this.description = '',
     this.tags = const [],
     this.location,
+    this.passcodeHash,
   });
 
   final String localId;
@@ -79,6 +80,12 @@ class AssetRecord {
   /// there's no reverse-geocoding; the user types it themselves.
   final String? location;
 
+  /// SHA-256 of a 4-digit private-album passcode, or `null` if this asset
+  /// isn't in one. There's no separate "private album" entity anywhere —
+  /// the group of assets sharing one hash *is* the album; it stops
+  /// existing the moment none do. See `private_album_gate.dart`.
+  final String? passcodeHash;
+
   bool get isDeleted => deletedAt != null;
 
   DerivativeState stateOf(DerivativeKind kind) =>
@@ -95,6 +102,7 @@ class AssetRecord {
     String? description,
     List<String>? tags,
     String? Function()? location,
+    String? Function()? passcodeHash,
   }) => AssetRecord(
     localId: localId,
     contentHash: contentHash,
@@ -111,6 +119,7 @@ class AssetRecord {
     description: description ?? this.description,
     tags: tags ?? this.tags,
     location: location != null ? location() : this.location,
+    passcodeHash: passcodeHash != null ? passcodeHash() : this.passcodeHash,
   );
 
   AssetRecord withDerivative(DerivativeKind kind, DerivativeState state) =>
@@ -130,6 +139,9 @@ class AssetRecord {
   AssetRecord withTags(List<String> value) => _copyWith(tags: value);
 
   AssetRecord withLocation(String? value) => _copyWith(location: () => value);
+
+  AssetRecord withPasscodeHash(String? value) =>
+      _copyWith(passcodeHash: () => value);
 
   /// Used by [AssetRecordStore.upsert] to heal a stale `sourcePath`.
   AssetRecord withSourcePath(String value, DateTime updatedAt) =>

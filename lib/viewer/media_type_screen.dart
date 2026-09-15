@@ -3,7 +3,6 @@ import 'package:flutter/cupertino.dart';
 import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import '../storage/private_album_store.dart';
 import 'asset_grid.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
@@ -18,21 +17,17 @@ class MediaTypeScreen extends StatefulWidget {
     required this.assetRecordStore,
     required this.isVideo,
     required this.title,
-    this.privateAlbumStore,
   });
 
   final AssetRecordStore assetRecordStore;
   final bool isVideo;
   final String title;
-  final PrivateAlbumStore? privateAlbumStore;
 
   @override
   State<MediaTypeScreen> createState() => _MediaTypeScreenState();
 }
 
 class _MediaTypeScreenState extends State<MediaTypeScreen> {
-  late final PrivateAlbumStore _privateAlbumStore =
-      widget.privateAlbumStore ?? PrivateAlbumStore();
   List<AssetRecord> _records = const [];
 
   @override
@@ -48,7 +43,15 @@ class _MediaTypeScreenState extends State<MediaTypeScreen> {
     if (!mounted) return;
     setState(
       () => _records =
-          all.where((r) => !r.isDeleted && !r.isHidden && _matches(r)).toList()
+          all
+              .where(
+                (r) =>
+                    !r.isDeleted &&
+                    !r.isHidden &&
+                    r.passcodeHash == null &&
+                    _matches(r),
+              )
+              .toList()
             ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
     );
   }
@@ -65,7 +68,6 @@ class _MediaTypeScreenState extends State<MediaTypeScreen> {
     await hideIntoPrivateAlbum(
       context,
       assetRecordStore: widget.assetRecordStore,
-      privateAlbumStore: _privateAlbumStore,
       record: record,
     );
     await _reload();

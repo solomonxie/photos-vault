@@ -3,7 +3,6 @@ import 'package:flutter/cupertino.dart';
 import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import '../storage/private_album_store.dart';
 import 'asset_grid.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
@@ -17,21 +16,17 @@ class AssetGroupScreen extends StatefulWidget {
     required this.title,
     required this.records,
     required this.assetRecordStore,
-    this.privateAlbumStore,
   });
 
   final String title;
   final List<AssetRecord> records;
   final AssetRecordStore assetRecordStore;
-  final PrivateAlbumStore? privateAlbumStore;
 
   @override
   State<AssetGroupScreen> createState() => _AssetGroupScreenState();
 }
 
 class _AssetGroupScreenState extends State<AssetGroupScreen> {
-  late final PrivateAlbumStore _privateAlbumStore =
-      widget.privateAlbumStore ?? PrivateAlbumStore();
   late List<AssetRecord> _records = widget.records;
 
   Future<void> _toggleFavorite(AssetRecord record) async {
@@ -49,7 +44,6 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
     final hidden = await hideIntoPrivateAlbum(
       context,
       assetRecordStore: widget.assetRecordStore,
-      privateAlbumStore: _privateAlbumStore,
       record: record,
     );
     if (!hidden) return;

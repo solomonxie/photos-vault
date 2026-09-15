@@ -17,51 +17,48 @@ Future<void> _tapDigits(WidgetTester tester, String digits) async {
 }
 
 void main() {
-  testWidgets('Enter/Create New stay disabled until 4 digits are tapped on the keypad', (tester) async {
-    PrivateAlbumChoice? result;
-    await tester.pumpWidget(
-      _wrap(
-        Builder(
-          builder: (context) => CupertinoButton(
-            onPressed: () async => result = await showPrivateAlbumPasscodeSheet(context),
-            child: const Text('open'),
+  testWidgets(
+    'the 4th digit submits automatically — no Enter/Create/Cancel to tap',
+    (tester) async {
+      String? result;
+      await tester.pumpWidget(
+        _wrap(
+          Builder(
+            builder: (context) => CupertinoButton(
+              onPressed: () async =>
+                  result = await showPrivateAlbumPasscodeSheet(context),
+              child: const Text('open'),
+            ),
           ),
         ),
-      ),
-    );
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
 
-    // No system keyboard involved — a numeric keypad, not a text field.
-    expect(find.byType(CupertinoTextField), findsNothing);
+      // No system keyboard involved — a numeric keypad, not a text field.
+      expect(find.byType(CupertinoTextField), findsNothing);
+      // Only a "Cancel" action — no Enter/Create New to choose between.
+      expect(find.byType(CupertinoDialogAction), findsOneWidget);
+      expect(find.text('Cancel'), findsOneWidget);
 
-    final enterButton = tester.widget<CupertinoDialogAction>(
-      find.ancestor(of: find.text('Enter'), matching: find.byType(CupertinoDialogAction)),
-    );
-    expect(enterButton.onPressed, isNull);
+      await _tapDigits(tester, '123');
+      expect(result, isNull);
 
-    await _tapDigits(tester, '12');
-    final stillDisabled = tester.widget<CupertinoDialogAction>(
-      find.ancestor(of: find.text('Enter'), matching: find.byType(CupertinoDialogAction)),
-    );
-    expect(stillDisabled.onPressed, isNull);
+      await _tapDigits(tester, '4');
+      await tester.pumpAndSettle();
 
-    await _tapDigits(tester, '34');
-    await tester.tap(find.text('Enter'));
-    await tester.pumpAndSettle();
-
-    expect(result, isNotNull);
-    expect(result!.passcode, '1234');
-    expect(result!.createNew, isFalse);
-  });
+      expect(result, '1234');
+    },
+  );
 
   testWidgets('a 5th digit tap is ignored once 4 are entered', (tester) async {
-    PrivateAlbumChoice? result;
+    String? result;
     await tester.pumpWidget(
       _wrap(
         Builder(
           builder: (context) => CupertinoButton(
-            onPressed: () async => result = await showPrivateAlbumPasscodeSheet(context),
+            onPressed: () async =>
+                result = await showPrivateAlbumPasscodeSheet(context),
             child: const Text('open'),
           ),
         ),
@@ -71,19 +68,19 @@ void main() {
     await tester.pumpAndSettle();
 
     await _tapDigits(tester, '12345');
-    await tester.tap(find.text('Enter'));
     await tester.pumpAndSettle();
 
-    expect(result!.passcode, '1234');
+    expect(result, '1234');
   });
 
   testWidgets('the delete key removes the last digit', (tester) async {
-    PrivateAlbumChoice? result;
+    String? result;
     await tester.pumpWidget(
       _wrap(
         Builder(
           builder: (context) => CupertinoButton(
-            onPressed: () async => result = await showPrivateAlbumPasscodeSheet(context),
+            onPressed: () async =>
+                result = await showPrivateAlbumPasscodeSheet(context),
             child: const Text('open'),
           ),
         ),
@@ -96,37 +93,13 @@ void main() {
     await tester.tap(find.byIcon(CupertinoIcons.delete_left));
     await tester.pump();
     await _tapDigits(tester, '34');
-    await tester.tap(find.text('Enter'));
     await tester.pumpAndSettle();
 
-    expect(result!.passcode, '1234');
-  });
-
-  testWidgets('Create New reports createNew: true', (tester) async {
-    PrivateAlbumChoice? result;
-    await tester.pumpWidget(
-      _wrap(
-        Builder(
-          builder: (context) => CupertinoButton(
-            onPressed: () async => result = await showPrivateAlbumPasscodeSheet(context),
-            child: const Text('open'),
-          ),
-        ),
-      ),
-    );
-    await tester.tap(find.text('open'));
-    await tester.pumpAndSettle();
-
-    await _tapDigits(tester, '5678');
-    await tester.tap(find.text('Create New'));
-    await tester.pumpAndSettle();
-
-    expect(result!.passcode, '5678');
-    expect(result!.createNew, isTrue);
+    expect(result, '1234');
   });
 
   testWidgets('Cancel returns null', (tester) async {
-    PrivateAlbumChoice? result;
+    String? result;
     var called = false;
     await tester.pumpWidget(
       _wrap(

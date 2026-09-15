@@ -44,8 +44,17 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
     final all = await widget.assetRecordStore.listAll();
     if (!mounted) return;
     setState(
-      () => _records = all.where((r) => !r.isDeleted && !r.isHidden && !widget.excludeIds.contains(r.localId)).toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+      () => _records =
+          all
+              .where(
+                (r) =>
+                    !r.isDeleted &&
+                    !r.isHidden &&
+                    r.passcodeHash == null &&
+                    !widget.excludeIds.contains(r.localId),
+              )
+              .toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
     );
   }
 
@@ -56,7 +65,9 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
   }
 
   void _confirm() {
-    final chosen = _records.where((r) => _selected.contains(r.localId)).toList();
+    final chosen = _records
+        .where((r) => _selected.contains(r.localId))
+        .toList();
     Navigator.of(context).pop(chosen);
   }
 
@@ -76,9 +87,19 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
       ),
       child: SafeArea(
         child: _records.isEmpty
-            ? Center(child: Text(l10n.privateAlbumPickerEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)))
+            ? Center(
+                child: Text(
+                  l10n.privateAlbumPickerEmpty,
+                  style: const TextStyle(color: CupertinoColors.systemGrey),
+                ),
+              )
             : CustomScrollView(
-                slivers: _pickerSlivers(context: context, records: _records, selected: _selected, onToggle: _toggle),
+                slivers: _pickerSlivers(
+                  context: context,
+                  records: _records,
+                  selected: _selected,
+                  onToggle: _toggle,
+                ),
               ),
       ),
     );
@@ -102,7 +123,10 @@ List<Widget> _pickerSlivers({
       SliverToBoxAdapter(
         child: Padding(
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text(entry.key, style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20)),
+          child: Text(
+            entry.key,
+            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+          ),
         ),
       ),
       SliverPadding(
@@ -129,7 +153,12 @@ List<Widget> _pickerSlivers({
 }
 
 class _PickerTile extends StatelessWidget {
-  const _PickerTile({super.key, required this.record, required this.selected, required this.onTap});
+  const _PickerTile({
+    super.key,
+    required this.record,
+    required this.selected,
+    required this.onTap,
+  });
 
   final AssetRecord record;
   final bool selected;
@@ -148,26 +177,39 @@ class _PickerTile extends StatelessWidget {
             if (record.isVideo)
               const ColoredBox(
                 color: CupertinoColors.darkBackgroundGray,
-                child: Icon(CupertinoIcons.play_circle_fill, color: CupertinoColors.white, size: 28),
+                child: Icon(
+                  CupertinoIcons.play_circle_fill,
+                  color: CupertinoColors.white,
+                  size: 28,
+                ),
               )
             else if (path != null)
               Image.file(
                 File(path),
                 fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) =>
-                    const ColoredBox(color: CupertinoColors.systemGrey5, child: Icon(CupertinoIcons.photo)),
+                errorBuilder: (context, error, stackTrace) => const ColoredBox(
+                  color: CupertinoColors.systemGrey5,
+                  child: Icon(CupertinoIcons.photo),
+                ),
               )
             else if (record.sourceType == AssetSourceType.photoManager)
               PhotoManagerThumbnail(assetId: record.localId)
             else
-              const ColoredBox(color: CupertinoColors.systemGrey5, child: Icon(CupertinoIcons.photo)),
+              const ColoredBox(
+                color: CupertinoColors.systemGrey5,
+                child: Icon(CupertinoIcons.photo),
+              ),
             if (selected) const ColoredBox(color: Color(0x662E7DFF)),
             Positioned(
               top: 4,
               right: 4,
               child: Icon(
-                selected ? CupertinoIcons.checkmark_circle_fill : CupertinoIcons.circle,
-                color: selected ? CupertinoColors.activeBlue : CupertinoColors.white,
+                selected
+                    ? CupertinoIcons.checkmark_circle_fill
+                    : CupertinoIcons.circle,
+                color: selected
+                    ? CupertinoColors.activeBlue
+                    : CupertinoColors.white,
                 size: 20,
               ),
             ),

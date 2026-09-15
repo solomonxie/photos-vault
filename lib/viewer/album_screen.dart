@@ -5,7 +5,6 @@ import '../storage/album.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import '../storage/private_album_store.dart';
 import 'asset_grid.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
@@ -21,21 +20,17 @@ class AlbumScreen extends StatefulWidget {
     required this.album,
     required this.assetRecordStore,
     required this.albumStore,
-    this.privateAlbumStore,
   });
 
   final Album album;
   final AssetRecordStore assetRecordStore;
   final AlbumStore albumStore;
-  final PrivateAlbumStore? privateAlbumStore;
 
   @override
   State<AlbumScreen> createState() => _AlbumScreenState();
 }
 
 class _AlbumScreenState extends State<AlbumScreen> {
-  late final PrivateAlbumStore _privateAlbumStore =
-      widget.privateAlbumStore ?? PrivateAlbumStore();
   List<AssetRecord> _records = const [];
 
   @override
@@ -56,6 +51,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
                 (r) =>
                     !r.isDeleted &&
                     !r.isHidden &&
+                    r.passcodeHash == null &&
                     memberIds.contains(r.localId),
               )
               .toList()
@@ -75,7 +71,6 @@ class _AlbumScreenState extends State<AlbumScreen> {
     await hideIntoPrivateAlbum(
       context,
       assetRecordStore: widget.assetRecordStore,
-      privateAlbumStore: _privateAlbumStore,
       record: record,
     );
     await _reload();

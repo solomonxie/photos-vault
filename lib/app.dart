@@ -8,7 +8,12 @@ import 'storage/asset_record_store.dart';
 import 'viewer/library_screen.dart';
 
 class App extends StatelessWidget {
-  const App({super.key, this.settingsStore, this.assetRecordStore, this.albumStore});
+  const App({
+    super.key,
+    this.settingsStore,
+    this.assetRecordStore,
+    this.albumStore,
+  });
 
   /// Overridable for tests so widget tests never touch the real
   /// secure-storage platform channel.
@@ -25,7 +30,7 @@ class App extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CupertinoApp(
-      title: 'Bring Your Own Photos',
+      title: 'ByoPhotos',
       theme: const CupertinoThemeData(
         brightness: Brightness.dark,
         primaryColor: CupertinoColors.systemBlue,
@@ -36,13 +41,23 @@ class App extends StatelessWidget {
       ),
       // Settings/add-target screens are still Material underneath — gives
       // them a sane theme rather than Material's default fallback.
-      builder: (context, child) =>
-          Theme(data: ThemeData(brightness: Brightness.dark, colorSchemeSeed: Colors.indigo, useMaterial3: true), child: child!),
+      builder: (context, child) => Theme(
+        data: ThemeData(
+          brightness: Brightness.dark,
+          colorSchemeSeed: Colors.indigo,
+          useMaterial3: true,
+        ),
+        child: child!,
+      ),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
       // One page, no bottom tab bar — matches Photos: a day-grouped grid
       // with Media Types/Utilities sections below, not separate tabs.
-      home: LibraryScreen(assetRecordStore: assetRecordStore, backupTargetsStore: settingsStore, albumStore: albumStore),
+      home: LibraryScreen(
+        assetRecordStore: assetRecordStore,
+        backupTargetsStore: settingsStore,
+        albumStore: albumStore,
+      ),
     );
   }
 }

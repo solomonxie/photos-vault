@@ -130,4 +130,16 @@ class FakeAssetRecordStore implements AssetRecordStore {
   @override
   Future<Set<String>> allTags() async =>
       _records.values.expand((r) => r.tags).toSet();
+
+  @override
+  Future<void> setPasscodeHash(String localId, String? value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withPasscodeHash(value);
+  }
+
+  @override
+  Future<List<AssetRecord>> forPasscodeHash(String hash) async =>
+      _records.values.where((r) => r.passcodeHash == hash).toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 }

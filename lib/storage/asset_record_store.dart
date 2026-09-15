@@ -47,7 +47,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onCreate: (db, version) => db.execute(_createTableSql),
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -63,6 +63,11 @@ class AssetRecordStore {
               "ALTER TABLE $_table ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
             );
             await db.execute('ALTER TABLE $_table ADD COLUMN location TEXT');
+          }
+          if (oldVersion < 4) {
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN passcode_hash TEXT',
+            );
           }
         },
       ),
@@ -92,6 +97,7 @@ class AssetRecordStore {
       description TEXT NOT NULL DEFAULT '',
       tags TEXT NOT NULL DEFAULT '[]',
       location TEXT,
+      passcode_hash TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
     )
@@ -303,6 +309,34 @@ class AssetRecordStore {
     return result;
   }
 
+  Future<void> setPasscodeHash(String localId, String? value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {
+        'passcode_hash': value,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  /// Every asset currently sharing this passcode hash — the "private
+  /// album" *is* this live query, not a stored entity (see
+  /// [AssetRecord.passcodeHash]). Empty when nothing's ever been added to
+  /// it, or everything since has been taken back out.
+  Future<List<AssetRecord>> forPasscodeHash(String hash) async {
+    final db = await _open();
+    final rows = await db.query(
+      _table,
+      where: 'passcode_hash = ?',
+      whereArgs: [hash],
+      orderBy: 'created_at ASC',
+    );
+    return Future.wait(rows.map(_fromRow).map(_healed));
+  }
+
   Future<void> setHidden(String localId, bool value) async {
     final db = await _open();
     await db.update(
@@ -397,6 +431,7 @@ class AssetRecordStore {
       description: row['description'] as String? ?? '',
       tags: tagsJson.cast<String>(),
       location: row['location'] as String?,
+      passcodeHash: row['passcode_hash'] as String?,
     );
   }
 }

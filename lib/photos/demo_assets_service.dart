@@ -5,7 +5,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
-import '../storage/private_album_store.dart';
+import '../storage/passcode_hash.dart';
 import 'manual_add.dart';
 import 'person.dart';
 import 'person_store.dart';
@@ -25,17 +25,14 @@ class DemoAssetsService {
   DemoAssetsService({
     required this.manualAddService,
     AlbumStore? albumStore,
-    PrivateAlbumStore? privateAlbumStore,
     PersonStore? personStore,
     Future<Directory> Function()? targetDirectory,
   }) : albumStore = albumStore ?? AlbumStore(),
-       privateAlbumStore = privateAlbumStore ?? PrivateAlbumStore(),
        personStore = personStore ?? PersonStore(),
        _targetDirectory = targetDirectory ?? getTemporaryDirectory;
 
   final ManualAddService manualAddService;
   final AlbumStore albumStore;
-  final PrivateAlbumStore privateAlbumStore;
   final PersonStore personStore;
   final Future<Directory> Function() _targetDirectory;
 
@@ -46,7 +43,8 @@ class DemoAssetsService {
   static const demoPrivateAlbumPasscode = '1234';
 
   static final assetPaths = [
-    for (var i = 1; i <= 50; i++) 'assets/demo/demo_photo_${i.toString().padLeft(2, '0')}.jpg',
+    for (var i = 1; i <= 50; i++)
+      'assets/demo/demo_photo_${i.toString().padLeft(2, '0')}.jpg',
     'assets/demo/demo_video_1.mp4',
   ];
 
@@ -70,8 +68,16 @@ class DemoAssetsService {
       final data = await rootBundle.load(assetPath);
       final fileName = assetPath.split('/').last;
       final file = File('${dir.path}/$fileName');
-      await file.writeAsBytes(data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes), flush: true);
-      added.add(await manualAddService.enqueueFile(file.path, createdAt: demoDays[i % demoDays.length]));
+      await file.writeAsBytes(
+        data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes),
+        flush: true,
+      );
+      added.add(
+        await manualAddService.enqueueFile(
+          file.path,
+          createdAt: demoDays[i % demoDays.length],
+        ),
+      );
     }
     await _seedDemoAlbums(added);
     await _seedDemoPrivateAlbum(added);
@@ -90,7 +96,11 @@ class DemoAssetsService {
     DateTime(now.year, now.month, now.day),
     DateTime(now.year, now.month, now.day).subtract(const Duration(days: 45)),
     DateTime(now.year - 1, now.month, now.day),
-    DateTime(now.year - 1, now.month, now.day).subtract(const Duration(days: 60)),
+    DateTime(
+      now.year - 1,
+      now.month,
+      now.day,
+    ).subtract(const Duration(days: 60)),
     DateTime(now.year - 2, now.month, now.day),
   ];
 
@@ -98,25 +108,24 @@ class DemoAssetsService {
     for (final spec in _demoAlbums) {
       final (start, end) = spec.range;
       await albumStore.upsert(id: spec.id, name: spec.name, isDemo: true);
-      await albumStore.addAssets(spec.id, added.sublist(start, end).map((r) => r.localId));
+      await albumStore.addAssets(
+        spec.id,
+        added.sublist(start, end).map((r) => r.localId),
+      );
     }
   }
 
-  /// A ready-to-open Private Album (T6) at [demoPrivateAlbumPasscode] — a
-  /// few nature photos *moved* in (hidden from the main library/Nature
-  /// album, same as a real move) and one city photo *copied* in (stays
-  /// visible everywhere else too), so both actions are visible on first
-  /// look. Re-running after the album's been deleted recreates it, same
-  /// "Reset Demo Data" trick as the albums above.
+  /// A ready-to-open Private Album at [demoPrivateAlbumPasscode] — a few
+  /// nature photos tagged with its passcode hash (hidden from the main
+  /// library/Nature album, since there's no separate album entity to hold
+  /// them: the shared hash *is* the album). Re-running after they've all
+  /// been taken back out re-tags them, same "Reset Demo Data" trick as the
+  /// albums above.
   Future<void> _seedDemoPrivateAlbum(List<AssetRecord> added) async {
-    final album = await privateAlbumStore.ensure(demoPrivateAlbumPasscode);
-    final moved = added.sublist(5, 8).map((r) => r.localId).toList();
-    final copied = [added[30].localId];
-    await privateAlbumStore.addAssets(album.id, moved, moved: true);
-    for (final id in moved) {
-      await manualAddService.store.setHidden(id, true);
+    final hash = hashPasscode(demoPrivateAlbumPasscode);
+    for (final record in added.sublist(5, 8)) {
+      await manualAddService.store.setPasscodeHash(record.localId, hash);
     }
-    await privateAlbumStore.addAssets(album.id, copied, moved: false);
   }
 
   static const _demoPeople = [
@@ -153,15 +162,34 @@ class DemoAssetsService {
   /// [PersonHistoryEntry] each (T7.3's Education/Job sections are lists, not
   /// single fields) — a no-op past the first run, same idempotent-by-fixed-id
   /// trick as everything else here.
-  Future<void> _seedHistoryFromSpec(String personId, {required String education, required String job}) async {
-    if (education.isNotEmpty && (await personStore.historyFor(personId, HistoryCategory.education)).isEmpty) {
+  Future<void> _seedHistoryFromSpec(
+    String personId, {
+    required String education,
+    required String job,
+  }) async {
+    if (education.isNotEmpty &&
+        (await personStore.historyFor(
+          personId,
+          HistoryCategory.education,
+        )).isEmpty) {
       await personStore.addHistoryEntry(
-        PersonHistoryEntry(id: '$personId-history-education', personId: personId, category: HistoryCategory.education, title: education),
+        PersonHistoryEntry(
+          id: '$personId-history-education',
+          personId: personId,
+          category: HistoryCategory.education,
+          title: education,
+        ),
       );
     }
-    if (job.isNotEmpty && (await personStore.historyFor(personId, HistoryCategory.job)).isEmpty) {
+    if (job.isNotEmpty &&
+        (await personStore.historyFor(personId, HistoryCategory.job)).isEmpty) {
       await personStore.addHistoryEntry(
-        PersonHistoryEntry(id: '$personId-history-job', personId: personId, category: HistoryCategory.job, title: job),
+        PersonHistoryEntry(
+          id: '$personId-history-job',
+          personId: personId,
+          category: HistoryCategory.job,
+          title: job,
+        ),
       );
     }
   }
@@ -173,16 +201,40 @@ class DemoAssetsService {
   /// "Reset Demo Data" trick as the albums above.
   Future<void> _seedDemoPeople(List<AssetRecord> added) async {
     for (final spec in _demoPeople) {
-      final person = await personStore.create(name: spec.name, id: spec.id, isDemo: true);
+      final person = await personStore.create(
+        name: spec.name,
+        id: spec.id,
+        isDemo: true,
+      );
       if (person.avatarLocalId == null) {
-        await personStore.update(person.copyWith(avatarLocalId: added[spec.avatarIndex].localId, bio: spec.bio));
+        await personStore.update(
+          person.copyWith(
+            avatarLocalId: added[spec.avatarIndex].localId,
+            bio: spec.bio,
+          ),
+        );
       }
       final (start, end) = spec.photoRange;
-      await personStore.addAssets(spec.id, added.sublist(start, end).map((r) => r.localId));
-      await _seedHistoryFromSpec(spec.id, education: spec.education, job: spec.job);
+      await personStore.addAssets(
+        spec.id,
+        added.sublist(start, end).map((r) => r.localId),
+      );
+      await _seedHistoryFromSpec(
+        spec.id,
+        education: spec.education,
+        job: spec.job,
+      );
     }
-    await personStore.addRelationship('demo-person-mia', 'demo-person-daniel', RelationshipType.friend);
-    await personStore.addRelationship('demo-person-mia', 'demo-person-grandma-lily', RelationshipType.family);
+    await personStore.addRelationship(
+      'demo-person-mia',
+      'demo-person-daniel',
+      RelationshipType.friend,
+    );
+    await personStore.addRelationship(
+      'demo-person-mia',
+      'demo-person-grandma-lily',
+      RelationshipType.family,
+    );
 
     if ((await personStore.locationsFor('demo-person-grandma-lily')).isEmpty) {
       await personStore.addLocation(
@@ -272,17 +324,105 @@ class DemoAssetsService {
       job: '',
       bio: '',
     ),
-    (id: 'demo-person-robert', name: 'Robert Bennett', avatarIndex: null, photoRange: null, education: '', job: 'Retired factory foreman', bio: ''),
-    (id: 'demo-person-susan', name: 'Susan Bennett', avatarIndex: null, photoRange: null, education: '', job: 'Retired nurse', bio: ''),
-    (id: 'demo-person-rose', name: 'Rose Bennett', avatarIndex: null, photoRange: null, education: '', job: '', bio: "Marcus's grandmother."),
-    (id: 'demo-person-diane', name: 'Diane Kowalski', avatarIndex: null, photoRange: null, education: '', job: '', bio: "Elena's mother."),
-    (id: 'demo-person-jake', name: 'Jake Turner', avatarIndex: null, photoRange: null, education: '', job: '', bio: 'Childhood best friend from Cleveland.'),
-    (id: 'demo-person-priya', name: 'Priya Anand', avatarIndex: null, photoRange: null, education: 'Ohio State University', job: '', bio: 'College friend.'),
-    (id: 'demo-person-sarah-kim', name: 'Sarah Kim', avatarIndex: null, photoRange: null, education: '', job: 'Product Manager at Nimbus Systems', bio: ''),
-    (id: 'demo-person-tom', name: 'Tom Delgado', avatarIndex: null, photoRange: null, education: '', job: 'Former colleague at BrightPath Retail', bio: ''),
-    (id: 'demo-person-ben', name: 'Ben Osei', avatarIndex: null, photoRange: null, education: 'Ohio State University', job: '', bio: ''),
-    (id: 'demo-person-nora', name: 'Nora Fitch', avatarIndex: null, photoRange: null, education: 'Cleveland Heights High School', job: '', bio: ''),
-    (id: 'demo-person-dave', name: 'Dave Alvarez', avatarIndex: null, photoRange: null, education: '', job: '', bio: 'Running buddy from the Seattle Road Runners club.'),
+    (
+      id: 'demo-person-robert',
+      name: 'Robert Bennett',
+      avatarIndex: null,
+      photoRange: null,
+      education: '',
+      job: 'Retired factory foreman',
+      bio: '',
+    ),
+    (
+      id: 'demo-person-susan',
+      name: 'Susan Bennett',
+      avatarIndex: null,
+      photoRange: null,
+      education: '',
+      job: 'Retired nurse',
+      bio: '',
+    ),
+    (
+      id: 'demo-person-rose',
+      name: 'Rose Bennett',
+      avatarIndex: null,
+      photoRange: null,
+      education: '',
+      job: '',
+      bio: "Marcus's grandmother.",
+    ),
+    (
+      id: 'demo-person-diane',
+      name: 'Diane Kowalski',
+      avatarIndex: null,
+      photoRange: null,
+      education: '',
+      job: '',
+      bio: "Elena's mother.",
+    ),
+    (
+      id: 'demo-person-jake',
+      name: 'Jake Turner',
+      avatarIndex: null,
+      photoRange: null,
+      education: '',
+      job: '',
+      bio: 'Childhood best friend from Cleveland.',
+    ),
+    (
+      id: 'demo-person-priya',
+      name: 'Priya Anand',
+      avatarIndex: null,
+      photoRange: null,
+      education: 'Ohio State University',
+      job: '',
+      bio: 'College friend.',
+    ),
+    (
+      id: 'demo-person-sarah-kim',
+      name: 'Sarah Kim',
+      avatarIndex: null,
+      photoRange: null,
+      education: '',
+      job: 'Product Manager at Nimbus Systems',
+      bio: '',
+    ),
+    (
+      id: 'demo-person-tom',
+      name: 'Tom Delgado',
+      avatarIndex: null,
+      photoRange: null,
+      education: '',
+      job: 'Former colleague at BrightPath Retail',
+      bio: '',
+    ),
+    (
+      id: 'demo-person-ben',
+      name: 'Ben Osei',
+      avatarIndex: null,
+      photoRange: null,
+      education: 'Ohio State University',
+      job: '',
+      bio: '',
+    ),
+    (
+      id: 'demo-person-nora',
+      name: 'Nora Fitch',
+      avatarIndex: null,
+      photoRange: null,
+      education: 'Cleveland Heights High School',
+      job: '',
+      bio: '',
+    ),
+    (
+      id: 'demo-person-dave',
+      name: 'Dave Alvarez',
+      avatarIndex: null,
+      photoRange: null,
+      education: '',
+      job: '',
+      bio: 'Running buddy from the Seattle Road Runners club.',
+    ),
   ];
 
   /// Marcus's own role in each link (see `PersonStore.addRelationship`'s
@@ -290,52 +430,143 @@ class DemoAssetsService {
   /// means Marcus is a child of Robert/Susan, `parent` means Marcus is a
   /// parent of Lily/Owen.
   static const _marcusRelationships = [
-    (id: 'demo-person-elena', type: RelationshipType.spouse, organization: null),
-    (id: 'demo-person-robert', type: RelationshipType.child, organization: null),
+    (
+      id: 'demo-person-elena',
+      type: RelationshipType.spouse,
+      organization: null,
+    ),
+    (
+      id: 'demo-person-robert',
+      type: RelationshipType.child,
+      organization: null,
+    ),
     (id: 'demo-person-susan', type: RelationshipType.child, organization: null),
-    (id: 'demo-person-chris', type: RelationshipType.sibling, organization: null),
-    (id: 'demo-person-lily-bennett', type: RelationshipType.parent, organization: null),
+    (
+      id: 'demo-person-chris',
+      type: RelationshipType.sibling,
+      organization: null,
+    ),
+    (
+      id: 'demo-person-lily-bennett',
+      type: RelationshipType.parent,
+      organization: null,
+    ),
     (id: 'demo-person-owen', type: RelationshipType.parent, organization: null),
     (id: 'demo-person-rose', type: RelationshipType.family, organization: null),
-    (id: 'demo-person-diane', type: RelationshipType.family, organization: null),
+    (
+      id: 'demo-person-diane',
+      type: RelationshipType.family,
+      organization: null,
+    ),
     (id: 'demo-person-jake', type: RelationshipType.friend, organization: null),
-    (id: 'demo-person-priya', type: RelationshipType.friend, organization: null),
-    (id: 'demo-person-sarah-kim', type: RelationshipType.colleague, organization: 'Nimbus Systems'),
-    (id: 'demo-person-tom', type: RelationshipType.colleague, organization: 'BrightPath Retail'),
-    (id: 'demo-person-ben', type: RelationshipType.schoolmate, organization: 'Ohio State University'),
-    (id: 'demo-person-nora', type: RelationshipType.schoolmate, organization: 'Cleveland Heights High School'),
-    (id: 'demo-person-dave', type: RelationshipType.other, organization: 'Seattle Road Runners'),
+    (
+      id: 'demo-person-priya',
+      type: RelationshipType.friend,
+      organization: null,
+    ),
+    (
+      id: 'demo-person-sarah-kim',
+      type: RelationshipType.colleague,
+      organization: 'Nimbus Systems',
+    ),
+    (
+      id: 'demo-person-tom',
+      type: RelationshipType.colleague,
+      organization: 'BrightPath Retail',
+    ),
+    (
+      id: 'demo-person-ben',
+      type: RelationshipType.schoolmate,
+      organization: 'Ohio State University',
+    ),
+    (
+      id: 'demo-person-nora',
+      type: RelationshipType.schoolmate,
+      organization: 'Cleveland Heights High School',
+    ),
+    (
+      id: 'demo-person-dave',
+      type: RelationshipType.other,
+      organization: 'Seattle Road Runners',
+    ),
   ];
 
   static const _marcusLocations = [
-    (id: 'demo-loc-marcus-origin', kind: LocationKind.origin, place: 'Cleveland, OH', since: 1986),
-    (id: 'demo-loc-marcus-college', kind: LocationKind.relocation, place: 'Columbus, OH', since: 2004),
-    (id: 'demo-loc-marcus-first-job', kind: LocationKind.relocation, place: 'Chicago, IL', since: 2009),
-    (id: 'demo-loc-marcus-current', kind: LocationKind.relocation, place: 'Seattle, WA', since: 2015),
+    (
+      id: 'demo-loc-marcus-origin',
+      kind: LocationKind.origin,
+      place: 'Cleveland, OH',
+      since: 1986,
+    ),
+    (
+      id: 'demo-loc-marcus-college',
+      kind: LocationKind.relocation,
+      place: 'Columbus, OH',
+      since: 2004,
+    ),
+    (
+      id: 'demo-loc-marcus-first-job',
+      kind: LocationKind.relocation,
+      place: 'Chicago, IL',
+      since: 2009,
+    ),
+    (
+      id: 'demo-loc-marcus-current',
+      kind: LocationKind.relocation,
+      place: 'Seattle, WA',
+      since: 2015,
+    ),
   ];
 
   Future<void> _seedMarcusNetwork(List<AssetRecord> added) async {
     for (final spec in _marcusNetworkPeople) {
-      final person = await personStore.create(name: spec.name, id: spec.id, isDemo: true);
+      final person = await personStore.create(
+        name: spec.name,
+        id: spec.id,
+        isDemo: true,
+      );
       final avatarIndex = spec.avatarIndex;
       if (avatarIndex != null) {
         if (person.avatarLocalId == null) {
-          await personStore.update(person.copyWith(avatarLocalId: added[avatarIndex].localId, bio: spec.bio));
+          await personStore.update(
+            person.copyWith(
+              avatarLocalId: added[avatarIndex].localId,
+              bio: spec.bio,
+            ),
+          );
         }
         final (start, end) = spec.photoRange!;
-        await personStore.addAssets(spec.id, added.sublist(start, end).map((r) => r.localId));
+        await personStore.addAssets(
+          spec.id,
+          added.sublist(start, end).map((r) => r.localId),
+        );
       } else if (person.bio.isEmpty) {
         await personStore.update(person.copyWith(bio: spec.bio));
       }
-      await _seedHistoryFromSpec(spec.id, education: spec.education, job: spec.job);
+      await _seedHistoryFromSpec(
+        spec.id,
+        education: spec.education,
+        job: spec.job,
+      );
     }
     for (final rel in _marcusRelationships) {
-      await personStore.addRelationship('demo-person-marcus', rel.id, rel.type, organization: rel.organization);
+      await personStore.addRelationship(
+        'demo-person-marcus',
+        rel.id,
+        rel.type,
+        organization: rel.organization,
+      );
     }
     if ((await personStore.locationsFor('demo-person-marcus')).isEmpty) {
       for (final loc in _marcusLocations) {
         await personStore.addLocation(
-          PersonLocation(id: loc.id, personId: 'demo-person-marcus', kind: loc.kind, place: loc.place, since: DateTime(loc.since)),
+          PersonLocation(
+            id: loc.id,
+            personId: 'demo-person-marcus',
+            kind: loc.kind,
+            place: loc.place,
+            since: DateTime(loc.since),
+          ),
         );
       }
     }

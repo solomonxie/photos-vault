@@ -1,7 +1,7 @@
 {
   "@@locale": "en",
 
-  "appTitle": "Bring Your Own Photos",
+  "appTitle": "ByoPhotos",
   "@appTitle": {"description": "App name, shown in the OS task switcher"},
 
   "tabLibrary": "Library",
@@ -152,8 +152,6 @@
 
   "privateAlbumGateTitle": "Private Album",
   "privateAlbumGateBody": "Enter a 4-digit passcode.",
-  "privateAlbumEnterButton": "Enter",
-  "privateAlbumCreateButton": "Create New",
   "privateAlbumScreenTitle": "Private Album",
   "privateAlbumItemCount": "{count, plural, one{1 item} other{{count} items}}",
   "@privateAlbumItemCount": {
@@ -167,12 +165,10 @@
     "placeholders": {"count": {"type": "int"}}
   },
   "privateAlbumMoveFromLibrary": "Move from Library",
-  "privateAlbumCopyFromLibrary": "Copy from Library",
   "privateAlbumDeleteAlbum": "Delete Private Album",
   "privateAlbumDeleteConfirmTitle": "Delete this private album?",
   "privateAlbumDeleteConfirmBody": "Moved photos return to your library. Nothing is deleted.",
   "privateAlbumPickerMoveTitle": "Move to Private Album",
-  "privateAlbumPickerCopyTitle": "Copy to Private Album",
   "privateAlbumPickerAddButton": "{count, plural, one{Add 1} other{Add {count}}}",
   "@privateAlbumPickerAddButton": {
     "placeholders": {"count": {"type": "int"}}
