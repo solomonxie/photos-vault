@@ -158,6 +158,7 @@
   "personProfileTitle": "资料",
   "personProfileNameLabel": "姓名",
   "personProfileAgeLabel": "年龄",
+  "personProfileAgeValue": "{age}岁",
   "personProfileGenderLabel": "性别",
   "genderMale": "男",
   "genderFemale": "女",

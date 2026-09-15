@@ -93,47 +93,60 @@ class _CustomFieldsEditorState extends State<CustomFieldsEditor> {
           ),
         ),
         if (_rows.isNotEmpty)
-          CupertinoFormSection.insetGrouped(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            backgroundColor: const Color(0xFF1C1C1E),
-            decoration: const BoxDecoration(
-              color: Color(0xFF2C2C2E),
-              borderRadius: BorderRadius.all(Radius.circular(10)),
-            ),
-            children: [
-              for (var i = 0; i < _rows.length; i++)
-                CupertinoFormRow(
-                  prefix: SizedBox(
-                    width: 90,
-                    child: CupertinoTextField.borderless(
-                      controller: _rows[i].label,
-                      placeholder: l10n.customFieldsLabelPlaceholder,
-                      onChanged: (_) => _emit(),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            child: Column(
+              children: [
+                for (var i = 0; i < _rows.length; i++)
+                  Container(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    decoration: i == _rows.length - 1
+                        ? null
+                        : const BoxDecoration(
+                            border: Border(
+                              bottom: BorderSide(
+                                color: CupertinoColors.separator,
+                                width: 0.5,
+                              ),
+                            ),
+                          ),
+                    child: Row(
+                      children: [
+                        SizedBox(
+                          width: 100,
+                          child: CupertinoTextField.borderless(
+                            controller: _rows[i].label,
+                            placeholder: l10n.customFieldsLabelPlaceholder,
+                            padding: EdgeInsets.zero,
+                            style: const TextStyle(
+                              color: CupertinoColors.systemGrey,
+                            ),
+                            onChanged: (_) => _emit(),
+                          ),
+                        ),
+                        Expanded(
+                          child: CupertinoTextField.borderless(
+                            controller: _rows[i].value,
+                            textAlign: TextAlign.end,
+                            placeholder: l10n.customFieldsValuePlaceholder,
+                            padding: EdgeInsets.zero,
+                            onChanged: (_) => _emit(),
+                          ),
+                        ),
+                        CupertinoButton(
+                          padding: const EdgeInsetsDirectional.only(start: 8),
+                          onPressed: () => _remove(i),
+                          child: const Icon(
+                            CupertinoIcons.xmark_circle,
+                            size: 18,
+                            color: CupertinoColors.systemGrey,
+                          ),
+                        ),
+                      ],
                     ),
                   ),
-                  child: Row(
-                    children: [
-                      Expanded(
-                        child: CupertinoTextField.borderless(
-                          controller: _rows[i].value,
-                          textAlign: TextAlign.end,
-                          placeholder: l10n.customFieldsValuePlaceholder,
-                          onChanged: (_) => _emit(),
-                        ),
-                      ),
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: () => _remove(i),
-                        child: const Icon(
-                          CupertinoIcons.xmark_circle,
-                          size: 20,
-                          color: CupertinoColors.systemGrey,
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-            ],
+              ],
+            ),
           ),
       ],
     );
