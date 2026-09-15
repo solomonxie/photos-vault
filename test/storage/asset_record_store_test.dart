@@ -252,4 +252,41 @@ void main() {
 
     expect((await store.getByLocalId('asset-1'))!.location, isNull);
   });
+
+  test(
+    'allLocations returns distinct, non-empty locations across photos',
+    () async {
+      final store = newStore();
+      await store.upsert(
+        localId: 'asset-1',
+        contentHash: 'h1',
+        platform: 'ios',
+      );
+      await store.upsert(
+        localId: 'asset-2',
+        contentHash: 'h2',
+        platform: 'ios',
+      );
+      await store.upsert(
+        localId: 'asset-3',
+        contentHash: 'h3',
+        platform: 'ios',
+      );
+      await store.setLocation('asset-1', 'Kyoto, Japan');
+      await store.setLocation('asset-2', 'Kyoto, Japan');
+      await store.setLocation('asset-3', null);
+
+      expect(await store.allLocations(), {'Kyoto, Japan'});
+    },
+  );
+
+  test('allTags returns the union of tags used across photos', () async {
+    final store = newStore();
+    await store.upsert(localId: 'asset-1', contentHash: 'h1', platform: 'ios');
+    await store.upsert(localId: 'asset-2', contentHash: 'h2', platform: 'ios');
+    await store.setTags('asset-1', ['sunset', 'hiking']);
+    await store.setTags('asset-2', ['hiking', 'family']);
+
+    expect(await store.allTags(), {'sunset', 'hiking', 'family'});
+  });
 }

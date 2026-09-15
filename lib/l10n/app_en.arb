@@ -43,6 +43,7 @@
 
   "detailFileUnavailable": "This file is no longer available.",
   "detailDoneButton": "Done",
+  "detailEditButton": "Edit",
   "detailShareOriginalOption": "Share Original",
   "detailExportAsOption": "Export As…",
   "detailExportFailed": "Couldn't export this photo.",
@@ -54,11 +55,9 @@
   "detailInfoLocation": "Location",
   "detailInfoNoLocation": "No Location",
   "detailInfoDuration": "Duration",
-  "detailLocationPlaceholder": "Place name",
   "detailEditDateTimeTitle": "Date & Time",
   "detailDescriptionPlaceholder": "Add a description",
   "detailTagsHeader": "Tags",
-  "detailTagPlaceholder": "Add a tag",
   "detailPeopleHeader": "People",
   "detailPeopleTagPickerTitle": "Tag Person",
 

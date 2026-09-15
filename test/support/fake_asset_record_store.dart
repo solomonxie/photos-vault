@@ -119,4 +119,15 @@ class FakeAssetRecordStore implements AssetRecordStore {
     if (existing == null) return;
     _records[localId] = existing.withLocation(value);
   }
+
+  @override
+  Future<Set<String>> allLocations() async => _records.values
+      .map((r) => r.location)
+      .whereType<String>()
+      .where((l) => l.isNotEmpty)
+      .toSet();
+
+  @override
+  Future<Set<String>> allTags() async =>
+      _records.values.expand((r) => r.tags).toSet();
 }
