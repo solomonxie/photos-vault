@@ -1,5 +1,5 @@
-import 'package:back_your_own_photos/storage/album.dart';
-import 'package:back_your_own_photos/storage/album_store.dart';
+import 'package:bring_your_own_photos/storage/album.dart';
+import 'package:bring_your_own_photos/storage/album_store.dart';
 
 /// Pure-Dart, in-memory stand-in for [AlbumStore] — for widget tests, same
 /// rationale as `fake_asset_record_store.dart`: keeps real `sqflite_common_ffi`

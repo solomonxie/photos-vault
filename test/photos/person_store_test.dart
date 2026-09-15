@@ -1,5 +1,5 @@
-import 'package:back_your_own_photos/photos/person.dart';
-import 'package:back_your_own_photos/photos/person_store.dart';
+import 'package:bring_your_own_photos/photos/person.dart';
+import 'package:bring_your_own_photos/photos/person_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 

@@ -1,7 +1,7 @@
 {
   "@@locale": "zh",
 
-  "appTitle": "ByoPhotos",
+  "appTitle": "Bring Your Own Photos",
 
   "tabLibrary": "图库",
   "tabBackup": "备份",
@@ -120,12 +120,18 @@
 
   "settingsResetDemoButton": "重置演示数据",
 
-  "settingsAiTodoNote": "此密钥用于 AI 识别的人物和事件智能合集。地点(基于 GPS)无需此密钥。",
-  "settingsAiApiKeyLabel": "OpenAI API 密钥",
+  "settingsAiTodoNote": "这些密钥用于 AI 识别的人物和事件智能合集。地点(基于 GPS)无需密钥。",
+  "settingsAiKeysHeading": "AI 密钥",
+  "settingsAiKeysHint": "每次分析使用其中一个已配置的密钥,失败后自动尝试下一个。用箭头调整顺序。",
+  "settingsAiKeyStrategySequential": "顺序",
+  "settingsAiKeyStrategyRoundRobin": "轮询",
+  "settingsAiKeyRequestCount": "{count} 次请求",
+  "settingsAddAiKeyLink": "添加 AI 密钥",
+  "settingsAiApiKeyLabel": "API 密钥",
   "settingsAiClearButton": "移除密钥",
   "settingsAiSavedMessage": "API 密钥已保存",
   "settingsAiClearedMessage": "API 密钥已移除",
-  "settingsAiUsageWarning": "启用后会将照片数据发送给 OpenAI,并产生记入您 OpenAI 账户的 API 使用费用。",
+  "settingsAiUsageWarning": "启用后会将照片数据发送给处理该请求的 AI 供应商,并产生记入您该账户的 API 使用费用。",
 
   "bucketBrowserEmpty": "该文件夹为空。",
   "bucketBrowserLoadMore": "加载更多",
