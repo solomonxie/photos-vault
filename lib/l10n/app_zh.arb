@@ -1,7 +1,7 @@
 {
   "@@locale": "zh",
 
-  "appTitle": "备份我的照片",
+  "appTitle": "ByoPhotos",
 
   "tabLibrary": "图库",
   "tabBackup": "备份",
@@ -136,8 +136,6 @@
 
   "privateAlbumGateTitle": "私密相册",
   "privateAlbumGateBody": "请输入 4 位密码。",
-  "privateAlbumEnterButton": "进入",
-  "privateAlbumCreateButton": "新建",
   "privateAlbumScreenTitle": "私密相册",
   "privateAlbumItemCount": "{count} 个项目",
   "privateAlbumEmpty": "这里还没有内容。",
@@ -145,12 +143,10 @@
   "privateAlbumSelectButton": "选择",
   "privateAlbumMoveSelectedToLibrary": "移动 {count} 项到图库",
   "privateAlbumMoveFromLibrary": "从图库移动",
-  "privateAlbumCopyFromLibrary": "从图库复制",
   "privateAlbumDeleteAlbum": "删除私密相册",
   "privateAlbumDeleteConfirmTitle": "删除该私密相册?",
   "privateAlbumDeleteConfirmBody": "已移动的照片将返回图库,不会删除任何内容。",
   "privateAlbumPickerMoveTitle": "移动到私密相册",
-  "privateAlbumPickerCopyTitle": "复制到私密相册",
   "privateAlbumPickerAddButton": "添加 {count} 项",
   "privateAlbumPickerEmpty": "没有可添加的照片。",
 

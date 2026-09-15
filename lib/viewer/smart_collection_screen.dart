@@ -36,8 +36,10 @@ class SmartCollectionScreen extends StatefulWidget {
 }
 
 class _SmartCollectionScreenState extends State<SmartCollectionScreen> {
-  late final AiAnalysisStore _aiAnalysisStore = widget.aiAnalysisStore ?? AiAnalysisStore();
-  late final AiVisionService _aiVisionService = widget.aiVisionService ?? AiVisionService();
+  late final AiAnalysisStore _aiAnalysisStore =
+      widget.aiAnalysisStore ?? AiAnalysisStore();
+  late final AiVisionService _aiVisionService =
+      widget.aiVisionService ?? AiVisionService();
 
   List<AssetRecord> _analyzable = const [];
   Map<String, AiPhotoAnalysis> _analyses = {};
@@ -57,13 +59,21 @@ class _SmartCollectionScreenState extends State<SmartCollectionScreen> {
     if (!mounted) return;
     setState(() {
       _analyzable = all
-          .where((r) => !r.isDeleted && !r.isHidden && r.sourceType == AssetSourceType.manualFile && r.sourcePath != null)
+          .where(
+            (r) =>
+                !r.isDeleted &&
+                !r.isHidden &&
+                r.passcodeHash == null &&
+                r.sourceType == AssetSourceType.manualFile &&
+                r.sourcePath != null,
+          )
           .toList();
       _analyses = analyses;
     });
   }
 
-  List<AssetRecord> get _unanalyzed => _analyzable.where((r) => !_analyses.containsKey(r.localId)).toList();
+  List<AssetRecord> get _unanalyzed =>
+      _analyzable.where((r) => !_analyses.containsKey(r.localId)).toList();
 
   Future<void> _analyze() async {
     final pending = _unanalyzed;
@@ -74,7 +84,10 @@ class _SmartCollectionScreenState extends State<SmartCollectionScreen> {
     });
     for (final record in pending) {
       try {
-        final result = await _aiVisionService.analyze(localId: record.localId, imageFile: File(record.sourcePath!));
+        final result = await _aiVisionService.analyze(
+          localId: record.localId,
+          imageFile: File(record.sourcePath!),
+        );
         await _aiAnalysisStore.save(result);
         if (!mounted) return;
         setState(() {
@@ -103,7 +116,9 @@ class _SmartCollectionScreenState extends State<SmartCollectionScreen> {
       if (analysis == null) continue;
       final key = widget.kind == SmartCollectionKind.people
           ? _peopleGroupKey(l10n, analysis.peopleCount)
-          : (analysis.eventLabel.isEmpty ? l10n.smartCollectionsUncategorized : analysis.eventLabel);
+          : (analysis.eventLabel.isEmpty
+                ? l10n.smartCollectionsUncategorized
+                : analysis.eventLabel);
       groups.putIfAbsent(key, () => []).add(record);
     }
     return groups;
@@ -112,7 +127,9 @@ class _SmartCollectionScreenState extends State<SmartCollectionScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final title = widget.kind == SmartCollectionKind.people ? l10n.collectionsPeopleRow : l10n.collectionsEventsRow;
+    final title = widget.kind == SmartCollectionKind.people
+        ? l10n.collectionsPeopleRow
+        : l10n.collectionsEventsRow;
     final pendingCount = _unanalyzed.length;
     final groups = _groups(l10n);
     return CupertinoPageScaffold(
@@ -122,7 +139,10 @@ class _SmartCollectionScreenState extends State<SmartCollectionScreen> {
           padding: const EdgeInsets.all(16),
           children: [
             if (_error != null) ...[
-              Text(_error!, style: const TextStyle(color: CupertinoColors.systemRed)),
+              Text(
+                _error!,
+                style: const TextStyle(color: CupertinoColors.systemRed),
+              ),
               const SizedBox(height: 12),
             ],
             if (pendingCount > 0)
@@ -138,17 +158,26 @@ class _SmartCollectionScreenState extends State<SmartCollectionScreen> {
               Padding(
                 padding: const EdgeInsets.only(top: 24),
                 child: Center(
-                  child: Text(l10n.smartCollectionsEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)),
+                  child: Text(
+                    l10n.smartCollectionsEmpty,
+                    style: const TextStyle(color: CupertinoColors.systemGrey),
+                  ),
                 ),
               ),
             for (final entry in groups.entries)
               CupertinoListTile(
                 title: Text(entry.key),
-                trailing: Text('${entry.value.length}', style: const TextStyle(color: CupertinoColors.systemGrey)),
+                trailing: Text(
+                  '${entry.value.length}',
+                  style: const TextStyle(color: CupertinoColors.systemGrey),
+                ),
                 onTap: () => Navigator.of(context).push(
                   CupertinoPageRoute(
-                    builder: (_) =>
-                        AssetGroupScreen(title: entry.key, records: entry.value, assetRecordStore: widget.assetRecordStore),
+                    builder: (_) => AssetGroupScreen(
+                      title: entry.key,
+                      records: entry.value,
+                      assetRecordStore: widget.assetRecordStore,
+                    ),
                   ),
                 ),
               ),

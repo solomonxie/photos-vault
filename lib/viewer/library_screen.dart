@@ -18,7 +18,6 @@ import '../storage/album.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import '../storage/private_album_store.dart';
 import '../upload/backup_coordinator.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
@@ -53,7 +52,6 @@ class LibraryScreen extends StatefulWidget {
     this.backupCoordinator,
     this.aiAnalysisStore,
     this.photoLibraryService,
-    this.privateAlbumStore,
     this.personStore,
   });
 
@@ -61,9 +59,7 @@ class LibraryScreen extends StatefulWidget {
   final BackupTargetsStore? backupTargetsStore;
   final AlbumStore? albumStore;
 
-  /// Overridable for tests so Private Albums/People never open the real
-  /// `sqflite` factory.
-  final PrivateAlbumStore? privateAlbumStore;
+  /// Overridable for tests so People never opens the real `sqflite` factory.
   final PersonStore? personStore;
 
   /// Overridable for tests so the People/Events smart collections never open
@@ -99,15 +95,12 @@ class LibraryScreenState extends State<LibraryScreen> {
   late final AlbumStore _albumStore = widget.albumStore ?? AlbumStore();
   late final ManualAddService _manualAddService =
       widget.manualAddService ?? ManualAddService(store: assetRecordStore);
-  late final PrivateAlbumStore _privateAlbumStore =
-      widget.privateAlbumStore ?? PrivateAlbumStore();
   late final PersonStore _personStore = widget.personStore ?? PersonStore();
   late final DemoAssetsService _demoAssetsService =
       widget.demoAssetsService ??
       DemoAssetsService(
         manualAddService: _manualAddService,
         albumStore: _albumStore,
-        privateAlbumStore: _privateAlbumStore,
         personStore: _personStore,
       );
   late final DemoSeedStore _demoSeedStore =
@@ -190,7 +183,11 @@ class LibraryScreenState extends State<LibraryScreen> {
       final memberIds = (await _albumStore.localIdsIn(album.id)).toSet();
       albumAssets[album.id] = all
           .where(
-            (r) => !r.isDeleted && !r.isHidden && memberIds.contains(r.localId),
+            (r) =>
+                !r.isDeleted &&
+                !r.isHidden &&
+                r.passcodeHash == null &&
+                memberIds.contains(r.localId),
           )
           .toList();
     }
@@ -211,7 +208,9 @@ class LibraryScreenState extends State<LibraryScreen> {
   }
 
   List<AssetRecord> get _active =>
-      _all.where((r) => !r.isDeleted && !r.isHidden).toList()
+      _all
+          .where((r) => !r.isDeleted && !r.isHidden && r.passcodeHash == null)
+          .toList()
         ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
 
   List<AssetRecord> get _filtered => _query.isEmpty
@@ -318,7 +317,6 @@ class LibraryScreenState extends State<LibraryScreen> {
     await hideIntoPrivateAlbum(
       context,
       assetRecordStore: assetRecordStore,
-      privateAlbumStore: _privateAlbumStore,
       record: record,
     );
     await reload();
@@ -375,11 +373,7 @@ class LibraryScreenState extends State<LibraryScreen> {
   }
 
   Future<void> _openPrivateAlbums() async {
-    await openPrivateAlbums(
-      context,
-      assetRecordStore: assetRecordStore,
-      privateAlbumStore: _privateAlbumStore,
-    );
+    await openPrivateAlbums(context, assetRecordStore: assetRecordStore);
     await reload();
   }
 
@@ -388,7 +382,6 @@ class LibraryScreenState extends State<LibraryScreen> {
       album: album,
       assetRecordStore: assetRecordStore,
       albumStore: _albumStore,
-      privateAlbumStore: _privateAlbumStore,
     ),
   );
 
@@ -595,7 +588,6 @@ class LibraryScreenState extends State<LibraryScreen> {
                           assetRecordStore: assetRecordStore,
                           isVideo: false,
                           title: l10n.collectionsPhotosRow,
-                          privateAlbumStore: _privateAlbumStore,
                         ),
                       ),
                     ),
@@ -609,7 +601,6 @@ class LibraryScreenState extends State<LibraryScreen> {
                           assetRecordStore: assetRecordStore,
                           isVideo: true,
                           title: l10n.collectionsVideosRow,
-                          privateAlbumStore: _privateAlbumStore,
                         ),
                       ),
                     ),
