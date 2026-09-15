@@ -42,6 +42,45 @@ void main() {
     expect((await personStore.getById(person.id))!.bio, 'Loves hiking.');
   });
 
+  testWidgets('tapping age sets a birth date, tapping gender sets a gender', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final person = await personStore.create(name: 'Mia');
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: person,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Unset state: plain placeholder text, no box.
+    expect(find.text('Age'), findsOneWidget);
+    expect(find.text('Gender'), findsOneWidget);
+
+    await tester.tap(find.text('Gender'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Female'));
+    await tester.pumpAndSettle();
+
+    expect((await personStore.getById(person.id))!.gender, Gender.female);
+    expect(find.text('Female'), findsOneWidget);
+
+    await tester.tap(find.text('Age'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final saved = (await personStore.getById(person.id))!;
+    expect(saved.birthDate, isNotNull);
+    expect(find.textContaining('years old'), findsOneWidget);
+  });
+
   testWidgets(
     '+ on Education opens a pick-or-type screen, creates an entry, and opens its details',
     (tester) async {
@@ -59,9 +98,9 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // add_circled buttons appear in order: Custom Fields, Education, Job,
-      // Relationships, Places Lived — Education's is the second.
-      await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(1));
+      // add_circled buttons appear in order: Education, Job, Relationships,
+      // Places Lived, Custom Fields — Education's is first.
+      await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byType(CupertinoSearchTextField),
@@ -112,7 +151,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(1));
+      await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
       await tester.pumpAndSettle();
       await tester.tap(find.text('MIT'));
       await tester.pumpAndSettle();
@@ -205,9 +244,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // add_circled buttons: Custom Fields, Education, Job, Relationships,
-    // Places Lived — Relationships' is the fourth.
-    await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(3));
+    // add_circled buttons: Education, Job, Relationships, Places Lived,
+    // Custom Fields — Relationships' is the third.
+    await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
     await tester.pumpAndSettle();
     expect(find.text('Daniel'), findsOneWidget);
     await tester.tap(find.text('Daniel'));
@@ -239,7 +278,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(3));
+    await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
     await tester.pumpAndSettle();
     await tester.tap(find.text('New Person…'));
     await tester.pumpAndSettle();
@@ -278,7 +317,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(3));
+      await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Daniel'));
       await tester.pumpAndSettle();
@@ -532,4 +571,62 @@ void main() {
     expect(locations, hasLength(1));
     expect(locations.single.place, 'Beijing');
   });
+
+  testWidgets(
+    'Custom Fields sits after Places Lived and persists a new field',
+    (tester) async {
+      final personStore = FakePersonStore();
+      final mia = await personStore.create(name: 'Mia');
+      await personStore.addLocation(
+        PersonLocation(
+          id: 'loc-1',
+          personId: mia.id,
+          kind: LocationKind.origin,
+          place: 'Shanghai',
+          since: DateTime(1995),
+        ),
+      );
+
+      await tester.pumpWidget(
+        _wrap(
+          PersonProfileScreen(
+            person: mia,
+            personStore: personStore,
+            assetRecordStore: FakeAssetRecordStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final placesLivedTop = tester
+          .getTopLeft(find.text('Places Lived', skipOffstage: false))
+          .dy;
+      final customFieldsTop = tester
+          .getTopLeft(find.text('Custom Fields', skipOffstage: false))
+          .dy;
+      expect(customFieldsTop, greaterThan(placesLivedTop));
+
+      // add_circled buttons: Education, Job, Relationships, Places Lived,
+      // Custom Fields — Custom Fields' is last.
+      final addButton = find.byIcon(CupertinoIcons.add_circled).last;
+      await tester.ensureVisible(addButton);
+      await tester.pumpAndSettle();
+      await tester.tap(addButton);
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.widgetWithText(CupertinoTextField, 'Field'),
+        'Nickname',
+      );
+      await tester.pump();
+      await tester.enterText(
+        find.widgetWithText(CupertinoTextField, 'Value'),
+        'Mimi',
+      );
+      await tester.pump();
+
+      final saved = await personStore.getById(mia.id);
+      expect(saved!.customFields.single.label, 'Nickname');
+      expect(saved.customFields.single.value, 'Mimi');
+    },
+  );
 }

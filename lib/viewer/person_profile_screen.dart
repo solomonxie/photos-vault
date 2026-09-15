@@ -464,46 +464,65 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     await _persist(_person.copyWith(birthDate: () => picked));
   }
 
-  Widget _ageChip(AppLocalizations l10n) {
-    final age = ageFrom(_person.birthDate);
-    return GestureDetector(
-      onTap: _editBirthDate,
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 6),
-        decoration: BoxDecoration(
-          color: _cardBackground,
-          borderRadius: BorderRadius.circular(20),
-        ),
-        child: Text(
-          age == null ? l10n.personProfileAgeLabel : '$age',
-          style: const TextStyle(
-            fontSize: 13,
-            color: CupertinoColors.systemGrey,
+  Future<void> _pickGender() async {
+    final l10n = AppLocalizations.of(context)!;
+    final selected = await showCupertinoModalPopup<Gender>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: Text(l10n.personProfileGenderLabel),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(Gender.male),
+            child: Text(l10n.genderMale),
           ),
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(Gender.female),
+            child: Text(l10n.genderFemale),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.actionCancel),
         ),
       ),
     );
+    if (selected == null) return;
+    await _persist(_person.copyWith(gender: () => selected));
   }
 
-  Widget _genderControl(AppLocalizations l10n) =>
-      CupertinoSlidingSegmentedControl<Gender>(
-        groupValue: _person.gender,
-        children: {
-          Gender.male: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-            child: Text(l10n.genderMale, style: const TextStyle(fontSize: 13)),
+  /// Plain text, no box — "30 years old · Male", each part its own tap
+  /// target (age opens the birth date picker, gender opens a picker sheet).
+  Widget _ageGenderRow(AppLocalizations l10n) {
+    final age = ageFrom(_person.birthDate);
+    final genderText = switch (_person.gender) {
+      Gender.male => l10n.genderMale,
+      Gender.female => l10n.genderFemale,
+      null => l10n.personProfileGenderLabel,
+    };
+    const style = TextStyle(fontSize: 14, color: CupertinoColors.systemGrey);
+    return Row(
+      mainAxisAlignment: MainAxisAlignment.center,
+      children: [
+        GestureDetector(
+          onTap: _editBirthDate,
+          child: Text(
+            age == null
+                ? l10n.personProfileAgeLabel
+                : l10n.personProfileAgeValue(age),
+            style: style,
           ),
-          Gender.female: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 2),
-            child: Text(
-              l10n.genderFemale,
-              style: const TextStyle(fontSize: 13),
-            ),
-          ),
-        },
-        onValueChanged: (value) =>
-            _persist(_person.copyWith(gender: () => value)),
-      );
+        ),
+        const Padding(
+          padding: EdgeInsets.symmetric(horizontal: 8),
+          child: Text('·', style: style),
+        ),
+        GestureDetector(
+          onTap: _pickGender,
+          child: Text(genderText, style: style),
+        ),
+      ],
+    );
+  }
 
   List<PersonLocation> get _sortedLocations =>
       [..._locations]..sort((a, b) => a.since.compareTo(b.since));
@@ -633,17 +652,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                 ),
               )
             else ...[
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 24),
-                child: Row(
-                  mainAxisAlignment: MainAxisAlignment.center,
-                  children: [
-                    _ageChip(l10n),
-                    const SizedBox(width: 10),
-                    _genderControl(l10n),
-                  ],
-                ),
-              ),
+              _ageGenderRow(l10n),
               const SizedBox(height: 16),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 24),
@@ -658,12 +667,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                   ),
                   onChanged: (v) => _persist(_person.copyWith(bio: v)),
                 ),
-              ),
-              const SizedBox(height: 20),
-              CustomFieldsEditor(
-                initialFields: _person.customFields,
-                onChanged: (fields) =>
-                    _persist(_person.copyWith(customFields: fields)),
               ),
               const SizedBox(height: 20),
               _sectionHeader(
@@ -797,6 +800,12 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                       ),
                   ],
                 ),
+              const SizedBox(height: 20),
+              CustomFieldsEditor(
+                initialFields: _person.customFields,
+                onChanged: (fields) =>
+                    _persist(_person.copyWith(customFields: fields)),
+              ),
               const SizedBox(height: 32),
               Center(
                 child: CupertinoButton(

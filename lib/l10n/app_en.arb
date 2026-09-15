@@ -183,6 +183,10 @@
   "personProfileTitle": "Profile",
   "personProfileNameLabel": "Name",
   "personProfileAgeLabel": "Age",
+  "personProfileAgeValue": "{age} years old",
+  "@personProfileAgeValue": {
+    "placeholders": {"age": {"type": "int"}}
+  },
   "personProfileGenderLabel": "Gender",
   "genderMale": "Male",
   "genderFemale": "Female",
