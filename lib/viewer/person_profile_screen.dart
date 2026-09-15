@@ -321,6 +321,32 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   }
 
   Future<void> _removeRelationship(PersonRelationship relationship) async {
+    final l10n = AppLocalizations.of(context)!;
+    final name =
+        _allPeople
+            .where((p) => p.id == relationship.relatedPersonId)
+            .map((p) => p.name)
+            .firstOrNull ??
+        '?';
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: Text(l10n.relationshipDeleteConfirmTitle),
+        content: Text(l10n.relationshipDeleteConfirmBody(name)),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.actionDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
     await widget.personStore.removeRelationship(
       _person.id,
       relationship.relatedPersonId,

@@ -420,6 +420,53 @@ void main() {
     },
   );
 
+  testWidgets(
+    'deleting a relationship asks for confirmation before removing it',
+    (tester) async {
+      final personStore = FakePersonStore();
+      final mia = await personStore.create(name: 'Mia');
+      final daniel = await personStore.create(name: 'Daniel');
+      await personStore.addRelationship(
+        mia.id,
+        daniel.id,
+        RelationshipType.friend,
+      );
+
+      await tester.pumpWidget(
+        _wrap(
+          PersonProfileScreen(
+            person: mia,
+            personStore: personStore,
+            assetRecordStore: FakeAssetRecordStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final deleteButton = find.byIcon(
+        CupertinoIcons.xmark_circle,
+        skipOffstage: false,
+      );
+      await tester.ensureVisible(deleteButton);
+      await tester.pumpAndSettle();
+      await tester.tap(deleteButton);
+      await tester.pumpAndSettle();
+
+      // Cancelling leaves the relationship in place.
+      expect(find.text('Remove this relationship?'), findsOneWidget);
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(await personStore.relationshipsFor(mia.id), hasLength(1));
+
+      await tester.tap(deleteButton);
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Delete'));
+      await tester.pumpAndSettle();
+
+      expect(await personStore.relationshipsFor(mia.id), isEmpty);
+    },
+  );
+
   testWidgets('relationships are grouped into subsections by type', (
     tester,
   ) async {

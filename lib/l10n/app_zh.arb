@@ -178,6 +178,8 @@
   "personProfileUnlockTitle": "输入密码",
   "personProfileWrongPasscode": "密码不正确。",
   "personProfileRelationshipsHeader": "关系",
+  "relationshipDeleteConfirmTitle": "移除该关系?",
+  "relationshipDeleteConfirmBody": "仅移除与 {name} 之间的关联,不会删除任何人物。",
   "personProfileViewGraph": "查看关系图谱",
   "personProfileLocationHeader": "居住地",
   "personProfileLocationOrigin": "籍贯",
