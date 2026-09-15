@@ -209,6 +209,11 @@
   "personProfileUnlockTitle": "Enter Passcode",
   "personProfileWrongPasscode": "Incorrect passcode.",
   "personProfileRelationshipsHeader": "Relationships",
+  "relationshipDeleteConfirmTitle": "Remove this relationship?",
+  "relationshipDeleteConfirmBody": "This only removes the link between {name} and this profile — neither person is deleted.",
+  "@relationshipDeleteConfirmBody": {
+    "placeholders": {"name": {"type": "String"}}
+  },
   "personProfileViewGraph": "View Relationship Graph",
   "personProfileLocationHeader": "Places Lived",
   "personProfileLocationOrigin": "Origin",
