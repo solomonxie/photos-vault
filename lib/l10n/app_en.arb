@@ -1,7 +1,7 @@
 {
   "@@locale": "en",
 
-  "appTitle": "Bring Your Own Photos",
+  "appTitle": "BYO Photos",
   "@appTitle": {"description": "App name, shown in the OS task switcher"},
 
   "tabLibrary": "Library",
