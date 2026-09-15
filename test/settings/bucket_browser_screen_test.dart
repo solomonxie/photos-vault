@@ -1,7 +1,7 @@
-import 'package:back_your_own_photos/l10n/app_localizations.dart';
-import 'package:back_your_own_photos/settings/bucket_browser_screen.dart';
-import 'package:back_your_own_photos/settings/s3_backup_target.dart';
-import 'package:back_your_own_photos/settings/s3_listing.dart';
+import 'package:bring_your_own_photos/l10n/app_localizations.dart';
+import 'package:bring_your_own_photos/settings/bucket_browser_screen.dart';
+import 'package:bring_your_own_photos/settings/s3_backup_target.dart';
+import 'package:bring_your_own_photos/settings/s3_listing.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

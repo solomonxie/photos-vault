@@ -1,9 +1,9 @@
-import 'package:back_your_own_photos/settings/backup_targets_store.dart';
-import 'package:back_your_own_photos/settings/s3_backup_target.dart';
-import 'package:back_your_own_photos/storage/asset_record.dart';
-import 'package:back_your_own_photos/storage/asset_record_store.dart';
-import 'package:back_your_own_photos/upload/backup_coordinator.dart';
-import 'package:back_your_own_photos/upload/s3_uploader.dart';
+import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
+import 'package:bring_your_own_photos/settings/s3_backup_target.dart';
+import 'package:bring_your_own_photos/storage/asset_record.dart';
+import 'package:bring_your_own_photos/storage/asset_record_store.dart';
+import 'package:bring_your_own_photos/upload/backup_coordinator.dart';
+import 'package:bring_your_own_photos/upload/s3_uploader.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 

@@ -1,13 +1,13 @@
 import 'dart:io';
 
-import 'package:back_your_own_photos/photos/demo_assets_service.dart';
-import 'package:back_your_own_photos/photos/manual_add.dart';
-import 'package:back_your_own_photos/photos/person.dart';
-import 'package:back_your_own_photos/photos/person_store.dart';
-import 'package:back_your_own_photos/storage/album_store.dart';
-import 'package:back_your_own_photos/storage/asset_record.dart';
-import 'package:back_your_own_photos/storage/asset_record_store.dart';
-import 'package:back_your_own_photos/storage/passcode_hash.dart';
+import 'package:bring_your_own_photos/photos/demo_assets_service.dart';
+import 'package:bring_your_own_photos/photos/manual_add.dart';
+import 'package:bring_your_own_photos/photos/person.dart';
+import 'package:bring_your_own_photos/photos/person_store.dart';
+import 'package:bring_your_own_photos/storage/album_store.dart';
+import 'package:bring_your_own_photos/storage/asset_record.dart';
+import 'package:bring_your_own_photos/storage/asset_record_store.dart';
+import 'package:bring_your_own_photos/storage/passcode_hash.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';

@@ -1,9 +1,9 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:back_your_own_photos/l10n/app_localizations.dart';
-import 'package:back_your_own_photos/storage/asset_record.dart';
-import 'package:back_your_own_photos/viewer/detail_screen.dart';
+import 'package:bring_your_own_photos/l10n/app_localizations.dart';
+import 'package:bring_your_own_photos/storage/asset_record.dart';
+import 'package:bring_your_own_photos/viewer/detail_screen.dart';
 
 import '../support/fake_asset_record_store.dart';
 import '../support/fake_person_store.dart';

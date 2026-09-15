@@ -1,5 +1,5 @@
-import 'package:back_your_own_photos/photos/person.dart';
-import 'package:back_your_own_photos/photos/person_store.dart';
+import 'package:bring_your_own_photos/photos/person.dart';
+import 'package:bring_your_own_photos/photos/person_store.dart';
 
 /// Pure-Dart, in-memory stand-in for [PersonStore] — for widget tests, same
 /// rationale as `fake_asset_record_store.dart`.

@@ -1,4 +1,4 @@
-import 'package:back_your_own_photos/settings/backup_targets_store.dart';
+import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_secure_store.dart';

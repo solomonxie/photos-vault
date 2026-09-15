@@ -1,13 +1,15 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
 import '../settings/ai_settings_store.dart';
 import 'ai_analysis.dart';
+import 'ai_vendor.dart';
 
-/// Thrown when analysis can't run — no API key configured, or OpenAI
-/// rejected the request.
+/// Thrown when analysis can't run — no AI key configured, or every
+/// configured vendor rejected/failed the request.
 class AiAnalysisException implements Exception {
   AiAnalysisException(this.message);
   final String message;
@@ -15,17 +17,17 @@ class AiAnalysisException implements Exception {
   String toString() => message;
 }
 
-/// Calls OpenAI's vision-capable chat completions API to describe one photo
-/// — people count and a short event/scene label — for the People/Events
-/// smart collections. Opt-in: only runs when the user has saved their own
-/// API key in [AiSettingsStore]. See IMPLEMENTATION_PLAN.md T4.4.
+/// Calls a vision-capable chat-completions API to describe one photo —
+/// people count and a short event/scene label — for the People/Events
+/// smart collections. Opt-in: only runs when the user has saved at least
+/// one AI key in [AiSettingsStore], which also picks which configured key
+/// (and thus vendor) handles each call and retries the next one on
+/// failure. See IMPLEMENTATION_PLAN.md T4.4.
 class AiVisionService {
   AiVisionService({AiSettingsStore? aiSettingsStore, http.Client? httpClient})
     : _aiSettingsStore = aiSettingsStore ?? AiSettingsStore(),
       _httpClient = httpClient ?? http.Client();
 
-  static const _endpoint = 'https://api.openai.com/v1/chat/completions';
-  static const _model = 'gpt-4o-mini';
   static const _prompt =
       'Reply with JSON only, no prose: '
       '{"people_count": <integer, 0 if none>, "event_label": "<2-4 word scene or event description>"}.';
@@ -33,19 +35,81 @@ class AiVisionService {
   final AiSettingsStore _aiSettingsStore;
   final http.Client _httpClient;
 
-  Future<AiPhotoAnalysis> analyze({required String localId, required File imageFile}) async {
-    final apiKey = await _aiSettingsStore.readOpenAiApiKey();
-    if (apiKey == null || apiKey.isEmpty) {
-      throw AiAnalysisException('No OpenAI API key configured');
+  Future<AiPhotoAnalysis> analyze({
+    required String localId,
+    required File imageFile,
+  }) async {
+    final bytes = await imageFile.readAsBytes();
+    final String content;
+    try {
+      content = await _aiSettingsStore.runWithKeys(
+        (key) => _runVendor(key.vendor, key.secret, bytes),
+      );
+    } on NoAiKeyException {
+      throw AiAnalysisException('No AI key configured');
+    } catch (e) {
+      throw AiAnalysisException('AI analysis failed: $e');
     }
+    return _parse(localId, content);
+  }
 
-    final base64Image = base64Encode(await imageFile.readAsBytes());
+  Future<String> _runVendor(AiVendor vendor, String apiKey, Uint8List bytes) =>
+      switch (vendor) {
+        AiVendor.openai => _runOpenAiCompatible(
+          vendorName: 'OpenAI',
+          endpoint: 'https://api.openai.com/v1/chat/completions',
+          model: 'gpt-4o-mini',
+          apiKey: apiKey,
+          bytes: bytes,
+          jsonMode: true,
+        ),
+        // Vision-capable models on each vendor's own OpenAI-compatible
+        // chat/completions endpoint — same `image_url` content-block shape as
+        // OpenAI itself. Model names are the most likely to go stale if a
+        // vendor retires/renames its vision model.
+        AiVendor.groq => _runOpenAiCompatible(
+          vendorName: 'Groq',
+          endpoint: 'https://api.groq.com/openai/v1/chat/completions',
+          model: 'llama-3.2-11b-vision-preview',
+          apiKey: apiKey,
+          bytes: bytes,
+        ),
+        AiVendor.mistral => _runOpenAiCompatible(
+          vendorName: 'Mistral',
+          endpoint: 'https://api.mistral.ai/v1/chat/completions',
+          model: 'pixtral-12b-2409',
+          apiKey: apiKey,
+          bytes: bytes,
+        ),
+        AiVendor.xai => _runOpenAiCompatible(
+          vendorName: 'xAI',
+          endpoint: 'https://api.x.ai/v1/chat/completions',
+          model: 'grok-2-vision-1212',
+          apiKey: apiKey,
+          bytes: bytes,
+        ),
+        AiVendor.anthropic => _runAnthropic(apiKey, bytes),
+        AiVendor.google => _runGoogle(apiKey, bytes),
+      };
+
+  Future<String> _runOpenAiCompatible({
+    required String vendorName,
+    required String endpoint,
+    required String model,
+    required String apiKey,
+    required Uint8List bytes,
+    bool jsonMode = false,
+  }) async {
+    final base64Image = base64Encode(bytes);
     final response = await _httpClient.post(
-      Uri.parse(_endpoint),
-      headers: {'Authorization': 'Bearer $apiKey', 'Content-Type': 'application/json'},
+      Uri.parse(endpoint),
+      headers: {
+        'Authorization': 'Bearer $apiKey',
+        'Content-Type': 'application/json',
+      },
       body: jsonEncode({
-        'model': _model,
-        'response_format': {'type': 'json_object'},
+        'model': model,
+        if (jsonMode) 'response_format': {'type': 'json_object'},
         'messages': [
           {
             'role': 'user',
@@ -60,14 +124,86 @@ class AiVisionService {
         ],
       }),
     );
-
     if (response.statusCode != 200) {
-      throw AiAnalysisException('OpenAI request failed (${response.statusCode})');
+      throw AiAnalysisException(
+        '$vendorName request failed (${response.statusCode})',
+      );
     }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return (body['choices'] as List)[0]['message']['content'] as String;
+  }
 
+  Future<String> _runAnthropic(String apiKey, Uint8List bytes) async {
+    final base64Image = base64Encode(bytes);
+    final response = await _httpClient.post(
+      Uri.parse('https://api.anthropic.com/v1/messages'),
+      headers: {
+        'Content-Type': 'application/json',
+        'x-api-key': apiKey,
+        'anthropic-version': '2023-06-01',
+      },
+      body: jsonEncode({
+        'model': 'claude-haiku-4-5-20251001',
+        'max_tokens': 256,
+        'messages': [
+          {
+            'role': 'user',
+            'content': [
+              {'type': 'text', 'text': _prompt},
+              {
+                'type': 'image',
+                'source': {
+                  'type': 'base64',
+                  'media_type': 'image/jpeg',
+                  'data': base64Image,
+                },
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw AiAnalysisException(
+        'Anthropic request failed (${response.statusCode})',
+      );
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return (body['content'] as List)[0]['text'] as String;
+  }
+
+  Future<String> _runGoogle(String apiKey, Uint8List bytes) async {
+    final base64Image = base64Encode(bytes);
+    final response = await _httpClient.post(
+      Uri.parse(
+        'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey',
+      ),
+      headers: {'Content-Type': 'application/json'},
+      body: jsonEncode({
+        'contents': [
+          {
+            'parts': [
+              {'text': _prompt},
+              {
+                'inline_data': {'mime_type': 'image/jpeg', 'data': base64Image},
+              },
+            ],
+          },
+        ],
+      }),
+    );
+    if (response.statusCode != 200) {
+      throw AiAnalysisException(
+        'Google request failed (${response.statusCode})',
+      );
+    }
+    final body = jsonDecode(response.body) as Map<String, dynamic>;
+    return (body['candidates'] as List)[0]['content']['parts'][0]['text']
+        as String;
+  }
+
+  AiPhotoAnalysis _parse(String localId, String content) {
     try {
-      final body = jsonDecode(response.body) as Map<String, dynamic>;
-      final content = (body['choices'] as List)[0]['message']['content'] as String;
       final parsed = jsonDecode(content) as Map<String, dynamic>;
       final eventLabel = (parsed['event_label'] as String?)?.trim() ?? '';
       return AiPhotoAnalysis(
@@ -77,7 +213,7 @@ class AiVisionService {
         analyzedAt: DateTime.now(),
       );
     } catch (_) {
-      throw AiAnalysisException('Could not parse OpenAI response');
+      throw AiAnalysisException('Could not parse AI response');
     }
   }
 }

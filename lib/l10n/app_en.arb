@@ -1,7 +1,7 @@
 {
   "@@locale": "en",
 
-  "appTitle": "ByoPhotos",
+  "appTitle": "Bring Your Own Photos",
   "@appTitle": {"description": "App name, shown in the OS task switcher"},
 
   "tabLibrary": "Library",
@@ -136,12 +136,21 @@
 
   "settingsResetDemoButton": "Reset Demo Data",
 
-  "settingsAiTodoNote": "This key powers AI-recognized People and Events smart collections. Places (GPS-based) doesn't need it.",
-  "settingsAiApiKeyLabel": "OpenAI API key",
+  "settingsAiTodoNote": "These keys power AI-recognized People and Events smart collections. Places (GPS-based) doesn't need them.",
+  "settingsAiKeysHeading": "AI Keys",
+  "settingsAiKeysHint": "Each analysis uses one configured key, trying the next on failure. Reorder with the arrows.",
+  "settingsAiKeyStrategySequential": "Sequential",
+  "settingsAiKeyStrategyRoundRobin": "Round Robin",
+  "settingsAiKeyRequestCount": "{count, plural, one{1 request} other{{count} requests}}",
+  "@settingsAiKeyRequestCount": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "settingsAddAiKeyLink": "Add AI Key",
+  "settingsAiApiKeyLabel": "API key",
   "settingsAiClearButton": "Remove Key",
   "settingsAiSavedMessage": "API key saved",
   "settingsAiClearedMessage": "API key removed",
-  "settingsAiUsageWarning": "Enabling this sends photo data to OpenAI and incurs API usage charges billed to your OpenAI account.",
+  "settingsAiUsageWarning": "Enabling this sends photo data to whichever AI vendor's key handles the request, and incurs API usage charges billed to your account with them.",
 
   "bucketBrowserEmpty": "This folder is empty.",
   "bucketBrowserLoadMore": "Load More",
