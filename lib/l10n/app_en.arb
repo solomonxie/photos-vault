@@ -43,7 +43,10 @@
 
   "detailFileUnavailable": "This file is no longer available.",
   "detailDoneButton": "Done",
-  "detailShareComingSoon": "Sharing isn't wired up yet.",
+  "detailShareOriginalOption": "Share Original",
+  "detailExportAsOption": "Export As…",
+  "detailExportFailed": "Couldn't export this photo.",
+  "detailEditNotInLibrary": "This isn't in your Photos library, so it can't be edited there.",
   "detailInfoStatus": "Backup status",
   "detailInfoDimensions": "Dimensions",
   "detailInfoFileSize": "File Size",
