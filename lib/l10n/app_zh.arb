@@ -47,6 +47,13 @@
   "detailInfoLocation": "位置",
   "detailInfoNoLocation": "无位置信息",
   "detailInfoDuration": "时长",
+  "detailLocationPlaceholder": "地点名称",
+  "detailEditDateTimeTitle": "日期与时间",
+  "detailDescriptionPlaceholder": "添加描述",
+  "detailTagsHeader": "标签",
+  "detailTagPlaceholder": "添加标签",
+  "detailPeopleHeader": "人物",
+  "detailPeopleTagPickerTitle": "标记人物",
 
   "collectionsCollections": "合集",
   "collectionsAlbums": "相册",

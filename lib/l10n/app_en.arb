@@ -51,6 +51,13 @@
   "detailInfoLocation": "Location",
   "detailInfoNoLocation": "No Location",
   "detailInfoDuration": "Duration",
+  "detailLocationPlaceholder": "Place name",
+  "detailEditDateTimeTitle": "Date & Time",
+  "detailDescriptionPlaceholder": "Add a description",
+  "detailTagsHeader": "Tags",
+  "detailTagPlaceholder": "Add a tag",
+  "detailPeopleHeader": "People",
+  "detailPeopleTagPickerTitle": "Tag Person",
 
   "collectionsCollections": "Collections",
   "collectionsAlbums": "Albums",

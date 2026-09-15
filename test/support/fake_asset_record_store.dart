@@ -46,7 +46,11 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<AssetRecord?> getByLocalId(String localId) async => _records[localId];
 
   @override
-  Future<void> updateDerivative(String localId, DerivativeKind kind, DerivativeState state) async {
+  Future<void> updateDerivative(
+    String localId,
+    DerivativeKind kind,
+    DerivativeState state,
+  ) async {
     final existing = _records[localId];
     if (existing == null) return;
     _records[localId] = existing.withDerivative(kind, state);
@@ -54,7 +58,8 @@ class FakeAssetRecordStore implements AssetRecordStore {
 
   @override
   Future<List<AssetRecord>> listAll() async =>
-      _records.values.toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      _records.values.toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
   @override
   Future<void> remove(String localId) async => _records.remove(localId);
@@ -85,5 +90,33 @@ class FakeAssetRecordStore implements AssetRecordStore {
     final existing = _records[localId];
     if (existing == null) return;
     _records[localId] = existing.withDeletedAt(null);
+  }
+
+  @override
+  Future<void> setCreatedAt(String localId, DateTime value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withCreatedAt(value);
+  }
+
+  @override
+  Future<void> setDescription(String localId, String value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withDescription(value);
+  }
+
+  @override
+  Future<void> setTags(String localId, List<String> value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withTags(value);
+  }
+
+  @override
+  Future<void> setLocation(String localId, String? value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withLocation(value);
   }
 }

@@ -15,13 +15,23 @@ class FakePersonStore implements PersonStore {
   Future<void> close() async {}
 
   @override
-  Future<Person> create({required String name, String? id, bool isDemo = false}) async {
+  Future<Person> create({
+    required String name,
+    String? id,
+    bool isDemo = false,
+  }) async {
     if (id != null) {
       final existing = _people[id];
       if (existing != null) return existing;
     }
     final now = DateTime.now();
-    final person = Person(id: id ?? newId(), name: name, createdAt: now, updatedAt: now, isDemo: isDemo);
+    final person = Person(
+      id: id ?? newId(),
+      name: name,
+      createdAt: now,
+      updatedAt: now,
+      isDemo: isDemo,
+    );
     _people[person.id] = person;
     return person;
   }
@@ -34,7 +44,8 @@ class FakePersonStore implements PersonStore {
 
   @override
   Future<List<Person>> listAll() async =>
-      _people.values.toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      _people.values.toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
   @override
   Future<void> remove(String id) async {
@@ -59,22 +70,41 @@ class FakePersonStore implements PersonStore {
   }
 
   @override
-  Future<List<String>> localIdsIn(String personId) async => _members[personId]?.toList() ?? const [];
+  Future<List<String>> localIdsIn(String personId) async =>
+      _members[personId]?.toList() ?? const [];
 
   @override
-  Future<void> addRelationship(String personId, String relatedPersonId, RelationshipType type, {String? organization}) async {
+  Future<List<Person>> peopleFor(String localId) async => _members.entries
+      .where((e) => e.value.contains(localId))
+      .map((e) => _people[e.key])
+      .whereType<Person>()
+      .toList();
+
+  @override
+  Future<void> addRelationship(
+    String personId,
+    String relatedPersonId,
+    RelationshipType type, {
+    String? organization,
+  }) async {
     final inverse = switch (type) {
       RelationshipType.parent => RelationshipType.child,
       RelationshipType.child => RelationshipType.parent,
       _ => type,
     };
-    _relationships.putIfAbsent(personId, () => {})[relatedPersonId] = PersonRelationship(
+    _relationships.putIfAbsent(
+      personId,
+      () => {},
+    )[relatedPersonId] = PersonRelationship(
       personId: personId,
       relatedPersonId: relatedPersonId,
       type: type,
       organization: organization,
     );
-    _relationships.putIfAbsent(relatedPersonId, () => {})[personId] = PersonRelationship(
+    _relationships.putIfAbsent(
+      relatedPersonId,
+      () => {},
+    )[personId] = PersonRelationship(
       personId: relatedPersonId,
       relatedPersonId: personId,
       type: inverse,
@@ -83,7 +113,10 @@ class FakePersonStore implements PersonStore {
   }
 
   @override
-  Future<void> removeRelationship(String personId, String relatedPersonId) async {
+  Future<void> removeRelationship(
+    String personId,
+    String relatedPersonId,
+  ) async {
     _relationships[personId]?.remove(relatedPersonId);
     _relationships[relatedPersonId]?.remove(personId);
   }
@@ -119,24 +152,36 @@ class FakePersonStore implements PersonStore {
   }
 
   @override
-  Future<List<PersonLocation>> locationsFor(String personId) async => _locations[personId] ?? const [];
+  Future<List<PersonLocation>> locationsFor(String personId) async =>
+      _locations[personId] ?? const [];
 
   @override
-  Future<void> addHistoryEntry(PersonHistoryEntry entry) async => _history[entry.id] = entry;
+  Future<void> addHistoryEntry(PersonHistoryEntry entry) async =>
+      _history[entry.id] = entry;
 
   @override
   Future<void> removeHistoryEntry(String id) async => _history.remove(id);
 
   @override
-  Future<List<PersonHistoryEntry>> historyFor(String personId, HistoryCategory category) async =>
-      _history.values.where((e) => e.personId == personId && e.category == category).toList()
-        ..sort((a, b) => (a.startDate ?? DateTime(0)).compareTo(b.startDate ?? DateTime(0)));
+  Future<List<PersonHistoryEntry>> historyFor(
+    String personId,
+    HistoryCategory category,
+  ) async =>
+      _history.values
+          .where((e) => e.personId == personId && e.category == category)
+          .toList()
+        ..sort(
+          (a, b) => (a.startDate ?? DateTime(0)).compareTo(
+            b.startDate ?? DateTime(0),
+          ),
+        );
 
   @override
-  Future<Set<String>> allHistoryTitles(HistoryCategory category) async => _history.values
-      .where((e) => e.category == category && e.title.isNotEmpty)
-      .map((e) => e.title)
-      .toSet();
+  Future<Set<String>> allHistoryTitles(HistoryCategory category) async =>
+      _history.values
+          .where((e) => e.category == category && e.title.isNotEmpty)
+          .map((e) => e.title)
+          .toSet();
 
   @override
   String newId() => 'fake-person-${_nextId++}';

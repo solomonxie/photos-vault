@@ -16,7 +16,12 @@ import 'person_profile_screen.dart';
 /// editable profile), and their tagged photos. See DESIGN.md's "People
 /// profiles" section and IMPLEMENTATION_PLAN.md T7.3.
 class PersonPageScreen extends StatefulWidget {
-  const PersonPageScreen({super.key, required this.person, required this.personStore, required this.assetRecordStore});
+  const PersonPageScreen({
+    super.key,
+    required this.person,
+    required this.personStore,
+    required this.assetRecordStore,
+  });
 
   final Person person;
   final PersonStore personStore;
@@ -41,15 +46,20 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     final all = await widget.assetRecordStore.listAll();
     if (!mounted) return;
     setState(
-      () => _records = all.where((r) => !r.isDeleted && ids.contains(r.localId)).toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+      () => _records =
+          all.where((r) => !r.isDeleted && ids.contains(r.localId)).toList()
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
     );
   }
 
   Future<void> _openProfile() async {
     await Navigator.of(context).push(
       CupertinoPageRoute(
-        builder: (_) => PersonProfileScreen(person: _person, personStore: widget.personStore, assetRecordStore: widget.assetRecordStore),
+        builder: (_) => PersonProfileScreen(
+          person: _person,
+          personStore: widget.personStore,
+          assetRecordStore: widget.assetRecordStore,
+        ),
       ),
     );
     if (!mounted) return;
@@ -77,7 +87,10 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
       ),
     );
     if (picked == null || picked.isEmpty) return;
-    await widget.personStore.addAssets(_person.id, picked.map((r) => r.localId));
+    await widget.personStore.addAssets(
+      _person.id,
+      picked.map((r) => r.localId),
+    );
     if (_person.avatarLocalId == null) {
       final updated = _person.copyWith(avatarLocalId: picked.first.localId);
       await widget.personStore.update(updated);
@@ -99,7 +112,10 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
   }
 
   Future<void> _toggleFavorite(AssetRecord record) async {
-    await widget.assetRecordStore.setFavorite(record.localId, !record.isFavorite);
+    await widget.assetRecordStore.setFavorite(
+      record.localId,
+      !record.isFavorite,
+    );
     await _reload();
   }
 
@@ -111,6 +127,8 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
           initialIndex: _records.indexOf(record),
           onDelete: _delete,
           onToggleFavorite: _toggleFavorite,
+          assetRecordStore: widget.assetRecordStore,
+          personStore: widget.personStore,
         ),
       ),
     );
@@ -122,7 +140,11 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(_person.name),
-        trailing: CupertinoButton(padding: EdgeInsets.zero, onPressed: _addPhotos, child: const Icon(CupertinoIcons.add)),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: _addPhotos,
+          child: const Icon(CupertinoIcons.add),
+        ),
       ),
       child: SafeArea(
         child: Column(
@@ -131,16 +153,30 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: Column(
                 children: [
-                  PersonAvatar(assetRecordStore: widget.assetRecordStore, localId: _person.avatarLocalId, size: 88),
+                  PersonAvatar(
+                    assetRecordStore: widget.assetRecordStore,
+                    localId: _person.avatarLocalId,
+                    size: 88,
+                  ),
                   const SizedBox(height: 8),
                   GestureDetector(
                     onTap: _openProfile,
                     child: Row(
                       mainAxisSize: MainAxisSize.min,
                       children: [
-                        Text(_person.name, style: const TextStyle(fontSize: 20, fontWeight: FontWeight.bold)),
+                        Text(
+                          _person.name,
+                          style: const TextStyle(
+                            fontSize: 20,
+                            fontWeight: FontWeight.bold,
+                          ),
+                        ),
                         const SizedBox(width: 4),
-                        const Icon(CupertinoIcons.chevron_forward, size: 18, color: CupertinoColors.systemGrey),
+                        const Icon(
+                          CupertinoIcons.chevron_forward,
+                          size: 18,
+                          color: CupertinoColors.systemGrey,
+                        ),
                       ],
                     ),
                   ),
@@ -150,7 +186,12 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
             Expanded(
               child: _records.isEmpty
                   ? Center(
-                      child: Text(l10n.personPagePhotosEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)),
+                      child: Text(
+                        l10n.personPagePhotosEmpty,
+                        style: const TextStyle(
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ),
                     )
                   : CustomScrollView(
                       slivers: assetGridSlivers(
@@ -159,8 +200,12 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                         onTap: _open,
                         actionsFor: (r) => [
                           TileAction(
-                            icon: r.isFavorite ? CupertinoIcons.heart_slash : CupertinoIcons.heart,
-                            label: r.isFavorite ? l10n.libraryUnfavorite : l10n.libraryFavorite,
+                            icon: r.isFavorite
+                                ? CupertinoIcons.heart_slash
+                                : CupertinoIcons.heart,
+                            label: r.isFavorite
+                                ? l10n.libraryUnfavorite
+                                : l10n.libraryFavorite,
                             onPressed: () => _toggleFavorite(r),
                           ),
                           TileAction(
