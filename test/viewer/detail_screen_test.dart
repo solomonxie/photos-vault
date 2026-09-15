@@ -523,6 +523,16 @@ void main() {
       find.byIcon(CupertinoIcons.add_circled, skipOffstage: false).first,
     );
     await tester.pumpAndSettle();
+
+    // A compact popup, not a full-page push — the search field sits well
+    // below the screen's midpoint, not flush with the top.
+    final searchFieldTop = tester
+        .getTopLeft(find.byType(CupertinoSearchTextField))
+        .dy;
+    final screenHeight =
+        tester.view.physicalSize.height / tester.view.devicePixelRatio;
+    expect(searchFieldTop, greaterThan(screenHeight * 0.4));
+
     await tester.enterText(find.byType(CupertinoSearchTextField), 'sunset');
     await tester.pump();
     await tester.tap(find.text('Use "sunset"'));

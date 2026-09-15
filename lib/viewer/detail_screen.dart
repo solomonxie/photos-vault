@@ -22,6 +22,10 @@ import 'person_page_screen.dart';
 import 'person_picker_screen.dart';
 import 'string_picker_screen.dart';
 
+/// Matches `CupertinoThemeData.scaffoldBackgroundColor` in app.dart — pure
+/// black looked out of place next to every other screen's dark grey.
+const _screenBackground = Color(0xFF1C1C1E);
+
 /// Still-image re-encode formats offered by "Export As…" — decoding and
 /// re-encoding is pure Dart (the `image` package), so this only ever
 /// touches still images; videos share their original file as-is (no
@@ -280,7 +284,7 @@ class _DetailScreenState extends State<DetailScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return CupertinoPageScaffold(
-      backgroundColor: CupertinoColors.black,
+      backgroundColor: _screenBackground,
       child: SafeArea(
         child: Column(
           children: [
@@ -809,18 +813,17 @@ class _InfoPanelState extends State<_InfoPanel> {
     widget.onRecordChanged(widget.record.withDescription(value));
   }
 
-  /// Same fuzzy search-or-create picker as [_editLocation], scoped to tags
-  /// already used on other photos and not already on this one.
+  /// Fuzzy search-or-create, scoped to tags already used on other photos
+  /// and not already on this one — a small popup sheet rather than
+  /// [StringPickerScreen]'s full page, since a tag is a much smaller
+  /// decision than a school/employer/organization.
   Future<void> _addTag() async {
-    final l10n = AppLocalizations.of(context)!;
     final allTags = await widget.assetRecordStore.allTags();
     final options = allTags.difference(widget.record.tags.toSet());
     if (!mounted) return;
-    final tag = await Navigator.of(context).push<String>(
-      CupertinoPageRoute(
-        builder: (_) =>
-            StringPickerScreen(title: l10n.detailTagsHeader, options: options),
-      ),
+    final tag = await showCupertinoModalPopup<String>(
+      context: context,
+      builder: (_) => _SearchPickerSheet(options: options),
     );
     if (tag == null || tag.isEmpty || widget.record.tags.contains(tag)) return;
     final updated = [...widget.record.tags, tag];
@@ -935,7 +938,7 @@ class _InfoPanelState extends State<_InfoPanel> {
     final duration = widget.videoController?.value.duration;
 
     return Container(
-      color: CupertinoColors.black,
+      color: _screenBackground,
       padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
@@ -1035,6 +1038,83 @@ class _InfoPanelState extends State<_InfoPanel> {
             ],
           ),
         ],
+      ),
+    );
+  }
+}
+
+/// Compact fuzzy search-or-create popup — a bottom sheet under half the
+/// screen, not a full page push. Pops with the tapped option, the typed
+/// query (via "Use "…""), or `null` if dismissed without picking.
+class _SearchPickerSheet extends StatefulWidget {
+  const _SearchPickerSheet({required this.options});
+
+  final Set<String> options;
+
+  @override
+  State<_SearchPickerSheet> createState() => _SearchPickerSheetState();
+}
+
+class _SearchPickerSheetState extends State<_SearchPickerSheet> {
+  final _controller = TextEditingController();
+  String _query = '';
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final query = _query.trim();
+    final matches =
+        widget.options
+            .where((o) => o.toLowerCase().contains(query.toLowerCase()))
+            .toList()
+          ..sort();
+    final exactMatch = matches.any(
+      (o) => o.toLowerCase() == query.toLowerCase(),
+    );
+
+    return Container(
+      height: MediaQuery.of(context).size.height * 0.42,
+      decoration: const BoxDecoration(
+        color: _screenBackground,
+        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
+      ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Padding(
+              padding: const EdgeInsets.all(12),
+              child: CupertinoSearchTextField(
+                controller: _controller,
+                autofocus: true,
+                onChanged: (v) => setState(() => _query = v),
+              ),
+            ),
+            Expanded(
+              child: ListView(
+                children: [
+                  if (query.isNotEmpty && !exactMatch)
+                    CupertinoListTile(
+                      leading: const Icon(CupertinoIcons.add_circled),
+                      title: Text(l10n.stringPickerUseValue(query)),
+                      onTap: () => Navigator.of(context).pop(query),
+                    ),
+                  for (final option in matches)
+                    CupertinoListTile(
+                      title: Text(option),
+                      onTap: () => Navigator.of(context).pop(option),
+                    ),
+                ],
+              ),
+            ),
+          ],
+        ),
       ),
     );
   }
