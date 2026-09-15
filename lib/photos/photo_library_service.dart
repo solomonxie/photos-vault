@@ -22,14 +22,22 @@ class PhotoLibraryService {
     Future<PermissionState> Function()? requestPermission,
     Future<List<AssetEntity>> Function()? listAllAssets,
     Future<AssetEntity?> Function(String id)? loadEntity,
+    Future<List<String>> Function(List<String> ids)? deleteAssets,
   }) : _requestPermission = requestPermission ?? (() => PhotoManager.requestPermissionExtend()),
        _listAllAssets = listAllAssets ?? _defaultListAllAssets,
-       _loadEntity = loadEntity ?? AssetEntity.fromId;
+       _loadEntity = loadEntity ?? AssetEntity.fromId,
+       _deleteAssets = deleteAssets ?? _defaultDeleteAssets;
 
   final AssetRecordStore store;
   final Future<PermissionState> Function() _requestPermission;
   final Future<List<AssetEntity>> Function() _listAllAssets;
   final Future<AssetEntity?> Function(String id) _loadEntity;
+
+  /// Overridable for tests so they never really delete from the OS library.
+  final Future<List<String>> Function(List<String> ids) _deleteAssets;
+
+  static Future<List<String>> _defaultDeleteAssets(List<String> ids) =>
+      PhotoManager.editor.deleteWithIds(ids);
 
   static const _pageSize = 200;
 
@@ -95,6 +103,19 @@ class PhotoLibraryService {
   Future<File?> fileFor(AssetRecord record) async {
     final entity = await entityFor(record);
     return entity?.file;
+  }
+
+  /// Deletes [record] from the OS photo library itself — this app never
+  /// keeps its own copy of a camera-roll asset, so this is the only way to
+  /// reclaim its device storage. iOS prompts for confirmation and moves it
+  /// to the system's own Recently Deleted; returns whether it actually
+  /// went (false if the user declined the prompt, or it wasn't ours to
+  /// delete).
+  Future<bool> deleteFromLibrary(AssetRecord record) async {
+    final id = entityIdFrom(record.localId);
+    if (id == null) return false;
+    final deleted = await _deleteAssets([id]);
+    return deleted.contains(id);
   }
 
   /// Same resolution as [fileFor], without needing a [PhotoLibraryService]

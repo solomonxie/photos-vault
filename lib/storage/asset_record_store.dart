@@ -47,7 +47,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 4,
+        version: 6,
         onCreate: (db, version) => db.execute(_createTableSql),
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -69,6 +69,25 @@ class AssetRecordStore {
               'ALTER TABLE $_table ADD COLUMN passcode_hash TEXT',
             );
           }
+          if (oldVersion < 5) {
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN thumbnail_hash TEXT',
+            );
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN medium_hash TEXT',
+            );
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN original_hash TEXT',
+            );
+          }
+          if (oldVersion < 6) {
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN thumbnail_path TEXT',
+            );
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN local_deleted INTEGER NOT NULL DEFAULT 0',
+            );
+          }
         },
       ),
     );
@@ -84,13 +103,18 @@ class AssetRecordStore {
       platform TEXT NOT NULL,
       source_type TEXT NOT NULL DEFAULT 'photoManager',
       source_path TEXT,
+      thumbnail_path TEXT,
+      local_deleted INTEGER NOT NULL DEFAULT 0,
       is_video INTEGER NOT NULL DEFAULT 0,
       thumbnail_status TEXT NOT NULL DEFAULT 'pending',
       thumbnail_key TEXT,
+      thumbnail_hash TEXT,
       medium_status TEXT NOT NULL DEFAULT 'pending',
       medium_key TEXT,
+      medium_hash TEXT,
       original_status TEXT NOT NULL DEFAULT 'pending',
       original_key TEXT,
+      original_hash TEXT,
       is_favorite INTEGER NOT NULL DEFAULT 0,
       is_hidden INTEGER NOT NULL DEFAULT 0,
       deleted_at INTEGER,
@@ -213,6 +237,50 @@ class AssetRecordStore {
       {
         '${column}_status': state.status.name,
         '${column}_key': state.destinationKey,
+        '${column}_hash': state.backedUpHash,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  /// Points a record at a local file it didn't have before — how
+  /// `OriginalRestore` hands a re-downloaded original back to a record,
+  /// including a `photoManager` one whose OS library entry is gone for
+  /// good (resolution checks `sourcePath` before the library either way).
+  Future<void> setSourcePath(String localId, String value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {'source_path': value, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  Future<void> setThumbnailPath(String localId, String value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {
+        'thumbnail_path': value,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  /// Flips the "full-resolution local copy is gone, cloud copy isn't" state
+  /// — see [AssetRecord.localDeleted]. Clearing it is what re-downloading
+  /// the original from the bucket does.
+  Future<void> setLocalDeleted(String localId, bool value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {
+        'local_deleted': value ? 1 : 0,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
       where: 'local_id = ?',
@@ -404,6 +472,7 @@ class AssetRecordStore {
       return DerivativeState(
         status: status,
         destinationKey: row['${column}_key'] as String?,
+        backedUpHash: row['${column}_hash'] as String?,
       );
     }
 
@@ -417,6 +486,8 @@ class AssetRecordStore {
       platform: row['platform'] as String,
       sourceType: AssetSourceType.values.byName(row['source_type'] as String),
       sourcePath: row['source_path'] as String?,
+      thumbnailPath: row['thumbnail_path'] as String?,
+      localDeleted: (row['local_deleted'] as int? ?? 0) != 0,
       isVideo: (row['is_video'] as int? ?? 0) != 0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),

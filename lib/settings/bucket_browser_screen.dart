@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+import 'bucket_object_preview_screen.dart';
 import 's3_backup_target.dart';
 import 's3_listing.dart';
 
@@ -144,6 +145,10 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
                     leading: const Icon(Icons.insert_drive_file_outlined),
                     title: Text(_relativeName(object.key)),
                     subtitle: Text(_formatBytes(object.size)),
+                    trailing: const Icon(Icons.chevron_right),
+                    onTap: () => Navigator.of(context).push(
+                      MaterialPageRoute(builder: (_) => BucketObjectPreviewScreen(target: widget.target, objectKey: object.key)),
+                    ),
                   ),
                 if (_nextToken != null)
                   Padding(

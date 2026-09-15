@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:aws_common/aws_common.dart';
 import 'package:aws_signature_v4/aws_signature_v4.dart';
 import 'package:http/http.dart' as http;
@@ -65,15 +67,21 @@ Future<S3ListingResult> listBucket({
   try {
     final signed = await signer.sign(request, credentialScope: scope, serviceConfiguration: S3ServiceConfiguration());
     final response = await http.get(signed.uri, headers: signed.headers);
+    // Not `response.body`: S3's XML is always UTF-8 (its `<?xml ... encoding="UTF-8"?>`
+    // declaration says so) but the response's Content-Type header omits a
+    // `charset` param, so `http`'s own charset-sniffing falls back to
+    // latin1 and mangles anything non-ASCII (e.g. Chinese filenames) into
+    // garbage. Decode the raw bytes as UTF-8 ourselves instead.
+    final body = utf8.decode(response.bodyBytes);
     if (response.statusCode != 200) {
       final outcome = switch (response.statusCode) {
         403 => S3ListingOutcome.forbidden,
         404 => S3ListingOutcome.notFound,
         _ => S3ListingOutcome.networkError,
       };
-      return S3ListingResult(outcome, detail: _errorCodeFrom(response.body) ?? response.statusCode.toString());
+      return S3ListingResult(outcome, detail: _errorCodeFrom(body) ?? response.statusCode.toString());
     }
-    return S3ListingResult(S3ListingOutcome.ok, page: _parsePage(response.body));
+    return S3ListingResult(S3ListingOutcome.ok, page: _parsePage(body));
   } catch (e) {
     return S3ListingResult(S3ListingOutcome.networkError, detail: e.toString());
   }

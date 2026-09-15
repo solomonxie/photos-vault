@@ -4,8 +4,6 @@
   "appTitle": "BYO Photos",
 
   "tabLibrary": "图库",
-  "tabBackup": "备份",
-  "tabSettings": "设置",
 
   "libraryEmptyTitle": "暂无照片",
   "libraryEmptyNote": "授权访问“照片”即可备份您的相机胶卷,或点击 + 从“文件”App 手动添加文件。",
@@ -33,11 +31,17 @@
   "libraryDeletePermanentlyBody": "此操作无法撤销。",
   "libraryDeletePermanentlyAction": "永久删除",
   "libraryDeleteConfirmTitle": "删除此项目?",
+  "libraryDeleteFromDevice": "从本机移除",
+  "libraryDeleteFromDeviceNote": "从本机移除可释放空间,同时保留云端备份——照片仍会显示在图库中,随时可以重新下载原图。",
+  "libraryDeleteEverywhere": "删除照片",
+  "libraryDeleteFromDeviceFailed": "无法从本机移除该照片。",
   "libraryDeleteConfirmBody": "将移至“最近删除”。",
   "libraryAlbumEmpty": "该相册暂无照片。",
   "libraryRemoveFromAlbum": "从相册中移除",
 
   "detailFileUnavailable": "该文件已不可用。",
+  "detailRestoreOriginal": "下载原图",
+  "detailRestoringOriginal": "正在下载…",
   "detailDoneButton": "完成",
   "detailEditButton": "编辑",
   "detailShareOriginalOption": "分享原图",
@@ -85,21 +89,81 @@
   "collectionsFavoritesRow": "收藏",
   "collectionsHiddenRow": "隐藏",
   "collectionsRecentlyDeletedRow": "最近删除",
-  "collectionsBackupStatusRow": "备份状态",
-  "collectionsSettingsRow": "S3 设置",
+  "collectionsPrivateCloudRow": "私有云",
   "collectionsAiSettingsRow": "AI 设置",
   "collectionsImportPhotosRow": "导入照片",
 
-  "backupEmptyTitle": "暂无备份",
-  "backupEmptyNote": "上传仪表盘(排队中/上传中/已完成/失败)将在 T4.3 中实现。",
-  "backupStatusSectionHeader": "按状态",
+  "backupQueueTitle": "备份队列",
+  "backupQueueEmpty": "队列为空——已全部备份完成。",
+  "backupQueueClearButton": "清空队列",
+  "backupQueueRetryFailedButton": "重试失败项",
+  "backupQueueHeader": "队列({count})",
+  "backupQueueKindCheck": "检查更改",
+  "backupQueueKindOriginal": "备份原图",
+  "backupQueueKindThumbnail": "备份缩略图",
+  "backupQueueWaiting": "等待中",
+  "backupQueueIdle": "空闲",
+  "backupQueueSpeed": "同时 {count} 个",
+  "backupQueueSlower": "更慢(减少一个并发)",
+  "backupQueueFaster": "更快(增加一个并发)",
+  "backupQueueClearSynced": "清除已完成",
+  "backupQueueCheckingMessage": "{count, plural, other{正在检查 {count} 张照片是否有更改…}}",
 
-  "settingsEmptyTitle": "暂无 S3 备份",
+  "settingsSyncFrequencyHeading": "同步频率",
+  "settingsSyncFrequencyHint": "仅在应用打开时才会择机检查——目前还没有后台同步权限,应用未打开时不会自动同步。",
+  "settingsSyncFrequencyManual": "仅手动",
+  "settingsSyncFrequencyEvery15Minutes": "每 15 分钟",
+  "settingsSyncFrequencyEveryHour": "每小时",
+  "settingsSyncFrequencyEvery6Hours": "每 6 小时",
+  "settingsSyncFrequencyDaily": "每天",
+  "settingsSyncNowButton": "立即同步",
+  "settingsSyncNowMessage": "{count, plural, =0{没有需要同步的内容} other{已备份 {count} 张照片}}",
+
+  "settingsStorageTypeLabel": "存储类型",
+  "settingsStorageTypeComingSoon": "{name}(即将推出)",
+
+
+  "settingsBackupFormatHint": "每张照片实际上传的内容。",
+  "settingsBackupFormatHeading": "备份格式",
+  "settingsBackupFormatOriginal": "原始文件",
+  "settingsBackupFormatOriginalDescription": "完整画质,与设备上的文件完全一致——上传体积更大,占用存储也更多。",
+  "settingsBackupFormatOptimized": "优化(WebP)",
+  "settingsBackupFormatOptimizedDescription": "将照片重新编码为 WebP 以减小上传和存储体积,画质损失很小,通常察觉不到。",
+  "settingsBackupFormatVideoNote": "视频始终以原始画质备份——暂不支持视频转码。",
+  "settingsBackupFormatFolderNote": "两种格式都仍会上传到同一个「originals/」文件夹——这个名字指的是「原始分辨率」(相对于未来的缩略图/中等尺寸档位),不是「字节级别未经修改」。选择优化上传时,该文件夹里的文件只是扩展名变成 .webp。",
+
+  "settingsCloudBucketsHeading": "云存储桶",
+  "settingsEmptyTitle": "暂无云存储桶",
   "settingsEmptyNote": "添加一个以开始备份您的照片和视频。",
-  "settingsAddButton": "添加 S3 备份",
-  "settingsAddedMessage": "S3 备份已添加",
+  "settingsAddButton": "添加云存储桶",
+  "settingsAddedMessage": "云存储桶已添加",
   "settingsDeleteConfirmTitle": "移除此备份目标?",
   "settingsDeleteConfirmBody": "此操作不会删除存储桶中已有的文件,只会移除本应用保存的该配置。",
+  "settingsCloudBucketsHint": "照片将上传到你自己拥有的存储空间。凭据保存在本机,只会直接发送给存储桶。",
+  "settingsCloudBucketsFooter": "{buckets} 个存储桶 · 已备份 {backedUp}/{total} 张照片",
+  "@settingsCloudBucketsFooter": {
+    "placeholders": {
+      "buckets": {"type": "int"},
+      "backedUp": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "settingsBrowseFilesAction": "浏览文件",
+  "settingsDeleteConnectionAction": "删除连接",
+  "settingsSyncQueueRow": "同步队列",
+  "settingsSyncQueuePending": "{pending} 个待处理 · 每次 {concurrency} 个",
+  "@settingsSyncQueuePending": {
+    "placeholders": {
+      "pending": {"type": "int"},
+      "concurrency": {"type": "int"}
+    }
+  },
+  "settingsLastSyncedAt": "上次同步于 {time}",
+  "@settingsLastSyncedAt": {
+    "placeholders": {"time": {"type": "String"}}
+  },
+  "settingsLastSyncedNever": "尚未同步",
+  "settingsSyncingMessage": "正在同步…",
 
   "settingsAccessKeyIdLabel": "访问密钥 ID",
   "settingsLengthHint": "当前 {actual} 个字符 —— AWS 密钥通常是 {expected} 个字符,请检查是否粘贴有误。",
@@ -135,6 +199,8 @@
 
   "bucketBrowserEmpty": "该文件夹为空。",
   "bucketBrowserLoadMore": "加载更多",
+  "bucketPreviewUnsupported": "无法预览此文件类型。",
+  "bucketPreviewOpenExternally": "在外部打开",
 
   "actionCancel": "取消",
   "actionDelete": "删除",

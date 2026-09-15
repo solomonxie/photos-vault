@@ -1,0 +1,48 @@
+/// What a queued job actually does when a worker picks it up. Every unit of
+/// sync work is one of these against one asset — including the metadata-only
+/// change check, so "what is it doing right now" is always answerable from
+/// the queue rather than from a counter somewhere.
+enum SyncJobKind {
+  /// Re-hash the local file and flip the asset back to pending if it's been
+  /// edited since its last successful backup.
+  checkChanges,
+
+  /// Upload the full-resolution original.
+  uploadOriginal,
+
+  /// Generate/cache the thumbnail, and upload it unless the original is
+  /// already small enough not to warrant a second object.
+  uploadThumbnail,
+}
+
+enum SyncJobStatus { pending, running, done, failed }
+
+/// One queued unit of work. Persisted, so a queue survives the app being
+/// killed mid-sync and can be paused, retried, and cleared.
+class SyncJob {
+  const SyncJob({
+    required this.id,
+    required this.localId,
+    required this.kind,
+    required this.displayName,
+    required this.status,
+    required this.createdAt,
+    required this.updatedAt,
+    this.errorMessage,
+  });
+
+  final String id;
+
+  /// The `AssetRecord` this job is for.
+  final String localId;
+  final SyncJobKind kind;
+
+  /// What the queue list shows — the asset's filename where there is one.
+  final String displayName;
+  final SyncJobStatus status;
+  final String? errorMessage;
+  final DateTime createdAt;
+  final DateTime updatedAt;
+
+  bool get isFinished => status == SyncJobStatus.done || status == SyncJobStatus.failed;
+}

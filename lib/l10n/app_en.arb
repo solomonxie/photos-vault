@@ -5,8 +5,6 @@
   "@appTitle": {"description": "App name, shown in the OS task switcher"},
 
   "tabLibrary": "Library",
-  "tabBackup": "Backup",
-  "tabSettings": "Settings",
 
   "libraryEmptyTitle": "No Photos Yet",
   "libraryEmptyNote": "Grant Photos access to back up your camera roll, or tap + to manually add files from the Files app.",
@@ -37,11 +35,17 @@
   "libraryDeletePermanentlyBody": "This can't be undone.",
   "libraryDeletePermanentlyAction": "Delete Permanently",
   "libraryDeleteConfirmTitle": "Delete this item?",
+  "libraryDeleteFromDevice": "Remove from Device",
+  "libraryDeleteFromDeviceNote": "Removing from this device frees up space and keeps the backed-up copy — the photo stays in your library, and you can download the full resolution again any time.",
+  "libraryDeleteEverywhere": "Delete Photo",
+  "libraryDeleteFromDeviceFailed": "Couldn't remove this from the device.",
   "libraryDeleteConfirmBody": "It moves to Recently Deleted.",
   "libraryAlbumEmpty": "No photos in this album.",
   "libraryRemoveFromAlbum": "Remove from Album",
 
   "detailFileUnavailable": "This file is no longer available.",
+  "detailRestoreOriginal": "Download Full Resolution",
+  "detailRestoringOriginal": "Downloading…",
   "detailDoneButton": "Done",
   "detailEditButton": "Edit",
   "detailShareOriginalOption": "Share Original",
@@ -98,21 +102,96 @@
   "collectionsFavoritesRow": "Favorites",
   "collectionsHiddenRow": "Hidden",
   "collectionsRecentlyDeletedRow": "Recently Deleted",
-  "collectionsBackupStatusRow": "Backup Status",
-  "collectionsSettingsRow": "S3 Settings",
+  "collectionsPrivateCloudRow": "Private Cloud",
   "collectionsAiSettingsRow": "AI Settings",
   "collectionsImportPhotosRow": "Import Photos",
 
-  "backupEmptyTitle": "Nothing Backed Up Yet",
-  "backupEmptyNote": "The upload dashboard (queued/uploading/done/failed) lands in T4.3.",
-  "backupStatusSectionHeader": "By Status",
+  "backupQueueTitle": "Backup Queue",
+  "backupQueueEmpty": "Nothing in the queue — everything's backed up.",
+  "backupQueueClearButton": "Clear Queue",
+  "backupQueueRetryFailedButton": "Retry Failed",
+  "backupQueueHeader": "Queue ({count})",
+  "@backupQueueHeader": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "backupQueueKindCheck": "Checking for changes",
+  "backupQueueKindOriginal": "Backing up original",
+  "backupQueueKindThumbnail": "Backing up thumbnail",
+  "backupQueueWaiting": "Waiting",
+  "backupQueueIdle": "Idle",
+  "backupQueueSpeed": "{count} at a time",
+  "@backupQueueSpeed": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "backupQueueSlower": "Slower (one fewer at a time)",
+  "backupQueueFaster": "Faster (one more at a time)",
+  "backupQueueClearSynced": "Clear Finished",
+  "backupQueueCheckingMessage": "{count, plural, one{Checking 1 photo for changes…} other{Checking {count} photos for changes…}}",
+  "@backupQueueCheckingMessage": {
+    "placeholders": {"count": {"type": "int"}}
+  },
 
-  "settingsEmptyTitle": "No S3 Backups Yet",
+  "settingsSyncFrequencyHeading": "Sync Frequency",
+  "settingsSyncFrequencyHint": "Checked opportunistically while the app is open — there's no background-sync permission yet, so a closed app won't sync on its own.",
+  "settingsSyncFrequencyManual": "Manual Only",
+  "settingsSyncFrequencyEvery15Minutes": "Every 15 Minutes",
+  "settingsSyncFrequencyEveryHour": "Every Hour",
+  "settingsSyncFrequencyEvery6Hours": "Every 6 Hours",
+  "settingsSyncFrequencyDaily": "Daily",
+  "settingsSyncNowButton": "Sync Now",
+  "settingsSyncNowMessage": "{count, plural, =0{Nothing to sync} one{Backed up 1 photo} other{Backed up {count} photos}}",
+  "@settingsSyncNowMessage": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+
+  "settingsStorageTypeLabel": "Storage type",
+  "settingsStorageTypeComingSoon": "{name} (coming soon)",
+  "@settingsStorageTypeComingSoon": {
+    "placeholders": {"name": {"type": "String"}}
+  },
+
+
+  "settingsBackupFormatHint": "What actually gets uploaded for each photo.",
+  "settingsBackupFormatHeading": "Backup Format",
+  "settingsBackupFormatOriginal": "Original",
+  "settingsBackupFormatOriginalDescription": "Full quality, byte-identical to your device — larger uploads and more storage used.",
+  "settingsBackupFormatOptimized": "Optimized (WebP)",
+  "settingsBackupFormatOptimizedDescription": "Re-encodes photos as WebP to cut upload and storage size, at a small, usually unnoticeable quality loss.",
+  "settingsBackupFormatVideoNote": "Videos always back up at original quality — there's no video re-encoding yet.",
+  "settingsBackupFormatFolderNote": "Both formats still upload under the same \"originals/\" folder — that name means full resolution (as opposed to a future thumbnail/medium tier), not \"byte-for-byte unmodified\". An Optimized upload there just has a .webp extension instead of the original file's.",
+
+  "settingsCloudBucketsHeading": "Cloud Buckets",
+  "settingsEmptyTitle": "No Cloud Buckets Yet",
   "settingsEmptyNote": "Add one to start backing up your photos and videos.",
-  "settingsAddButton": "Add S3 Backup",
-  "settingsAddedMessage": "S3 backup added",
+  "settingsAddButton": "Add Cloud Bucket",
+  "settingsAddedMessage": "Cloud bucket added",
   "settingsDeleteConfirmTitle": "Remove this backup target?",
   "settingsDeleteConfirmBody": "This won't delete any files already in the bucket — just this app's saved configuration for it.",
+  "settingsCloudBucketsHint": "Photos upload to storage you own. Credentials stay on this device and go straight to the bucket.",
+  "settingsCloudBucketsFooter": "{buckets, plural, one{1 bucket} other{{buckets} buckets}} · {backedUp} of {total} photos backed up",
+  "@settingsCloudBucketsFooter": {
+    "placeholders": {
+      "buckets": {"type": "int"},
+      "backedUp": {"type": "int"},
+      "total": {"type": "int"}
+    }
+  },
+  "settingsBrowseFilesAction": "Browse Files",
+  "settingsDeleteConnectionAction": "Delete Connection",
+  "settingsSyncQueueRow": "Sync queue",
+  "settingsSyncQueuePending": "{pending} pending · {concurrency} at a time",
+  "@settingsSyncQueuePending": {
+    "placeholders": {
+      "pending": {"type": "int"},
+      "concurrency": {"type": "int"}
+    }
+  },
+  "settingsLastSyncedAt": "Last synced {time}",
+  "@settingsLastSyncedAt": {
+    "placeholders": {"time": {"type": "String"}}
+  },
+  "settingsLastSyncedNever": "Never synced",
+  "settingsSyncingMessage": "Syncing…",
 
   "settingsAccessKeyIdLabel": "Access key ID",
   "settingsLengthHint": "{actual} characters — AWS keys are usually {expected}. Check for a bad paste.",
@@ -154,6 +233,8 @@
 
   "bucketBrowserEmpty": "This folder is empty.",
   "bucketBrowserLoadMore": "Load More",
+  "bucketPreviewUnsupported": "Can't preview this file type.",
+  "bucketPreviewOpenExternally": "Open Externally",
 
   "actionCancel": "Cancel",
   "actionDelete": "Delete",

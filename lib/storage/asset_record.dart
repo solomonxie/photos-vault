@@ -16,16 +16,27 @@ class DerivativeState {
   const DerivativeState({
     this.status = UploadStatus.pending,
     this.destinationKey,
+    this.backedUpHash,
   });
 
   final UploadStatus status;
   final String? destinationKey;
 
-  DerivativeState copyWith({UploadStatus? status, String? destinationKey}) =>
-      DerivativeState(
-        status: status ?? this.status,
-        destinationKey: destinationKey ?? this.destinationKey,
-      );
+  /// Content hash (`photos/file_hash.dart`) of the local file as of the
+  /// last successful upload of this derivative — `BackupCoordinator`
+  /// re-hashes the current file and compares against this to detect a
+  /// local edit since backup, flipping the derivative back to `pending`.
+  final String? backedUpHash;
+
+  DerivativeState copyWith({
+    UploadStatus? status,
+    String? destinationKey,
+    String? backedUpHash,
+  }) => DerivativeState(
+    status: status ?? this.status,
+    destinationKey: destinationKey ?? this.destinationKey,
+    backedUpHash: backedUpHash ?? this.backedUpHash,
+  );
 }
 
 /// A tracked camera-roll asset and its backup progress. `localId` is the
@@ -39,6 +50,8 @@ class AssetRecord {
     required this.updatedAt,
     this.sourceType = AssetSourceType.photoManager,
     this.sourcePath,
+    this.thumbnailPath,
+    this.localDeleted = false,
     this.isVideo = false,
     this.derivatives = const {},
     this.isFavorite = false,
@@ -59,6 +72,19 @@ class AssetRecord {
 
   /// Absolute file path, set only for [AssetSourceType.manualFile].
   final String? sourcePath;
+
+  /// Absolute path to this app's own cached thumbnail (`ThumbnailCache`),
+  /// once one has been generated. Kept for every photo — including ones
+  /// small enough that no separate `thumbnails/` upload was worth it — so
+  /// the grid still has something to draw after [localDeleted].
+  final String? thumbnailPath;
+
+  /// The full-resolution local copy has been deleted to reclaim device
+  /// space, but the asset is still backed up and still belongs in the
+  /// library — grids draw [thumbnailPath], and the detail screen offers to
+  /// re-download the original from the bucket. Unrelated to [deletedAt],
+  /// which is Photos-style "Recently Deleted".
+  final bool localDeleted;
 
   /// Set once at creation (from the file extension for `manualFile`, from
   /// `AssetEntity.type` for `photoManager`) — `photoManager` assets have no
@@ -97,6 +123,8 @@ class AssetRecord {
     bool? isHidden,
     DateTime? Function()? deletedAt,
     String? sourcePath,
+    String? thumbnailPath,
+    bool? localDeleted,
     DateTime? updatedAt,
     DateTime? createdAt,
     String? description,
@@ -111,6 +139,8 @@ class AssetRecord {
     updatedAt: updatedAt ?? DateTime.now(),
     sourceType: sourceType,
     sourcePath: sourcePath ?? this.sourcePath,
+    thumbnailPath: thumbnailPath ?? this.thumbnailPath,
+    localDeleted: localDeleted ?? this.localDeleted,
     isVideo: isVideo,
     derivatives: derivatives ?? this.derivatives,
     isFavorite: isFavorite ?? this.isFavorite,
@@ -146,4 +176,9 @@ class AssetRecord {
   /// Used by [AssetRecordStore.upsert] to heal a stale `sourcePath`.
   AssetRecord withSourcePath(String value, DateTime updatedAt) =>
       _copyWith(sourcePath: value, updatedAt: updatedAt);
+
+  AssetRecord withThumbnailPath(String value) =>
+      _copyWith(thumbnailPath: value);
+
+  AssetRecord withLocalDeleted(bool value) => _copyWith(localDeleted: value);
 }

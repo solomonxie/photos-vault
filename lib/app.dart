@@ -3,6 +3,7 @@ import 'package:flutter/material.dart' show Colors, Theme, ThemeData;
 
 import 'l10n/app_localizations.dart';
 import 'settings/backup_targets_store.dart';
+import 'upload/sync_job_store.dart';
 import 'storage/album_store.dart';
 import 'storage/asset_record_store.dart';
 import 'viewer/library_screen.dart';
@@ -13,6 +14,7 @@ class App extends StatelessWidget {
     this.settingsStore,
     this.assetRecordStore,
     this.albumStore,
+    this.syncJobStore,
   });
 
   /// Overridable for tests so widget tests never touch the real
@@ -26,6 +28,10 @@ class App extends StatelessWidget {
   /// Overridable for tests so widget tests never touch the real sqflite
   /// platform channel.
   final AlbumStore? albumStore;
+
+  /// Overridable for tests so widget tests never open the real sync-queue
+  /// database.
+  final SyncJobStore? syncJobStore;
 
   @override
   Widget build(BuildContext context) {
@@ -57,6 +63,7 @@ class App extends StatelessWidget {
         assetRecordStore: assetRecordStore,
         backupTargetsStore: settingsStore,
         albumStore: albumStore,
+        syncJobStore: syncJobStore,
       ),
     );
   }

@@ -740,4 +740,68 @@ void main() {
       );
     },
   );
+
+  group('cloud-only', () {
+    AssetRecord cloudOnly() => AssetRecord(
+      localId: 'manual:gone',
+      contentHash: 'gone',
+      platform: 'ios',
+      createdAt: DateTime(2026, 1, 1),
+      updatedAt: DateTime(2026, 1, 1),
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/gone.jpg',
+      thumbnailPath: '/tmp/gone-thumb.jpg',
+      localDeleted: true,
+      derivatives: const {
+        DerivativeKind.original: DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'originals/manual_gone.jpg',
+        ),
+      },
+    );
+
+    Widget screen({required Future<String?> Function(AssetRecord) restore}) => _wrap(
+      DetailScreen(
+        records: [cloudOnly()],
+        initialIndex: 0,
+        assetRecordStore: FakeAssetRecordStore(),
+        personStore: FakePersonStore(),
+        onDelete: (_) async => true,
+        onToggleFavorite: (_) async {},
+        restoreOriginal: restore,
+      ),
+    );
+
+    testWidgets('offers to download the full resolution instead of the missing original', (tester) async {
+      await tester.pumpWidget(screen(restore: (_) async => null));
+      await tester.pump();
+
+      expect(find.text('Download Full Resolution'), findsOneWidget);
+      // Drawn from the cached thumbnail, not the deleted original.
+      final image = tester.widget<Image>(find.byType(Image).first);
+      expect((image.image as FileImage).file.path, '/tmp/gone-thumb.jpg');
+    });
+
+    testWidgets('a successful download swaps in the restored original', (tester) async {
+      await tester.pumpWidget(screen(restore: (_) async => '/tmp/restored.jpg'));
+      await tester.pump();
+
+      await tester.tap(find.text('Download Full Resolution'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Download Full Resolution'), findsNothing);
+      final image = tester.widget<Image>(find.byType(Image).first);
+      expect((image.image as FileImage).file.path, '/tmp/restored.jpg');
+    });
+
+    testWidgets('a failed download leaves the offer up to try again', (tester) async {
+      await tester.pumpWidget(screen(restore: (_) async => throw Exception('offline')));
+      await tester.pump();
+
+      await tester.tap(find.text('Download Full Resolution'));
+      await tester.pumpAndSettle();
+
+      expect(find.text('Download Full Resolution'), findsOneWidget);
+    });
+  });
 }

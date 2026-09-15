@@ -32,3 +32,24 @@ Future<Uri> presignPutUrl({
     expiresIn: expiresIn,
   );
 }
+
+/// A presigned `GET` URL for [key] in [target] — the Bucket Browser's
+/// object preview, so viewing a file doesn't need it made public.
+Future<Uri> presignGetUrl({
+  required S3BackupTarget target,
+  required String key,
+  Duration expiresIn = const Duration(minutes: 15),
+}) async {
+  final signer = AWSSigV4Signer(
+    credentialsProvider: AWSCredentialsProvider(AWSCredentials(target.accessKeyId, target.secretAccessKey)),
+  );
+  final scope = AWSCredentialScope.raw(region: target.region, service: 's3');
+  final uri = Uri.https('${target.bucket}.s3.${target.region}.amazonaws.com', '/$key');
+  final request = AWSHttpRequest.get(uri);
+  return signer.presign(
+    request,
+    credentialScope: scope,
+    serviceConfiguration: S3ServiceConfiguration(),
+    expiresIn: expiresIn,
+  );
+}
