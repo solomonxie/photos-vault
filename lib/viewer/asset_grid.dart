@@ -111,9 +111,45 @@ class AssetTile extends StatelessWidget {
   /// `assetGridSlivers`' `selectedIds`).
   final bool? selected;
 
+  /// The live local original first, then the OS library, and only then the
+  /// app's own cached thumbnail — the cache is the *fallback*, for when
+  /// there's no original left (cloud-only) or the live source can't be
+  /// read. Preferring it would mean a stale cached path (they're absolute,
+  /// and the app container's UUID changes on reinstall) blanking a tile
+  /// whose real photo is right there.
+  Widget _image() {
+    if (record.localDeleted) return _cachedThumbnail();
+    final path = record.sourcePath;
+    if (path != null) {
+      return Image.file(
+        File(path),
+        fit: BoxFit.cover,
+        errorBuilder: (context, error, stackTrace) => _cachedThumbnail(),
+      );
+    }
+    if (record.sourceType == AssetSourceType.photoManager) {
+      return PhotoManagerThumbnail(assetId: record.localId);
+    }
+    return _cachedThumbnail();
+  }
+
+  Widget _cachedThumbnail() {
+    final thumbnail = record.thumbnailPath;
+    if (thumbnail == null) return _placeholder();
+    return Image.file(
+      File(thumbnail),
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) => _placeholder(),
+    );
+  }
+
+  Widget _placeholder() => const ColoredBox(
+    color: CupertinoColors.systemGrey5,
+    child: Icon(CupertinoIcons.photo),
+  );
+
   @override
   Widget build(BuildContext context) {
-    final path = record.sourcePath;
     final video = record.isVideo;
 
     return CupertinoContextMenu(
@@ -145,22 +181,17 @@ class AssetTile extends StatelessWidget {
                     size: 28,
                   ),
                 )
-              else if (path != null)
-                Image.file(
-                  File(path),
-                  fit: BoxFit.cover,
-                  errorBuilder: (context, error, stackTrace) =>
-                      const ColoredBox(
-                        color: CupertinoColors.systemGrey5,
-                        child: Icon(CupertinoIcons.photo),
-                      ),
-                )
-              else if (record.sourceType == AssetSourceType.photoManager)
-                PhotoManagerThumbnail(assetId: record.localId)
               else
-                const ColoredBox(
-                  color: CupertinoColors.systemGrey5,
-                  child: Icon(CupertinoIcons.photo),
+                _image(),
+              if (record.localDeleted)
+                const Positioned(
+                  top: 4,
+                  left: 4,
+                  child: Icon(
+                    CupertinoIcons.cloud_fill,
+                    size: 14,
+                    color: CupertinoColors.white,
+                  ),
                 ),
               if (video)
                 const Positioned(

@@ -189,10 +189,9 @@ void main() {
     final drafts = await draftsStore.loadAll();
     expect(drafts, hasLength(1));
     expect(drafts.single.bucket, 'my-bucket');
-    expect(find.text('Drafts'), findsOneWidget);
-    // "my-bucket" appears twice: once still in the bucket field, once in
-    // the new draft list entry below — the latter is below the fold once
-    // the length-hint text makes the form taller, hence skipOffstage: false.
+    // Below the fold once the storage-type picker and length-hint text make
+    // the form taller, hence skipOffstage: false.
+    expect(find.text('Drafts', skipOffstage: false), findsOneWidget);
     expect(find.text('my-bucket', skipOffstage: false), findsNWidgets(2));
   });
 

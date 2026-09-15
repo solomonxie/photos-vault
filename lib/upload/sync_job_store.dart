@@ -1,0 +1,209 @@
+import 'package:path/path.dart' as p;
+import 'package:sqflite/sqflite.dart' as sqflite;
+import 'package:sqflite/sqflite.dart' show Database, DatabaseFactory, OpenDatabaseOptions;
+import 'package:uuid/uuid.dart';
+
+import 'sync_job.dart';
+
+/// Persisted sync queue. Deliberately its own database rather than another
+/// table in `asset_record`'s: jobs are throwaway operational state with
+/// their own lifecycle, and nothing needs a transaction spanning both.
+class SyncJobStore {
+  SyncJobStore({DatabaseFactory? databaseFactory, String? path, Uuid? uuid})
+    : _databaseFactory = databaseFactory ?? sqflite.databaseFactory,
+      _path = path,
+      _uuid = uuid ?? const Uuid();
+
+  final DatabaseFactory _databaseFactory;
+  final String? _path;
+  final Uuid _uuid;
+
+  Database? _db;
+
+  static const _table = 'sync_job';
+
+  Future<Database> _open() async {
+    final existing = _db;
+    if (existing != null) return existing;
+    final path = _path ?? p.join(await _databaseFactory.getDatabasesPath(), 'sync_jobs.db');
+    final db = await _databaseFactory.openDatabase(
+      path,
+      options: OpenDatabaseOptions(
+        version: 1,
+        onCreate: (db, version) => db.execute('''
+          CREATE TABLE $_table (
+            id TEXT PRIMARY KEY,
+            local_id TEXT NOT NULL,
+            kind TEXT NOT NULL,
+            display_name TEXT NOT NULL,
+            status TEXT NOT NULL,
+            error_message TEXT,
+            created_at INTEGER NOT NULL,
+            updated_at INTEGER NOT NULL
+          )
+        '''),
+      ),
+    );
+    _db = db;
+    return db;
+  }
+
+  Future<void> close() async {
+    await _db?.close();
+    _db = null;
+  }
+
+  /// Adds a job unless an unfinished one for the same asset+kind is already
+  /// queued — tapping Sync Now twice shouldn't double every file. Returns
+  /// the job, existing or new.
+  Future<SyncJob> enqueue({
+    required String localId,
+    required SyncJobKind kind,
+    required String displayName,
+  }) async {
+    final db = await _open();
+    final existing = await db.query(
+      _table,
+      where: 'local_id = ? AND kind = ? AND status IN (?, ?)',
+      whereArgs: [localId, kind.name, SyncJobStatus.pending.name, SyncJobStatus.running.name],
+      limit: 1,
+    );
+    if (existing.isNotEmpty) return _fromRow(existing.first);
+
+    final now = DateTime.now();
+    final job = SyncJob(
+      id: _uuid.v4(),
+      localId: localId,
+      kind: kind,
+      displayName: displayName,
+      status: SyncJobStatus.pending,
+      createdAt: now,
+      updatedAt: now,
+    );
+    await db.insert(_table, _toRow(job));
+    return job;
+  }
+
+  Future<List<SyncJob>> all() async {
+    final db = await _open();
+    final rows = await db.query(_table, orderBy: 'created_at ASC');
+    return rows.map(_fromRow).toList();
+  }
+
+  Future<int> countWhere(Iterable<SyncJobStatus> statuses) async {
+    final db = await _open();
+    final placeholders = List.filled(statuses.length, '?').join(', ');
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS c FROM $_table WHERE status IN ($placeholders)',
+      statuses.map((s) => s.name).toList(),
+    );
+    return sqflite.Sqflite.firstIntValue(rows) ?? 0;
+  }
+
+  /// Claims the oldest pending job — marked `running` inside the same
+  /// transaction it's read in, so two workers can never take the same one.
+  Future<SyncJob?> dequeueNextPending() async {
+    final db = await _open();
+    return db.transaction((txn) async {
+      final rows = await txn.query(
+        _table,
+        where: 'status = ?',
+        whereArgs: [SyncJobStatus.pending.name],
+        orderBy: 'created_at ASC',
+        limit: 1,
+      );
+      if (rows.isEmpty) return null;
+      final job = _fromRow(rows.first);
+      await txn.update(
+        _table,
+        {'status': SyncJobStatus.running.name, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+        where: 'id = ?',
+        whereArgs: [job.id],
+      );
+      return SyncJob(
+        id: job.id,
+        localId: job.localId,
+        kind: job.kind,
+        displayName: job.displayName,
+        status: SyncJobStatus.running,
+        createdAt: job.createdAt,
+        updatedAt: DateTime.now(),
+      );
+    });
+  }
+
+  Future<void> markDone(String id) => _setStatus(id, SyncJobStatus.done);
+
+  Future<void> markFailed(String id, String error) => _setStatus(id, SyncJobStatus.failed, error: error);
+
+  /// Puts a failed job back in line.
+  Future<void> retry(String id) => _setStatus(id, SyncJobStatus.pending);
+
+  Future<void> _setStatus(String id, SyncJobStatus status, {String? error}) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {
+        'status': status.name,
+        'error_message': error,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+  }
+
+  /// Drops everything still waiting or already failed. Running jobs are
+  /// left alone — they're mid-flight, and the worker marks them itself.
+  /// Nothing about the assets changes: whatever was queued just gets
+  /// queued again by the next manual or scheduled sync.
+  Future<void> clearQueue() async {
+    final db = await _open();
+    await db.delete(
+      _table,
+      where: 'status IN (?, ?)',
+      whereArgs: [SyncJobStatus.pending.name, SyncJobStatus.failed.name],
+    );
+  }
+
+  /// Clears the finished-successfully rows so the list stops growing,
+  /// leaving anything still pending/running/failed visible.
+  Future<void> clearSynced() async {
+    final db = await _open();
+    await db.delete(_table, where: 'status = ?', whereArgs: [SyncJobStatus.done.name]);
+  }
+
+  /// A crash mid-sync leaves rows stuck as `running` with no worker behind
+  /// them — put them back in line at startup rather than stranding them.
+  Future<void> requeueStaleRunning() async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {'status': SyncJobStatus.pending.name, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'status = ?',
+      whereArgs: [SyncJobStatus.running.name],
+    );
+  }
+
+  static Map<String, Object?> _toRow(SyncJob job) => {
+    'id': job.id,
+    'local_id': job.localId,
+    'kind': job.kind.name,
+    'display_name': job.displayName,
+    'status': job.status.name,
+    'error_message': job.errorMessage,
+    'created_at': job.createdAt.millisecondsSinceEpoch,
+    'updated_at': job.updatedAt.millisecondsSinceEpoch,
+  };
+
+  static SyncJob _fromRow(Map<String, Object?> row) => SyncJob(
+    id: row['id'] as String,
+    localId: row['local_id'] as String,
+    kind: SyncJobKind.values.byName(row['kind'] as String),
+    displayName: row['display_name'] as String,
+    status: SyncJobStatus.values.byName(row['status'] as String),
+    errorMessage: row['error_message'] as String?,
+    createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
+    updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
+  );
+}

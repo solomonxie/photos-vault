@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 
 import '../l10n/app_localizations.dart';
+import 'backup_storage_type.dart';
 import 'backup_targets_store.dart';
 import 's3_connectivity.dart';
 import 's3_region_detection.dart';
@@ -216,6 +217,27 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
         child: ListView(
           padding: const EdgeInsets.all(16),
           children: [
+            DropdownButtonFormField<BackupStorageType>(
+              initialValue: BackupStorageType.s3,
+              isExpanded: true,
+              decoration: InputDecoration(labelText: l10n.settingsStorageTypeLabel, border: const OutlineInputBorder()),
+              items: [
+                for (final t in backupStorageTypes)
+                  DropdownMenuItem(
+                    value: t.type,
+                    enabled: t.available,
+                    child: Text(
+                      t.available ? t.name : l10n.settingsStorageTypeComingSoon(t.name),
+                      style: t.available ? null : TextStyle(color: Theme.of(context).disabledColor),
+                    ),
+                  ),
+              ],
+              // Every other type is disabled in the list above — this never
+              // actually fires, but the form needs a valid onChanged to
+              // render as an editable field rather than a plain label.
+              onChanged: (_) {},
+            ),
+            const SizedBox(height: 12),
             TextFormField(
               controller: _accessKeyIdController,
               enabled: !_saving,

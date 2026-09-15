@@ -1,15 +1,54 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
+import 'package:flutter/material.dart' show MaterialPageRoute;
+import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
+import '../storage/asset_record.dart';
+import '../storage/asset_record_store.dart';
+import '../upload/backup_coordinator.dart';
+import '../upload/sync_job.dart';
+import '../upload/sync_queue.dart';
+import '../viewer/backup_queue_sheet.dart';
 import 'add_s3_backup_screen.dart';
 import 'backup_targets_store.dart';
 import 'bucket_browser_screen.dart';
 import 's3_backup_target.dart';
+import 'settings_section.dart';
 
+/// "Private Cloud" — one flat page: the bucket list up top, then the
+/// settings that govern syncing it. Nothing here pushes a sub-page that
+/// only holds controls; per-connection actions live in that row's own `…`
+/// sheet, and the queue opens as a sheet over this page rather than a
+/// destination of its own.
 class SettingsScreen extends StatefulWidget {
-  const SettingsScreen({super.key, this.store});
+  const SettingsScreen({
+    super.key,
+    this.store,
+    this.assetRecordStore,
+    this.retryRecords,
+    this.syncEverything,
+    this.syncQueue,
+  });
 
   final BackupTargetsStore? store;
+  final AssetRecordStore? assetRecordStore;
+
+  /// Re-attempts exactly the records given, no local-change check.
+  /// Defaults to a plain [BackupCoordinator] run for standalone/test use;
+  /// `LibraryScreen` always passes its own so a retry here shares the same
+  /// in-flight-run bookkeeping.
+  final Future<int> Function(List<AssetRecord> records)? retryRecords;
+
+  /// Backs "Sync Now" — checks every already-uploaded asset for a local
+  /// edit first, then backs up everything pending/failed. Defaults to
+  /// [retryRecords] over pending/failed only (no change-detection) for
+  /// standalone/test use.
+  final Future<int> Function()? syncEverything;
+
+  /// The live sync queue, for the status line and its sheet. Optional so
+  /// the screen still stands alone in tests; without one the status line
+  /// just reads as idle.
+  final SyncQueue? syncQueue;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -17,8 +56,38 @@ class SettingsScreen extends StatefulWidget {
 
 class _SettingsScreenState extends State<SettingsScreen> {
   late final BackupTargetsStore _store = widget.store ?? BackupTargetsStore();
+  late final AssetRecordStore _assetRecordStore =
+      widget.assetRecordStore ?? AssetRecordStore();
+  late final Future<int> Function(List<AssetRecord> records) _retryRecords =
+      widget.retryRecords ??
+      (records) =>
+          BackupCoordinator(
+            targetsStore: _store,
+            recordStore: _assetRecordStore,
+          ).backUpBatch(
+            records: records,
+            kind: DerivativeKind.original,
+            resolvePath: (r) async => r.sourcePath,
+          );
+  late final Future<int> Function() _syncEverything =
+      widget.syncEverything ??
+      () async {
+        final all = await _assetRecordStore.listAll();
+        final due = all.where((r) {
+          if (r.isDeleted) return false;
+          final status = r.stateOf(DerivativeKind.original).status;
+          return status == UploadStatus.pending ||
+              status == UploadStatus.failed;
+        }).toList();
+        return _retryRecords(due);
+      };
 
   List<S3BackupTarget>? _targets;
+  List<AssetRecord> _records = const [];
+  BackupFormat _format = BackupFormat.original;
+  SyncFrequency _frequency = SyncFrequency.manual;
+  DateTime? _lastSyncAt;
+  bool _syncing = false;
 
   @override
   void initState() {
@@ -28,119 +97,412 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Future<void> _reload() async {
     List<S3BackupTarget> targets = const [];
+    var format = BackupFormat.original;
+    var frequency = SyncFrequency.manual;
+    DateTime? lastSyncAt;
     try {
       targets = await _store.loadAll();
+      format = await _store.getBackupFormat();
+      frequency = await _store.getSyncFrequency();
+      lastSyncAt = await _store.getLastSyncAt();
     } catch (_) {
-      // Secure storage unavailable/unreadable — show an empty list rather
-      // than spinning forever.
+      // Secure storage unavailable/unreadable — show defaults rather than
+      // spinning forever.
+    }
+    List<AssetRecord> records = const [];
+    try {
+      records = await _assetRecordStore.listAll();
+    } catch (_) {
+      // Asset store unavailable (e.g. no platform channel in a test) — the
+      // stats line just reads zero rather than crashing the screen.
     }
     if (!mounted) return;
-    setState(() => _targets = targets);
+    setState(() {
+      _targets = targets;
+      _records = records;
+      _format = format;
+      _frequency = frequency;
+      _lastSyncAt = lastSyncAt;
+    });
   }
 
+  // ---------------------------------------------------------------- buckets
+
   Future<void> _addBackup() async {
-    final added = await Navigator.of(
-      context,
-    ).push<bool>(MaterialPageRoute(builder: (_) => AddS3BackupScreen(store: _store)));
-    if (added == true) {
-      await _reload();
-      if (!mounted) return;
-      ScaffoldMessenger.of(
-        context,
-      ).showSnackBar(SnackBar(content: Text(AppLocalizations.of(context)!.settingsAddedMessage)));
-    }
+    final added = await Navigator.of(context).push<bool>(
+      MaterialPageRoute(builder: (_) => AddS3BackupScreen(store: _store)),
+    );
+    if (added == true) await _reload();
+  }
+
+  void _browse(S3BackupTarget target) {
+    // Rooted at the target's own prefix, and can't be navigated above it:
+    // that prefix *is* this connection, so everything outside it belongs to
+    // whatever else shares the bucket.
+    Navigator.of(context).push(
+      MaterialPageRoute(builder: (_) => BucketBrowserScreen(target: target)),
+    );
+  }
+
+  /// Everything scoped to one connection, in one place — never a second tap
+  /// target beside the row's chevron.
+  Future<void> _showConnectionActions(S3BackupTarget target) async {
+    final l10n = AppLocalizations.of(context)!;
+    await showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: Text(target.bucket),
+        message: Text(_targetPath(target)),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              _browse(target);
+            },
+            child: Text(l10n.settingsBrowseFilesAction),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              _syncNow();
+            },
+            child: Text(l10n.settingsSyncNowButton),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              _openQueue();
+            },
+            child: Text(l10n.backupQueueTitle),
+          ),
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              _confirmDelete(target);
+            },
+            child: Text(l10n.settingsDeleteConnectionAction),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
   }
 
   Future<void> _confirmDelete(S3BackupTarget target) async {
     final l10n = AppLocalizations.of(context)!;
-    final confirmed = await showDialog<bool>(
+    final confirmed = await showCupertinoDialog<bool>(
       context: context,
-      builder: (context) => AlertDialog(
+      builder: (dialogContext) => CupertinoAlertDialog(
         title: Text(l10n.settingsDeleteConfirmTitle),
         content: Text(l10n.settingsDeleteConfirmBody),
         actions: [
-          TextButton(onPressed: () => Navigator.of(context).pop(false), child: Text(l10n.actionCancel)),
-          TextButton(onPressed: () => Navigator.of(context).pop(true), child: Text(l10n.actionDelete)),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.actionDelete),
+          ),
+          // Cancel last: alerts stack their actions in list order.
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
         ],
       ),
     );
-    if (confirmed == true) {
-      await _store.remove(target.id);
-      await _reload();
-    }
+    if (confirmed != true) return;
+    await _store.remove(target.id);
+    await _reload();
   }
+
+  String _targetPath(S3BackupTarget target) =>
+      's3://${target.bucket}/${target.prefix}';
+
+  // ------------------------------------------------------------------- sync
+
+  String _frequencyLabel(AppLocalizations l10n, SyncFrequency f) => switch (f) {
+    SyncFrequency.manual => l10n.settingsSyncFrequencyManual,
+    SyncFrequency.every15Minutes => l10n.settingsSyncFrequencyEvery15Minutes,
+    SyncFrequency.everyHour => l10n.settingsSyncFrequencyEveryHour,
+    SyncFrequency.every6Hours => l10n.settingsSyncFrequencyEvery6Hours,
+    SyncFrequency.daily => l10n.settingsSyncFrequencyDaily,
+  };
+
+  Future<void> _pickFrequency() async {
+    final l10n = AppLocalizations.of(context)!;
+    final picked = await showCupertinoModalPopup<SyncFrequency>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: Text(l10n.settingsSyncFrequencyHeading),
+        message: Text(l10n.settingsSyncFrequencyHint),
+        actions: [
+          for (final f in SyncFrequency.values)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(sheetContext).pop(f),
+              child: Text(
+                f == _frequency
+                    ? '${_frequencyLabel(l10n, f)}  ✓'
+                    : _frequencyLabel(l10n, f),
+              ),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (picked == null) return;
+    setState(() => _frequency = picked);
+    await _store.setSyncFrequency(picked);
+  }
+
+  Future<void> _syncNow() async {
+    if (_syncing) return;
+    setState(() => _syncing = true);
+    try {
+      await _syncEverything();
+      await _store.setLastSyncAt(DateTime.now());
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
+    await _reload();
+  }
+
+  Future<void> _setFormat(BackupFormat value) async {
+    setState(() => _format = value);
+    await _store.setBackupFormat(value);
+  }
+
+  Future<void> _openQueue() async {
+    final queue = widget.syncQueue;
+    if (queue == null) return;
+    await showBackupQueueSheet(context, queue);
+    await _reload();
+  }
+
+  // ------------------------------------------------------------------ stats
+
+  int get _backedUpCount => _records
+      .where(
+        (r) =>
+            !r.isDeleted &&
+            r.stateOf(DerivativeKind.original).status == UploadStatus.uploaded,
+      )
+      .length;
+
+  int get _trackedCount => _records.where((r) => !r.isDeleted).length;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final targets = _targets;
-    return Scaffold(
-      appBar: AppBar(
-        title: Text(l10n.tabSettings),
-        actions: [IconButton(icon: const Icon(Icons.add), onPressed: _addBackup, tooltip: l10n.settingsAddButton)],
+    return CupertinoPageScaffold(
+      backgroundColor: settingsPageBackground,
+      navigationBar: CupertinoNavigationBar(
+        backgroundColor: settingsPageBackground,
+        border: null,
+        middle: Text(l10n.collectionsPrivateCloudRow),
       ),
-      body: targets == null
-          ? const Center(child: CircularProgressIndicator())
-          : CustomScrollView(
-              slivers: [
-                if (targets.isEmpty)
-                  SliverToBoxAdapter(child: _EmptyState(onAdd: _addBackup))
-                else
-                  SliverList(
-                    delegate: SliverChildBuilderDelegate((context, index) {
-                      final target = targets[index];
-                      return ListTile(
-                        leading: const Icon(Icons.cloud_outlined),
-                        title: Text(target.bucket),
-                        subtitle: Text(target.prefix.isEmpty ? target.region : '${target.region} · ${target.prefix}'),
-                        trailing: IconButton(
-                          icon: const Icon(Icons.delete_outline),
-                          onPressed: () => _confirmDelete(target),
-                        ),
-                        onTap: () => Navigator.of(
-                          context,
-                        ).push(MaterialPageRoute(builder: (_) => BucketBrowserScreen(target: target))),
-                      );
-                    }, childCount: targets.length),
-                  ),
-              ],
+      child: targets == null
+          ? const Center(child: CupertinoActivityIndicator())
+          : SafeArea(
+              child: ListView(
+                padding: const EdgeInsets.only(top: 8, bottom: 32),
+                children: [
+                  _bucketsSection(l10n, targets),
+                  const SettingsSectionDivider(),
+                  _syncSection(l10n, targets),
+                  const SettingsSectionDivider(),
+                  _formatSection(l10n),
+                ],
+              ),
             ),
     );
   }
-}
 
-class _EmptyState extends StatelessWidget {
-  const _EmptyState({required this.onAdd});
-
-  final VoidCallback onAdd;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Center(
-      child: Padding(
-        padding: const EdgeInsets.all(24),
-        child: Column(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            const Icon(Icons.cloud_off_outlined, size: 48, color: Colors.grey),
-            const SizedBox(height: 12),
-            Text(l10n.settingsEmptyTitle, style: Theme.of(context).textTheme.titleLarge),
-            const SizedBox(height: 4),
-            Text(
-              l10n.settingsEmptyNote,
-              textAlign: TextAlign.center,
-              style: Theme.of(context).textTheme.bodyMedium?.copyWith(color: Colors.grey),
-            ),
-            const SizedBox(height: 16),
-            FilledButton.icon(
-              onPressed: onAdd,
-              icon: const Icon(Icons.add),
-              label: Text(l10n.settingsAddButton),
-            ),
-          ],
+  Widget _bucketsSection(AppLocalizations l10n, List<S3BackupTarget> targets) {
+    return SettingsSection(
+      heading: l10n.settingsCloudBucketsHeading,
+      hint: l10n.settingsCloudBucketsHint,
+      action: CupertinoButton(
+        padding: EdgeInsets.zero,
+        minimumSize: Size.zero,
+        onPressed: _addBackup,
+        child: const Icon(
+          CupertinoIcons.add_circled_solid,
+          size: 24,
+          color: settingsAccent,
         ),
       ),
+      footer: targets.isEmpty ? null : _bucketsFooter(l10n, targets),
+      children: targets.isEmpty
+          ? [_emptyState(l10n)]
+          : [
+              for (var i = 0; i < targets.length; i++) ...[
+                if (i > 0) const SettingsHairline(indent: settingsRowIndent),
+                SettingsRow(
+                  leading: const SettingsIconTile(icon: CupertinoIcons.cloud_fill),
+                  title: targets[i].bucket,
+                  subtitle: _targetPath(targets[i]),
+                  detail: targets[i].region,
+                  onTap: () => _browse(targets[i]),
+                  trailing: CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    minimumSize: Size.zero,
+                    onPressed: () => _showConnectionActions(targets[i]),
+                    child: const Icon(
+                      CupertinoIcons.ellipsis_circle,
+                      size: 20,
+                      color: settingsSecondary,
+                    ),
+                  ),
+                ),
+              ],
+            ],
+    );
+  }
+
+  Widget _bucketsFooter(AppLocalizations l10n, List<S3BackupTarget> targets) {
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SettingsFooterLine(
+          text: l10n.settingsCloudBucketsFooter(
+            targets.length,
+            _backedUpCount,
+            _trackedCount,
+          ),
+          busy: _syncing,
+          busyText: l10n.settingsSyncingMessage,
+        ),
+        const SizedBox(height: 6),
+        _queueLine(l10n),
+      ],
+    );
+  }
+
+  /// The queue is global across connections, so it lives here once rather
+  /// than behind each bucket's menu — and opens as a sheet, not a page.
+  Widget _queueLine(AppLocalizations l10n) {
+    final queue = widget.syncQueue;
+    if (queue == null) {
+      return SettingsFooterLine(
+        text: '${l10n.settingsSyncQueueRow}: ${l10n.backupQueueIdle}',
+      );
+    }
+    return ValueListenableBuilder<List<SyncJob>>(
+      valueListenable: queue.jobs,
+      builder: (context, jobs, _) {
+        final pending = jobs.where((job) => !job.isFinished).length;
+        return ValueListenableBuilder<int>(
+          valueListenable: queue.concurrency,
+          builder: (context, concurrency, _) => SettingsFooterLine(
+            text: pending == 0
+                ? '${l10n.settingsSyncQueueRow}: ${l10n.backupQueueIdle}'
+                : '${l10n.settingsSyncQueueRow}: ${l10n.settingsSyncQueuePending(pending, concurrency)}',
+            onTap: _openQueue,
+          ),
+        );
+      },
+    );
+  }
+
+  Widget _emptyState(AppLocalizations l10n) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(settingsPagePadding, 4, settingsPagePadding, 0),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l10n.settingsEmptyNote,
+            style: const TextStyle(fontSize: 13, color: settingsSecondary),
+          ),
+          const SizedBox(height: 4),
+          // The empty state carries the next action, not just a message.
+          Align(
+            alignment: Alignment.centerLeft,
+            child: SettingsAccentButton(
+              label: l10n.settingsAddButton,
+              onPressed: _addBackup,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _syncSection(AppLocalizations l10n, List<S3BackupTarget> targets) {
+    final l10nLastSynced = _lastSyncAt == null
+        ? l10n.settingsLastSyncedNever
+        : l10n.settingsLastSyncedAt(
+            DateFormat.MMMd().add_jm().format(_lastSyncAt!),
+          );
+    return SettingsSection(
+      heading: l10n.settingsSyncFrequencyHeading.toUpperCase(),
+      primary: false,
+      action: SettingsAccentButton(
+        label: _frequencyLabel(l10n, _frequency),
+        onPressed: _pickFrequency,
+        showChevron: true,
+      ),
+      hint: l10n.settingsSyncFrequencyHint,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(settingsPagePadding, 0, settingsPagePadding, 0),
+          child: Text(l10nLastSynced, style: settingsFooterStyle),
+        ),
+        const SizedBox(height: 4),
+        Align(
+          alignment: Alignment.centerLeft,
+          child: Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 12),
+            child: SettingsAccentButton(
+              label: _syncing
+                  ? l10n.settingsSyncingMessage
+                  : l10n.settingsSyncNowButton,
+              // Never a silent no-op: with nothing configured there is
+              // nowhere to sync to, so the control stays visible but dead.
+              onPressed: targets.isEmpty || _syncing ? null : _syncNow,
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _formatSection(AppLocalizations l10n) {
+    return SettingsSection(
+      heading: l10n.settingsBackupFormatHeading.toUpperCase(),
+      primary: false,
+      hint: l10n.settingsBackupFormatHint,
+      footer: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(l10n.settingsBackupFormatVideoNote, style: settingsHintStyle),
+          const SizedBox(height: 4),
+          Text(l10n.settingsBackupFormatFolderNote, style: settingsHintStyle),
+        ],
+      ),
+      children: [
+        SettingsChoiceRow(
+          title: l10n.settingsBackupFormatOriginal,
+          description: l10n.settingsBackupFormatOriginalDescription,
+          selected: _format == BackupFormat.original,
+          onTap: () => _setFormat(BackupFormat.original),
+        ),
+        const SettingsHairline(indent: settingsPagePadding),
+        SettingsChoiceRow(
+          title: l10n.settingsBackupFormatOptimized,
+          description: l10n.settingsBackupFormatOptimizedDescription,
+          selected: _format == BackupFormat.optimized,
+          onTap: () => _setFormat(BackupFormat.optimized),
+        ),
+      ],
     );
   }
 }

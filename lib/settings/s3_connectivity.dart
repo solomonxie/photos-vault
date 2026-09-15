@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:aws_common/aws_common.dart';
 import 'package:aws_signature_v4/aws_signature_v4.dart';
 import 'package:http/http.dart' as http;
@@ -39,7 +41,8 @@ Future<S3AccessCheckResult> checkBucketAccess({
   try {
     final signed = await signer.sign(request, credentialScope: scope, serviceConfiguration: S3ServiceConfiguration());
     final response = await http.get(signed.uri, headers: signed.headers);
-    final errorCode = _errorCodeFrom(response.body);
+    // Not `response.body` — see s3_listing.dart's `listBucket` for why.
+    final errorCode = _errorCodeFrom(utf8.decode(response.bodyBytes));
     switch (response.statusCode) {
       case 200:
         return const S3AccessCheckResult(S3AccessCheckOutcome.ok);

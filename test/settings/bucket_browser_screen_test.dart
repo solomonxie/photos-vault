@@ -1,5 +1,6 @@
 import 'package:bring_your_own_photos/l10n/app_localizations.dart';
 import 'package:bring_your_own_photos/settings/bucket_browser_screen.dart';
+import 'package:bring_your_own_photos/settings/bucket_object_preview_screen.dart';
 import 'package:bring_your_own_photos/settings/s3_backup_target.dart';
 import 'package:bring_your_own_photos/settings/s3_listing.dart';
 import 'package:flutter/material.dart';
@@ -132,5 +133,30 @@ void main() {
     expect(find.text('a.jpg'), findsOneWidget);
     expect(find.text('b.jpg'), findsOneWidget);
     expect(find.text('Load More'), findsNothing);
+  });
+
+  testWidgets('tapping an object opens its preview screen', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        BucketBrowserScreen(
+          target: _target,
+          listBucketFn: ({required target, prefix = '', continuationToken}) async => S3ListingResult(
+            S3ListingOutcome.ok,
+            page: S3ListingPage(
+              folders: const [],
+              objects: [S3Object(key: 'bring-your-own-photos/a.jpg', size: 1, lastModified: DateTime(2024, 1, 1))],
+            ),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('a.jpg'));
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 300));
+
+    final preview = tester.widget<BucketObjectPreviewScreen>(find.byType(BucketObjectPreviewScreen));
+    expect(preview.objectKey, 'bring-your-own-photos/a.jpg');
   });
 }

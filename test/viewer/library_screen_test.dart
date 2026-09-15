@@ -4,6 +4,7 @@ import 'package:bring_your_own_photos/photos/demo_seed_store.dart';
 import 'package:bring_your_own_photos/photos/manual_add.dart';
 import 'package:bring_your_own_photos/photos/person_store.dart';
 import 'package:bring_your_own_photos/photos/photo_library_service.dart';
+import 'package:bring_your_own_photos/photos/thumbnail_cache.dart';
 import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
 import 'package:bring_your_own_photos/settings/s3_backup_target.dart';
 import 'package:bring_your_own_photos/storage/album_store.dart';
@@ -24,6 +25,7 @@ import '../support/fake_ai_analysis_store.dart';
 import '../support/fake_album_store.dart';
 import '../support/fake_asset_record_store.dart';
 import '../support/fake_person_store.dart';
+import '../support/fake_sync_job_store.dart';
 
 // Never touches the real `background_downloader` platform channel — this
 // screen's tests only cover the no-targets-configured path, where it's
@@ -35,6 +37,14 @@ class _UnusedS3Uploader implements S3Uploader {
     required String key,
     required S3BackupTarget target,
   }) => throw UnimplementedError();
+}
+
+class _FakeS3Uploader implements S3Uploader {
+  _FakeS3Uploader(this.result);
+  final bool result;
+
+  @override
+  Future<bool> put({required String filePath, required String key, required S3BackupTarget target}) async => result;
 }
 
 // Never touches the real asset bundle / disk — inserts straight into the
@@ -64,6 +74,12 @@ class _FakeDemoAssetsService implements DemoAssetsService {
   ];
 }
 
+// Never decodes or writes a real image: `ensureFor` short-circuits on the
+// null encode, so no widget test ever does real file I/O — which never
+// completes under `testWidgets`' fake async.
+ThumbnailCache _noThumbnails(AssetRecordStore store) =>
+    ThumbnailCache(store: store, encode: (_) async => null);
+
 Widget _wrap(Widget child) => CupertinoApp(
   localizationsDelegates: AppLocalizations.localizationsDelegates,
   supportedLocales: AppLocalizations.supportedLocales,
@@ -88,6 +104,8 @@ void main() {
         LibraryScreen(
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
           albumStore: FakeAlbumStore(),
           personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
@@ -131,6 +149,8 @@ void main() {
           LibraryScreen(
             demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
             albumStore: FakeAlbumStore(),
             personStore: FakePersonStore(),
             backupTargetsStore: targetsStore,
@@ -167,6 +187,8 @@ void main() {
         LibraryScreen(
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
           albumStore: FakeAlbumStore(),
           personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
@@ -201,6 +223,8 @@ void main() {
         LibraryScreen(
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
           albumStore: FakeAlbumStore(),
           personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
@@ -243,6 +267,8 @@ void main() {
           LibraryScreen(
             demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
             albumStore: FakeAlbumStore(),
             personStore: FakePersonStore(),
             backupTargetsStore: targetsStore,
@@ -293,11 +319,19 @@ void main() {
       picker: ({type = FileType.any, allowMultiple = false}) async => [],
     );
 
+    // Import Photos now sits below Favorites/Cloud Backups/AI Settings/Reset
+    // Demo in Utilities — tall surface so it's built by the lazy
+    // CustomScrollView without needing a scroll.
+    await tester.binding.setSurfaceSize(const Size(400, 1200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
     await tester.pumpWidget(
       _wrap(
         LibraryScreen(
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
           albumStore: FakeAlbumStore(),
           personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
@@ -329,6 +363,8 @@ void main() {
         LibraryScreen(
           demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
           albumStore: FakeAlbumStore(),
           personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
@@ -361,6 +397,8 @@ void main() {
           LibraryScreen(
             demoSeedStore: demoSeedStore,
             assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
             albumStore: FakeAlbumStore(),
             personStore: FakePersonStore(),
             backupTargetsStore: targetsStore,
@@ -402,6 +440,8 @@ void main() {
           LibraryScreen(
             demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
             albumStore: FakeAlbumStore(),
             personStore: FakePersonStore(),
             backupTargetsStore: targetsStore,
@@ -424,6 +464,104 @@ void main() {
       );
     },
   );
+
+  // The removal itself is real file I/O, which never completes under
+  // `testWidgets`' fake async — `ThumbnailCache`'s own (plain `test`) suite
+  // covers that half. What's worth pinning here is the decision: who gets
+  // offered the cloud-only option, and what the grid does afterwards.
+  Future<void> pumpWithRecord(WidgetTester tester, FakeAssetRecordStore recordStore) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          demoSeedStore: _alreadySeededStore(),
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('deleting a backed-up photo offers to keep the cloud copy', (tester) async {
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:abc',
+      contentHash: 'abc',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/backed-up.jpg',
+    );
+    await recordStore.updateDerivative(
+      'manual:abc',
+      DerivativeKind.original,
+      const DerivativeState(status: UploadStatus.uploaded, destinationKey: 'originals/manual_abc.jpg'),
+    );
+    await pumpWithRecord(tester, recordStore);
+
+    await tester.tap(find.byKey(const ValueKey('manual:abc')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(CupertinoIcons.trash));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Remove from Device'), findsOneWidget);
+    expect(find.text('Delete Photo'), findsOneWidget);
+  });
+
+  testWidgets('deleting a photo that is not backed up yet just confirms, with no cloud-only option', (tester) async {
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:abc',
+      contentHash: 'abc',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/pending.jpg',
+    );
+    await pumpWithRecord(tester, recordStore);
+
+    await tester.tap(find.byKey(const ValueKey('manual:abc')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(CupertinoIcons.trash));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Remove from Device'), findsNothing);
+    expect(find.text('Delete this item?'), findsOneWidget);
+  });
+
+  testWidgets('a cloud-only photo stays in the library, drawn from its cached thumbnail', (tester) async {
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:abc',
+      contentHash: 'abc',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/gone.jpg',
+    );
+    await recordStore.updateDerivative(
+      'manual:abc',
+      DerivativeKind.original,
+      const DerivativeState(status: UploadStatus.uploaded, destinationKey: 'originals/manual_abc.jpg'),
+    );
+    await recordStore.setThumbnailPath('manual:abc', '/tmp/thumb.jpg');
+    await recordStore.setLocalDeleted('manual:abc', true);
+    await pumpWithRecord(tester, recordStore);
+
+    expect(find.byKey(const ValueKey('manual:abc')), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.cloud_fill), findsOneWidget);
+    final image = tester.widget<Image>(
+      find.descendant(of: find.byKey(const ValueKey('manual:abc')), matching: find.byType(Image)).first,
+    );
+    expect((image.image as FileImage).file.path, '/tmp/thumb.jpg');
+  });
 
   testWidgets(
     'shows Utilities rows with real counts and navigates to each screen',
@@ -450,6 +588,8 @@ void main() {
           LibraryScreen(
             demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
             albumStore: FakeAlbumStore(),
             personStore: FakePersonStore(),
             backupTargetsStore: targetsStore,
@@ -466,12 +606,132 @@ void main() {
       expect(find.text('Favorites'), findsOneWidget);
       expect(find.text('Hidden'), findsOneWidget);
       expect(find.text('Recently Deleted'), findsOneWidget);
-      expect(find.text('Backup Status'), findsOneWidget);
-      expect(find.text('S3 Settings'), findsOneWidget);
+      expect(find.text('Private Cloud'), findsOneWidget);
 
       await tester.tap(find.text('Favorites'));
       await tester.pumpAndSettle();
       expect(find.byKey(const ValueKey('manual:fav')), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'returning from Cloud Backups retries whatever is still pending/failed',
+    (tester) async {
+      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: '');
+      final recordStore = FakeAssetRecordStore();
+      await recordStore.upsert(
+        localId: 'manual:pending',
+        contentHash: 'p',
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/pending.jpg',
+      );
+
+      // Wide enough that Cloud Backups' own "Cloud Buckets" row (heading +
+      // "+ Add Cloud Bucket" button) doesn't overflow once a target's
+      // configured.
+      await tester.binding.setSurfaceSize(const Size(800, 2000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        _wrap(
+          LibraryScreen(
+            demoSeedStore: _alreadySeededStore(),
+            assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
+            albumStore: FakeAlbumStore(),
+            personStore: FakePersonStore(),
+            backupTargetsStore: targetsStore,
+            backupCoordinator: BackupCoordinator(
+              targetsStore: targetsStore,
+              recordStore: recordStore,
+              s3Uploader: _FakeS3Uploader(true),
+              // Never touches the real filesystem — this test only cares
+              // about the pending→uploaded status transition, not real
+              // change-detection hashing.
+              hashFile: (path) async => 'fake-hash',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      // Nothing backs it up automatically just by rendering — the target
+      // was added to `targetsStore` directly (simulating "already
+      // configured"), not through the Cloud Backups UI itself.
+      expect(
+        (await recordStore.getByLocalId('manual:pending'))!.stateOf(DerivativeKind.original).status,
+        UploadStatus.pending,
+      );
+
+      await tester.tap(find.text('Private Cloud'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      expect(
+        (await recordStore.getByLocalId('manual:pending'))!.stateOf(DerivativeKind.original).status,
+        UploadStatus.uploaded,
+      );
+    },
+  );
+
+  testWidgets(
+    'a local edit since backup is re-hashed and re-uploaded on the next sync',
+    (tester) async {
+      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: '');
+      final recordStore = FakeAssetRecordStore();
+      await recordStore.upsert(
+        localId: 'manual:edited',
+        contentHash: 'e',
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/edited.jpg',
+      );
+      // Already backed up, but the "local file" now hashes differently —
+      // simulates an edit made in Photos after the last successful backup.
+      await recordStore.updateDerivative(
+        'manual:edited',
+        DerivativeKind.original,
+        const DerivativeState(status: UploadStatus.uploaded, destinationKey: 'originals/manual_edited.jpg', backedUpHash: 'old-hash'),
+      );
+
+      await tester.binding.setSurfaceSize(const Size(800, 2000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+
+      await tester.pumpWidget(
+        _wrap(
+          LibraryScreen(
+            demoSeedStore: _alreadySeededStore(),
+            assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
+            albumStore: FakeAlbumStore(),
+            personStore: FakePersonStore(),
+            backupTargetsStore: targetsStore,
+            hashFile: (path) async => 'new-hash', // differs from "old-hash"
+            backupCoordinator: BackupCoordinator(
+              targetsStore: targetsStore,
+              recordStore: recordStore,
+              s3Uploader: _FakeS3Uploader(true),
+              hashFile: (path) async => 'new-hash',
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Private Cloud'));
+      await tester.pumpAndSettle();
+      await tester.pageBack();
+      await tester.pumpAndSettle();
+
+      final updated = (await recordStore.getByLocalId('manual:edited'))!.stateOf(DerivativeKind.original);
+      expect(updated.status, UploadStatus.uploaded);
+      expect(updated.backedUpHash, 'new-hash');
     },
   );
 
@@ -512,6 +772,8 @@ void main() {
           LibraryScreen(
             demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
             albumStore: albumStore,
             personStore: FakePersonStore(),
             backupTargetsStore: targetsStore,
@@ -567,6 +829,8 @@ void main() {
           LibraryScreen(
             demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
             albumStore: FakeAlbumStore(),
             personStore: FakePersonStore(),
             backupTargetsStore: targetsStore,
@@ -627,6 +891,8 @@ void main() {
           LibraryScreen(
             demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
             albumStore: FakeAlbumStore(),
             personStore: personStore,
             backupTargetsStore: targetsStore,

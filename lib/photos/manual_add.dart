@@ -1,12 +1,12 @@
 import 'dart:io';
 
-import 'package:crypto/crypto.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import 'file_hash.dart';
 
 const _videoExtensions = {'.mp4', '.mov', '.m4v'};
 
@@ -56,7 +56,7 @@ class ManualAddService {
   /// first, keyed by content hash, so re-adding the same content is a no-op
   /// and the record never points at a path this app doesn't control.
   Future<AssetRecord> enqueueFile(String path, {DateTime? createdAt}) async {
-    final hash = await _hashFile(path);
+    final hash = await hashFile(path);
     final dir = await _targetDirectory();
     final owned = File(p.join(dir.path, '$hash${p.extension(path)}'));
     if (!await owned.exists()) await File(path).copy(owned.path);
@@ -69,10 +69,5 @@ class ManualAddService {
       isVideo: _isVideoPath(path),
       createdAt: createdAt,
     );
-  }
-
-  static Future<String> _hashFile(String path) async {
-    final digest = await sha256.bind(File(path).openRead()).first;
-    return digest.toString();
   }
 }

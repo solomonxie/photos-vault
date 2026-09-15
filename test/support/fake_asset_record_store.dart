@@ -65,6 +65,27 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<void> remove(String localId) async => _records.remove(localId);
 
   @override
+  Future<void> setSourcePath(String localId, String value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withSourcePath(value, DateTime.now());
+  }
+
+  @override
+  Future<void> setThumbnailPath(String localId, String value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withThumbnailPath(value);
+  }
+
+  @override
+  Future<void> setLocalDeleted(String localId, bool value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withLocalDeleted(value);
+  }
+
+  @override
   Future<void> setFavorite(String localId, bool value) async {
     final existing = _records[localId];
     if (existing == null) return;

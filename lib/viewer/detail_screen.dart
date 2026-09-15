@@ -15,8 +15,10 @@ import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/photo_library_service.dart';
+import '../settings/backup_targets_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/original_restore.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
 import 'person_picker_screen.dart';
@@ -60,6 +62,7 @@ class DetailScreen extends StatefulWidget {
     required this.assetRecordStore,
     this.personStore,
     this.resolvePhotoManagerFile,
+    this.restoreOriginal,
   });
 
   final List<AssetRecord> records;
@@ -83,6 +86,11 @@ class DetailScreen extends StatefulWidget {
   /// [PhotoLibraryService.resolveFile]; overridable so widget tests never
   /// touch the real `photo_manager` platform channel.
   final Future<File?> Function(AssetRecord record)? resolvePhotoManagerFile;
+
+  /// Re-downloads a cloud-only asset's original ([AssetRecord.localDeleted]).
+  /// Defaults to a real [OriginalRestore]; overridable so widget tests never
+  /// make a network call.
+  final Future<String?> Function(AssetRecord record)? restoreOriginal;
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -320,6 +328,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 itemBuilder: (context, i) => _MediaPage(
                   record: _records[i],
                   resolveFile: widget.resolvePhotoManagerFile,
+                  restoreOriginal: widget.restoreOriginal,
                   assetRecordStore: widget.assetRecordStore,
                   personStore: _personStore,
                   onRecordChanged: _updateRecord,
@@ -384,6 +393,7 @@ class _MediaPage extends StatefulWidget {
     required this.onRecordChanged,
     required this.scrollController,
     this.resolveFile,
+    this.restoreOriginal,
   });
 
   final AssetRecord record;
@@ -391,6 +401,11 @@ class _MediaPage extends StatefulWidget {
   final AssetRecordStore assetRecordStore;
   final PersonStore personStore;
   final ValueChanged<AssetRecord> onRecordChanged;
+
+  /// Re-downloads a cloud-only asset's original ([AssetRecord.localDeleted])
+  /// and returns its new local path. Defaults to a real [OriginalRestore];
+  /// overridable for tests so they never make a network call.
+  final Future<String?> Function(AssetRecord record)? restoreOriginal;
 
   /// Owned by `_DetailScreenState` — the info-circle button in the bottom
   /// bar drives it directly, so this page's `CustomScrollView` just needs
@@ -433,9 +448,18 @@ class _MediaPageState extends State<_MediaPage> {
     return false;
   }
 
+  /// Starts from the record and flips false once [_restoreOriginal] has
+  /// pulled the full-resolution copy back down.
+  late bool _localDeleted = widget.record.localDeleted;
+  bool _restoring = false;
+
   @override
   void initState() {
     super.initState();
+    // Cloud-only: nothing local to resolve, and `sourcePath` still points
+    // at the deleted file. The cached thumbnail carries the page until the
+    // user asks for the original back.
+    if (_localDeleted) return;
     final direct = widget.record.sourcePath;
     if (direct != null) {
       _path = direct;
@@ -484,7 +508,67 @@ class _MediaPageState extends State<_MediaPage> {
     super.dispose();
   }
 
+  Future<void> _restoreOriginal() async {
+    final restore = widget.restoreOriginal ??
+        (record) => OriginalRestore(
+          targetsStore: BackupTargetsStore(),
+          recordStore: widget.assetRecordStore,
+        ).restore(record);
+    setState(() => _restoring = true);
+    String? restored;
+    try {
+      restored = await restore(widget.record);
+    } catch (_) {
+      restored = null;
+    }
+    if (!mounted) return;
+    setState(() {
+      _restoring = false;
+      if (restored != null) {
+        _path = restored;
+        _localDeleted = false;
+      }
+    });
+    if (restored == null) return;
+    widget.onRecordChanged(widget.record.withSourcePath(restored, DateTime.now()).withLocalDeleted(false));
+    _initVideoIfNeeded();
+  }
+
+  /// The cached thumbnail, plus the offer to pull the full-resolution copy
+  /// back down from the bucket — what a cloud-only asset shows instead of
+  /// its (deleted) original.
+  Widget _cloudOnly(AppLocalizations l10n) {
+    final thumbnail = widget.record.thumbnailPath;
+    return Stack(
+      fit: StackFit.expand,
+      children: [
+        if (thumbnail != null)
+          Center(
+            child: Image.file(
+              File(thumbnail),
+              fit: BoxFit.contain,
+              errorBuilder: (context, error, stackTrace) => _MissingFileNote(message: l10n.detailFileUnavailable),
+            ),
+          )
+        else
+          _MissingFileNote(message: l10n.detailFileUnavailable),
+        Positioned(
+          left: 0,
+          right: 0,
+          bottom: 24,
+          child: Center(
+            child: CupertinoButton.filled(
+              onPressed: _restoring ? null : _restoreOriginal,
+              child: Text(_restoring ? l10n.detailRestoringOriginal : l10n.detailRestoreOriginal),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
   Widget _media(AppLocalizations l10n) {
+    if (_localDeleted) return _cloudOnly(l10n);
     final path = _path;
     if (path == null) {
       if (_resolvingPath) {
@@ -956,59 +1040,91 @@ class _InfoPanelState extends State<_InfoPanel> {
           ),
           GestureDetector(
             onTap: _editDateTime,
-            child: Text(
-              DateFormat.yMMMMEEEEd().add_jm().format(
-                record.createdAt.toLocal(),
-              ),
-              style: const TextStyle(
-                color: CupertinoColors.white,
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-              ),
+            child: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                Text(
+                  DateFormat.yMMMMEEEEd().add_jm().format(
+                    record.createdAt.toLocal(),
+                  ),
+                  style: const TextStyle(
+                    color: CupertinoColors.white,
+                    fontSize: 20,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                if (path != null)
+                  Padding(
+                    padding: const EdgeInsets.only(top: 2),
+                    child: Text(
+                      p.basename(path),
+                      style: const TextStyle(
+                        color: CupertinoColors.systemGrey,
+                        fontSize: 13,
+                      ),
+                    ),
+                  ),
+              ],
             ),
           ),
           const SizedBox(height: 16),
-          _InfoRow(
-            label: l10n.detailInfoLocation,
-            value: record.location ?? l10n.detailInfoNoLocation,
-            onTap: _editLocation,
+          CupertinoListSection.insetGrouped(
+            margin: EdgeInsets.zero,
+            backgroundColor: _screenBackground,
+            decoration: const BoxDecoration(
+              color: Color(0xFF2C2C2E),
+              borderRadius: BorderRadius.all(Radius.circular(10)),
+            ),
+            children: [
+              CupertinoListTile(
+                title: Text(l10n.detailInfoLocation),
+                additionalInfo: Text(record.location ?? l10n.detailInfoNoLocation),
+                onTap: _editLocation,
+              ),
+              if (_width != null && _height != null)
+                CupertinoListTile(
+                  title: Text(l10n.detailInfoDimensions),
+                  additionalInfo: Text('$_width × $_height'),
+                ),
+              if (duration != null)
+                CupertinoListTile(
+                  title: Text(l10n.detailInfoDuration),
+                  additionalInfo: Text(_formatDuration(duration)),
+                ),
+              if (_bytes != null)
+                CupertinoListTile(
+                  title: Text(l10n.detailInfoFileSize),
+                  additionalInfo: Text(_formatBytes(_bytes!)),
+                ),
+              if (format != null)
+                CupertinoListTile(title: Text(l10n.detailInfoFormat), additionalInfo: Text(format)),
+              CupertinoListTile(
+                title: Text(l10n.detailInfoStatus),
+                additionalInfo: Text(
+                  _statusLabel(l10n, record.stateOf(DerivativeKind.original).status),
+                ),
+              ),
+            ],
           ),
-          if (_width != null && _height != null)
-            _InfoRow(
-              label: l10n.detailInfoDimensions,
-              value: '$_width × $_height',
+          const SizedBox(height: 16),
+          Container(
+            width: double.infinity,
+            padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+            decoration: const BoxDecoration(
+              color: Color(0xFF2C2C2E),
+              borderRadius: BorderRadius.all(Radius.circular(10)),
             ),
-          if (duration != null)
-            _InfoRow(
-              label: l10n.detailInfoDuration,
-              value: _formatDuration(duration),
+            child: CupertinoTextField.borderless(
+              controller: _description,
+              maxLines: null,
+              placeholder: l10n.detailDescriptionPlaceholder,
+              placeholderStyle: const TextStyle(
+                color: CupertinoColors.systemGrey,
+              ),
+              style: const TextStyle(color: CupertinoColors.white),
+              padding: EdgeInsets.zero,
+              onChanged: _saveDescription,
             ),
-          if (_bytes != null)
-            _InfoRow(
-              label: l10n.detailInfoFileSize,
-              value: _formatBytes(_bytes!),
-            ),
-          if (format != null)
-            _InfoRow(label: l10n.detailInfoFormat, value: format),
-          _InfoRow(
-            label: l10n.detailInfoStatus,
-            value: _statusLabel(
-              l10n,
-              record.stateOf(DerivativeKind.original).status,
-            ),
-            showDivider: false,
-          ),
-          const SizedBox(height: 24),
-          CupertinoTextField.borderless(
-            controller: _description,
-            maxLines: null,
-            placeholder: l10n.detailDescriptionPlaceholder,
-            placeholderStyle: const TextStyle(
-              color: CupertinoColors.systemGrey,
-            ),
-            style: const TextStyle(color: CupertinoColors.white),
-            padding: EdgeInsets.zero,
-            onChanged: _saveDescription,
           ),
           const SizedBox(height: 24),
           _SectionHeader(title: l10n.detailTagsHeader, onAdd: _addTag),
@@ -1253,46 +1369,3 @@ class _PersonChip extends StatelessWidget {
   }
 }
 
-class _InfoRow extends StatelessWidget {
-  const _InfoRow({
-    required this.label,
-    required this.value,
-    this.showDivider = true,
-    this.onTap,
-  });
-
-  final String label;
-  final String value;
-  final bool showDivider;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      onTap: onTap,
-      behavior: HitTestBehavior.opaque,
-      child: Column(
-        children: [
-          Padding(
-            padding: const EdgeInsets.symmetric(vertical: 10),
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              children: [
-                Text(
-                  label,
-                  style: const TextStyle(color: CupertinoColors.systemGrey),
-                ),
-                Text(
-                  value,
-                  style: const TextStyle(color: CupertinoColors.white),
-                ),
-              ],
-            ),
-          ),
-          if (showDivider)
-            Container(height: 1, color: CupertinoColors.systemGrey5),
-        ],
-      ),
-    );
-  }
-}

@@ -51,4 +51,59 @@ void main() {
     expect(all, hasLength(1));
     expect(all.single.id, keep.id);
   });
+
+  test('order strategy defaults to fileByFile and persists once set', () async {
+    final store = BackupTargetsStore(store: FakeSecureStore());
+
+    expect(await store.getOrderStrategy(), BackupOrderStrategy.fileByFile);
+
+    await store.setOrderStrategy(BackupOrderStrategy.bucketByBucket);
+
+    expect(await store.getOrderStrategy(), BackupOrderStrategy.bucketByBucket);
+  });
+
+  test('backup format defaults to original and persists once set', () async {
+    final store = BackupTargetsStore(store: FakeSecureStore());
+
+    expect(await store.getBackupFormat(), BackupFormat.original);
+
+    await store.setBackupFormat(BackupFormat.optimized);
+
+    expect(await store.getBackupFormat(), BackupFormat.optimized);
+  });
+
+  test('sync frequency defaults to manual, and lastSyncAt defaults to null', () async {
+    final store = BackupTargetsStore(store: FakeSecureStore());
+
+    expect(await store.getSyncFrequency(), SyncFrequency.manual);
+    expect(await store.getLastSyncAt(), isNull);
+
+    await store.setSyncFrequency(SyncFrequency.everyHour);
+    final now = DateTime(2026, 1, 1, 12);
+    await store.setLastSyncAt(now);
+
+    expect(await store.getSyncFrequency(), SyncFrequency.everyHour);
+    expect(await store.getLastSyncAt(), now);
+  });
+
+  group('isSyncDue', () {
+    final now = DateTime(2026, 1, 1, 12);
+
+    test('manual is never due, regardless of how long it has been', () {
+      expect(isSyncDue(frequency: SyncFrequency.manual, lastSyncAt: null, now: now), isFalse);
+      expect(isSyncDue(frequency: SyncFrequency.manual, lastSyncAt: DateTime(2000), now: now), isFalse);
+    });
+
+    test('any non-manual frequency is due when it has never run', () {
+      expect(isSyncDue(frequency: SyncFrequency.daily, lastSyncAt: null, now: now), isTrue);
+    });
+
+    test('due once the interval has elapsed, not before', () {
+      final lastSyncAt = now.subtract(const Duration(minutes: 14));
+      expect(isSyncDue(frequency: SyncFrequency.every15Minutes, lastSyncAt: lastSyncAt, now: now), isFalse);
+
+      final justOver = now.subtract(const Duration(minutes: 15, seconds: 1));
+      expect(isSyncDue(frequency: SyncFrequency.every15Minutes, lastSyncAt: justOver, now: now), isTrue);
+    });
+  });
 }
