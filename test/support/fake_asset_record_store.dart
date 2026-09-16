@@ -15,15 +15,6 @@ class FakeAssetRecordStore implements AssetRecordStore {
   @override
   Future<void> close() async {}
 
-  final _appState = <String, String>{};
-
-  @override
-  Future<String?> getAppState(String key) async => _appState[key];
-
-  @override
-  Future<void> setAppState(String key, String value) async =>
-      _appState[key] = value;
-
   @override
   Future<AssetRecord> upsert({
     required String localId,

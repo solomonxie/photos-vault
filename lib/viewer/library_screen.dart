@@ -9,7 +9,6 @@ import '../photos/library_metadata.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/ai_touch_up_queue.dart';
 import '../photos/demo_assets_service.dart';
-import '../photos/demo_seed_store.dart';
 import '../photos/file_hash.dart' as file_hash;
 import '../photos/image_pipeline.dart';
 import '../photos/manual_add.dart';
@@ -58,7 +57,6 @@ class LibraryScreen extends StatefulWidget {
     this.albumStore,
     this.manualAddService,
     this.demoAssetsService,
-    this.demoSeedStore,
     this.backupCoordinator,
     this.aiAnalysisStore,
     this.photoLibraryService,
@@ -88,9 +86,6 @@ class LibraryScreen extends StatefulWidget {
 
   /// Overridable for tests so they never touch the real asset bundle / disk.
   final DemoAssetsService? demoAssetsService;
-
-  /// Overridable for tests so they never touch real secure storage.
-  final DemoSeedStore? demoSeedStore;
 
   /// Overridable for tests so they never construct a real `S3Uploader`
   /// (which touches the `background_downloader` platform channel).
@@ -127,8 +122,6 @@ class LibraryScreenState extends State<LibraryScreen>
         albumStore: _albumStore,
         personStore: _personStore,
       );
-  late final DemoSeedStore _demoSeedStore =
-      widget.demoSeedStore ?? DemoSeedStore(recordStore: assetRecordStore);
   late final BackupCoordinator _coordinator =
       widget.backupCoordinator ??
       BackupCoordinator(
@@ -234,30 +227,13 @@ class LibraryScreenState extends State<LibraryScreen>
     await _backUpRecords(remaining);
   }
 
-  /// A fresh install seeds the bundled demo photos automatically — no
-  /// "Try with Demo Photos" tap required — but only once ever: after that,
-  /// deleting them stays deleted until the user explicitly resets via
-  /// Utilities' "Reset Demo Data". Also backs them up right away (silently,
-  /// no result dialog) to any already-configured S3 target, same as a
-  /// manual add — otherwise they'd sit as "pending" forever despite the
-  /// files already existing in a bucket configured before this launch.
+  /// A fresh install opens on a genuinely empty library — the user's own
+  /// photos arrive from the camera-roll scan below, and the bundled demo
+  /// content only ever appears if they ask for it ("Try with Demo Photos"
+  /// on the empty state, "Reset Demo Data" in Utilities). Seeding it
+  /// unasked put fake photos in among real ones and made the first thing
+  /// the app showed somebody else's pictures.
   Future<void> _init() async {
-    try {
-      // Only into an actually empty library. The marker alone would bring
-      // the demo photos back for someone upgrading from the release that
-      // kept it in the Keychain — where it survived the uninstall that
-      // wiped their records.
-      if (!await _demoSeedStore.hasSeeded() &&
-          (await assetRecordStore.listAll()).isEmpty) {
-        final added = await _demoAssetsService.addAll();
-        await _demoSeedStore.markSeeded();
-        await _backUpRecords(added);
-      }
-    } catch (_) {
-      // Secure storage unavailable/unreadable — skip auto-seeding rather
-      // than risk doing it on every launch; "Reset Demo Data" in Utilities
-      // still works.
-    }
     await reload();
     // Picks up whatever a previous run left queued — including jobs left
     // `running` by a kill mid-sync — and starts draining.
@@ -282,7 +258,11 @@ class LibraryScreenState extends State<LibraryScreen>
     try {
       final access = await _photoLibraryService.requestAccess();
       if (access == PhotoLibraryAccess.denied) return;
-      final result = await _photoLibraryService.syncAll();
+      final result = await _photoLibraryService.syncAll(
+        // Only with full access. Under "Selected Photos" the scan sees a
+        // handful of assets and every other one would look deleted.
+        reconcileDeletions: access == PhotoLibraryAccess.granted,
+      );
       if (result.isEmpty) return;
       if (result.added.isNotEmpty) await _backUpRecords(result.added);
       // Also redraws for a scan that only *changed* things — a heart taken
