@@ -38,6 +38,7 @@ class _SyncQueueSheetState extends State<SyncQueueSheet> {
     SyncJobKind.checkChanges => l10n.backupQueueKindCheck,
     SyncJobKind.uploadOriginal => l10n.backupQueueKindOriginal,
     SyncJobKind.uploadThumbnail => l10n.backupQueueKindThumbnail,
+    SyncJobKind.analyzePhoto => l10n.backupQueueKindAnalyze,
   };
 
   Future<void> _showActions() async {

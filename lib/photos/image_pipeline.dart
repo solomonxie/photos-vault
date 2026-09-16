@@ -41,7 +41,9 @@ const thumbnailSizeThresholdBytes = 64 * 1024;
 Uint8List? encodeThumbnail(Uint8List bytes) {
   final decoded = img.decodeImage(bytes);
   if (decoded == null) return null;
-  final longestEdge = decoded.width > decoded.height ? decoded.width : decoded.height;
+  final longestEdge = decoded.width > decoded.height
+      ? decoded.width
+      : decoded.height;
   if (longestEdge <= thumbnailMaxEdge) return bytes;
   final resized = decoded.width >= decoded.height
       ? img.copyResize(decoded, width: thumbnailMaxEdge)

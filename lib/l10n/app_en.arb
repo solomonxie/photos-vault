@@ -159,6 +159,12 @@
   "demoDataRemoveTitle": "Delete all demo data?",
   "demoDataRemoveBody": "The sample photos, albums and people go. Anything you added yourself stays.",
   "demoDataWorking": "Working…",
+  "analyzeLibraryRow": "Analyze Photos",
+  "@analyzeLibraryRow": {"description": "Utilities row that queues on-device analysis of the library"},
+  "analyzeLibraryQueued": "{count, plural, =0{Every photo has been looked at already.} one{Looking at 1 photo…} other{Looking at {count} photos…}}",
+  "@analyzeLibraryQueued": {
+    "placeholders": {"count": {"type": "int"}}
+  },
   "collectionsImportPhotosRow": "Import Photos",
 
   "backupQueueTitle": "Sync Queue",
@@ -176,6 +182,7 @@
   "backupQueueKindCheck": "Checking for changes",
   "backupQueueKindOriginal": "Backing up original",
   "backupQueueKindThumbnail": "Backing up thumbnail",
+  "backupQueueKindAnalyze": "Looking at the photo",
   "backupQueueWaiting": "Waiting",
   "backupQueueIdle": "Idle",
   "backupQueueSpeed": "{count} at a time",

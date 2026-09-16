@@ -5,7 +5,16 @@ import '../l10n/app_localizations.dart';
 import '../upload/signing.dart' as signing;
 import 's3_backup_target.dart';
 
-const _imageExtensions = {'.jpg', '.jpeg', '.png', '.webp', '.heic', '.heif', '.gif', '.bmp'};
+const _imageExtensions = {
+  '.jpg',
+  '.jpeg',
+  '.png',
+  '.webp',
+  '.heic',
+  '.heif',
+  '.gif',
+  '.bmp',
+};
 
 /// Previews one object from the Bucket Browser — a presigned `GET` so
 /// nothing needs to be made public just to look at it. Still images render
@@ -23,10 +32,15 @@ class BucketObjectPreviewScreen extends StatefulWidget {
   final String objectKey;
 
   /// Overridable for tests so they never make a real network call.
-  final Future<Uri> Function({required S3BackupTarget target, required String key}) presignGetUrl;
+  final Future<Uri> Function({
+    required S3BackupTarget target,
+    required String key,
+  })
+  presignGetUrl;
 
   @override
-  State<BucketObjectPreviewScreen> createState() => _BucketObjectPreviewScreenState();
+  State<BucketObjectPreviewScreen> createState() =>
+      _BucketObjectPreviewScreenState();
 }
 
 class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
@@ -41,7 +55,10 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
 
   Future<void> _load() async {
     try {
-      final url = await widget.presignGetUrl(target: widget.target, key: widget.objectKey);
+      final url = await widget.presignGetUrl(
+        target: widget.target,
+        key: widget.objectKey,
+      );
       if (!mounted) return;
       setState(() => _url = url);
     } catch (e) {
@@ -55,7 +72,9 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
     return _imageExtensions.any(lower.endsWith);
   }
 
-  String get _fileName => widget.objectKey.contains('/') ? widget.objectKey.substring(widget.objectKey.lastIndexOf('/') + 1) : widget.objectKey;
+  String get _fileName => widget.objectKey.contains('/')
+      ? widget.objectKey.substring(widget.objectKey.lastIndexOf('/') + 1)
+      : widget.objectKey;
 
   @override
   Widget build(BuildContext context) {
@@ -77,8 +96,11 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
             ? InteractiveViewer(
                 child: Image.network(
                   url.toString(),
-                  errorBuilder: (context, error, stackTrace) => _openExternally(l10n, url),
-                  loadingBuilder: (context, child, progress) => progress == null ? child : const CircularProgressIndicator(),
+                  errorBuilder: (context, error, stackTrace) =>
+                      _openExternally(l10n, url),
+                  loadingBuilder: (context, child, progress) => progress == null
+                      ? child
+                      : const CircularProgressIndicator(),
                 ),
               )
             : _openExternally(l10n, url),
@@ -90,9 +112,16 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
     return Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        const Icon(Icons.insert_drive_file_outlined, color: Colors.grey, size: 48),
+        const Icon(
+          Icons.insert_drive_file_outlined,
+          color: Colors.grey,
+          size: 48,
+        ),
         const SizedBox(height: 12),
-        Text(l10n.bucketPreviewUnsupported, style: const TextStyle(color: Colors.grey)),
+        Text(
+          l10n.bucketPreviewUnsupported,
+          style: const TextStyle(color: Colors.grey),
+        ),
         const SizedBox(height: 16),
         FilledButton(
           onPressed: () => launchUrl(url, mode: LaunchMode.externalApplication),

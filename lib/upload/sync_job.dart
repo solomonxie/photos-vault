@@ -13,6 +13,11 @@ enum SyncJobKind {
   /// Generate/cache the thumbnail, and upload it unless the original is
   /// already small enough not to warrant a second object.
   uploadThumbnail,
+
+  /// Look at the photo on-device (Apple Vision) for tags and faces. A job
+  /// like any other so a library-wide pass is pausable, resumable and
+  /// visible by name rather than an opaque background grind.
+  analyzePhoto,
 }
 
 enum SyncJobStatus { pending, running, done, failed }
@@ -44,5 +49,6 @@ class SyncJob {
   final DateTime createdAt;
   final DateTime updatedAt;
 
-  bool get isFinished => status == SyncJobStatus.done || status == SyncJobStatus.failed;
+  bool get isFinished =>
+      status == SyncJobStatus.done || status == SyncJobStatus.failed;
 }

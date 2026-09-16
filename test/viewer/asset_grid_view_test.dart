@@ -335,7 +335,7 @@ void main() {
 
       key.currentState!.jumpToNewest();
       await tester.pump();
-      expect(handle().bottom, lessThan(screen * 0.56));
+      expect(handle().bottom, lessThan(screen * 0.51));
     });
 
     testWidgets('a tap on the handle reaches what it is floating over', (

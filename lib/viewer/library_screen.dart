@@ -14,6 +14,7 @@ import '../photos/demo_assets_service.dart';
 import '../photos/file_hash.dart' as file_hash;
 import '../photos/image_pipeline.dart';
 import '../photos/manual_add.dart';
+import '../photos/on_device_analysis.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/photo_library_change.dart';
@@ -33,7 +34,6 @@ import '../upload/sync_queue.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
 import 'asset_grid_view.dart';
-import 'bucket_glyph.dart';
 import 'asset_group_screen.dart';
 import 'delete_confirmation.dart';
 import 'demo_data_screen.dart';
@@ -69,6 +69,7 @@ class LibraryScreen extends StatefulWidget {
     this.hashFile,
     this.thumbnailCache,
     this.syncJobStore,
+    this.onDeviceAnalysis,
   });
 
   final AssetRecordStore? assetRecordStore;
@@ -105,6 +106,9 @@ class LibraryScreen extends StatefulWidget {
 
   /// Overridable for tests so they never open the real queue database.
   final SyncJobStore? syncJobStore;
+
+  /// Overridable for tests so they never reach the Vision platform channel.
+  final OnDeviceAnalysisService? onDeviceAnalysis;
 
   @override
   State<LibraryScreen> createState() => LibraryScreenState();
@@ -143,6 +147,12 @@ class LibraryScreenState extends State<LibraryScreen>
   late final ThumbnailCache _thumbnailCache =
       widget.thumbnailCache ?? ThumbnailCache(store: assetRecordStore);
   late final SyncJobStore _syncJobStore = widget.syncJobStore ?? SyncJobStore();
+  late final OnDeviceAnalysisService _onDeviceAnalysis =
+      widget.onDeviceAnalysis ??
+      OnDeviceAnalysisService(
+        recordStore: assetRecordStore,
+        analysisStore: _aiAnalysisStore,
+      );
 
   /// The one queue every unit of sync work goes through. Public so the
   /// Private Cloud screen can show and control it.
@@ -502,7 +512,44 @@ class LibraryScreenState extends State<LibraryScreen>
           kind: DerivativeKind.thumbnail,
           filePath: path,
         );
+      case SyncJobKind.analyzePhoto:
+        // Videos have no still to look at, and Vision only reads images.
+        if (record.isVideo) return;
+        final path = await _filePathFor(record);
+        if (path == null) return;
+        await _onDeviceAnalysis.analyze(record, path);
     }
+  }
+
+  Future<void> _analyzeLibrary() async {
+    final l10n = AppLocalizations.of(context)!;
+    final queued = await analyzeLibrary();
+    if (!mounted) return;
+    _showResult(l10n.analyzeLibraryQueued(queued));
+  }
+
+  /// Queues an on-device look at every photo that hasn't had one. Costs
+  /// nothing but time and battery — no key, no upload, no per-photo bill —
+  /// which is the only reason it can be offered over a whole library.
+  Future<int> analyzeLibrary() async {
+    final analyzed = await _aiAnalysisStore.listAll();
+    final pending = _active
+        .where((r) => !r.isVideo && !analyzed.containsKey(r.localId))
+        .toList();
+    var queued = 0;
+    for (final record in pending) {
+      if (!await syncQueue.enqueue(
+        localId: record.localId,
+        kind: SyncJobKind.analyzePhoto,
+        displayName: _displayNameFor(record),
+      )) {
+        // Queue full or paused; the rest waits for the next pass.
+        break;
+      }
+      queued++;
+    }
+    if (queued > 0) unawaited(syncQueue.start());
+    return queued;
   }
 
   /// Re-hashes one asset's local file and, if it's been edited since its
@@ -1319,8 +1366,12 @@ class LibraryScreenState extends State<LibraryScreen>
                 _push(FavoritesScreen(assetRecordStore: assetRecordStore)),
           ),
           _row(
-            icon: CupertinoIcons.cube_box_fill,
-            glyph: const BucketGlyph(),
+            // Filled, like every other glyph in this list — the outline
+            // silo drawn for this row read as a different icon set. An
+            // archive box is what a bucket you own actually is: things put
+            // away somewhere safe, rather than a cloud (which reads as
+            // iCloud, the one thing this isn't).
+            icon: CupertinoIcons.archivebox_fill,
             color: CupertinoColors.systemTeal,
             title: l10n.collectionsPrivateCloudRow,
             onTap: _openCloudBackups,
@@ -1343,6 +1394,12 @@ class LibraryScreenState extends State<LibraryScreen>
                       onRemove: _removeDemoPhotos,
                     ),
                   ),
+          ),
+          _row(
+            icon: CupertinoIcons.wand_stars,
+            color: CupertinoColors.systemPink,
+            title: l10n.analyzeLibraryRow,
+            onTap: _busy ? null : _analyzeLibrary,
           ),
           _row(
             icon: CupertinoIcons.square_arrow_up,
@@ -1381,10 +1438,6 @@ class LibraryScreenState extends State<LibraryScreen>
     required String title,
     int? count,
     VoidCallback? onTap,
-
-    /// Replaces [icon] where no Cupertino glyph says the right thing (see
-    /// [BucketGlyph]).
-    Widget? glyph,
   }) {
     return CupertinoListTile(
       leading: Container(
@@ -1394,7 +1447,7 @@ class LibraryScreenState extends State<LibraryScreen>
           color: color,
           borderRadius: BorderRadius.circular(7),
         ),
-        child: glyph ?? Icon(icon, color: CupertinoColors.white, size: 17),
+        child: Icon(icon, color: CupertinoColors.white, size: 17),
       ),
       title: Text(title),
       trailing: Row(

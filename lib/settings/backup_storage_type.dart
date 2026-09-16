@@ -17,8 +17,24 @@ class BackupStorageTypeMeta {
 }
 
 const backupStorageTypes = <BackupStorageTypeMeta>[
-  BackupStorageTypeMeta(type: BackupStorageType.s3, name: 'Amazon S3', available: true),
-  BackupStorageTypeMeta(type: BackupStorageType.googleCloudStorage, name: 'Google Cloud Storage', available: false),
-  BackupStorageTypeMeta(type: BackupStorageType.azureBlob, name: 'Azure Blob Storage', available: false),
-  BackupStorageTypeMeta(type: BackupStorageType.backblazeB2, name: 'Backblaze B2', available: false),
+  BackupStorageTypeMeta(
+    type: BackupStorageType.s3,
+    name: 'Amazon S3',
+    available: true,
+  ),
+  BackupStorageTypeMeta(
+    type: BackupStorageType.googleCloudStorage,
+    name: 'Google Cloud Storage',
+    available: false,
+  ),
+  BackupStorageTypeMeta(
+    type: BackupStorageType.azureBlob,
+    name: 'Azure Blob Storage',
+    available: false,
+  ),
+  BackupStorageTypeMeta(
+    type: BackupStorageType.backblazeB2,
+    name: 'Backblaze B2',
+    available: false,
+  ),
 ];

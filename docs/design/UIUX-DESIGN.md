@@ -84,7 +84,7 @@ bytes on the wire    →  decoded as latin-1  →  "ä¸­æ..."   ✗ mojibake
   - a handful of actions on one object → `…` menu
 - Anything that names another entity must be tappable and open that entity. No dead-end references.
 - Label actions by what they do: a `+` that opens a browse screen should say "More".
-- **Draw the glyph if the icon set hasn't got it.** A row for object storage led with a gear — the same glyph as every settings screen ever made, saying nothing about what's behind it. Cupertino has no bucket, cylinder or silo, so the app draws one. (A cloud was the other obvious candidate and is worse: the point of the screen is storage that *isn't* somebody else's cloud.)
+- **Match the icon set you're in before matching the concept.** A row for object storage led with a gear, which said nothing; a hand-drawn silo said exactly the right thing and looked wrong anyway, because every sibling glyph is a *filled* SF Symbol and an outline drawing reads as a different icon set pasted in. Pick the closest filled native glyph — an archive box for a bucket you own — rather than the most literal drawing. (A cloud is the other candidate and reads as iCloud, the one thing this isn't.)
 - Name things as the user thinks of them: "Places Lived" not "Movement History"; "Private Cloud" not "Cloud Backups".
 
 ```
@@ -715,6 +715,10 @@ Can support multiple model selections under each vendor, if confirmed by design 
 - Hint must state: what it's used for, that keys go straight from the device to the chosen vendor, that they never leave the device otherwise (including backups), and that adding more than one gives automatic fallback on rate limit / quota.
 - Warn that usage is billed to the user's own account with that vendor.
 - Only list vendors that can actually do the job (don't offer a vision feature a vendor has no vision model for) — a key that can never work is worse than no option.
+- **Look on the device first; a key is the upgrade, not the baseline.** Apple's Vision framework does scene labels, OCR and face detection for free, offline, with nothing to download — the models are part of iOS. For a library of a hundred thousand photos that isn't a cheaper version of a vision API, it's the only version: per-photo billing stops being viable at exactly the size this app is built for. Keep the paid vendors for what a local model genuinely can't do.
+- On-device analysis is still **queued work, not a background grind** — one job per photo, pausable and resumable, named in the queue like everything else. Hours of it will run on a big library, and the user has to be able to see it and stop it.
+- **Never overwrite what the user wrote.** Machine tags merge with the ones they typed; a second pass that quietly drops a hand-written tag makes the whole feature untrustworthy.
+- **A guess below the confidence line isn't a tag, and neither is a word true of half the library.** Vision scores all ~1,300 of its labels, most near zero, and its vaguest ones ("outdoor", "plant") match everything — without a cut-off and a blocklist you get noise, not search.
 - Expensive analysis is **opt-in per run** ("Analyze"), never automatic, and results are cached locally.
 - Image editing is a narrower capability than vision — a key that can only *read* images must fail over to one that can *return* one, not error the whole request.
 - Long AI work runs detached from the screen that started it: an inline "AI working…" status, the result filed into the library when it lands, and the source photo untouched either way.

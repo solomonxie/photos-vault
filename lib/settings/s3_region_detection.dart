@@ -17,10 +17,15 @@ class S3RegionDetectionResult {
 /// plain unsigned request is enough.
 Future<S3RegionDetectionResult> detectBucketRegion(String bucket) async {
   try {
-    final response = await http.head(Uri.https('$bucket.s3.amazonaws.com', '/'));
+    final response = await http.head(
+      Uri.https('$bucket.s3.amazonaws.com', '/'),
+    );
     final region = response.headers['x-amz-bucket-region'];
     if (region != null && region.isNotEmpty) {
-      return S3RegionDetectionResult(S3RegionDetectionOutcome.ok, region: region);
+      return S3RegionDetectionResult(
+        S3RegionDetectionOutcome.ok,
+        region: region,
+      );
     }
     if (response.statusCode == 404) {
       return const S3RegionDetectionResult(S3RegionDetectionOutcome.notFound);

@@ -37,7 +37,11 @@ const _syncIntervals = {
 
 /// True if [frequency] isn't [SyncFrequency.manual] and enough time has
 /// passed since [lastSyncAt] (or a sync has never run at all).
-bool isSyncDue({required SyncFrequency frequency, required DateTime? lastSyncAt, required DateTime now}) {
+bool isSyncDue({
+  required SyncFrequency frequency,
+  required DateTime? lastSyncAt,
+  required DateTime now,
+}) {
   final interval = _syncIntervals[frequency];
   if (interval == null) return false;
   if (lastSyncAt == null) return true;
@@ -45,7 +49,9 @@ bool isSyncDue({required SyncFrequency frequency, required DateTime? lastSyncAt,
 }
 
 class BackupTargetsStore {
-  BackupTargetsStore({SecureStore? store, Uuid? uuid}) : _store = store ?? const FlutterSecureStore(), _uuid = uuid ?? const Uuid();
+  BackupTargetsStore({SecureStore? store, Uuid? uuid})
+    : _store = store ?? const FlutterSecureStore(),
+      _uuid = uuid ?? const Uuid();
 
   final SecureStore _store;
   final Uuid _uuid;
@@ -56,41 +62,52 @@ class BackupTargetsStore {
 
   Future<BackupOrderStrategy> getOrderStrategy() async {
     final raw = await _store.read(_orderStrategyKey);
-    return raw == 'bucketByBucket' ? BackupOrderStrategy.bucketByBucket : BackupOrderStrategy.fileByFile;
+    return raw == 'bucketByBucket'
+        ? BackupOrderStrategy.bucketByBucket
+        : BackupOrderStrategy.fileByFile;
   }
 
-  Future<void> setOrderStrategy(BackupOrderStrategy value) => _store.write(_orderStrategyKey, value.name);
+  Future<void> setOrderStrategy(BackupOrderStrategy value) =>
+      _store.write(_orderStrategyKey, value.name);
 
   Future<BackupFormat> getBackupFormat() async {
     final raw = await _store.read(_formatKey);
     return raw == 'optimized' ? BackupFormat.optimized : BackupFormat.original;
   }
 
-  Future<void> setBackupFormat(BackupFormat value) => _store.write(_formatKey, value.name);
+  Future<void> setBackupFormat(BackupFormat value) =>
+      _store.write(_formatKey, value.name);
 
   static const _syncFrequencyKey = 'backup_sync_frequency_v1';
   static const _lastSyncAtKey = 'backup_last_sync_at_v1';
 
   Future<SyncFrequency> getSyncFrequency() async {
     final raw = await _store.read(_syncFrequencyKey);
-    return SyncFrequency.values.firstWhere((f) => f.name == raw, orElse: () => SyncFrequency.manual);
+    return SyncFrequency.values.firstWhere(
+      (f) => f.name == raw,
+      orElse: () => SyncFrequency.manual,
+    );
   }
 
-  Future<void> setSyncFrequency(SyncFrequency value) => _store.write(_syncFrequencyKey, value.name);
+  Future<void> setSyncFrequency(SyncFrequency value) =>
+      _store.write(_syncFrequencyKey, value.name);
 
   Future<DateTime?> getLastSyncAt() async {
     final raw = await _store.read(_lastSyncAtKey);
     return raw == null ? null : DateTime.tryParse(raw);
   }
 
-  Future<void> setLastSyncAt(DateTime value) => _store.write(_lastSyncAtKey, value.toIso8601String());
+  Future<void> setLastSyncAt(DateTime value) =>
+      _store.write(_lastSyncAtKey, value.toIso8601String());
 
   static const _queuePausedKey = 'sync_queue_paused_v1';
   static const _queueConcurrencyKey = 'sync_queue_concurrency_v1';
 
-  Future<bool> getQueuePaused() async => await _store.read(_queuePausedKey) == 'true';
+  Future<bool> getQueuePaused() async =>
+      await _store.read(_queuePausedKey) == 'true';
 
-  Future<void> setQueuePaused(bool value) => _store.write(_queuePausedKey, '$value');
+  Future<void> setQueuePaused(bool value) =>
+      _store.write(_queuePausedKey, '$value');
 
   /// How many jobs `SyncQueue` runs at once. Two by default — enough to keep
   /// a link busy while one file is mid-hash, without hammering a phone's
@@ -101,21 +118,27 @@ class BackupTargetsStore {
     return (parsed ?? 2).clamp(1, 8);
   }
 
-  Future<void> setQueueConcurrency(int value) => _store.write(_queueConcurrencyKey, '${value.clamp(1, 8)}');
+  Future<void> setQueueConcurrency(int value) =>
+      _store.write(_queueConcurrencyKey, '${value.clamp(1, 8)}');
 
   Future<List<S3BackupTarget>> loadAll() async {
     final raw = await _store.read(_key);
     if (raw == null || raw.isEmpty) return const [];
     try {
       final decoded = jsonDecode(raw) as List<dynamic>;
-      return decoded.map((e) => S3BackupTarget.fromJson(e as Map<String, dynamic>)).toList();
+      return decoded
+          .map((e) => S3BackupTarget.fromJson(e as Map<String, dynamic>))
+          .toList();
     } on FormatException {
       return const [];
     }
   }
 
   Future<void> _saveAll(List<S3BackupTarget> targets) {
-    return _store.write(_key, jsonEncode(targets.map((t) => t.toJson()).toList()));
+    return _store.write(
+      _key,
+      jsonEncode(targets.map((t) => t.toJson()).toList()),
+    );
   }
 
   /// Adds a target, assigning it a fresh id, and persists the updated list.
