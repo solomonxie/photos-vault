@@ -177,6 +177,13 @@ class LibraryScreenState extends State<LibraryScreen>
   /// Reaches the grid's scroll anchor (see [_jumpHome]).
   final _gridKey = GlobalKey<AssetGridViewState>();
 
+  /// Whether the search field is open. It filters the grid in place rather
+  /// than pushing a results page: the results *are* the library, minus what
+  /// doesn't match, and a second screen showing the same grid would be the
+  /// same screen.
+  bool _searching = false;
+  final _searchController = TextEditingController();
+
   /// A camera-roll scan walks the whole library, so the resume hook must
   /// not start a second one on top of the one still running.
   bool _syncingLibrary = false;
@@ -225,8 +232,17 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
+  void _toggleSearch() => setState(() {
+    _searching = !_searching;
+    if (!_searching) {
+      _searchController.clear();
+      _query = '';
+    }
+  });
+
   @override
   void dispose() {
+    _searchController.dispose();
     PhotoManager.removeChangeCallback(_onPhotoLibraryChanged);
     WidgetsBinding.instance.removeObserver(this);
     syncQueue.draining.removeListener(_onDrainingChanged);
@@ -657,6 +673,10 @@ class LibraryScreenState extends State<LibraryScreen>
   /// call stack; [syncQueue] drains it. Returns how many jobs are now
   /// outstanding.
   Future<int> _syncEverything() async {
+    // "Sync Now" means now. A paused queue takes nothing new (deliberately
+    // — see [SyncQueue.enqueue]), so honouring the pause here would make
+    // the button do nothing at all and say nothing about why.
+    await syncQueue.setPaused(false);
     await _enqueueChangeChecks();
     await _backUpRecords(_pendingAndFailed);
     try {
@@ -861,13 +881,28 @@ class LibraryScreenState extends State<LibraryScreen>
     ),
   ];
 
+  /// Opens whatever the queue names, from the queue — the row says
+  /// "IMG_4934.jpg is failing" and the obvious next question is which photo
+  /// that is. Gone from the library since (deleted mid-sync) means there's
+  /// nothing to show, so nothing happens.
+  Future<void> _openById(String localId) async {
+    final record = await assetRecordStore.getByLocalId(localId);
+    if (record == null || !mounted) return;
+    await _openRecord(record);
+  }
+
   Future<void> _openRecord(AssetRecord record) async {
-    final records = _filtered;
+    final visible = _filtered;
+    // Opened from the queue, the photo may not be in the current grid at
+    // all — hidden, deleted, or filtered out by a search. Show it on its
+    // own rather than dropping the tap or, worse, indexing at -1.
+    final index = visible.indexOf(record);
+    final records = index >= 0 ? visible : [record];
     await Navigator.of(context).push(
       ZoomPageRoute(
         builder: (_) => DetailScreen(
           records: records,
-          initialIndex: records.indexOf(record),
+          initialIndex: index >= 0 ? index : 0,
           onDelete: _softDelete,
           onToggleFavorite: _toggleFavorite,
           assetRecordStore: assetRecordStore,
@@ -1057,6 +1092,7 @@ class LibraryScreenState extends State<LibraryScreen>
           retryRecords: _retryRecords,
           syncEverything: _syncEverything,
           syncQueue: syncQueue,
+          openAsset: _openById,
         ),
       ),
     );
@@ -1175,13 +1211,37 @@ class LibraryScreenState extends State<LibraryScreen>
         Positioned(
           top: MediaQuery.paddingOf(context).top,
           left: 0,
-          right: 0,
+          // Short of the bar's own trailing button. A translucent overlay
+          // still wins the gesture arena against anything under it, so
+          // covering the search button would leave it unpressable — the
+          // tappable "header" is the title area, not the controls on it.
+          right: _navigationBarActionWidth,
           height: _navigationBarHeight,
           child: GestureDetector(
             behavior: HitTestBehavior.translucent,
             onTap: _jumpHome,
           ),
         ),
+        // Pinned under the navigation bar rather than scrolled with the
+        // content, for the same reason it's a button: wherever you are in
+        // the library, that's where you type.
+        if (_searching)
+          Positioned(
+            top: MediaQuery.paddingOf(context).top + _navigationBarHeight,
+            left: 0,
+            right: 0,
+            child: ColoredBox(
+              color: const Color(0xFF1C1C1E),
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: CupertinoSearchTextField(
+                  controller: _searchController,
+                  autofocus: true,
+                  onChanged: (v) => setState(() => _query = v),
+                ),
+              ),
+            ),
+          ),
       ],
     );
   }
@@ -1189,6 +1249,9 @@ class LibraryScreenState extends State<LibraryScreen>
   /// `CupertinoSliverNavigationBar`'s collapsed height — the strip that
   /// stays pinned under the status bar however far the page is scrolled.
   static const _navigationBarHeight = 44.0;
+
+  /// Kept clear at the trailing end of the bar for its own button.
+  static const _navigationBarActionWidth = 72.0;
 
   /// The system's own status-bar tap. It never reaches the widget tree — iOS
   /// hands it to the engine, which forwards it to every
@@ -1212,16 +1275,27 @@ class LibraryScreenState extends State<LibraryScreen>
         onTap: _jumpHome,
         child: Text(l10n.tabLibrary),
       ),
+      // A button, not a field. A search box living at the top of the scroll
+      // content is a box nobody can reach: the page opens at the *newest*
+      // photo, so the field sat a decade of scrolling away. As a navigation
+      // bar button it's in the same place whatever you're looking at.
+      trailing: _all.isEmpty
+          ? null
+          : CupertinoButton(
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              onPressed: _toggleSearch,
+              // "Cancel" while open, not a second ✕: the field has its own
+              // clear button, and two identical crosses a centimetre apart
+              // mean different things.
+              child: _searching
+                  ? Text(
+                      l10n.actionCancel,
+                      style: const TextStyle(fontSize: 15),
+                    )
+                  : const Icon(CupertinoIcons.search, size: 22),
+            ),
     ),
-    if (_all.isNotEmpty)
-      SliverToBoxAdapter(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-          child: CupertinoSearchTextField(
-            onChanged: (v) => setState(() => _query = v),
-          ),
-        ),
-      ),
     SliverToBoxAdapter(
       child: AnimatedBuilder(
         animation: AiTouchUpQueue.instance,

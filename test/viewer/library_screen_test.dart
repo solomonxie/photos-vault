@@ -1218,4 +1218,81 @@ void main() {
 
     expect((await recordStore.getByLocalId('manual:one'))!.isDeleted, isFalse);
   });
+
+  group('search', () {
+    Future<FakeAssetRecordStore> libraryOf(List<String> names) async {
+      final store = FakeAssetRecordStore();
+      for (final name in names) {
+        await store.upsert(
+          localId: 'manual:$name',
+          contentHash: name,
+          platform: 'ios',
+          sourceType: AssetSourceType.manualFile,
+          sourcePath: '/tmp/$name.jpg',
+        );
+      }
+      return store;
+    }
+
+    Future<void> pump(WidgetTester tester, FakeAssetRecordStore store) async {
+      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+      await tester.pumpWidget(
+        _wrap(
+          LibraryScreen(
+            assetRecordStore: store,
+            thumbnailCache: _noThumbnails(store),
+            syncJobStore: FakeSyncJobStore(),
+            albumStore: FakeAlbumStore(),
+            personStore: FakePersonStore(),
+            backupTargetsStore: targetsStore,
+            backupCoordinator: BackupCoordinator(
+              targetsStore: targetsStore,
+              recordStore: store,
+              s3Uploader: _UnusedS3Uploader(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('is a button until asked for, not a field in the way', (
+      tester,
+    ) async {
+      await pump(tester, await libraryOf(['alpha', 'beta']));
+
+      expect(find.byType(CupertinoSearchTextField), findsNothing);
+
+      await tester.tap(find.byIcon(CupertinoIcons.search));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CupertinoSearchTextField), findsOneWidget);
+    });
+
+    testWidgets('filters the grid in place', (tester) async {
+      await pump(tester, await libraryOf(['alpha', 'beta']));
+      await tester.tap(find.byIcon(CupertinoIcons.search));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(CupertinoSearchTextField), 'alph');
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(const ValueKey('manual:alpha')), findsOneWidget);
+      expect(find.byKey(const ValueKey('manual:beta')), findsNothing);
+    });
+
+    testWidgets('closing it puts the whole library back', (tester) async {
+      await pump(tester, await libraryOf(['alpha', 'beta']));
+      await tester.tap(find.byIcon(CupertinoIcons.search));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(CupertinoSearchTextField), 'alph');
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CupertinoSearchTextField), findsNothing);
+      expect(find.byKey(const ValueKey('manual:beta')), findsOneWidget);
+    });
+  });
 }

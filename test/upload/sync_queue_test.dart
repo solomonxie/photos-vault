@@ -13,7 +13,10 @@ void main() {
   setUpAll(sqfliteFfiInit);
 
   SyncJobStore newStore() {
-    final store = SyncJobStore(databaseFactory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    final store = SyncJobStore(
+      databaseFactory: databaseFactoryFfi,
+      path: inMemoryDatabasePath,
+    );
     addTearDown(store.close);
     return store;
   }
@@ -22,8 +25,16 @@ void main() {
     test('enqueue is idempotent while a job is still outstanding', () async {
       final store = newStore();
 
-      final first = await store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'a.jpg');
-      final second = await store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'a.jpg');
+      final first = await store.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'a.jpg',
+      );
+      final second = await store.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'a.jpg',
+      );
 
       expect(second.id, first.id);
       expect(await store.all(), hasLength(1));
@@ -32,19 +43,39 @@ void main() {
     test('a different kind for the same asset is its own job', () async {
       final store = newStore();
 
-      await store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'a.jpg');
-      await store.enqueue(localId: 'a', kind: SyncJobKind.uploadThumbnail, displayName: 'a.jpg');
-      await store.enqueue(localId: 'a', kind: SyncJobKind.checkChanges, displayName: 'a.jpg');
+      await store.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'a.jpg',
+      );
+      await store.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadThumbnail,
+        displayName: 'a.jpg',
+      );
+      await store.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.checkChanges,
+        displayName: 'a.jpg',
+      );
 
       expect(await store.all(), hasLength(3));
     });
 
     test('re-enqueues once the previous one finished', () async {
       final store = newStore();
-      final first = await store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'a.jpg');
+      final first = await store.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'a.jpg',
+      );
       await store.markDone(first.id);
 
-      final second = await store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'a.jpg');
+      final second = await store.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'a.jpg',
+      );
 
       expect(second.id, isNot(first.id));
       expect(await store.all(), hasLength(2));
@@ -52,7 +83,11 @@ void main() {
 
     test('dequeue claims a job so a second worker cannot take it', () async {
       final store = newStore();
-      await store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'a.jpg');
+      await store.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'a.jpg',
+      );
 
       final claimed = await store.dequeueNextPending();
       final second = await store.dequeueNextPending();
@@ -62,25 +97,48 @@ void main() {
       expect(second, isNull);
     });
 
-    test('clearQueue drops waiting and failed, keeps finished and running', () async {
-      final store = newStore();
-      final waiting = await store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'a.jpg');
-      final failed = await store.enqueue(localId: 'b', kind: SyncJobKind.uploadOriginal, displayName: 'b.jpg');
-      await store.markFailed(failed.id, 'nope');
-      final done = await store.enqueue(localId: 'c', kind: SyncJobKind.uploadOriginal, displayName: 'c.jpg');
-      await store.markDone(done.id);
+    test(
+      'clearQueue drops waiting and failed, keeps finished and running',
+      () async {
+        final store = newStore();
+        final waiting = await store.enqueue(
+          localId: 'a',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: 'a.jpg',
+        );
+        final failed = await store.enqueue(
+          localId: 'b',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: 'b.jpg',
+        );
+        await store.markFailed(failed.id, 'nope');
+        final done = await store.enqueue(
+          localId: 'c',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: 'c.jpg',
+        );
+        await store.markDone(done.id);
 
-      await store.clearQueue();
+        await store.clearQueue();
 
-      final ids = (await store.all()).map((j) => j.id).toList();
-      expect(ids, [done.id]);
-      expect(ids, isNot(contains(waiting.id)));
-    });
+        final ids = (await store.all()).map((j) => j.id).toList();
+        expect(ids, [done.id]);
+        expect(ids, isNot(contains(waiting.id)));
+      },
+    );
 
     test('clearSynced drops only the finished ones', () async {
       final store = newStore();
-      final waiting = await store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'a.jpg');
-      final done = await store.enqueue(localId: 'b', kind: SyncJobKind.uploadOriginal, displayName: 'b.jpg');
+      final waiting = await store.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'a.jpg',
+      );
+      final done = await store.enqueue(
+        localId: 'b',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'b.jpg',
+      );
       await store.markDone(done.id);
 
       await store.clearSynced();
@@ -88,19 +146,29 @@ void main() {
       expect((await store.all()).single.id, waiting.id);
     });
 
-    test('requeueStaleRunning rescues jobs orphaned by a kill mid-sync', () async {
-      final store = newStore();
-      await store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'a.jpg');
-      await store.dequeueNextPending();
+    test(
+      'requeueStaleRunning rescues jobs orphaned by a kill mid-sync',
+      () async {
+        final store = newStore();
+        await store.enqueue(
+          localId: 'a',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: 'a.jpg',
+        );
+        await store.dequeueNextPending();
 
-      await store.requeueStaleRunning();
+        await store.requeueStaleRunning();
 
-      expect((await store.all()).single.status, SyncJobStatus.pending);
-    });
+        expect((await store.all()).single.status, SyncJobStatus.pending);
+      },
+    );
   });
 
   group('SyncQueue', () {
-    SyncQueue queueOver(SyncJobStore store, Future<void> Function(SyncJob) process) => SyncQueue(
+    SyncQueue queueOver(
+      SyncJobStore store,
+      Future<void> Function(SyncJob) process,
+    ) => SyncQueue(
       store: store,
       settings: BackupTargetsStore(store: FakeSecureStore()),
       process: process,
@@ -109,15 +177,25 @@ void main() {
     test('drains every queued job and marks them done', () async {
       final store = newStore();
       final processed = <String>[];
-      final queue = queueOver(store, (job) async => processed.add(job.displayName));
+      final queue = queueOver(
+        store,
+        (job) async => processed.add(job.displayName),
+      );
       for (final name in ['a.jpg', 'b.jpg', 'c.jpg']) {
-        await queue.enqueue(localId: name, kind: SyncJobKind.uploadOriginal, displayName: name);
+        await queue.enqueue(
+          localId: name,
+          kind: SyncJobKind.uploadOriginal,
+          displayName: name,
+        );
       }
 
       await queue.start();
 
       expect(processed, hasLength(3));
-      expect((await store.all()).every((j) => j.status == SyncJobStatus.done), isTrue);
+      expect(
+        (await store.all()).every((j) => j.status == SyncJobStatus.done),
+        isTrue,
+      );
     });
 
     test('runs jobs concurrently, bounded by the configured speed', () async {
@@ -132,13 +210,21 @@ void main() {
       });
       await queue.setConcurrency(3);
       for (var i = 0; i < 6; i++) {
-        await queue.enqueue(localId: '$i', kind: SyncJobKind.uploadOriginal, displayName: '$i.jpg');
+        await queue.enqueue(
+          localId: '$i',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: '$i.jpg',
+        );
       }
 
       await queue.start();
 
       expect(peak, greaterThan(1), reason: 'not one-at-a-time');
-      expect(peak, lessThanOrEqualTo(3), reason: 'never exceeds the configured bound');
+      expect(
+        peak,
+        lessThanOrEqualTo(3),
+        reason: 'never exceeds the configured bound',
+      );
     });
 
     test('a thrown job is recorded as failed with its message, and the rest still run', () async {
@@ -146,8 +232,16 @@ void main() {
       final queue = queueOver(store, (job) async {
         if (job.displayName == 'bad.jpg') throw Exception('Access denied');
       });
-      await queue.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'bad.jpg');
-      await queue.enqueue(localId: 'b', kind: SyncJobKind.uploadOriginal, displayName: 'good.jpg');
+      await queue.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'bad.jpg',
+      );
+      await queue.enqueue(
+        localId: 'b',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'good.jpg',
+      );
 
       await queue.start();
 
@@ -166,7 +260,11 @@ void main() {
       // Queued before the pause — pausing now takes nothing new either
       // (see 'SyncQueue limits'), so what's already waiting is the whole
       // question.
-      await queue.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'a.jpg');
+      await queue.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'a.jpg',
+      );
       await queue.setPaused(true);
 
       await queue.start();
@@ -183,10 +281,18 @@ void main() {
       queue = queueOver(store, (job) async {
         // A change check that finds drift queues the re-upload itself.
         if (job.kind == SyncJobKind.checkChanges) {
-          await queue.enqueue(localId: job.localId, kind: SyncJobKind.uploadOriginal, displayName: job.displayName);
+          await queue.enqueue(
+            localId: job.localId,
+            kind: SyncJobKind.uploadOriginal,
+            displayName: job.displayName,
+          );
         }
       });
-      await queue.enqueue(localId: 'a', kind: SyncJobKind.checkChanges, displayName: 'a.jpg');
+      await queue.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.checkChanges,
+        displayName: 'a.jpg',
+      );
 
       await queue.start();
 
@@ -265,7 +371,7 @@ void main() {
       expect(await queue.unfinishedCount(), SyncQueue.capacity);
     });
 
-    test('finished jobs free up room; failed ones hold theirs', () async {
+    test('a job that is done or failed is no longer in the way', () async {
       final store = newStore();
       final queue = queueOver(store);
       for (var i = 0; i < SyncQueue.capacity; i++) {
@@ -279,7 +385,10 @@ void main() {
       await store.markDone(jobs.first.id);
       await store.markFailed(jobs[1].id, 'nope');
 
-      expect(await queue.unfinishedCount(), SyncQueue.capacity - 1);
+      // Neither is work still to be done, so neither counts against the
+      // cap. A failure holding its place would mean a hundred dead rows
+      // silently blocking every future sync.
+      expect(await queue.unfinishedCount(), SyncQueue.capacity - 2);
       expect(
         await queue.enqueue(
           localId: 'after-a-done-one',
@@ -287,7 +396,6 @@ void main() {
           displayName: 'x.jpg',
         ),
         isTrue,
-        reason: 'the done job freed a place',
       );
       expect(
         await queue.enqueue(
@@ -295,9 +403,59 @@ void main() {
           kind: SyncJobKind.uploadOriginal,
           displayName: 'y.jpg',
         ),
-        isFalse,
-        reason: 'the failed one still holds its place — it needs a decision',
+        isTrue,
       );
+    });
+  });
+
+  group('a failure is retried, not duplicated', () {
+    test('re-queueing a failed job resets it in place', () async {
+      final store = newStore();
+      final first = await store.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'a.jpg',
+      );
+      await store.markFailed(first.id, 'offline');
+
+      final second = await store.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'a.jpg',
+      );
+
+      expect(second.id, first.id, reason: 'the same row, not a second one');
+      expect(await store.all(), hasLength(1));
+      expect((await store.all()).single.status, SyncJobStatus.pending);
+    });
+
+    test('so a queue of failures does not grow every sync', () async {
+      final store = newStore();
+      final queue = SyncQueue(
+        store: store,
+        settings: BackupTargetsStore(store: FakeSecureStore()),
+        process: (_) async => throw StateError('nope'),
+      );
+      for (var i = 0; i < 3; i++) {
+        await queue.enqueue(
+          localId: 'a$i',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: 'a$i.jpg',
+        );
+      }
+      await queue.start();
+      expect(await store.countWhere([SyncJobStatus.failed]), 3);
+
+      // What the next sync does.
+      for (var i = 0; i < 3; i++) {
+        await queue.enqueue(
+          localId: 'a$i',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: 'a$i.jpg',
+        );
+      }
+
+      expect(await store.all(), hasLength(3));
     });
   });
 }

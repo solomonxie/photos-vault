@@ -309,6 +309,25 @@
   "settingsAiClearedMessage": "API key removed",
   "settingsAiUsageWarning": "Enabling this sends photo data to whichever AI vendor's key handles the request, and incurs API usage charges billed to your account with them.",
 
+  "bucketBrowserStats": "{folders, plural, =0{} =1{1 folder · } other{{folders} folders · }}{files, plural, =0{no files} =1{1 file} other{{files} files}}{size}",
+  "@bucketBrowserStats": {
+    "placeholders": {
+      "folders": {"type": "int"},
+      "files": {"type": "int"},
+      "size": {"type": "String"}
+    }
+  },
+  "bucketBrowserSelect": "Select",
+  "bucketBrowserDeleteSelected": "{count, plural, one{Delete 1 file?} other{Delete {count} files?}}",
+  "@bucketBrowserDeleteSelected": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "bucketBrowserDeleteBody": "They go from the bucket for good. Photos on this device aren't touched — but any copy that only existed here is gone.",
+  "bucketBrowserDeleteFailed": "{count, plural, one{1 file couldn't be deleted.} other{{count} files couldn't be deleted.}}",
+  "@bucketBrowserDeleteFailed": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "bucketBrowserUnreachable": "Couldn't reach the bucket.",
   "bucketBrowserEmpty": "This folder is empty.",
   "bucketBrowserLoadMore": "Load More",
   "bucketPreviewUnsupported": "Can't preview this file type.",

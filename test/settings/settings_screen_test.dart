@@ -42,17 +42,24 @@ Future<BackupTargetsStore> _storeWithBucket({String prefix = 'p/'}) async {
 }
 
 void main() {
-  testWidgets('shows the empty state with the add action right there', (tester) async {
+  testWidgets('shows the empty state with the add action right there', (
+    tester,
+  ) async {
     await _useTallSurface(tester);
     final store = BackupTargetsStore(store: FakeSecureStore());
     await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
     await tester.pumpAndSettle();
 
-    expect(find.text('Add one to start backing up your photos and videos.'), findsOneWidget);
+    expect(
+      find.text('Add one to start backing up your photos and videos.'),
+      findsOneWidget,
+    );
     expect(find.text('Add Cloud Bucket'), findsOneWidget);
   });
 
-  testWidgets('a bucket row shows the full s3 path, not just the region', (tester) async {
+  testWidgets('a bucket row shows the full s3 path, not just the region', (
+    tester,
+  ) async {
     await _useTallSurface(tester);
     final store = await _storeWithBucket();
 
@@ -65,7 +72,9 @@ void main() {
     expect(find.text('s3://my-bucket/p/'), findsOneWidget);
   });
 
-  testWidgets('tapping a bucket opens the browser rooted at its own prefix', (tester) async {
+  testWidgets('tapping a bucket opens the browser rooted at its own prefix', (
+    tester,
+  ) async {
     await _useTallSurface(tester);
     final store = await _storeWithBucket(prefix: 'bring-your-own-photos/');
 
@@ -80,7 +89,9 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 300));
 
-    final browser = tester.widget<BucketBrowserScreen>(find.byType(BucketBrowserScreen));
+    final browser = tester.widget<BucketBrowserScreen>(
+      find.byType(BucketBrowserScreen),
+    );
     expect(browser.prefix, 'bring-your-own-photos/');
   });
 
@@ -96,37 +107,41 @@ void main() {
     expect(find.byType(AddS3BackupScreen), findsOneWidget);
   });
 
-  testWidgets('delete lives in the row menu, behind a confirmation', (tester) async {
+  testWidgets('a bucket row is one tap target: the bucket itself', (
+    tester,
+  ) async {
     await _useTallSurface(tester);
     final store = await _storeWithBucket(prefix: '');
 
     await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
     await tester.pumpAndSettle();
 
-    // No second tap target beside the row — it's in the row's own menu.
-    await tester.tap(find.byIcon(CupertinoIcons.ellipsis_circle));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Delete Connection'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Remove this backup target?'), findsOneWidget);
-    await tester.tap(find.text('Delete'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('my-bucket'), findsNothing);
-    expect(await store.loadAll(), isEmpty);
+    // The row's old menu held Sync Now and Sync Queue — both already on
+    // this page — plus Browse Files, which is what tapping the row does.
+    // Delete Connection moved to the connection's own screen.
+    expect(find.byIcon(CupertinoIcons.ellipsis_circle), findsNothing);
+    expect(find.text('my-bucket'), findsOneWidget);
   });
 
-  testWidgets('the queue is one status line that opens a sheet, not a page', (tester) async {
+  testWidgets('the queue is one status line that opens a sheet, not a page', (
+    tester,
+  ) async {
     await _useTallSurface(tester);
     final store = await _storeWithBucket();
     final recordStore = FakeAssetRecordStore();
     await recordStore.upsert(localId: 'a', contentHash: 'a', platform: 'ios');
-    final b = await recordStore.upsert(localId: 'b', contentHash: 'b', platform: 'ios');
+    final b = await recordStore.upsert(
+      localId: 'b',
+      contentHash: 'b',
+      platform: 'ios',
+    );
     await recordStore.updateDerivative(
       b.localId,
       DerivativeKind.original,
-      const DerivativeState(status: UploadStatus.uploaded, destinationKey: 'originals/b.jpg'),
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'originals/b.jpg',
+      ),
     );
 
     final queue = SyncQueue(
@@ -134,11 +149,21 @@ void main() {
       settings: store,
       process: (_) async {},
     );
-    await queue.store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'a.jpg');
+    await queue.store.enqueue(
+      localId: 'a',
+      kind: SyncJobKind.uploadOriginal,
+      displayName: 'a.jpg',
+    );
     await queue.refresh();
 
     await tester.pumpWidget(
-      _wrap(SettingsScreen(store: store, assetRecordStore: recordStore, syncQueue: queue)),
+      _wrap(
+        SettingsScreen(
+          store: store,
+          assetRecordStore: recordStore,
+          syncQueue: queue,
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -151,47 +176,75 @@ void main() {
     expect(find.byType(SyncQueueSheet), findsOneWidget);
   });
 
-  testWidgets('stats ride on one footer line under the bucket list', (tester) async {
+  testWidgets('stats ride on one footer line under the bucket list', (
+    tester,
+  ) async {
     await _useTallSurface(tester);
     final store = await _storeWithBucket();
     final recordStore = FakeAssetRecordStore();
     await recordStore.upsert(localId: 'a', contentHash: 'a', platform: 'ios');
-    final b = await recordStore.upsert(localId: 'b', contentHash: 'b', platform: 'ios');
+    final b = await recordStore.upsert(
+      localId: 'b',
+      contentHash: 'b',
+      platform: 'ios',
+    );
     await recordStore.updateDerivative(
       b.localId,
       DerivativeKind.original,
-      const DerivativeState(status: UploadStatus.uploaded, destinationKey: 'originals/b.jpg'),
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'originals/b.jpg',
+      ),
     );
 
-    await tester.pumpWidget(_wrap(SettingsScreen(store: store, assetRecordStore: recordStore)));
+    await tester.pumpWidget(
+      _wrap(SettingsScreen(store: store, assetRecordStore: recordStore)),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('1 bucket · 1 of 2 photos backed up'), findsOneWidget);
   });
 
-  testWidgets('sync frequency is a heading control, and Sync Now is dead with no bucket', (tester) async {
-    await _useTallSurface(tester);
-    final store = BackupTargetsStore(store: FakeSecureStore());
+  testWidgets(
+    'sync frequency is a heading control, and Sync Now is dead with no bucket',
+    (tester) async {
+      await _useTallSurface(tester);
+      final store = BackupTargetsStore(store: FakeSecureStore());
 
-    await tester.pumpWidget(_wrap(SettingsScreen(store: store, assetRecordStore: FakeAssetRecordStore())));
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(
+        _wrap(
+          SettingsScreen(
+            store: store,
+            assetRecordStore: FakeAssetRecordStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text('Manual Only'), findsOneWidget);
-    expect(find.text('Never synced'), findsOneWidget);
+      expect(find.text('Manual Only'), findsOneWidget);
+      expect(find.text('Never synced'), findsOneWidget);
 
-    // Present but disabled rather than missing — a manual action must never
-    // be a silent no-op.
-    final syncNow = tester.widget<CupertinoButton>(
-      find.ancestor(of: find.text('Sync Now'), matching: find.byType(CupertinoButton)),
-    );
-    expect(syncNow.onPressed, isNull);
-  });
+      // Present but disabled rather than missing — a manual action must never
+      // be a silent no-op.
+      final syncNow = tester.widget<CupertinoButton>(
+        find.ancestor(
+          of: find.text('Sync Now'),
+          matching: find.byType(CupertinoButton),
+        ),
+      );
+      expect(syncNow.onPressed, isNull);
+    },
+  );
 
   testWidgets('picking a sync frequency persists it', (tester) async {
     await _useTallSurface(tester);
     final store = await _storeWithBucket();
 
-    await tester.pumpWidget(_wrap(SettingsScreen(store: store, assetRecordStore: FakeAssetRecordStore())));
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(store: store, assetRecordStore: FakeAssetRecordStore()),
+      ),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Manual Only'));
@@ -202,11 +255,17 @@ void main() {
     expect(await store.getSyncFrequency(), SyncFrequency.everyHour);
   });
 
-  testWidgets('backup format options each carry their own pro/con line', (tester) async {
+  testWidgets('backup format options each carry their own pro/con line', (
+    tester,
+  ) async {
     await _useTallSurface(tester);
     final store = await _storeWithBucket();
 
-    await tester.pumpWidget(_wrap(SettingsScreen(store: store, assetRecordStore: FakeAssetRecordStore())));
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(store: store, assetRecordStore: FakeAssetRecordStore()),
+      ),
+    );
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Full quality, byte-identical'), findsOneWidget);

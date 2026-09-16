@@ -32,11 +32,11 @@ class SyncQueue {
   /// time instead, topped up as it drains.
   static const capacity = 100;
 
-  static const _unfinished = [
-    SyncJobStatus.pending,
-    SyncJobStatus.running,
-    SyncJobStatus.failed,
-  ];
+  /// What counts against [capacity]: work still to be done. A *failed* job
+  /// isn't — it's a row waiting for someone to look at it, and letting
+  /// failures fill the queue would mean a hundred dead entries quietly
+  /// blocking every future sync, with nothing on screen saying so.
+  static const _outstanding = [SyncJobStatus.pending, SyncJobStatus.running];
 
   /// The live queue, for the UI to render. Refreshed after every state
   /// change rather than polled.
@@ -79,9 +79,9 @@ class SyncQueue {
     unawaited(start());
   }
 
-  /// How many jobs are still to be dealt with — waiting, running, or
-  /// failed and awaiting a decision. What [capacity] is measured against.
-  Future<int> unfinishedCount() => store.countWhere(_unfinished);
+  /// How many jobs are still to be done — waiting or running. What
+  /// [capacity] is measured against.
+  Future<int> unfinishedCount() => store.countWhere(_outstanding);
 
   /// Returns whether the job was taken. `false` means the queue is paused
   /// or full — both of which the caller should read as "not now", not as a
