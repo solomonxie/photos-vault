@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:photo_manager/photo_manager.dart';
 
 import '../storage/asset_record.dart';
+import 'photo_library_change.dart';
 import '../storage/asset_record_store.dart';
 
 enum PhotoLibraryAccess { granted, limited, denied }
@@ -125,19 +126,54 @@ class PhotoLibraryService {
         }
         continue;
       }
-      final record = await store.upsert(
-        localId: localId,
-        contentHash: entity.id,
-        platform: Platform.isIOS ? 'ios' : 'android',
-        sourceType: AssetSourceType.photoManager,
-        isVideo: entity.type == AssetType.video,
-        isLivePhoto: entity.isLivePhoto,
-        createdAt: entity.createDateTime,
-      );
-      if (entity.isFavorite) await store.setFavorite(localId, true);
-      added.add(entity.isFavorite ? record.withFavorite(true) : record);
+      added.add(await _insert(entity, localId));
     }
     if (reconcileDeletions) updated += await _reconcileDeletions(seen);
+    return PhotoLibrarySyncResult(added: added, updated: updated);
+  }
+
+  /// Applies one [PhotoLibraryChange] — the precise set of assets iOS says
+  /// were added, altered or removed while we were watching.
+  ///
+  /// This is the cheap path, and the one that runs almost all the time:
+  /// work proportional to what changed rather than to library size, so
+  /// keeping up with Photos costs nothing measurable whether the user has
+  /// two hundred photos or two hundred thousand. [syncAll] stays as the
+  /// backstop for what happened while nobody was watching — notifications
+  /// only arrive while the app is running.
+  Future<PhotoLibrarySyncResult> applyChange(PhotoLibraryChange change) async {
+    final added = <AssetRecord>[];
+    var updated = 0;
+
+    for (final id in {...change.created, ...change.updated}) {
+      final entity = await _loadEntity(id);
+      // Gone again between the notification and now (a burst of edits, or
+      // a create-then-delete): the delete pass below, or the next scan,
+      // deals with it.
+      if (entity == null) continue;
+      final localId = localIdFor(entity);
+      final existing = await store.getByLocalId(localId);
+      if (existing == null) {
+        added.add(await _insert(entity, localId));
+        continue;
+      }
+      if (existing.isFavorite != entity.isFavorite) {
+        await store.setFavorite(localId, entity.isFavorite);
+        updated++;
+      }
+      if (existing.localDeleted && existing.sourcePath == null) {
+        await store.setLocalDeleted(localId, false);
+        if (existing.isDeleted) await store.restore(localId);
+        updated++;
+      }
+    }
+
+    for (final id in change.deleted) {
+      final record = await store.getByLocalId('$_idPrefix$id');
+      if (record == null) continue;
+      if (await _markGone(record)) updated++;
+    }
+
     return PhotoLibrarySyncResult(added: added, updated: updated);
   }
 
@@ -165,23 +201,42 @@ class PhotoLibraryService {
     for (final record in await store.listAll()) {
       if (record.sourceType != AssetSourceType.photoManager) continue;
       if (seen.contains(record.localId)) continue;
-      // Already accounted for, or holding a local copy of its own (an
-      // original restored from the bucket lives in app storage, not in the
-      // photo library — its absence there says nothing).
-      if (record.isDeleted || record.localDeleted) continue;
-      if (record.sourcePath != null) continue;
-
-      final backedUp =
-          record.stateOf(DerivativeKind.original).status ==
-          UploadStatus.uploaded;
-      if (backedUp) {
-        await store.setLocalDeleted(record.localId, true);
-      } else {
-        await store.softDelete(record.localId);
-      }
-      changed++;
+      if (await _markGone(record)) changed++;
     }
     return changed;
+  }
+
+  Future<AssetRecord> _insert(AssetEntity entity, String localId) async {
+    final record = await store.upsert(
+      localId: localId,
+      contentHash: entity.id,
+      platform: Platform.isIOS ? 'ios' : 'android',
+      sourceType: AssetSourceType.photoManager,
+      isVideo: entity.type == AssetType.video,
+      isLivePhoto: entity.isLivePhoto,
+      createdAt: entity.createDateTime,
+    );
+    if (!entity.isFavorite) return record;
+    await store.setFavorite(localId, true);
+    return record.withFavorite(true);
+  }
+
+  /// The "no longer in the photo library" rule, shared by the scan and the
+  /// change notification. Returns whether anything actually moved.
+  Future<bool> _markGone(AssetRecord record) async {
+    // Already accounted for, or holding a local copy of its own — an
+    // original restored from the bucket lives in app storage, not in the
+    // photo library, so its absence there says nothing.
+    if (record.isDeleted || record.localDeleted) return false;
+    if (record.sourcePath != null) return false;
+    final backedUp =
+        record.stateOf(DerivativeKind.original).status == UploadStatus.uploaded;
+    if (backedUp) {
+      await store.setLocalDeleted(record.localId, true);
+    } else {
+      await store.softDelete(record.localId);
+    }
+    return true;
   }
 
   /// Resolves a `photoManager` record back to its [AssetEntity], or null if

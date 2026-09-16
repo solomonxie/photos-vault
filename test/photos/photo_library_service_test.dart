@@ -1,3 +1,4 @@
+import 'package:bring_your_own_photos/photos/photo_library_change.dart';
 import 'package:bring_your_own_photos/photos/photo_library_service.dart';
 import 'package:bring_your_own_photos/storage/asset_record.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -275,6 +276,99 @@ void main() {
       final record = (await store.getByLocalId('photo:a1'))!;
       expect(record.isDeleted, isFalse);
       expect(record.localDeleted, isFalse);
+    });
+  });
+
+  group('applyChange — the notification path', () {
+    PhotoLibraryService serviceOver(
+      FakeAssetRecordStore store,
+      Map<String, AssetEntity> library,
+    ) => PhotoLibraryService(
+      store: store,
+      // Never lists: the whole point is that a change costs nothing
+      // proportional to library size.
+      listAllAssets: () async => throw StateError('should not scan'),
+      loadEntity: (id) async => library[id],
+    );
+
+    test('a new photo arrives without a scan', () async {
+      final store = FakeAssetRecordStore();
+      final service = serviceOver(store, {'a1': _entity('a1')});
+
+      final result = await service.applyChange(
+        const PhotoLibraryChange(created: {'a1'}),
+      );
+
+      expect(result.added.single.localId, 'photo:a1');
+      expect(await store.listAll(), hasLength(1));
+    });
+
+    test('an edited one updates its favourite in place', () async {
+      final store = FakeAssetRecordStore();
+      final library = {'a1': _entity('a1')};
+      final service = serviceOver(store, library);
+      await service.applyChange(const PhotoLibraryChange(created: {'a1'}));
+
+      library['a1'] = _entity('a1', isFavorite: true);
+      final result = await service.applyChange(
+        const PhotoLibraryChange(updated: {'a1'}),
+      );
+
+      expect((await store.getByLocalId('photo:a1'))!.isFavorite, isTrue);
+      expect(result.added, isEmpty);
+      expect(result.updated, 1);
+    });
+
+    test('a deleted one follows the same rule as the scan', () async {
+      final store = FakeAssetRecordStore();
+      final library = {'a1': _entity('a1'), 'a2': _entity('a2')};
+      final service = serviceOver(store, library);
+      await service.applyChange(
+        const PhotoLibraryChange(created: {'a1', 'a2'}),
+      );
+      await store.updateDerivative(
+        'photo:a1',
+        DerivativeKind.original,
+        const DerivativeState(status: UploadStatus.uploaded),
+      );
+
+      await service.applyChange(
+        const PhotoLibraryChange(deleted: {'a1', 'a2'}),
+      );
+
+      expect(
+        (await store.getByLocalId('photo:a1'))!.localDeleted,
+        isTrue,
+        reason: 'backed up — stays as a cloud-only item',
+      );
+      expect(
+        (await store.getByLocalId('photo:a2'))!.isDeleted,
+        isTrue,
+        reason: 'never backed up — binned',
+      );
+    });
+
+    test('an id that vanished between notice and lookup is skipped', () async {
+      final store = FakeAssetRecordStore();
+      final service = serviceOver(store, const {});
+
+      final result = await service.applyChange(
+        const PhotoLibraryChange(created: {'gone-already'}),
+      );
+
+      expect(result.isEmpty, isTrue);
+      expect(await store.listAll(), isEmpty);
+    });
+
+    test('a delete for something never tracked is ignored', () async {
+      final store = FakeAssetRecordStore();
+      final service = serviceOver(store, const {});
+
+      final result = await service.applyChange(
+        const PhotoLibraryChange(deleted: {'never-seen'}),
+      );
+
+      expect(result.isEmpty, isTrue);
     });
   });
 }
