@@ -1044,4 +1044,71 @@ void main() {
 
     expect(tester.getSize(find.byType(CustomScrollView).first), before);
   });
+
+  group('zoomed in', () {
+    Future<void> pumpPair(WidgetTester tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          DetailScreen(
+            records: [
+              _record(localId: 'a'),
+              _record(localId: 'b'),
+            ],
+            initialIndex: 0,
+            assetRecordStore: FakeAssetRecordStore(),
+            personStore: FakePersonStore(),
+            onDelete: (_) async => true,
+            onToggleFavorite: (_) async {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    /// Double-tap is the zoom this test can drive; pinch needs two pointers
+    /// and the same state comes out either way.
+    Future<void> zoom(WidgetTester tester) async {
+      final centre = tester.getCenter(find.byType(InteractiveViewer).first);
+      await tester.tapAt(centre);
+      await tester.pump(kDoubleTapMinTime);
+      await tester.tapAt(centre);
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('a drag pans the photo instead of turning the page', (
+      tester,
+    ) async {
+      await pumpPair(tester);
+      final pager = tester.widget<PageView>(find.byType(PageView));
+      expect(pager.physics, isNot(isA<NeverScrollableScrollPhysics>()));
+
+      await zoom(tester);
+
+      // The pager stands down entirely — panning a zoomed photo and
+      // swiping to the next one are the same gesture, and the pager wins
+      // it by default.
+      expect(
+        tester.widget<PageView>(find.byType(PageView)).physics,
+        isA<NeverScrollableScrollPhysics>(),
+      );
+      expect(
+        tester
+            .widget<CustomScrollView>(find.byType(CustomScrollView).first)
+            .physics,
+        isA<NeverScrollableScrollPhysics>(),
+        reason: 'and so does the info panel, for vertical drags',
+      );
+    });
+
+    testWidgets('and zooming back out hands the page back', (tester) async {
+      await pumpPair(tester);
+      await zoom(tester);
+      await zoom(tester);
+
+      expect(
+        tester.widget<PageView>(find.byType(PageView)).physics,
+        isNot(isA<NeverScrollableScrollPhysics>()),
+      );
+    });
+  });
 }

@@ -1281,6 +1281,35 @@ void main() {
       expect(find.byKey(const ValueKey('manual:beta')), findsNothing);
     });
 
+    testWidgets('an empty one closes itself when it loses focus', (
+      tester,
+    ) async {
+      await pump(tester, await libraryOf(['alpha', 'beta']));
+      await tester.tap(find.byIcon(CupertinoIcons.search));
+      await tester.pumpAndSettle();
+      expect(find.byType(CupertinoSearchTextField), findsOneWidget);
+
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+
+      expect(find.byType(CupertinoSearchTextField), findsNothing);
+    });
+
+    testWidgets('but one with a query in it stays', (tester) async {
+      await pump(tester, await libraryOf(['alpha', 'beta']));
+      await tester.tap(find.byIcon(CupertinoIcons.search));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(CupertinoSearchTextField), 'alph');
+      await tester.pumpAndSettle();
+
+      FocusManager.instance.primaryFocus?.unfocus();
+      await tester.pumpAndSettle();
+
+      // It's the only thing saying why most of the library is missing.
+      expect(find.byType(CupertinoSearchTextField), findsOneWidget);
+      expect(find.byKey(const ValueKey('manual:beta')), findsNothing);
+    });
+
     testWidgets('closing it puts the whole library back', (tester) async {
       await pump(tester, await libraryOf(['alpha', 'beta']));
       await tester.tap(find.byIcon(CupertinoIcons.search));

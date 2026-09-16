@@ -183,6 +183,7 @@ class LibraryScreenState extends State<LibraryScreen>
   /// same screen.
   bool _searching = false;
   final _searchController = TextEditingController();
+  final _searchFocus = FocusNode();
 
   /// A camera-roll scan walks the whole library, so the resume hook must
   /// not start a second one on top of the one still running.
@@ -237,11 +238,24 @@ class LibraryScreenState extends State<LibraryScreen>
     if (!_searching) {
       _searchController.clear();
       _query = '';
+      _searchFocus.unfocus();
     }
   });
 
+  /// An empty search bar that's lost focus is just something in the way, so
+  /// it closes itself. A bar with something typed in it stays: it's the
+  /// only thing on screen saying why the grid is missing most of the
+  /// library, and the way back to all of it.
+  void _onSearchFocusChanged() {
+    if (_searchFocus.hasFocus || !_searching) return;
+    if (_searchController.text.trim().isNotEmpty) return;
+    setState(() => _searching = false);
+  }
+
   @override
   void dispose() {
+    _searchFocus.removeListener(_onSearchFocusChanged);
+    _searchFocus.dispose();
     _searchController.dispose();
     PhotoManager.removeChangeCallback(_onPhotoLibraryChanged);
     WidgetsBinding.instance.removeObserver(this);
@@ -255,6 +269,7 @@ class LibraryScreenState extends State<LibraryScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _searchFocus.addListener(_onSearchFocusChanged);
     _watchPhotoLibrary();
     syncQueue.draining.addListener(_onDrainingChanged);
     AiTouchUpQueue.instance.addListener(_onAiTouchUpChanged);
@@ -1236,6 +1251,7 @@ class LibraryScreenState extends State<LibraryScreen>
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: CupertinoSearchTextField(
                   controller: _searchController,
+                  focusNode: _searchFocus,
                   autofocus: true,
                   onChanged: (v) => setState(() => _query = v),
                 ),
@@ -1282,8 +1298,10 @@ class LibraryScreenState extends State<LibraryScreen>
       trailing: _all.isEmpty
           ? null
           : CupertinoButton(
-              padding: EdgeInsets.zero,
-              minimumSize: Size.zero,
+              // A bar button is a thumb target, not a glyph: zero padding
+              // around a 22pt icon is a quarter of the area a finger needs.
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(44, 44),
               onPressed: _toggleSearch,
               // "Cancel" while open, not a second ✕: the field has its own
               // clear button, and two identical crosses a centimetre apart
@@ -1293,7 +1311,7 @@ class LibraryScreenState extends State<LibraryScreen>
                       l10n.actionCancel,
                       style: const TextStyle(fontSize: 15),
                     )
-                  : const Icon(CupertinoIcons.search, size: 22),
+                  : const Icon(CupertinoIcons.search, size: 24),
             ),
     ),
     SliverToBoxAdapter(
