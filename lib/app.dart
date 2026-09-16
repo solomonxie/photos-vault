@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show Colors, Theme, ThemeData;
 
 import 'l10n/app_localizations.dart';
+import 'photos/person_store.dart';
 import 'settings/backup_targets_store.dart';
 import 'upload/sync_job_store.dart';
 import 'storage/album_store.dart';
@@ -15,6 +16,7 @@ class App extends StatelessWidget {
     this.assetRecordStore,
     this.albumStore,
     this.syncJobStore,
+    this.personStore,
   });
 
   /// Overridable for tests so widget tests never touch the real
@@ -32,6 +34,10 @@ class App extends StatelessWidget {
   /// Overridable for tests so widget tests never open the real sync-queue
   /// database.
   final SyncJobStore? syncJobStore;
+
+  /// Overridable for tests so widget tests never open the real People
+  /// database.
+  final PersonStore? personStore;
 
   @override
   Widget build(BuildContext context) {
@@ -64,6 +70,7 @@ class App extends StatelessWidget {
         backupTargetsStore: settingsStore,
         albumStore: albumStore,
         syncJobStore: syncJobStore,
+        personStore: personStore,
       ),
     );
   }

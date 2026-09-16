@@ -5,7 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:sqflite/sqflite.dart'
-    show Database, DatabaseFactory, OpenDatabaseOptions;
+    show ConflictAlgorithm, Database, DatabaseFactory, OpenDatabaseOptions;
 
 import 'asset_record.dart';
 
@@ -34,6 +34,7 @@ class AssetRecordStore {
   Database? _db;
 
   static const _table = 'asset_record';
+  static const _appStateTable = 'app_state';
 
   Future<Database> _open() async {
     final existing = _db;
@@ -47,8 +48,11 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 8,
-        onCreate: (db, version) => db.execute(_createTableSql),
+        version: 9,
+        onCreate: (db, version) async {
+          await db.execute(_createTableSql);
+          await db.execute(_createAppStateTableSql);
+        },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await db.execute(
@@ -94,6 +98,9 @@ class AssetRecordStore {
               'ALTER TABLE $_table ADD COLUMN is_live_photo INTEGER NOT NULL DEFAULT 0',
             );
           }
+          if (oldVersion < 9) {
+            await db.execute(_createAppStateTableSql);
+          }
         },
       ),
     );
@@ -134,6 +141,38 @@ class AssetRecordStore {
       updated_at INTEGER NOT NULL
     )
   ''';
+
+  /// Flags about the library as a whole, kept in the same database file as
+  /// the records they describe — so they live and die together. The
+  /// alternative, secure storage, *outlives* an uninstall on iOS, which
+  /// leaves a reinstalled app certain it has already done something to
+  /// records that no longer exist.
+  static const _createAppStateTableSql =
+      '''
+    CREATE TABLE IF NOT EXISTS $_appStateTable (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  ''';
+
+  Future<String?> getAppState(String key) async {
+    final db = await _open();
+    final rows = await db.query(
+      _appStateTable,
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first['value'] as String?;
+  }
+
+  Future<void> setAppState(String key, String value) async {
+    final db = await _open();
+    await db.insert(_appStateTable, {
+      'key': key,
+      'value': value,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
 
   Future<void> close() async {
     await _db?.close();

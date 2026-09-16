@@ -127,7 +127,7 @@ class LibraryScreenState extends State<LibraryScreen> {
         personStore: _personStore,
       );
   late final DemoSeedStore _demoSeedStore =
-      widget.demoSeedStore ?? DemoSeedStore();
+      widget.demoSeedStore ?? DemoSeedStore(recordStore: assetRecordStore);
   late final BackupCoordinator _coordinator =
       widget.backupCoordinator ??
       BackupCoordinator(
@@ -223,7 +223,12 @@ class LibraryScreenState extends State<LibraryScreen> {
   /// files already existing in a bucket configured before this launch.
   Future<void> _init() async {
     try {
-      if (!await _demoSeedStore.hasSeeded()) {
+      // Only into an actually empty library. The marker alone would bring
+      // the demo photos back for someone upgrading from the release that
+      // kept it in the Keychain — where it survived the uninstall that
+      // wiped their records.
+      if (!await _demoSeedStore.hasSeeded() &&
+          (await assetRecordStore.listAll()).isEmpty) {
         final added = await _demoAssetsService.addAll();
         await _demoSeedStore.markSeeded();
         await _backUpRecords(added);

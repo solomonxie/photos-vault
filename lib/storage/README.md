@@ -33,3 +33,10 @@ getByLocalId() / listAll() route every row through:
   library too). See `../viewer/private_album_gate.dart` and DESIGN.md.
 - `passcode_hash.dart` — SHA-256 hashing shared by private albums (the hash
   doubles as the album id) and person-profile locks.
+
+`asset_record.db` also carries a small `app_state` key/value table for flags
+about the library as a whole (currently just "have the demo photos been
+seeded"). They belong here rather than in secure storage because an iOS
+Keychain item **survives an uninstall** and this database doesn't — a flag
+that outlives its records leaves a reinstalled app sure it has already done
+something to data that's gone.

@@ -369,4 +369,24 @@ void main() {
 
     expect(await store.allTags(), {'sunset', 'hiking', 'family'});
   });
+
+  group('app state', () {
+    test('round-trips a flag, and starts absent', () async {
+      final store = newStore();
+
+      expect(await store.getAppState('seeded'), isNull);
+      await store.setAppState('seeded', 'true');
+
+      expect(await store.getAppState('seeded'), 'true');
+    });
+
+    test('writing the same key again replaces it', () async {
+      final store = newStore();
+      await store.setAppState('seeded', 'true');
+
+      await store.setAppState('seeded', 'again');
+
+      expect(await store.getAppState('seeded'), 'again');
+    });
+  });
 }
