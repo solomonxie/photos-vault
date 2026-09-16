@@ -208,6 +208,7 @@ class _GraphLayout extends StatelessWidget {
                         child: PersonAvatar(
                           assetRecordStore: assetRecordStore,
                           localId: person.avatarLocalId,
+                          face: person.avatarFace,
                           size: _nodeSize - 4,
                         ),
                       ),

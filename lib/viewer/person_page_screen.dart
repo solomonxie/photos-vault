@@ -163,6 +163,7 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                   PersonAvatar(
                     assetRecordStore: widget.assetRecordStore,
                     localId: _person.avatarLocalId,
+                    face: _person.avatarFace,
                     size: 88,
                   ),
                   const SizedBox(height: 8),

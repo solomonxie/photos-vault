@@ -1666,6 +1666,7 @@ class _PersonCard extends StatelessWidget {
         PersonAvatar(
           assetRecordStore: assetRecordStore,
           localId: person.avatarLocalId,
+          face: person.avatarFace,
           size: 56,
         ),
         const SizedBox(height: 4),

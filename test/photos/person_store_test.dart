@@ -376,4 +376,33 @@ void main() {
       expect((await store.getById(ada.id))!.avatarLocalId, 'manual:chosen');
     });
   });
+
+  test('which face is theirs survives a round trip', () async {
+    final store = newStore();
+    final ada = await store.create(name: 'Ada');
+
+    await store.update(
+      ada.copyWith(
+        avatarLocalId: 'manual:group',
+        avatarFace: const FaceRect(0.6, 0.1, 0.2, 0.25),
+      ),
+    );
+
+    // Two people out of one group shot have to keep different faces, so
+    // the rect matters as much as the photo id.
+    final saved = (await store.getById(ada.id))!;
+    expect(saved.avatarLocalId, 'manual:group');
+    expect(saved.avatarFace, const FaceRect(0.6, 0.1, 0.2, 0.25));
+  });
+
+  test('a garbled face rect reads as no rect, not a crash', () {
+    expect(FaceRect.decode(null), isNull);
+    expect(FaceRect.decode('nonsense'), isNull);
+    expect(FaceRect.decode('0.1,0.2,0.3'), isNull);
+    expect(FaceRect.decode('0.1,0.2,x,0.4'), isNull);
+    expect(
+      FaceRect.decode('0.1,0.2,0.3,0.4'),
+      const FaceRect(0.1, 0.2, 0.3, 0.4),
+    );
+  });
 }

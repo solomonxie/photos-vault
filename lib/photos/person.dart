@@ -1,3 +1,38 @@
+/// Where a face sits in a photo, as fractions of its width and height with
+/// the origin at the top left. Small enough to keep on the person rather
+/// than cropping and storing a second image.
+class FaceRect {
+  const FaceRect(this.x, this.y, this.width, this.height);
+
+  final double x;
+  final double y;
+  final double width;
+  final double height;
+
+  /// `x,y,w,h` — one column, and readable in a database browser.
+  String encode() => '$x,$y,$width,$height';
+
+  static FaceRect? decode(String? value) {
+    if (value == null) return null;
+    final parts = value.split(',');
+    if (parts.length != 4) return null;
+    final numbers = parts.map(double.tryParse).toList();
+    if (numbers.any((n) => n == null)) return null;
+    return FaceRect(numbers[0]!, numbers[1]!, numbers[2]!, numbers[3]!);
+  }
+
+  @override
+  bool operator ==(Object other) =>
+      other is FaceRect &&
+      other.x == x &&
+      other.y == y &&
+      other.width == width &&
+      other.height == height;
+
+  @override
+  int get hashCode => Object.hash(x, y, width, height);
+}
+
 /// How two [Person]s relate — drives both the profile's relationship list
 /// and the net graph's line color/style (T7.5/T7.6). `family`/`spouse`/
 /// `parent`/`child`/`sibling` cluster together in the graph's family circle;
@@ -50,6 +85,7 @@ class Person {
     required this.createdAt,
     required this.updatedAt,
     this.avatarLocalId,
+    this.avatarFace,
     this.bio = '',
     this.birthDate,
     this.gender,
@@ -68,6 +104,14 @@ class Person {
   /// `AssetRecord.localId` of the photo used as the profile picture — one of
   /// their own tagged photos, not a separately uploaded avatar.
   final String? avatarLocalId;
+
+  /// Which face in that photo is *them*, as a normalised `x,y,w,h` rect.
+  ///
+  /// Without it a group shot gives everyone in it the same picture, and
+  /// whoever happens to be centre-frame becomes the face of all of them.
+  /// Null means "show the whole photo", which is right for an avatar that
+  /// didn't come from tapping a face.
+  final FaceRect? avatarFace;
 
   final String bio;
 
@@ -93,6 +137,7 @@ class Person {
   Person copyWith({
     String? name,
     String? avatarLocalId,
+    FaceRect? avatarFace,
     String? bio,
     DateTime? Function()? birthDate,
     Gender? Function()? gender,
@@ -106,6 +151,7 @@ class Person {
     createdAt: createdAt,
     updatedAt: DateTime.now(),
     avatarLocalId: avatarLocalId ?? this.avatarLocalId,
+    avatarFace: avatarFace ?? this.avatarFace,
     bio: bio ?? this.bio,
     birthDate: birthDate != null ? birthDate() : this.birthDate,
     gender: gender != null ? gender() : this.gender,

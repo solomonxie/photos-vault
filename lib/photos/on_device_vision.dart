@@ -1,5 +1,7 @@
 import 'package:flutter/services.dart';
 
+import 'person.dart';
+
 /// Where a face is in a photo, in Vision's normalised coordinates
 /// (0–1, origin bottom-left).
 class VisionFace {
@@ -18,6 +20,10 @@ class VisionFace {
   /// Roughly how much of the frame this face fills — what tells a portrait
   /// from a crowd in the background.
   double get area => width * height;
+
+  /// The same box in image coordinates (origin top-left), which is how a
+  /// person's avatar records which face is theirs.
+  FaceRect toPersonFace() => FaceRect(x, 1 - y - height, width, height);
 }
 
 /// Face detection on the phone: Apple's Vision framework, via

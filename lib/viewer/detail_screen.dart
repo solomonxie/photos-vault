@@ -20,6 +20,7 @@ import '../photos/ai_analysis_store.dart';
 import '../photos/ai_vision_service.dart';
 import '../photos/face_crops.dart';
 import '../photos/on_device_analysis.dart';
+import '../photos/on_device_vision.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
 import '../settings/backup_targets_store.dart';
@@ -1179,6 +1180,11 @@ class _InfoPanelState extends State<_InfoPanel> {
   /// persisted: a face nobody has put a name to isn't worth storing, and
   /// re-finding them costs one Vision call.
   List<Uint8List> _faces = const [];
+
+  /// Where each of [_faces] sits in the photo, same order — what makes the
+  /// tapped face become *that* person's picture rather than the whole
+  /// group shot.
+  List<VisionFace> _faceRects = const [];
   bool _suggesting = false;
   String? _suggestNote;
 
@@ -1206,6 +1212,7 @@ class _InfoPanelState extends State<_InfoPanel> {
     setState(() {
       _suggesting = false;
       _faces = crops;
+      _faceRects = faces.take(crops.length).toList();
       _suggestNote = crops.isEmpty ? l10n.detailSuggestNothing : null;
     });
   }
@@ -1251,11 +1258,32 @@ class _InfoPanelState extends State<_InfoPanel> {
   }
 
   /// A face with a name on it is a person; until then it's a question.
+  ///
+  /// The face that was tapped becomes their picture, not the photo it came
+  /// out of — a group shot would otherwise give everyone in it the same
+  /// avatar, and whoever stood centre-frame would become the face of all of
+  /// them.
   Future<void> _nameFace(int index) async {
-    await _addPerson();
+    final person = await _addPerson();
+    if (person != null && index < _faceRects.length) {
+      final latest = await widget.personStore.getById(person.id);
+      // Only when they haven't got one already, same as linking any photo.
+      if (latest != null && latest.avatarFace == null) {
+        await widget.personStore.update(
+          latest.copyWith(
+            avatarLocalId: widget.record.localId,
+            avatarFace: _faceRects[index].toPersonFace(),
+          ),
+        );
+      }
+    }
     if (!mounted) return;
     // Named, so it stops being an open question.
-    setState(() => _faces = [..._faces]..removeAt(index));
+    setState(() {
+      _faces = [..._faces]..removeAt(index);
+      _faceRects = [..._faceRects]..removeAt(index);
+    });
+    await _loadPeople();
   }
 
   Future<void> _loadPeople() async {
@@ -1374,23 +1402,26 @@ class _InfoPanelState extends State<_InfoPanel> {
     widget.onRecordChanged(widget.record.withTags(updated));
   }
 
-  Future<void> _addPerson() async {
+  /// Returns whoever was picked or created, so a caller that knows *which*
+  /// face this was can finish the job.
+  Future<Person?> _addPerson() async {
     final l10n = AppLocalizations.of(context)!;
     final allPeople = await widget.personStore.listAll();
     final taggedIds = _people.map((p) => p.id).toSet();
     final candidates = allPeople
         .where((p) => !taggedIds.contains(p.id))
         .toList();
-    if (!mounted) return;
+    if (!mounted) return null;
     final picked = await showPersonPickerSheet(
       context: context,
       candidates: candidates,
       personStore: widget.personStore,
       title: l10n.detailPeopleTagPickerTitle,
     );
-    if (picked == null) return;
+    if (picked == null) return null;
     await widget.personStore.addAssets(picked.id, [widget.record.localId]);
     await _loadPeople();
+    return picked;
   }
 
   Future<void> _removePerson(Person person) async {
@@ -1875,6 +1906,7 @@ class _PersonChip extends StatelessWidget {
               PersonAvatar(
                 assetRecordStore: assetRecordStore,
                 localId: person.avatarLocalId,
+                face: person.avatarFace,
                 size: 56,
               ),
               Positioned(
