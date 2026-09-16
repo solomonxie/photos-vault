@@ -1638,26 +1638,40 @@ class _InfoPanelState extends State<_InfoPanel> {
             ],
           ),
           const SizedBox(height: 24),
-          _SectionHeader(
-            title: l10n.detailPeopleHeader,
-            onAdd: _addPerson,
-            // Finding faces is a way of answering "who's in this photo",
-            // so it belongs on that question's heading rather than in a
-            // row of its own.
-            action: CupertinoButton(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
+          _SectionHeader(title: l10n.detailPeopleHeader, onAdd: _addPerson),
+          // Its own row under the heading, not floating in the middle of
+          // it: a heading carries a title and, at most, the one control
+          // that acts on the section as a whole. Two things in there and
+          // neither reads as the title.
+          Align(
+            alignment: Alignment.centerLeft,
+            child: CupertinoButton(
+              padding: const EdgeInsets.symmetric(vertical: 4),
               minimumSize: Size.zero,
               onPressed: _suggesting || widget.resolvedPath == null
                   ? null
                   : _suggestOnDevice,
-              child: Text(
-                l10n.detailFindFaces,
-                style: TextStyle(
-                  fontSize: 13,
-                  color: _suggesting || widget.resolvedPath == null
-                      ? CupertinoColors.systemGrey
-                      : CupertinoColors.activeBlue,
-                ),
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  Icon(
+                    CupertinoIcons.viewfinder,
+                    size: 15,
+                    color: _suggesting || widget.resolvedPath == null
+                        ? CupertinoColors.systemGrey
+                        : CupertinoColors.activeBlue,
+                  ),
+                  const SizedBox(width: 5),
+                  Text(
+                    l10n.detailFindFaces,
+                    style: TextStyle(
+                      fontSize: 13,
+                      color: _suggesting || widget.resolvedPath == null
+                          ? CupertinoColors.systemGrey
+                          : CupertinoColors.activeBlue,
+                    ),
+                  ),
+                ],
               ),
             ),
           ),
@@ -1715,16 +1729,12 @@ class _InfoPanelState extends State<_InfoPanel> {
 }
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, this.onAdd, this.action});
+  const _SectionHeader({required this.title, this.onAdd});
 
   final String title;
 
   /// Absent for a section with nothing to add by hand.
   final VoidCallback? onAdd;
-
-  /// One extra control on the heading row, left of the `+` — for something
-  /// that fills the section in rather than adding one item to it.
-  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -1739,7 +1749,6 @@ class _SectionHeader extends StatelessWidget {
             fontSize: 16,
           ),
         ),
-        ?action,
         if (onAdd != null)
           CupertinoButton(
             padding: EdgeInsets.zero,
