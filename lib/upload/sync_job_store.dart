@@ -1,6 +1,7 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart' as sqflite;
-import 'package:sqflite/sqflite.dart' show Database, DatabaseFactory, OpenDatabaseOptions;
+import 'package:sqflite/sqflite.dart'
+    show Database, DatabaseFactory, OpenDatabaseOptions;
 import 'package:uuid/uuid.dart';
 
 import 'sync_job.dart';
@@ -25,7 +26,9 @@ class SyncJobStore {
   Future<Database> _open() async {
     final existing = _db;
     if (existing != null) return existing;
-    final path = _path ?? p.join(await _databaseFactory.getDatabasesPath(), 'sync_jobs.db');
+    final path =
+        _path ??
+        p.join(await _databaseFactory.getDatabasesPath(), 'sync_jobs.db');
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
@@ -65,7 +68,12 @@ class SyncJobStore {
     final existing = await db.query(
       _table,
       where: 'local_id = ? AND kind = ? AND status IN (?, ?)',
-      whereArgs: [localId, kind.name, SyncJobStatus.pending.name, SyncJobStatus.running.name],
+      whereArgs: [
+        localId,
+        kind.name,
+        SyncJobStatus.pending.name,
+        SyncJobStatus.running.name,
+      ],
       limit: 1,
     );
     if (existing.isNotEmpty) return _fromRow(existing.first);
@@ -116,7 +124,10 @@ class SyncJobStore {
       final job = _fromRow(rows.first);
       await txn.update(
         _table,
-        {'status': SyncJobStatus.running.name, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+        {
+          'status': SyncJobStatus.running.name,
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+        },
         where: 'id = ?',
         whereArgs: [job.id],
       );
@@ -134,12 +145,17 @@ class SyncJobStore {
 
   Future<void> markDone(String id) => _setStatus(id, SyncJobStatus.done);
 
-  Future<void> markFailed(String id, String error) => _setStatus(id, SyncJobStatus.failed, error: error);
+  Future<void> markFailed(String id, String error) =>
+      _setStatus(id, SyncJobStatus.failed, error: error);
 
   /// Puts a failed job back in line.
   Future<void> retry(String id) => _setStatus(id, SyncJobStatus.pending);
 
-  Future<void> _setStatus(String id, SyncJobStatus status, {String? error}) async {
+  Future<void> _setStatus(
+    String id,
+    SyncJobStatus status, {
+    String? error,
+  }) async {
     final db = await _open();
     await db.update(
       _table,
@@ -170,7 +186,11 @@ class SyncJobStore {
   /// leaving anything still pending/running/failed visible.
   Future<void> clearSynced() async {
     final db = await _open();
-    await db.delete(_table, where: 'status = ?', whereArgs: [SyncJobStatus.done.name]);
+    await db.delete(
+      _table,
+      where: 'status = ?',
+      whereArgs: [SyncJobStatus.done.name],
+    );
   }
 
   /// A crash mid-sync leaves rows stuck as `running` with no worker behind
@@ -179,7 +199,10 @@ class SyncJobStore {
     final db = await _open();
     await db.update(
       _table,
-      {'status': SyncJobStatus.pending.name, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      {
+        'status': SyncJobStatus.pending.name,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
       where: 'status = ?',
       whereArgs: [SyncJobStatus.running.name],
     );

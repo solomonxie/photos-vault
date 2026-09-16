@@ -346,7 +346,9 @@ class _SettingsScreenState extends State<SettingsScreen> {
               for (var i = 0; i < targets.length; i++) ...[
                 if (i > 0) const SettingsHairline(indent: settingsRowIndent),
                 SettingsRow(
-                  leading: const SettingsIconTile(icon: CupertinoIcons.cloud_fill),
+                  leading: const SettingsIconTile(
+                    icon: CupertinoIcons.cloud_fill,
+                  ),
                   title: targets[i].bucket,
                   subtitle: _targetPath(targets[i]),
                   detail: targets[i].region,
@@ -414,7 +416,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
 
   Widget _emptyState(AppLocalizations l10n) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(settingsPagePadding, 4, settingsPagePadding, 0),
+      padding: const EdgeInsets.fromLTRB(
+        settingsPagePadding,
+        4,
+        settingsPagePadding,
+        0,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
@@ -453,7 +460,12 @@ class _SettingsScreenState extends State<SettingsScreen> {
       hint: l10n.settingsSyncFrequencyHint,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(settingsPagePadding, 0, settingsPagePadding, 0),
+          padding: const EdgeInsets.fromLTRB(
+            settingsPagePadding,
+            0,
+            settingsPagePadding,
+            0,
+          ),
           child: Text(l10nLastSynced, style: settingsFooterStyle),
         ),
         const SizedBox(height: 4),

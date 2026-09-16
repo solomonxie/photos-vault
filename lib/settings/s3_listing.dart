@@ -9,7 +9,11 @@ import 's3_backup_target.dart';
 
 /// One object under a listed prefix.
 class S3Object {
-  const S3Object({required this.key, required this.size, required this.lastModified});
+  const S3Object({
+    required this.key,
+    required this.size,
+    required this.lastModified,
+  });
 
   final String key;
   final int size;
@@ -20,7 +24,11 @@ class S3Object {
 /// under it (S3's `delimiter=/` convention; S3 has no real directories,
 /// this is just key-prefix grouping) plus the objects directly in it.
 class S3ListingPage {
-  const S3ListingPage({required this.folders, required this.objects, this.nextToken});
+  const S3ListingPage({
+    required this.folders,
+    required this.objects,
+    this.nextToken,
+  });
 
   final List<String> folders;
   final List<S3Object> objects;
@@ -53,19 +61,29 @@ Future<S3ListingResult> listBucket({
   String? continuationToken,
 }) async {
   final signer = AWSSigV4Signer(
-    credentialsProvider: AWSCredentialsProvider(AWSCredentials(target.accessKeyId, target.secretAccessKey)),
+    credentialsProvider: AWSCredentialsProvider(
+      AWSCredentials(target.accessKeyId, target.secretAccessKey),
+    ),
   );
   final scope = AWSCredentialScope.raw(region: target.region, service: 's3');
-  final uri = Uri.https('${target.bucket}.s3.${target.region}.amazonaws.com', '/', {
-    'list-type': '2',
-    'delimiter': '/',
-    if (prefix.isNotEmpty) 'prefix': prefix,
-    'continuation-token': ?continuationToken,
-  });
+  final uri = Uri.https(
+    '${target.bucket}.s3.${target.region}.amazonaws.com',
+    '/',
+    {
+      'list-type': '2',
+      'delimiter': '/',
+      if (prefix.isNotEmpty) 'prefix': prefix,
+      'continuation-token': ?continuationToken,
+    },
+  );
   final request = AWSHttpRequest.get(uri);
 
   try {
-    final signed = await signer.sign(request, credentialScope: scope, serviceConfiguration: S3ServiceConfiguration());
+    final signed = await signer.sign(
+      request,
+      credentialScope: scope,
+      serviceConfiguration: S3ServiceConfiguration(),
+    );
     final response = await http.get(signed.uri, headers: signed.headers);
     // Not `response.body`: S3's XML is always UTF-8 (its `<?xml ... encoding="UTF-8"?>`
     // declaration says so) but the response's Content-Type header omits a
@@ -79,7 +97,10 @@ Future<S3ListingResult> listBucket({
         404 => S3ListingOutcome.notFound,
         _ => S3ListingOutcome.networkError,
       };
-      return S3ListingResult(outcome, detail: _errorCodeFrom(body) ?? response.statusCode.toString());
+      return S3ListingResult(
+        outcome,
+        detail: _errorCodeFrom(body) ?? response.statusCode.toString(),
+      );
     }
     return S3ListingResult(S3ListingOutcome.ok, page: _parsePage(body));
   } catch (e) {
@@ -89,7 +110,10 @@ Future<S3ListingResult> listBucket({
 
 S3ListingPage _parsePage(String xmlBody) {
   final doc = XmlDocument.parse(xmlBody);
-  final folders = doc.findAllElements('CommonPrefixes').map((e) => e.getElement('Prefix')!.innerText).toList();
+  final folders = doc
+      .findAllElements('CommonPrefixes')
+      .map((e) => e.getElement('Prefix')!.innerText)
+      .toList();
   final objects = doc.findAllElements('Contents').map((e) {
     return S3Object(
       key: e.getElement('Key')!.innerText,
@@ -99,11 +123,18 @@ S3ListingPage _parsePage(String xmlBody) {
   }).toList();
 
   final truncatedEls = doc.findAllElements('IsTruncated');
-  final isTruncated = truncatedEls.isNotEmpty && truncatedEls.first.innerText == 'true';
+  final isTruncated =
+      truncatedEls.isNotEmpty && truncatedEls.first.innerText == 'true';
   final tokenEls = doc.findAllElements('NextContinuationToken');
-  final nextToken = isTruncated && tokenEls.isNotEmpty ? tokenEls.first.innerText : null;
+  final nextToken = isTruncated && tokenEls.isNotEmpty
+      ? tokenEls.first.innerText
+      : null;
 
-  return S3ListingPage(folders: folders, objects: objects, nextToken: nextToken);
+  return S3ListingPage(
+    folders: folders,
+    objects: objects,
+    nextToken: nextToken,
+  );
 }
 
 String? _errorCodeFrom(String xmlBody) {

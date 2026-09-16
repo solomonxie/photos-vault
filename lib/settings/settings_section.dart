@@ -193,7 +193,10 @@ class SettingsIconTile extends StatelessWidget {
         gradient: LinearGradient(
           begin: Alignment.topCenter,
           end: Alignment.bottomCenter,
-          colors: [color, Color.alphaBlend(color.withAlpha(0xCC), settingsPageBackground)],
+          colors: [
+            color,
+            Color.alphaBlend(color.withAlpha(0xCC), settingsPageBackground),
+          ],
         ),
       ),
       child: Icon(icon, color: CupertinoColors.white, size: 20),

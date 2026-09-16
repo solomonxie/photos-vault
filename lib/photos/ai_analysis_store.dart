@@ -1,6 +1,7 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart' as sqflite;
-import 'package:sqflite/sqflite.dart' show Database, DatabaseFactory, OpenDatabaseOptions;
+import 'package:sqflite/sqflite.dart'
+    show Database, DatabaseFactory, OpenDatabaseOptions;
 
 import 'ai_analysis.dart';
 
@@ -8,7 +9,8 @@ import 'ai_analysis.dart';
 /// `AssetRecord.localId` — avoids re-billing OpenAI for a photo already
 /// analyzed. See IMPLEMENTATION_PLAN.md T4.4.
 class AiAnalysisStore {
-  AiAnalysisStore({DatabaseFactory? databaseFactory, this._path}) : _databaseFactory = databaseFactory ?? sqflite.databaseFactory;
+  AiAnalysisStore({DatabaseFactory? databaseFactory, this._path})
+    : _databaseFactory = databaseFactory ?? sqflite.databaseFactory;
 
   final DatabaseFactory _databaseFactory;
   final String? _path;
@@ -20,7 +22,9 @@ class AiAnalysisStore {
   Future<Database> _open() async {
     final existing = _db;
     if (existing != null) return existing;
-    final path = _path ?? p.join(await _databaseFactory.getDatabasesPath(), 'ai_analysis.db');
+    final path =
+        _path ??
+        p.join(await _databaseFactory.getDatabasesPath(), 'ai_analysis.db');
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(

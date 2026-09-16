@@ -61,3 +61,11 @@ ManualAddService.enqueueFile(scratchPath)   ── same hash-named/dedup path as
   to this app, written to both the local record and the OS photo library:
   favourite and creation date, which is the whole list PhotoKit will accept.
   Caption/description/tags have no public write API on iOS and stay local.
+- `on_device_vision.dart` / `on_device_analysis.dart` — photo analysis that
+  runs on the phone through Apple's Vision framework
+  (`ios/Runner/VisionAnalysisChannel.swift`): scene labels become tags,
+  detected faces become the people count the Events/People smart
+  collections read. Free, offline, nothing downloaded — which is the only
+  way analysis works at all for a library where per-photo API billing
+  doesn't. Runs as `SyncJobKind.analyzePhoto` through the same queue as
+  everything else, so a library-wide pass is visible and pausable.

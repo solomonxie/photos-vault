@@ -6,8 +6,14 @@ import '../settings/s3_backup_target.dart';
 /// Builds the key layout every derivative lands under (`thumbnails/`,
 /// `medium/`, `originals/` under the target's configured prefix) so the
 /// user's own S3 Lifecycle Rules can target each class independently.
-String derivativeKey({required String prefix, required String derivativeDir, required String fileName}) {
-  final normalizedPrefix = prefix.isEmpty || prefix.endsWith('/') ? prefix : '$prefix/';
+String derivativeKey({
+  required String prefix,
+  required String derivativeDir,
+  required String fileName,
+}) {
+  final normalizedPrefix = prefix.isEmpty || prefix.endsWith('/')
+      ? prefix
+      : '$prefix/';
   return '$normalizedPrefix$derivativeDir/$fileName';
 }
 
@@ -20,10 +26,15 @@ Future<Uri> presignPutUrl({
   Duration expiresIn = const Duration(minutes: 15),
 }) async {
   final signer = AWSSigV4Signer(
-    credentialsProvider: AWSCredentialsProvider(AWSCredentials(target.accessKeyId, target.secretAccessKey)),
+    credentialsProvider: AWSCredentialsProvider(
+      AWSCredentials(target.accessKeyId, target.secretAccessKey),
+    ),
   );
   final scope = AWSCredentialScope.raw(region: target.region, service: 's3');
-  final uri = Uri.https('${target.bucket}.s3.${target.region}.amazonaws.com', '/$key');
+  final uri = Uri.https(
+    '${target.bucket}.s3.${target.region}.amazonaws.com',
+    '/$key',
+  );
   final request = AWSHttpRequest.put(uri, body: const []);
   return signer.presign(
     request,
@@ -41,10 +52,15 @@ Future<Uri> presignGetUrl({
   Duration expiresIn = const Duration(minutes: 15),
 }) async {
   final signer = AWSSigV4Signer(
-    credentialsProvider: AWSCredentialsProvider(AWSCredentials(target.accessKeyId, target.secretAccessKey)),
+    credentialsProvider: AWSCredentialsProvider(
+      AWSCredentials(target.accessKeyId, target.secretAccessKey),
+    ),
   );
   final scope = AWSCredentialScope.raw(region: target.region, service: 's3');
-  final uri = Uri.https('${target.bucket}.s3.${target.region}.amazonaws.com', '/$key');
+  final uri = Uri.https(
+    '${target.bucket}.s3.${target.region}.amazonaws.com',
+    '/$key',
+  );
   final request = AWSHttpRequest.get(uri);
   return signer.presign(
     request,

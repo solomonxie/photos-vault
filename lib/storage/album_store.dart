@@ -1,6 +1,7 @@
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart' as sqflite;
-import 'package:sqflite/sqflite.dart' show Database, DatabaseFactory, OpenDatabaseOptions;
+import 'package:sqflite/sqflite.dart'
+    show Database, DatabaseFactory, OpenDatabaseOptions;
 
 import 'album.dart';
 
@@ -8,7 +9,8 @@ import 'album.dart';
 /// own db file (separate from `asset_record_store.dart`) — the two are
 /// joined only in application code, by `AssetRecord.localId`.
 class AlbumStore {
-  AlbumStore({DatabaseFactory? databaseFactory, this._path}) : _databaseFactory = databaseFactory ?? sqflite.databaseFactory;
+  AlbumStore({DatabaseFactory? databaseFactory, this._path})
+    : _databaseFactory = databaseFactory ?? sqflite.databaseFactory;
 
   final DatabaseFactory _databaseFactory;
   final String? _path;
@@ -21,7 +23,9 @@ class AlbumStore {
   Future<Database> _open() async {
     final existing = _db;
     if (existing != null) return existing;
-    final path = _path ?? p.join(await _databaseFactory.getDatabasesPath(), 'photo_albums.db');
+    final path =
+        _path ??
+        p.join(await _databaseFactory.getDatabasesPath(), 'photo_albums.db');
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
@@ -58,7 +62,11 @@ class AlbumStore {
   /// Inserts an album under [id] if it isn't tracked yet; no-op otherwise —
   /// so re-seeding a demo album after it's deleted, or re-adding one already
   /// present, never duplicates it.
-  Future<Album> upsert({required String id, required String name, bool isDemo = false}) async {
+  Future<Album> upsert({
+    required String id,
+    required String name,
+    bool isDemo = false,
+  }) async {
     final db = await _open();
     final existing = await getById(id);
     if (existing != null) return existing;
@@ -75,7 +83,12 @@ class AlbumStore {
 
   Future<Album?> getById(String id) async {
     final db = await _open();
-    final rows = await db.query(_albumTable, where: 'id = ?', whereArgs: [id], limit: 1);
+    final rows = await db.query(
+      _albumTable,
+      where: 'id = ?',
+      whereArgs: [id],
+      limit: 1,
+    );
     if (rows.isEmpty) return null;
     return _fromRow(rows.single);
   }
@@ -103,12 +116,21 @@ class AlbumStore {
 
   Future<void> removeAsset(String albumId, String localId) async {
     final db = await _open();
-    await db.delete(_memberTable, where: 'album_id = ? AND local_id = ?', whereArgs: [albumId, localId]);
+    await db.delete(
+      _memberTable,
+      where: 'album_id = ? AND local_id = ?',
+      whereArgs: [albumId, localId],
+    );
   }
 
   Future<List<String>> localIdsIn(String albumId) async {
     final db = await _open();
-    final rows = await db.query(_memberTable, columns: ['local_id'], where: 'album_id = ?', whereArgs: [albumId]);
+    final rows = await db.query(
+      _memberTable,
+      columns: ['local_id'],
+      where: 'album_id = ?',
+      whereArgs: [albumId],
+    );
     return rows.map((r) => r['local_id'] as String).toList();
   }
 

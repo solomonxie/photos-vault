@@ -11,14 +11,22 @@ import 's3_listing.dart';
 /// inside the app instead of requiring the AWS console/CLI. Material, like
 /// the rest of `settings/` (see `app.dart`'s theme-bridging comment).
 class BucketBrowserScreen extends StatefulWidget {
-  BucketBrowserScreen({super.key, required this.target, String? prefix, this.listBucketFn = listBucket})
-    : prefix = prefix ?? target.prefix;
+  BucketBrowserScreen({
+    super.key,
+    required this.target,
+    String? prefix,
+    this.listBucketFn = listBucket,
+  }) : prefix = prefix ?? target.prefix;
 
   final S3BackupTarget target;
   final String prefix;
 
   /// Overridable for tests so they never make a real network call.
-  final Future<S3ListingResult> Function({required S3BackupTarget target, String prefix, String? continuationToken})
+  final Future<S3ListingResult> Function({
+    required S3BackupTarget target,
+    String prefix,
+    String? continuationToken,
+  })
   listBucketFn;
 
   @override
@@ -44,13 +52,18 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
       _loading = true;
       _error = null;
     });
-    final result = await widget.listBucketFn(target: widget.target, prefix: widget.prefix);
+    final result = await widget.listBucketFn(
+      target: widget.target,
+      prefix: widget.prefix,
+    );
     if (!mounted) return;
     setState(() {
       _loading = false;
       if (result.isOk) {
         _folders = result.page!.folders;
-        _objects = result.page!.objects.where((o) => o.key != widget.prefix).toList();
+        _objects = result.page!.objects
+            .where((o) => o.key != widget.prefix)
+            .toList();
         _nextToken = result.page!.nextToken;
       } else {
         _error = _messageFor(result);
@@ -62,12 +75,19 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
     final token = _nextToken;
     if (token == null) return;
     setState(() => _loadingMore = true);
-    final result = await widget.listBucketFn(target: widget.target, prefix: widget.prefix, continuationToken: token);
+    final result = await widget.listBucketFn(
+      target: widget.target,
+      prefix: widget.prefix,
+      continuationToken: token,
+    );
     if (!mounted) return;
     setState(() {
       _loadingMore = false;
       if (result.isOk) {
-        _objects = [..._objects, ...result.page!.objects.where((o) => o.key != widget.prefix)];
+        _objects = [
+          ..._objects,
+          ...result.page!.objects.where((o) => o.key != widget.prefix),
+        ];
         _nextToken = result.page!.nextToken;
       } else {
         _error = _messageFor(result);
@@ -89,11 +109,16 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
 
   String get _title {
     if (widget.prefix.isEmpty) return widget.target.bucket;
-    final trimmed = widget.prefix.endsWith('/') ? widget.prefix.substring(0, widget.prefix.length - 1) : widget.prefix;
-    return trimmed.contains('/') ? trimmed.substring(trimmed.lastIndexOf('/') + 1) : trimmed;
+    final trimmed = widget.prefix.endsWith('/')
+        ? widget.prefix.substring(0, widget.prefix.length - 1)
+        : widget.prefix;
+    return trimmed.contains('/')
+        ? trimmed.substring(trimmed.lastIndexOf('/') + 1)
+        : trimmed;
   }
 
-  String _relativeName(String key) => key.startsWith(widget.prefix) ? key.substring(widget.prefix.length) : key;
+  String _relativeName(String key) =>
+      key.startsWith(widget.prefix) ? key.substring(widget.prefix.length) : key;
 
   static String _formatBytes(int bytes) {
     if (bytes < 1024) return '$bytes B';
@@ -110,7 +135,11 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
   void _openFolder(String folderPrefix) {
     Navigator.of(context).push(
       MaterialPageRoute(
-        builder: (_) => BucketBrowserScreen(target: widget.target, prefix: folderPrefix, listBucketFn: widget.listBucketFn),
+        builder: (_) => BucketBrowserScreen(
+          target: widget.target,
+          prefix: folderPrefix,
+          listBucketFn: widget.listBucketFn,
+        ),
       ),
     );
   }
@@ -126,16 +155,28 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
           ? Center(
               child: Padding(
                 padding: const EdgeInsets.all(24),
-                child: Text(_error!, textAlign: TextAlign.center, style: TextStyle(color: Theme.of(context).colorScheme.error)),
+                child: Text(
+                  _error!,
+                  textAlign: TextAlign.center,
+                  style: TextStyle(color: Theme.of(context).colorScheme.error),
+                ),
               ),
             )
           : (_folders.isEmpty && _objects.isEmpty)
-          ? Center(child: Text(l10n.bucketBrowserEmpty, style: const TextStyle(color: Colors.grey)))
+          ? Center(
+              child: Text(
+                l10n.bucketBrowserEmpty,
+                style: const TextStyle(color: Colors.grey),
+              ),
+            )
           : ListView(
               children: [
                 for (final folder in _folders)
                   ListTile(
-                    leading: const Icon(Icons.folder_outlined, color: Colors.amber),
+                    leading: const Icon(
+                      Icons.folder_outlined,
+                      color: Colors.amber,
+                    ),
                     title: Text(_relativeName(folder)),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => _openFolder(folder),
@@ -147,7 +188,12 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
                     subtitle: Text(_formatBytes(object.size)),
                     trailing: const Icon(Icons.chevron_right),
                     onTap: () => Navigator.of(context).push(
-                      MaterialPageRoute(builder: (_) => BucketObjectPreviewScreen(target: widget.target, objectKey: object.key)),
+                      MaterialPageRoute(
+                        builder: (_) => BucketObjectPreviewScreen(
+                          target: widget.target,
+                          objectKey: object.key,
+                        ),
+                      ),
                     ),
                   ),
                 if (_nextToken != null)
@@ -156,7 +202,10 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
                     child: Center(
                       child: _loadingMore
                           ? const CircularProgressIndicator()
-                          : OutlinedButton(onPressed: _loadMore, child: Text(l10n.bucketBrowserLoadMore)),
+                          : OutlinedButton(
+                              onPressed: _loadMore,
+                              child: Text(l10n.bucketBrowserLoadMore),
+                            ),
                     ),
                   ),
               ],

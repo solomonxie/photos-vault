@@ -65,7 +65,9 @@ class ThumbnailCache {
       final encoded = await _encode(File(originalPath));
       if (encoded == null) return null;
 
-      final file = File(p.join((await _thumbnailDirectory()).path, _fileNameFor(record)));
+      final file = File(
+        p.join((await _thumbnailDirectory()).path, _fileNameFor(record)),
+      );
       await file.writeAsBytes(encoded);
       await store.setThumbnailPath(record.localId, file.path);
       return file.path;

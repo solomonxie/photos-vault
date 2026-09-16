@@ -2,7 +2,12 @@
 /// many-to-many join ([AlbumStore]'s `album_asset` table) kept separate from
 /// [AssetRecord] itself, since one asset can sit in several albums.
 class Album {
-  const Album({required this.id, required this.name, required this.createdAt, this.isDemo = false});
+  const Album({
+    required this.id,
+    required this.name,
+    required this.createdAt,
+    this.isDemo = false,
+  });
 
   final String id;
   final String name;

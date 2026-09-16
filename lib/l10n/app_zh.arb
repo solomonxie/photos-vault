@@ -141,6 +141,8 @@
   "demoDataRemoveTitle": "删除全部演示数据？",
   "demoDataRemoveBody": "示例照片、相册和人物将被移除，你自己添加的内容会保留。",
   "demoDataWorking": "处理中…",
+  "analyzeLibraryRow": "分析照片",
+  "analyzeLibraryQueued": "正在分析 {count} 张照片…",
   "collectionsImportPhotosRow": "导入照片",
 
   "backupQueueTitle": "同步队列",
@@ -153,6 +155,7 @@
   "backupQueueKindCheck": "检查更改",
   "backupQueueKindOriginal": "备份原图",
   "backupQueueKindThumbnail": "备份缩略图",
+  "backupQueueKindAnalyze": "分析照片中",
   "backupQueueWaiting": "等待中",
   "backupQueueIdle": "空闲",
   "backupQueueSpeed": "同时 {count} 个",

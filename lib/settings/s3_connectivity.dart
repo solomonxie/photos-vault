@@ -32,14 +32,23 @@ Future<S3AccessCheckResult> checkBucketAccess({
   required String bucket,
 }) async {
   final signer = AWSSigV4Signer(
-    credentialsProvider: AWSCredentialsProvider(AWSCredentials(accessKeyId, secretAccessKey)),
+    credentialsProvider: AWSCredentialsProvider(
+      AWSCredentials(accessKeyId, secretAccessKey),
+    ),
   );
   final scope = AWSCredentialScope.raw(region: region, service: 's3');
-  final uri = Uri.https('$bucket.s3.$region.amazonaws.com', '/', {'list-type': '2', 'max-keys': '1'});
+  final uri = Uri.https('$bucket.s3.$region.amazonaws.com', '/', {
+    'list-type': '2',
+    'max-keys': '1',
+  });
   final request = AWSHttpRequest.get(uri);
 
   try {
-    final signed = await signer.sign(request, credentialScope: scope, serviceConfiguration: S3ServiceConfiguration());
+    final signed = await signer.sign(
+      request,
+      credentialScope: scope,
+      serviceConfiguration: S3ServiceConfiguration(),
+    );
     final response = await http.get(signed.uri, headers: signed.headers);
     // Not `response.body` — see s3_listing.dart's `listBucket` for why.
     final errorCode = _errorCodeFrom(utf8.decode(response.bodyBytes));
@@ -47,11 +56,20 @@ Future<S3AccessCheckResult> checkBucketAccess({
       case 200:
         return const S3AccessCheckResult(S3AccessCheckOutcome.ok);
       case 403:
-        return S3AccessCheckResult(S3AccessCheckOutcome.forbidden, errorCode ?? response.statusCode.toString());
+        return S3AccessCheckResult(
+          S3AccessCheckOutcome.forbidden,
+          errorCode ?? response.statusCode.toString(),
+        );
       case 404:
-        return S3AccessCheckResult(S3AccessCheckOutcome.notFound, errorCode ?? response.statusCode.toString());
+        return S3AccessCheckResult(
+          S3AccessCheckOutcome.notFound,
+          errorCode ?? response.statusCode.toString(),
+        );
       default:
-        return S3AccessCheckResult(S3AccessCheckOutcome.networkError, errorCode ?? response.statusCode.toString());
+        return S3AccessCheckResult(
+          S3AccessCheckOutcome.networkError,
+          errorCode ?? response.statusCode.toString(),
+        );
     }
   } catch (e) {
     return S3AccessCheckResult(S3AccessCheckOutcome.networkError, e.toString());

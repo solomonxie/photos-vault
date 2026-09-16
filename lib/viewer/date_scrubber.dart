@@ -70,7 +70,7 @@ class _DateScrubberState extends State<DateScrubber> {
   /// measured from the top of the screen — the rest of the page below stays
   /// the page's.
   static const _trackFraction = 0.3;
-  static const _trackBottomFraction = 0.55;
+  static const _trackBottomFraction = 0.5;
 
   bool _visible = false;
   bool _dragging = false;

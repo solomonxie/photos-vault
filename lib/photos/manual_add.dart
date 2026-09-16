@@ -10,7 +10,8 @@ import 'file_hash.dart';
 
 const _videoExtensions = {'.mp4', '.mov', '.m4v'};
 
-bool _isVideoPath(String path) => _videoExtensions.any(path.toLowerCase().endsWith);
+bool _isVideoPath(String path) =>
+    _videoExtensions.any(path.toLowerCase().endsWith);
 
 /// Manual add flow (T2.5): lets the user pick files directly — from the
 /// Files app / iCloud Drive, or photos/videos via the system picker — and
@@ -34,7 +35,8 @@ class ManualAddService {
   final Future<Directory> Function() _targetDirectory;
 
   /// Overridable for tests so they never touch the real file picker.
-  final Future<List<PlatformFile>> Function({FileType type, bool allowMultiple}) picker;
+  final Future<List<PlatformFile>> Function({FileType type, bool allowMultiple})
+  picker;
 
   /// Opens the picker and enqueues every picked file. `localId` is derived
   /// from the file's content hash, so re-picking the same file is a no-op
