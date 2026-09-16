@@ -64,7 +64,10 @@ void main() {
     final store = FakeAssetRecordStore();
     final record = await newRecord(store);
 
-    final path = await cacheOver(store, encode: (_) async => null).ensureFor(record, '/tmp/video.mp4');
+    final path = await cacheOver(
+      store,
+      encode: (_) async => null,
+    ).ensureFor(record, '/tmp/video.mp4');
 
     expect(path, isNull);
     expect((await store.getByLocalId('manual:abc'))!.thumbnailPath, isNull);

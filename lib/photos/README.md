@@ -47,6 +47,12 @@ ManualAddService.enqueueFile(scratchPath)   ── same hash-named/dedup path as
 - `person.dart` / `person_store.dart` — named `Person` profiles (bio fields,
   tagged photos, relationships, location history) behind
   `../viewer/people_screen.dart`; see DESIGN.md's "People profiles" section.
+- `photo_library_change.dart` — parses one OS photo-library change
+  notification into the asset ids that were created/updated/deleted, which
+  `photo_library_service.dart`'s `applyChange` then touches *only those*.
+  This is how the app keeps up with Photos while it's open: cost
+  proportional to what changed, never to library size. The full `syncAll`
+  scan is the backstop for changes made while the app wasn't listening.
 - `photo_location.dart` — reverse-geocodes a photo's own GPS tag into a
   place name, so Places fills itself in. Run on view, one photo at a time:
   the OS geocoder is rate-limited per app, and it only ever fills an *empty*

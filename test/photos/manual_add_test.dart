@@ -16,7 +16,10 @@ void main() {
   // default), so distinct stores using the same sentinel path leak state
   // across tests unless each is explicitly closed.
   AssetRecordStore newStore() {
-    final store = AssetRecordStore(databaseFactory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    final store = AssetRecordStore(
+      databaseFactory: databaseFactoryFfi,
+      path: inMemoryDatabasePath,
+    );
     addTearDown(store.close);
     return store;
   }
@@ -27,26 +30,39 @@ void main() {
     return () async => dir;
   }
 
-  test('enqueueFile copies the file into app-owned storage, hashed from content', () async {
-    final store = newStore();
-    final file = await File('${Directory.systemTemp.path}/manual_add_test.txt').writeAsString('hello');
-    addTearDown(() => file.delete());
+  test(
+    'enqueueFile copies the file into app-owned storage, hashed from content',
+    () async {
+      final store = newStore();
+      final file = await File(
+        '${Directory.systemTemp.path}/manual_add_test.txt',
+      ).writeAsString('hello');
+      addTearDown(() => file.delete());
 
-    final service = ManualAddService(store: store, targetDirectory: tempTargetDir());
-    final record = await service.enqueueFile(file.path);
+      final service = ManualAddService(
+        store: store,
+        targetDirectory: tempTargetDir(),
+      );
+      final record = await service.enqueueFile(file.path);
 
-    expect(record.sourceType, AssetSourceType.manualFile);
-    expect(record.sourcePath, isNot(file.path));
-    expect(await File(record.sourcePath!).readAsString(), 'hello');
-    expect(record.localId, 'manual:${record.contentHash}');
-  });
+      expect(record.sourceType, AssetSourceType.manualFile);
+      expect(record.sourcePath, isNot(file.path));
+      expect(await File(record.sourcePath!).readAsString(), 'hello');
+      expect(record.localId, 'manual:${record.contentHash}');
+    },
+  );
 
   test('re-adding the same content is a no-op, not a duplicate', () async {
     final store = newStore();
-    final file = await File('${Directory.systemTemp.path}/manual_add_test_2.txt').writeAsString('same content');
+    final file = await File(
+      '${Directory.systemTemp.path}/manual_add_test_2.txt',
+    ).writeAsString('same content');
     addTearDown(() => file.delete());
 
-    final service = ManualAddService(store: store, targetDirectory: tempTargetDir());
+    final service = ManualAddService(
+      store: store,
+      targetDirectory: tempTargetDir(),
+    );
     await service.enqueueFile(file.path);
     await service.enqueueFile(file.path);
 
@@ -55,13 +71,17 @@ void main() {
 
   test('pickAndEnqueue enqueues every file returned by the picker', () async {
     final store = newStore();
-    final file = await File('${Directory.systemTemp.path}/manual_add_test_3.txt').writeAsString('picked');
+    final file = await File(
+      '${Directory.systemTemp.path}/manual_add_test_3.txt',
+    ).writeAsString('picked');
     addTearDown(() => file.delete());
 
     final service = ManualAddService(
       store: store,
       targetDirectory: tempTargetDir(),
-      picker: ({type = FileType.any, allowMultiple = false}) async => [TestPlatformFile(file.path)],
+      picker: ({type = FileType.any, allowMultiple = false}) async => [
+        TestPlatformFile(file.path),
+      ],
     );
 
     final added = await service.pickAndEnqueue();

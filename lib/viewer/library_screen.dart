@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:path/path.dart' as p;
 
 import '../l10n/app_localizations.dart';
@@ -14,6 +16,7 @@ import '../photos/image_pipeline.dart';
 import '../photos/manual_add.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
+import '../photos/photo_library_change.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/thumbnail_cache.dart';
 import '../settings/ai_settings_screen.dart';
@@ -179,8 +182,40 @@ class LibraryScreenState extends State<LibraryScreen>
     unawaited(_runScheduledSyncIfDue());
   }
 
+  /// Keeping up with Photos while the app is open costs a notification per
+  /// change, not a scan: iOS says exactly which assets were added, altered
+  /// or removed, and [PhotoLibraryService.applyChange] touches only those.
+  /// A photo taken, hearted or deleted over there therefore lands here
+  /// within a frame or two, whether the library holds two hundred photos or
+  /// two hundred thousand — the full scan is only ever the backstop for
+  /// what changed while nobody was listening.
+  void _watchPhotoLibrary() {
+    PhotoManager.addChangeCallback(_onPhotoLibraryChanged);
+    // Fails without the plugin (tests, unsupported platform) — the resume
+    // scan still covers everything, just not as promptly.
+    unawaited(PhotoManager.startChangeNotify().catchError((_) => false));
+  }
+
+  void _onPhotoLibraryChanged(MethodCall call) {
+    final change = PhotoLibraryChange.parse(call);
+    if (change == null || change.isEmpty) return;
+    unawaited(_applyPhotoLibraryChange(change));
+  }
+
+  Future<void> _applyPhotoLibraryChange(PhotoLibraryChange change) async {
+    try {
+      final result = await _photoLibraryService.applyChange(change);
+      if (result.isEmpty || !mounted) return;
+      if (result.added.isNotEmpty) await _backUpRecords(result.added);
+      await reload();
+    } catch (_) {
+      // Whatever this notification carried, the next scan finds anyway.
+    }
+  }
+
   @override
   void dispose() {
+    PhotoManager.removeChangeCallback(_onPhotoLibraryChanged);
     WidgetsBinding.instance.removeObserver(this);
     syncQueue.draining.removeListener(_onDrainingChanged);
     AiTouchUpQueue.instance.removeListener(_onAiTouchUpChanged);
@@ -192,6 +227,7 @@ class LibraryScreenState extends State<LibraryScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    _watchPhotoLibrary();
     syncQueue.draining.addListener(_onDrainingChanged);
     AiTouchUpQueue.instance.addListener(_onAiTouchUpChanged);
     _init();
