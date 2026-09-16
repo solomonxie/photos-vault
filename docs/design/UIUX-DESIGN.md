@@ -73,6 +73,8 @@ bytes on the wire    →  decoded as latin-1  →  "ä¸­æ..."   ✗ mojibake
 ## Navigation & information architecture
 
 - If the content is one library, it's **one scrollable page, not tabs**. Stacked sections (grid → collections → utilities) beat a tab bar.
+- **Fill the screen the user is on first.** A first scan of a big library reads it *newest first*, draws the first page straight away, and lets the rest arrive off-screen behind it. Reading in library order would put 2011 on screen and then shove it around for a minute; waiting for the whole scan would show nothing at all for that minute.
+- **Growing a list must not move what's being read.** In a bottom-anchored grid every older photo that arrives lands *above* the viewport and pushes the current one down the page by exactly its own height. Holding a scroll offset therefore drifts the content under the reader's thumb on every batch. Hold a *photo* instead — find it again by when it was taken, which doesn't change when the list grows around it.
 - **Open where the user's attention already is.** A library page opens on the *newest* photos with the sections just below the fold — never at the top of a decade of history. The photo someone wants is almost always the one they just took.
 - Don't invent a tab for something that is a section.
 - Don't invent a page for something that is a menu. A page whose only job is holding two links should be deleted.

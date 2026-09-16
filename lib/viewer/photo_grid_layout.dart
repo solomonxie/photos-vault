@@ -236,6 +236,49 @@ class PhotoGridLayout {
     return row;
   }
 
+  /// Section holding the record at [index] — binary search, same as
+  /// everything else here.
+  int sectionOfRecord(int index) {
+    if (sections.isEmpty) return -1;
+    var lo = 0;
+    var hi = sections.length - 1;
+    while (lo < hi) {
+      final mid = (lo + hi + 1) ~/ 2;
+      if (sections[mid].firstRecord <= index) {
+        lo = mid;
+      } else {
+        hi = mid - 1;
+      }
+    }
+    return lo;
+  }
+
+  /// The tile row a record is drawn on.
+  int rowOfRecord(int index) {
+    final s = sections[sectionOfRecord(index)];
+    return s.firstRow + 1 + (index - s.firstRecord) ~/ crossAxisCount;
+  }
+
+  /// First record taken on or after [day] — how a scroll position survives
+  /// the library growing underneath it: the photo the viewport was resting
+  /// on is found again by *when it was taken*, which doesn't change when
+  /// older photos arrive above it.
+  ///
+  /// Returns [records.length] when everything is older than [day].
+  int indexOnOrAfter(DateTime day) {
+    var lo = 0;
+    var hi = records.length;
+    while (lo < hi) {
+      final mid = (lo + hi) ~/ 2;
+      if (records[mid].createdAt.isBefore(day)) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo;
+  }
+
   /// The day shown at [offset] — what the scrubber labels itself with.
   DateTime? dayAtOffset(double offset) {
     if (sections.isEmpty) return null;

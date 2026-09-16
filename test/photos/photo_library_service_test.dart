@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:bring_your_own_photos/photos/photo_library_change.dart';
 import 'package:bring_your_own_photos/photos/photo_library_service.dart';
 import 'package:bring_your_own_photos/storage/asset_record.dart';
@@ -19,6 +21,18 @@ AssetEntity _entity(
   createDateSecond: createSecond,
   isFavorite: isFavorite,
 );
+
+/// The real service pages the camera roll newest-first; these fakes hand
+/// back one page and then nothing, which is all any of these cases need.
+Future<List<AssetEntity>> Function(int, int) pagedFrom(
+  List<AssetEntity> entities,
+) =>
+    (page, size) async => page == 0 ? entities : const [];
+
+Future<List<AssetEntity>> Function(int, int) pagedBy(
+  List<AssetEntity> Function() entities,
+) =>
+    (page, size) async => page == 0 ? entities() : const [];
 
 void main() {
   test(
@@ -48,10 +62,10 @@ void main() {
     final store = FakeAssetRecordStore();
     final service = PhotoLibraryService(
       store: store,
-      listAllAssets: () async => [
+      listAssetPage: pagedFrom([
         _entity('a1'),
         _entity('a2', type: AssetType.video),
-      ],
+      ]),
     );
 
     final added = (await service.syncAll()).added;
@@ -69,7 +83,7 @@ void main() {
     final store = FakeAssetRecordStore();
     final service = PhotoLibraryService(
       store: store,
-      listAllAssets: () async => [_entity('a1')],
+      listAssetPage: pagedFrom([_entity('a1')]),
     );
     await service.syncAll();
 
@@ -128,7 +142,7 @@ void main() {
       var favourited = false;
       final service = PhotoLibraryService(
         store: store,
-        listAllAssets: () async => [_entity('a1', isFavorite: favourited)],
+        listAssetPage: pagedBy(() => [_entity('a1', isFavorite: favourited)]),
       );
       await service.syncAll();
       expect((await store.getByLocalId('photo:a1'))!.isFavorite, isFalse);
@@ -150,7 +164,7 @@ void main() {
       var favourited = true;
       final service = PhotoLibraryService(
         store: store,
-        listAllAssets: () async => [_entity('a1', isFavorite: favourited)],
+        listAssetPage: pagedBy(() => [_entity('a1', isFavorite: favourited)]),
       );
       await service.syncAll();
       expect((await store.getByLocalId('photo:a1'))!.isFavorite, isTrue);
@@ -166,7 +180,7 @@ void main() {
       final store = FakeAssetRecordStore();
       final service = PhotoLibraryService(
         store: store,
-        listAllAssets: () async => [_entity('a1', isFavorite: true)],
+        listAssetPage: pagedFrom([_entity('a1', isFavorite: true)]),
       );
       await service.syncAll();
 
@@ -180,8 +194,10 @@ void main() {
     Future<PhotoLibraryService> serviceWith(
       FakeAssetRecordStore store,
       List<AssetEntity> Function() listing,
-    ) async =>
-        PhotoLibraryService(store: store, listAllAssets: () async => listing());
+    ) async => PhotoLibraryService(
+      store: store,
+      listAssetPage: pagedBy(() => listing()),
+    );
 
     test('a backed-up one becomes cloud-only, keeping its place', () async {
       final store = FakeAssetRecordStore();
@@ -287,7 +303,7 @@ void main() {
       store: store,
       // Never lists: the whole point is that a change costs nothing
       // proportional to library size.
-      listAllAssets: () async => throw StateError('should not scan'),
+      listAssetPage: (page, size) async => throw StateError('should not scan'),
       loadEntity: (id) async => library[id],
     );
 
@@ -369,6 +385,61 @@ void main() {
       );
 
       expect(result.isEmpty, isTrue);
+    });
+  });
+
+  group('a first scan', () {
+    List<AssetEntity> newestFirst(int count) => [
+      for (var i = count - 1; i >= 0; i--)
+        _entity('a$i', createSecond: i * 86400),
+    ];
+
+    test('works through the library a page at a time', () async {
+      final store = FakeAssetRecordStore();
+      final all = newestFirst(450);
+      final requested = <int>[];
+      final service = PhotoLibraryService(
+        store: store,
+        listAssetPage: (page, size) async {
+          requested.add(page);
+          final start = page * size;
+          if (start >= all.length) return const [];
+          return all.sublist(start, math.min(start + size, all.length));
+        },
+      );
+
+      final result = await service.syncAll();
+
+      expect(result.added, hasLength(450));
+      expect(await store.listAll(), hasLength(450));
+      expect(requested, [0, 1, 2], reason: 'a short page ends the scan');
+    });
+
+    test('hands over the newest photos before it has read the rest', () async {
+      final store = FakeAssetRecordStore();
+      final all = newestFirst(450);
+      final firstPage = <String>[];
+      final service = PhotoLibraryService(
+        store: store,
+        listAssetPage: (page, size) async {
+          final start = page * size;
+          if (start >= all.length) return const [];
+          return all.sublist(start, math.min(start + size, all.length));
+        },
+      );
+
+      await service.syncAll(
+        onPage: (page) {
+          if (firstPage.isNotEmpty) return;
+          firstPage.addAll(page.added.map((r) => r.localId));
+        },
+      );
+
+      // The very newest photo is in the first thing the screen is handed —
+      // the page the user is looking at, not the tail of a decade-long
+      // scan.
+      expect(firstPage.first, 'photo:a449');
+      expect(firstPage, hasLength(200));
     });
   });
 }

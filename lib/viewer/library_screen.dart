@@ -294,10 +294,28 @@ class LibraryScreenState extends State<LibraryScreen>
     try {
       final access = await _photoLibraryService.requestAccess();
       if (access == PhotoLibraryAccess.denied) return;
+      // Pages arrive newest-first, and the first one is drawn straight
+      // away: on a fresh install the most recent day is on screen while the
+      // scan is still working back through the rest. Later pages are older
+      // photos, which land *above* the viewport — [AssetGridView] holds its
+      // place against them, so nothing under the reader's thumb moves.
+      var lastDraw = DateTime.now();
       final result = await _photoLibraryService.syncAll(
         // Only with full access. Under "Selected Photos" the scan sees a
         // handful of assets and every other one would look deleted.
         reconcileDeletions: access == PhotoLibraryAccess.granted,
+        onPage: (page) {
+          if (page.isEmpty || !mounted) return;
+          // Redrawing per page would be O(library) work per page; once a
+          // second keeps the scan visibly moving without that.
+          final now = DateTime.now();
+          if (_all.isNotEmpty &&
+              now.difference(lastDraw) < const Duration(seconds: 1)) {
+            return;
+          }
+          lastDraw = now;
+          unawaited(reload());
+        },
       );
       if (result.isEmpty) return;
       if (result.added.isNotEmpty) await _backUpRecords(result.added);
