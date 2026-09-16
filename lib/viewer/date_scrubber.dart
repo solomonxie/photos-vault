@@ -43,20 +43,24 @@ class DateScrubber extends StatefulWidget {
 }
 
 class _DateScrubberState extends State<DateScrubber> {
-  static const _hideDelay = Duration(milliseconds: 1400);
+  static const _hideDelay = Duration(milliseconds: 550);
 
   /// The first showing lingers — nobody has scrolled yet, so this is the
   /// one chance to be noticed at all.
   static const _firstShowDelay = Duration(milliseconds: 2600);
+
+  /// Quick enough to be out of the way the moment you stop, slow enough not
+  /// to blink mid-flick.
+  static const _fadeDuration = Duration(milliseconds: 160);
   static const _thumbHeight = 52.0;
   static const _thumbWidth = 34.0;
 
   /// The handle rides a short track in the middle of the screen rather than
   /// the full height of it. Two reasons: a handle parked against the top or
   /// bottom edge reads as part of the chrome and goes unnoticed, and a
-  /// whole decade crossed in half a screen is less thumb travel, not more —
-  /// the track's length is just the gearing.
-  static const _trackFraction = 0.5;
+  /// whole decade crossed in a third of a screen is less thumb travel, not
+  /// more — the track's length is just the gearing.
+  static const _trackFraction = 0.3;
 
   bool _visible = false;
   bool _dragging = false;
@@ -211,7 +215,7 @@ class _DateScrubberState extends State<DateScrubber> {
 
     return AnimatedOpacity(
       opacity: _visible || _dragging ? 1 : 0,
-      duration: const Duration(milliseconds: 220),
+      duration: _fadeDuration,
       child: IgnorePointer(
         ignoring: !_visible && !_dragging,
         child: Stack(

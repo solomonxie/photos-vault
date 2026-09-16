@@ -35,6 +35,7 @@ import 'asset_grid.dart';
 import 'asset_grid_view.dart';
 import 'asset_group_screen.dart';
 import 'delete_confirmation.dart';
+import 'demo_data_screen.dart';
 import 'detail_screen.dart';
 import 'favorites_screen.dart';
 import 'people_screen.dart';
@@ -684,6 +685,12 @@ class LibraryScreenState extends State<LibraryScreen>
   /// them up — a no-op add for ones already present, keyed by content hash.
   Future<void> _addDemoPhotos() => _runBusy(_demoAssetsService.addAll);
 
+  Future<int> _removeDemoPhotos() async {
+    final removed = await _demoAssetsService.removeAll();
+    await reload();
+    return removed;
+  }
+
   Future<void> _toggleFavorite(AssetRecord record) async {
     await setFavoriteEverywhere(assetRecordStore, record, !record.isFavorite);
     await reload();
@@ -723,9 +730,34 @@ class LibraryScreenState extends State<LibraryScreen>
         await _removeFromDevice(record);
         return false;
       case DeleteChoice.everywhere:
+        // Deleting here deletes the photo, not just this app's note about
+        // it: a camera-roll asset goes from the OS library too, into its
+        // own 30-day Recently Deleted. iOS puts up its own confirmation,
+        // and a decline lands here as false — which must leave the photo
+        // alone in both places rather than binning it only here.
+        if (record.sourceType == AssetSourceType.photoManager &&
+            !record.localDeleted &&
+            !await _deleteFromLibrary(record)) {
+          return false;
+        }
         await assetRecordStore.softDelete(record.localId);
         await reload();
         return true;
+    }
+  }
+
+  /// The bucket copy is deliberately *not* touched here. This app's
+  /// Recently Deleted has to be restorable to mean anything, and the
+  /// backed-up copy is the one that survives a lost phone — it's purged
+  /// only when the user empties that bin (see
+  /// `recently_deleted_screen.dart`).
+  Future<bool> _deleteFromLibrary(AssetRecord record) async {
+    try {
+      return await _photoLibraryService.deleteFromLibrary(record);
+    } catch (_) {
+      // No plugin, or the asset is already gone from the library — either
+      // way there's nothing over there left to delete.
+      return true;
     }
   }
 
@@ -817,6 +849,39 @@ class LibraryScreenState extends State<LibraryScreen>
 
   /// Adds one tag to everything selected, leaving each photo's existing
   /// tags alone — batch editing is additive, never a replace.
+  /// Deletes everything selected, the same way deleting one does: out of
+  /// the OS photo library too, and into this app's Recently Deleted rather
+  /// than straight out of existence. Confirmed once for the whole
+  /// selection — a per-photo prompt for forty photos isn't a safeguard,
+  /// it's a wall to click through.
+  ///
+  /// The count is in the confirmation because "delete 40 photos" is a
+  /// different decision from "delete this photo", and the selection has
+  /// probably scrolled out of sight by the time the sheet is up.
+  Future<void> _batchDelete() async {
+    final records = _selectedRecords;
+    if (records.isEmpty) return;
+    if (!await confirmDeleteSelection(context, count: records.length)) return;
+    setState(() => _busy = true);
+    try {
+      for (final record in records) {
+        if (record.sourceType == AssetSourceType.photoManager &&
+            !record.localDeleted &&
+            !await _deleteFromLibrary(record)) {
+          // Declined at the OS prompt — leave this one alone and stop,
+          // rather than asking about every remaining photo in turn.
+          break;
+        }
+        await assetRecordStore.softDelete(record.localId);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    setState(() => _selection = null);
+    await reload();
+  }
+
   Future<void> _batchAddTag() async {
     final l10n = AppLocalizations.of(context)!;
     final options = await assetRecordStore.allTags();
@@ -1043,6 +1108,7 @@ class LibraryScreenState extends State<LibraryScreen>
                       onSetPlace: _batchSetPlace,
                       onSetEvent: _batchSetEvent,
                       onAdjustDateTime: _batchAdjustDateTime,
+                      onDelete: _batchDelete,
                       onDone: () => setState(() => _selection = null),
                     ),
                   ),
@@ -1266,8 +1332,15 @@ class LibraryScreenState extends State<LibraryScreen>
           _row(
             icon: CupertinoIcons.arrow_2_circlepath,
             color: CupertinoColors.systemGreen,
-            title: l10n.settingsResetDemoButton,
-            onTap: _busy ? null : _addDemoPhotos,
+            title: l10n.demoDataTitle,
+            onTap: _busy
+                ? null
+                : () => _push(
+                    DemoDataScreen(
+                      onAdd: _addDemoPhotos,
+                      onRemove: _removeDemoPhotos,
+                    ),
+                  ),
           ),
           _row(
             icon: CupertinoIcons.square_arrow_up,
@@ -1288,7 +1361,10 @@ class LibraryScreenState extends State<LibraryScreen>
             title: l10n.collectionsRecentlyDeletedRow,
             count: _deletedCount,
             onTap: () => _push(
-              RecentlyDeletedScreen(assetRecordStore: assetRecordStore),
+              RecentlyDeletedScreen(
+                assetRecordStore: assetRecordStore,
+                deleteBackup: _coordinator.deleteBackup,
+              ),
             ),
           ),
         ],
@@ -1556,6 +1632,7 @@ class _SelectionBar extends StatelessWidget {
     required this.onSetPlace,
     required this.onSetEvent,
     required this.onAdjustDateTime,
+    required this.onDelete,
     required this.onDone,
   });
 
@@ -1564,6 +1641,7 @@ class _SelectionBar extends StatelessWidget {
   final VoidCallback onSetPlace;
   final VoidCallback onSetEvent;
   final VoidCallback onAdjustDateTime;
+  final VoidCallback onDelete;
   final VoidCallback onDone;
 
   @override
@@ -1633,6 +1711,12 @@ class _SelectionBar extends StatelessWidget {
                     label: l10n.selectionAdjustDateTime,
                     onPressed: count == 0 ? null : onAdjustDateTime,
                   ),
+                  _SelectionAction(
+                    icon: CupertinoIcons.delete,
+                    label: l10n.selectionDelete,
+                    destructive: true,
+                    onPressed: count == 0 ? null : onDelete,
+                  ),
                 ],
               ),
             ),
@@ -1648,11 +1732,13 @@ class _SelectionAction extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onPressed,
+    this.destructive = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback? onPressed;
+  final bool destructive;
 
   @override
   Widget build(BuildContext context) => CupertinoButton(
@@ -1661,9 +1747,23 @@ class _SelectionAction extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        Icon(icon, size: 22),
+        Icon(
+          icon,
+          size: 22,
+          color: destructive && onPressed != null
+              ? CupertinoColors.systemRed
+              : null,
+        ),
         const SizedBox(height: 2),
-        Text(label, style: const TextStyle(fontSize: 11)),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 11,
+            color: destructive && onPressed != null
+                ? CupertinoColors.systemRed
+                : null,
+          ),
+        ),
       ],
     ),
   );

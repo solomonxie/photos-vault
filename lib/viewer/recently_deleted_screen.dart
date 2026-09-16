@@ -10,9 +10,23 @@ import 'detail_screen.dart';
 import 'zoom_page_route.dart';
 
 class RecentlyDeletedScreen extends StatefulWidget {
-  const RecentlyDeletedScreen({super.key, required this.assetRecordStore});
+  const RecentlyDeletedScreen({
+    super.key,
+    required this.assetRecordStore,
+    this.deleteBackup,
+  });
 
   final AssetRecordStore assetRecordStore;
+
+  /// Purges a record's objects from the bucket. This is the one place in
+  /// the app that does — everything short of emptying this bin leaves the
+  /// backup alone, because it's the copy that outlives the phone.
+  ///
+  /// Returns whether the bucket came away clean; `false` keeps the record
+  /// so the user can try again rather than orphaning objects with nothing
+  /// left pointing at them. Absent (standalone/test use) nothing remote is
+  /// touched.
+  final Future<bool> Function(AssetRecord record)? deleteBackup;
 
   @override
   State<RecentlyDeletedScreen> createState() => _RecentlyDeletedScreenState();
@@ -63,10 +77,30 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
       ),
     );
     if (confirmed != true) return false;
+    final deleteBackup = widget.deleteBackup;
+    if (deleteBackup != null && !await deleteBackup(record)) {
+      if (mounted) await _showBackupDeleteFailed(l10n);
+      return false;
+    }
     await widget.assetRecordStore.remove(record.localId);
     await _reload();
     return true;
   }
+
+  Future<void> _showBackupDeleteFailed(AppLocalizations l10n) =>
+      showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: Text(l10n.libraryDeletePermanentlyTitle),
+          content: Text(l10n.libraryDeleteBackupFailed),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l10n.actionOk),
+            ),
+          ],
+        ),
+      );
 
   Future<void> _toggleFavorite(AssetRecord record) async {
     await setFavoriteEverywhere(

@@ -10,6 +10,7 @@ import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'backup_cancel_token.dart';
+import 's3_object_delete.dart' as s3_object_delete;
 import 's3_uploader.dart';
 import 'signing.dart';
 
@@ -32,8 +33,19 @@ class BackupCoordinator {
     required this.recordStore,
     S3Uploader? s3Uploader,
     Future<String> Function(String path)? hashFile,
+    Future<bool> Function({
+      required S3BackupTarget target,
+      required String key,
+    })?
+    deleteObject,
   }) : _s3Uploader = s3Uploader ?? S3Uploader(),
-       _hashFile = hashFile ?? file_hash.hashFile;
+       _hashFile = hashFile ?? file_hash.hashFile,
+       _deleteObject = deleteObject ?? _defaultDeleteObject;
+
+  static Future<bool> _defaultDeleteObject({
+    required S3BackupTarget target,
+    required String key,
+  }) => s3_object_delete.deleteObject(target: target, key: key);
 
   final BackupTargetsStore targetsStore;
   final AssetRecordStore recordStore;
@@ -42,6 +54,36 @@ class BackupCoordinator {
   /// Overridable for tests so they never touch the real filesystem just to
   /// exercise the change-detection bookkeeping.
   final Future<String> Function(String path) _hashFile;
+
+  /// Overridable for tests so they never make a real network call.
+  final Future<bool> Function({
+    required S3BackupTarget target,
+    required String key,
+  })
+  _deleteObject;
+
+  /// Removes every derivative this record has in the bucket — the last step
+  /// of a permanent delete, and the only thing in the app that reaches for
+  /// [s3_object_delete.deleteObject].
+  ///
+  /// Returns whether everything it tried came away clean. A partial failure
+  /// (offline, credentials rotated) is reported rather than swallowed, so
+  /// the caller can leave the record in place and let the user try again —
+  /// dropping it locally would orphan the objects with nothing left
+  /// pointing at them.
+  Future<bool> deleteBackup(AssetRecord record) async {
+    final targets = await targetsStore.loadAll();
+    if (targets.isEmpty) return true;
+    var allGone = true;
+    for (final target in targets) {
+      for (final kind in DerivativeKind.values) {
+        final key = record.stateOf(kind).destinationKey;
+        if (key == null) continue;
+        if (!await _deleteObject(target: target, key: key)) allGone = false;
+      }
+    }
+    return allGone;
+  }
 
   static String _safeFileName(AssetRecord record, String filePath) {
     final base = record.localId.replaceAll(RegExp(r'[^a-zA-Z0-9_.-]'), '_');
@@ -65,7 +107,9 @@ class BackupCoordinator {
       final webp = await Isolate.run(() => reencodeAsWebP(bytes));
       if (webp == null) return filePath;
       final tempDir = await Directory.systemTemp.createTemp('byop_webp_');
-      final tempFile = File(p.join(tempDir.path, '${p.basenameWithoutExtension(filePath)}.webp'));
+      final tempFile = File(
+        p.join(tempDir.path, '${p.basenameWithoutExtension(filePath)}.webp'),
+      );
       await tempFile.writeAsBytes(webp);
       return tempFile.path;
     } catch (_) {
@@ -98,11 +142,19 @@ class BackupCoordinator {
     required String filePath,
     List<S3BackupTarget>? targets,
   }) async {
-    await recordStore.updateDerivative(record.localId, kind, const DerivativeState(status: UploadStatus.uploading));
+    await recordStore.updateDerivative(
+      record.localId,
+      kind,
+      const DerivativeState(status: UploadStatus.uploading),
+    );
 
     final resolvedTargets = targets ?? await targetsStore.loadAll();
     final format = await targetsStore.getBackupFormat();
-    final uploadPath = await _resolveUploadPath(record: record, filePath: filePath, format: format);
+    final uploadPath = await _resolveUploadPath(
+      record: record,
+      filePath: filePath,
+      format: format,
+    );
     final fileName = _safeFileName(record, uploadPath);
     final derivativeDir = _derivativeDirs[kind]!;
 
@@ -110,8 +162,16 @@ class BackupCoordinator {
     String? firstDestinationKey;
     try {
       for (final target in resolvedTargets) {
-        final key = derivativeKey(prefix: target.prefix, derivativeDir: derivativeDir, fileName: fileName);
-        final ok = await _s3Uploader.put(filePath: uploadPath, key: key, target: target);
+        final key = derivativeKey(
+          prefix: target.prefix,
+          derivativeDir: derivativeDir,
+          fileName: fileName,
+        );
+        final ok = await _s3Uploader.put(
+          filePath: uploadPath,
+          key: key,
+          target: target,
+        );
         if (ok) {
           succeeded++;
           firstDestinationKey ??= key;
@@ -130,7 +190,11 @@ class BackupCoordinator {
       DerivativeState(
         status: finalStatus,
         destinationKey: firstDestinationKey,
-        backedUpHash: await _hashOnSuccess(succeeded > 0, filePath, record.stateOf(kind).backedUpHash),
+        backedUpHash: await _hashOnSuccess(
+          succeeded > 0,
+          filePath,
+          record.stateOf(kind).backedUpHash,
+        ),
       ),
     );
     return succeeded;
@@ -140,7 +204,11 @@ class BackupCoordinator {
   /// baseline `LibraryScreen`'s re-sync check compares against to detect a
   /// local edit since backup. Keeps [previousHash] on failure/no targets
   /// rather than losing drift-detection for this asset entirely.
-  Future<String?> _hashOnSuccess(bool succeeded, String filePath, String? previousHash) async {
+  Future<String?> _hashOnSuccess(
+    bool succeeded,
+    String filePath,
+    String? previousHash,
+  ) async {
     if (!succeeded) return previousHash;
     try {
       return await _hashFile(filePath);
@@ -173,7 +241,12 @@ class BackupCoordinator {
         try {
           final path = await resolvePath(record);
           if (path == null) continue;
-          final count = await backUpDerivative(record: record, kind: kind, filePath: path, targets: targets);
+          final count = await backUpDerivative(
+            record: record,
+            kind: kind,
+            filePath: path,
+            targets: targets,
+          );
           if (count > 0) succeeded++;
         } catch (_) {
           // One asset's file/upload failed outright — skip it, keep going.
@@ -199,7 +272,11 @@ class BackupCoordinator {
       try {
         final rawPath = await resolvePath(record);
         if (rawPath == null) continue;
-        final uploadPath = await _resolveUploadPath(record: record, filePath: rawPath, format: format);
+        final uploadPath = await _resolveUploadPath(
+          record: record,
+          filePath: rawPath,
+          format: format,
+        );
         if (uploadPath != rawPath) tempPaths.add(uploadPath);
         paths[record.localId] = uploadPath;
         rawPaths[record.localId] = rawPath;
@@ -219,14 +296,30 @@ class BackupCoordinator {
         final path = paths[record.localId];
         if (path == null) continue;
         if (attempted.add(record.localId)) {
-          await recordStore.updateDerivative(record.localId, kind, const DerivativeState(status: UploadStatus.uploading));
+          await recordStore.updateDerivative(
+            record.localId,
+            kind,
+            const DerivativeState(status: UploadStatus.uploading),
+          );
         }
         try {
           final fileName = _safeFileName(record, path);
-          final key = derivativeKey(prefix: target.prefix, derivativeDir: derivativeDir, fileName: fileName);
-          final ok = await _s3Uploader.put(filePath: path, key: key, target: target);
+          final key = derivativeKey(
+            prefix: target.prefix,
+            derivativeDir: derivativeDir,
+            fileName: fileName,
+          );
+          final ok = await _s3Uploader.put(
+            filePath: path,
+            key: key,
+            target: target,
+          );
           if (ok) {
-            successCounts.update(record.localId, (v) => v + 1, ifAbsent: () => 1);
+            successCounts.update(
+              record.localId,
+              (v) => v + 1,
+              ifAbsent: () => 1,
+            );
             firstKeys.putIfAbsent(record.localId, () => key);
           }
         } catch (_) {
@@ -246,7 +339,11 @@ class BackupCoordinator {
         DerivativeState(
           status: ok ? UploadStatus.uploaded : UploadStatus.failed,
           destinationKey: firstKeys[record.localId],
-          backedUpHash: await _hashOnSuccess(ok, rawPaths[record.localId]!, record.stateOf(kind).backedUpHash),
+          backedUpHash: await _hashOnSuccess(
+            ok,
+            rawPaths[record.localId]!,
+            record.stateOf(kind).backedUpHash,
+          ),
         ),
       );
       if (ok) succeeded++;

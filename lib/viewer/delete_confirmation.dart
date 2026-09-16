@@ -80,3 +80,34 @@ Future<bool> confirmSoftDelete(BuildContext context) async {
   );
   return confirmed ?? false;
 }
+
+/// One confirmation for a whole selection, naming the count — "delete 40
+/// photos" is a different decision from "delete this photo", and by the
+/// time the sheet is up the selection has usually scrolled out of sight.
+/// Asking once per photo wouldn't be a safeguard, just a wall to click
+/// through.
+Future<bool> confirmDeleteSelection(
+  BuildContext context, {
+  required int count,
+}) async {
+  final l10n = AppLocalizations.of(context)!;
+  final confirmed = await showCupertinoDialog<bool>(
+    context: context,
+    builder: (context) => CupertinoAlertDialog(
+      title: Text(l10n.selectionDeleteConfirmTitle(count)),
+      content: Text(l10n.libraryDeleteConfirmBody),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(l10n.actionCancel),
+        ),
+        CupertinoDialogAction(
+          isDestructiveAction: true,
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(l10n.actionDelete),
+        ),
+      ],
+    ),
+  );
+  return confirmed ?? false;
+}

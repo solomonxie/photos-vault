@@ -132,6 +132,11 @@
   "selectionSetPlace": "Set Place",
   "selectionSetEvent": "Set Event",
   "selectionAdjustDateTime": "Adjust Date",
+  "selectionDelete": "Delete",
+  "selectionDeleteConfirmTitle": "{count, plural, one{Delete 1 photo?} other{Delete {count} photos?}}",
+  "@selectionDeleteConfirmTitle": {
+    "placeholders": {"count": {"type": "int"}}
+  },
   "selectionDone": "Done",
   "selectionHint": "Hold a photo to select more.",
   "@selectionTitle": {
@@ -144,6 +149,16 @@
   "collectionsRecentlyDeletedRow": "Recently Deleted",
   "collectionsPrivateCloudRow": "Private Cloud",
   "collectionsAiSettingsRow": "AI Settings",
+  "demoDataTitle": "Demo Data",
+  "@demoDataTitle": {"description": "Utilities row and page title for the bundled sample photos"},
+  "demoDataHint": "A handful of sample photos, albums and people bundled with the app, so there's something to explore before your own library is set up. They're ordinary items once added — backed up like anything else.",
+  "demoDataAddAction": "Add Demo Data",
+  "demoDataAddDescription": "Adds the sample photos, the Nature/City/Videos albums, a private album and a few people. Anything already there is left as it is.",
+  "demoDataRemoveAction": "Delete All Demo Data",
+  "demoDataRemoveDescription": "Removes every sample photo, album and person this app added. Your own photos and albums aren't touched.",
+  "demoDataRemoveTitle": "Delete all demo data?",
+  "demoDataRemoveBody": "The sample photos, albums and people go. Anything you added yourself stays.",
+  "demoDataWorking": "Working…",
   "collectionsImportPhotosRow": "Import Photos",
 
   "backupQueueTitle": "Sync Queue",
@@ -264,7 +279,6 @@
   "settingsDraftUntitled": "(no bucket yet)",
   "settingsDraftDeleteTooltip": "Delete draft",
 
-  "settingsResetDemoButton": "Reset Demo Data",
 
   "settingsAiTodoNote": "These keys power AI-recognized People and Events smart collections. Places (GPS-based) doesn't need them.",
   "settingsAiKeysHeading": "AI Keys",
@@ -293,6 +307,8 @@
   "bucketPreviewUnsupported": "Can't preview this file type.",
   "bucketPreviewOpenExternally": "Open Externally",
 
+  "actionOk": "OK",
+  "libraryDeleteBackupFailed": "Couldn't remove the backed-up copy from your bucket. The photo is still here — try again when you're back online.",
   "actionCancel": "Cancel",
   "actionDelete": "Delete",
   "actionAdd": "Add",

@@ -118,6 +118,8 @@
   "selectionSetPlace": "设置地点",
   "selectionSetEvent": "设置事件",
   "selectionAdjustDateTime": "调整日期",
+  "selectionDelete": "删除",
+  "selectionDeleteConfirmTitle": "删除 {count} 张照片？",
   "selectionDone": "完成",
   "selectionHint": "长按照片可继续多选。",
   "@selectionTitle": {
@@ -130,6 +132,15 @@
   "collectionsRecentlyDeletedRow": "最近删除",
   "collectionsPrivateCloudRow": "私有云",
   "collectionsAiSettingsRow": "AI 设置",
+  "demoDataTitle": "演示数据",
+  "demoDataHint": "应用内置的一些示例照片、相册和人物，方便在整理自己的图库之前先体验一下。添加后它们与普通条目无异，同样会被备份。",
+  "demoDataAddAction": "添加演示数据",
+  "demoDataAddDescription": "添加示例照片、「自然 / 城市 / 视频」相册、一个私密相册以及几位人物。已存在的条目保持不变。",
+  "demoDataRemoveAction": "删除全部演示数据",
+  "demoDataRemoveDescription": "移除本应用添加的所有示例照片、相册与人物。你自己的照片和相册不受影响。",
+  "demoDataRemoveTitle": "删除全部演示数据？",
+  "demoDataRemoveBody": "示例照片、相册和人物将被移除，你自己添加的内容会保留。",
+  "demoDataWorking": "处理中…",
   "collectionsImportPhotosRow": "导入照片",
 
   "backupQueueTitle": "同步队列",
@@ -229,7 +240,6 @@
   "settingsDraftUntitled": "(尚未填写存储桶)",
   "settingsDraftDeleteTooltip": "删除草稿",
 
-  "settingsResetDemoButton": "重置演示数据",
 
   "settingsAiTodoNote": "这些密钥用于 AI 识别的人物和事件智能合集。地点(基于 GPS)无需密钥。",
   "settingsAiKeysHeading": "AI 密钥",
@@ -252,6 +262,8 @@
   "bucketPreviewUnsupported": "无法预览此文件类型。",
   "bucketPreviewOpenExternally": "在外部打开",
 
+  "actionOk": "好",
+  "libraryDeleteBackupFailed": "无法从存储桶中删除已备份的副本。照片仍保留在此——请在恢复联网后重试。",
   "actionCancel": "取消",
   "actionDelete": "删除",
   "actionAdd": "添加",
