@@ -17,6 +17,7 @@ import 'package:bring_your_own_photos/viewer/detail_screen.dart';
 import 'package:bring_your_own_photos/viewer/library_screen.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photo_manager/photo_manager.dart';
 
@@ -100,6 +101,13 @@ DemoSeedStore _alreadySeededStore([AssetRecordStore? store]) {
   final recordStore = store ?? FakeAssetRecordStore();
   return DemoSeedStore(recordStore: recordStore)..markSeeded();
 }
+
+Future<void> _sendLifecycle(WidgetTester tester, AppLifecycleState state) =>
+    tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      'flutter/lifecycle',
+      const StringCodec().encodeMessage(state.toString()),
+      (_) {},
+    );
 
 void main() {
   testWidgets('shows the empty placeholder with no manual adds yet', (
@@ -1020,6 +1028,73 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('No photos tagged yet.'), findsOneWidget);
+    },
+  );
+
+  testWidgets(
+    'coming back to the app re-reads what changed in Photos while away',
+    (tester) async {
+      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+      final recordStore = FakeAssetRecordStore();
+      var favouritedInPhotos = true;
+      var scans = 0;
+      final photoLibraryService = PhotoLibraryService(
+        store: recordStore,
+        requestPermission: () async => PermissionState.authorized,
+        listAllAssets: () async {
+          scans++;
+          return [
+            AssetEntity(
+              id: 'roll1',
+              typeInt: AssetType.image.index,
+              width: 100,
+              height: 100,
+              isFavorite: favouritedInPhotos,
+            ),
+          ];
+        },
+        loadEntity: (_) async => null,
+      );
+
+      await tester.pumpWidget(
+        _wrap(
+          LibraryScreen(
+            demoSeedStore: _alreadySeededStore(recordStore),
+            assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
+            albumStore: FakeAlbumStore(),
+            personStore: FakePersonStore(),
+            backupTargetsStore: targetsStore,
+            backupCoordinator: BackupCoordinator(
+              targetsStore: targetsStore,
+              recordStore: recordStore,
+              s3Uploader: _UnusedS3Uploader(),
+            ),
+            photoLibraryService: photoLibraryService,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(scans, 1);
+      expect(
+        (await recordStore.getByLocalId('photo:roll1'))!.isFavorite,
+        isTrue,
+      );
+
+      // Off to Photos, un-heart it, and back — driven through the real
+      // lifecycle channel, so this covers the wiring and not just the
+      // method.
+      favouritedInPhotos = false;
+      await _sendLifecycle(tester, AppLifecycleState.inactive);
+      await _sendLifecycle(tester, AppLifecycleState.resumed);
+      await tester.pumpAndSettle();
+
+      expect(scans, greaterThan(1));
+      expect(
+        (await recordStore.getByLocalId('photo:roll1'))!.isFavorite,
+        isFalse,
+      );
     },
   );
 }
