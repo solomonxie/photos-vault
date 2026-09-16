@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
@@ -55,14 +56,21 @@ class _DateScrubberState extends State<DateScrubber> {
   static const _thumbHeight = 52.0;
   static const _thumbWidth = 34.0;
 
-  /// The handle rides a short track in the middle of the screen rather than
-  /// the full height of it. Two reasons: a handle parked against the top or
-  /// bottom edge reads as part of the chrome and goes unnoticed, and a
-  /// whole decade crossed in a quarter of a screen is less thumb travel,
-  /// not more — the track's length is just the gearing. Short also keeps it
-  /// clear of the rows at the bottom of the page, which is where it would
-  /// otherwise sit exactly when you've scrolled down to tap one.
-  static const _trackFraction = 0.25;
+  /// The handle rides a short track in the upper-middle of the screen
+  /// rather than the full height of it.
+  ///
+  /// Short, because a whole decade crossed in a third of a screen is less
+  /// thumb travel, not more — the track's length is only the gearing — and
+  /// because a handle parked hard against an edge reads as chrome and goes
+  /// unnoticed.
+  ///
+  /// High, because the bottom of the page is where the rows worth tapping
+  /// are, and that's exactly where you're looking when you've scrolled down
+  /// to them. [_trackBottomFraction] is the floor it can't drop past,
+  /// measured from the top of the screen — the rest of the page below stays
+  /// the page's.
+  static const _trackFraction = 0.3;
+  static const _trackBottomFraction = 0.55;
 
   bool _visible = false;
   bool _dragging = false;
@@ -193,8 +201,12 @@ class _DateScrubberState extends State<DateScrubber> {
       child: LayoutBuilder(
         builder: (context, constraints) {
           final trackHeight = constraints.maxHeight * _trackFraction;
-          return Align(
-            alignment: Alignment.centerRight,
+          final top = math.max(
+            0.0,
+            constraints.maxHeight * _trackBottomFraction - trackHeight,
+          );
+          return Padding(
+            padding: EdgeInsets.only(top: top),
             child: SizedBox(
               width: constraints.maxWidth,
               height: trackHeight,
