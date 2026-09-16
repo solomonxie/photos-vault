@@ -306,7 +306,7 @@ void main() {
       );
     });
 
-    testWidgets('rides a short track in the middle of the screen', (
+    testWidgets('rides a short track that never drops into the lower page', (
       tester,
     ) async {
       final key = GlobalKey<AssetGridViewState>();
@@ -325,15 +325,17 @@ void main() {
       final screen = tester.getSize(find.byType(AssetGridView)).height;
       Rect handle() => tester.getRect(find.byKey(DateScrubber.handleKey));
 
-      // Both ends of the whole library sit within the middle half of the
-      // screen — never parked against an edge where it reads as chrome.
+      // Both ends of the whole library sit in the upper-middle of the
+      // screen: never parked against the top edge, where it would read as
+      // chrome, and never down among the rows at the bottom, which are what
+      // you're reaching for once you've scrolled there.
       key.currentState!.jumpToOldest();
       await tester.pump();
-      expect(handle().center.dy, greaterThan(screen * 0.2));
+      expect(handle().top, greaterThan(screen * 0.15));
 
       key.currentState!.jumpToNewest();
       await tester.pump();
-      expect(handle().center.dy, lessThan(screen * 0.8));
+      expect(handle().bottom, lessThan(screen * 0.56));
     });
 
     testWidgets('a tap on the handle reaches what it is floating over', (
