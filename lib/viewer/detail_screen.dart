@@ -132,6 +132,9 @@ class _DetailScreenState extends State<DetailScreen> {
   ScrollController _scrollControllerFor(AssetRecord record) =>
       _scrollControllers.putIfAbsent(record.localId, () => ScrollController());
 
+  /// Whether the photo on screen is zoomed in — see the pager's `physics`.
+  bool _zoomed = false;
+
   @override
   void dispose() {
     for (final controller in _scrollControllers.values) {
@@ -521,6 +524,11 @@ class _DetailScreenState extends State<DetailScreen> {
               child: PageView.builder(
                 controller: _pageController,
                 itemCount: _records.length,
+                // A zoomed photo owns every drag on it. Panning around one
+                // and swiping to the next are the same gesture, and the
+                // pager wins that fight by default — which made a zoomed
+                // photo impossible to look around.
+                physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
                 onPageChanged: (i) => setState(() => _index = i),
                 itemBuilder: (context, i) => _MediaPage(
                   record: _records[i],
@@ -532,6 +540,9 @@ class _DetailScreenState extends State<DetailScreen> {
                   personStore: _personStore,
                   onRecordChanged: _updateRecord,
                   scrollController: _scrollControllerFor(_records[i]),
+                  onZoomChanged: (zoomed) {
+                    if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
+                  },
                 ),
               ),
             ),
@@ -591,6 +602,7 @@ class _MediaPage extends StatefulWidget {
     required this.personStore,
     required this.onRecordChanged,
     required this.scrollController,
+    required this.onZoomChanged,
     this.resolveFile,
     this.resolveLiveVideo,
     this.resolvePlaceName,
@@ -618,6 +630,10 @@ class _MediaPage extends StatefulWidget {
   /// bar drives it directly, so this page's `CustomScrollView` just needs
   /// to use it.
   final ScrollController scrollController;
+
+  /// Tells the pager this page is zoomed, so it stops taking the drags that
+  /// are meant to move the photo around.
+  final ValueChanged<bool> onZoomChanged;
 
   @override
   State<_MediaPage> createState() => _MediaPageState();
@@ -658,6 +674,17 @@ class _MediaPageState extends State<_MediaPage> {
       Navigator.of(context).pop();
     }
     return false;
+  }
+
+  /// True while the photo is zoomed in. Everything that scrolls has to
+  /// stand down: panning a zoomed photo is the same drag as swiping to the
+  /// next one, or as dragging the info panel up.
+  bool _zoomed = false;
+
+  void _onZoomChanged(bool zoomed) {
+    if (zoomed == _zoomed) return;
+    setState(() => _zoomed = zoomed);
+    widget.onZoomChanged(zoomed);
   }
 
   /// Starts from the record and flips false once [_restoreOriginal] has
@@ -848,6 +875,7 @@ class _MediaPageState extends State<_MediaPage> {
     }
     final still = _ZoomableImage(
       file: File(path),
+      onZoomChanged: _onZoomChanged,
       errorBuilder: (context, error, stackTrace) =>
           _MissingFileNote(message: l10n.detailFileUnavailable),
     );
@@ -868,7 +896,9 @@ class _MediaPageState extends State<_MediaPage> {
       child: LayoutBuilder(
         builder: (context, constraints) => CustomScrollView(
           controller: widget.scrollController,
-          physics: const BouncingScrollPhysics(),
+          physics: _zoomed
+              ? const NeverScrollableScrollPhysics()
+              : const BouncingScrollPhysics(),
           slivers: [
             SliverToBoxAdapter(
               child: SizedBox(
@@ -927,10 +957,20 @@ class _MissingFileNote extends StatelessWidget {
 /// left on permanently, dragging while unzoomed would fight the page's own
 /// pull-down-to-dismiss gesture on [_MediaPage]'s `CustomScrollView`.
 class _ZoomableImage extends StatefulWidget {
-  const _ZoomableImage({required this.file, required this.errorBuilder});
+  const _ZoomableImage({
+    required this.file,
+    required this.errorBuilder,
+    this.onZoomChanged,
+  });
 
   final File file;
   final ImageErrorWidgetBuilder errorBuilder;
+
+  /// Fires when the photo becomes zoomed, or stops being. Everything that
+  /// scrolls around this image has to get out of the way while it is:
+  /// a pan on a zoomed photo and a swipe to the next one are the same
+  /// gesture, and the pager wins it.
+  final ValueChanged<bool>? onZoomChanged;
 
   @override
   State<_ZoomableImage> createState() => _ZoomableImageState();
@@ -947,20 +987,32 @@ class _ZoomableImageState extends State<_ZoomableImage>
   );
   Animation<Matrix4>? _animation;
   Offset _doubleTapPosition = Offset.zero;
+  bool _reportedZoom = false;
 
   bool get _isZoomed => _transformation.value.getMaxScaleOnAxis() > 1.01;
 
   @override
   void initState() {
     super.initState();
+    _transformation.addListener(_onTransformChanged);
     _animController.addListener(() {
       final animation = _animation;
       if (animation != null) _transformation.value = animation.value;
     });
   }
 
+  /// Watches the transform itself rather than gesture callbacks, so a
+  /// double-tap zoom (which animates) counts the same as a pinch.
+  void _onTransformChanged() {
+    final zoomed = _isZoomed;
+    if (zoomed == _reportedZoom) return;
+    setState(() => _reportedZoom = zoomed);
+    widget.onZoomChanged?.call(zoomed);
+  }
+
   @override
   void dispose() {
+    _transformation.removeListener(_onTransformChanged);
     _animController.dispose();
     _transformation.dispose();
     super.dispose();
@@ -994,7 +1046,6 @@ class _ZoomableImageState extends State<_ZoomableImage>
         minScale: 1,
         maxScale: _zoomedScale,
         panEnabled: _isZoomed,
-        onInteractionEnd: (_) => setState(() {}),
         child: Center(
           child: Image.file(
             widget.file,
