@@ -67,5 +67,9 @@ ManualAddService.enqueueFile(scratchPath)   ── same hash-named/dedup path as
   detected faces become the people count the Events/People smart
   collections read. Free, offline, nothing downloaded — which is the only
   way analysis works at all for a library where per-photo API billing
-  doesn't. Runs as `SyncJobKind.analyzePhoto` through the same queue as
-  everything else, so a library-wide pass is visible and pausable.
+  doesn't. Run per photo from the viewer's info panel ("Auto Suggest"), not
+  over the library: analysis is only worth its battery on the photo someone
+  is looking at.
+- `face_crops.dart` — cuts the detected faces out of a photo so each can be
+  tapped and named. iOS finds faces for free but won't say whose they are,
+  so the face is the question and the user is the answer.

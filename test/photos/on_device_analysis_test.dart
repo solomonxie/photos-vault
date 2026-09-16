@@ -63,7 +63,7 @@ void main() {
         ),
       );
 
-      expect(await service.analyze(record, '/tmp/a.jpg'), isTrue);
+      await service.analyze(record, '/tmp/a.jpg');
       expect((await store.getByLocalId('manual:a'))!.tags, ['beach', 'sunset']);
     });
 
@@ -203,7 +203,7 @@ void main() {
       vision: OnDeviceVisionService(channel: _channelReturning()),
     );
 
-    expect(await service.analyze(record, '/tmp/a.jpg'), isFalse);
+    expect(await service.analyze(record, '/tmp/a.jpg'), isEmpty);
     expect(await analysis.listAll(), isEmpty);
     expect((await store.getByLocalId('manual:a'))!.tags, isEmpty);
   });
@@ -219,6 +219,23 @@ void main() {
       ),
     );
 
-    expect(await service.analyze(record, '/tmp/a.jpg'), isFalse);
+    expect(await service.analyze(record, '/tmp/a.jpg'), isEmpty);
+  });
+
+  test('the faces it found come back, to be put names to', () async {
+    final store = FakeAssetRecordStore();
+    final record = await seed(store);
+    final service = OnDeviceAnalysisService(
+      recordStore: store,
+      analysisStore: FakeAiAnalysisStore(),
+      vision: OnDeviceVisionService(
+        channel: _channelReturning(faces: [_face(0.3), _face(0.001)]),
+      ),
+    );
+
+    final faces = await service.analyze(record, '/tmp/a.jpg');
+
+    // The speck in the background isn't a face anyone wants to tag.
+    expect(faces, hasLength(1));
   });
 }

@@ -118,6 +118,16 @@ Future<void> _scrollToInfoPanel(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// The panel is taller than the screen, so anything in it has to be brought
+/// into view before it can be tapped — which row ends up off-screen depends
+/// on what else the panel is showing.
+Future<void> _tapInPanel(WidgetTester tester, Finder finder) async {
+  await tester.ensureVisible(finder);
+  await tester.pumpAndSettle();
+  await tester.tap(finder);
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('tapping the heart toggles favorite and calls back', (
     tester,
@@ -393,8 +403,7 @@ void main() {
 
     // Round-trips through the sheet without corrupting the value (dragging
     // the picker's wheels to a specific date isn't exercised here).
-    await tester.tap(find.textContaining('2026'));
-    await tester.pumpAndSettle();
+    await _tapInPanel(tester, find.textContaining('2026'));
     expect(find.text('Date & Time'), findsOneWidget);
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
@@ -433,8 +442,7 @@ void main() {
     await _scrollToInfoPanel(tester);
 
     expect(find.text('No Location'), findsOneWidget);
-    await tester.tap(find.text('No Location'));
-    await tester.pumpAndSettle();
+    await _tapInPanel(tester, find.text('No Location'));
     await tester.enterText(
       find.byType(CupertinoSearchTextField),
       'Kyoto, Japan',

@@ -16,6 +16,10 @@ import '../photos/ai_touch_up_queue.dart';
 import '../photos/derived_asset.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
+import '../photos/ai_analysis_store.dart';
+import '../photos/ai_vision_service.dart';
+import '../photos/face_crops.dart';
+import '../photos/on_device_analysis.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
 import '../settings/backup_targets_store.dart';
@@ -73,6 +77,8 @@ class DetailScreen extends StatefulWidget {
     this.resolveLivePhotoVideo,
     this.resolvePlaceName,
     this.restoreOriginal,
+    this.onDeviceAnalysis,
+    this.aiVisionService,
   });
 
   final List<AssetRecord> records;
@@ -111,6 +117,12 @@ class DetailScreen extends StatefulWidget {
   /// Defaults to a real [OriginalRestore]; overridable so widget tests never
   /// make a network call.
   final Future<String?> Function(AssetRecord record)? restoreOriginal;
+
+  /// Backs "Auto Suggest" / "AI Suggest" in the info panel. Both build
+  /// themselves on first use, so a test that doesn't tap them never
+  /// constructs a database or a platform channel.
+  final OnDeviceAnalysisService? onDeviceAnalysis;
+  final AiVisionService? aiVisionService;
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -536,6 +548,8 @@ class _DetailScreenState extends State<DetailScreen> {
                   resolveLiveVideo: widget.resolveLivePhotoVideo,
                   resolvePlaceName: widget.resolvePlaceName,
                   restoreOriginal: widget.restoreOriginal,
+                  onDeviceAnalysis: widget.onDeviceAnalysis,
+                  aiVisionService: widget.aiVisionService,
                   assetRecordStore: widget.assetRecordStore,
                   personStore: _personStore,
                   onRecordChanged: _updateRecord,
@@ -603,6 +617,8 @@ class _MediaPage extends StatefulWidget {
     required this.onRecordChanged,
     required this.scrollController,
     required this.onZoomChanged,
+    this.onDeviceAnalysis,
+    this.aiVisionService,
     this.resolveFile,
     this.resolveLiveVideo,
     this.resolvePlaceName,
@@ -634,6 +650,10 @@ class _MediaPage extends StatefulWidget {
   /// Tells the pager this page is zoomed, so it stops taking the drags that
   /// are meant to move the photo around.
   final ValueChanged<bool> onZoomChanged;
+
+  /// See [DetailScreen.onDeviceAnalysis].
+  final OnDeviceAnalysisService? onDeviceAnalysis;
+  final AiVisionService? aiVisionService;
 
   @override
   State<_MediaPage> createState() => _MediaPageState();
@@ -909,6 +929,8 @@ class _MediaPageState extends State<_MediaPage> {
             SliverToBoxAdapter(
               child: _InfoPanel(
                 record: widget.record,
+                onDeviceAnalysis: widget.onDeviceAnalysis,
+                aiVisionService: widget.aiVisionService,
                 resolvePlaceName: widget.resolvePlaceName,
                 resolvedPath: _path,
                 videoController: _videoController,
@@ -1065,6 +1087,8 @@ class _ZoomableImageState extends State<_ZoomableImage>
 class _InfoPanel extends StatefulWidget {
   const _InfoPanel({
     required this.record,
+    required this.onDeviceAnalysis,
+    required this.aiVisionService,
     required this.resolvePlaceName,
     required this.resolvedPath,
     required this.videoController,
@@ -1081,6 +1105,10 @@ class _InfoPanel extends StatefulWidget {
 
   /// See [DetailScreen.resolvePlaceName].
   final Future<String?> Function(AssetRecord record)? resolvePlaceName;
+
+  /// See [DetailScreen.onDeviceAnalysis].
+  final OnDeviceAnalysisService? onDeviceAnalysis;
+  final AiVisionService? aiVisionService;
 
   final VideoPlayerController? videoController;
   final AssetRecordStore assetRecordStore;
@@ -1145,6 +1173,98 @@ class _InfoPanelState extends State<_InfoPanel> {
   void dispose() {
     _description.dispose();
     super.dispose();
+  }
+
+  /// Face thumbnails from the last Auto Suggest, waiting to be named. Not
+  /// persisted: a face nobody has put a name to isn't worth storing, and
+  /// re-finding them costs one Vision call.
+  List<Uint8List> _faces = const [];
+  bool _suggesting = false;
+  String? _suggestNote;
+
+  late final OnDeviceAnalysisService _onDeviceAnalysis =
+      widget.onDeviceAnalysis ??
+      OnDeviceAnalysisService(
+        recordStore: widget.assetRecordStore,
+        analysisStore: AiAnalysisStore(),
+      );
+  late final AiVisionService _aiVision =
+      widget.aiVisionService ?? AiVisionService();
+
+  /// Looks at this one photo, now, because that's when the user asked. No
+  /// sweep over the library: analysis is only worth its battery on the
+  /// photo someone is actually looking at, and the paid version is only
+  /// worth its money there too.
+  Future<void> _suggestOnDevice() async {
+    final path = widget.resolvedPath;
+    if (path == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    setState(() {
+      _suggesting = true;
+      _suggestNote = null;
+    });
+    final faces = await _onDeviceAnalysis.analyze(widget.record, path);
+    final crops = await FaceCrops.of(path, faces);
+    final refreshed = await widget.assetRecordStore.getByLocalId(
+      widget.record.localId,
+    );
+    if (!mounted) return;
+    setState(() {
+      _suggesting = false;
+      _faces = crops;
+      _suggestNote = (refreshed?.tags.length ?? 0) == widget.record.tags.length
+          ? (crops.isEmpty ? l10n.detailSuggestNothing : null)
+          : null;
+    });
+    if (refreshed != null) widget.onRecordChanged(refreshed);
+  }
+
+  Future<void> _suggestWithAi() async {
+    final path = widget.resolvedPath;
+    if (path == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    setState(() {
+      _suggesting = true;
+      _suggestNote = null;
+    });
+    try {
+      final analysis = await _aiVision.analyze(
+        localId: widget.record.localId,
+        imageFile: File(path),
+      );
+      final merged = {...widget.record.tags, ...analysis.tags}.toList();
+      if (merged.length != widget.record.tags.length) {
+        await widget.assetRecordStore.setTags(widget.record.localId, merged);
+        if (mounted) widget.onRecordChanged(widget.record.withTags(merged));
+      }
+      if (!mounted) return;
+      setState(() {
+        _suggesting = false;
+        _suggestNote = analysis.tags.isEmpty ? l10n.detailSuggestNothing : null;
+      });
+    } on AiAnalysisException {
+      if (!mounted) return;
+      // Nearly always "no key configured" — which is a setup step, not a
+      // failure, so it points at where to do it.
+      setState(() {
+        _suggesting = false;
+        _suggestNote = l10n.detailSuggestNoKey;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _suggesting = false;
+        _suggestNote = l10n.detailSuggestNothing;
+      });
+    }
+  }
+
+  /// A face with a name on it is a person; until then it's a question.
+  Future<void> _nameFace(int index) async {
+    await _addPerson();
+    if (!mounted) return;
+    // Named, so it stops being an open question.
+    setState(() => _faces = [..._faces]..removeAt(index));
   }
 
   Future<void> _loadPeople() async {
@@ -1497,6 +1617,78 @@ class _InfoPanelState extends State<_InfoPanel> {
             ],
           ),
           const SizedBox(height: 24),
+          _SectionHeader(title: l10n.detailSuggestHeader),
+          const SizedBox(height: 8),
+          Row(
+            children: [
+              _SuggestButton(
+                label: l10n.detailSuggestOnDevice,
+                icon: CupertinoIcons.wand_stars,
+                onPressed: _suggesting || widget.resolvedPath == null
+                    ? null
+                    : _suggestOnDevice,
+              ),
+              const SizedBox(width: 8),
+              _SuggestButton(
+                label: l10n.detailSuggestAi,
+                icon: CupertinoIcons.sparkles,
+                onPressed: _suggesting || widget.resolvedPath == null
+                    ? null
+                    : _suggestWithAi,
+              ),
+              if (_suggesting) ...[
+                const SizedBox(width: 12),
+                const CupertinoActivityIndicator(radius: 8),
+              ],
+            ],
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 6),
+            child: Text(
+              _suggestNote ?? l10n.detailSuggestHint,
+              style: TextStyle(
+                fontSize: 11,
+                height: 1.35,
+                color: _suggestNote == null
+                    ? CupertinoColors.systemGrey
+                    : CupertinoColors.systemOrange,
+              ),
+            ),
+          ),
+          if (_faces.isNotEmpty) ...[
+            const SizedBox(height: 16),
+            _SectionHeader(title: l10n.detailFacesHeader),
+            Padding(
+              padding: const EdgeInsets.only(top: 2, bottom: 8),
+              child: Text(
+                l10n.detailFacesHint,
+                style: const TextStyle(
+                  fontSize: 11,
+                  color: CupertinoColors.systemGrey,
+                ),
+              ),
+            ),
+            SizedBox(
+              height: 64,
+              child: ListView.separated(
+                scrollDirection: Axis.horizontal,
+                itemCount: _faces.length,
+                separatorBuilder: (context, i) => const SizedBox(width: 10),
+                itemBuilder: (context, i) => GestureDetector(
+                  onTap: () => _nameFace(i),
+                  child: ClipOval(
+                    child: Image.memory(
+                      _faces[i],
+                      width: 60,
+                      height: 60,
+                      fit: BoxFit.cover,
+                    ),
+                  ),
+                ),
+              ),
+            ),
+          ],
+          const SizedBox(height: 24),
           _SectionHeader(title: l10n.detailPeopleHeader, onAdd: _addPerson),
           const SizedBox(height: 8),
           Wrap(
@@ -1519,10 +1711,12 @@ class _InfoPanelState extends State<_InfoPanel> {
 }
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, required this.onAdd});
+  const _SectionHeader({required this.title, this.onAdd});
 
   final String title;
-  final VoidCallback onAdd;
+
+  /// Absent for a section with nothing to add by hand.
+  final VoidCallback? onAdd;
 
   @override
   Widget build(BuildContext context) {
@@ -1537,17 +1731,65 @@ class _SectionHeader extends StatelessWidget {
             fontSize: 16,
           ),
         ),
-        CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: onAdd,
-          child: const Icon(
-            CupertinoIcons.add_circled,
-            color: CupertinoColors.systemGrey,
+        if (onAdd != null)
+          CupertinoButton(
+            padding: EdgeInsets.zero,
+            onPressed: onAdd,
+            child: const Icon(
+              CupertinoIcons.add_circled,
+              color: CupertinoColors.systemGrey,
+            ),
           ),
-        ),
       ],
     );
   }
+}
+
+/// One of the two "fill this in for me" buttons. Deliberately a pair and
+/// deliberately labelled: free-and-on-your-phone versus billed-to-your-key
+/// is a choice the user should make per photo, not a setting they forget
+/// they turned on.
+class _SuggestButton extends StatelessWidget {
+  const _SuggestButton({
+    required this.label,
+    required this.icon,
+    required this.onPressed,
+  });
+
+  final String label;
+  final IconData icon;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => CupertinoButton(
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    minimumSize: Size.zero,
+    borderRadius: BorderRadius.circular(18),
+    color: const Color(0xFF2C2C2E),
+    onPressed: onPressed,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(
+          icon,
+          size: 15,
+          color: onPressed == null
+              ? CupertinoColors.systemGrey
+              : CupertinoColors.white,
+        ),
+        const SizedBox(width: 6),
+        Text(
+          label,
+          style: TextStyle(
+            fontSize: 13,
+            color: onPressed == null
+                ? CupertinoColors.systemGrey
+                : CupertinoColors.white,
+          ),
+        ),
+      ],
+    ),
+  );
 }
 
 class _Chip extends StatelessWidget {
