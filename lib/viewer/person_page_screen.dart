@@ -12,6 +12,7 @@ import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'person_avatar.dart';
 import 'person_profile_screen.dart';
+import 'zoom_page_route.dart';
 
 /// One person's page: avatar, name (chevron beside it jumps to the full
 /// editable profile), and their tagged photos. See DESIGN.md's "People
@@ -122,7 +123,7 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
 
   void _open(AssetRecord record) {
     Navigator.of(context).push(
-      CupertinoPageRoute(
+      ZoomPageRoute(
         builder: (_) => DetailScreen(
           records: _records,
           initialIndex: _records.indexOf(record),

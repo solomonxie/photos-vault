@@ -8,6 +8,7 @@ import 'asset_grid_view.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'private_album_gate.dart';
+import 'zoom_page_route.dart';
 
 /// Grid screen for a fixed list of records — used to drill into one
 /// People/Events group from [SmartCollectionScreen].
@@ -68,7 +69,7 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
 
   void _open(AssetRecord record) {
     Navigator.of(context).push(
-      CupertinoPageRoute(
+      ZoomPageRoute(
         builder: (_) => DetailScreen(
           records: _records,
           initialIndex: _records.indexOf(record),

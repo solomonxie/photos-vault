@@ -10,6 +10,7 @@ import 'asset_grid_view.dart';
 import 'asset_picker_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
+import 'zoom_page_route.dart';
 
 /// Contents of a private "album" — every [AssetRecord] currently tagged
 /// with [passcodeHash]. There's no separate album entity to load: this
@@ -203,7 +204,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
       return;
     }
     Navigator.of(context).push(
-      CupertinoPageRoute(
+      ZoomPageRoute(
         builder: (_) => DetailScreen(
           records: _records,
           initialIndex: _records.indexOf(record),

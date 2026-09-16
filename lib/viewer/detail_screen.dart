@@ -458,6 +458,12 @@ class _DetailScreenState extends State<DetailScreen> {
     final l10n = AppLocalizations.of(context)!;
     return CupertinoPageScaffold(
       backgroundColor: _screenBackground,
+      // The keyboard must not relayout the page under it. Resizing shrinks
+      // the full-height media sliver, which drags the photo and everything
+      // under it upward the moment a caption field takes focus — the field
+      // scrolls into view on its own (see the info panel's keyboard
+      // padding), so nothing here needs to move.
+      resizeToAvoidBottomInset: false,
       child: SafeArea(
         child: Column(
           children: [
@@ -635,7 +641,12 @@ class _MediaPageState extends State<_MediaPage> {
   /// generating updates as it springs back to 0, which would otherwise
   /// trigger this on every release, however small the actual pull was.
   bool _dismissed = false;
-  static const _dismissPullThreshold = 80.0;
+
+  /// Deliberately small. This is measured in *overscroll*, not finger
+  /// travel, and `BouncingScrollPhysics` gives back roughly a third of the
+  /// drag once past the edge — so 80pt of overscroll cost a drag halfway
+  /// down the screen before the photo would let go.
+  static const _dismissPullThreshold = 28.0;
 
   bool _onScrollNotification(ScrollNotification notification) {
     if (!_dismissed &&
@@ -1295,7 +1306,14 @@ class _InfoPanelState extends State<_InfoPanel> {
 
     return Container(
       color: _screenBackground,
-      padding: const EdgeInsets.fromLTRB(20, 8, 20, 40),
+      // Room under the panel for the keyboard, so a focused field can be
+      // scrolled clear of it rather than the whole page being shoved up.
+      padding: EdgeInsets.fromLTRB(
+        20,
+        8,
+        20,
+        40 + MediaQuery.viewInsetsOf(context).bottom,
+      ),
       child: Column(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [

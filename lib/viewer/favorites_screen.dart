@@ -7,6 +7,7 @@ import 'asset_grid.dart';
 import 'asset_grid_view.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
+import 'zoom_page_route.dart';
 
 class FavoritesScreen extends StatefulWidget {
   const FavoritesScreen({super.key, required this.assetRecordStore});
@@ -50,7 +51,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
 
   void _open(AssetRecord record) {
     Navigator.of(context).push(
-      CupertinoPageRoute(
+      ZoomPageRoute(
         builder: (_) => DetailScreen(
           records: _records,
           initialIndex: _records.indexOf(record),

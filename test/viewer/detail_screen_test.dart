@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:bring_your_own_photos/l10n/app_localizations.dart';
 import 'package:bring_your_own_photos/storage/asset_record.dart';
 import 'package:bring_your_own_photos/viewer/detail_screen.dart';
+import 'package:bring_your_own_photos/viewer/zoom_page_route.dart';
 
 import '../support/fake_asset_record_store.dart';
 import '../support/fake_person_store.dart';
@@ -939,5 +940,108 @@ void main() {
 
       expect(find.text('No Location'), findsOneWidget);
     });
+  });
+
+  group('opening and dismissing', () {
+    testWidgets('opens by zooming out of the middle, not sliding in', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        _wrap(
+          Builder(
+            builder: (context) => CupertinoButton(
+              onPressed: () => Navigator.of(context).push(
+                ZoomPageRoute<void>(
+                  builder: (_) => DetailScreen(
+                    records: [_record(localId: 'a')],
+                    initialIndex: 0,
+                    assetRecordStore: FakeAssetRecordStore(),
+                    personStore: FakePersonStore(),
+                    onDelete: (_) async => true,
+                    onToggleFavorite: (_) async {},
+                  ),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+
+      await tester.tap(find.text('open'));
+      await tester.pump();
+      await tester.pump(const Duration(milliseconds: 60));
+
+      // Mid-flight it's smaller than full size and see-through, rather
+      // than off to one side.
+      final scale = tester.widget<ScaleTransition>(
+        find.byType(ScaleTransition).last,
+      );
+      expect(scale.scale.value, lessThan(1));
+      expect(scale.scale.value, greaterThan(0.5));
+
+      await tester.pumpAndSettle();
+      expect(find.byType(DetailScreen), findsOneWidget);
+    });
+
+    testWidgets('a short pull down is enough to dismiss', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          Builder(
+            builder: (context) => CupertinoButton(
+              onPressed: () => Navigator.of(context).push(
+                ZoomPageRoute<void>(
+                  builder: (_) => DetailScreen(
+                    records: [_record(localId: 'a')],
+                    initialIndex: 0,
+                    assetRecordStore: FakeAssetRecordStore(),
+                    personStore: FakePersonStore(),
+                    onDelete: (_) async => true,
+                    onToggleFavorite: (_) async {},
+                  ),
+                ),
+              ),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // Bouncing physics hand back roughly a third of the drag past the
+      // edge, so this is a modest pull — well short of the half-screen
+      // haul the old threshold needed.
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, 120));
+      await tester.pumpAndSettle();
+
+      expect(find.byType(DetailScreen), findsNothing);
+    });
+  });
+
+  testWidgets('the keyboard leaves the page where it is', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [_record(localId: 'a')],
+          initialIndex: 0,
+          assetRecordStore: FakeAssetRecordStore(),
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final before = tester.getSize(find.byType(CustomScrollView).first);
+
+    // A caption field takes focus: the keyboard covers the bottom of the
+    // screen. The page must not relayout around it — that's what dragged
+    // the photo and everything under it upward.
+    tester.view.viewInsets = const FakeViewPadding(bottom: 900);
+    addTearDown(tester.view.resetViewInsets);
+    await tester.pumpAndSettle();
+
+    expect(tester.getSize(find.byType(CustomScrollView).first), before);
   });
 }

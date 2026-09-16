@@ -6,6 +6,7 @@ import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
 import 'asset_grid_view.dart';
 import 'detail_screen.dart';
+import 'zoom_page_route.dart';
 
 class RecentlyDeletedScreen extends StatefulWidget {
   const RecentlyDeletedScreen({super.key, required this.assetRecordStore});
@@ -76,7 +77,7 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
 
   void _open(AssetRecord record) {
     Navigator.of(context).push(
-      CupertinoPageRoute(
+      ZoomPageRoute(
         builder: (_) => DetailScreen(
           records: _records,
           initialIndex: _records.indexOf(record),

@@ -291,6 +291,8 @@ app cached thumb ──found──▶  draw it
 ### Detail viewer (media)
 
 - Full-screen swipeable pager, dark background, "Done" plus a bottom action bar.
+- **A photo opens by growing out of the middle, not sliding in from the edge.** A sideways push reads as "somewhere else in the app"; a photo isn't somewhere else, it's the thing you just tapped, bigger. Start the scale close to full size — a big zoom reads as a transition of its own rather than as the photo opening.
+- **Dismissal is measured in overscroll, not finger travel.** Bouncing physics hand back roughly a third of the drag once past the edge, so a threshold that sounds small (80pt) costs a haul halfway down the screen. Pick the number by pulling, not by reading it.
 - Info panel lives **below** the image — scroll or drag down to reach it; past a threshold that same drag dismisses back to the grid. An info button in the bottom bar scrolls to the same place.
 - Pinch to zoom, double-tap to zoom ~3x centred on the tap point, double-tap again to reset. Enable panning **only while zoomed**, or it fights the pull-down-to-dismiss gesture.
 - Info panel is a grouped rounded card with inset dividers, not a flat full-bleed divided list.
@@ -298,6 +300,7 @@ app cached thumb ──found──▶  draw it
   - Free-text fields (caption, location) as their own rounded cards, not bare text on the background.
   - **Location fills itself in from the photo's own GPS tag** — the camera already recorded where it was, so asking the user to type "Melbourne" a thousand times is asking them to re-enter data they already gave you. Reverse-geocode through the OS geocoder, on view and one photo at a time (it's rate-limited per app, so a background sweep of a decade would spend the whole budget on photos nobody is looking at), and only ever into an *empty* field — a place someone typed is theirs.
   - Every row that can be edited is tappable in place (date/time sheet, pickers, chips).
+  - **The keyboard must not relayout the page under it.** A full-bleed media page sized to the viewport shrinks when the scaffold resizes, which shoves the photo and everything below it upward the moment a caption takes focus. Freeze the layout and give the scrolling panel keyboard-height padding instead, so the focused field scrolls clear on its own.
 - "Edit" sits top-right in the nav bar and opens a menu: Crop, Rotate, AI Touch Up.
   - Crop and rotate are local and instant; rotate is a **full 360° dial** you spin, not four preset buttons.
   - AI Touch Up asks for a prompt, then runs in the background — the Edit button becomes "AI working…" and the library shows the same line, so leaving the photo doesn't cancel anything.
