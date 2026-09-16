@@ -22,9 +22,11 @@ import '../storage/asset_record_store.dart';
 import '../upload/original_restore.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
+import 'live_photo_view.dart';
 import 'photo_edit_screen.dart';
 import 'person_picker_sheet.dart';
 import 'search_picker_sheet.dart';
+import 'video_controls.dart';
 
 /// Matches `CupertinoThemeData.scaffoldBackgroundColor` in app.dart — pure
 /// black looked out of place next to every other screen's dark grey.
@@ -66,6 +68,7 @@ class DetailScreen extends StatefulWidget {
     required this.assetRecordStore,
     this.personStore,
     this.resolvePhotoManagerFile,
+    this.resolveLivePhotoVideo,
     this.restoreOriginal,
   });
 
@@ -90,6 +93,11 @@ class DetailScreen extends StatefulWidget {
   /// [PhotoLibraryService.resolveFile]; overridable so widget tests never
   /// touch the real `photo_manager` platform channel.
   final Future<File?> Function(AssetRecord record)? resolvePhotoManagerFile;
+
+  /// Resolves the `.mov` half of a Live Photo for hold-to-play. Defaults to
+  /// [PhotoLibraryService.resolveLivePhotoVideo]; overridable so widget
+  /// tests never touch the real `photo_manager` platform channel.
+  final Future<File?> Function(AssetRecord record)? resolveLivePhotoVideo;
 
   /// Re-downloads a cloud-only asset's original ([AssetRecord.localDeleted]).
   /// Defaults to a real [OriginalRestore]; overridable so widget tests never
@@ -503,6 +511,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 itemBuilder: (context, i) => _MediaPage(
                   record: _records[i],
                   resolveFile: widget.resolvePhotoManagerFile,
+                  resolveLiveVideo: widget.resolveLivePhotoVideo,
                   restoreOriginal: widget.restoreOriginal,
                   assetRecordStore: widget.assetRecordStore,
                   personStore: _personStore,
@@ -568,11 +577,15 @@ class _MediaPage extends StatefulWidget {
     required this.onRecordChanged,
     required this.scrollController,
     this.resolveFile,
+    this.resolveLiveVideo,
     this.restoreOriginal,
   });
 
   final AssetRecord record;
   final Future<File?> Function(AssetRecord record)? resolveFile;
+
+  /// See [DetailScreen.resolveLivePhotoVideo].
+  final Future<File?> Function(AssetRecord record)? resolveLiveVideo;
   final AssetRecordStore assetRecordStore;
   final PersonStore personStore;
   final ValueChanged<AssetRecord> onRecordChanged;
@@ -773,35 +786,53 @@ class _MediaPageState extends State<_MediaPage> {
           child: CupertinoActivityIndicator(color: CupertinoColors.white),
         );
       }
-      return Center(
-        child: AspectRatio(
-          aspectRatio: controller.value.aspectRatio,
-          child: GestureDetector(
-            onTap: () => setState(() {
-              controller.value.isPlaying
-                  ? controller.pause()
-                  : controller.play();
-            }),
-            child: Stack(
-              alignment: Alignment.center,
-              children: [
-                VideoPlayer(controller),
-                if (!controller.value.isPlaying)
-                  const Icon(
-                    CupertinoIcons.play_circle,
-                    size: 64,
-                    color: CupertinoColors.white,
+      return Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: AspectRatio(
+                aspectRatio: controller.value.aspectRatio,
+                child: GestureDetector(
+                  onTap: () => setState(() {
+                    controller.value.isPlaying
+                        ? controller.pause()
+                        : controller.play();
+                  }),
+                  child: Stack(
+                    alignment: Alignment.center,
+                    children: [
+                      VideoPlayer(controller),
+                      ValueListenableBuilder<VideoPlayerValue>(
+                        valueListenable: controller,
+                        builder: (context, value, _) => value.isPlaying
+                            ? const SizedBox.shrink()
+                            : const Icon(
+                                CupertinoIcons.play_circle,
+                                size: 64,
+                                color: CupertinoColors.white,
+                              ),
+                      ),
+                    ],
                   ),
-              ],
+                ),
+              ),
             ),
           ),
-        ),
+          VideoControls(controller: controller),
+        ],
       );
     }
-    return _ZoomableImage(
+    final still = _ZoomableImage(
       file: File(path),
       errorBuilder: (context, error, stackTrace) =>
           _MissingFileNote(message: l10n.detailFileUnavailable),
+    );
+    if (!widget.record.isLivePhoto) return still;
+    return LivePhotoView(
+      still: still,
+      resolveVideo: () =>
+          (widget.resolveLiveVideo ??
+          PhotoLibraryService.resolveLivePhotoVideo)(widget.record),
     );
   }
 

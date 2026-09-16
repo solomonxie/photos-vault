@@ -9,6 +9,8 @@ import 'package:photo_manager/photo_manager.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/photo_library_service.dart';
 import '../storage/asset_record.dart';
+import 'photo_grid_layout.dart';
+import 'photo_grid_sliver.dart';
 
 /// One long-press context-menu action offered on a grid tile (e.g.
 /// Favorite/Unfavorite, Hide, Delete, Recover) — each screen that shows a
@@ -37,9 +39,12 @@ String dayLabel(AppLocalizations l10n, DateTime dt) {
   return DateFormat.yMMMd().format(dt);
 }
 
-/// Builds the day-grouped, newest-first square grid as a list of slivers —
-/// embed directly in any `CustomScrollView`. Shared by the main Library
-/// page and the Favorites/Hidden/Recently Deleted screens.
+/// Builds the day-grouped square grid as slivers — embed directly in any
+/// `CustomScrollView`, or let [AssetGridView] do it for you. Shared by the
+/// main Library page and the Favorites/Hidden/Recently Deleted screens.
+///
+/// [records] read oldest-first, newest at the bottom, like Photos; every
+/// screen sorts that way before calling.
 List<Widget> assetGridSlivers({
   required BuildContext context,
   required List<AssetRecord> records,
@@ -57,49 +62,98 @@ List<Widget> assetGridSlivers({
   /// to start selecting") instead of opening the [actionsFor] context menu
   /// — the actions then belong on the selection's own action bar.
   void Function(AssetRecord)? onLongPress,
+
+  /// The precomputed geometry, when the caller needs it for itself (the
+  /// date scrubber, jumping to the newest photo). Computed from the screen
+  /// width when omitted.
+  PhotoGridLayout? layout,
+
+  /// Identifies the grid's sliver render object, so a caller can ask the
+  /// viewport where the grid starts.
+  Key? gridKey,
 }) {
   final l10n = AppLocalizations.of(context)!;
-  final grouped = <String, List<AssetRecord>>{};
-  for (final r in records) {
-    grouped.putIfAbsent(dayLabel(l10n, r.createdAt), () => []).add(r);
-  }
+  final grid =
+      layout ??
+      PhotoGridLayout.of(
+        records: records,
+        width: MediaQuery.sizeOf(context).width,
+      );
+  if (grid.isEmpty) return const [];
 
   return [
-    for (final entry in grouped.entries) ...[
-      SliverToBoxAdapter(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text(
-            entry.key,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+    PhotoGridSliver(
+      key: gridKey,
+      layout: grid,
+      delegate: SliverChildBuilderDelegate((context, index) {
+        final row = grid.rowAt(index);
+        if (row.isHeader) {
+          return _DayHeader(
+            label: dayLabel(l10n, grid.sections[row.section].day),
+          );
+        }
+        return Padding(
+          padding: EdgeInsets.only(
+            left: grid.horizontalPadding,
+            right: grid.horizontalPadding,
+            bottom: grid.spacing,
           ),
-        ),
-      ),
-      SliverPadding(
-        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
-        sliver: SliverGrid(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 3,
-            crossAxisSpacing: 8,
-            mainAxisSpacing: 8,
+          child: Row(
+            children: [
+              for (var i = 0; i < grid.crossAxisCount; i++) ...[
+                if (i > 0) SizedBox(width: grid.spacing),
+                SizedBox(
+                  width: grid.tileExtent,
+                  child: i < row.recordCount
+                      ? _tileFor(
+                          grid.records[row.firstRecord + i],
+                          onTap: onTap,
+                          onLongPress: onLongPress,
+                          actionsFor: actionsFor,
+                          selectedIds: selectedIds,
+                        )
+                      : const SizedBox.shrink(),
+                ),
+              ],
+            ],
           ),
-          delegate: SliverChildBuilderDelegate(
-            (context, i) => AssetTile(
-              key: ValueKey(entry.value[i].localId),
-              record: entry.value[i],
-              onTap: () => onTap(entry.value[i]),
-              onLongPress: onLongPress == null
-                  ? null
-                  : () => onLongPress(entry.value[i]),
-              actions: actionsFor(entry.value[i]),
-              selected: selectedIds?.contains(entry.value[i].localId),
-            ),
-            childCount: entry.value.length,
-          ),
-        ),
-      ),
-    ],
+        );
+      }, childCount: grid.rowCount),
+    ),
   ];
+}
+
+Widget _tileFor(
+  AssetRecord record, {
+  required void Function(AssetRecord) onTap,
+  required void Function(AssetRecord)? onLongPress,
+  required List<TileAction> Function(AssetRecord) actionsFor,
+  required Set<String>? selectedIds,
+}) => AssetTile(
+  key: ValueKey(record.localId),
+  record: record,
+  onTap: () => onTap(record),
+  onLongPress: onLongPress == null ? null : () => onLongPress(record),
+  actions: actionsFor(record),
+  selected: selectedIds?.contains(record.localId),
+);
+
+class _DayHeader extends StatelessWidget {
+  const _DayHeader({required this.label});
+
+  final String label;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+    child: Align(
+      alignment: Alignment.bottomLeft,
+      child: Text(
+        label,
+        style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+      ),
+    ),
+  );
 }
 
 class AssetTile extends StatelessWidget {
@@ -212,6 +266,16 @@ class AssetTile extends StatelessWidget {
                 left: 4,
                 child: Icon(
                   CupertinoIcons.cloud_fill,
+                  size: 14,
+                  color: CupertinoColors.white,
+                ),
+              )
+            else if (record.isLivePhoto)
+              const Positioned(
+                top: 4,
+                left: 4,
+                child: Icon(
+                  CupertinoIcons.smallcircle_circle,
                   size: 14,
                   color: CupertinoColors.white,
                 ),

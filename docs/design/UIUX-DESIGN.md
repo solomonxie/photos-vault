@@ -72,7 +72,8 @@ bytes on the wire    →  decoded as latin-1  →  "ä¸­æ..."   ✗ mojibake
 
 ## Navigation & information architecture
 
-- If the content is one library, it's **one scrollable page, not tabs**. Stacked sections (grid → collections → media types → utilities) beat a tab bar.
+- If the content is one library, it's **one scrollable page, not tabs**. Stacked sections (grid → collections → utilities) beat a tab bar.
+- **Open where the user's attention already is.** A library page opens on the *newest* photos with the sections just below the fold — never at the top of a decade of history. The photo someone wants is almost always the one they just took.
 - Don't invent a tab for something that is a section.
 - Don't invent a page for something that is a menu. A page whose only job is holding two links should be deleted.
 - Size the surface to the size of the decision:
@@ -91,8 +92,7 @@ DO — one scrollable page              DON'T — a tab per section
 │ ▦ ▦ ▦ ▦             │               │ ▦ ▦ ▦ ▦             │
 │ Collections         │               │                     │
 │   Albums · People   │               │                     │
-│ Media Types         │               │                     │
-│   Photos · Videos   │               ├──────────┬──────────┤
+│   Places · Events   │               ├──────────┬──────────┤
 │ Utilities           │               │ Library  │ Collect… │ ← a tab standing in
 │   Favorites · …     │               └──────────┴──────────┘   for a section
 └─────────────────────┘
@@ -202,6 +202,9 @@ Sometimes text link style look better than big button, depends on the usage.
 ### Grids and tiles
 
 - Day-grouped square grid under bold date headers ("Today" / "Yesterday" / localized date).
+- **Oldest at the top, newest at the bottom**, and the page *opens* scrolled to the bottom. Time runs down the page, so "further up" means "further back" — and the newest day needs no scrolling at all.
+- That bottom-of-the-grid position is the page's **home anchor**: tapping the status bar or the large title returns to it, and tapping again from there goes to the very top (the oldest day, and the search field). Scrolling to the oldest photo is a thing you can ask for, never the thing you land on.
+- Past a couple of screens of content, a **fading date scrubber** rides the right edge: it appears while the grid moves, fades out ~1.4s after it stops, and while dragged shows the month it's landing on. It's the only way to cross years without flinging.
 - Large-title nav bar with a search field above it.
 - **3 tiles per row**, 8px gutters, 8px corner radius. Four-up at 2px gutters packs more in but reads as a contact sheet; at three the photo is the subject.
 - Badge only the **exceptional** state. A not-yet-synced dot, nothing at all when it's fine — a healthy library should read clean, not carry a checkmark on every tile.
@@ -212,6 +215,7 @@ Sometimes text link style look better than big button, depends on the usage.
 - Tile image source order: live local file → OS library thumbnail → app's own cached thumbnail → placeholder. The cache is a *fallback*; preferring it means one stale path blanks a tile whose real photo is right there.
 
 ```
+        ▲ scroll up = further back in time
 Library                 ← large title
 🔍 Search
 Yesterday               ← bold day header
@@ -223,6 +227,18 @@ Jul 31, 2026
 ┌────────┬────────┐
 │      ☁ │     ✓  │  ← ☁ = cloud-only (local original freed)
 └────────┴────────┘     ✓ = selection overlay, same tile, no separate screen
+
+        ▼ the page OPENS here: newest day resting on the bottom edge,
+          Collections just below the fold
+
+date scrubber — only while the grid is moving:
+
+┌─────────────────────┐        ┌─────────────────────┐
+│ ▦ ▦ ▦               │        │ ▦ ▦ ▦               │
+│ ▦ ▦ ▦            ▲  │        │ ▦ ▦ ▦   ┌────────┐▲ │
+│ ▦ ▦ ▦            ▼  │ ←idle  │ ▦ ▦ ▦   │Mar 2019│▼ │ ←dragging
+│ ▦ ▦ ▦               │  fades │ ▦ ▦ ▦   └────────┘   │  shows where
+└─────────────────────┘  out   └─────────────────────┘  it will land
 
 hold a tile ⇒ selection mode, and a bar appears for the batch:
 ┌──────────────────────────────────────────┐
@@ -284,6 +300,8 @@ app cached thumb ──found──▶  draw it
   - Crop and rotate are local and instant; rotate is a **full 360° dial** you spin, not four preset buttons.
   - AI Touch Up asks for a prompt, then runs in the background — the Edit button becomes "AI working…" and the library shows the same line, so leaving the photo doesn't cancel anything.
   - Every edit **lands as a new photo** carrying the original's date, description, tags, place, event and people. Editing in place would silently overwrite what's already backed up under that key.
+- **Video gets a real transport, not just tap-to-play**: a persistent bar under the frame with play/pause, elapsed and remaining time, a draggable timeline and mute. Dragging it seeks *live* — the frame under your thumb is the frame you see — and playback pauses for the drag, then resumes if it was running.
+- **A Live Photo plays while held**, like Photos: press and hold the still, release to stop. The paired video is fetched on the first hold, never on open — pre-loading it would pull a video file (and maybe an iCloud download) for every photo swiped past. A small LIVE badge marks the photo both in the grid and in the viewer.
 - Export/share: offer the original always; offer re-encoded formats only where you actually have an encoder, and say why when you don't.
 
 ```
@@ -431,6 +449,35 @@ s3://<bucket>/<prefix>/
   each tier separately targetable by the user's OWN lifecycle rules
   (Standard → IA → Glacier). The app never sets a storage class.
 ```
+
+**Credentials arrive as text, so take text.** Retyping a 40-character secret off a phone keyboard is where this form actually fails — the values are already together in a password-manager note or a `.env`. So the field group's own header carries a bracketed button that swaps the fields for a paste box *in place*: one paste fills them and snaps straight back, because seeing the four fields filled is the confirmation. The fields are the form; the paste is a shortcut into them, not a second input above them.
+
+```
+ S3 Bucket (paste info to add)      ← the bracket is the tappable part
+ ┌──────────────────────────────┐
+ │ Access key ID                │
+ │ Secret access key            │   tap the bracket ↓
+ │ Bucket                       │
+ │ Key prefix                   │
+ └──────────────────────────────┘
+
+ S3 Bucket (back to fields)         ← same spot, label flips
+ ┌──────────────────────────────┐
+ │ bucket: my-photos            │   fields are REPLACED, not pushed down
+ │ prefix: bring-your-own-…/    │   one paste ⇒ parse, fill, flip back
+ │ access_key_id: AKIA…         │   typing it out by hand keeps the box open
+ │ secret_access_key: …         │   the buffer is cleared on every toggle
+ └──────────────────────────────┘
+ "name: value" or "name=value", any spelling. Region still detected.
+
+ parses liberally: AWS_ACCESS_KEY_ID=… · export … · "bucket": "my-photos",
+                   s3://my-photos/raw/ · Access Key ID : …
+ splits on the FIRST separator only — a base64 secret contains / + =
+ a key with an empty value fills nothing, so a half paste can't blank a
+ field someone already typed
+```
+
+✗ A permanent paste box above the form is paid for on every visit — including the edits and retries where nobody pastes — pushes the real fields below the fold, and leaves a pasted secret sitting in view above the fields it already filled.
 
 Name collision to pre-empt: `originals/` means *full-resolution tier*, not *unmodified bytes*. If an "optimized" upload option exists, say so in the UI or it reads as a bug.
 

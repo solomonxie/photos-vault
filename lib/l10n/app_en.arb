@@ -43,6 +43,8 @@
   "libraryAlbumEmpty": "No photos in this album.",
   "libraryRemoveFromAlbum": "Remove from Album",
 
+  "detailLivePhotoBadge": "LIVE",
+  "@detailLivePhotoBadge": {"description": "Badge on a Live Photo; hold the photo to play it"},
   "detailFileUnavailable": "This file is no longer available.",
   "detailRestoreOriginal": "Download Full Resolution",
   "detailRestoringOriginal": "Downloading…",
@@ -136,9 +138,6 @@
     "placeholders": {"count": {"type": "int"}}
   },
 
-  "collectionsMediaTypes": "Media Types",
-  "collectionsPhotosRow": "Photos",
-  "collectionsVideosRow": "Videos",
   "collectionsUtilities": "Utilities",
   "collectionsFavoritesRow": "Favorites",
   "collectionsHiddenRow": "Hidden",
@@ -240,6 +239,13 @@
     "placeholders": {"actual": {"type": "int"}, "expected": {"type": "int"}}
   },
   "settingsSecretAccessKeyLabel": "Secret access key",
+  "settingsPasteGroupTitle": "S3 Bucket",
+  "@settingsPasteGroupTitle": {"description": "Header over the bucket/credential fields; the bracketed part opens the paste box"},
+  "settingsPasteToggle": "(paste info to add)",
+  "settingsPasteToggleBack": "(back to fields)",
+  "settingsPasteBlockHint": "bucket: my-photos\nprefix: bring-your-own-photos/\naccess_key_id: AKIA…\nsecret_access_key: …",
+  "settingsPasteNote": "\"name: value\" or \"name=value\", any spelling. The region is still detected for you.",
+  "settingsPasteFromClipboard": "Paste from Clipboard",
   "settingsBucketLabel": "Bucket",
   "settingsPrefixLabel": "Key prefix",
   "settingsRequiredFieldError": "Required",

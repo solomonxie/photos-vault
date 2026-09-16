@@ -23,6 +23,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     AssetSourceType sourceType = AssetSourceType.photoManager,
     String? sourcePath,
     bool isVideo = false,
+    bool isLivePhoto = false,
     DateTime? createdAt,
   }) async {
     final existing = _records[localId];
@@ -35,6 +36,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
       sourceType: sourceType,
       sourcePath: sourcePath,
       isVideo: isVideo,
+      isLivePhoto: isLivePhoto,
       createdAt: now,
       updatedAt: now,
     );

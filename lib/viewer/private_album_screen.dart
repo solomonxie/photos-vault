@@ -6,6 +6,7 @@ import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
+import 'asset_grid_view.dart';
 import 'asset_picker_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
@@ -49,7 +50,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
     );
     if (!mounted) return;
     final records = all.where((r) => !r.isDeleted).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     setState(() {
       _records = records;
       // Best-effort: only sums files already resolvable on disk
@@ -269,35 +270,32 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
                         ),
                       ),
                     )
-                  : CustomScrollView(
-                      slivers: assetGridSlivers(
-                        context: context,
-                        records: _records,
-                        onTap: _open,
-                        selectedIds: _selecting ? _selectedIds : null,
-                        actionsFor: (r) => [
-                          TileAction(
-                            icon: r.isFavorite
-                                ? CupertinoIcons.heart_slash
-                                : CupertinoIcons.heart,
-                            label: r.isFavorite
-                                ? l10n.libraryUnfavorite
-                                : l10n.libraryFavorite,
-                            onPressed: () => _toggleFavorite(r),
-                          ),
-                          TileAction(
-                            icon: CupertinoIcons.eye,
-                            label: l10n.privateAlbumRemove,
-                            onPressed: () => _removeFromAlbum(r),
-                          ),
-                          TileAction(
-                            icon: CupertinoIcons.delete,
-                            label: l10n.libraryDeleteTooltip,
-                            isDestructive: true,
-                            onPressed: () => _delete(r),
-                          ),
-                        ],
-                      ),
+                  : AssetGridView(
+                      records: _records,
+                      onTap: _open,
+                      selectedIds: _selecting ? _selectedIds : null,
+                      actionsFor: (r) => [
+                        TileAction(
+                          icon: r.isFavorite
+                              ? CupertinoIcons.heart_slash
+                              : CupertinoIcons.heart,
+                          label: r.isFavorite
+                              ? l10n.libraryUnfavorite
+                              : l10n.libraryFavorite,
+                          onPressed: () => _toggleFavorite(r),
+                        ),
+                        TileAction(
+                          icon: CupertinoIcons.eye,
+                          label: l10n.privateAlbumRemove,
+                          onPressed: () => _removeFromAlbum(r),
+                        ),
+                        TileAction(
+                          icon: CupertinoIcons.delete,
+                          label: l10n.libraryDeleteTooltip,
+                          isDestructive: true,
+                          onPressed: () => _delete(r),
+                        ),
+                      ],
                     ),
             ),
             if (_selecting)

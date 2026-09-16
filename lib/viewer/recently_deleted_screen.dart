@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
+import 'asset_grid_view.dart';
 import 'detail_screen.dart';
 
 class RecentlyDeletedScreen extends StatefulWidget {
@@ -30,7 +31,7 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
     setState(
       () =>
           _records = all.where((r) => r.isDeleted).toList()
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+            ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
     );
   }
 
@@ -102,25 +103,22 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
                   style: const TextStyle(color: CupertinoColors.systemGrey),
                 ),
               )
-            : CustomScrollView(
-                slivers: assetGridSlivers(
-                  context: context,
-                  records: _records,
-                  onTap: _open,
-                  actionsFor: (r) => [
-                    TileAction(
-                      icon: CupertinoIcons.arrow_uturn_left,
-                      label: l10n.libraryRecover,
-                      onPressed: () => _recover(r),
-                    ),
-                    TileAction(
-                      icon: CupertinoIcons.delete,
-                      label: l10n.libraryDeletePermanentlyAction,
-                      isDestructive: true,
-                      onPressed: () => _deletePermanently(r),
-                    ),
-                  ],
-                ),
+            : AssetGridView(
+                records: _records,
+                onTap: _open,
+                actionsFor: (r) => [
+                  TileAction(
+                    icon: CupertinoIcons.arrow_uturn_left,
+                    label: l10n.libraryRecover,
+                    onPressed: () => _recover(r),
+                  ),
+                  TileAction(
+                    icon: CupertinoIcons.delete,
+                    label: l10n.libraryDeletePermanentlyAction,
+                    isDestructive: true,
+                    onPressed: () => _deletePermanently(r),
+                  ),
+                ],
               ),
       ),
     );

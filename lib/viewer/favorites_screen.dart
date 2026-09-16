@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
+import 'asset_grid_view.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 
@@ -31,7 +32,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     setState(
       () =>
           _records = all.where((r) => r.isFavorite && !r.isDeleted).toList()
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+            ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
     );
   }
 
@@ -76,25 +77,22 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                   style: const TextStyle(color: CupertinoColors.systemGrey),
                 ),
               )
-            : CustomScrollView(
-                slivers: assetGridSlivers(
-                  context: context,
-                  records: _records,
-                  onTap: _open,
-                  actionsFor: (r) => [
-                    TileAction(
-                      icon: CupertinoIcons.heart_slash,
-                      label: l10n.libraryUnfavorite,
-                      onPressed: () => _unfavorite(r),
-                    ),
-                    TileAction(
-                      icon: CupertinoIcons.delete,
-                      label: l10n.libraryDeleteTooltip,
-                      isDestructive: true,
-                      onPressed: () => _delete(r),
-                    ),
-                  ],
-                ),
+            : AssetGridView(
+                records: _records,
+                onTap: _open,
+                actionsFor: (r) => [
+                  TileAction(
+                    icon: CupertinoIcons.heart_slash,
+                    label: l10n.libraryUnfavorite,
+                    onPressed: () => _unfavorite(r),
+                  ),
+                  TileAction(
+                    icon: CupertinoIcons.delete,
+                    label: l10n.libraryDeleteTooltip,
+                    isDestructive: true,
+                    onPressed: () => _delete(r),
+                  ),
+                ],
               ),
       ),
     );

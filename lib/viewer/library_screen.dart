@@ -29,11 +29,11 @@ import '../upload/sync_job_store.dart';
 import '../upload/sync_queue.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
+import 'asset_grid_view.dart';
 import 'asset_group_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'favorites_screen.dart';
-import 'media_type_screen.dart';
 import 'people_screen.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
@@ -163,6 +163,9 @@ class LibraryScreenState extends State<LibraryScreen> {
   /// `localId`s the batch actions apply to.
   Set<String>? _selection;
 
+  /// Reaches the grid's scroll anchor (see [_jumpHome]).
+  final _gridKey = GlobalKey<AssetGridViewState>();
+
   @override
   void dispose() {
     syncQueue.draining.removeListener(_onDrainingChanged);
@@ -280,7 +283,9 @@ class LibraryScreenState extends State<LibraryScreen> {
       _all
           .where((r) => !r.isDeleted && !r.isHidden && r.passcodeHash == null)
           .toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+        // Oldest first, newest at the bottom — Photos' order, and what
+        // lets the page open on the latest photo (see [AssetGridView]).
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
   List<AssetRecord> get _filtered => _query.isEmpty
       ? _active
@@ -315,8 +320,6 @@ class LibraryScreenState extends State<LibraryScreen> {
     ),
   );
 
-  int get _photoCount => _active.where((r) => !r.isVideo).length;
-  int get _videoCount => _active.where((r) => r.isVideo).length;
   int get _favoriteCount =>
       _all.where((r) => r.isFavorite && !r.isDeleted).length;
   int get _hiddenCount => _all.where((r) => r.isHidden && !r.isDeleted).length;
@@ -334,11 +337,27 @@ class LibraryScreenState extends State<LibraryScreen> {
     return path == null ? record.localId : p.basename(path);
   }
 
+  Future<bool> _hasBackupTarget() async {
+    try {
+      return (await _backupTargetsStore.loadAll()).isNotEmpty;
+    } catch (_) {
+      // Secure storage unavailable — skip this round rather than queue
+      // work that can't land; the next sync-due check tries again.
+      return false;
+    }
+  }
+
   /// Queues [records] for backup rather than uploading them here: one job
   /// per derivative per asset, drained by [syncQueue] with real concurrency.
   /// Returns how many assets were queued — not how many landed, which isn't
   /// knowable until the queue gets to them.
   Future<int> _backUpRecords(List<AssetRecord> records) async {
+    // Nothing to upload *to* yet: queueing anyway would walk the whole
+    // camera roll resolving each asset's file — on a real library that's
+    // thousands of exports (and iCloud downloads) handed to a coordinator
+    // with nowhere to put them. Adding a target runs `_syncEverything`,
+    // which picks every pending asset up then.
+    if (!await _hasBackupTarget()) return 0;
     for (final record in records) {
       final name = _displayNameFor(record);
       await syncQueue.enqueue(
@@ -889,305 +908,279 @@ class LibraryScreenState extends State<LibraryScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final filtered = _filtered;
-
     final selection = _selection;
 
-    return CupertinoPageScaffold(
-      child: SafeArea(
-        bottom: false,
-        child: Stack(
-          children: [
-            CustomScrollView(
-              slivers: [
-                CupertinoSliverNavigationBar(largeTitle: Text(l10n.tabLibrary)),
-                if (_all.isNotEmpty)
-                  SliverToBoxAdapter(
-                    child: Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                      child: CupertinoSearchTextField(
-                        onChanged: (v) => setState(() => _query = v),
-                      ),
-                    ),
-                  ),
-                SliverToBoxAdapter(
-                  child: AnimatedBuilder(
-                    animation: AiTouchUpQueue.instance,
-                    builder: (context, _) =>
-                        AiTouchUpQueue.instance.running.isEmpty
-                        ? const SizedBox.shrink()
-                        : Padding(
-                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                            child: Row(
-                              children: [
-                                const CupertinoActivityIndicator(radius: 8),
-                                const SizedBox(width: 8),
-                                Text(
-                                  l10n.aiTouchUpWorking,
-                                  style: const TextStyle(
-                                    color: CupertinoColors.systemGrey,
-                                  ),
-                                ),
-                              ],
-                            ),
+    return Stack(
+      children: [
+        CupertinoPageScaffold(
+          child: SafeArea(
+            bottom: false,
+            child: Stack(
+              children: [
+                AssetGridView(
+                  key: _gridKey,
+                  records: filtered,
+                  onTap: selection == null ? _openRecord : _toggleSelected,
+                  onLongPress: _startSelecting,
+                  selectedIds: selection,
+                  actionsFor: (r) => _actionsFor(l10n, r),
+                  emptySliver: _all.isEmpty
+                      ? SliverToBoxAdapter(
+                          child: _EmptyState(
+                            busy: _busy,
+                            onAddDemo: _addDemoPhotos,
+                            onAddFiles: addFiles,
                           ),
-                  ),
+                        )
+                      : null,
+                  scrubberInsets: const EdgeInsets.only(top: 56, bottom: 16),
+                  leadingSlivers: _leadingSlivers(l10n),
+                  trailingSlivers: _trailingSlivers(l10n, selection),
                 ),
-                if (_all.isEmpty)
-                  SliverToBoxAdapter(
-                    child: _EmptyState(
-                      busy: _busy,
-                      onAddDemo: _addDemoPhotos,
-                      onAddFiles: addFiles,
-                    ),
-                  )
-                else ...[
-                  ...assetGridSlivers(
-                    context: context,
-                    records: filtered,
-                    onTap: selection == null ? _openRecord : _toggleSelected,
-                    onLongPress: _startSelecting,
-                    selectedIds: selection,
-                    actionsFor: (r) => _actionsFor(l10n, r),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _SectionHeader(title: l10n.collectionsCollections),
-                  ),
-                  if (_albums.isNotEmpty) ...[
-                    SliverToBoxAdapter(
-                      child: _SubsectionHeader(title: l10n.collectionsAlbums),
-                    ),
-                    SliverToBoxAdapter(
-                      child: SizedBox(
-                        height: 190,
-                        child: ListView.separated(
-                          scrollDirection: Axis.horizontal,
-                          padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: _albums.length,
-                          separatorBuilder: (context, i) =>
-                              const SizedBox(width: 12),
-                          itemBuilder: (context, i) => SizedBox(
-                            width: 140,
-                            child: _AlbumCard(
-                              album: _albums[i],
-                              records: _albumAssets[_albums[i].id] ?? const [],
-                              onTap: () => _openAlbum(_albums[i]),
-                              onDelete: () => _confirmDeleteAlbum(_albums[i]),
-                            ),
-                          ),
-                        ),
-                      ),
-                    ),
-                  ],
-                  SliverToBoxAdapter(
-                    child: _SubsectionHeader(
-                      title: l10n.collectionsPeopleRow,
-                      onMore: _openPeopleScreen,
+                if (selection != null)
+                  Positioned(
+                    left: 0,
+                    right: 0,
+                    bottom: 0,
+                    child: _SelectionBar(
+                      count: selection.length,
+                      onAddTag: _batchAddTag,
+                      onSetPlace: _batchSetPlace,
+                      onSetEvent: _batchSetEvent,
+                      onAdjustDateTime: _batchAdjustDateTime,
+                      onDone: () => setState(() => _selection = null),
                     ),
                   ),
-                  SliverToBoxAdapter(
-                    child: _people.isEmpty
-                        ? Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Text(
-                              l10n.peopleEmpty,
-                              style: const TextStyle(
-                                color: CupertinoColors.systemGrey,
-                              ),
-                            ),
-                          )
-                        : SizedBox(
-                            height: 100,
-                            child: ListView.separated(
-                              scrollDirection: Axis.horizontal,
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                              ),
-                              itemCount: _people.length,
-                              separatorBuilder: (context, i) =>
-                                  const SizedBox(width: 8),
-                              itemBuilder: (context, i) {
-                                final person = _people[i];
-                                return SizedBox(
-                                  width: 64,
-                                  child: _PersonCard(
-                                    person: person,
-                                    assetRecordStore: assetRecordStore,
-                                    photoCount:
-                                        _personPhotoCounts[person.id] ?? 0,
-                                    onTap: () => _openPerson(person),
-                                  ),
-                                );
-                              },
-                            ),
-                          ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _SubsectionHeader(title: l10n.collectionsPlacesRow),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _GroupCardRow(
-                      groups: _groupedBy((r) => r.location),
-                      emptyNote: l10n.collectionsPlacesEmpty,
-                      icon: CupertinoIcons.map_pin_ellipse,
-                      onTap: _openGroup,
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _SubsectionHeader(
-                      title: l10n.collectionsEventsRow,
-                      moreLabel: l10n.collectionsAiSuggestions,
-                      onMore: () => _push(
-                        SmartCollectionScreen(
-                          kind: SmartCollectionKind.events,
-                          assetRecordStore: assetRecordStore,
-                          aiAnalysisStore: _aiAnalysisStore,
-                        ),
-                      ),
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _GroupCardRow(
-                      groups: _groupedBy((r) => r.event),
-                      emptyNote: l10n.collectionsEventsEmpty,
-                      icon: CupertinoIcons.calendar,
-                      onTap: _openGroup,
-                    ),
-                  ),
-                  SliverToBoxAdapter(
-                    child: _SectionHeader(title: l10n.collectionsMediaTypes),
-                  ),
-                  SliverToBoxAdapter(
-                    child: CupertinoListSection.insetGrouped(
-                      margin: const EdgeInsets.symmetric(horizontal: 16),
-                      // Un-overridden, this defaults to systemGroupedBackground
-                      // (pure black in dark mode) — a harsher black than the
-                      // page's own charcoal, visible as a seam around the card.
-                      backgroundColor: const Color(0xFF1C1C1E),
-                      decoration: const BoxDecoration(
-                        color: Color(0xFF2C2C2E),
-                        borderRadius: BorderRadius.all(Radius.circular(10)),
-                      ),
-                      children: [
-                        _row(
-                          icon: CupertinoIcons.photo,
-                          color: CupertinoColors.systemGreen,
-                          title: l10n.collectionsPhotosRow,
-                          count: _photoCount,
-                          onTap: () => _push(
-                            MediaTypeScreen(
-                              assetRecordStore: assetRecordStore,
-                              isVideo: false,
-                              title: l10n.collectionsPhotosRow,
-                            ),
-                          ),
-                        ),
-                        _row(
-                          icon: CupertinoIcons.video_camera_solid,
-                          color: CupertinoColors.systemPurple,
-                          title: l10n.collectionsVideosRow,
-                          count: _videoCount,
-                          onTap: () => _push(
-                            MediaTypeScreen(
-                              assetRecordStore: assetRecordStore,
-                              isVideo: true,
-                              title: l10n.collectionsVideosRow,
-                            ),
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ],
-                SliverToBoxAdapter(
-                  child: _SectionHeader(title: l10n.collectionsUtilities),
-                ),
-                SliverToBoxAdapter(
-                  child: CupertinoListSection.insetGrouped(
-                    margin: const EdgeInsets.symmetric(horizontal: 16),
-                    backgroundColor: const Color(0xFF1C1C1E),
-                    decoration: const BoxDecoration(
-                      color: Color(0xFF2C2C2E),
-                      borderRadius: BorderRadius.all(Radius.circular(10)),
-                    ),
-                    children: [
-                      _row(
-                        icon: CupertinoIcons.heart_fill,
-                        color: CupertinoColors.systemRed,
-                        title: l10n.collectionsFavoritesRow,
-                        count: _favoriteCount,
-                        onTap: () => _push(
-                          FavoritesScreen(assetRecordStore: assetRecordStore),
-                        ),
-                      ),
-                      _row(
-                        icon: CupertinoIcons.gear_alt_fill,
-                        color: CupertinoColors.systemGrey2,
-                        title: l10n.collectionsPrivateCloudRow,
-                        onTap: _openCloudBackups,
-                      ),
-                      _row(
-                        icon: CupertinoIcons.sparkles,
-                        color: CupertinoColors.systemIndigo,
-                        title: l10n.collectionsAiSettingsRow,
-                        onTap: () => _push(const AiSettingsScreen()),
-                      ),
-                      _row(
-                        icon: CupertinoIcons.arrow_2_circlepath,
-                        color: CupertinoColors.systemGreen,
-                        title: l10n.settingsResetDemoButton,
-                        onTap: _busy ? null : _addDemoPhotos,
-                      ),
-                      _row(
-                        icon: CupertinoIcons.square_arrow_up,
-                        color: CupertinoColors.systemIndigo,
-                        title: l10n.collectionsImportPhotosRow,
-                        onTap: _busy ? null : addFiles,
-                      ),
-                      _row(
-                        icon: CupertinoIcons.eye_slash_fill,
-                        color: CupertinoColors.systemGrey,
-                        title: l10n.collectionsHiddenRow,
-                        count: _hiddenCount,
-                        onTap: _openPrivateAlbums,
-                      ),
-                      _row(
-                        icon: CupertinoIcons.trash_fill,
-                        color: CupertinoColors.systemRed,
-                        title: l10n.collectionsRecentlyDeletedRow,
-                        count: _deletedCount,
-                        onTap: () => _push(
-                          RecentlyDeletedScreen(
-                            assetRecordStore: assetRecordStore,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-                SliverToBoxAdapter(
-                  child: SizedBox(height: selection == null ? 24 : 140),
-                ),
               ],
             ),
-            if (selection != null)
-              Positioned(
-                left: 0,
-                right: 0,
-                bottom: 0,
-                child: _SelectionBar(
-                  count: selection.length,
-                  onAddTag: _batchAddTag,
-                  onSetPlace: _batchSetPlace,
-                  onSetEvent: _batchSetEvent,
-                  onAdjustDateTime: _batchAdjustDateTime,
-                  onDone: () => setState(() => _selection = null),
-                ),
-              ),
-          ],
+          ),
         ),
-      ),
+        // Sits above `CupertinoPageScaffold`'s own status-bar tap target,
+        // which would scroll to the *oldest* photo — the one place in a
+        // ten-year library nobody means to go. See [_jumpHome].
+        Positioned(
+          top: 0,
+          left: 0,
+          right: 0,
+          height: MediaQuery.paddingOf(context).top,
+          child: GestureDetector(
+            behavior: HitTestBehavior.opaque,
+            onTap: _jumpHome,
+          ),
+        ),
+      ],
     );
   }
+
+  /// Back to the newest photos — and, tapped again from there, on up to the
+  /// very top. Bound to both the status bar and the large title, the two
+  /// things a thumb reaches for when it's lost.
+  void _jumpHome() => _gridKey.currentState?.toggleAnchor();
+
+  List<Widget> _leadingSlivers(AppLocalizations l10n) => [
+    CupertinoSliverNavigationBar(
+      largeTitle: GestureDetector(
+        onTap: _jumpHome,
+        child: Text(l10n.tabLibrary),
+      ),
+    ),
+    if (_all.isNotEmpty)
+      SliverToBoxAdapter(
+        child: Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+          child: CupertinoSearchTextField(
+            onChanged: (v) => setState(() => _query = v),
+          ),
+        ),
+      ),
+    SliverToBoxAdapter(
+      child: AnimatedBuilder(
+        animation: AiTouchUpQueue.instance,
+        builder: (context, _) => AiTouchUpQueue.instance.running.isEmpty
+            ? const SizedBox.shrink()
+            : Padding(
+                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                child: Row(
+                  children: [
+                    const CupertinoActivityIndicator(radius: 8),
+                    const SizedBox(width: 8),
+                    Text(
+                      l10n.aiTouchUpWorking,
+                      style: const TextStyle(color: CupertinoColors.systemGrey),
+                    ),
+                  ],
+                ),
+              ),
+      ),
+    ),
+  ];
+
+  List<Widget> _trailingSlivers(
+    AppLocalizations l10n,
+    Set<String>? selection,
+  ) => [
+    if (_all.isNotEmpty) ...[
+      SliverToBoxAdapter(
+        child: _SectionHeader(title: l10n.collectionsCollections),
+      ),
+      if (_albums.isNotEmpty) ...[
+        SliverToBoxAdapter(
+          child: _SubsectionHeader(title: l10n.collectionsAlbums),
+        ),
+        SliverToBoxAdapter(
+          child: SizedBox(
+            height: 190,
+            child: ListView.separated(
+              scrollDirection: Axis.horizontal,
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              itemCount: _albums.length,
+              separatorBuilder: (context, i) => const SizedBox(width: 12),
+              itemBuilder: (context, i) => SizedBox(
+                width: 140,
+                child: _AlbumCard(
+                  album: _albums[i],
+                  records: _albumAssets[_albums[i].id] ?? const [],
+                  onTap: () => _openAlbum(_albums[i]),
+                  onDelete: () => _confirmDeleteAlbum(_albums[i]),
+                ),
+              ),
+            ),
+          ),
+        ),
+      ],
+      SliverToBoxAdapter(
+        child: _SubsectionHeader(
+          title: l10n.collectionsPeopleRow,
+          onMore: _openPeopleScreen,
+        ),
+      ),
+      SliverToBoxAdapter(
+        child: _people.isEmpty
+            ? Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Text(
+                  l10n.peopleEmpty,
+                  style: const TextStyle(color: CupertinoColors.systemGrey),
+                ),
+              )
+            : SizedBox(
+                height: 100,
+                child: ListView.separated(
+                  scrollDirection: Axis.horizontal,
+                  padding: const EdgeInsets.symmetric(horizontal: 16),
+                  itemCount: _people.length,
+                  separatorBuilder: (context, i) => const SizedBox(width: 8),
+                  itemBuilder: (context, i) {
+                    final person = _people[i];
+                    return SizedBox(
+                      width: 64,
+                      child: _PersonCard(
+                        person: person,
+                        assetRecordStore: assetRecordStore,
+                        photoCount: _personPhotoCounts[person.id] ?? 0,
+                        onTap: () => _openPerson(person),
+                      ),
+                    );
+                  },
+                ),
+              ),
+      ),
+      SliverToBoxAdapter(
+        child: _SubsectionHeader(title: l10n.collectionsPlacesRow),
+      ),
+      SliverToBoxAdapter(
+        child: _GroupCardRow(
+          groups: _groupedBy((r) => r.location),
+          emptyNote: l10n.collectionsPlacesEmpty,
+          icon: CupertinoIcons.map_pin_ellipse,
+          onTap: _openGroup,
+        ),
+      ),
+      SliverToBoxAdapter(
+        child: _SubsectionHeader(
+          title: l10n.collectionsEventsRow,
+          moreLabel: l10n.collectionsAiSuggestions,
+          onMore: () => _push(
+            SmartCollectionScreen(
+              kind: SmartCollectionKind.events,
+              assetRecordStore: assetRecordStore,
+              aiAnalysisStore: _aiAnalysisStore,
+            ),
+          ),
+        ),
+      ),
+      SliverToBoxAdapter(
+        child: _GroupCardRow(
+          groups: _groupedBy((r) => r.event),
+          emptyNote: l10n.collectionsEventsEmpty,
+          icon: CupertinoIcons.calendar,
+          onTap: _openGroup,
+        ),
+      ),
+    ],
+    SliverToBoxAdapter(child: _SectionHeader(title: l10n.collectionsUtilities)),
+    SliverToBoxAdapter(
+      child: CupertinoListSection.insetGrouped(
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        backgroundColor: const Color(0xFF1C1C1E),
+        decoration: const BoxDecoration(
+          color: Color(0xFF2C2C2E),
+          borderRadius: BorderRadius.all(Radius.circular(10)),
+        ),
+        children: [
+          _row(
+            icon: CupertinoIcons.heart_fill,
+            color: CupertinoColors.systemRed,
+            title: l10n.collectionsFavoritesRow,
+            count: _favoriteCount,
+            onTap: () =>
+                _push(FavoritesScreen(assetRecordStore: assetRecordStore)),
+          ),
+          _row(
+            icon: CupertinoIcons.gear_alt_fill,
+            color: CupertinoColors.systemGrey2,
+            title: l10n.collectionsPrivateCloudRow,
+            onTap: _openCloudBackups,
+          ),
+          _row(
+            icon: CupertinoIcons.sparkles,
+            color: CupertinoColors.systemIndigo,
+            title: l10n.collectionsAiSettingsRow,
+            onTap: () => _push(const AiSettingsScreen()),
+          ),
+          _row(
+            icon: CupertinoIcons.arrow_2_circlepath,
+            color: CupertinoColors.systemGreen,
+            title: l10n.settingsResetDemoButton,
+            onTap: _busy ? null : _addDemoPhotos,
+          ),
+          _row(
+            icon: CupertinoIcons.square_arrow_up,
+            color: CupertinoColors.systemIndigo,
+            title: l10n.collectionsImportPhotosRow,
+            onTap: _busy ? null : addFiles,
+          ),
+          _row(
+            icon: CupertinoIcons.eye_slash_fill,
+            color: CupertinoColors.systemGrey,
+            title: l10n.collectionsHiddenRow,
+            count: _hiddenCount,
+            onTap: _openPrivateAlbums,
+          ),
+          _row(
+            icon: CupertinoIcons.trash_fill,
+            color: CupertinoColors.systemRed,
+            title: l10n.collectionsRecentlyDeletedRow,
+            count: _deletedCount,
+            onTap: () => _push(
+              RecentlyDeletedScreen(assetRecordStore: assetRecordStore),
+            ),
+          ),
+        ],
+      ),
+    ),
+    SliverToBoxAdapter(child: SizedBox(height: selection == null ? 24 : 140)),
+  ];
 
   CupertinoListTile _row({
     required IconData icon,

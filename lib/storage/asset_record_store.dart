@@ -47,7 +47,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 7,
+        version: 8,
         onCreate: (db, version) => db.execute(_createTableSql),
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -89,6 +89,11 @@ class AssetRecordStore {
           if (oldVersion < 7) {
             await db.execute('ALTER TABLE $_table ADD COLUMN event TEXT');
           }
+          if (oldVersion < 8) {
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN is_live_photo INTEGER NOT NULL DEFAULT 0',
+            );
+          }
         },
       ),
     );
@@ -107,6 +112,7 @@ class AssetRecordStore {
       thumbnail_path TEXT,
       local_deleted INTEGER NOT NULL DEFAULT 0,
       is_video INTEGER NOT NULL DEFAULT 0,
+      is_live_photo INTEGER NOT NULL DEFAULT 0,
       thumbnail_status TEXT NOT NULL DEFAULT 'pending',
       thumbnail_key TEXT,
       thumbnail_hash TEXT,
@@ -149,6 +155,7 @@ class AssetRecordStore {
     AssetSourceType sourceType = AssetSourceType.photoManager,
     String? sourcePath,
     bool isVideo = false,
+    bool isLivePhoto = false,
     DateTime? createdAt,
   }) async {
     final db = await _open();
@@ -175,6 +182,7 @@ class AssetRecordStore {
       'source_type': sourceType.name,
       'source_path': sourcePath,
       'is_video': isVideo ? 1 : 0,
+      'is_live_photo': isLivePhoto ? 1 : 0,
       'created_at': now.millisecondsSinceEpoch,
       'updated_at': now.millisecondsSinceEpoch,
     });
@@ -185,6 +193,7 @@ class AssetRecordStore {
       sourceType: sourceType,
       sourcePath: sourcePath,
       isVideo: isVideo,
+      isLivePhoto: isLivePhoto,
       createdAt: now,
       updatedAt: now,
     );
@@ -517,6 +526,7 @@ class AssetRecordStore {
       thumbnailPath: row['thumbnail_path'] as String?,
       localDeleted: (row['local_deleted'] as int? ?? 0) != 0,
       isVideo: (row['is_video'] as int? ?? 0) != 0,
+      isLivePhoto: (row['is_live_photo'] as int? ?? 0) != 0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
       derivatives: {

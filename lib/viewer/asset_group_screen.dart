@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
+import 'asset_grid_view.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'private_album_gate.dart';
@@ -85,34 +86,31 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(middle: Text(widget.title)),
       child: SafeArea(
-        child: CustomScrollView(
-          slivers: assetGridSlivers(
-            context: context,
-            records: _records,
-            onTap: _open,
-            actionsFor: (r) => [
-              TileAction(
-                icon: r.isFavorite
-                    ? CupertinoIcons.heart_slash
-                    : CupertinoIcons.heart,
-                label: r.isFavorite
-                    ? l10n.libraryUnfavorite
-                    : l10n.libraryFavorite,
-                onPressed: () => _toggleFavorite(r),
-              ),
-              TileAction(
-                icon: CupertinoIcons.eye_slash,
-                label: l10n.libraryHide,
-                onPressed: () => _hide(r),
-              ),
-              TileAction(
-                icon: CupertinoIcons.delete,
-                label: l10n.libraryDeleteTooltip,
-                isDestructive: true,
-                onPressed: () => _delete(r),
-              ),
-            ],
-          ),
+        child: AssetGridView(
+          records: _records,
+          onTap: _open,
+          actionsFor: (r) => [
+            TileAction(
+              icon: r.isFavorite
+                  ? CupertinoIcons.heart_slash
+                  : CupertinoIcons.heart,
+              label: r.isFavorite
+                  ? l10n.libraryUnfavorite
+                  : l10n.libraryFavorite,
+              onPressed: () => _toggleFavorite(r),
+            ),
+            TileAction(
+              icon: CupertinoIcons.eye_slash,
+              label: l10n.libraryHide,
+              onPressed: () => _hide(r),
+            ),
+            TileAction(
+              icon: CupertinoIcons.delete,
+              label: l10n.libraryDeleteTooltip,
+              isDestructive: true,
+              onPressed: () => _delete(r),
+            ),
+          ],
         ),
       ),
     );

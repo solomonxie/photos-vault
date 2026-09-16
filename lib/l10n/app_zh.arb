@@ -39,6 +39,7 @@
   "libraryAlbumEmpty": "该相册暂无照片。",
   "libraryRemoveFromAlbum": "从相册中移除",
 
+  "detailLivePhotoBadge": "实况",
   "detailFileUnavailable": "该文件已不可用。",
   "detailRestoreOriginal": "下载原图",
   "detailRestoringOriginal": "正在下载…",
@@ -123,9 +124,6 @@
     "placeholders": {"count": {"type": "int"}}
   },
 
-  "collectionsMediaTypes": "媒体类型",
-  "collectionsPhotosRow": "照片",
-  "collectionsVideosRow": "视频",
   "collectionsUtilities": "实用工具",
   "collectionsFavoritesRow": "收藏",
   "collectionsHiddenRow": "隐藏",
@@ -209,6 +207,12 @@
   "settingsAccessKeyIdLabel": "访问密钥 ID",
   "settingsLengthHint": "当前 {actual} 个字符 —— AWS 密钥通常是 {expected} 个字符,请检查是否粘贴有误。",
   "settingsSecretAccessKeyLabel": "私有访问密钥",
+  "settingsPasteGroupTitle": "S3 存储桶",
+  "settingsPasteToggle": "（粘贴信息添加）",
+  "settingsPasteToggleBack": "（返回表单）",
+  "settingsPasteBlockHint": "bucket: my-photos\nprefix: bring-your-own-photos/\naccess_key_id: AKIA…\nsecret_access_key: …",
+  "settingsPasteNote": "“名称: 值”或“名称=值”，写法不限。区域仍会自动检测。",
+  "settingsPasteFromClipboard": "从剪贴板粘贴",
   "settingsBucketLabel": "存储桶",
   "settingsPrefixLabel": "键前缀",
   "settingsRequiredFieldError": "必填项",
