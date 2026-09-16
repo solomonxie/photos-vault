@@ -30,7 +30,9 @@ class AiVisionService {
 
   static const _prompt =
       'Reply with JSON only, no prose: '
-      '{"people_count": <integer, 0 if none>, "event_label": "<2-4 word scene or event description>"}.';
+      '{"people_count": <integer, 0 if none>, '
+      '"event_label": "<2-4 word scene or event description>", '
+      '"tags": ["<up to 5 short lowercase subject tags>"]}.';
 
   final AiSettingsStore _aiSettingsStore;
   final http.Client _httpClient;
@@ -206,11 +208,17 @@ class AiVisionService {
     try {
       final parsed = jsonDecode(content) as Map<String, dynamic>;
       final eventLabel = (parsed['event_label'] as String?)?.trim() ?? '';
+      final tags = parsed['tags'];
       return AiPhotoAnalysis(
         localId: localId,
         peopleCount: (parsed['people_count'] as num?)?.toInt() ?? 0,
         eventLabel: eventLabel,
         analyzedAt: DateTime.now(),
+        tags: [
+          if (tags is List)
+            for (final tag in tags)
+              if (tag is String && tag.trim().isNotEmpty) tag.trim(),
+        ],
       );
     } catch (_) {
       throw AiAnalysisException('Could not parse AI response');

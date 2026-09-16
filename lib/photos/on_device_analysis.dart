@@ -38,29 +38,29 @@ class OnDeviceAnalysisService {
   /// user means, and counting it makes every holiday photo a group shot.
   static const minFaceArea = 0.004;
 
-  /// Returns whether anything changed, so a caller can skip a redraw for
-  /// the photos Vision had nothing to say about.
-  Future<bool> analyze(AssetRecord record, String path) async {
+  /// Returns the faces it found, so the caller can offer them up for
+  /// naming — that's the half of "who is in this photo" the device can't
+  /// answer by itself.
+  Future<List<VisionFace>> analyze(AssetRecord record, String path) async {
     final result = await vision.analyze(path);
-    final faces = result.faces.where((f) => f.area >= minFaceArea).length;
+    final faces = result.faces.where((f) => f.area >= minFaceArea).toList();
     final labels = result.labels.take(maxTags).map((l) => l.label).toList();
 
-    var changed = false;
     final merged = {...record.tags, ...labels}.toList();
     if (merged.length != record.tags.length) {
       await recordStore.setTags(record.localId, merged);
-      changed = true;
     }
 
-    if (labels.isEmpty && faces == 0) return changed;
-    await analysisStore.save(
-      AiPhotoAnalysis(
-        localId: record.localId,
-        peopleCount: faces,
-        eventLabel: labels.isEmpty ? '' : labels.first,
-        analyzedAt: DateTime.now(),
-      ),
-    );
-    return true;
+    if (labels.isNotEmpty || faces.isNotEmpty) {
+      await analysisStore.save(
+        AiPhotoAnalysis(
+          localId: record.localId,
+          peopleCount: faces.length,
+          eventLabel: labels.isEmpty ? '' : labels.first,
+          analyzedAt: DateTime.now(),
+        ),
+      );
+    }
+    return faces;
   }
 }

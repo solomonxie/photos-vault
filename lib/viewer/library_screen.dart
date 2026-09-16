@@ -552,13 +552,6 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  Future<void> _analyzeLibrary() async {
-    final l10n = AppLocalizations.of(context)!;
-    final queued = await analyzeLibrary();
-    if (!mounted) return;
-    _showResult(l10n.analyzeLibraryQueued(queued));
-  }
-
   /// Queues an on-device look at every photo that hasn't had one. Costs
   /// nothing but time and battery — no key, no upload, no per-photo bill —
   /// which is the only reason it can be offered over a whole library.
@@ -1486,12 +1479,6 @@ class LibraryScreenState extends State<LibraryScreen>
                       onRemove: _removeDemoPhotos,
                     ),
                   ),
-          ),
-          _row(
-            icon: CupertinoIcons.wand_stars,
-            color: CupertinoColors.systemPink,
-            title: l10n.analyzeLibraryRow,
-            onTap: _busy ? null : _analyzeLibrary,
           ),
           _row(
             icon: CupertinoIcons.square_arrow_up,
