@@ -149,10 +149,7 @@ class LibraryScreenState extends State<LibraryScreen>
   late final SyncJobStore _syncJobStore = widget.syncJobStore ?? SyncJobStore();
   late final OnDeviceAnalysisService _onDeviceAnalysis =
       widget.onDeviceAnalysis ??
-      OnDeviceAnalysisService(
-        recordStore: assetRecordStore,
-        analysisStore: _aiAnalysisStore,
-      );
+      OnDeviceAnalysisService(analysisStore: _aiAnalysisStore);
 
   /// The one queue every unit of sync work goes through. Public so the
   /// Private Cloud screen can show and control it.

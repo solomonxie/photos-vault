@@ -2,18 +2,18 @@ import Flutter
 import UIKit
 import Vision
 
-/// On-device photo analysis over Apple's Vision framework: scene labels,
-/// face rectangles, and per-face descriptors for grouping.
+/// Face detection over Apple's Vision framework.
 ///
-/// Vision is the right engine for this app specifically because it costs
-/// nothing and downloads nothing — the models are part of iOS. A library of
-/// a hundred thousand photos is exactly the case where per-photo API
-/// billing stops being viable, and the same size that makes a cloud call
-/// expensive makes a local one free.
+/// Vision costs nothing and downloads nothing — the models are part of iOS
+/// — which is what makes this viable over a library where per-photo API
+/// billing isn't. It also classifies scenes, and that half was tried and
+/// dropped: the labels were confident, plausible and wrong often enough
+/// that every tag had to be checked, which is more work than typing the
+/// right one. Tagging went back to the vendor models; faces stayed here,
+/// where detection is genuinely reliable.
 ///
-/// Everything here is deliberately dumb: decode, run a request, hand back
-/// plain values. The decisions — which labels are worth keeping, how faces
-/// are grouped into people — live in Dart where they can be tested.
+/// Deliberately dumb: decode, run a request, hand back plain values. What
+/// counts as a face worth showing lives in Dart, where it can be tested.
 class VisionAnalysisChannel {
   static let name = "byo.photos/vision"
 
@@ -54,8 +54,6 @@ class VisionAnalysisChannel {
     let handler = VNImageRequestHandler(cgImage: cgImage, options: [:])
     do {
       switch call.method {
-      case "classify":
-        result(try classify(handler, arguments))
       case "faces":
         result(try faces(handler))
       default:
@@ -72,33 +70,11 @@ class VisionAnalysisChannel {
     }
   }
 
-  /// Scene/subject labels with their confidences, strongest first. The
-  /// cut-off is applied in Dart: what counts as "confident enough" is a
-  /// product decision, not a platform one.
-  private static func classify(
-    _ handler: VNImageRequestHandler,
-    _ arguments: [String: Any]
-  ) throws -> [[String: Any]] {
-    let request = VNClassifyImageRequest()
-    try handler.perform([request])
-    let observations = request.results ?? []
-    let limit = arguments["limit"] as? Int ?? 20
-    return
-      observations
-      .sorted { $0.confidence > $1.confidence }
-      .prefix(limit)
-      .map { ["label": $0.identifier, "confidence": Double($0.confidence)] }
-  }
-
-  /// Face rectangles in Vision's normalised, bottom-left-origin space,
-  /// plus a per-face descriptor.
+  /// Face rectangles in Vision's normalised, bottom-left-origin space.
   ///
-  /// The descriptor is a feature print of the face crop. Vision has no
-  /// public face-identity API — that's Photos' own private model — so
-  /// grouping is done in Dart by comparing these. It's a weaker signal than
-  /// a purpose-built face embedding, which is why the clustering threshold
-  /// is tuned conservatively: two photos wrongly called the same person is
-  /// a worse failure than two clusters of one person.
+  /// Rectangles only: Vision has no public face-*identity* API — that's
+  /// Photos' own private model — so the app shows the faces it found and
+  /// lets the user say who they are.
   private static func faces(_ handler: VNImageRequestHandler) throws
     -> [[String: Any]]
   {

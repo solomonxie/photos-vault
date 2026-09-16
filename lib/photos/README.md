@@ -61,15 +61,13 @@ ManualAddService.enqueueFile(scratchPath)   ── same hash-named/dedup path as
   to this app, written to both the local record and the OS photo library:
   favourite and creation date, which is the whole list PhotoKit will accept.
   Caption/description/tags have no public write API on iOS and stay local.
-- `on_device_vision.dart` / `on_device_analysis.dart` — photo analysis that
-  runs on the phone through Apple's Vision framework
-  (`ios/Runner/VisionAnalysisChannel.swift`): scene labels become tags,
-  detected faces become the people count the Events/People smart
-  collections read. Free, offline, nothing downloaded — which is the only
-  way analysis works at all for a library where per-photo API billing
-  doesn't. Run per photo from the viewer's info panel ("Auto Suggest"), not
-  over the library: analysis is only worth its battery on the photo someone
-  is looking at.
+- `on_device_vision.dart` / `on_device_analysis.dart` — face detection on
+  the phone through Apple's Vision framework
+  (`ios/Runner/VisionAnalysisChannel.swift`), run per photo from the
+  viewer's People heading ("Find Faces"). Vision also classifies scenes;
+  that half was tried against a real library and dropped, because the
+  labels were wrong often enough that checking them cost more than typing
+  the right tag. Tagging is `ai_vision_service.dart`'s job now.
 - `face_crops.dart` — cuts the detected faces out of a photo so each can be
   tapped and named. iOS finds faces for free but won't say whose they are,
   so the face is the question and the user is the answer.
