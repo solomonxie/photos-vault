@@ -261,6 +261,44 @@ void main() {
     expect(relationships.single.type, RelationshipType.friend);
   });
 
+  testWidgets('typing a name and tapping create is the whole flow', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(CupertinoSearchTextField), 'Ada');
+    await tester.pumpAndSettle();
+
+    // The row says what it will do, and doing it doesn't ask again — the
+    // name has already been typed once.
+    expect(find.text('New Person "Ada"'), findsOneWidget);
+    await tester.tap(find.text('New Person "Ada"'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Add'), findsNothing, reason: 'no second prompt');
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    expect(
+      (await personStore.listAll()).map((p) => p.name),
+      containsAll(['Mia', 'Ada']),
+    );
+  });
+
   testWidgets('"New Person…" creates and links someone not in the registry', (
     tester,
   ) async {

@@ -88,11 +88,8 @@
   "detailInfoDuration": "Duration",
   "detailEditDateTimeTitle": "Date & Time",
   "detailDescriptionPlaceholder": "Add a description",
-  "detailSuggestHeader": "Suggestions",
-  "@detailSuggestHeader": {"description": "Info-panel section offering to fill in tags and faces for this one photo"},
   "detailSuggestOnDevice": "Auto Suggest",
   "detailSuggestAi": "AI Suggest",
-  "detailSuggestHint": "Auto Suggest looks at this photo on your phone — free, offline, nothing sent anywhere. AI Suggest asks the vendor whose key you configured, and is billed to you.",
   "detailSuggestNoKey": "Add an AI key in AI Settings to use this.",
   "detailSuggestNothing": "Nothing to suggest for this photo.",
   "detailFacesHeader": "Faces Found",
@@ -442,6 +439,10 @@
   "careerProjectTagsPlaceholder": "Tags, comma separated",
 
   "relationshipPickerTitle": "Link to Person",
+  "personPickerNewNamed": "New Person \"{name}\"",
+  "@personPickerNewNamed": {
+    "placeholders": {"name": {"type": "String"}}
+  },
   "personProfileNewPersonOption": "New Person…",
   "relationshipTypeFamily": "Family",
   "relationshipTypeSpouse": "Spouse",

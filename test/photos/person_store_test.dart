@@ -341,4 +341,39 @@ void main() {
     expect(await store.relationshipsFor(b.id), isEmpty);
     expect(await store.locationsFor(a.id), isEmpty);
   });
+
+  group('profile picture', () {
+    test(
+      'the first photo someone is tagged in becomes their picture',
+      () async {
+        final store = newStore();
+        final ada = await store.create(name: 'Ada');
+        expect(ada.avatarLocalId, isNull);
+
+        await store.addAssets(ada.id, ['manual:one', 'manual:two']);
+
+        expect((await store.getById(ada.id))!.avatarLocalId, 'manual:one');
+      },
+    );
+
+    test('and a later one does not replace it', () async {
+      final store = newStore();
+      final ada = await store.create(name: 'Ada');
+      await store.addAssets(ada.id, ['manual:one']);
+
+      await store.addAssets(ada.id, ['manual:two']);
+
+      expect((await store.getById(ada.id))!.avatarLocalId, 'manual:one');
+    });
+
+    test('nor does it overwrite a picture chosen on purpose', () async {
+      final store = newStore();
+      final ada = await store.create(name: 'Ada');
+      await store.update(ada.copyWith(avatarLocalId: 'manual:chosen'));
+
+      await store.addAssets(ada.id, ['manual:one']);
+
+      expect((await store.getById(ada.id))!.avatarLocalId, 'manual:chosen');
+    });
+  });
 }

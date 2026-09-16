@@ -1616,9 +1616,9 @@ class _InfoPanelState extends State<_InfoPanel> {
                 _Chip(label: tag, onRemove: () => _removeTag(tag)),
             ],
           ),
-          const SizedBox(height: 24),
-          _SectionHeader(title: l10n.detailSuggestHeader),
-          const SizedBox(height: 8),
+          const SizedBox(height: 20),
+          // Two buttons and nothing else: what each costs is the only thing
+          // worth saying about them, and it fits on the buttons themselves.
           Row(
             children: [
               _SuggestButton(
@@ -1642,19 +1642,20 @@ class _InfoPanelState extends State<_InfoPanel> {
               ],
             ],
           ),
-          Padding(
-            padding: const EdgeInsets.only(top: 6),
-            child: Text(
-              _suggestNote ?? l10n.detailSuggestHint,
-              style: TextStyle(
-                fontSize: 11,
-                height: 1.35,
-                color: _suggestNote == null
-                    ? CupertinoColors.systemGrey
-                    : CupertinoColors.systemOrange,
+          // Only when there's something to say — a standing explanation
+          // under two self-describing buttons is just noise.
+          if (_suggestNote != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                _suggestNote!,
+                style: const TextStyle(
+                  fontSize: 11,
+                  height: 1.35,
+                  color: CupertinoColors.systemOrange,
+                ),
               ),
             ),
-          ),
           if (_faces.isNotEmpty) ...[
             const SizedBox(height: 16),
             _SectionHeader(title: l10n.detailFacesHeader),

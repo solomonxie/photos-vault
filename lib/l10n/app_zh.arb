@@ -83,10 +83,8 @@
   "detailInfoDuration": "时长",
   "detailEditDateTimeTitle": "日期与时间",
   "detailDescriptionPlaceholder": "添加描述",
-  "detailSuggestHeader": "建议",
   "detailSuggestOnDevice": "自动建议",
   "detailSuggestAi": "AI 建议",
-  "detailSuggestHint": "「自动建议」在本机分析这张照片——免费、离线、不上传任何内容。「AI 建议」会调用你配置的服务商密钥，费用由你承担。",
   "detailSuggestNoKey": "请先在「AI 设置」中添加密钥。",
   "detailSuggestNothing": "这张照片没有可用的建议。",
   "detailFacesHeader": "识别到的人脸",
@@ -362,6 +360,7 @@
   "careerProjectTagsPlaceholder": "标签,用逗号分隔",
 
   "relationshipPickerTitle": "关联人物",
+  "personPickerNewNamed": "新建人物“{name}”",
   "personProfileNewPersonOption": "新建人物…",
   "relationshipTypeFamily": "家人",
   "relationshipTypeSpouse": "配偶",

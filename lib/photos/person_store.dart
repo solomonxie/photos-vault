@@ -231,6 +231,16 @@ class PersonStore {
       }, conflictAlgorithm: sqflite.ConflictAlgorithm.ignore);
     }
     await batch.commit(noResult: true);
+
+    // Somebody with no picture on them yet takes the first photo they're
+    // tagged in. Every way of linking a photo to a person comes through
+    // here, so this is the one place it needs saying — and it only ever
+    // fills an empty slot, so a portrait chosen on purpose stays.
+    final first = localIds.firstOrNull;
+    if (first == null) return;
+    final person = await getById(personId);
+    if (person == null || person.avatarLocalId != null) return;
+    await update(person.copyWith(avatarLocalId: first));
   }
 
   Future<void> removeAsset(String personId, String localId) async {
