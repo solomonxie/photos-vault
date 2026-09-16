@@ -8,10 +8,18 @@ import '../upload/sync_queue.dart';
 /// Opens the queue over whatever is on screen. A transient status list is
 /// not a destination — it's something you glance at and dismiss, so it gets
 /// a sheet rather than a page of its own.
-Future<void> showSyncQueueSheet(BuildContext context, SyncQueue queue) {
+/// [onOpenAsset] is what a row tap does: the queue names photos, and the
+/// obvious question about a row — especially a failed one — is "which photo
+/// is that?". Absent, rows aren't tappable rather than tappable and inert.
+Future<void> showSyncQueueSheet(
+  BuildContext context,
+  SyncQueue queue, {
+  Future<void> Function(String localId)? onOpenAsset,
+}) {
   return showCupertinoModalPopup<void>(
     context: context,
-    builder: (context) => SyncQueueSheet(queue: queue),
+    builder: (context) =>
+        SyncQueueSheet(queue: queue, onOpenAsset: onOpenAsset),
   );
 }
 
@@ -19,9 +27,12 @@ Future<void> showSyncQueueSheet(BuildContext context, SyncQueue queue) {
 /// thumbnails, and the change checks that re-hash a file to spot an edit.
 /// Pause, speed, and clearing act on the same list right below them.
 class SyncQueueSheet extends StatefulWidget {
-  const SyncQueueSheet({super.key, required this.queue});
+  const SyncQueueSheet({super.key, required this.queue, this.onOpenAsset});
 
   final SyncQueue queue;
+
+  /// See [showSyncQueueSheet].
+  final Future<void> Function(String localId)? onOpenAsset;
 
   @override
   State<SyncQueueSheet> createState() => _SyncQueueSheetState();
@@ -126,6 +137,14 @@ class _SyncQueueSheetState extends State<SyncQueueSheet> {
                       job: jobs[i],
                       kindLabel: _kindLabel(l10n, jobs[i].kind),
                       onRetry: () => widget.queue.retry(jobs[i]),
+                      onOpen: widget.onOpenAsset == null
+                          ? null
+                          : () async {
+                              // Out of the way first: the viewer is a page,
+                              // and leaving a sheet over it would trap it.
+                              Navigator.of(context).pop();
+                              await widget.onOpenAsset!(jobs[i].localId);
+                            },
                     ),
                   );
                 },
@@ -234,15 +253,19 @@ class _JobRow extends StatelessWidget {
     required this.job,
     required this.kindLabel,
     required this.onRetry,
+    this.onOpen,
   });
 
   final SyncJob job;
   final String kindLabel;
   final VoidCallback onRetry;
 
+  /// Opens the photo this row is about — see [showSyncQueueSheet].
+  final VoidCallback? onOpen;
+
   @override
   Widget build(BuildContext context) {
-    return Padding(
+    final row = Padding(
       padding: const EdgeInsets.symmetric(
         horizontal: settingsPagePadding,
         vertical: 10,
@@ -278,6 +301,12 @@ class _JobRow extends StatelessWidget {
           _status(context),
         ],
       ),
+    );
+    if (onOpen == null) return row;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onOpen,
+      child: row,
     );
   }
 

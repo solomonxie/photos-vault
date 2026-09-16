@@ -260,6 +260,12 @@
   "settingsAiClearedMessage": "API 密钥已移除",
   "settingsAiUsageWarning": "启用后会将照片数据发送给处理该请求的 AI 供应商,并产生记入您该账户的 API 使用费用。",
 
+  "bucketBrowserStats": "{folders} 个文件夹 · {files} 个文件{size}",
+  "bucketBrowserSelect": "选择",
+  "bucketBrowserDeleteSelected": "删除 {count} 个文件？",
+  "bucketBrowserDeleteBody": "它们将从存储桶中永久删除。本机上的照片不受影响——但仅存在于此处的副本将会丢失。",
+  "bucketBrowserDeleteFailed": "有 {count} 个文件删除失败。",
+  "bucketBrowserUnreachable": "无法连接到存储桶。",
   "bucketBrowserEmpty": "该文件夹为空。",
   "bucketBrowserLoadMore": "加载更多",
   "bucketPreviewUnsupported": "无法预览此文件类型。",

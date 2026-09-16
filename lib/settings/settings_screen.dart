@@ -28,6 +28,7 @@ class SettingsScreen extends StatefulWidget {
     this.retryRecords,
     this.syncEverything,
     this.syncQueue,
+    this.openAsset,
   });
 
   final BackupTargetsStore? store;
@@ -49,6 +50,11 @@ class SettingsScreen extends StatefulWidget {
   /// the screen still stands alone in tests; without one the status line
   /// just reads as idle.
   final SyncQueue? syncQueue;
+
+  /// Opens one asset in the photo viewer — what tapping a queue row does.
+  /// Owned by `LibraryScreen`, which is where the viewer and the records
+  /// live. Absent, queue rows aren't tappable.
+  final Future<void> Function(String localId)? openAsset;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -139,82 +145,23 @@ class _SettingsScreenState extends State<SettingsScreen> {
     // Rooted at the target's own prefix, and can't be navigated above it:
     // that prefix *is* this connection, so everything outside it belongs to
     // whatever else shares the bucket.
-    Navigator.of(context).push(
-      MaterialPageRoute(builder: (_) => BucketBrowserScreen(target: target)),
-    );
+    Navigator.of(context)
+        .push(
+          MaterialPageRoute(
+            builder: (_) => BucketBrowserScreen(
+              target: target,
+              onDeleteConnection: () => _delete(target),
+            ),
+          ),
+        )
+        .then((_) {
+          if (mounted) _reload();
+        });
   }
 
-  /// Everything scoped to one connection, in one place — never a second tap
-  /// target beside the row's chevron.
-  Future<void> _showConnectionActions(S3BackupTarget target) async {
-    final l10n = AppLocalizations.of(context)!;
-    await showCupertinoModalPopup<void>(
-      context: context,
-      builder: (sheetContext) => CupertinoActionSheet(
-        title: Text(target.bucket),
-        message: Text(_targetPath(target)),
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.of(sheetContext).pop();
-              _browse(target);
-            },
-            child: Text(l10n.settingsBrowseFilesAction),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.of(sheetContext).pop();
-              _syncNow();
-            },
-            child: Text(l10n.settingsSyncNowButton),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.of(sheetContext).pop();
-              _openQueue();
-            },
-            child: Text(l10n.backupQueueTitle),
-          ),
-          CupertinoActionSheetAction(
-            isDestructiveAction: true,
-            onPressed: () {
-              Navigator.of(sheetContext).pop();
-              _confirmDelete(target);
-            },
-            child: Text(l10n.settingsDeleteConnectionAction),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(sheetContext).pop(),
-          child: Text(l10n.actionCancel),
-        ),
-      ),
-    );
-  }
-
-  Future<void> _confirmDelete(S3BackupTarget target) async {
-    final l10n = AppLocalizations.of(context)!;
-    final confirmed = await showCupertinoDialog<bool>(
-      context: context,
-      builder: (dialogContext) => CupertinoAlertDialog(
-        title: Text(l10n.settingsDeleteConfirmTitle),
-        content: Text(l10n.settingsDeleteConfirmBody),
-        actions: [
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(l10n.actionDelete),
-          ),
-          // Cancel last: alerts stack their actions in list order.
-          CupertinoDialogAction(
-            isDefaultAction: true,
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(l10n.actionCancel),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
+  /// The connection's own screen confirms before calling this — a second
+  /// dialog here would be asking twice.
+  Future<void> _delete(S3BackupTarget target) async {
     await _store.remove(target.id);
     await _reload();
   }
@@ -281,7 +228,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _openQueue() async {
     final queue = widget.syncQueue;
     if (queue == null) return;
-    await showSyncQueueSheet(context, queue);
+    await showSyncQueueSheet(context, queue, onOpenAsset: widget.openAsset);
     await _reload();
   }
 
@@ -353,15 +300,16 @@ class _SettingsScreenState extends State<SettingsScreen> {
                   subtitle: _targetPath(targets[i]),
                   detail: targets[i].region,
                   onTap: () => _browse(targets[i]),
-                  trailing: CupertinoButton(
-                    padding: const EdgeInsets.symmetric(horizontal: 6),
-                    minimumSize: Size.zero,
-                    onPressed: () => _showConnectionActions(targets[i]),
-                    child: const Icon(
-                      CupertinoIcons.ellipsis_circle,
-                      size: 20,
-                      color: settingsSecondary,
-                    ),
+                  // No second tap target beside the row. The menu it used to
+                  // open held Sync Now and Sync Queue, which are both on
+                  // this page already, and Browse Files, which is what
+                  // tapping the row does — leaving one real action, Delete
+                  // Connection, which now lives on the connection's own
+                  // screen.
+                  trailing: const Icon(
+                    CupertinoIcons.chevron_forward,
+                    size: 14,
+                    color: settingsSecondary,
                   ),
                 ),
               ],
@@ -401,13 +349,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
       valueListenable: queue.jobs,
       builder: (context, jobs, _) {
         final pending = jobs.where((job) => !job.isFinished).length;
-        return ValueListenableBuilder<int>(
-          valueListenable: queue.concurrency,
-          builder: (context, concurrency, _) => SettingsFooterLine(
-            text: pending == 0
-                ? '${l10n.settingsSyncQueueRow}: ${l10n.backupQueueIdle}'
-                : '${l10n.settingsSyncQueueRow}: ${l10n.settingsSyncQueuePending(pending, concurrency)}',
-            onTap: _openQueue,
+        return ValueListenableBuilder<bool>(
+          valueListenable: queue.paused,
+          builder: (context, paused, _) => ValueListenableBuilder<int>(
+            valueListenable: queue.concurrency,
+            builder: (context, concurrency, _) => SettingsFooterLine(
+              // Paused belongs out here, not only inside the sheet: a
+              // paused queue takes nothing new, so it's the answer to "why
+              // is nothing backing up" and has to be visible from where
+              // that question gets asked.
+              text: paused
+                  ? '${l10n.settingsSyncQueueRow}: ${l10n.backupQueuePausedNote}'
+                  : pending == 0
+                  ? '${l10n.settingsSyncQueueRow}: ${l10n.backupQueueIdle}'
+                  : '${l10n.settingsSyncQueueRow}: ${l10n.settingsSyncQueuePending(pending, concurrency)}',
+              onTap: _openQueue,
+            ),
           ),
         );
       },

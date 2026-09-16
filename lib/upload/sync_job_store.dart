@@ -56,9 +56,14 @@ class SyncJobStore {
     _db = null;
   }
 
-  /// Adds a job unless an unfinished one for the same asset+kind is already
-  /// queued — tapping Sync Now twice shouldn't double every file. Returns
-  /// the job, existing or new.
+  /// Adds a job unless one for the same asset+kind is already outstanding —
+  /// tapping Sync Now twice shouldn't double every file. Returns the job,
+  /// existing or new.
+  ///
+  /// A *failed* job counts as outstanding and is reset to pending rather
+  /// than duplicated: a retry is what re-queueing a failure means, and
+  /// inserting a second row instead would grow the queue by one dead entry
+  /// per asset per sync until nothing else fit in it.
   Future<SyncJob> enqueue({
     required String localId,
     required SyncJobKind kind,
@@ -67,16 +72,30 @@ class SyncJobStore {
     final db = await _open();
     final existing = await db.query(
       _table,
-      where: 'local_id = ? AND kind = ? AND status IN (?, ?)',
+      where: 'local_id = ? AND kind = ? AND status IN (?, ?, ?)',
       whereArgs: [
         localId,
         kind.name,
         SyncJobStatus.pending.name,
         SyncJobStatus.running.name,
+        SyncJobStatus.failed.name,
       ],
       limit: 1,
     );
-    if (existing.isNotEmpty) return _fromRow(existing.first);
+    if (existing.isNotEmpty) {
+      final job = _fromRow(existing.first);
+      if (job.status != SyncJobStatus.failed) return job;
+      await retry(job.id);
+      return SyncJob(
+        id: job.id,
+        localId: job.localId,
+        kind: job.kind,
+        displayName: job.displayName,
+        status: SyncJobStatus.pending,
+        createdAt: job.createdAt,
+        updatedAt: DateTime.now(),
+      );
+    }
 
     final now = DateTime.now();
     final job = SyncJob(
