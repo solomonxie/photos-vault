@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 
+import '../photos/library_metadata.dart';
 import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
@@ -33,7 +34,7 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
 
   Future<void> _toggleFavorite(AssetRecord record) async {
     final value = !record.isFavorite;
-    await widget.assetRecordStore.setFavorite(record.localId, value);
+    await setFavoriteEverywhere(widget.assetRecordStore, record, value);
     setState(
       () => _records = [
         for (final r in _records)

@@ -20,10 +20,15 @@ enum DeleteChoice {
 /// option: without a backed-up copy there'd be nothing left to restore
 /// from, so only "delete" is offered and this degrades to the same
 /// confirmation it always was.
-Future<DeleteChoice> chooseDelete(BuildContext context, {required bool canRemoveFromDevice}) async {
+Future<DeleteChoice> chooseDelete(
+  BuildContext context, {
+  required bool canRemoveFromDevice,
+}) async {
   final l10n = AppLocalizations.of(context)!;
   if (!canRemoveFromDevice) {
-    return await confirmSoftDelete(context) ? DeleteChoice.everywhere : DeleteChoice.cancel;
+    return await confirmSoftDelete(context)
+        ? DeleteChoice.everywhere
+        : DeleteChoice.cancel;
   }
   final choice = await showCupertinoModalPopup<DeleteChoice>(
     context: context,
@@ -61,7 +66,10 @@ Future<bool> confirmSoftDelete(BuildContext context) async {
       title: Text(l10n.libraryDeleteConfirmTitle),
       content: Text(l10n.libraryDeleteConfirmBody),
       actions: [
-        CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(false), child: Text(l10n.actionCancel)),
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(l10n.actionCancel),
+        ),
         CupertinoDialogAction(
           isDestructiveAction: true,
           onPressed: () => Navigator.of(context).pop(true),

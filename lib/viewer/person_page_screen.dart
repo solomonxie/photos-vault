@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/library_metadata.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../storage/asset_record.dart';
@@ -114,8 +115,9 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
   }
 
   Future<void> _toggleFavorite(AssetRecord record) async {
-    await widget.assetRecordStore.setFavorite(
-      record.localId,
+    await setFavoriteEverywhere(
+      widget.assetRecordStore,
+      record,
       !record.isFavorite,
     );
     await _reload();

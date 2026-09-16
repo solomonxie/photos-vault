@@ -11,6 +11,7 @@ import 'package:share_plus/share_plus.dart';
 import 'package:video_player/video_player.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/library_metadata.dart';
 import '../photos/ai_touch_up_queue.dart';
 import '../photos/derived_asset.dart';
 import '../photos/person.dart';
@@ -1130,7 +1131,11 @@ class _InfoPanelState extends State<_InfoPanel> {
       ),
     );
     if (saved != true) return;
-    await widget.assetRecordStore.setCreatedAt(widget.record.localId, picked);
+    await setCreatedAtEverywhere(
+      widget.assetRecordStore,
+      widget.record,
+      picked,
+    );
     widget.onRecordChanged(widget.record.withCreatedAt(picked));
   }
 

@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 
+import '../photos/library_metadata.dart';
 import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
@@ -68,8 +69,9 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
   }
 
   Future<void> _toggleFavorite(AssetRecord record) async {
-    await widget.assetRecordStore.setFavorite(
-      record.localId,
+    await setFavoriteEverywhere(
+      widget.assetRecordStore,
+      record,
       !record.isFavorite,
     );
     await _reload();

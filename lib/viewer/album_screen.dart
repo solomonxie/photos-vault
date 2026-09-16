@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 
+import '../photos/library_metadata.dart';
 import '../l10n/app_localizations.dart';
 import '../storage/album.dart';
 import '../storage/album_store.dart';
@@ -62,8 +63,9 @@ class _AlbumScreenState extends State<AlbumScreen> {
   }
 
   Future<void> _toggleFavorite(AssetRecord record) async {
-    await widget.assetRecordStore.setFavorite(
-      record.localId,
+    await setFavoriteEverywhere(
+      widget.assetRecordStore,
+      record,
       !record.isFavorite,
     );
     await _reload();

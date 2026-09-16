@@ -300,6 +300,7 @@ app cached thumb ──found──▶  draw it
   - Free-text fields (caption, location) as their own rounded cards, not bare text on the background.
   - **Location fills itself in from the photo's own GPS tag** — the camera already recorded where it was, so asking the user to type "Melbourne" a thousand times is asking them to re-enter data they already gave you. Reverse-geocode through the OS geocoder, on view and one photo at a time (it's rate-limited per app, so a background sweep of a decade would spend the whole budget on photos nobody is looking at), and only ever into an *empty* field — a place someone typed is theirs.
   - Every row that can be edited is tappable in place (date/time sheet, pickers, chips).
+  - **An edit that belongs to the photo goes back to the OS photo library too.** This app isn't a second library: hearting a photo here and finding it un-hearted in Photos means keeping two mental copies of one collection. Favourite and creation date are writable through PhotoKit and are mirrored both ways — a heart added in Photos shows up here on the next scan. Caption, description and tags have no public write API on iOS, so those stay the app's own; say so rather than letting the user assume they synced.
   - **The keyboard must not relayout the page under it.** A full-bleed media page sized to the viewport shrinks when the scaffold resizes, which shoves the photo and everything below it upward the moment a caption takes focus. Freeze the layout and give the scrolling panel keyboard-height padding instead, so the focused field scrolls clear on its own.
 - "Edit" sits top-right in the nav bar and opens a menu: Crop, Rotate, AI Touch Up.
   - Crop and rotate are local and instant; rotate is a **full 360° dial** you spin, not four preset buttons.
@@ -444,6 +445,8 @@ Show the roadmap honestly: a storage-type picker listing every vendor, with unbu
 
 Scope rule: object storage the user owns is in scope; consumer cloud *apps* (iCloud Drive, Google Drive, Dropbox) are not — those already have official apps.
 
+**A key prefix names a folder**, so normalize it to end in `/` (and never start with one) rather than rejecting it. Typed as `photos`, it would put every object at `photosoriginals/…` — one missing character silently scattering a backup across the bucket root. There's only one thing the user can have meant; add the slash, and show the corrected value back so nothing is filed under a name they didn't type.
+
 Key layout under the connection's prefix: `thumbnails/` `medium/` `originals/`, so the user's own bucket lifecycle rules can target each tier. Storage class/tiering is the bucket owner's business, configured in their cloud console, not in the app.
 
 ```
@@ -580,6 +583,8 @@ Queue:
 - Job table: id, target/asset ref, kind, display name, status (pending/running/done/failed), error message, timestamps.
 - **Every** unit of work is a job — metadata/hash checks and thumbnail work too, not just the big uploads. If the app is doing something, it must be a visible row.
 - Label each row by kind ("Backing up original", "Backing up thumbnail", "Checking for changes") so the list explains itself.
+- **Cap it, and top it up.** A queue holds at most ~100 unfinished jobs; past that, enqueue refuses. A camera roll is hundreds of thousands of assets, and a queue that long is neither reviewable nor cancellable — it's a list nobody can act on, and it turns "pause" into a promise about something that already happened. A library bigger than the cap goes up a queueful at a time, refilled as each one drains. Refilling only ever *continues* a sync that was already running; a drain that found nothing to do must not go looking for work, or "Manual" stops meaning manual.
+- **Paused means paused in both directions**: nothing new is taken *and* nothing more is processed. A queue that keeps growing while stopped is just a delayed surprise. Say which it is on the header — a queue quietly refusing work looks identical to one with nothing to do. Jobs already in flight are allowed to finish; an upload killed mid-request leaves a partial object in the bucket, which costs more than the second it saves.
 - Claim on dequeue inside a transaction, so two workers can't take the same job.
 - Bounded concurrency, user-visible and adjustable: "Speed: N at a time", default 2, range 1–8.
 - Pause / resume, persisted.

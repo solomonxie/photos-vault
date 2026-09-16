@@ -15,7 +15,12 @@ import 'person_page_screen.dart';
 /// circle: "a family is in a circle group" per the request. Other relation
 /// types are drawn as plain lines between clusters, styled by type.
 class PersonGraphScreen extends StatefulWidget {
-  const PersonGraphScreen({super.key, required this.personStore, required this.assetRecordStore, this.focusPersonId});
+  const PersonGraphScreen({
+    super.key,
+    required this.personStore,
+    required this.assetRecordStore,
+    this.focusPersonId,
+  });
 
   final PersonStore personStore;
   final AssetRecordStore assetRecordStore;
@@ -78,10 +83,17 @@ class _PersonGraphScreenState extends State<PersonGraphScreen> {
     final l10n = AppLocalizations.of(context)!;
     final clusters = _familyClusters();
     return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(middle: Text(l10n.personGraphTitle)),
+      navigationBar: CupertinoNavigationBar(
+        middle: Text(l10n.personGraphTitle),
+      ),
       child: SafeArea(
         child: _people.length < 2
-            ? Center(child: Text(l10n.personGraphEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)))
+            ? Center(
+                child: Text(
+                  l10n.personGraphEmpty,
+                  style: const TextStyle(color: CupertinoColors.systemGrey),
+                ),
+              )
             : LayoutBuilder(
                 builder: (context, constraints) => InteractiveViewer(
                   boundaryMargin: const EdgeInsets.all(200),
@@ -138,7 +150,9 @@ class _GraphLayout extends StatelessWidget {
       final innerRadius = _nodeSize * 0.9;
       for (var j = 0; j < members.length; j++) {
         final memberAngle = 2 * math.pi * j / members.length;
-        positions[members[j].id] = clusterCenter + Offset(math.cos(memberAngle), math.sin(memberAngle)) * innerRadius;
+        positions[members[j].id] =
+            clusterCenter +
+            Offset(math.cos(memberAngle), math.sin(memberAngle)) * innerRadius;
       }
     }
     return positions;
@@ -171,17 +185,31 @@ class _GraphLayout extends StatelessWidget {
                 child: GestureDetector(
                   onTap: () => Navigator.of(context).push(
                     CupertinoPageRoute(
-                      builder: (_) => PersonPageScreen(person: person, personStore: personStore, assetRecordStore: assetRecordStore),
+                      builder: (_) => PersonPageScreen(
+                        person: person,
+                        personStore: personStore,
+                        assetRecordStore: assetRecordStore,
+                      ),
                     ),
                   ),
                   child: Column(
                     children: [
                       Container(
                         decoration: person.id == focusPersonId
-                            ? BoxDecoration(shape: BoxShape.circle, border: Border.all(color: CupertinoColors.activeBlue, width: 2))
+                            ? BoxDecoration(
+                                shape: BoxShape.circle,
+                                border: Border.all(
+                                  color: CupertinoColors.activeBlue,
+                                  width: 2,
+                                ),
+                              )
                             : null,
                         padding: const EdgeInsets.all(2),
-                        child: PersonAvatar(assetRecordStore: assetRecordStore, localId: person.avatarLocalId, size: _nodeSize - 4),
+                        child: PersonAvatar(
+                          assetRecordStore: assetRecordStore,
+                          localId: person.avatarLocalId,
+                          size: _nodeSize - 4,
+                        ),
                       ),
                       Text(
                         person.name,
@@ -199,7 +227,11 @@ class _GraphLayout extends StatelessWidget {
 }
 
 class _EdgePainter extends CustomPainter {
-  const _EdgePainter({required this.positions, required this.relationships, required this.clusters});
+  const _EdgePainter({
+    required this.positions,
+    required this.relationships,
+    required this.clusters,
+  });
 
   final Map<String, Offset> positions;
   final List<PersonRelationship> relationships;
@@ -213,11 +245,14 @@ class _EdgePainter extends CustomPainter {
       ..style = PaintingStyle.fill;
     for (final cluster in clusters) {
       if (cluster.length < 2) continue;
-      final pts = [for (final p in cluster) positions[p.id]].whereType<Offset>().toList();
+      final pts = [for (final p in cluster) positions[p.id]]
+          .whereType<Offset>()
+          .toList();
       if (pts.isEmpty) continue;
       final cx = pts.map((o) => o.dx).reduce((a, b) => a + b) / pts.length;
       final cy = pts.map((o) => o.dy).reduce((a, b) => a + b) / pts.length;
-      final r = pts.map((o) => (o - Offset(cx, cy)).distance).reduce(math.max) + 36;
+      final r =
+          pts.map((o) => (o - Offset(cx, cy)).distance).reduce(math.max) + 36;
       canvas.drawCircle(Offset(cx, cy), r, clusterPaint);
     }
 
@@ -254,5 +289,6 @@ class _EdgePainter extends CustomPainter {
 
   @override
   bool shouldRepaint(_EdgePainter oldDelegate) =>
-      oldDelegate.positions != positions || oldDelegate.relationships != relationships;
+      oldDelegate.positions != positions ||
+      oldDelegate.relationships != relationships;
 }

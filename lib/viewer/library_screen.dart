@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:path/path.dart' as p;
 
 import '../l10n/app_localizations.dart';
+import '../photos/library_metadata.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/ai_touch_up_queue.dart';
 import '../photos/demo_assets_service.dart';
@@ -193,7 +194,24 @@ class LibraryScreenState extends State<LibraryScreen> {
   /// One refresh when a drain finishes rather than one per job — a queue of
   /// hundreds shouldn't re-read the whole library hundreds of times.
   void _onDrainingChanged() {
-    if (!syncQueue.draining.value) unawaited(reload());
+    if (!syncQueue.draining.value) unawaited(_onQueueDrained());
+  }
+
+  /// The queue is capped, so a library bigger than it is backed up a
+  /// queueful at a time: whenever one empties, refill it from whatever is
+  /// still pending. Self-limiting — if the work is failing rather than
+  /// landing, the failures hold their places in the queue, the refill is
+  /// refused, and nothing loops.
+  Future<void> _onQueueDrained() async {
+    await reload();
+    if (!mounted || syncQueue.paused.value) return;
+    // Only ever *continues* a sync that was already running. A drain that
+    // found nothing to do must not go looking for work — the sync-frequency
+    // setting says when to start one, and "Manual" is a promise.
+    if (syncQueue.processedInLastDrain == 0) return;
+    final remaining = _pendingAndFailed;
+    if (remaining.isEmpty) return;
+    await _backUpRecords(remaining);
   }
 
   /// A fresh install seeds the bundled demo photos automatically — no
@@ -351,7 +369,9 @@ class LibraryScreenState extends State<LibraryScreen> {
   /// Queues [records] for backup rather than uploading them here: one job
   /// per derivative per asset, drained by [syncQueue] with real concurrency.
   /// Returns how many assets were queued — not how many landed, which isn't
-  /// knowable until the queue gets to them.
+  /// knowable until the queue gets to them, and not how many were *asked*
+  /// for: the queue is capped ([SyncQueue.capacity]) and refuses while
+  /// paused, so a big library goes up a queueful at a time.
   Future<int> _backUpRecords(List<AssetRecord> records) async {
     // Nothing to upload *to* yet: queueing anyway would walk the whole
     // camera roll resolving each asset's file — on a real library that's
@@ -359,13 +379,19 @@ class LibraryScreenState extends State<LibraryScreen> {
     // with nowhere to put them. Adding a target runs `_syncEverything`,
     // which picks every pending asset up then.
     if (!await _hasBackupTarget()) return 0;
+    var queued = 0;
     for (final record in records) {
       final name = _displayNameFor(record);
-      await syncQueue.enqueue(
+      final taken = await syncQueue.enqueue(
         localId: record.localId,
         kind: SyncJobKind.uploadOriginal,
         displayName: name,
       );
+      // Full or paused. Stop walking the list — on a real camera roll the
+      // rest is tens of thousands of records, and they're still pending on
+      // their own records for the next pass to find.
+      if (!taken) break;
+      queued++;
       // Videos have no thumbnail pipeline yet (T2.3), so there'd be nothing
       // for the job to do.
       if (!record.isVideo) {
@@ -376,8 +402,10 @@ class LibraryScreenState extends State<LibraryScreen> {
         );
       }
     }
-    unawaited(syncQueue.start());
-    return records.length;
+    // Only when there's something to drain: starting an empty drain would
+    // flip `draining` and bring `_onDrainingChanged` straight back here.
+    if (queued > 0) unawaited(syncQueue.start());
+    return queued;
   }
 
   /// The queue worker. One job is one asset and one kind of work, so a
@@ -592,7 +620,7 @@ class LibraryScreenState extends State<LibraryScreen> {
   Future<void> _addDemoPhotos() => _runBusy(_demoAssetsService.addAll);
 
   Future<void> _toggleFavorite(AssetRecord record) async {
-    await assetRecordStore.setFavorite(record.localId, !record.isFavorite);
+    await setFavoriteEverywhere(assetRecordStore, record, !record.isFavorite);
     await reload();
   }
 
@@ -818,8 +846,9 @@ class LibraryScreenState extends State<LibraryScreen> {
     final shift = picked.difference(anchor);
     if (shift == Duration.zero) return;
     for (final record in selected) {
-      await assetRecordStore.setCreatedAt(
-        record.localId,
+      await setCreatedAtEverywhere(
+        assetRecordStore,
+        record,
         record.createdAt.add(shift),
       );
     }

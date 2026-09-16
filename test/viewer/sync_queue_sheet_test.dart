@@ -2,7 +2,7 @@ import 'package:bring_your_own_photos/l10n/app_localizations.dart';
 import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
 import 'package:bring_your_own_photos/upload/sync_job.dart';
 import 'package:bring_your_own_photos/upload/sync_queue.dart';
-import 'package:bring_your_own_photos/viewer/backup_queue_sheet.dart';
+import 'package:bring_your_own_photos/viewer/sync_queue_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -29,7 +29,7 @@ void main() {
   }
 
   testWidgets('shows the empty state when nothing is queued', (tester) async {
-    await tester.pumpWidget(_wrap(BackupQueueSheet(queue: newQueue())));
+    await tester.pumpWidget(_wrap(SyncQueueSheet(queue: newQueue())));
     await tester.pumpAndSettle();
 
     expect(find.text("Nothing in the queue — everything's backed up."), findsOneWidget);
@@ -42,7 +42,7 @@ void main() {
     await queue.store.enqueue(localId: 'b', kind: SyncJobKind.checkChanges, displayName: 'sunset.jpg');
     await queue.refresh();
 
-    await tester.pumpWidget(_wrap(BackupQueueSheet(queue: queue)));
+    await tester.pumpWidget(_wrap(SyncQueueSheet(queue: queue)));
     await tester.pumpAndSettle();
 
     expect(find.text('Queue (3)'), findsOneWidget);
@@ -59,7 +59,7 @@ void main() {
     await queue.store.markFailed(job.id, 'Access denied');
     await queue.refresh();
 
-    await tester.pumpWidget(_wrap(BackupQueueSheet(queue: queue)));
+    await tester.pumpWidget(_wrap(SyncQueueSheet(queue: queue)));
     await tester.pumpAndSettle();
 
     expect(find.text('Access denied'), findsOneWidget);
@@ -75,7 +75,7 @@ void main() {
     await queue.store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'beach.jpg');
     await queue.refresh();
 
-    await tester.pumpWidget(_wrap(BackupQueueSheet(queue: queue)));
+    await tester.pumpWidget(_wrap(SyncQueueSheet(queue: queue)));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(CupertinoIcons.pause_fill));
@@ -92,7 +92,7 @@ void main() {
     await queue.store.markDone(done.id);
     await queue.refresh();
 
-    await tester.pumpWidget(_wrap(BackupQueueSheet(queue: queue)));
+    await tester.pumpWidget(_wrap(SyncQueueSheet(queue: queue)));
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(CupertinoIcons.ellipsis_circle));

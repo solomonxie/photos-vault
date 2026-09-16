@@ -50,3 +50,7 @@ ManualAddService.enqueueFile(scratchPath)   ── same hash-named/dedup path as
   place name, so Places fills itself in. Run on view, one photo at a time:
   the OS geocoder is rate-limited per app, and it only ever fills an *empty*
   `AssetRecord.location` — a place the user typed is never overwritten.
+- `library_metadata.dart` — the edits that belong to the photo rather than
+  to this app, written to both the local record and the OS photo library:
+  favourite and creation date, which is the whole list PhotoKit will accept.
+  Caption/description/tags have no public write API on iOS and stay local.

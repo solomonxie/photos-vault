@@ -25,6 +25,19 @@ class SyncQueue {
 
   final Future<void> Function(SyncJob job) _process;
 
+  /// The most unfinished jobs the queue will hold. Past this, [enqueue]
+  /// refuses rather than growing: a camera roll is hundreds of thousands of
+  /// assets, and a queue that long is neither reviewable nor cancellable —
+  /// it's just a list nobody can act on. Work is picked up a queueful at a
+  /// time instead, topped up as it drains.
+  static const capacity = 100;
+
+  static const _unfinished = [
+    SyncJobStatus.pending,
+    SyncJobStatus.running,
+    SyncJobStatus.failed,
+  ];
+
   /// The live queue, for the UI to render. Refreshed after every state
   /// change rather than polled.
   final ValueNotifier<List<SyncJob>> jobs = ValueNotifier(const []);
@@ -66,13 +79,27 @@ class SyncQueue {
     unawaited(start());
   }
 
-  Future<void> enqueue({
+  /// How many jobs are still to be dealt with — waiting, running, or
+  /// failed and awaiting a decision. What [capacity] is measured against.
+  Future<int> unfinishedCount() => store.countWhere(_unfinished);
+
+  /// Returns whether the job was taken. `false` means the queue is paused
+  /// or full — both of which the caller should read as "not now", not as a
+  /// failure: the work is still pending on the asset itself, and the next
+  /// sync pass picks it up.
+  Future<bool> enqueue({
     required String localId,
     required SyncJobKind kind,
     required String displayName,
   }) async {
+    await _loadSettings();
+    // Paused means paused: a queue that keeps growing while stopped is
+    // just a delayed surprise.
+    if (paused.value) return false;
+    if (await unfinishedCount() >= capacity) return false;
     await store.enqueue(localId: localId, kind: kind, displayName: displayName);
     await refresh();
+    return true;
   }
 
   Future<void> setPaused(bool value) async {
@@ -112,6 +139,12 @@ class SyncQueue {
     unawaited(start());
   }
 
+  /// Jobs actually run by the drain that just finished. Lets a caller tell
+  /// "the queue emptied, there may be more to feed it" from "there was
+  /// never anything to do" — the difference between continuing a sync and
+  /// starting one nobody asked for.
+  int processedInLastDrain = 0;
+
   Future<void>? _drain;
 
   /// Runs until the queue empties or it's paused. Safe to call whenever
@@ -133,11 +166,16 @@ class SyncQueue {
     }
   }
 
+  /// Jobs already in flight when [setPaused] is called are allowed to
+  /// finish — an upload killed mid-request leaves a partial object in the
+  /// bucket, which costs more than the second it saves.
+  ///
   /// Jobs run in batches of [concurrency] rather than as a continuously
   /// topped-up pool: a slow file holds up its batch, but the bound is
   /// obvious and there's no bookkeeping to get wrong.
   Future<void> _runDrain() async {
     draining.value = true;
+    processedInLastDrain = 0;
     try {
       while (!paused.value) {
         final batch = <Future<void>>[];
@@ -157,6 +195,7 @@ class SyncQueue {
   }
 
   Future<void> _run(SyncJob job) async {
+    processedInLastDrain++;
     try {
       await _process(job);
       await store.markDone(job.id);
