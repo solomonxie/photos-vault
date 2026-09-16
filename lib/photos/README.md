@@ -46,3 +46,7 @@ ManualAddService.enqueueFile(scratchPath)   ── same hash-named/dedup path as
 - `person.dart` / `person_store.dart` — named `Person` profiles (bio fields,
   tagged photos, relationships, location history) behind
   `../viewer/people_screen.dart`; see DESIGN.md's "People profiles" section.
+- `photo_location.dart` — reverse-geocodes a photo's own GPS tag into a
+  place name, so Places fills itself in. Run on view, one photo at a time:
+  the OS geocoder is rate-limited per app, and it only ever fills an *empty*
+  `AssetRecord.location` — a place the user typed is never overwritten.

@@ -272,6 +272,12 @@
     "placeholders": {"count": {"type": "int"}}
   },
   "settingsAddAiKeyLink": "Add AI Key",
+  "settingsAiVendorLabel": "Vendor",
+  "settingsAiGetKeyLink": "Get one",
+  "settingsAiNoKeyYet": "Don't have a {vendor} key?",
+  "@settingsAiNoKeyYet": {
+    "placeholders": {"vendor": {"type": "String"}}
+  },
   "settingsAiApiKeyLabel": "API key",
   "settingsAiClearButton": "Remove Key",
   "settingsAiSavedMessage": "API key saved",

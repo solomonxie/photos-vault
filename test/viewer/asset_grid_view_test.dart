@@ -178,7 +178,9 @@ void main() {
   });
 
   group('date scrubber', () {
-    testWidgets('stays out of the way until the grid moves', (tester) async {
+    testWidgets('introduces itself once, then gets out of the way', (
+      tester,
+    ) async {
       await tester.pumpWidget(
         _wrap(
           AssetGridView(
@@ -199,8 +201,12 @@ void main() {
           )
           .opacity;
 
-      // The opening jump to the newest photo wakes it; it fades back out.
-      await tester.pumpAndSettle(const Duration(seconds: 2));
+      // Shown unprompted on arrival — a handle that only appears after
+      // you've started thumbing is one nobody discovers…
+      expect(opacity(), 1);
+
+      // …then it goes away on its own.
+      await tester.pumpAndSettle(const Duration(seconds: 4));
       expect(opacity(), 0);
 
       await tester.drag(find.byType(CustomScrollView), const Offset(0, 120));
@@ -208,7 +214,7 @@ void main() {
       expect(opacity(), 1);
 
       // …and back out once scrolling stops.
-      await tester.pumpAndSettle(const Duration(seconds: 2));
+      await tester.pumpAndSettle(const Duration(seconds: 4));
       expect(opacity(), 0);
     });
 

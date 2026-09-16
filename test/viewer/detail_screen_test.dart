@@ -855,4 +855,89 @@ void main() {
       expect(find.text('Download Full Resolution'), findsOneWidget);
     });
   });
+
+  group('location from the photo\'s own metadata', () {
+    testWidgets('fills an empty Location and saves it', (tester) async {
+      final store = FakeAssetRecordStore();
+      final record = _record(localId: 'geo');
+      await store.upsert(
+        localId: record.localId,
+        contentHash: record.contentHash,
+        platform: record.platform,
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: record.sourcePath,
+      );
+
+      await tester.pumpWidget(
+        _wrap(
+          DetailScreen(
+            records: [record],
+            initialIndex: 0,
+            assetRecordStore: store,
+            personStore: FakePersonStore(),
+            resolvePlaceName: (_) async => 'Kyoto, Japan',
+            onDelete: (_) async => true,
+            onToggleFavorite: (_) async {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _scrollToInfoPanel(tester);
+
+      expect(find.text('Kyoto, Japan'), findsOneWidget);
+      expect(
+        (await store.getByLocalId('geo'))?.location,
+        'Kyoto, Japan',
+        reason: 'persisted, not just shown',
+      );
+    });
+
+    testWidgets('never overwrites a place the user typed', (tester) async {
+      final store = FakeAssetRecordStore();
+      final record = _record(localId: 'typed').withLocation('Home');
+      var geocoded = false;
+
+      await tester.pumpWidget(
+        _wrap(
+          DetailScreen(
+            records: [record],
+            initialIndex: 0,
+            assetRecordStore: store,
+            personStore: FakePersonStore(),
+            resolvePlaceName: (_) async {
+              geocoded = true;
+              return 'Kyoto, Japan';
+            },
+            onDelete: (_) async => true,
+            onToggleFavorite: (_) async {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _scrollToInfoPanel(tester);
+
+      expect(geocoded, isFalse);
+      expect(find.text('Home'), findsOneWidget);
+    });
+
+    testWidgets('an untagged photo just stays "No Location"', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          DetailScreen(
+            records: [_record(localId: 'plain')],
+            initialIndex: 0,
+            assetRecordStore: FakeAssetRecordStore(),
+            personStore: FakePersonStore(),
+            resolvePlaceName: (_) async => null,
+            onDelete: (_) async => true,
+            onToggleFavorite: (_) async {},
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await _scrollToInfoPanel(tester);
+
+      expect(find.text('No Location'), findsOneWidget);
+    });
+  });
 }

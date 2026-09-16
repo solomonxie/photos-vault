@@ -203,8 +203,8 @@ Sometimes text link style look better than big button, depends on the usage.
 
 - Day-grouped square grid under bold date headers ("Today" / "Yesterday" / localized date).
 - **Oldest at the top, newest at the bottom**, and the page *opens* scrolled to the bottom. Time runs down the page, so "further up" means "further back" — and the newest day needs no scrolling at all.
-- That bottom-of-the-grid position is the page's **home anchor**: tapping the status bar or the large title returns to it, and tapping again from there goes to the very top (the oldest day, and the search field). Scrolling to the oldest photo is a thing you can ask for, never the thing you land on.
-- Past a couple of screens of content, a **fading date scrubber** rides the right edge: it appears while the grid moves, fades out ~1.4s after it stops, and while dragged shows the month it's landing on. It's the only way to cross years without flinging.
+- That bottom-of-the-grid position is the page's **home anchor**: tapping anywhere on the header — the status bar strip *and* the navigation bar under it, not just the title — returns to it, and tapping again from there goes to the very top (the oldest day, and the search field). A tap target that's only the title's own glyphs is a target you have to aim at. Scrolling to the oldest photo is a thing you can ask for, never the thing you land on.
+- Past a couple of screens of content, a **fading date scrubber** rides the right edge: it appears while the grid moves, fades out ~1.4s after it stops, and while dragged shows the month it's landing on. It's the only way to cross years without flinging — so it **shows itself once, unprompted, on arrival** and lingers a beat longer that first time. A control that only ever appears *after* you've started thumbing is a control nobody discovers.
 - Large-title nav bar with a search field above it.
 - **3 tiles per row**, 8px gutters, 8px corner radius. Four-up at 2px gutters packs more in but reads as a contact sheet; at three the photo is the subject.
 - Badge only the **exceptional** state. A not-yet-synced dot, nothing at all when it's fine — a healthy library should read clean, not carry a checkmark on every tile.
@@ -212,6 +212,7 @@ Sometimes text link style look better than big button, depends on the usage.
 - Multi-select reuses the same tile with a checkmark overlay rather than a separate mode/screen; the batch actions live in a bottom bar that only exists while selecting.
 - Batch edits are additive or a single-field set (tag, place, event, date shift) — nothing destructive on a multi-selection.
 - Adjusting the date on a multi-selection **shifts** every photo by the same delta rather than stamping them all identically, so a burst keeps its spacing.
+- **A video is a tile with a picture on it**, same as a photo — its poster frame, with a small camera badge. A black square and a play glyph says "a video" and nothing about *which* video, which is the only question a grid answers. The play-glyph tile stays as the fallback for a file with no frame to show.
 - Tile image source order: live local file → OS library thumbnail → app's own cached thumbnail → placeholder. The cache is a *fallback*; preferring it means one stale path blanks a tile whose real photo is right there.
 
 ```
@@ -295,6 +296,7 @@ app cached thumb ──found──▶  draw it
 - Info panel is a grouped rounded card with inset dividers, not a flat full-bleed divided list.
   - Header: date/time, filename as a muted second line.
   - Free-text fields (caption, location) as their own rounded cards, not bare text on the background.
+  - **Location fills itself in from the photo's own GPS tag** — the camera already recorded where it was, so asking the user to type "Melbourne" a thousand times is asking them to re-enter data they already gave you. Reverse-geocode through the OS geocoder, on view and one photo at a time (it's rate-limited per app, so a background sweep of a decade would spend the whole budget on photos nobody is looking at), and only ever into an *empty* field — a place someone typed is theirs.
   - Every row that can be edited is tappable in place (date/time sheet, pickers, chips).
 - "Edit" sits top-right in the nav bar and opens a menu: Crop, Rotate, AI Touch Up.
   - Crop and rotate are local and instant; rotate is a **full 360° dial** you spin, not four preset buttons.
@@ -336,6 +338,7 @@ app cached thumb ──found──▶  draw it
 
 - Any value that is free text but repeats across records (location, event, tag, school, employer, organization) gets a **fuzzy search-or-create picker**: typing filters existing values across all records, and the same field creates a new one. No separate "create" button, no separate mode.
 - That picker is a **drop-down sheet over the current page**, never a page push — picking a value shouldn't cost a navigation. It carries the field name, a checkmark on the current value, and a clear row when one is set.
+- **Size it to what's in it**, capped at 55% of the screen and floored at something worth opening. Choosing between three events should be a small pop-up; the same half-screen slab every time reads as a page and buries the photo behind it.
 - Passcode entry: tap-only numeric keypad with dot indicators, not a system keyboard. Auto-submit on the final digit when there's nothing left to disambiguate.
 - Credential/technical fields: disable autocorrect and smart punctuation. Smart quotes and dashes silently corrupt pasted keys and produce "wrong credentials" errors that aren't.
 - Validate destructively-wrong input before saving, with non-blocking hints (e.g. "20 characters — AWS keys are usually 20") to catch bad pastes.
@@ -694,7 +697,20 @@ Can support multiple model selections under each vendor, if confirmed by design 
 - Image editing is a narrower capability than vision — a key that can only *read* images must fail over to one that can *return* one, not error the whole request.
 - Long AI work runs detached from the screen that started it: an inline "AI working…" status, the result filed into the library when it lands, and the source photo untouched either way.
 
-Layout follows the standard section anatomy at the top of this doc. The two strategies:
+Layout follows the standard section anatomy at the top of this doc — key rows in a flat list, `+ Add AI Key` as a centred accent link closing it, and **adding one is a half sheet**, not a form parked permanently under the list. Two fields don't need a page, and a page-wide input box sitting under the keys is paid for on every visit including the ones where nobody is adding anything.
+
+```
+      ┌────────────────────────────────────────┐
+      │ Cancel        Add AI Key         Save  │
+      ├────────────────────────────────────────┤
+      │ Vendor                    OpenAI  ▾    │
+      │ API key                                │
+      │ [ sk-…                               ] │ ← masked; placeholder is the
+      │ Don't have an OpenAI key?   Get one →  │   vendor's own key shape
+      └────────────────────────────────────────┘
+```
+
+The strategy control stays put but goes **inert below two keys** — with one key there's nothing to fall back to, and a live control that changes nothing is worse than a dim one. The two strategies:
 
 ```
 Sequential ▾   key1 ──✓──▶ done      sticky: stays on key1 until it errors

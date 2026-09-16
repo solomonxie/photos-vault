@@ -209,10 +209,22 @@ class AssetTile extends StatelessWidget {
     );
   }
 
-  Widget _placeholder() => const ColoredBox(
-    color: CupertinoColors.systemGrey5,
-    child: Icon(CupertinoIcons.photo),
-  );
+  /// Last resort when no image resolves. A video gets the dark play-glyph
+  /// tile rather than the grey photo one — for a manually-added file
+  /// there's no frame to decode, so this *is* its tile.
+  Widget _placeholder() => record.isVideo
+      ? const ColoredBox(
+          color: CupertinoColors.darkBackgroundGray,
+          child: Icon(
+            CupertinoIcons.play_circle_fill,
+            color: CupertinoColors.white,
+            size: 28,
+          ),
+        )
+      : const ColoredBox(
+          color: CupertinoColors.systemGrey5,
+          child: Icon(CupertinoIcons.photo),
+        );
 
   @override
   Widget build(BuildContext context) {
@@ -249,17 +261,10 @@ class AssetTile extends StatelessWidget {
         child: Stack(
           fit: StackFit.expand,
           children: [
-            if (video)
-              const ColoredBox(
-                color: CupertinoColors.darkBackgroundGray,
-                child: Icon(
-                  CupertinoIcons.play_circle_fill,
-                  color: CupertinoColors.white,
-                  size: 28,
-                ),
-              )
-            else
-              _image(),
+            // Videos draw their poster frame like any other tile — the OS
+            // library hands one back for them too, and a black square with
+            // a play glyph told you nothing about which video it was.
+            _image(),
             if (record.localDeleted)
               const Positioned(
                 top: 4,

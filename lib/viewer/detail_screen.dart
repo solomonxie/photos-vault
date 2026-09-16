@@ -16,6 +16,7 @@ import '../photos/derived_asset.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/photo_library_service.dart';
+import '../photos/photo_location.dart';
 import '../settings/backup_targets_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
@@ -69,6 +70,7 @@ class DetailScreen extends StatefulWidget {
     this.personStore,
     this.resolvePhotoManagerFile,
     this.resolveLivePhotoVideo,
+    this.resolvePlaceName,
     this.restoreOriginal,
   });
 
@@ -98,6 +100,11 @@ class DetailScreen extends StatefulWidget {
   /// [PhotoLibraryService.resolveLivePhotoVideo]; overridable so widget
   /// tests never touch the real `photo_manager` platform channel.
   final Future<File?> Function(AssetRecord record)? resolveLivePhotoVideo;
+
+  /// Reverse-geocodes a photo's GPS tag into a place name, to fill an empty
+  /// Location. Defaults to a real [PhotoLocationService]; overridable so
+  /// widget tests never touch the geocoder plugin.
+  final Future<String?> Function(AssetRecord record)? resolvePlaceName;
 
   /// Re-downloads a cloud-only asset's original ([AssetRecord.localDeleted]).
   /// Defaults to a real [OriginalRestore]; overridable so widget tests never
@@ -512,6 +519,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   record: _records[i],
                   resolveFile: widget.resolvePhotoManagerFile,
                   resolveLiveVideo: widget.resolveLivePhotoVideo,
+                  resolvePlaceName: widget.resolvePlaceName,
                   restoreOriginal: widget.restoreOriginal,
                   assetRecordStore: widget.assetRecordStore,
                   personStore: _personStore,
@@ -578,6 +586,7 @@ class _MediaPage extends StatefulWidget {
     required this.scrollController,
     this.resolveFile,
     this.resolveLiveVideo,
+    this.resolvePlaceName,
     this.restoreOriginal,
   });
 
@@ -586,6 +595,9 @@ class _MediaPage extends StatefulWidget {
 
   /// See [DetailScreen.resolveLivePhotoVideo].
   final Future<File?> Function(AssetRecord record)? resolveLiveVideo;
+
+  /// See [DetailScreen.resolvePlaceName].
+  final Future<String?> Function(AssetRecord record)? resolvePlaceName;
   final AssetRecordStore assetRecordStore;
   final PersonStore personStore;
   final ValueChanged<AssetRecord> onRecordChanged;
@@ -855,6 +867,7 @@ class _MediaPageState extends State<_MediaPage> {
             SliverToBoxAdapter(
               child: _InfoPanel(
                 record: widget.record,
+                resolvePlaceName: widget.resolvePlaceName,
                 resolvedPath: _path,
                 videoController: _videoController,
                 assetRecordStore: widget.assetRecordStore,
@@ -989,6 +1002,7 @@ class _ZoomableImageState extends State<_ZoomableImage>
 class _InfoPanel extends StatefulWidget {
   const _InfoPanel({
     required this.record,
+    required this.resolvePlaceName,
     required this.resolvedPath,
     required this.videoController,
     required this.assetRecordStore,
@@ -1001,6 +1015,10 @@ class _InfoPanel extends StatefulWidget {
   /// Same value `_MediaPage` resolved and rendered — `photoManager` records
   /// have no `record.sourcePath` of their own.
   final String? resolvedPath;
+
+  /// See [DetailScreen.resolvePlaceName].
+  final Future<String?> Function(AssetRecord record)? resolvePlaceName;
+
   final VideoPlayerController? videoController;
   final AssetRecordStore assetRecordStore;
   final PersonStore personStore;
@@ -1024,6 +1042,7 @@ class _InfoPanelState extends State<_InfoPanel> {
     super.initState();
     _load();
     _loadPeople();
+    _fillLocationFromMetadata();
   }
 
   @override
@@ -1035,7 +1054,28 @@ class _InfoPanelState extends State<_InfoPanel> {
     if (oldWidget.record.localId != widget.record.localId) {
       _description.text = widget.record.description;
       _loadPeople();
+      _fillLocationFromMetadata();
     }
+  }
+
+  /// Names the place from the photo's own GPS tag the first time it's
+  /// opened, so Places populates itself. Only ever fills an empty field —
+  /// see [PhotoLocationService], which is also where the "on view, not in
+  /// bulk" reasoning lives.
+  Future<void> _fillLocationFromMetadata() async {
+    final record = widget.record;
+    final existing = record.location;
+    if (existing != null && existing.isNotEmpty) return;
+    final resolve =
+        widget.resolvePlaceName ?? PhotoLocationService().placeNameFor;
+    final name = await resolve(record);
+    if (name == null || name.isEmpty || !mounted) return;
+    // Raced by a hand-typed value while the geocoder was working: theirs wins.
+    final current = widget.record.location;
+    if (current != null && current.isNotEmpty) return;
+    await widget.assetRecordStore.setLocation(record.localId, name);
+    if (!mounted) return;
+    widget.onRecordChanged(widget.record.withLocation(name));
   }
 
   @override

@@ -44,11 +44,16 @@ class DateScrubber extends StatefulWidget {
 
 class _DateScrubberState extends State<DateScrubber> {
   static const _hideDelay = Duration(milliseconds: 1400);
+
+  /// The first showing lingers — nobody has scrolled yet, so this is the
+  /// one chance to be noticed at all.
+  static const _firstShowDelay = Duration(milliseconds: 2600);
   static const _thumbHeight = 52.0;
   static const _thumbWidth = 34.0;
 
   bool _visible = false;
   bool _dragging = false;
+  bool _introduced = false;
   Timer? _hideTimer;
 
   /// Scroll offset the current drag started from, plus the pointer's
@@ -84,11 +89,23 @@ class _DateScrubberState extends State<DateScrubber> {
     _scheduleHide();
   }
 
-  void _scheduleHide() {
+  void _scheduleHide([Duration delay = _hideDelay]) {
     _hideTimer?.cancel();
-    _hideTimer = Timer(_hideDelay, () {
+    _hideTimer = Timer(delay, () {
       if (_dragging || !mounted) return;
       setState(() => _visible = false);
+    });
+  }
+
+  /// Show it once, unprompted, as soon as there's enough library to scrub —
+  /// a handle that only ever appears *after* you've started thumbing is a
+  /// handle nobody discovers.
+  void _introduce() {
+    _introduced = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted) return;
+      setState(() => _visible = true);
+      _scheduleHide(_firstShowDelay);
     });
   }
 
@@ -157,6 +174,7 @@ class _DateScrubberState extends State<DateScrubber> {
   @override
   Widget build(BuildContext context) {
     if (!_enabled) return const SizedBox.shrink();
+    if (!_introduced) _introduce();
     return Padding(
       padding: widget.insets,
       child: LayoutBuilder(
