@@ -67,6 +67,15 @@ class _FakeDemoAssetsService implements DemoAssetsService {
   PersonStore get personStore => throw UnimplementedError();
 
   @override
+  Future<Set<String>> demoLocalIds() async => const {'manual:demo1'};
+
+  @override
+  Future<int> removeAll() async {
+    await store.remove('manual:demo1');
+    return 1;
+  }
+
+  @override
   Future<List<AssetRecord>> addAll() async => [
     await store.upsert(
       localId: 'manual:demo1',
@@ -1110,4 +1119,103 @@ void main() {
       );
     },
   );
+
+  testWidgets('selection mode deletes the whole selection, once confirmed', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    for (final id in ['one', 'two', 'three']) {
+      await recordStore.upsert(
+        localId: 'manual:$id',
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+    }
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.byKey(const ValueKey('manual:one')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manual:two')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    // Named, because by now the selection has usually scrolled out of view.
+    expect(find.text('Delete 2 photos?'), findsOneWidget);
+    await tester.tap(find.widgetWithText(CupertinoDialogAction, 'Delete'));
+    await tester.pumpAndSettle();
+
+    expect((await recordStore.getByLocalId('manual:one'))!.isDeleted, isTrue);
+    expect((await recordStore.getByLocalId('manual:two'))!.isDeleted, isTrue);
+    expect(
+      (await recordStore.getByLocalId('manual:three'))!.isDeleted,
+      isFalse,
+    );
+    // …and selection mode is over, since what was selected is gone.
+    expect(find.text('Done'), findsNothing);
+  });
+
+  testWidgets('and leaves them alone when the confirmation is declined', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:one',
+      contentHash: 'one',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/one.jpg',
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.byKey(const ValueKey('manual:one')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect((await recordStore.getByLocalId('manual:one'))!.isDeleted, isFalse);
+  });
 }

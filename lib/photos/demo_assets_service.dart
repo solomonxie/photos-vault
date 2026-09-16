@@ -6,6 +6,7 @@ import 'package:path_provider/path_provider.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/passcode_hash.dart';
+import 'file_hash.dart' as file_hash;
 import 'manual_add.dart';
 import 'person.dart';
 import 'person_store.dart';
@@ -103,6 +104,51 @@ class DemoAssetsService {
     ).subtract(const Duration(days: 60)),
     DateTime(now.year - 2, now.month, now.day),
   ];
+
+  /// The local ids [addAll] would create — the bundled files' own content
+  /// hashes, which is what `ManualAddService` keys them by. Knowing them
+  /// without re-adding anything is what lets demo data be *removed*
+  /// exactly, rather than by guessing at filenames.
+  Future<Set<String>> demoLocalIds() async {
+    final ids = <String>{};
+    for (final assetPath in assetPaths) {
+      final data = await rootBundle.load(assetPath);
+      ids.add(
+        'manual:${file_hash.hashBytes(data.buffer.asUint8List(data.offsetInBytes, data.lengthInBytes))}',
+      );
+    }
+    return ids;
+  }
+
+  /// Takes back everything [addAll] put in: the demo photos and videos,
+  /// their copied files, the demo albums, and the demo people. Anything the
+  /// user made themselves is untouched — demo albums and people carry an
+  /// `isDemo` flag for exactly this, and the assets are found by the
+  /// content hash of the bundled originals.
+  Future<int> removeAll() async {
+    var removed = 0;
+    for (final localId in await demoLocalIds()) {
+      final record = await manualAddService.store.getByLocalId(localId);
+      if (record == null) continue;
+      final path = record.sourcePath;
+      if (path != null) {
+        try {
+          await File(path).delete();
+        } catch (_) {
+          // Already gone, or never written — the record still goes.
+        }
+      }
+      await manualAddService.store.remove(localId);
+      removed++;
+    }
+    for (final album in await albumStore.listAll()) {
+      if (album.isDemo) await albumStore.remove(album.id);
+    }
+    for (final person in await personStore.listAll()) {
+      if (person.isDemo) await personStore.remove(person.id);
+    }
+    return removed;
+  }
 
   Future<void> _seedDemoAlbums(List<AssetRecord> added) async {
     for (final spec in _demoAlbums) {

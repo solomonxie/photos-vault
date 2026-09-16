@@ -37,3 +37,9 @@ past it, including everything while paused. A library bigger than the cap is
 backed up a queueful at a time — `LibraryScreen` refills it whenever a drain
 that actually did work finishes, so the refill continues a sync rather than
 starting one the sync-frequency setting didn't ask for.
+
+`s3_object_delete.dart` is the only thing in the app that removes an object
+from the bucket, and it's reached from exactly one place: emptying this app's
+Recently Deleted (`BackupCoordinator.deleteBackup`). Everything short of that
+— including an ordinary delete — leaves the backup alone, because it's the
+copy that outlives the phone.
