@@ -7,6 +7,22 @@ import '../storage/asset_record_store.dart';
 
 enum PhotoLibraryAccess { granted, limited, denied }
 
+/// What one [PhotoLibraryService.syncAll] pass found.
+///
+/// [added] is what's newly tracked and therefore needs backing up;
+/// [updated] counts assets already tracked whose metadata moved underneath
+/// us (a heart added or removed over in Photos). Both matter to the caller
+/// and they mean different things — a scan that added nothing but updated
+/// something still has to redraw.
+class PhotoLibrarySyncResult {
+  const PhotoLibrarySyncResult({this.added = const [], this.updated = 0});
+
+  final List<AssetRecord> added;
+  final int updated;
+
+  bool get isEmpty => added.isEmpty && updated == 0;
+}
+
 /// Bridges the OS photo library (via `photo_manager`) into `asset_record` —
 /// the real camera-roll source, alongside manually-added/demo files. See
 /// IMPLEMENTATION_PLAN.md T2.1.
@@ -79,15 +95,17 @@ class PhotoLibraryService {
   /// except for the favourite flag: Photos owns that for its own assets, so
   /// a heart added over there shows up here on the next scan. The reverse
   /// direction is [setFavoriteInLibrary].
-  Future<List<AssetRecord>> syncAll() async {
+  Future<PhotoLibrarySyncResult> syncAll() async {
     final entities = await _listAllAssets();
     final added = <AssetRecord>[];
+    var updated = 0;
     for (final entity in entities) {
       final localId = localIdFor(entity);
       final existing = await store.getByLocalId(localId);
       if (existing != null) {
         if (existing.isFavorite != entity.isFavorite) {
           await store.setFavorite(localId, entity.isFavorite);
+          updated++;
         }
         continue;
       }
@@ -103,7 +121,7 @@ class PhotoLibraryService {
       if (entity.isFavorite) await store.setFavorite(localId, true);
       added.add(entity.isFavorite ? record.withFavorite(true) : record);
     }
-    return added;
+    return PhotoLibrarySyncResult(added: added, updated: updated);
   }
 
   /// Resolves a `photoManager` record back to its [AssetEntity], or null if

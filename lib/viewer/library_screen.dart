@@ -110,7 +110,8 @@ class LibraryScreen extends StatefulWidget {
   State<LibraryScreen> createState() => LibraryScreenState();
 }
 
-class LibraryScreenState extends State<LibraryScreen> {
+class LibraryScreenState extends State<LibraryScreen>
+    with WidgetsBindingObserver {
   late final AssetRecordStore assetRecordStore =
       widget.assetRecordStore ?? AssetRecordStore();
   late final BackupTargetsStore _backupTargetsStore =
@@ -168,8 +169,26 @@ class LibraryScreenState extends State<LibraryScreen> {
   /// Reaches the grid's scroll anchor (see [_jumpHome]).
   final _gridKey = GlobalKey<AssetGridViewState>();
 
+  /// A camera-roll scan walks the whole library, so the resume hook must
+  /// not start a second one on top of the one still running.
+  bool _syncingLibrary = false;
+
+  /// Photos is where a photo is *taken*, hearted and deleted — this app is
+  /// a second window onto the same library, so every return to it has to
+  /// re-read what changed while we were away. Scanning only at cold start
+  /// meant un-hearting a photo over in Photos, coming back, and still
+  /// finding it hearted here until the app was force-quit.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    super.didChangeAppLifecycleState(state);
+    if (state != AppLifecycleState.resumed || !mounted) return;
+    unawaited(_syncPhotoLibrary());
+    unawaited(_runScheduledSyncIfDue());
+  }
+
   @override
   void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
     syncQueue.draining.removeListener(_onDrainingChanged);
     AiTouchUpQueue.instance.removeListener(_onAiTouchUpChanged);
     syncQueue.dispose();
@@ -179,6 +198,7 @@ class LibraryScreenState extends State<LibraryScreen> {
   @override
   void initState() {
     super.initState();
+    WidgetsBinding.instance.addObserver(this);
     syncQueue.draining.addListener(_onDrainingChanged);
     AiTouchUpQueue.instance.addListener(_onAiTouchUpChanged);
     _init();
@@ -257,17 +277,23 @@ class LibraryScreenState extends State<LibraryScreen> {
   /// silent on every launch after. Backs up anything newly seen the same
   /// way a manual add is, so granting access alone starts a backup.
   Future<void> _syncPhotoLibrary() async {
+    if (_syncingLibrary) return;
+    _syncingLibrary = true;
     try {
       final access = await _photoLibraryService.requestAccess();
       if (access == PhotoLibraryAccess.denied) return;
-      final added = await _photoLibraryService.syncAll();
-      if (added.isEmpty) return;
-      await _backUpRecords(added);
+      final result = await _photoLibraryService.syncAll();
+      if (result.isEmpty) return;
+      if (result.added.isNotEmpty) await _backUpRecords(result.added);
+      // Also redraws for a scan that only *changed* things — a heart taken
+      // off a photo over in Photos adds nothing, and still has to show.
       await reload();
     } catch (_) {
       // No `photo_manager` platform channel (tests, unsupported platform)
       // or the permission flow failed — leave the camera roll unsynced
       // rather than crash; manual add/demo photos still work.
+    } finally {
+      _syncingLibrary = false;
     }
   }
 
@@ -990,25 +1016,14 @@ class LibraryScreenState extends State<LibraryScreen> {
             ),
           ),
         ),
-        // The whole header sends you home, not just the title: the status
-        // bar strip, and the navigation bar under it.
+        // The navigation bar sends you home wherever it's tapped, not just on
+        // the title. Translucent rather than opaque, so a drag that starts on
+        // the bar still reaches the scroll view and scrolls the page.
         //
-        // The status-bar half has to be opaque, to beat
-        // `CupertinoPageScaffold`'s own tap target underneath it — that one
-        // scrolls to the *oldest* photo, the one place in a ten-year
-        // library nobody means to go. The navigation-bar half is
-        // translucent instead, so a drag that starts on the bar still
-        // reaches the scroll view and scrolls the page. See [_jumpHome].
-        Positioned(
-          top: 0,
-          left: 0,
-          right: 0,
-          height: MediaQuery.paddingOf(context).top,
-          child: GestureDetector(
-            behavior: HitTestBehavior.opaque,
-            onTap: _jumpHome,
-          ),
-        ),
+        // The status bar strip above it is NOT covered here, because it can't
+        // be: iOS never delivers a status-bar tap to the view. It arrives on
+        // the `flutter/status_bar` channel instead and goes straight to
+        // [handleStatusBarTap] — which is where this screen picks it up.
         Positioned(
           top: MediaQuery.paddingOf(context).top,
           left: 0,
@@ -1027,9 +1042,20 @@ class LibraryScreenState extends State<LibraryScreen> {
   /// stays pinned under the status bar however far the page is scrolled.
   static const _navigationBarHeight = 44.0;
 
+  /// The system's own status-bar tap. It never reaches the widget tree — iOS
+  /// hands it to the engine, which forwards it to every
+  /// [WidgetsBindingObserver] — so a `GestureDetector` laid over the status
+  /// bar can't see it, however opaque. Overriding it here also takes it off
+  /// [CupertinoPageScaffold], whose version scrolls the primary controller to
+  /// its minimum: in a newest-first grid that's the *oldest* photo, the one
+  /// place in a ten-year library nobody means to land.
+  @override
+  void handleStatusBarTap() => _jumpHome();
+
   /// Back to the newest photos — and, tapped again from there, on up to the
-  /// very top. Bound to both the status bar and the large title, the two
-  /// things a thumb reaches for when it's lost.
+  /// very top. Bound to the status bar, the navigation bar and the large
+  /// title: the whole header, which is what a thumb reaches for when it's
+  /// lost.
   void _jumpHome() => _gridKey.currentState?.toggleAnchor();
 
   List<Widget> _leadingSlivers(AppLocalizations l10n) => [
