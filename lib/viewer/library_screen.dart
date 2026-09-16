@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
+import '../photos/ai_touch_up_queue.dart';
 import '../photos/demo_assets_service.dart';
 import '../photos/demo_seed_store.dart';
 import '../photos/file_hash.dart' as file_hash;
@@ -28,7 +29,7 @@ import '../upload/sync_job_store.dart';
 import '../upload/sync_queue.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
-import 'coming_soon_screen.dart';
+import 'asset_group_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'favorites_screen.dart';
@@ -38,6 +39,7 @@ import 'person_avatar.dart';
 import 'person_page_screen.dart';
 import 'private_album_gate.dart';
 import 'recently_deleted_screen.dart';
+import 'search_picker_sheet.dart';
 import 'smart_collection_screen.dart';
 
 /// The whole app, one page — matches real Photos: no separate "Library" vs
@@ -157,9 +159,14 @@ class LibraryScreenState extends State<LibraryScreen> {
   String _query = '';
   bool _busy = false;
 
+  /// Non-null while "hold a photo to select" mode is on — the set of
+  /// `localId`s the batch actions apply to.
+  Set<String>? _selection;
+
   @override
   void dispose() {
     syncQueue.draining.removeListener(_onDrainingChanged);
+    AiTouchUpQueue.instance.removeListener(_onAiTouchUpChanged);
     syncQueue.dispose();
     super.dispose();
   }
@@ -168,7 +175,15 @@ class LibraryScreenState extends State<LibraryScreen> {
   void initState() {
     super.initState();
     syncQueue.draining.addListener(_onDrainingChanged);
+    AiTouchUpQueue.instance.addListener(_onAiTouchUpChanged);
     _init();
+  }
+
+  /// A touch-up started from the detail screen finishes on its own time —
+  /// pick its result up whenever it lands, even if the user has since come
+  /// back here.
+  void _onAiTouchUpChanged() {
+    if (mounted) unawaited(reload());
   }
 
   /// One refresh when a drain finishes rather than one per job — a queue of
@@ -277,6 +292,29 @@ class LibraryScreenState extends State<LibraryScreen> {
             )
             .toList();
 
+  /// Places and Events are both "group the library by one free-text field
+  /// the user filled in" — biggest group first, so the row leads with what
+  /// they actually photograph.
+  Map<String, List<AssetRecord>> _groupedBy(String? Function(AssetRecord) of) {
+    final groups = <String, List<AssetRecord>>{};
+    for (final record in _active) {
+      final key = of(record);
+      if (key == null || key.isEmpty) continue;
+      groups.putIfAbsent(key, () => []).add(record);
+    }
+    final sorted = groups.entries.toList()
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+    return {for (final entry in sorted) entry.key: entry.value};
+  }
+
+  void _openGroup(String title, List<AssetRecord> records) => _push(
+    AssetGroupScreen(
+      title: title,
+      records: records,
+      assetRecordStore: assetRecordStore,
+    ),
+  );
+
   int get _photoCount => _active.where((r) => !r.isVideo).length;
   int get _videoCount => _active.where((r) => r.isVideo).length;
   int get _favoriteCount =>
@@ -303,11 +341,19 @@ class LibraryScreenState extends State<LibraryScreen> {
   Future<int> _backUpRecords(List<AssetRecord> records) async {
     for (final record in records) {
       final name = _displayNameFor(record);
-      await syncQueue.enqueue(localId: record.localId, kind: SyncJobKind.uploadOriginal, displayName: name);
+      await syncQueue.enqueue(
+        localId: record.localId,
+        kind: SyncJobKind.uploadOriginal,
+        displayName: name,
+      );
       // Videos have no thumbnail pipeline yet (T2.3), so there'd be nothing
       // for the job to do.
       if (!record.isVideo) {
-        await syncQueue.enqueue(localId: record.localId, kind: SyncJobKind.uploadThumbnail, displayName: name);
+        await syncQueue.enqueue(
+          localId: record.localId,
+          kind: SyncJobKind.uploadThumbnail,
+          displayName: name,
+        );
       }
     }
     unawaited(syncQueue.start());
@@ -328,11 +374,19 @@ class LibraryScreenState extends State<LibraryScreen> {
       case SyncJobKind.uploadOriginal:
         final path = await _filePathFor(record);
         if (path == null) return;
-        await _coordinator.backUpDerivative(record: record, kind: DerivativeKind.original, filePath: path);
+        await _coordinator.backUpDerivative(
+          record: record,
+          kind: DerivativeKind.original,
+          filePath: path,
+        );
       case SyncJobKind.uploadThumbnail:
         final path = await _uploadableThumbnailFor(record);
         if (path == null) return;
-        await _coordinator.backUpDerivative(record: record, kind: DerivativeKind.thumbnail, filePath: path);
+        await _coordinator.backUpDerivative(
+          record: record,
+          kind: DerivativeKind.thumbnail,
+          filePath: path,
+        );
     }
   }
 
@@ -402,7 +456,13 @@ class LibraryScreenState extends State<LibraryScreen> {
     try {
       final frequency = await _backupTargetsStore.getSyncFrequency();
       final lastSyncAt = await _backupTargetsStore.getLastSyncAt();
-      if (!isSyncDue(frequency: frequency, lastSyncAt: lastSyncAt, now: DateTime.now())) return;
+      if (!isSyncDue(
+        frequency: frequency,
+        lastSyncAt: lastSyncAt,
+        now: DateTime.now(),
+      )) {
+        return;
+      }
       await _syncEverything();
     } catch (_) {
       // Secure storage unavailable — skip this check, try again next
@@ -539,7 +599,10 @@ class LibraryScreenState extends State<LibraryScreen> {
   /// remove-from-device, which deliberately keeps it there (cloud-only), so
   /// the detail viewer stays open on it rather than popping.
   Future<bool> _softDelete(AssetRecord record) async {
-    final choice = await chooseDelete(context, canRemoveFromDevice: _canRemoveFromDevice(record));
+    final choice = await chooseDelete(
+      context,
+      canRemoveFromDevice: _canRemoveFromDevice(record),
+    );
     switch (choice) {
       case DeleteChoice.cancel:
         return false;
@@ -605,9 +668,9 @@ class LibraryScreenState extends State<LibraryScreen> {
     ),
   ];
 
-  void _openRecord(AssetRecord record) {
+  Future<void> _openRecord(AssetRecord record) async {
     final records = _filtered;
-    Navigator.of(context).push(
+    await Navigator.of(context).push(
       CupertinoPageRoute(
         builder: (_) => DetailScreen(
           records: records,
@@ -619,6 +682,128 @@ class LibraryScreenState extends State<LibraryScreen> {
         ),
       ),
     );
+    // An edit in there files its result as a new library item.
+    await reload();
+  }
+
+  void _startSelecting(AssetRecord record) =>
+      setState(() => _selection = {record.localId});
+
+  void _toggleSelected(AssetRecord record) => setState(() {
+    final next = {..._selection!};
+    next.contains(record.localId)
+        ? next.remove(record.localId)
+        : next.add(record.localId);
+    _selection = next;
+  });
+
+  List<AssetRecord> get _selectedRecords {
+    final ids = _selection ?? const <String>{};
+    return _active.where((r) => ids.contains(r.localId)).toList();
+  }
+
+  /// Adds one tag to everything selected, leaving each photo's existing
+  /// tags alone — batch editing is additive, never a replace.
+  Future<void> _batchAddTag() async {
+    final l10n = AppLocalizations.of(context)!;
+    final options = await assetRecordStore.allTags();
+    if (!mounted) return;
+    final tag = await showSearchPickerSheet(
+      context: context,
+      title: l10n.selectionAddTag,
+      options: options,
+    );
+    if (tag == null || tag.trim().isEmpty) return;
+    for (final record in _selectedRecords) {
+      if (record.tags.contains(tag)) continue;
+      await assetRecordStore.setTags(record.localId, [...record.tags, tag]);
+    }
+    await reload();
+  }
+
+  Future<void> _batchSetPlace() async {
+    final l10n = AppLocalizations.of(context)!;
+    final options = await assetRecordStore.allLocations();
+    if (!mounted) return;
+    final value = await showSearchPickerSheet(
+      context: context,
+      title: l10n.selectionSetPlace,
+      options: options,
+      clearLabel: l10n.detailInfoNoLocation,
+    );
+    if (value == null) return;
+    final place = value.trim().isEmpty ? null : value.trim();
+    for (final record in _selectedRecords) {
+      await assetRecordStore.setLocation(record.localId, place);
+    }
+    await reload();
+  }
+
+  Future<void> _batchSetEvent() async {
+    final l10n = AppLocalizations.of(context)!;
+    final options = await assetRecordStore.allEvents();
+    if (!mounted) return;
+    final value = await showSearchPickerSheet(
+      context: context,
+      title: l10n.selectionSetEvent,
+      options: options,
+      clearLabel: l10n.detailInfoNoEvent,
+    );
+    if (value == null) return;
+    final event = value.trim().isEmpty ? null : value.trim();
+    for (final record in _selectedRecords) {
+      await assetRecordStore.setEvent(record.localId, event);
+    }
+    await reload();
+  }
+
+  /// Shifts the whole selection by however far the *earliest* photo moves,
+  /// so a batch of shots keeps its internal spacing — the same thing
+  /// Photos' "Adjust Date & Time" does to a multi-selection.
+  Future<void> _batchAdjustDateTime() async {
+    final l10n = AppLocalizations.of(context)!;
+    final selected = _selectedRecords;
+    if (selected.isEmpty) return;
+    final anchor = selected
+        .map((r) => r.createdAt)
+        .reduce((a, b) => a.isBefore(b) ? a : b)
+        .toLocal();
+    var picked = anchor;
+    final saved = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        title: Text(l10n.detailEditDateTimeTitle),
+        message: SizedBox(
+          height: 200,
+          child: CupertinoDatePicker(
+            mode: CupertinoDatePickerMode.dateAndTime,
+            initialDateTime: anchor,
+            maximumDate: DateTime.now(),
+            onDateTimeChanged: (value) => picked = value,
+          ),
+        ),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.settingsSaveButton),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (saved != true) return;
+    final shift = picked.difference(anchor);
+    if (shift == Duration.zero) return;
+    for (final record in selected) {
+      await assetRecordStore.setCreatedAt(
+        record.localId,
+        record.createdAt.add(shift),
+      );
+    }
+    await reload();
   }
 
   Future<void> _push(Widget screen) async {
@@ -705,248 +890,299 @@ class LibraryScreenState extends State<LibraryScreen> {
     final l10n = AppLocalizations.of(context)!;
     final filtered = _filtered;
 
+    final selection = _selection;
+
     return CupertinoPageScaffold(
       child: SafeArea(
         bottom: false,
-        child: CustomScrollView(
-          slivers: [
-            CupertinoSliverNavigationBar(largeTitle: Text(l10n.tabLibrary)),
-            if (_all.isNotEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                  child: CupertinoSearchTextField(
-                    onChanged: (v) => setState(() => _query = v),
-                  ),
-                ),
-              ),
-            if (_all.isEmpty)
-              SliverToBoxAdapter(
-                child: _EmptyState(
-                  busy: _busy,
-                  onAddDemo: _addDemoPhotos,
-                  onAddFiles: addFiles,
-                ),
-              )
-            else ...[
-              ...assetGridSlivers(
-                context: context,
-                records: filtered,
-                onTap: _openRecord,
-                actionsFor: (r) => _actionsFor(l10n, r),
-              ),
-              SliverToBoxAdapter(
-                child: _SectionHeader(title: l10n.collectionsCollections),
-              ),
-              if (_albums.isNotEmpty) ...[
-                SliverToBoxAdapter(
-                  child: _SubsectionHeader(title: l10n.collectionsAlbums),
-                ),
-                SliverToBoxAdapter(
-                  child: SizedBox(
-                    height: 190,
-                    child: ListView.separated(
-                      scrollDirection: Axis.horizontal,
-                      padding: const EdgeInsets.symmetric(horizontal: 16),
-                      itemCount: _albums.length,
-                      separatorBuilder: (context, i) =>
-                          const SizedBox(width: 12),
-                      itemBuilder: (context, i) => SizedBox(
-                        width: 140,
-                        child: _AlbumCard(
-                          album: _albums[i],
-                          records: _albumAssets[_albums[i].id] ?? const [],
-                          onTap: () => _openAlbum(_albums[i]),
-                          onDelete: () => _confirmDeleteAlbum(_albums[i]),
-                        ),
+        child: Stack(
+          children: [
+            CustomScrollView(
+              slivers: [
+                CupertinoSliverNavigationBar(largeTitle: Text(l10n.tabLibrary)),
+                if (_all.isNotEmpty)
+                  SliverToBoxAdapter(
+                    child: Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                      child: CupertinoSearchTextField(
+                        onChanged: (v) => setState(() => _query = v),
                       ),
                     ),
                   ),
-                ),
-              ],
-              SliverToBoxAdapter(
-                child: _SubsectionHeader(
-                  title: l10n.collectionsPeopleRow,
-                  onMore: _openPeopleScreen,
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: _people.isEmpty
-                    ? Padding(
-                        padding: const EdgeInsets.symmetric(horizontal: 16),
-                        child: Text(
-                          l10n.peopleEmpty,
-                          style: const TextStyle(
-                            color: CupertinoColors.systemGrey,
+                SliverToBoxAdapter(
+                  child: AnimatedBuilder(
+                    animation: AiTouchUpQueue.instance,
+                    builder: (context, _) =>
+                        AiTouchUpQueue.instance.running.isEmpty
+                        ? const SizedBox.shrink()
+                        : Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                            child: Row(
+                              children: [
+                                const CupertinoActivityIndicator(radius: 8),
+                                const SizedBox(width: 8),
+                                Text(
+                                  l10n.aiTouchUpWorking,
+                                  style: const TextStyle(
+                                    color: CupertinoColors.systemGrey,
+                                  ),
+                                ),
+                              ],
+                            ),
                           ),
-                        ),
-                      )
-                    : SizedBox(
-                        height: 100,
+                  ),
+                ),
+                if (_all.isEmpty)
+                  SliverToBoxAdapter(
+                    child: _EmptyState(
+                      busy: _busy,
+                      onAddDemo: _addDemoPhotos,
+                      onAddFiles: addFiles,
+                    ),
+                  )
+                else ...[
+                  ...assetGridSlivers(
+                    context: context,
+                    records: filtered,
+                    onTap: selection == null ? _openRecord : _toggleSelected,
+                    onLongPress: _startSelecting,
+                    selectedIds: selection,
+                    actionsFor: (r) => _actionsFor(l10n, r),
+                  ),
+                  SliverToBoxAdapter(
+                    child: _SectionHeader(title: l10n.collectionsCollections),
+                  ),
+                  if (_albums.isNotEmpty) ...[
+                    SliverToBoxAdapter(
+                      child: _SubsectionHeader(title: l10n.collectionsAlbums),
+                    ),
+                    SliverToBoxAdapter(
+                      child: SizedBox(
+                        height: 190,
                         child: ListView.separated(
                           scrollDirection: Axis.horizontal,
                           padding: const EdgeInsets.symmetric(horizontal: 16),
-                          itemCount: _people.length,
+                          itemCount: _albums.length,
                           separatorBuilder: (context, i) =>
-                              const SizedBox(width: 8),
-                          itemBuilder: (context, i) {
-                            final person = _people[i];
-                            return SizedBox(
-                              width: 64,
-                              child: _PersonCard(
-                                person: person,
-                                assetRecordStore: assetRecordStore,
-                                photoCount: _personPhotoCounts[person.id] ?? 0,
-                                onTap: () => _openPerson(person),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-              ),
-              SliverToBoxAdapter(
-                child: _SubsectionHeader(title: l10n.collectionsPlacesRow),
-              ),
-              SliverToBoxAdapter(
-                child: _PlaceholderCollectionRow(
-                  icon: CupertinoIcons.map_pin_ellipse,
-                  color: CupertinoColors.systemTeal,
-                  onTap: () => _push(
-                    ComingSoonScreen(
-                      title: l10n.collectionsPlacesRow,
-                      body: l10n.collectionsPlacesComingSoonBody,
-                      icon: CupertinoIcons.map_pin_ellipse,
-                    ),
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: _SubsectionHeader(title: l10n.collectionsEventsRow),
-              ),
-              SliverToBoxAdapter(
-                child: _PlaceholderCollectionRow(
-                  icon: CupertinoIcons.calendar,
-                  color: CupertinoColors.systemOrange,
-                  label: l10n.smartCollectionsCardLabel,
-                  onTap: () => _push(
-                    SmartCollectionScreen(
-                      kind: SmartCollectionKind.events,
-                      assetRecordStore: assetRecordStore,
-                      aiAnalysisStore: _aiAnalysisStore,
-                    ),
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: _SectionHeader(title: l10n.collectionsMediaTypes),
-              ),
-              SliverToBoxAdapter(
-                child: CupertinoListSection.insetGrouped(
-                  margin: const EdgeInsets.symmetric(horizontal: 16),
-                  // Un-overridden, this defaults to systemGroupedBackground
-                  // (pure black in dark mode) — a harsher black than the
-                  // page's own charcoal, visible as a seam around the card.
-                  backgroundColor: const Color(0xFF1C1C1E),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFF2C2C2E),
-                    borderRadius: BorderRadius.all(Radius.circular(10)),
-                  ),
-                  children: [
-                    _row(
-                      icon: CupertinoIcons.photo,
-                      color: CupertinoColors.systemGreen,
-                      title: l10n.collectionsPhotosRow,
-                      count: _photoCount,
-                      onTap: () => _push(
-                        MediaTypeScreen(
-                          assetRecordStore: assetRecordStore,
-                          isVideo: false,
-                          title: l10n.collectionsPhotosRow,
-                        ),
-                      ),
-                    ),
-                    _row(
-                      icon: CupertinoIcons.video_camera_solid,
-                      color: CupertinoColors.systemPurple,
-                      title: l10n.collectionsVideosRow,
-                      count: _videoCount,
-                      onTap: () => _push(
-                        MediaTypeScreen(
-                          assetRecordStore: assetRecordStore,
-                          isVideo: true,
-                          title: l10n.collectionsVideosRow,
+                              const SizedBox(width: 12),
+                          itemBuilder: (context, i) => SizedBox(
+                            width: 140,
+                            child: _AlbumCard(
+                              album: _albums[i],
+                              records: _albumAssets[_albums[i].id] ?? const [],
+                              onTap: () => _openAlbum(_albums[i]),
+                              onDelete: () => _confirmDeleteAlbum(_albums[i]),
+                            ),
+                          ),
                         ),
                       ),
                     ),
                   ],
-                ),
-              ),
-            ],
-            SliverToBoxAdapter(
-              child: _SectionHeader(title: l10n.collectionsUtilities),
-            ),
-            SliverToBoxAdapter(
-              child: CupertinoListSection.insetGrouped(
-                margin: const EdgeInsets.symmetric(horizontal: 16),
-                backgroundColor: const Color(0xFF1C1C1E),
-                decoration: const BoxDecoration(
-                  color: Color(0xFF2C2C2E),
-                  borderRadius: BorderRadius.all(Radius.circular(10)),
-                ),
-                children: [
-                  _row(
-                    icon: CupertinoIcons.heart_fill,
-                    color: CupertinoColors.systemRed,
-                    title: l10n.collectionsFavoritesRow,
-                    count: _favoriteCount,
-                    onTap: () => _push(
-                      FavoritesScreen(assetRecordStore: assetRecordStore),
+                  SliverToBoxAdapter(
+                    child: _SubsectionHeader(
+                      title: l10n.collectionsPeopleRow,
+                      onMore: _openPeopleScreen,
                     ),
                   ),
-                  _row(
-                    icon: CupertinoIcons.gear_alt_fill,
-                    color: CupertinoColors.systemGrey2,
-                    title: l10n.collectionsPrivateCloudRow,
-                    onTap: _openCloudBackups,
+                  SliverToBoxAdapter(
+                    child: _people.isEmpty
+                        ? Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Text(
+                              l10n.peopleEmpty,
+                              style: const TextStyle(
+                                color: CupertinoColors.systemGrey,
+                              ),
+                            ),
+                          )
+                        : SizedBox(
+                            height: 100,
+                            child: ListView.separated(
+                              scrollDirection: Axis.horizontal,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              itemCount: _people.length,
+                              separatorBuilder: (context, i) =>
+                                  const SizedBox(width: 8),
+                              itemBuilder: (context, i) {
+                                final person = _people[i];
+                                return SizedBox(
+                                  width: 64,
+                                  child: _PersonCard(
+                                    person: person,
+                                    assetRecordStore: assetRecordStore,
+                                    photoCount:
+                                        _personPhotoCounts[person.id] ?? 0,
+                                    onTap: () => _openPerson(person),
+                                  ),
+                                );
+                              },
+                            ),
+                          ),
                   ),
-                  _row(
-                    icon: CupertinoIcons.sparkles,
-                    color: CupertinoColors.systemIndigo,
-                    title: l10n.collectionsAiSettingsRow,
-                    onTap: () => _push(const AiSettingsScreen()),
+                  SliverToBoxAdapter(
+                    child: _SubsectionHeader(title: l10n.collectionsPlacesRow),
                   ),
-                  _row(
-                    icon: CupertinoIcons.arrow_2_circlepath,
-                    color: CupertinoColors.systemGreen,
-                    title: l10n.settingsResetDemoButton,
-                    onTap: _busy ? null : _addDemoPhotos,
+                  SliverToBoxAdapter(
+                    child: _GroupCardRow(
+                      groups: _groupedBy((r) => r.location),
+                      emptyNote: l10n.collectionsPlacesEmpty,
+                      icon: CupertinoIcons.map_pin_ellipse,
+                      onTap: _openGroup,
+                    ),
                   ),
-                  _row(
-                    icon: CupertinoIcons.square_arrow_up,
-                    color: CupertinoColors.systemIndigo,
-                    title: l10n.collectionsImportPhotosRow,
-                    onTap: _busy ? null : addFiles,
+                  SliverToBoxAdapter(
+                    child: _SubsectionHeader(
+                      title: l10n.collectionsEventsRow,
+                      moreLabel: l10n.collectionsAiSuggestions,
+                      onMore: () => _push(
+                        SmartCollectionScreen(
+                          kind: SmartCollectionKind.events,
+                          assetRecordStore: assetRecordStore,
+                          aiAnalysisStore: _aiAnalysisStore,
+                        ),
+                      ),
+                    ),
                   ),
-                  _row(
-                    icon: CupertinoIcons.eye_slash_fill,
-                    color: CupertinoColors.systemGrey,
-                    title: l10n.collectionsHiddenRow,
-                    count: _hiddenCount,
-                    onTap: _openPrivateAlbums,
+                  SliverToBoxAdapter(
+                    child: _GroupCardRow(
+                      groups: _groupedBy((r) => r.event),
+                      emptyNote: l10n.collectionsEventsEmpty,
+                      icon: CupertinoIcons.calendar,
+                      onTap: _openGroup,
+                    ),
                   ),
-                  _row(
-                    icon: CupertinoIcons.trash_fill,
-                    color: CupertinoColors.systemRed,
-                    title: l10n.collectionsRecentlyDeletedRow,
-                    count: _deletedCount,
-                    onTap: () => _push(
-                      RecentlyDeletedScreen(assetRecordStore: assetRecordStore),
+                  SliverToBoxAdapter(
+                    child: _SectionHeader(title: l10n.collectionsMediaTypes),
+                  ),
+                  SliverToBoxAdapter(
+                    child: CupertinoListSection.insetGrouped(
+                      margin: const EdgeInsets.symmetric(horizontal: 16),
+                      // Un-overridden, this defaults to systemGroupedBackground
+                      // (pure black in dark mode) — a harsher black than the
+                      // page's own charcoal, visible as a seam around the card.
+                      backgroundColor: const Color(0xFF1C1C1E),
+                      decoration: const BoxDecoration(
+                        color: Color(0xFF2C2C2E),
+                        borderRadius: BorderRadius.all(Radius.circular(10)),
+                      ),
+                      children: [
+                        _row(
+                          icon: CupertinoIcons.photo,
+                          color: CupertinoColors.systemGreen,
+                          title: l10n.collectionsPhotosRow,
+                          count: _photoCount,
+                          onTap: () => _push(
+                            MediaTypeScreen(
+                              assetRecordStore: assetRecordStore,
+                              isVideo: false,
+                              title: l10n.collectionsPhotosRow,
+                            ),
+                          ),
+                        ),
+                        _row(
+                          icon: CupertinoIcons.video_camera_solid,
+                          color: CupertinoColors.systemPurple,
+                          title: l10n.collectionsVideosRow,
+                          count: _videoCount,
+                          onTap: () => _push(
+                            MediaTypeScreen(
+                              assetRecordStore: assetRecordStore,
+                              isVideo: true,
+                              title: l10n.collectionsVideosRow,
+                            ),
+                          ),
+                        ),
+                      ],
                     ),
                   ),
                 ],
-              ),
+                SliverToBoxAdapter(
+                  child: _SectionHeader(title: l10n.collectionsUtilities),
+                ),
+                SliverToBoxAdapter(
+                  child: CupertinoListSection.insetGrouped(
+                    margin: const EdgeInsets.symmetric(horizontal: 16),
+                    backgroundColor: const Color(0xFF1C1C1E),
+                    decoration: const BoxDecoration(
+                      color: Color(0xFF2C2C2E),
+                      borderRadius: BorderRadius.all(Radius.circular(10)),
+                    ),
+                    children: [
+                      _row(
+                        icon: CupertinoIcons.heart_fill,
+                        color: CupertinoColors.systemRed,
+                        title: l10n.collectionsFavoritesRow,
+                        count: _favoriteCount,
+                        onTap: () => _push(
+                          FavoritesScreen(assetRecordStore: assetRecordStore),
+                        ),
+                      ),
+                      _row(
+                        icon: CupertinoIcons.gear_alt_fill,
+                        color: CupertinoColors.systemGrey2,
+                        title: l10n.collectionsPrivateCloudRow,
+                        onTap: _openCloudBackups,
+                      ),
+                      _row(
+                        icon: CupertinoIcons.sparkles,
+                        color: CupertinoColors.systemIndigo,
+                        title: l10n.collectionsAiSettingsRow,
+                        onTap: () => _push(const AiSettingsScreen()),
+                      ),
+                      _row(
+                        icon: CupertinoIcons.arrow_2_circlepath,
+                        color: CupertinoColors.systemGreen,
+                        title: l10n.settingsResetDemoButton,
+                        onTap: _busy ? null : _addDemoPhotos,
+                      ),
+                      _row(
+                        icon: CupertinoIcons.square_arrow_up,
+                        color: CupertinoColors.systemIndigo,
+                        title: l10n.collectionsImportPhotosRow,
+                        onTap: _busy ? null : addFiles,
+                      ),
+                      _row(
+                        icon: CupertinoIcons.eye_slash_fill,
+                        color: CupertinoColors.systemGrey,
+                        title: l10n.collectionsHiddenRow,
+                        count: _hiddenCount,
+                        onTap: _openPrivateAlbums,
+                      ),
+                      _row(
+                        icon: CupertinoIcons.trash_fill,
+                        color: CupertinoColors.systemRed,
+                        title: l10n.collectionsRecentlyDeletedRow,
+                        count: _deletedCount,
+                        onTap: () => _push(
+                          RecentlyDeletedScreen(
+                            assetRecordStore: assetRecordStore,
+                          ),
+                        ),
+                      ),
+                    ],
+                  ),
+                ),
+                SliverToBoxAdapter(
+                  child: SizedBox(height: selection == null ? 24 : 140),
+                ),
+              ],
             ),
-            const SliverToBoxAdapter(child: SizedBox(height: 24)),
+            if (selection != null)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _SelectionBar(
+                  count: selection.length,
+                  onAddTag: _batchAddTag,
+                  onSetPlace: _batchSetPlace,
+                  onSetEvent: _batchSetEvent,
+                  onAdjustDateTime: _batchAdjustDateTime,
+                  onDone: () => setState(() => _selection = null),
+                ),
+              ),
           ],
         ),
       ),
@@ -1151,7 +1387,7 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _SubsectionHeader extends StatelessWidget {
-  const _SubsectionHeader({required this.title, this.onMore});
+  const _SubsectionHeader({required this.title, this.onMore, this.moreLabel});
 
   final String title;
 
@@ -1159,6 +1395,10 @@ class _SubsectionHeader extends StatelessWidget {
   /// full `PeopleScreen`) instead of a separate trailing card in the row
   /// below.
   final VoidCallback? onMore;
+
+  /// Overrides that chevron's "More" — Events' one opens AI-guessed
+  /// groupings, which is a different thing from "more of the same".
+  final String? moreLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -1180,7 +1420,7 @@ class _SubsectionHeader extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    l10n.collectionsMoreButton,
+                    moreLabel ?? l10n.collectionsMoreButton,
                     style: const TextStyle(color: CupertinoColors.systemGrey),
                   ),
                   const Icon(
@@ -1197,81 +1437,220 @@ class _SubsectionHeader extends StatelessWidget {
   }
 }
 
-/// A single-line, horizontally-scrolling row of album-card-shaped
-/// placeholders — People/Places/Events have no real data to group by yet
-/// (see IMPLEMENTATION_PLAN.md T4.4), but still look like a populated
-/// Collections subsection rather than a bare row. Every card opens the same
-/// "coming soon" screen.
-class _PlaceholderCollectionRow extends StatelessWidget {
-  const _PlaceholderCollectionRow({
-    required this.icon,
-    required this.color,
-    required this.onTap,
-    this.label,
+/// The bar that replaces per-tile actions while photos are selected: the
+/// count and a way out up top, the batch edits (tag, place, event, date)
+/// below. Everything here is additive or a single-field set — nothing
+/// destructive lives on a multi-selection.
+class _SelectionBar extends StatelessWidget {
+  const _SelectionBar({
+    required this.count,
+    required this.onAddTag,
+    required this.onSetPlace,
+    required this.onSetEvent,
+    required this.onAdjustDateTime,
+    required this.onDone,
   });
 
-  final IconData icon;
-  final Color color;
-  final VoidCallback onTap;
-
-  /// Card caption — defaults to "Coming Soon"; People/Events pass their own
-  /// since they open a real (opt-in AI analysis) screen, not a stub.
-  final String? label;
-
-  static const _cardCount = 4;
+  final int count;
+  final VoidCallback onAddTag;
+  final VoidCallback onSetPlace;
+  final VoidCallback onSetEvent;
+  final VoidCallback onAdjustDateTime;
+  final VoidCallback onDone;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return SizedBox(
-      height: 150,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: _cardCount,
-        separatorBuilder: (context, i) => const SizedBox(width: 12),
-        itemBuilder: (context, i) => GestureDetector(
-          onTap: onTap,
-          child: SizedBox(
-            width: 110,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.stretch,
-              children: [
-                Expanded(
-                  child: ClipRRect(
-                    borderRadius: BorderRadius.circular(10),
-                    // Flat neutral card, same as an album with no cover yet
-                    // — a translucent tint over a dark page reads as a muddy
-                    // smear rather than a clean pastel. `systemGrey5` must be
-                    // resolved explicitly: as a bare Color (not routed
-                    // through a Cupertino-aware widget) it otherwise paints
-                    // its light-mode value even in dark mode.
-                    child: ColoredBox(
-                      color: CupertinoDynamicColor.resolve(
-                        CupertinoColors.systemGrey5,
-                        context,
-                      ),
-                      child: Icon(icon, color: color, size: 32),
-                    ),
-                  ),
-                ),
-                const SizedBox(height: 6),
-                Text(
-                  label ?? l10n.collectionsComingSoonTitle,
-                  maxLines: 1,
-                  overflow: TextOverflow.ellipsis,
-                  style: const TextStyle(
-                    color: CupertinoColors.systemGrey,
-                    fontSize: 13,
-                  ),
-                ),
-              ],
+    return Container(
+      decoration: BoxDecoration(
+        color: CupertinoDynamicColor.resolve(
+          CupertinoColors.systemBackground,
+          context,
+        ),
+        border: Border(
+          top: BorderSide(
+            color: CupertinoDynamicColor.resolve(
+              CupertinoColors.separator,
+              context,
             ),
           ),
         ),
       ),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                children: [
+                  Text(
+                    count == 0
+                        ? l10n.selectionHint
+                        : l10n.selectionTitle(count),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    onPressed: onDone,
+                    child: Text(l10n.selectionDone),
+                  ),
+                ],
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              child: Row(
+                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                children: [
+                  _SelectionAction(
+                    icon: CupertinoIcons.tag,
+                    label: l10n.selectionAddTag,
+                    onPressed: count == 0 ? null : onAddTag,
+                  ),
+                  _SelectionAction(
+                    icon: CupertinoIcons.map_pin_ellipse,
+                    label: l10n.selectionSetPlace,
+                    onPressed: count == 0 ? null : onSetPlace,
+                  ),
+                  _SelectionAction(
+                    icon: CupertinoIcons.calendar,
+                    label: l10n.selectionSetEvent,
+                    onPressed: count == 0 ? null : onSetEvent,
+                  ),
+                  _SelectionAction(
+                    icon: CupertinoIcons.clock,
+                    label: l10n.selectionAdjustDateTime,
+                    onPressed: count == 0 ? null : onAdjustDateTime,
+                  ),
+                ],
+              ),
+            ),
+          ],
+        ),
+      ),
     );
   }
+}
+
+class _SelectionAction extends StatelessWidget {
+  const _SelectionAction({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) => CupertinoButton(
+    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+    onPressed: onPressed,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Icon(icon, size: 22),
+        const SizedBox(height: 2),
+        Text(label, style: const TextStyle(fontSize: 11)),
+      ],
+    ),
+  );
+}
+
+/// Places/Events: one card per distinct value the user has set, covered by
+/// that group's newest photo. Same shape as an album card, since that's
+/// what a place or an event is here — a live album keyed off one field.
+class _GroupCardRow extends StatelessWidget {
+  const _GroupCardRow({
+    required this.groups,
+    required this.emptyNote,
+    required this.icon,
+    required this.onTap,
+  });
+
+  final Map<String, List<AssetRecord>> groups;
+  final String emptyNote;
+  final IconData icon;
+  final void Function(String title, List<AssetRecord> records) onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    if (groups.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        child: Text(
+          emptyNote,
+          style: const TextStyle(color: CupertinoColors.systemGrey),
+        ),
+      );
+    }
+
+    final entries = groups.entries.toList();
+    return SizedBox(
+      height: 190,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        itemCount: entries.length,
+        separatorBuilder: (context, i) => const SizedBox(width: 12),
+        itemBuilder: (context, i) {
+          final entry = entries[i];
+          final cover = entry.value.first;
+          return SizedBox(
+            width: 140,
+            child: GestureDetector(
+              onTap: () => onTap(entry.key, entry.value),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [
+                  Expanded(
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(10),
+                      child: cover.sourcePath != null && !cover.isVideo
+                          ? Image.file(
+                              File(cover.sourcePath!),
+                              fit: BoxFit.cover,
+                              width: double.infinity,
+                              errorBuilder: (context, error, stackTrace) =>
+                                  _GroupCardFallback(icon: icon),
+                            )
+                          : _GroupCardFallback(icon: icon),
+                    ),
+                  ),
+                  const SizedBox(height: 6),
+                  Text(entry.key, maxLines: 1, overflow: TextOverflow.ellipsis),
+                  Text(
+                    l10n.collectionsGroupPhotoCount(entry.value.length),
+                    style: const TextStyle(
+                      color: CupertinoColors.systemGrey,
+                      fontSize: 13,
+                    ),
+                  ),
+                ],
+              ),
+            ),
+          );
+        },
+      ),
+    );
+  }
+}
+
+class _GroupCardFallback extends StatelessWidget {
+  const _GroupCardFallback({required this.icon});
+
+  final IconData icon;
+
+  @override
+  Widget build(BuildContext context) => ColoredBox(
+    color: CupertinoDynamicColor.resolve(CupertinoColors.systemGrey5, context),
+    child: Icon(icon, color: CupertinoColors.systemGrey, size: 32),
+  );
 }
 
 class _EmptyState extends StatelessWidget {

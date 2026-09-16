@@ -52,12 +52,37 @@
   "detailExportAsOption": "Export As…",
   "detailExportFailed": "Couldn't export this photo.",
   "detailEditNotInLibrary": "This isn't in your Photos library, so it can't be edited there.",
+  "detailEditCropOption": "Crop",
+  "detailEditRotateOption": "Rotate",
+  "detailEditAiOption": "AI Touch Up",
+  "detailEditVideoUnsupported": "Only photos can be edited.",
+  "editSaveButton": "Save",
+  "editResetButton": "Reset",
+  "editFailed": "Couldn't apply this edit.",
+  "editSavedAsCopy": "Saved as a new photo — the original is untouched.",
+  "editAngleDegrees": "{degrees}°",
+  "@editAngleDegrees": {
+    "placeholders": {"degrees": {"type": "String"}}
+  },
+  "aiTouchUpTitle": "AI Touch Up",
+  "aiTouchUpPromptPlaceholder": "Describe the edit — \"brighten it and remove the fence\"",
+  "aiTouchUpStart": "Start",
+  "aiTouchUpWorking": "AI working…",
+  "aiTouchUpDone": "AI touch-up added to your library.",
+  "aiTouchUpFailed": "AI touch-up failed: {error}",
+  "@aiTouchUpFailed": {
+    "placeholders": {"error": {"type": "String"}}
+  },
+  "aiTouchUpNoKey": "Add an AI key in Settings first.",
+  "aiTouchUpNote": "The photo and your prompt are sent to your AI vendor, and the result comes back as a new photo — this one stays as it is.",
   "detailInfoStatus": "Backup status",
   "detailInfoDimensions": "Dimensions",
   "detailInfoFileSize": "File Size",
   "detailInfoFormat": "Format",
   "detailInfoLocation": "Location",
   "detailInfoNoLocation": "No Location",
+  "detailInfoEvent": "Event",
+  "detailInfoNoEvent": "No Event",
   "detailInfoDuration": "Duration",
   "detailEditDateTimeTitle": "Date & Time",
   "detailDescriptionPlaceholder": "Add a description",
@@ -74,8 +99,13 @@
   "collectionsMoreButton": "More",
   "collectionsPlacesRow": "Places",
   "collectionsEventsRow": "Events",
-  "collectionsComingSoonTitle": "Coming Soon",
-  "collectionsPlacesComingSoonBody": "Places will be grouped automatically using each photo's location data. Not implemented yet.",
+  "collectionsPlacesEmpty": "Set a place on a photo and it shows up here.",
+  "collectionsEventsEmpty": "Set an event on a photo and it shows up here.",
+  "collectionsAiSuggestions": "AI Suggestions",
+  "collectionsGroupPhotoCount": "{count, plural, one{1 photo} other{{count} photos}}",
+  "@collectionsGroupPhotoCount": {
+    "placeholders": {"count": {"type": "int"}}
+  },
 
   "smartCollectionsAnalyzeButton": "{count, plural, one{Analyze 1 Photo} other{Analyze {count} Photos}}",
   "@smartCollectionsAnalyzeButton": {
@@ -92,6 +122,17 @@
   "smartCollectionsOnePerson": "1 Person",
   "smartCollectionsPeopleCount": "{count} People",
   "@smartCollectionsPeopleCount": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+
+  "selectionTitle": "{count, plural, one{1 Selected} other{{count} Selected}}",
+  "selectionAddTag": "Add Tag",
+  "selectionSetPlace": "Set Place",
+  "selectionSetEvent": "Set Event",
+  "selectionAdjustDateTime": "Adjust Date",
+  "selectionDone": "Done",
+  "selectionHint": "Hold a photo to select more.",
+  "@selectionTitle": {
     "placeholders": {"count": {"type": "int"}}
   },
 

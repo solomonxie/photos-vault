@@ -44,7 +44,11 @@ class _FakeS3Uploader implements S3Uploader {
   final bool result;
 
   @override
-  Future<bool> put({required String filePath, required String key, required S3BackupTarget target}) async => result;
+  Future<bool> put({
+    required String filePath,
+    required String key,
+    required S3BackupTarget target,
+  }) async => result;
 }
 
 // Never touches the real asset bundle / disk — inserts straight into the
@@ -418,58 +422,112 @@ void main() {
     },
   );
 
-  testWidgets(
-    'tiles offer a long-press context menu for favorite/hide/delete',
-    (tester) async {
-      // CupertinoContextMenu's actual open gesture is finicky to drive
-      // reliably in a widget test (real Haptic Touch timing); this checks the
-      // affordance is wired up structurally. The underlying store methods are
-      // covered in asset_record_store_test.dart.
-      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      final recordStore = FakeAssetRecordStore();
-      await recordStore.upsert(
-        localId: 'manual:abc',
-        contentHash: 'abc',
-        platform: 'ios',
-        sourceType: AssetSourceType.manualFile,
-        sourcePath: '/tmp/library_screen_test.jpg',
-      );
+  testWidgets('holding a tile starts selection mode with its batch actions', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:abc',
+      contentHash: 'abc',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/library_screen_test.jpg',
+    );
 
-      await tester.pumpWidget(
-        _wrap(
-          LibraryScreen(
-            demoSeedStore: _alreadySeededStore(),
-            assetRecordStore: recordStore,
-            thumbnailCache: _noThumbnails(recordStore),
-            syncJobStore: FakeSyncJobStore(),
-            albumStore: FakeAlbumStore(),
-            personStore: FakePersonStore(),
-            backupTargetsStore: targetsStore,
-            backupCoordinator: BackupCoordinator(
-              targetsStore: targetsStore,
-              recordStore: recordStore,
-              s3Uploader: _UnusedS3Uploader(),
-            ),
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          demoSeedStore: _alreadySeededStore(),
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
           ),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      expect(
-        find.descendant(
-          of: find.byKey(const ValueKey('manual:abc')),
-          matching: find.byType(CupertinoContextMenu),
-        ),
-        findsOneWidget,
+    await tester.longPress(find.byKey(const ValueKey('manual:abc')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 Selected'), findsOneWidget);
+    for (final action in ['Add Tag', 'Set Place', 'Set Event', 'Adjust Date']) {
+      expect(find.text(action), findsOneWidget);
+    }
+
+    await tester.tap(find.text('Done'));
+    await tester.pumpAndSettle();
+    expect(find.text('1 Selected'), findsNothing);
+  });
+
+  testWidgets('a batch edit applies one place to every selected photo', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    for (final id in ['manual:one', 'manual:two']) {
+      await recordStore.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
       );
-    },
-  );
+    }
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          demoSeedStore: _alreadySeededStore(),
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.byKey(const ValueKey('manual:one')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manual:two')));
+    await tester.pumpAndSettle();
+    expect(find.text('2 Selected'), findsOneWidget);
+
+    await tester.tap(find.text('Set Place'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(CupertinoSearchTextField).last, 'Kyoto');
+    await tester.pump();
+    await tester.tap(find.text('Use "Kyoto"'));
+    await tester.pumpAndSettle();
+
+    expect((await recordStore.getByLocalId('manual:one'))!.location, 'Kyoto');
+    expect((await recordStore.getByLocalId('manual:two'))!.location, 'Kyoto');
+  });
 
   // The removal itself is real file I/O, which never completes under
   // `testWidgets`' fake async — `ThumbnailCache`'s own (plain `test`) suite
   // covers that half. What's worth pinning here is the decision: who gets
   // offered the cloud-only option, and what the grid does afterwards.
-  Future<void> pumpWithRecord(WidgetTester tester, FakeAssetRecordStore recordStore) async {
+  Future<void> pumpWithRecord(
+    WidgetTester tester,
+    FakeAssetRecordStore recordStore,
+  ) async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     await tester.pumpWidget(
       _wrap(
@@ -492,7 +550,9 @@ void main() {
     await tester.pumpAndSettle();
   }
 
-  testWidgets('deleting a backed-up photo offers to keep the cloud copy', (tester) async {
+  testWidgets('deleting a backed-up photo offers to keep the cloud copy', (
+    tester,
+  ) async {
     final recordStore = FakeAssetRecordStore();
     await recordStore.upsert(
       localId: 'manual:abc',
@@ -504,7 +564,10 @@ void main() {
     await recordStore.updateDerivative(
       'manual:abc',
       DerivativeKind.original,
-      const DerivativeState(status: UploadStatus.uploaded, destinationKey: 'originals/manual_abc.jpg'),
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'originals/manual_abc.jpg',
+      ),
     );
     await pumpWithRecord(tester, recordStore);
 
@@ -517,51 +580,65 @@ void main() {
     expect(find.text('Delete Photo'), findsOneWidget);
   });
 
-  testWidgets('deleting a photo that is not backed up yet just confirms, with no cloud-only option', (tester) async {
-    final recordStore = FakeAssetRecordStore();
-    await recordStore.upsert(
-      localId: 'manual:abc',
-      contentHash: 'abc',
-      platform: 'ios',
-      sourceType: AssetSourceType.manualFile,
-      sourcePath: '/tmp/pending.jpg',
-    );
-    await pumpWithRecord(tester, recordStore);
+  testWidgets(
+    'deleting a photo that is not backed up yet just confirms, with no cloud-only option',
+    (tester) async {
+      final recordStore = FakeAssetRecordStore();
+      await recordStore.upsert(
+        localId: 'manual:abc',
+        contentHash: 'abc',
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/pending.jpg',
+      );
+      await pumpWithRecord(tester, recordStore);
 
-    await tester.tap(find.byKey(const ValueKey('manual:abc')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(CupertinoIcons.trash));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('manual:abc')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(CupertinoIcons.trash));
+      await tester.pumpAndSettle();
 
-    expect(find.text('Remove from Device'), findsNothing);
-    expect(find.text('Delete this item?'), findsOneWidget);
-  });
+      expect(find.text('Remove from Device'), findsNothing);
+      expect(find.text('Delete this item?'), findsOneWidget);
+    },
+  );
 
-  testWidgets('a cloud-only photo stays in the library, drawn from its cached thumbnail', (tester) async {
-    final recordStore = FakeAssetRecordStore();
-    await recordStore.upsert(
-      localId: 'manual:abc',
-      contentHash: 'abc',
-      platform: 'ios',
-      sourceType: AssetSourceType.manualFile,
-      sourcePath: '/tmp/gone.jpg',
-    );
-    await recordStore.updateDerivative(
-      'manual:abc',
-      DerivativeKind.original,
-      const DerivativeState(status: UploadStatus.uploaded, destinationKey: 'originals/manual_abc.jpg'),
-    );
-    await recordStore.setThumbnailPath('manual:abc', '/tmp/thumb.jpg');
-    await recordStore.setLocalDeleted('manual:abc', true);
-    await pumpWithRecord(tester, recordStore);
+  testWidgets(
+    'a cloud-only photo stays in the library, drawn from its cached thumbnail',
+    (tester) async {
+      final recordStore = FakeAssetRecordStore();
+      await recordStore.upsert(
+        localId: 'manual:abc',
+        contentHash: 'abc',
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/gone.jpg',
+      );
+      await recordStore.updateDerivative(
+        'manual:abc',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'originals/manual_abc.jpg',
+        ),
+      );
+      await recordStore.setThumbnailPath('manual:abc', '/tmp/thumb.jpg');
+      await recordStore.setLocalDeleted('manual:abc', true);
+      await pumpWithRecord(tester, recordStore);
 
-    expect(find.byKey(const ValueKey('manual:abc')), findsOneWidget);
-    expect(find.byIcon(CupertinoIcons.cloud_fill), findsOneWidget);
-    final image = tester.widget<Image>(
-      find.descendant(of: find.byKey(const ValueKey('manual:abc')), matching: find.byType(Image)).first,
-    );
-    expect((image.image as FileImage).file.path, '/tmp/thumb.jpg');
-  });
+      expect(find.byKey(const ValueKey('manual:abc')), findsOneWidget);
+      expect(find.byIcon(CupertinoIcons.cloud_fill), findsOneWidget);
+      final image = tester.widget<Image>(
+        find
+            .descendant(
+              of: find.byKey(const ValueKey('manual:abc')),
+              matching: find.byType(Image),
+            )
+            .first,
+      );
+      expect((image.image as FileImage).file.path, '/tmp/thumb.jpg');
+    },
+  );
 
   testWidgets(
     'shows Utilities rows with real counts and navigates to each screen',
@@ -618,7 +695,13 @@ void main() {
     'returning from Cloud Backups retries whatever is still pending/failed',
     (tester) async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: '');
+      await targetsStore.addS3(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'bucket',
+        prefix: '',
+      );
       final recordStore = FakeAssetRecordStore();
       await recordStore.upsert(
         localId: 'manual:pending',
@@ -662,7 +745,9 @@ void main() {
       // was added to `targetsStore` directly (simulating "already
       // configured"), not through the Cloud Backups UI itself.
       expect(
-        (await recordStore.getByLocalId('manual:pending'))!.stateOf(DerivativeKind.original).status,
+        (await recordStore.getByLocalId('manual:pending'))!
+            .stateOf(DerivativeKind.original)
+            .status,
         UploadStatus.pending,
       );
 
@@ -672,7 +757,9 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(
-        (await recordStore.getByLocalId('manual:pending'))!.stateOf(DerivativeKind.original).status,
+        (await recordStore.getByLocalId('manual:pending'))!
+            .stateOf(DerivativeKind.original)
+            .status,
         UploadStatus.uploaded,
       );
     },
@@ -682,7 +769,13 @@ void main() {
     'a local edit since backup is re-hashed and re-uploaded on the next sync',
     (tester) async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: '');
+      await targetsStore.addS3(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'bucket',
+        prefix: '',
+      );
       final recordStore = FakeAssetRecordStore();
       await recordStore.upsert(
         localId: 'manual:edited',
@@ -696,7 +789,11 @@ void main() {
       await recordStore.updateDerivative(
         'manual:edited',
         DerivativeKind.original,
-        const DerivativeState(status: UploadStatus.uploaded, destinationKey: 'originals/manual_edited.jpg', backedUpHash: 'old-hash'),
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'originals/manual_edited.jpg',
+          backedUpHash: 'old-hash',
+        ),
       );
 
       await tester.binding.setSurfaceSize(const Size(800, 2000));
@@ -729,7 +826,8 @@ void main() {
       await tester.pageBack();
       await tester.pumpAndSettle();
 
-      final updated = (await recordStore.getByLocalId('manual:edited'))!.stateOf(DerivativeKind.original);
+      final updated = (await recordStore.getByLocalId('manual:edited'))!
+          .stateOf(DerivativeKind.original);
       expect(updated.status, UploadStatus.uploaded);
       expect(updated.backedUpHash, 'new-hash');
     },
@@ -806,7 +904,7 @@ void main() {
   );
 
   testWidgets(
-    'People/Places/Events rows are Collections placeholders; People opens the People screen',
+    'Collections lists People, Places and Events; People opens the People screen',
     (tester) async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
       final recordStore = FakeAssetRecordStore();
@@ -853,14 +951,19 @@ void main() {
       expect(find.text('Places'), findsOneWidget);
       expect(find.text('Events'), findsOneWidget);
 
-      // Places/Events are still a single horizontally-scrolling row of
-      // placeholder cards. Places is a "Coming Soon" placeholder; Events
-      // opens the AI grouping screen. People (no people configured here)
-      // shows an empty-state hint below its header's own "More" button,
-      // which opens PeopleScreen.
+      // Places and Events group by what the user has set on each photo —
+      // nothing set here, so both show their own empty note. People (no
+      // people configured either) shows an empty-state hint below its
+      // header's own "More" button, which opens PeopleScreen.
       expect(find.text('No people yet. Tap + to add someone.'), findsOneWidget);
-      expect(find.text('Coming Soon'), findsWidgets);
-      expect(find.text('Tap to Analyze'), findsWidgets);
+      expect(
+        find.text('Set a place on a photo and it shows up here.'),
+        findsOneWidget,
+      );
+      expect(
+        find.text('Set an event on a photo and it shows up here.'),
+        findsOneWidget,
+      );
 
       await tester.tap(find.text('More'));
       await tester.pumpAndSettle();

@@ -12,8 +12,8 @@ import 'person_avatar.dart';
 import 'person_graph_screen.dart';
 import 'person_history_detail_screen.dart';
 import 'person_page_screen.dart';
-import 'person_picker_screen.dart';
-import 'string_picker_screen.dart';
+import 'person_picker_sheet.dart';
+import 'search_picker_sheet.dart';
 
 /// The full editable profile behind a person page's name chevron: Name/About,
 /// Education and Job as their own pick-or-type sections, an optional
@@ -108,11 +108,10 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   ) async {
     final options = await widget.personStore.allHistoryTitles(category);
     if (!mounted) return;
-    final title = await Navigator.of(context).push<String>(
-      CupertinoPageRoute(
-        builder: (_) =>
-            StringPickerScreen(title: categoryLabel, options: options),
-      ),
+    final title = await showSearchPickerSheet(
+      context: context,
+      title: categoryLabel,
+      options: options,
     );
     if (title == null || title.isEmpty) return;
     final entry = PersonHistoryEntry(
@@ -276,13 +275,10 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     final candidates = _allPeople
         .where((p) => p.id != _person.id && !linkedIds.contains(p.id))
         .toList();
-    final other = await Navigator.of(context).push<Person>(
-      CupertinoPageRoute(
-        builder: (_) => PersonPickerScreen(
-          candidates: candidates,
-          personStore: widget.personStore,
-        ),
-      ),
+    final other = await showPersonPickerSheet(
+      context: context,
+      candidates: candidates,
+      personStore: widget.personStore,
     );
     if (other == null || !mounted) return;
 
@@ -293,14 +289,11 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     if (relationshipNeedsOrganization(type)) {
       final orgOptions = await widget.personStore.allOrganizations();
       if (!mounted) return;
-      organization = await Navigator.of(context).push<String>(
-        CupertinoPageRoute(
-          builder: (_) => StringPickerScreen(
-            title: _organizationLabel(l10n, type),
-            options: orgOptions,
-            initialQuery: existing?.organization ?? '',
-          ),
-        ),
+      organization = await showSearchPickerSheet(
+        context: context,
+        title: _organizationLabel(l10n, type),
+        options: orgOptions,
+        selected: existing?.organization,
       );
       if (organization == null) return;
     }

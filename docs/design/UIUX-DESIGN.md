@@ -76,8 +76,8 @@ bytes on the wire    →  decoded as latin-1  →  "ä¸­æ..."   ✗ mojibake
 - Don't invent a tab for something that is a section.
 - Don't invent a page for something that is a menu. A page whose only job is holding two links should be deleted.
 - Size the surface to the size of the decision:
-  - small/one-off (pick a tag, pick a gender) → compact bottom sheet, ~40% height
-  - larger/repeated (pick a school, employer, location, person) → full page push
+  - **picking a value never leaves the page** — tag, gender, location, school, employer, person all open a searchable drop-down sheet above the current page
+  - a full page push is for *browsing or editing an entity*, never for choosing one value out of a list
   - a handful of actions on one object → `…` menu
 - Anything that names another entity must be tappable and open that entity. No dead-end references.
 - Label actions by what they do: a `+` that opens a browse screen should say "More".
@@ -101,8 +101,17 @@ DO — one scrollable page              DON'T — a tab per section
 Surface ladder — match the surface to the weight of the decision:
 
 ```
-pick a tag / gender      ─▶  bottom sheet, ~40% height
-pick a school / person   ─▶  full page push  (searchable, create-in-place)
+pick any value           ─▶  searchable drop-down sheet, ≤55% height
+  (tag, location,            ┌──────────────────────────┐
+   school, person)           │           ▬▬             │
+                             │        Location          │
+                             │  🔍 mel                  │
+                             │  ⊕ Use "mel"             │
+                             │  Melbourne            ✓  │
+                             │  Melrose                 │
+                             │  ⊗ No Location           │  ← clear row, only when set
+                             └──────────────────────────┘
+browse / edit an entity  ─▶  full page push
 act on one object        ─▶  ⋯ menu
 confirm something risky  ─▶  alert dialog, Cancel LAST
 ```
@@ -194,23 +203,32 @@ Sometimes text link style look better than big button, depends on the usage.
 
 - Day-grouped square grid under bold date headers ("Today" / "Yesterday" / localized date).
 - Large-title nav bar with a search field above it.
+- **3 tiles per row**, 8px gutters, 8px corner radius. Four-up at 2px gutters packs more in but reads as a contact sheet; at three the photo is the subject.
 - Badge only the **exceptional** state. A not-yet-synced dot, nothing at all when it's fine — a healthy library should read clean, not carry a checkmark on every tile.
-- Per-item actions go in a long-press context menu (Haptic Touch), not persistent on-tile buttons.
-- Multi-select reuses the same tile with a checkmark overlay rather than a separate mode/screen.
+- **Hold a tile to start selecting** (Photos' own gesture) — one gesture, one meaning. Screens with no batch actions keep the long-press context menu instead.
+- Multi-select reuses the same tile with a checkmark overlay rather than a separate mode/screen; the batch actions live in a bottom bar that only exists while selecting.
+- Batch edits are additive or a single-field set (tag, place, event, date shift) — nothing destructive on a multi-selection.
+- Adjusting the date on a multi-selection **shifts** every photo by the same delta rather than stamping them all identically, so a burst keeps its spacing.
 - Tile image source order: live local file → OS library thumbnail → app's own cached thumbnail → placeholder. The cache is a *fallback*; preferring it means one stale path blanks a tile whose real photo is right there.
 
 ```
 Library                 ← large title
 🔍 Search
 Yesterday               ← bold day header
-┌──────┬──────┬──────┬──────┐
-│      │      │      │      │
-│      │      │      │    ◌ │  ← ONLY the not-yet-synced tile is badged
-└──────┴──────┴──────┴──────┘     (dotted ring, bottom-right)
+┌────────┬────────┬────────┐
+│        │        │        │   3 per row · 8px gutters · r8
+│        │        │      ◌ │  ← ONLY the not-yet-synced tile is badged
+└────────┴────────┴────────┘     (dotted ring, bottom-right)
 Jul 31, 2026
-┌──────┬──────┐
-│    ☁ │   ✓  │  ← ☁ = cloud-only (local original freed)
-└──────┴──────┘     ✓ = selection overlay, same tile, no separate screen
+┌────────┬────────┐
+│      ☁ │     ✓  │  ← ☁ = cloud-only (local original freed)
+└────────┴────────┘     ✓ = selection overlay, same tile, no separate screen
+
+hold a tile ⇒ selection mode, and a bar appears for the batch:
+┌──────────────────────────────────────────┐
+│ 2 Selected                          Done │
+│   ⊕ Add Tag  ⌖ Set Place  ▤ Set Event  ◷ Adjust Date │
+└──────────────────────────────────────────┘
 ```
 
 Tile image source — the cache is a fallback, never the preference:
@@ -262,7 +280,10 @@ app cached thumb ──found──▶  draw it
   - Header: date/time, filename as a muted second line.
   - Free-text fields (caption, location) as their own rounded cards, not bare text on the background.
   - Every row that can be edited is tappable in place (date/time sheet, pickers, chips).
-- "Edit" sits top-right in the nav bar.
+- "Edit" sits top-right in the nav bar and opens a menu: Crop, Rotate, AI Touch Up.
+  - Crop and rotate are local and instant; rotate is a **full 360° dial** you spin, not four preset buttons.
+  - AI Touch Up asks for a prompt, then runs in the background — the Edit button becomes "AI working…" and the library shows the same line, so leaving the photo doesn't cancel anything.
+  - Every edit **lands as a new photo** carrying the original's date, description, tags, place, event and people. Editing in place would silently overwrite what's already backed up under that key.
 - Export/share: offer the original always; offer re-encoded formats only where you actually have an encoder, and say why when you don't.
 
 ```
@@ -295,7 +316,8 @@ app cached thumb ──found──▶  draw it
 
 ### Pickers and inputs
 
-- Any value that is free text but repeats across records (location, tag, school, employer, organization) gets a **fuzzy search-or-create picker**: typing filters existing values across all records, and the same field creates a new one. No separate "create" button, no separate mode.
+- Any value that is free text but repeats across records (location, event, tag, school, employer, organization) gets a **fuzzy search-or-create picker**: typing filters existing values across all records, and the same field creates a new one. No separate "create" button, no separate mode.
+- That picker is a **drop-down sheet over the current page**, never a page push — picking a value shouldn't cost a navigation. It carries the field name, a checkmark on the current value, and a clear row when one is set.
 - Passcode entry: tap-only numeric keypad with dot indicators, not a system keyboard. Auto-submit on the final digit when there's nothing left to disambiguate.
 - Credential/technical fields: disable autocorrect and smart punctuation. Smart quotes and dashes silently corrupt pasted keys and produce "wrong credentials" errors that aren't.
 - Validate destructively-wrong input before saving, with non-blocking hints (e.g. "20 characters — AWS keys are usually 20") to catch bad pastes.
@@ -622,6 +644,8 @@ Can support multiple model selections under each vendor, if confirmed by design 
 - Warn that usage is billed to the user's own account with that vendor.
 - Only list vendors that can actually do the job (don't offer a vision feature a vendor has no vision model for) — a key that can never work is worse than no option.
 - Expensive analysis is **opt-in per run** ("Analyze"), never automatic, and results are cached locally.
+- Image editing is a narrower capability than vision — a key that can only *read* images must fail over to one that can *return* one, not error the whole request.
+- Long AI work runs detached from the screen that started it: an inline "AI working…" status, the result filed into the library when it lands, and the source photo untouched either way.
 
 Layout follows the standard section anatomy at the top of this doc. The two strategies:
 

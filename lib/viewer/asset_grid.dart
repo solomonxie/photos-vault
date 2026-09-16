@@ -52,6 +52,11 @@ List<Widget> assetGridSlivers({
   /// detail viewer while this is set. `null` (the default) is plain
   /// single-tap browsing, unchanged.
   Set<String>? selectedIds,
+
+  /// Long-press behaviour. Given, holding a tile calls this (Photos' "hold
+  /// to start selecting") instead of opening the [actionsFor] context menu
+  /// — the actions then belong on the selection's own action bar.
+  void Function(AssetRecord)? onLongPress,
 }) {
   final l10n = AppLocalizations.of(context)!;
   final grouped = <String, List<AssetRecord>>{};
@@ -71,18 +76,21 @@ List<Widget> assetGridSlivers({
         ),
       ),
       SliverPadding(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
+        padding: const EdgeInsets.fromLTRB(8, 4, 8, 8),
         sliver: SliverGrid(
           gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 4,
-            crossAxisSpacing: 2,
-            mainAxisSpacing: 2,
+            crossAxisCount: 3,
+            crossAxisSpacing: 8,
+            mainAxisSpacing: 8,
           ),
           delegate: SliverChildBuilderDelegate(
             (context, i) => AssetTile(
               key: ValueKey(entry.value[i].localId),
               record: entry.value[i],
               onTap: () => onTap(entry.value[i]),
+              onLongPress: onLongPress == null
+                  ? null
+                  : () => onLongPress(entry.value[i]),
               actions: actionsFor(entry.value[i]),
               selected: selectedIds?.contains(entry.value[i].localId),
             ),
@@ -101,11 +109,15 @@ class AssetTile extends StatelessWidget {
     required this.onTap,
     required this.actions,
     this.selected,
+    this.onLongPress,
   });
 
   final AssetRecord record;
   final VoidCallback onTap;
   final List<TileAction> actions;
+
+  /// Given, replaces the long-press context menu (see `assetGridSlivers`).
+  final VoidCallback? onLongPress;
 
   /// `null` outside multi-select mode; `true`/`false` while selecting (see
   /// `assetGridSlivers`' `selectedIds`).
@@ -150,8 +162,12 @@ class AssetTile extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final video = record.isVideo;
-
+    final tile = GestureDetector(
+      onTap: onTap,
+      onLongPress: onLongPress,
+      child: _tile(),
+    );
+    if (onLongPress != null) return tile;
     return CupertinoContextMenu(
       actions: [
         for (final action in actions)
@@ -165,73 +181,79 @@ class AssetTile extends StatelessWidget {
             child: Text(action.label),
           ),
       ],
-      child: GestureDetector(
-        onTap: onTap,
-        child: AspectRatio(
-          aspectRatio: 1,
-          child: Stack(
-            fit: StackFit.expand,
-            children: [
-              if (video)
-                const ColoredBox(
-                  color: CupertinoColors.darkBackgroundGray,
-                  child: Icon(
-                    CupertinoIcons.play_circle_fill,
-                    color: CupertinoColors.white,
-                    size: 28,
-                  ),
-                )
-              else
-                _image(),
-              if (record.localDeleted)
-                const Positioned(
-                  top: 4,
-                  left: 4,
-                  child: Icon(
-                    CupertinoIcons.cloud_fill,
-                    size: 14,
-                    color: CupertinoColors.white,
-                  ),
+      child: tile,
+    );
+  }
+
+  Widget _tile() {
+    final video = record.isVideo;
+
+    return AspectRatio(
+      aspectRatio: 1,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            if (video)
+              const ColoredBox(
+                color: CupertinoColors.darkBackgroundGray,
+                child: Icon(
+                  CupertinoIcons.play_circle_fill,
+                  color: CupertinoColors.white,
+                  size: 28,
                 ),
-              if (video)
-                const Positioned(
-                  top: 4,
-                  right: 4,
-                  child: Icon(
-                    CupertinoIcons.video_camera_solid,
-                    size: 14,
-                    color: CupertinoColors.white,
-                  ),
+              )
+            else
+              _image(),
+            if (record.localDeleted)
+              const Positioned(
+                top: 4,
+                left: 4,
+                child: Icon(
+                  CupertinoIcons.cloud_fill,
+                  size: 14,
+                  color: CupertinoColors.white,
                 ),
-              if (record.isFavorite)
-                const Positioned(
-                  bottom: 4,
-                  left: 4,
-                  child: Icon(
-                    CupertinoIcons.heart_fill,
-                    size: 14,
-                    color: CupertinoColors.white,
-                  ),
+              ),
+            if (video)
+              const Positioned(
+                top: 4,
+                right: 4,
+                child: Icon(
+                  CupertinoIcons.video_camera_solid,
+                  size: 14,
+                  color: CupertinoColors.white,
                 ),
-              Positioned(bottom: 4, right: 4, child: StatusDot(record: record)),
-              if (selected != null) ...[
-                if (selected!) const ColoredBox(color: Color(0x662E7DFF)),
-                Positioned(
-                  top: 4,
-                  right: 4,
-                  child: Icon(
-                    selected!
-                        ? CupertinoIcons.checkmark_circle_fill
-                        : CupertinoIcons.circle,
-                    color: selected!
-                        ? CupertinoColors.activeBlue
-                        : CupertinoColors.white,
-                    size: 20,
-                  ),
+              ),
+            if (record.isFavorite)
+              const Positioned(
+                bottom: 4,
+                left: 4,
+                child: Icon(
+                  CupertinoIcons.heart_fill,
+                  size: 14,
+                  color: CupertinoColors.white,
                 ),
-              ],
+              ),
+            Positioned(bottom: 4, right: 4, child: StatusDot(record: record)),
+            if (selected != null) ...[
+              if (selected!) const ColoredBox(color: Color(0x662E7DFF)),
+              Positioned(
+                top: 4,
+                right: 4,
+                child: Icon(
+                  selected!
+                      ? CupertinoIcons.checkmark_circle_fill
+                      : CupertinoIcons.circle,
+                  color: selected!
+                      ? CupertinoColors.activeBlue
+                      : CupertinoColors.white,
+                  size: 20,
+                ),
+              ),
             ],
-          ),
+          ],
         ),
       ),
     );

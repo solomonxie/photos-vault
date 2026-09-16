@@ -48,12 +48,37 @@
   "detailExportAsOption": "导出为…",
   "detailExportFailed": "导出失败。",
   "detailEditNotInLibrary": "该项目不在您的“照片”图库中,无法在那里编辑。",
+  "detailEditCropOption": "裁剪",
+  "detailEditRotateOption": "旋转",
+  "detailEditAiOption": "AI 修图",
+  "detailEditVideoUnsupported": "仅照片可编辑。",
+  "editSaveButton": "保存",
+  "editResetButton": "还原",
+  "editFailed": "无法应用此编辑。",
+  "editSavedAsCopy": "已存为新照片 — 原图保持不变。",
+  "editAngleDegrees": "{degrees}°",
+  "@editAngleDegrees": {
+    "placeholders": {"degrees": {"type": "String"}}
+  },
+  "aiTouchUpTitle": "AI 修图",
+  "aiTouchUpPromptPlaceholder": "描述想要的效果 — “调亮并去掉栅栏”",
+  "aiTouchUpStart": "开始",
+  "aiTouchUpWorking": "AI 处理中…",
+  "aiTouchUpDone": "AI 修图已添加到图库。",
+  "aiTouchUpFailed": "AI 修图失败:{error}",
+  "@aiTouchUpFailed": {
+    "placeholders": {"error": {"type": "String"}}
+  },
+  "aiTouchUpNoKey": "请先在设置中添加 AI 密钥。",
+  "aiTouchUpNote": "照片和提示词会发送给您的 AI 服务商,结果将作为一张新照片返回 — 原图保持不变。",
   "detailInfoStatus": "备份状态",
   "detailInfoDimensions": "尺寸",
   "detailInfoFileSize": "文件大小",
   "detailInfoFormat": "格式",
   "detailInfoLocation": "位置",
   "detailInfoNoLocation": "无位置信息",
+  "detailInfoEvent": "事件",
+  "detailInfoNoEvent": "无事件",
   "detailInfoDuration": "时长",
   "detailEditDateTimeTitle": "日期与时间",
   "detailDescriptionPlaceholder": "添加描述",
@@ -70,8 +95,13 @@
   "collectionsMoreButton": "更多",
   "collectionsPlacesRow": "地点",
   "collectionsEventsRow": "事件",
-  "collectionsComingSoonTitle": "即将推出",
-  "collectionsPlacesComingSoonBody": "地点将根据每张照片的位置信息自动分组。尚未实现。",
+  "collectionsPlacesEmpty": "给照片设置地点后会显示在这里。",
+  "collectionsEventsEmpty": "给照片设置事件后会显示在这里。",
+  "collectionsAiSuggestions": "AI 推测",
+  "collectionsGroupPhotoCount": "{count, plural, one{1 张照片} other{{count} 张照片}}",
+  "@collectionsGroupPhotoCount": {
+    "placeholders": {"count": {"type": "int"}}
+  },
 
   "smartCollectionsAnalyzeButton": "{count, plural, other{分析 {count} 张照片}}",
   "smartCollectionsAnalyzing": "正在分析… {done}/{total}",
@@ -81,6 +111,17 @@
   "smartCollectionsNoPeople": "无人物",
   "smartCollectionsOnePerson": "1 人",
   "smartCollectionsPeopleCount": "{count} 人",
+
+  "selectionTitle": "已选 {count} 项",
+  "selectionAddTag": "添加标签",
+  "selectionSetPlace": "设置地点",
+  "selectionSetEvent": "设置事件",
+  "selectionAdjustDateTime": "调整日期",
+  "selectionDone": "完成",
+  "selectionHint": "长按照片可继续多选。",
+  "@selectionTitle": {
+    "placeholders": {"count": {"type": "int"}}
+  },
 
   "collectionsMediaTypes": "媒体类型",
   "collectionsPhotosRow": "照片",
