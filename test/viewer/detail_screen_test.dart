@@ -1139,8 +1139,8 @@ void main() {
     await _scrollToInfoPanel(tester);
 
     // Tagging is the vendor models' job, so its button leads the Tags
-    // section; finding faces answers "who's in this photo", so it rides on
-    // the People heading instead of a row of its own.
+    // section; finding faces fills in People, so it sits under that
+    // heading.
     expect(
       tester.getTopLeft(find.text('AI Suggest')).dy,
       lessThan(tester.getTopLeft(find.text('Tags')).dy),
@@ -1151,8 +1151,8 @@ void main() {
     );
     expect(
       tester.getTopLeft(find.text('Find Faces')).dy,
-      closeTo(tester.getTopLeft(find.text('People')).dy, 20),
-      reason: 'same row as the People title',
+      greaterThan(tester.getBottomLeft(find.text('People')).dy),
+      reason: 'a row of its own under the heading, not inside it',
     );
   });
 }
