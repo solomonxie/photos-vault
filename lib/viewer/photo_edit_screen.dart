@@ -15,10 +15,19 @@ enum PhotoEditMode { crop, rotate }
 /// where those bytes end up (in place, or as a new library item) is the
 /// caller's call.
 class PhotoEditScreen extends StatefulWidget {
-  const PhotoEditScreen({super.key, required this.file, required this.mode});
+  const PhotoEditScreen({
+    super.key,
+    required this.file,
+    required this.mode,
+    this.readBytes,
+  });
 
   final File file;
   final PhotoEditMode mode;
+
+  /// Overridable for tests — real file I/O never completes under
+  /// `testWidgets`' fake async.
+  final Future<Uint8List> Function(File file)? readBytes;
 
   @override
   State<PhotoEditScreen> createState() => _PhotoEditScreenState();
@@ -43,7 +52,8 @@ class _PhotoEditScreenState extends State<PhotoEditScreen> {
   }
 
   Future<void> _load() async {
-    final bytes = await widget.file.readAsBytes();
+    final read = widget.readBytes ?? (file) => file.readAsBytes();
+    final bytes = await read(widget.file);
     final codec = await ui.instantiateImageCodec(bytes);
     final frame = await codec.getNextFrame();
     if (!mounted) return;
@@ -310,13 +320,19 @@ class _CropGestureLayerState extends State<_CropGestureLayer> {
             rect.top.clamp(0.0, widget.view.height - rect.height) - rect.top;
         rect = rect.shift(Offset(dx, dy));
     }
-    final clamped = Rect.fromLTRB(
-      rect.left.clamp(0.0, rect.right - min),
-      rect.top.clamp(0.0, rect.bottom - min),
-      rect.right.clamp(rect.left + min, widget.view.width),
-      rect.bottom.clamp(rect.top + min, widget.view.height),
+    // Left/top first, each kept far enough from the far edge that the
+    // right/bottom clamp below always has a valid range — dragging a corner
+    // clean past the opposite one otherwise inverts the rect.
+    final left = rect.left.clamp(0.0, widget.view.width - min);
+    final top = rect.top.clamp(0.0, widget.view.height - min);
+    widget.onChanged(
+      Rect.fromLTRB(
+        left,
+        top,
+        rect.right.clamp(left + min, widget.view.width),
+        rect.bottom.clamp(top + min, widget.view.height),
+      ),
     );
-    widget.onChanged(clamped);
   }
 
   @override
