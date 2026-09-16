@@ -11,10 +11,18 @@ LibraryScreen                                          library_screen.dart
   │     renders AssetTile + StatusDot per asset          asset_grid.dart
   │     tap tile ──► DetailScreen                        detail_screen.dart
   │                    swipe-down-to-dismiss viewer + info panel (below image)
+  │                    Edit ──► crop/rotate  PhotoEditScreen  photo_edit_screen.dart
+  │                          └─ AI Touch Up  ../photos/ai_touch_up_queue.dart
+  │                             (background; result filed by createDerivedAsset)
+  │     hold tile ──► selection mode + batch bar (tag / place / event / date)
   │
   ├─ "Media Types" section
   │     Photos / Videos row ──► MediaTypeScreen(isVideo)  media_type_screen.dart
   │                                reuses assetGridSlivers() + DetailScreen
+  │
+  ├─ "Collections" → Places / Events rows ──► AssetGroupScreen  asset_group_screen.dart
+  │     live groups of AssetRecord.location / .event (set per photo in DetailScreen)
+  │     Events' "AI Suggestions" ──► SmartCollectionScreen  smart_collection_screen.dart
   │
   ├─ "Collections" → People row ──► PeopleScreen            people_screen.dart
   │     list of named Person profiles (../photos/person_store.dart)
@@ -43,6 +51,15 @@ per screen is which `AssetRecord` filter it applies and which actions it
 offers. `asset_picker_screen.dart`'s multi-select grid is the shared
 "pick from the full library" flow behind Private Albums' Move/Copy and
 People's "Add Photos".
+
+Every pick-a-value field (location, event, tag, school, person) goes through
+`search_picker_sheet.dart` — a drop-down sheet over the current page, not a
+push. `person_picker_sheet.dart` is the same sheet with "New Person…" wired
+to `PersonStore.create`.
+
+Edits never overwrite: `PhotoEditScreen` and the AI queue both hand their
+bytes to `../photos/derived_asset.dart`, which files a new library item
+carrying the source's date/description/tags/place/event/people.
 
 `BackupScreen` reads local upload-status counts only (`../storage`) — it
 doesn't talk to S3.

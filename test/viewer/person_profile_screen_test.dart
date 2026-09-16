@@ -409,8 +409,10 @@ void main() {
       await tester.tap(find.byIcon(CupertinoIcons.pencil));
       await tester.pumpAndSettle();
       // Re-opens the searchable person picker (Daniel is still selectable —
-      // editing doesn't exclude the relationship's own current target).
-      await tester.tap(find.text('Daniel'));
+      // editing doesn't exclude the relationship's own current target). The
+      // picker is a sheet over the page now, so the row behind it still
+      // carries a "Daniel" of its own — `.last` is the sheet's.
+      await tester.tap(find.text('Daniel').last);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Sibling'));
       await tester.pumpAndSettle();

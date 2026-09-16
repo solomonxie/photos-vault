@@ -5,7 +5,7 @@ import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import 'custom_fields_editor.dart';
-import 'string_picker_screen.dart';
+import 'search_picker_sheet.dart';
 
 const _cardBackground = Color(0xFF1C1C1E);
 const _cardDecoration = BoxDecoration(
@@ -56,16 +56,13 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
   Future<void> _pickTitle() async {
     final options = await widget.personStore.allHistoryTitles(_entry.category);
     if (!mounted) return;
-    final title = await Navigator.of(context).push<String>(
-      CupertinoPageRoute(
-        builder: (_) => StringPickerScreen(
-          title: widget.categoryLabel,
-          options: options,
-          initialQuery: _entry.title,
-        ),
-      ),
+    final title = await showSearchPickerSheet(
+      context: context,
+      title: widget.categoryLabel,
+      options: options,
+      selected: _entry.title,
     );
-    if (title == null) return;
+    if (title == null || title.isEmpty) return;
     await _persist(_entry.copyWith(title: title));
   }
 

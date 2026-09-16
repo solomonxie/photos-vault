@@ -447,6 +447,51 @@ void main() {
     expect(saved!.location, 'Kyoto, Japan');
   });
 
+  testWidgets('editing the event shows it in place of "No Event"', (
+    tester,
+  ) async {
+    final record = _record(localId: 'a');
+    final assetRecordStore = FakeAssetRecordStore();
+    await assetRecordStore.upsert(
+      localId: record.localId,
+      contentHash: record.localId,
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: record.sourcePath,
+      createdAt: record.createdAt,
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [record],
+          initialIndex: 0,
+          assetRecordStore: assetRecordStore,
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await _scrollToInfoPanel(tester);
+
+    expect(find.text('No Event'), findsOneWidget);
+    await tester.tap(find.text('No Event'));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byType(CupertinoSearchTextField),
+      "Nina's Wedding",
+    );
+    await tester.pump();
+    await tester.tap(find.text('Use "Nina\'s Wedding"'));
+    await tester.pumpAndSettle();
+
+    expect(find.text("Nina's Wedding"), findsOneWidget);
+    final saved = await assetRecordStore.getByLocalId('a');
+    expect(saved!.event, "Nina's Wedding");
+  });
+
   testWidgets('editing the description persists it', (tester) async {
     final record = _record(localId: 'a');
     final assetRecordStore = FakeAssetRecordStore();
@@ -710,36 +755,30 @@ void main() {
     expect(find.text('Export As…'), findsNothing);
   });
 
-  testWidgets(
-    'Edit explains a manual file isn\'t in the Photos library, not the plugin',
-    (tester) async {
-      final record = _record(localId: 'a');
+  testWidgets('Edit opens the crop/rotate/AI touch-up menu', (tester) async {
+    final record = _record(localId: 'a');
 
-      await tester.pumpWidget(
-        _wrap(
-          DetailScreen(
-            records: [record],
-            initialIndex: 0,
-            assetRecordStore: FakeAssetRecordStore(),
-            personStore: FakePersonStore(),
-            onDelete: (_) async => true,
-            onToggleFavorite: (_) async {},
-          ),
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [record],
+          initialIndex: 0,
+          assetRecordStore: FakeAssetRecordStore(),
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
         ),
-      );
-      await tester.pump();
+      ),
+    );
+    await tester.pump();
 
-      await tester.tap(find.text('Edit'));
-      await tester.pumpAndSettle();
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
 
-      expect(
-        find.text(
-          "This isn't in your Photos library, so it can't be edited there.",
-        ),
-        findsOneWidget,
-      );
-    },
-  );
+    expect(find.text('Crop'), findsOneWidget);
+    expect(find.text('Rotate'), findsOneWidget);
+    expect(find.text('AI Touch Up'), findsOneWidget);
+  });
 
   group('cloud-only', () {
     AssetRecord cloudOnly() => AssetRecord(
@@ -760,30 +799,38 @@ void main() {
       },
     );
 
-    Widget screen({required Future<String?> Function(AssetRecord) restore}) => _wrap(
-      DetailScreen(
-        records: [cloudOnly()],
-        initialIndex: 0,
-        assetRecordStore: FakeAssetRecordStore(),
-        personStore: FakePersonStore(),
-        onDelete: (_) async => true,
-        onToggleFavorite: (_) async {},
-        restoreOriginal: restore,
-      ),
+    Widget screen({required Future<String?> Function(AssetRecord) restore}) =>
+        _wrap(
+          DetailScreen(
+            records: [cloudOnly()],
+            initialIndex: 0,
+            assetRecordStore: FakeAssetRecordStore(),
+            personStore: FakePersonStore(),
+            onDelete: (_) async => true,
+            onToggleFavorite: (_) async {},
+            restoreOriginal: restore,
+          ),
+        );
+
+    testWidgets(
+      'offers to download the full resolution instead of the missing original',
+      (tester) async {
+        await tester.pumpWidget(screen(restore: (_) async => null));
+        await tester.pump();
+
+        expect(find.text('Download Full Resolution'), findsOneWidget);
+        // Drawn from the cached thumbnail, not the deleted original.
+        final image = tester.widget<Image>(find.byType(Image).first);
+        expect((image.image as FileImage).file.path, '/tmp/gone-thumb.jpg');
+      },
     );
 
-    testWidgets('offers to download the full resolution instead of the missing original', (tester) async {
-      await tester.pumpWidget(screen(restore: (_) async => null));
-      await tester.pump();
-
-      expect(find.text('Download Full Resolution'), findsOneWidget);
-      // Drawn from the cached thumbnail, not the deleted original.
-      final image = tester.widget<Image>(find.byType(Image).first);
-      expect((image.image as FileImage).file.path, '/tmp/gone-thumb.jpg');
-    });
-
-    testWidgets('a successful download swaps in the restored original', (tester) async {
-      await tester.pumpWidget(screen(restore: (_) async => '/tmp/restored.jpg'));
+    testWidgets('a successful download swaps in the restored original', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        screen(restore: (_) async => '/tmp/restored.jpg'),
+      );
       await tester.pump();
 
       await tester.tap(find.text('Download Full Resolution'));
@@ -794,8 +841,12 @@ void main() {
       expect((image.image as FileImage).file.path, '/tmp/restored.jpg');
     });
 
-    testWidgets('a failed download leaves the offer up to try again', (tester) async {
-      await tester.pumpWidget(screen(restore: (_) async => throw Exception('offline')));
+    testWidgets('a failed download leaves the offer up to try again', (
+      tester,
+    ) async {
+      await tester.pumpWidget(
+        screen(restore: (_) async => throw Exception('offline')),
+      );
       await tester.pump();
 
       await tester.tap(find.text('Download Full Resolution'));

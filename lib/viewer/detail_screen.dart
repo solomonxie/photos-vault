@@ -8,10 +8,11 @@ import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
-import 'package:url_launcher/url_launcher.dart';
 import 'package:video_player/video_player.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/ai_touch_up_queue.dart';
+import '../photos/derived_asset.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/photo_library_service.dart';
@@ -21,8 +22,9 @@ import '../storage/asset_record_store.dart';
 import '../upload/original_restore.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
-import 'person_picker_screen.dart';
-import 'string_picker_screen.dart';
+import 'photo_edit_screen.dart';
+import 'person_picker_sheet.dart';
+import 'search_picker_sheet.dart';
 
 /// Matches `CupertinoThemeData.scaffoldBackgroundColor` in app.dart — pure
 /// black looked out of place next to every other screen's dark grey.
@@ -33,6 +35,8 @@ const _screenBackground = Color(0xFF1C1C1E);
 /// touches still images; videos share their original file as-is (no
 /// bundled transcoder).
 enum _ExportFormat { jpg, png, webp }
+
+enum _EditChoice { crop, rotate, aiTouchUp }
 
 /// Runs off the UI isolate via [compute] — decode+encode of a full-size
 /// photo is heavy enough to jank a frame otherwise.
@@ -271,21 +275,167 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
-  /// iOS gives third-party apps no way to deep-link into the Photos app's
-  /// editor for a specific asset — this opens the Photos app itself (best
-  /// effort) via its unofficial `photos-redirect://` scheme.
-  Future<void> _editInPhotos() async {
+  /// Crop/rotate run locally; AI Touch Up goes out to the user's AI vendor.
+  /// All three land as a *new* library item ([createDerivedAsset]) — the
+  /// photo being edited, and whatever is already backed up under its key,
+  /// stays as it is.
+  Future<void> _showEditMenu() async {
     final l10n = AppLocalizations.of(context)!;
-    final record = _records[_index];
-    if (record.sourceType != AssetSourceType.photoManager) {
-      _showMessage(l10n.detailEditNotInLibrary);
+    if (_records[_index].isVideo) {
+      _showMessage(l10n.detailEditVideoUnsupported);
       return;
     }
-    final uri = Uri.parse('photos-redirect://');
-    final opened =
-        await canLaunchUrl(uri) &&
-        await launchUrl(uri, mode: LaunchMode.externalApplication);
-    if (!opened && mounted) _showMessage(l10n.detailEditNotInLibrary);
+    final choice = await showCupertinoModalPopup<_EditChoice>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(_EditChoice.crop),
+            child: Text(l10n.detailEditCropOption),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(_EditChoice.rotate),
+            child: Text(l10n.detailEditRotateOption),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(_EditChoice.aiTouchUp),
+            child: Text(l10n.detailEditAiOption),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (choice == null || !mounted) return;
+    switch (choice) {
+      case _EditChoice.crop:
+        await _runLocalEdit(PhotoEditMode.crop);
+      case _EditChoice.rotate:
+        await _runLocalEdit(PhotoEditMode.rotate);
+      case _EditChoice.aiTouchUp:
+        await _runAiTouchUp();
+    }
+  }
+
+  Future<void> _runLocalEdit(PhotoEditMode mode) async {
+    final l10n = AppLocalizations.of(context)!;
+    final record = _records[_index];
+    final path = await _resolvePath(record);
+    if (!mounted) return;
+    if (path == null) {
+      _showMessage(l10n.detailFileUnavailable);
+      return;
+    }
+    final edited = await Navigator.of(context).push<Uint8List>(
+      CupertinoPageRoute(
+        builder: (_) => PhotoEditScreen(file: File(path), mode: mode),
+      ),
+    );
+    if (edited == null || !mounted) return;
+    try {
+      final created = await createDerivedAsset(
+        source: record,
+        bytes: edited,
+        extension: p.extension(path),
+        store: widget.assetRecordStore,
+        personStore: _personStore,
+      );
+      if (!mounted) return;
+      _showEdited(created);
+      _showMessage(l10n.editSavedAsCopy);
+    } catch (_) {
+      if (mounted) _showMessage(l10n.editFailed);
+    }
+  }
+
+  /// Swipes to the freshly created photo, so the edit is what's on screen.
+  void _showEdited(AssetRecord created) {
+    setState(() {
+      _records = [..._records]..insert(_index + 1, created);
+    });
+    _pageController.animateToPage(
+      _index + 1,
+      duration: const Duration(milliseconds: 250),
+      curve: Curves.easeOut,
+    );
+  }
+
+  Future<void> _runAiTouchUp() async {
+    final l10n = AppLocalizations.of(context)!;
+    final record = _records[_index];
+    final path = await _resolvePath(record);
+    if (!mounted) return;
+    if (path == null) {
+      _showMessage(l10n.detailFileUnavailable);
+      return;
+    }
+    final prompt = await _askAiPrompt();
+    if (prompt == null || prompt.isEmpty || !mounted) return;
+    final created = await AiTouchUpQueue.instance.submit(
+      source: record,
+      file: File(path),
+      prompt: prompt,
+      store: widget.assetRecordStore,
+      personStore: _personStore,
+    );
+    if (!mounted) return;
+    if (created == null) {
+      _showMessage(
+        l10n.aiTouchUpFailed(AiTouchUpQueue.instance.lastError ?? ''),
+      );
+      return;
+    }
+    _showEdited(created);
+    _showMessage(l10n.aiTouchUpDone);
+  }
+
+  Future<String?> _askAiPrompt() async {
+    final l10n = AppLocalizations.of(context)!;
+    final controller = TextEditingController();
+    final prompt = await showCupertinoDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => CupertinoAlertDialog(
+          title: Text(l10n.aiTouchUpTitle),
+          content: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              const SizedBox(height: 12),
+              CupertinoTextField(
+                controller: controller,
+                autofocus: true,
+                maxLines: 3,
+                minLines: 2,
+                placeholder: l10n.aiTouchUpPromptPlaceholder,
+                onChanged: (_) => setState(() {}),
+              ),
+              const SizedBox(height: 12),
+              Text(
+                l10n.aiTouchUpNote,
+                style: const TextStyle(fontSize: 12),
+                textAlign: TextAlign.start,
+              ),
+            ],
+          ),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l10n.actionCancel),
+            ),
+            CupertinoDialogAction(
+              onPressed: controller.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.of(context).pop(controller.text.trim()),
+              child: Text(l10n.aiTouchUpStart),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    return prompt;
   }
 
   @override
@@ -309,12 +459,37 @@ class _DetailScreenState extends State<DetailScreen> {
                       style: const TextStyle(color: CupertinoColors.white),
                     ),
                   ),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: _editInPhotos,
-                    child: Text(
-                      l10n.detailEditButton,
-                      style: const TextStyle(color: CupertinoColors.white),
+                  AnimatedBuilder(
+                    animation: AiTouchUpQueue.instance,
+                    builder: (context, child) =>
+                        AiTouchUpQueue.instance.isRunning(
+                          _records[_index].localId,
+                        )
+                        ? Padding(
+                            padding: const EdgeInsets.symmetric(horizontal: 16),
+                            child: Row(
+                              children: [
+                                const CupertinoActivityIndicator(
+                                  color: CupertinoColors.white,
+                                ),
+                                const SizedBox(width: 8),
+                                Text(
+                                  l10n.aiTouchUpWorking,
+                                  style: const TextStyle(
+                                    color: CupertinoColors.white,
+                                  ),
+                                ),
+                              ],
+                            ),
+                          )
+                        : child!,
+                    child: CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _showEditMenu,
+                      child: Text(
+                        l10n.detailEditButton,
+                        style: const TextStyle(color: CupertinoColors.white),
+                      ),
                     ),
                   ),
                 ],
@@ -509,7 +684,8 @@ class _MediaPageState extends State<_MediaPage> {
   }
 
   Future<void> _restoreOriginal() async {
-    final restore = widget.restoreOriginal ??
+    final restore =
+        widget.restoreOriginal ??
         (record) => OriginalRestore(
           targetsStore: BackupTargetsStore(),
           recordStore: widget.assetRecordStore,
@@ -530,7 +706,11 @@ class _MediaPageState extends State<_MediaPage> {
       }
     });
     if (restored == null) return;
-    widget.onRecordChanged(widget.record.withSourcePath(restored, DateTime.now()).withLocalDeleted(false));
+    widget.onRecordChanged(
+      widget.record
+          .withSourcePath(restored, DateTime.now())
+          .withLocalDeleted(false),
+    );
     _initVideoIfNeeded();
   }
 
@@ -547,7 +727,8 @@ class _MediaPageState extends State<_MediaPage> {
             child: Image.file(
               File(thumbnail),
               fit: BoxFit.contain,
-              errorBuilder: (context, error, stackTrace) => _MissingFileNote(message: l10n.detailFileUnavailable),
+              errorBuilder: (context, error, stackTrace) =>
+                  _MissingFileNote(message: l10n.detailFileUnavailable),
             ),
           )
         else
@@ -559,7 +740,11 @@ class _MediaPageState extends State<_MediaPage> {
           child: Center(
             child: CupertinoButton.filled(
               onPressed: _restoring ? null : _restoreOriginal,
-              child: Text(_restoring ? l10n.detailRestoringOriginal : l10n.detailRestoreOriginal),
+              child: Text(
+                _restoring
+                    ? l10n.detailRestoringOriginal
+                    : l10n.detailRestoreOriginal,
+              ),
             ),
           ),
         ),
@@ -867,21 +1052,21 @@ class _InfoPanelState extends State<_InfoPanel> {
     widget.onRecordChanged(widget.record.withCreatedAt(picked));
   }
 
-  /// Same "search existing, or type to create" picker used for education/
+  /// Same "search existing, or type to create" drop-down used for education/
   /// job titles and relationship organizations — fuzzy-matches locations
   /// already used on other photos, no separate "create" affordance needed.
   Future<void> _editLocation() async {
     final l10n = AppLocalizations.of(context)!;
     final options = await widget.assetRecordStore.allLocations();
     if (!mounted) return;
-    final value = await Navigator.of(context).push<String>(
-      CupertinoPageRoute(
-        builder: (_) => StringPickerScreen(
-          title: l10n.detailInfoLocation,
-          options: options,
-          initialQuery: widget.record.location ?? '',
-        ),
-      ),
+    final value = await showSearchPickerSheet(
+      context: context,
+      title: l10n.detailInfoLocation,
+      options: options,
+      selected: widget.record.location,
+      clearLabel: widget.record.location == null
+          ? null
+          : l10n.detailInfoNoLocation,
     );
     if (value == null) return;
     final normalized = value.trim().isEmpty ? null : value.trim();
@@ -892,22 +1077,41 @@ class _InfoPanelState extends State<_InfoPanel> {
     widget.onRecordChanged(widget.record.withLocation(normalized));
   }
 
+  /// The occasion this photo belongs to — what the Events collection
+  /// groups by, picked the same way as Location.
+  Future<void> _editEvent() async {
+    final l10n = AppLocalizations.of(context)!;
+    final options = await widget.assetRecordStore.allEvents();
+    if (!mounted) return;
+    final value = await showSearchPickerSheet(
+      context: context,
+      title: l10n.detailInfoEvent,
+      options: options,
+      selected: widget.record.event,
+      clearLabel: widget.record.event == null ? null : l10n.detailInfoNoEvent,
+    );
+    if (value == null) return;
+    final normalized = value.trim().isEmpty ? null : value.trim();
+    await widget.assetRecordStore.setEvent(widget.record.localId, normalized);
+    widget.onRecordChanged(widget.record.withEvent(normalized));
+  }
+
   void _saveDescription(String value) {
     widget.assetRecordStore.setDescription(widget.record.localId, value);
     widget.onRecordChanged(widget.record.withDescription(value));
   }
 
   /// Fuzzy search-or-create, scoped to tags already used on other photos
-  /// and not already on this one — a small popup sheet rather than
-  /// [StringPickerScreen]'s full page, since a tag is a much smaller
-  /// decision than a school/employer/organization.
+  /// and not already on this one.
   Future<void> _addTag() async {
+    final l10n = AppLocalizations.of(context)!;
     final allTags = await widget.assetRecordStore.allTags();
     final options = allTags.difference(widget.record.tags.toSet());
     if (!mounted) return;
-    final tag = await showCupertinoModalPopup<String>(
+    final tag = await showSearchPickerSheet(
       context: context,
-      builder: (_) => _SearchPickerSheet(options: options),
+      title: l10n.detailTagsHeader,
+      options: options,
     );
     if (tag == null || tag.isEmpty || widget.record.tags.contains(tag)) return;
     final updated = [...widget.record.tags, tag];
@@ -929,14 +1133,11 @@ class _InfoPanelState extends State<_InfoPanel> {
         .where((p) => !taggedIds.contains(p.id))
         .toList();
     if (!mounted) return;
-    final picked = await Navigator.of(context).push<Person>(
-      CupertinoPageRoute(
-        builder: (_) => PersonPickerScreen(
-          candidates: candidates,
-          personStore: widget.personStore,
-          title: l10n.detailPeopleTagPickerTitle,
-        ),
-      ),
+    final picked = await showPersonPickerSheet(
+      context: context,
+      candidates: candidates,
+      personStore: widget.personStore,
+      title: l10n.detailPeopleTagPickerTitle,
     );
     if (picked == null) return;
     await widget.personStore.addAssets(picked.id, [widget.record.localId]);
@@ -1078,8 +1279,15 @@ class _InfoPanelState extends State<_InfoPanel> {
             children: [
               CupertinoListTile(
                 title: Text(l10n.detailInfoLocation),
-                additionalInfo: Text(record.location ?? l10n.detailInfoNoLocation),
+                additionalInfo: Text(
+                  record.location ?? l10n.detailInfoNoLocation,
+                ),
                 onTap: _editLocation,
+              ),
+              CupertinoListTile(
+                title: Text(l10n.detailInfoEvent),
+                additionalInfo: Text(record.event ?? l10n.detailInfoNoEvent),
+                onTap: _editEvent,
               ),
               if (_width != null && _height != null)
                 CupertinoListTile(
@@ -1097,11 +1305,17 @@ class _InfoPanelState extends State<_InfoPanel> {
                   additionalInfo: Text(_formatBytes(_bytes!)),
                 ),
               if (format != null)
-                CupertinoListTile(title: Text(l10n.detailInfoFormat), additionalInfo: Text(format)),
+                CupertinoListTile(
+                  title: Text(l10n.detailInfoFormat),
+                  additionalInfo: Text(format),
+                ),
               CupertinoListTile(
                 title: Text(l10n.detailInfoStatus),
                 additionalInfo: Text(
-                  _statusLabel(l10n, record.stateOf(DerivativeKind.original).status),
+                  _statusLabel(
+                    l10n,
+                    record.stateOf(DerivativeKind.original).status,
+                  ),
                 ),
               ),
             ],
@@ -1154,83 +1368,6 @@ class _InfoPanelState extends State<_InfoPanel> {
             ],
           ),
         ],
-      ),
-    );
-  }
-}
-
-/// Compact fuzzy search-or-create popup — a bottom sheet under half the
-/// screen, not a full page push. Pops with the tapped option, the typed
-/// query (via "Use "…""), or `null` if dismissed without picking.
-class _SearchPickerSheet extends StatefulWidget {
-  const _SearchPickerSheet({required this.options});
-
-  final Set<String> options;
-
-  @override
-  State<_SearchPickerSheet> createState() => _SearchPickerSheetState();
-}
-
-class _SearchPickerSheetState extends State<_SearchPickerSheet> {
-  final _controller = TextEditingController();
-  String _query = '';
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final query = _query.trim();
-    final matches =
-        widget.options
-            .where((o) => o.toLowerCase().contains(query.toLowerCase()))
-            .toList()
-          ..sort();
-    final exactMatch = matches.any(
-      (o) => o.toLowerCase() == query.toLowerCase(),
-    );
-
-    return Container(
-      height: MediaQuery.of(context).size.height * 0.42,
-      decoration: const BoxDecoration(
-        color: _screenBackground,
-        borderRadius: BorderRadius.vertical(top: Radius.circular(12)),
-      ),
-      child: SafeArea(
-        top: false,
-        child: Column(
-          children: [
-            Padding(
-              padding: const EdgeInsets.all(12),
-              child: CupertinoSearchTextField(
-                controller: _controller,
-                autofocus: true,
-                onChanged: (v) => setState(() => _query = v),
-              ),
-            ),
-            Expanded(
-              child: ListView(
-                children: [
-                  if (query.isNotEmpty && !exactMatch)
-                    CupertinoListTile(
-                      leading: const Icon(CupertinoIcons.add_circled),
-                      title: Text(l10n.stringPickerUseValue(query)),
-                      onTap: () => Navigator.of(context).pop(query),
-                    ),
-                  for (final option in matches)
-                    CupertinoListTile(
-                      title: Text(option),
-                      onTap: () => Navigator.of(context).pop(option),
-                    ),
-                ],
-              ),
-            ),
-          ],
-        ),
       ),
     );
   }
@@ -1368,4 +1505,3 @@ class _PersonChip extends StatelessWidget {
     );
   }
 }
-

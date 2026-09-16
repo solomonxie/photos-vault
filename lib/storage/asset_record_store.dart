@@ -47,7 +47,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 6,
+        version: 7,
         onCreate: (db, version) => db.execute(_createTableSql),
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -73,9 +73,7 @@ class AssetRecordStore {
             await db.execute(
               'ALTER TABLE $_table ADD COLUMN thumbnail_hash TEXT',
             );
-            await db.execute(
-              'ALTER TABLE $_table ADD COLUMN medium_hash TEXT',
-            );
+            await db.execute('ALTER TABLE $_table ADD COLUMN medium_hash TEXT');
             await db.execute(
               'ALTER TABLE $_table ADD COLUMN original_hash TEXT',
             );
@@ -87,6 +85,9 @@ class AssetRecordStore {
             await db.execute(
               'ALTER TABLE $_table ADD COLUMN local_deleted INTEGER NOT NULL DEFAULT 0',
             );
+          }
+          if (oldVersion < 7) {
+            await db.execute('ALTER TABLE $_table ADD COLUMN event TEXT');
           }
         },
       ),
@@ -121,6 +122,7 @@ class AssetRecordStore {
       description TEXT NOT NULL DEFAULT '',
       tags TEXT NOT NULL DEFAULT '[]',
       location TEXT,
+      event TEXT,
       passcode_hash TEXT,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL
@@ -253,7 +255,10 @@ class AssetRecordStore {
     final db = await _open();
     await db.update(
       _table,
-      {'source_path': value, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      {
+        'source_path': value,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
       where: 'local_id = ?',
       whereArgs: [localId],
     );
@@ -362,6 +367,29 @@ class AssetRecordStore {
       where: "location IS NOT NULL AND location != ''",
     );
     return rows.map((r) => r['location'] as String).toSet();
+  }
+
+  Future<void> setEvent(String localId, String? value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {'event': value, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  /// Same role as [allLocations], for the Event field and the Events
+  /// collection.
+  Future<Set<String>> allEvents() async {
+    final db = await _open();
+    final rows = await db.query(
+      _table,
+      columns: ['event'],
+      distinct: true,
+      where: "event IS NOT NULL AND event != ''",
+    );
+    return rows.map((r) => r['event'] as String).toSet();
   }
 
   /// Every distinct tag already used across all photos — same "select if
@@ -502,6 +530,7 @@ class AssetRecordStore {
       description: row['description'] as String? ?? '',
       tags: tagsJson.cast<String>(),
       location: row['location'] as String?,
+      event: row['event'] as String?,
       passcodeHash: row['passcode_hash'] as String?,
     );
   }

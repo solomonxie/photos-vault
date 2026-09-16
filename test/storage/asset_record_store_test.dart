@@ -101,24 +101,41 @@ void main() {
     expect(record.stateOf(DerivativeKind.medium).status, UploadStatus.pending);
   });
 
-  test('updateDerivative persists backedUpHash for that derivative only', () async {
-    final store = newStore();
-    await store.upsert(localId: 'asset-1', contentHash: 'hash-1', platform: 'ios');
+  test(
+    'updateDerivative persists backedUpHash for that derivative only',
+    () async {
+      final store = newStore();
+      await store.upsert(
+        localId: 'asset-1',
+        contentHash: 'hash-1',
+        platform: 'ios',
+      );
 
-    await store.updateDerivative(
-      'asset-1',
-      DerivativeKind.original,
-      const DerivativeState(status: UploadStatus.uploaded, backedUpHash: 'sha256:abc'),
-    );
+      await store.updateDerivative(
+        'asset-1',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          backedUpHash: 'sha256:abc',
+        ),
+      );
 
-    final record = await store.getByLocalId('asset-1');
-    expect(record!.stateOf(DerivativeKind.original).backedUpHash, 'sha256:abc');
-    expect(record.stateOf(DerivativeKind.medium).backedUpHash, isNull);
-  });
+      final record = await store.getByLocalId('asset-1');
+      expect(
+        record!.stateOf(DerivativeKind.original).backedUpHash,
+        'sha256:abc',
+      );
+      expect(record.stateOf(DerivativeKind.medium).backedUpHash, isNull);
+    },
+  );
 
   test('thumbnail path and the cloud-only flag round-trip', () async {
     final store = newStore();
-    await store.upsert(localId: 'asset-1', contentHash: 'hash-1', platform: 'ios');
+    await store.upsert(
+      localId: 'asset-1',
+      contentHash: 'hash-1',
+      platform: 'ios',
+    );
 
     expect((await store.getByLocalId('asset-1'))!.thumbnailPath, isNull);
     expect((await store.getByLocalId('asset-1'))!.localDeleted, isFalse);
@@ -133,11 +150,18 @@ void main() {
 
   test('setSourcePath points a record at a restored local file', () async {
     final store = newStore();
-    await store.upsert(localId: 'asset-1', contentHash: 'hash-1', platform: 'ios');
+    await store.upsert(
+      localId: 'asset-1',
+      contentHash: 'hash-1',
+      platform: 'ios',
+    );
 
     await store.setSourcePath('asset-1', '/restored/asset-1.jpg');
 
-    expect((await store.getByLocalId('asset-1'))!.sourcePath, '/restored/asset-1.jpg');
+    expect(
+      (await store.getByLocalId('asset-1'))!.sourcePath,
+      '/restored/asset-1.jpg',
+    );
   });
 
   test('listAll returns records ordered by creation', () async {
@@ -276,6 +300,23 @@ void main() {
     expect(record!.description, 'A trip to the mountains.');
     expect(record.tags, ['sunset', 'hiking']);
     expect(record.location, 'Kyoto, Japan');
+  });
+
+  test('setEvent round-trips and allEvents skips the unset ones', () async {
+    final store = newStore();
+    for (final id in ['asset-1', 'asset-2', 'asset-3']) {
+      await store.upsert(localId: id, contentHash: id, platform: 'ios');
+    }
+
+    await store.setEvent('asset-1', "Nina's Wedding");
+    await store.setEvent('asset-2', "Nina's Wedding");
+
+    expect((await store.getByLocalId('asset-1'))!.event, "Nina's Wedding");
+    expect((await store.getByLocalId('asset-3'))!.event, isNull);
+    expect(await store.allEvents(), {"Nina's Wedding"});
+
+    await store.setEvent('asset-1', null);
+    expect((await store.getByLocalId('asset-1'))!.event, isNull);
   });
 
   test('setLocation(null) clears a previously-set location', () async {

@@ -60,6 +60,7 @@ class AssetRecord {
     this.description = '',
     this.tags = const [],
     this.location,
+    this.event,
     this.passcodeHash,
   });
 
@@ -106,6 +107,12 @@ class AssetRecord {
   /// there's no reverse-geocoding; the user types it themselves.
   final String? location;
 
+  /// A free-text occasion ("Nina's Wedding", "Japan 2019") — what the
+  /// Events collection groups by. Same pick-or-type field as [location];
+  /// the AI smart collection's own guessed labels stay separate
+  /// (`AiPhotoAnalysis.eventLabel`) until the user adopts one here.
+  final String? event;
+
   /// SHA-256 of a 4-digit private-album passcode, or `null` if this asset
   /// isn't in one. There's no separate "private album" entity anywhere —
   /// the group of assets sharing one hash *is* the album; it stops
@@ -130,6 +137,7 @@ class AssetRecord {
     String? description,
     List<String>? tags,
     String? Function()? location,
+    String? Function()? event,
     String? Function()? passcodeHash,
   }) => AssetRecord(
     localId: localId,
@@ -149,6 +157,7 @@ class AssetRecord {
     description: description ?? this.description,
     tags: tags ?? this.tags,
     location: location != null ? location() : this.location,
+    event: event != null ? event() : this.event,
     passcodeHash: passcodeHash != null ? passcodeHash() : this.passcodeHash,
   );
 
@@ -169,6 +178,8 @@ class AssetRecord {
   AssetRecord withTags(List<String> value) => _copyWith(tags: value);
 
   AssetRecord withLocation(String? value) => _copyWith(location: () => value);
+
+  AssetRecord withEvent(String? value) => _copyWith(event: () => value);
 
   AssetRecord withPasscodeHash(String? value) =>
       _copyWith(passcodeHash: () => value);
