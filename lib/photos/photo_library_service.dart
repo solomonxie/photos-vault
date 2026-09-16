@@ -75,22 +75,33 @@ class PhotoLibraryService {
   }
 
   /// Pulls every camera-roll asset and upserts it into [store] as a
-  /// `photoManager`-sourced record — a no-op for ones already tracked.
+  /// `photoManager`-sourced record — a no-op for ones already tracked,
+  /// except for the favourite flag: Photos owns that for its own assets, so
+  /// a heart added over there shows up here on the next scan. The reverse
+  /// direction is [setFavoriteInLibrary].
   Future<List<AssetRecord>> syncAll() async {
     final entities = await _listAllAssets();
     final added = <AssetRecord>[];
     for (final entity in entities) {
-      added.add(
-        await store.upsert(
-          localId: localIdFor(entity),
-          contentHash: entity.id,
-          platform: Platform.isIOS ? 'ios' : 'android',
-          sourceType: AssetSourceType.photoManager,
-          isVideo: entity.type == AssetType.video,
-          isLivePhoto: entity.isLivePhoto,
-          createdAt: entity.createDateTime,
-        ),
+      final localId = localIdFor(entity);
+      final existing = await store.getByLocalId(localId);
+      if (existing != null) {
+        if (existing.isFavorite != entity.isFavorite) {
+          await store.setFavorite(localId, entity.isFavorite);
+        }
+        continue;
+      }
+      final record = await store.upsert(
+        localId: localId,
+        contentHash: entity.id,
+        platform: Platform.isIOS ? 'ios' : 'android',
+        sourceType: AssetSourceType.photoManager,
+        isVideo: entity.type == AssetType.video,
+        isLivePhoto: entity.isLivePhoto,
+        createdAt: entity.createDateTime,
       );
+      if (entity.isFavorite) await store.setFavorite(localId, true);
+      added.add(entity.isFavorite ? record.withFavorite(true) : record);
     }
     return added;
   }
@@ -123,6 +134,74 @@ class PhotoLibraryService {
     if (id == null) return false;
     final deleted = await _deleteAssets([id]);
     return deleted.contains(id);
+  }
+
+  /// Mirrors a favourite back into the OS photo library, so a heart set
+  /// here is the same heart Photos shows. Silently does nothing for
+  /// anything that isn't a camera-roll asset — a manually-added file has no
+  /// entry over there to mark.
+  ///
+  /// Best-effort by design: this is a nicety on top of a change that's
+  /// already saved locally, so a refused write (permission dropped to
+  /// limited access, asset deleted since) must not fail the user's tap.
+  static Future<void> setFavoriteInLibrary(
+    AssetRecord record,
+    bool isFavorite,
+  ) async {
+    final entity = await _entityOf(record);
+    if (entity == null) return;
+    try {
+      if (Platform.isIOS || Platform.isMacOS) {
+        await PhotoManager.editor.darwin.favoriteAsset(
+          entity: entity,
+          favorite: isFavorite,
+        );
+      } else if (Platform.isAndroid) {
+        await PhotoManager.editor.android.favoriteAsset(
+          entity: entity,
+          favorite: isFavorite,
+        );
+      }
+    } catch (_) {
+      // See above.
+    }
+  }
+
+  /// Same deal for a corrected date/time: PhotoKit's `creationDate` is
+  /// writable, so "Adjust Date" here moves the photo in Photos' own
+  /// timeline too rather than leaving the two disagreeing.
+  static Future<void> setCreatedAtInLibrary(
+    AssetRecord record,
+    DateTime createdAt,
+  ) async {
+    final entity = await _entityOf(record);
+    if (entity == null) return;
+    try {
+      if (Platform.isIOS || Platform.isMacOS) {
+        await PhotoManager.editor.darwin.updateCreationDate(
+          entity: entity,
+          creationDate: createdAt,
+        );
+      } else if (Platform.isAndroid) {
+        await PhotoManager.editor.android.updateCreationDate(
+          entity: entity,
+          creationDate: createdAt,
+        );
+      }
+    } catch (_) {
+      // See [setFavoriteInLibrary].
+    }
+  }
+
+  static Future<AssetEntity?> _entityOf(AssetRecord record) async {
+    if (record.sourceType != AssetSourceType.photoManager) return null;
+    final id = entityIdFrom(record.localId);
+    if (id == null) return null;
+    try {
+      return await AssetEntity.fromId(id);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// The paired video half of a Live Photo, for hold-to-play in the

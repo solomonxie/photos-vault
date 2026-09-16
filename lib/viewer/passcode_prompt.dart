@@ -37,16 +37,25 @@ Future<SetPasscodeResult?> showSetPasscodeSheet(BuildContext context) {
                 onChanged: (_) => setState(() {}),
               ),
               const SizedBox(height: 8),
-              CupertinoTextField(controller: hintController, placeholder: l10n.personProfileHintLabel),
+              CupertinoTextField(
+                controller: hintController,
+                placeholder: l10n.personProfileHintLabel,
+              ),
             ],
           ),
           actions: [
-            CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.actionCancel)),
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l10n.actionCancel),
+            ),
             CupertinoDialogAction(
               onPressed: valid
-                  ? () => Navigator.of(
-                      context,
-                    ).pop(SetPasscodeResult(passcode: passcodeController.text, hint: hintController.text))
+                  ? () => Navigator.of(context).pop(
+                      SetPasscodeResult(
+                        passcode: passcodeController.text,
+                        hint: hintController.text,
+                      ),
+                    )
                   : null,
               child: Text(l10n.personProfileLockButton),
             ),
@@ -87,9 +96,14 @@ Future<String?> showEnterPasscodeSheet(BuildContext context, {String? hint}) {
             ],
           ),
           actions: [
-            CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.actionCancel)),
             CupertinoDialogAction(
-              onPressed: valid ? () => Navigator.of(context).pop(controller.text) : null,
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l10n.actionCancel),
+            ),
+            CupertinoDialogAction(
+              onPressed: valid
+                  ? () => Navigator.of(context).pop(controller.text)
+                  : null,
               child: Text(l10n.personProfileUnlockButton),
             ),
           ],

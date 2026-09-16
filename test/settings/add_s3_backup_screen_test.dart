@@ -1,6 +1,7 @@
 import 'package:bring_your_own_photos/l10n/app_localizations.dart';
 import 'package:bring_your_own_photos/settings/add_s3_backup_screen.dart';
 import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
+import 'package:bring_your_own_photos/settings/s3_backup_target.dart';
 import 'package:bring_your_own_photos/settings/s3_connectivity.dart';
 import 'package:bring_your_own_photos/settings/s3_region_detection.dart';
 import 'package:bring_your_own_photos/settings/s3_target_drafts_store.dart';
@@ -68,6 +69,7 @@ Future<void> _pasteBlock(WidgetTester tester, String text) async {
 
 void main() {
   _pasteToFillTests();
+  _prefixTests();
 
   testWidgets(
     'shows a validation error when saving with empty required fields',
@@ -431,6 +433,90 @@ secret_access_key: pasted-secret
       await tester.pumpAndSettle();
 
       expect(find.text('b'), findsNothing);
+    });
+  });
+}
+
+void _prefixTests() {
+  testWidgets('a prefix typed without a trailing slash gets one on save', (
+    tester,
+  ) async {
+    final store = BackupTargetsStore(store: FakeSecureStore());
+    await tester.pumpWidget(
+      _wrap(
+        AddS3BackupScreen(
+          store: store,
+          checkAccess: _okAccess,
+          detectRegion: _okRegion,
+          draftsStore: _fakeDraftsStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _fillForm(tester);
+    await tester.enterText(
+      find.widgetWithText(TextFormField, defaultS3Prefix),
+      '/holiday-snaps',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect((await store.loadAll()).single.prefix, 'holiday-snaps/');
+  });
+
+  testWidgets('and the field shows what will be saved, not what was typed', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddS3BackupScreen(
+          store: BackupTargetsStore(store: FakeSecureStore()),
+          checkAccess: _okAccess,
+          // Fails, so the form stays open and its fields can be read back.
+          detectRegion: (bucket) async => const S3RegionDetectionResult(
+            S3RegionDetectionOutcome.networkError,
+          ),
+          draftsStore: _fakeDraftsStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _fillForm(tester);
+    await tester.enterText(
+      find.widgetWithText(TextFormField, defaultS3Prefix),
+      'holiday-snaps',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.widgetWithText(TextFormField, 'holiday-snaps/'),
+      findsOneWidget,
+    );
+  });
+
+  group('key prefix', () {
+    test('names a folder, so it ends in a slash', () {
+      expect(normalizeKeyPrefix('photos'), 'photos/');
+      expect(normalizeKeyPrefix('photos/'), 'photos/');
+      expect(normalizeKeyPrefix('a/b/c'), 'a/b/c/');
+    });
+
+    test('never starts with one', () {
+      expect(normalizeKeyPrefix('/photos'), 'photos/');
+      expect(normalizeKeyPrefix('//photos/'), 'photos/');
+    });
+
+    test('an empty prefix stays empty — the bucket root is a folder too', () {
+      expect(normalizeKeyPrefix(''), '');
+      expect(normalizeKeyPrefix('   '), '');
+      expect(normalizeKeyPrefix('/'), '');
+    });
+
+    test('surrounding whitespace from a paste goes', () {
+      expect(normalizeKeyPrefix('  photos  '), 'photos/');
     });
   });
 }

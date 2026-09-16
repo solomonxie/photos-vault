@@ -6,7 +6,7 @@ import 'package:bring_your_own_photos/settings/settings_screen.dart';
 import 'package:bring_your_own_photos/storage/asset_record.dart';
 import 'package:bring_your_own_photos/upload/sync_job.dart';
 import 'package:bring_your_own_photos/upload/sync_queue.dart';
-import 'package:bring_your_own_photos/viewer/backup_queue_sheet.dart';
+import 'package:bring_your_own_photos/viewer/sync_queue_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -148,7 +148,7 @@ void main() {
     await tester.tap(find.text('Sync queue: 1 pending · 2 at a time'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(BackupQueueSheet), findsOneWidget);
+    expect(find.byType(SyncQueueSheet), findsOneWidget);
   });
 
   testWidgets('stats ride on one footer line under the bucket list', (tester) async {

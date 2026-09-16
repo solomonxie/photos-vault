@@ -146,7 +146,7 @@
   "collectionsAiSettingsRow": "AI Settings",
   "collectionsImportPhotosRow": "Import Photos",
 
-  "backupQueueTitle": "Backup Queue",
+  "backupQueueTitle": "Sync Queue",
   "backupQueueEmpty": "Nothing in the queue — everything's backed up.",
   "backupQueueClearButton": "Clear Queue",
   "backupQueueRetryFailedButton": "Retry Failed",
@@ -154,6 +154,10 @@
   "@backupQueueHeader": {
     "placeholders": {"count": {"type": "int"}}
   },
+  "backupQueuePausedNote": "Paused",
+  "@backupQueuePausedNote": {"description": "Muted suffix on the queue header while nothing is being taken or processed"},
+  "backupQueueFullNote": "Full",
+  "@backupQueueFullNote": {"description": "Muted suffix on the queue header when the queue is at capacity"},
   "backupQueueKindCheck": "Checking for changes",
   "backupQueueKindOriginal": "Backing up original",
   "backupQueueKindThumbnail": "Backing up thumbnail",

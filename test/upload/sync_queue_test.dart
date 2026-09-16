@@ -163,8 +163,11 @@ void main() {
       final store = newStore();
       var processed = 0;
       final queue = queueOver(store, (_) async => processed++);
-      await queue.setPaused(true);
+      // Queued before the pause — pausing now takes nothing new either
+      // (see 'SyncQueue limits'), so what's already waiting is the whole
+      // question.
       await queue.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'a.jpg');
+      await queue.setPaused(true);
 
       await queue.start();
       expect(processed, 0);
@@ -190,6 +193,111 @@ void main() {
       final jobs = await store.all();
       expect(jobs, hasLength(2));
       expect(jobs.every((j) => j.status == SyncJobStatus.done), isTrue);
+    });
+  });
+
+  group('SyncQueue limits', () {
+    SyncQueue queueOver(SyncJobStore store) => SyncQueue(
+      store: store,
+      settings: BackupTargetsStore(store: FakeSecureStore()),
+      process: (_) async {},
+    );
+
+    test('a paused queue takes nothing new', () async {
+      final store = newStore();
+      final queue = queueOver(store);
+      await queue.setPaused(true);
+
+      final taken = await queue.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'a.jpg',
+      );
+
+      expect(taken, isFalse);
+      expect(await store.all(), isEmpty);
+    });
+
+    test('and takes them again once it resumes', () async {
+      final store = newStore();
+      final queue = queueOver(store);
+      await queue.setPaused(true);
+      await queue.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'a.jpg',
+      );
+      await queue.setPaused(false);
+
+      expect(
+        await queue.enqueue(
+          localId: 'a',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: 'a.jpg',
+        ),
+        isTrue,
+      );
+    });
+
+    test('fills to capacity and then refuses', () async {
+      final store = newStore();
+      final queue = queueOver(store);
+
+      for (var i = 0; i < SyncQueue.capacity; i++) {
+        expect(
+          await queue.enqueue(
+            localId: 'a$i',
+            kind: SyncJobKind.uploadOriginal,
+            displayName: 'a$i.jpg',
+          ),
+          isTrue,
+        );
+      }
+
+      expect(
+        await queue.enqueue(
+          localId: 'one-too-many',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: 'x.jpg',
+        ),
+        isFalse,
+      );
+      expect(await queue.unfinishedCount(), SyncQueue.capacity);
+    });
+
+    test('finished jobs free up room; failed ones hold theirs', () async {
+      final store = newStore();
+      final queue = queueOver(store);
+      for (var i = 0; i < SyncQueue.capacity; i++) {
+        await queue.enqueue(
+          localId: 'a$i',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: 'a$i.jpg',
+        );
+      }
+      final jobs = await store.all();
+      await store.markDone(jobs.first.id);
+      await store.markFailed(jobs[1].id, 'nope');
+
+      expect(await queue.unfinishedCount(), SyncQueue.capacity - 1);
+      expect(
+        await queue.enqueue(
+          localId: 'after-a-done-one',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: 'x.jpg',
+        ),
+        isTrue,
+        reason: 'the done job freed a place',
+      );
+      expect(
+        await queue.enqueue(
+          localId: 'and-another',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: 'y.jpg',
+        ),
+        isFalse,
+        reason: 'the failed one still holds its place — it needs a decision',
+      );
     });
   });
 }

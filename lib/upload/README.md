@@ -31,3 +31,9 @@ records aggregate status + first destinationKey    ../storage/asset_record_store
 
 Known limitation: status/key is tracked once per derivative, not once per
 target — see `backup_coordinator.dart`'s doc comment.
+
+The queue is **capped** at `SyncQueue.capacity` unfinished jobs and refuses
+past it, including everything while paused. A library bigger than the cap is
+backed up a queueful at a time — `LibraryScreen` refills it whenever a drain
+that actually did work finishes, so the refill continues a sync rather than
+starting one the sync-frequency setting didn't ask for.

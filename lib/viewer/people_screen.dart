@@ -13,7 +13,12 @@ import 'smart_collection_screen.dart';
 /// a photo count, plus a link down to the older AI people-*count* grouping
 /// for finding more faces to name. See IMPLEMENTATION_PLAN.md Phase 7.
 class PeopleScreen extends StatefulWidget {
-  const PeopleScreen({super.key, required this.personStore, required this.assetRecordStore, this.aiAnalysisStore});
+  const PeopleScreen({
+    super.key,
+    required this.personStore,
+    required this.assetRecordStore,
+    this.aiAnalysisStore,
+  });
 
   final PersonStore personStore;
   final AssetRecordStore assetRecordStore;
@@ -38,7 +43,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
     final people = await widget.personStore.listAll();
     final counts = <String, int>{};
     for (final person in people) {
-      counts[person.id] = (await widget.personStore.localIdsIn(person.id)).length;
+      counts[person.id] = (await widget.personStore.localIdsIn(person.id))
+          .length;
     }
     if (!mounted) return;
     setState(() {
@@ -57,12 +63,21 @@ class _PeopleScreenState extends State<PeopleScreen> {
           title: Text(l10n.peopleNamePromptTitle),
           content: Padding(
             padding: const EdgeInsets.only(top: 12),
-            child: CupertinoTextField(controller: controller, autofocus: true, onChanged: (_) => setState(() {})),
+            child: CupertinoTextField(
+              controller: controller,
+              autofocus: true,
+              onChanged: (_) => setState(() {}),
+            ),
           ),
           actions: [
-            CupertinoDialogAction(onPressed: () => Navigator.of(context).pop(), child: Text(l10n.actionCancel)),
             CupertinoDialogAction(
-              onPressed: controller.text.trim().isEmpty ? null : () => Navigator.of(context).pop(controller.text.trim()),
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l10n.actionCancel),
+            ),
+            CupertinoDialogAction(
+              onPressed: controller.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.of(context).pop(controller.text.trim()),
               child: Text(l10n.actionAdd),
             ),
           ],
@@ -78,8 +93,11 @@ class _PeopleScreenState extends State<PeopleScreen> {
     Navigator.of(context)
         .push(
           CupertinoPageRoute(
-            builder: (_) =>
-                PersonPageScreen(person: person, personStore: widget.personStore, assetRecordStore: widget.assetRecordStore),
+            builder: (_) => PersonPageScreen(
+              person: person,
+              personStore: widget.personStore,
+              assetRecordStore: widget.assetRecordStore,
+            ),
           ),
         )
         .then((_) => _reload());
@@ -101,55 +119,93 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final query = _query.trim().toLowerCase();
-    final filtered = query.isEmpty ? _people : _people.where((p) => p.name.toLowerCase().contains(query)).toList();
+    final filtered = query.isEmpty
+        ? _people
+        : _people.where((p) => p.name.toLowerCase().contains(query)).toList();
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(l10n.peopleScreenTitle),
-        trailing: CupertinoButton(padding: EdgeInsets.zero, onPressed: _addPerson, child: const Icon(CupertinoIcons.add)),
+        trailing: CupertinoButton(
+          padding: EdgeInsets.zero,
+          onPressed: _addPerson,
+          child: const Icon(CupertinoIcons.add),
+        ),
       ),
       child: SafeArea(
         child: ListView(
           children: [
             if (_people.isNotEmpty)
               Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-                child: CupertinoSearchTextField(autofocus: true, onChanged: (v) => setState(() => _query = v)),
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 16,
+                  vertical: 8,
+                ),
+                child: CupertinoSearchTextField(
+                  autofocus: true,
+                  onChanged: (v) => setState(() => _query = v),
+                ),
               ),
             if (_people.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 48),
                 child: Center(
-                  child: Text(l10n.peopleEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)),
+                  child: Text(
+                    l10n.peopleEmpty,
+                    style: const TextStyle(color: CupertinoColors.systemGrey),
+                  ),
                 ),
               )
             else if (filtered.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 48),
                 child: Center(
-                  child: Text(l10n.peopleSearchEmpty, style: const TextStyle(color: CupertinoColors.systemGrey)),
+                  child: Text(
+                    l10n.peopleSearchEmpty,
+                    style: const TextStyle(color: CupertinoColors.systemGrey),
+                  ),
                 ),
               )
             else
               for (final person in filtered)
                 CupertinoListTile(
                   key: ValueKey(person.id),
-                  leading: PersonAvatar(assetRecordStore: widget.assetRecordStore, localId: person.avatarLocalId, size: 44),
+                  leading: PersonAvatar(
+                    assetRecordStore: widget.assetRecordStore,
+                    localId: person.avatarLocalId,
+                    size: 44,
+                  ),
                   title: Text(person.name),
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
-                      Text('${_counts[person.id] ?? 0}', style: const TextStyle(color: CupertinoColors.systemGrey)),
+                      Text(
+                        '${_counts[person.id] ?? 0}',
+                        style: const TextStyle(
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ),
                       const SizedBox(width: 4),
-                      const Icon(CupertinoIcons.chevron_forward, size: 18, color: CupertinoColors.systemGrey2),
+                      const Icon(
+                        CupertinoIcons.chevron_forward,
+                        size: 18,
+                        color: CupertinoColors.systemGrey2,
+                      ),
                     ],
                   ),
                   onTap: () => _openPerson(person),
                 ),
             const SizedBox(height: 16),
             CupertinoListTile(
-              leading: const Icon(CupertinoIcons.sparkles, color: CupertinoColors.systemIndigo),
+              leading: const Icon(
+                CupertinoIcons.sparkles,
+                color: CupertinoColors.systemIndigo,
+              ),
               title: Text(l10n.peopleAiAnalysisRow),
-              trailing: const Icon(CupertinoIcons.chevron_forward, size: 18, color: CupertinoColors.systemGrey2),
+              trailing: const Icon(
+                CupertinoIcons.chevron_forward,
+                size: 18,
+                color: CupertinoColors.systemGrey2,
+              ),
               onTap: _openAiAnalysis,
             ),
             const SizedBox(height: 24),

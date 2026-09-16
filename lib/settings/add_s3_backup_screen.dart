@@ -4,6 +4,7 @@ import 'package:flutter/services.dart';
 import '../l10n/app_localizations.dart';
 import 'backup_storage_type.dart';
 import 'backup_targets_store.dart';
+import 's3_backup_target.dart';
 import 's3_connectivity.dart';
 import 's3_credentials_text.dart';
 import 's3_region_detection.dart';
@@ -267,7 +268,10 @@ class _AddS3BackupScreenState extends State<AddS3BackupScreen> {
     final accessKeyId = _accessKeyIdController.text.trim();
     final secretAccessKey = _secretAccessKeyController.text.trim();
     final bucket = _bucketController.text.trim();
-    final prefix = _prefixController.text.trim();
+    final prefix = normalizeKeyPrefix(_prefixController.text);
+    // Show what's actually going to be saved, rather than quietly filing it
+    // under something the user didn't type.
+    if (_prefixController.text != prefix) _prefixController.text = prefix;
 
     // Save a draft of this attempt before validating — so even a failed or
     // abandoned save doesn't mean retyping everything next time. Best-effort:

@@ -8,26 +8,26 @@ import '../upload/sync_queue.dart';
 /// Opens the queue over whatever is on screen. A transient status list is
 /// not a destination — it's something you glance at and dismiss, so it gets
 /// a sheet rather than a page of its own.
-Future<void> showBackupQueueSheet(BuildContext context, SyncQueue queue) {
+Future<void> showSyncQueueSheet(BuildContext context, SyncQueue queue) {
   return showCupertinoModalPopup<void>(
     context: context,
-    builder: (context) => BackupQueueSheet(queue: queue),
+    builder: (context) => SyncQueueSheet(queue: queue),
   );
 }
 
 /// The real queue: every unit of sync work, one row each — uploads,
 /// thumbnails, and the change checks that re-hash a file to spot an edit.
 /// Pause, speed, and clearing act on the same list right below them.
-class BackupQueueSheet extends StatefulWidget {
-  const BackupQueueSheet({super.key, required this.queue});
+class SyncQueueSheet extends StatefulWidget {
+  const SyncQueueSheet({super.key, required this.queue});
 
   final SyncQueue queue;
 
   @override
-  State<BackupQueueSheet> createState() => _BackupQueueSheetState();
+  State<SyncQueueSheet> createState() => _SyncQueueSheetState();
 }
 
-class _BackupQueueSheetState extends State<BackupQueueSheet> {
+class _SyncQueueSheetState extends State<SyncQueueSheet> {
   @override
   void initState() {
     super.initState();
@@ -136,6 +136,17 @@ class _BackupQueueSheetState extends State<BackupQueueSheet> {
     );
   }
 
+  static bool _atCapacity(List<SyncJob> jobs) =>
+      jobs
+          .where(
+            (j) =>
+                j.status == SyncJobStatus.pending ||
+                j.status == SyncJobStatus.running ||
+                j.status == SyncJobStatus.failed,
+          )
+          .length >=
+      SyncQueue.capacity;
+
   Widget _header(AppLocalizations l10n) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(settingsPagePadding, 0, 8, 8),
@@ -144,9 +155,28 @@ class _BackupQueueSheetState extends State<BackupQueueSheet> {
           Expanded(
             child: ValueListenableBuilder<List<SyncJob>>(
               valueListenable: widget.queue.jobs,
-              builder: (context, jobs, _) => Text(
-                l10n.backupQueueHeader(jobs.length),
-                style: settingsRowTitleStyle,
+              builder: (context, jobs, _) => ValueListenableBuilder<bool>(
+                valueListenable: widget.queue.paused,
+                builder: (context, paused, _) => Row(
+                  children: [
+                    Text(
+                      l10n.backupQueueHeader(jobs.length),
+                      style: settingsRowTitleStyle,
+                    ),
+                    // Why nothing new is going in. A queue that quietly
+                    // refuses work looks identical to one with nothing
+                    // to do.
+                    if (paused || _atCapacity(jobs)) ...[
+                      const SizedBox(width: 6),
+                      Text(
+                        paused
+                            ? l10n.backupQueuePausedNote
+                            : l10n.backupQueueFullNote,
+                        style: settingsRowSubtitleStyle,
+                      ),
+                    ],
+                  ],
+                ),
               ),
             ),
           ),

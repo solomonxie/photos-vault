@@ -8,7 +8,7 @@ import '../storage/asset_record_store.dart';
 import '../upload/backup_coordinator.dart';
 import '../upload/sync_job.dart';
 import '../upload/sync_queue.dart';
-import '../viewer/backup_queue_sheet.dart';
+import '../viewer/sync_queue_sheet.dart';
 import 'add_s3_backup_screen.dart';
 import 'backup_targets_store.dart';
 import 'bucket_browser_screen.dart';
@@ -281,7 +281,7 @@ class _SettingsScreenState extends State<SettingsScreen> {
   Future<void> _openQueue() async {
     final queue = widget.syncQueue;
     if (queue == null) return;
-    await showBackupQueueSheet(context, queue);
+    await showSyncQueueSheet(context, queue);
     await _reload();
   }
 

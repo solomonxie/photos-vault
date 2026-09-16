@@ -10,7 +10,12 @@ import 'asset_grid.dart';
 /// `avatarLocalId` (one of their own tagged photos, not a separate upload).
 /// Falls back to a plain person glyph until resolved or if there's none.
 class PersonAvatar extends StatelessWidget {
-  const PersonAvatar({super.key, required this.assetRecordStore, required this.localId, this.size = 64});
+  const PersonAvatar({
+    super.key,
+    required this.assetRecordStore,
+    required this.localId,
+    this.size = 64,
+  });
 
   final AssetRecordStore assetRecordStore;
   final String? localId;
@@ -35,7 +40,8 @@ class PersonAvatar extends StatelessWidget {
                     return Image.file(
                       File(path),
                       fit: BoxFit.cover,
-                      errorBuilder: (context, error, stackTrace) => _placeholder(),
+                      errorBuilder: (context, error, stackTrace) =>
+                          _placeholder(),
                     );
                   }
                   if (record.sourceType == AssetSourceType.photoManager) {
@@ -50,6 +56,10 @@ class PersonAvatar extends StatelessWidget {
 
   Widget _placeholder() => ColoredBox(
     color: CupertinoColors.systemGrey4,
-    child: Icon(CupertinoIcons.person_fill, size: size * 0.6, color: CupertinoColors.white),
+    child: Icon(
+      CupertinoIcons.person_fill,
+      size: size * 0.6,
+      color: CupertinoColors.white,
+    ),
   );
 }
