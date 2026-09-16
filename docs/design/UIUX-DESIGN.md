@@ -399,6 +399,7 @@ fix:  autocorrect off · smart quotes off · smart dashes off
 ### Empty state & demo data
 
 - Ship bundled demo data so the app is explorable before anything is configured ("Try with Demo Photos"). Nothing to fetch, no account, no connection.
+- **Never seed it unasked.** A first launch opens on a genuinely empty library. Demo content put there automatically mixes somebody else's pictures in among the user's own the moment their real library arrives, and makes the first thing the app ever shows them a lie about what it holds. Offer it on the empty state and leave it at that — an empty library is a *correct* state, not an embarrassing one to paper over.
 - Seeding must be idempotent by fixed id / content hash, with a "Reset Demo Data" action that re-adds only what's missing.
 - Spread demo timestamps across several days and years — otherwise date grouping demos itself as one giant "Today" pile.
 - Demo media should have visible pattern/motion, not flat colour.

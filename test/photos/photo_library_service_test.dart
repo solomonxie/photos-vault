@@ -174,4 +174,107 @@ void main() {
       expect(result.isEmpty, isTrue);
     });
   });
+
+  group('photos deleted from the library', () {
+    Future<PhotoLibraryService> serviceWith(
+      FakeAssetRecordStore store,
+      List<AssetEntity> Function() listing,
+    ) async =>
+        PhotoLibraryService(store: store, listAllAssets: () async => listing());
+
+    test('a backed-up one becomes cloud-only, keeping its place', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [_entity('a1')];
+      final service = await serviceWith(store, () => listing);
+      await service.syncAll();
+      await store.setDescription('photo:a1', 'the good one');
+      await store.updateDerivative(
+        'photo:a1',
+        DerivativeKind.original,
+        const DerivativeState(status: UploadStatus.uploaded),
+      );
+
+      listing = [];
+      final result = await service.syncAll(reconcileDeletions: true);
+
+      final record = (await store.getByLocalId('photo:a1'))!;
+      expect(record.localDeleted, isTrue);
+      expect(record.isDeleted, isFalse, reason: 'still in the library');
+      expect(record.description, 'the good one', reason: 'metadata survives');
+      expect(result.updated, 1);
+    });
+
+    test(
+      'one that never made it to the bucket goes to Recently Deleted',
+      () async {
+        final store = FakeAssetRecordStore();
+        var listing = [_entity('a1')];
+        final service = await serviceWith(store, () => listing);
+        await service.syncAll();
+
+        listing = [];
+        await service.syncAll(reconcileDeletions: true);
+
+        final record = (await store.getByLocalId('photo:a1'))!;
+        expect(record.isDeleted, isTrue);
+        expect(
+          record,
+          isNotNull,
+          reason: 'the row survives, so restoring it restores its metadata too',
+        );
+      },
+    );
+
+    test('and coming back out of Photos\' own trash undoes it', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [_entity('a1')];
+      final service = await serviceWith(store, () => listing);
+      await service.syncAll();
+      await store.updateDerivative(
+        'photo:a1',
+        DerivativeKind.original,
+        const DerivativeState(status: UploadStatus.uploaded),
+      );
+      listing = [];
+      await service.syncAll(reconcileDeletions: true);
+      expect((await store.getByLocalId('photo:a1'))!.localDeleted, isTrue);
+
+      listing = [_entity('a1')];
+      await service.syncAll(reconcileDeletions: true);
+
+      expect((await store.getByLocalId('photo:a1'))!.localDeleted, isFalse);
+    });
+
+    test('nothing happens when the pass is off — the default', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [_entity('a1')];
+      final service = await serviceWith(store, () => listing);
+      await service.syncAll();
+
+      listing = [];
+      final result = await service.syncAll();
+
+      expect((await store.getByLocalId('photo:a1'))!.isDeleted, isFalse);
+      expect(result.isEmpty, isTrue);
+    });
+
+    test('an original restored from the bucket is left alone', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [_entity('a1')];
+      final service = await serviceWith(store, () => listing);
+      await service.syncAll();
+      // "Remove from Device", then Restore Original: gone from the photo
+      // library for good, but this app holds a copy of its own.
+      await store.setLocalDeleted('photo:a1', true);
+      await store.setSourcePath('photo:a1', '/tmp/restored.jpg');
+      await store.setLocalDeleted('photo:a1', false);
+
+      listing = [];
+      await service.syncAll(reconcileDeletions: true);
+
+      final record = (await store.getByLocalId('photo:a1'))!;
+      expect(record.isDeleted, isFalse);
+      expect(record.localDeleted, isFalse);
+    });
+  });
 }

@@ -1,6 +1,5 @@
 import 'package:bring_your_own_photos/l10n/app_localizations.dart';
 import 'package:bring_your_own_photos/photos/demo_assets_service.dart';
-import 'package:bring_your_own_photos/photos/demo_seed_store.dart';
 import 'package:bring_your_own_photos/photos/manual_add.dart';
 import 'package:bring_your_own_photos/photos/person_store.dart';
 import 'package:bring_your_own_photos/photos/photo_library_service.dart';
@@ -91,17 +90,6 @@ Widget _wrap(Widget child) => CupertinoApp(
   home: child,
 );
 
-// Marked as already seeded so LibraryScreen's one-time auto-seed never
-// fires here — these tests set up their own records/albums explicitly and
-// assert on exact contents/counts.
-//
-// The flag lives in the asset store itself (see [DemoSeedStore]), so a
-// caller that also wants specific records passes the same store in.
-DemoSeedStore _alreadySeededStore([AssetRecordStore? store]) {
-  final recordStore = store ?? FakeAssetRecordStore();
-  return DemoSeedStore(recordStore: recordStore)..markSeeded();
-}
-
 Future<void> _sendLifecycle(WidgetTester tester, AppLifecycleState state) =>
     tester.binding.defaultBinaryMessenger.handlePlatformMessage(
       'flutter/lifecycle',
@@ -118,7 +106,6 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         LibraryScreen(
-          demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           thumbnailCache: _noThumbnails(recordStore),
           syncJobStore: FakeSyncJobStore(),
@@ -163,7 +150,6 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LibraryScreen(
-            demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
             thumbnailCache: _noThumbnails(recordStore),
             syncJobStore: FakeSyncJobStore(),
@@ -201,7 +187,6 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         LibraryScreen(
-          demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           thumbnailCache: _noThumbnails(recordStore),
           syncJobStore: FakeSyncJobStore(),
@@ -237,7 +222,6 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         LibraryScreen(
-          demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           thumbnailCache: _noThumbnails(recordStore),
           syncJobStore: FakeSyncJobStore(),
@@ -281,7 +265,6 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LibraryScreen(
-            demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
             thumbnailCache: _noThumbnails(recordStore),
             syncJobStore: FakeSyncJobStore(),
@@ -344,7 +327,6 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         LibraryScreen(
-          demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           thumbnailCache: _noThumbnails(recordStore),
           syncJobStore: FakeSyncJobStore(),
@@ -377,7 +359,6 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         LibraryScreen(
-          demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           thumbnailCache: _noThumbnails(recordStore),
           syncJobStore: FakeSyncJobStore(),
@@ -401,38 +382,68 @@ void main() {
     expect(find.byKey(const ValueKey('manual:demo1')), findsOneWidget);
   });
 
-  testWidgets(
-    'a fresh install seeds demo photos automatically, without a manual tap',
-    (tester) async {
-      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      final recordStore = FakeAssetRecordStore();
-      final demoSeedStore = DemoSeedStore(recordStore: recordStore);
+  testWidgets('a fresh install shows an empty library, not demo photos', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
 
-      await tester.pumpWidget(
-        _wrap(
-          LibraryScreen(
-            demoSeedStore: demoSeedStore,
-            assetRecordStore: recordStore,
-            thumbnailCache: _noThumbnails(recordStore),
-            syncJobStore: FakeSyncJobStore(),
-            albumStore: FakeAlbumStore(),
-            personStore: FakePersonStore(),
-            backupTargetsStore: targetsStore,
-            demoAssetsService: _FakeDemoAssetsService(recordStore),
-            backupCoordinator: BackupCoordinator(
-              targetsStore: targetsStore,
-              recordStore: recordStore,
-              s3Uploader: _UnusedS3Uploader(),
-            ),
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          demoAssetsService: _FakeDemoAssetsService(recordStore),
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
           ),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.byKey(const ValueKey('manual:demo1')), findsOneWidget);
-      expect(await demoSeedStore.hasSeeded(), isTrue);
-    },
-  );
+    expect(find.byKey(const ValueKey('manual:demo1')), findsNothing);
+    expect(await recordStore.listAll(), isEmpty);
+    expect(find.text('No Photos Yet'), findsOneWidget);
+  });
+
+  testWidgets('and offers them on the empty state, for whoever wants them', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          demoAssetsService: _FakeDemoAssetsService(recordStore),
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Try with Demo Photos'));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('manual:demo1')), findsOneWidget);
+  });
 
   testWidgets('holding a tile starts selection mode with its batch actions', (
     tester,
@@ -450,7 +461,6 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         LibraryScreen(
-          demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           thumbnailCache: _noThumbnails(recordStore),
           syncJobStore: FakeSyncJobStore(),
@@ -498,7 +508,6 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         LibraryScreen(
-          demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           thumbnailCache: _noThumbnails(recordStore),
           syncJobStore: FakeSyncJobStore(),
@@ -544,7 +553,6 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         LibraryScreen(
-          demoSeedStore: _alreadySeededStore(),
           assetRecordStore: recordStore,
           thumbnailCache: _noThumbnails(recordStore),
           syncJobStore: FakeSyncJobStore(),
@@ -675,7 +683,6 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LibraryScreen(
-            demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
             thumbnailCache: _noThumbnails(recordStore),
             syncJobStore: FakeSyncJobStore(),
@@ -732,7 +739,6 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LibraryScreen(
-            demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
             thumbnailCache: _noThumbnails(recordStore),
             syncJobStore: FakeSyncJobStore(),
@@ -814,7 +820,6 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LibraryScreen(
-            demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
             thumbnailCache: _noThumbnails(recordStore),
             syncJobStore: FakeSyncJobStore(),
@@ -880,7 +885,6 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LibraryScreen(
-            demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
             thumbnailCache: _noThumbnails(recordStore),
             syncJobStore: FakeSyncJobStore(),
@@ -937,7 +941,6 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LibraryScreen(
-            demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
             thumbnailCache: _noThumbnails(recordStore),
             syncJobStore: FakeSyncJobStore(),
@@ -1004,7 +1007,6 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LibraryScreen(
-            demoSeedStore: _alreadySeededStore(),
             assetRecordStore: recordStore,
             thumbnailCache: _noThumbnails(recordStore),
             syncJobStore: FakeSyncJobStore(),
@@ -1059,7 +1061,6 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           LibraryScreen(
-            demoSeedStore: _alreadySeededStore(recordStore),
             assetRecordStore: recordStore,
             thumbnailCache: _noThumbnails(recordStore),
             syncJobStore: FakeSyncJobStore(),

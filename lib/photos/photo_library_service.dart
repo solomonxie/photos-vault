@@ -95,16 +95,32 @@ class PhotoLibraryService {
   /// except for the favourite flag: Photos owns that for its own assets, so
   /// a heart added over there shows up here on the next scan. The reverse
   /// direction is [setFavoriteInLibrary].
-  Future<PhotoLibrarySyncResult> syncAll() async {
+  /// [reconcileDeletions] also accounts for assets that have *gone* from
+  /// the library since the last scan — see [_reconcileDeletions]. Off by
+  /// default, and the caller must only turn it on with full access: under
+  /// "Selected Photos" the listing is a handful of assets, and everything
+  /// else would look deleted.
+  Future<PhotoLibrarySyncResult> syncAll({
+    bool reconcileDeletions = false,
+  }) async {
     final entities = await _listAllAssets();
     final added = <AssetRecord>[];
+    final seen = <String>{};
     var updated = 0;
     for (final entity in entities) {
       final localId = localIdFor(entity);
+      seen.add(localId);
       final existing = await store.getByLocalId(localId);
       if (existing != null) {
         if (existing.isFavorite != entity.isFavorite) {
           await store.setFavorite(localId, entity.isFavorite);
+          updated++;
+        }
+        // Back from the OS's own Recently Deleted, or restored some other
+        // way: it has a local original again.
+        if (existing.localDeleted && existing.sourcePath == null) {
+          await store.setLocalDeleted(localId, false);
+          if (existing.isDeleted) await store.restore(localId);
           updated++;
         }
         continue;
@@ -121,7 +137,51 @@ class PhotoLibraryService {
       if (entity.isFavorite) await store.setFavorite(localId, true);
       added.add(entity.isFavorite ? record.withFavorite(true) : record);
     }
+    if (reconcileDeletions) updated += await _reconcileDeletions(seen);
     return PhotoLibrarySyncResult(added: added, updated: updated);
+  }
+
+  /// Deals with camera-roll records the library no longer has an asset for.
+  ///
+  /// Never by deleting the row. The row is where this app's own work lives
+  /// — captions, tags, people, album membership — and a photo deleted in
+  /// Photos can come back out of the OS's 30-day Recently Deleted, at which
+  /// point throwing that away would have been unrecoverable. What happens
+  /// instead depends on whether the photo was actually backed up, because
+  /// that's the difference between "the original moved to the cloud" and
+  /// "this is gone":
+  ///
+  ///  * **backed up** → marked [AssetRecord.localDeleted]: it stays in the
+  ///    library as a cloud-only item, drawn from the cached thumbnail, with
+  ///    the viewer offering to pull the original back down. This is the
+  ///    whole point of the app, and it's the same state "Remove from
+  ///    Device" produces.
+  ///  * **not backed up** → soft-deleted into this app's own Recently
+  ///    Deleted. Nothing about it survives anywhere, so leaving it in the
+  ///    main grid would claim it's still yours; binning it keeps the record
+  ///    (and its metadata) recoverable without pretending.
+  Future<int> _reconcileDeletions(Set<String> seen) async {
+    var changed = 0;
+    for (final record in await store.listAll()) {
+      if (record.sourceType != AssetSourceType.photoManager) continue;
+      if (seen.contains(record.localId)) continue;
+      // Already accounted for, or holding a local copy of its own (an
+      // original restored from the bucket lives in app storage, not in the
+      // photo library — its absence there says nothing).
+      if (record.isDeleted || record.localDeleted) continue;
+      if (record.sourcePath != null) continue;
+
+      final backedUp =
+          record.stateOf(DerivativeKind.original).status ==
+          UploadStatus.uploaded;
+      if (backedUp) {
+        await store.setLocalDeleted(record.localId, true);
+      } else {
+        await store.softDelete(record.localId);
+      }
+      changed++;
+    }
+    return changed;
   }
 
   /// Resolves a `photoManager` record back to its [AssetEntity], or null if
