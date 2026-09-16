@@ -834,7 +834,7 @@ void main() {
   );
 
   testWidgets(
-    'shows an Albums section before Media Types, and opens an album on tap',
+    'shows an Albums section under Collections, and opens an album on tap',
     (tester) async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
       final recordStore = FakeAssetRecordStore();
@@ -858,10 +858,10 @@ void main() {
         isDemo: true,
       );
 
-      // Tall surface so the Albums section and Media Types header — below
-      // both the main grid and the album grid — are simultaneously built by
-      // the lazy CustomScrollView, rather than one requiring a scroll that
-      // would un-build the other.
+      // Tall surface so the Collections and Albums headers — below both the
+      // main grid and the album grid — are simultaneously built by the lazy
+      // CustomScrollView, rather than one requiring a scroll that would
+      // un-build the other.
       await tester.binding.setSurfaceSize(const Size(400, 2000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -886,8 +886,8 @@ void main() {
       await tester.pumpAndSettle();
 
       final albumsY = tester.getCenter(find.text('Albums')).dy;
-      final mediaTypesY = tester.getCenter(find.text('Media Types')).dy;
-      expect(albumsY, lessThan(mediaTypesY));
+      final peopleY = tester.getCenter(find.text('People')).dy;
+      expect(albumsY, lessThan(peopleY));
       expect(find.text('Nature'), findsOneWidget);
 
       // A single horizontally-scrolling row, not a multi-row grid.
@@ -916,9 +916,9 @@ void main() {
         sourcePath: '/tmp/one.jpg',
       );
 
-      // Tall surface: People/Places/Events are now full horizontal-scroll
+      // Tall surface: People/Places/Events are full horizontal-scroll
       // subsections (header + a row of placeholder cards each), not single
-      // list rows, so there's a lot more vertical content before Media Types.
+      // list rows, so there's a lot of vertical content to fit.
       await tester.binding.setSurfaceSize(const Size(400, 3200));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -945,9 +945,9 @@ void main() {
 
       final collectionsY = tester.getCenter(find.text('Collections')).dy;
       final peopleY = tester.getCenter(find.text('People')).dy;
-      final mediaTypesY = tester.getCenter(find.text('Media Types')).dy;
+      final utilitiesY = tester.getCenter(find.text('Utilities')).dy;
       expect(collectionsY, lessThan(peopleY));
-      expect(peopleY, lessThan(mediaTypesY));
+      expect(peopleY, lessThan(utilitiesY));
       expect(find.text('Places'), findsOneWidget);
       expect(find.text('Events'), findsOneWidget);
 

@@ -53,6 +53,7 @@ class AssetRecord {
     this.thumbnailPath,
     this.localDeleted = false,
     this.isVideo = false,
+    this.isLivePhoto = false,
     this.derivatives = const {},
     this.isFavorite = false,
     this.isHidden = false,
@@ -91,6 +92,12 @@ class AssetRecord {
   /// `AssetEntity.type` for `photoManager`) — `photoManager` assets have no
   /// `sourcePath` to derive it from on demand.
   final bool isVideo;
+
+  /// iOS Live Photo — a still with a paired few-second video, resolved on
+  /// demand through `photo_manager` (there's no second file of our own).
+  /// Always false on Android and for manually-added files.
+  final bool isLivePhoto;
+
   final Map<DerivativeKind, DerivativeState> derivatives;
 
   final bool isFavorite;
@@ -150,6 +157,7 @@ class AssetRecord {
     thumbnailPath: thumbnailPath ?? this.thumbnailPath,
     localDeleted: localDeleted ?? this.localDeleted,
     isVideo: isVideo,
+    isLivePhoto: isLivePhoto,
     derivatives: derivatives ?? this.derivatives,
     isFavorite: isFavorite ?? this.isFavorite,
     isHidden: isHidden ?? this.isHidden,

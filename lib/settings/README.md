@@ -9,6 +9,7 @@ SettingsScreen "+"                                    settings_screen.dart
   ▼
 AddS3BackupScreen                                     add_s3_backup_screen.dart
   │ loads drafts: S3TargetDraftsStore.loadAll()        s3_target_drafts_store.dart
+  │ paste a credentials block ──► fills the fields     s3_credentials_text.dart
   ▼ user fills form, taps Save
   │ saves this attempt as a draft first                s3_target_drafts_store.dart:save()
   ▼
@@ -46,3 +47,6 @@ same `secure_store.dart` (`SecureStore` abstraction over
   and authenticated network checks run before a target is ever saved.
 - `s3_listing.dart` — paginated `ListObjectsV2` for `bucket_browser_screen.dart`,
   same signing approach as `s3_connectivity.dart`.
+- `s3_credentials_text.dart` — parses a pasted block (`name: value`,
+  `NAME=value`, JSON-ish, `s3://bucket/prefix/`) into the four form fields, so
+  credentials are never retyped by hand.

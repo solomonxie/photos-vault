@@ -6,6 +6,7 @@ import '../photos/person_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
+import 'asset_grid_view.dart';
 import 'asset_picker_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
@@ -48,7 +49,7 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     setState(
       () => _records =
           all.where((r) => !r.isDeleted && ids.contains(r.localId)).toList()
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+            ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
     );
   }
 
@@ -193,34 +194,31 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                         ),
                       ),
                     )
-                  : CustomScrollView(
-                      slivers: assetGridSlivers(
-                        context: context,
-                        records: _records,
-                        onTap: _open,
-                        actionsFor: (r) => [
-                          TileAction(
-                            icon: r.isFavorite
-                                ? CupertinoIcons.heart_slash
-                                : CupertinoIcons.heart,
-                            label: r.isFavorite
-                                ? l10n.libraryUnfavorite
-                                : l10n.libraryFavorite,
-                            onPressed: () => _toggleFavorite(r),
-                          ),
-                          TileAction(
-                            icon: CupertinoIcons.person_badge_minus,
-                            label: l10n.personPageRemoveFromPerson,
-                            onPressed: () => _removeFromPerson(r),
-                          ),
-                          TileAction(
-                            icon: CupertinoIcons.delete,
-                            label: l10n.libraryDeleteTooltip,
-                            isDestructive: true,
-                            onPressed: () => _delete(r),
-                          ),
-                        ],
-                      ),
+                  : AssetGridView(
+                      records: _records,
+                      onTap: _open,
+                      actionsFor: (r) => [
+                        TileAction(
+                          icon: r.isFavorite
+                              ? CupertinoIcons.heart_slash
+                              : CupertinoIcons.heart,
+                          label: r.isFavorite
+                              ? l10n.libraryUnfavorite
+                              : l10n.libraryFavorite,
+                          onPressed: () => _toggleFavorite(r),
+                        ),
+                        TileAction(
+                          icon: CupertinoIcons.person_badge_minus,
+                          label: l10n.personPageRemoveFromPerson,
+                          onPressed: () => _removeFromPerson(r),
+                        ),
+                        TileAction(
+                          icon: CupertinoIcons.delete,
+                          label: l10n.libraryDeleteTooltip,
+                          isDestructive: true,
+                          onPressed: () => _delete(r),
+                        ),
+                      ],
                     ),
             ),
           ],

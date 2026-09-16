@@ -23,7 +23,8 @@ class PhotoLibraryService {
     Future<List<AssetEntity>> Function()? listAllAssets,
     Future<AssetEntity?> Function(String id)? loadEntity,
     Future<List<String>> Function(List<String> ids)? deleteAssets,
-  }) : _requestPermission = requestPermission ?? (() => PhotoManager.requestPermissionExtend()),
+  }) : _requestPermission =
+           requestPermission ?? (() => PhotoManager.requestPermissionExtend()),
        _listAllAssets = listAllAssets ?? _defaultListAllAssets,
        _loadEntity = loadEntity ?? AssetEntity.fromId,
        _deleteAssets = deleteAssets ?? _defaultDeleteAssets;
@@ -44,7 +45,10 @@ class PhotoLibraryService {
   /// Metadata-only pull of the whole camera roll, paginated — no `.file`/
   /// thumbnail bytes touched here, so no iCloud downloads triggered.
   static Future<List<AssetEntity>> _defaultListAllAssets() async {
-    final paths = await PhotoManager.getAssetPathList(type: RequestType.common, onlyAll: true);
+    final paths = await PhotoManager.getAssetPathList(
+      type: RequestType.common,
+      onlyAll: true,
+    );
     if (paths.isEmpty) return const [];
     final all = paths.first;
     final total = await all.assetCountAsync;
@@ -59,7 +63,9 @@ class PhotoLibraryService {
 
   static String localIdFor(AssetEntity entity) => '$_idPrefix${entity.id}';
 
-  static String? entityIdFrom(String localId) => localId.startsWith(_idPrefix) ? localId.substring(_idPrefix.length) : null;
+  static String? entityIdFrom(String localId) => localId.startsWith(_idPrefix)
+      ? localId.substring(_idPrefix.length)
+      : null;
 
   Future<PhotoLibraryAccess> requestAccess() async {
     final state = await _requestPermission();
@@ -81,6 +87,7 @@ class PhotoLibraryService {
           platform: Platform.isIOS ? 'ios' : 'android',
           sourceType: AssetSourceType.photoManager,
           isVideo: entity.type == AssetType.video,
+          isLivePhoto: entity.isLivePhoto,
           createdAt: entity.createDateTime,
         ),
       );
@@ -116,6 +123,19 @@ class PhotoLibraryService {
     if (id == null) return false;
     final deleted = await _deleteAssets([id]);
     return deleted.contains(id);
+  }
+
+  /// The paired video half of a Live Photo, for hold-to-play in the
+  /// viewer — `null` for a still, for a non-camera-roll asset, or when the
+  /// video component can't be materialised (not downloaded from iCloud,
+  /// Android). Asking for the origin *with* the subtype is what makes
+  /// `photo_manager` hand back the `.mov` rather than the still frame.
+  static Future<File?> resolveLivePhotoVideo(AssetRecord record) async {
+    final id = entityIdFrom(record.localId);
+    if (id == null) return null;
+    final entity = await AssetEntity.fromId(id);
+    if (entity == null || !entity.isLivePhoto) return null;
+    return entity.originFileWithSubtype;
   }
 
   /// Same resolution as [fileFor], without needing a [PhotoLibraryService]

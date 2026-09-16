@@ -6,6 +6,7 @@ import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
+import 'asset_grid_view.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'private_album_gate.dart';
@@ -55,7 +56,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
                     memberIds.contains(r.localId),
               )
               .toList()
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+            ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
     );
   }
 
@@ -115,39 +116,36 @@ class _AlbumScreenState extends State<AlbumScreen> {
                   style: const TextStyle(color: CupertinoColors.systemGrey),
                 ),
               )
-            : CustomScrollView(
-                slivers: assetGridSlivers(
-                  context: context,
-                  records: _records,
-                  onTap: _open,
-                  actionsFor: (r) => [
-                    TileAction(
-                      icon: r.isFavorite
-                          ? CupertinoIcons.heart_slash
-                          : CupertinoIcons.heart,
-                      label: r.isFavorite
-                          ? l10n.libraryUnfavorite
-                          : l10n.libraryFavorite,
-                      onPressed: () => _toggleFavorite(r),
-                    ),
-                    TileAction(
-                      icon: CupertinoIcons.rectangle_stack_badge_minus,
-                      label: l10n.libraryRemoveFromAlbum,
-                      onPressed: () => _removeFromAlbum(r),
-                    ),
-                    TileAction(
-                      icon: CupertinoIcons.eye_slash,
-                      label: l10n.libraryHide,
-                      onPressed: () => _hide(r),
-                    ),
-                    TileAction(
-                      icon: CupertinoIcons.delete,
-                      label: l10n.libraryDeleteTooltip,
-                      isDestructive: true,
-                      onPressed: () => _delete(r),
-                    ),
-                  ],
-                ),
+            : AssetGridView(
+                records: _records,
+                onTap: _open,
+                actionsFor: (r) => [
+                  TileAction(
+                    icon: r.isFavorite
+                        ? CupertinoIcons.heart_slash
+                        : CupertinoIcons.heart,
+                    label: r.isFavorite
+                        ? l10n.libraryUnfavorite
+                        : l10n.libraryFavorite,
+                    onPressed: () => _toggleFavorite(r),
+                  ),
+                  TileAction(
+                    icon: CupertinoIcons.rectangle_stack_badge_minus,
+                    label: l10n.libraryRemoveFromAlbum,
+                    onPressed: () => _removeFromAlbum(r),
+                  ),
+                  TileAction(
+                    icon: CupertinoIcons.eye_slash,
+                    label: l10n.libraryHide,
+                    onPressed: () => _hide(r),
+                  ),
+                  TileAction(
+                    icon: CupertinoIcons.delete,
+                    label: l10n.libraryDeleteTooltip,
+                    isDestructive: true,
+                    onPressed: () => _delete(r),
+                  ),
+                ],
               ),
       ),
     );

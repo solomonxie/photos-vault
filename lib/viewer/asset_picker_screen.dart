@@ -54,7 +54,7 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
                     !widget.excludeIds.contains(r.localId),
               )
               .toList()
-            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+            ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
     );
   }
 
