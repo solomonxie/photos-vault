@@ -33,6 +33,7 @@ import '../upload/sync_queue.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
 import 'asset_grid_view.dart';
+import 'bucket_glyph.dart';
 import 'asset_group_screen.dart';
 import 'delete_confirmation.dart';
 import 'demo_data_screen.dart';
@@ -1318,8 +1319,9 @@ class LibraryScreenState extends State<LibraryScreen>
                 _push(FavoritesScreen(assetRecordStore: assetRecordStore)),
           ),
           _row(
-            icon: CupertinoIcons.gear_alt_fill,
-            color: CupertinoColors.systemGrey2,
+            icon: CupertinoIcons.cube_box_fill,
+            glyph: const BucketGlyph(),
+            color: CupertinoColors.systemTeal,
             title: l10n.collectionsPrivateCloudRow,
             onTap: _openCloudBackups,
           ),
@@ -1379,6 +1381,10 @@ class LibraryScreenState extends State<LibraryScreen>
     required String title,
     int? count,
     VoidCallback? onTap,
+
+    /// Replaces [icon] where no Cupertino glyph says the right thing (see
+    /// [BucketGlyph]).
+    Widget? glyph,
   }) {
     return CupertinoListTile(
       leading: Container(
@@ -1388,7 +1394,7 @@ class LibraryScreenState extends State<LibraryScreen>
           color: color,
           borderRadius: BorderRadius.circular(7),
         ),
-        child: Icon(icon, color: CupertinoColors.white, size: 17),
+        child: glyph ?? Icon(icon, color: CupertinoColors.white, size: 17),
       ),
       title: Text(title),
       trailing: Row(
