@@ -93,9 +93,13 @@ Widget _wrap(Widget child) => CupertinoApp(
 // Marked as already seeded so LibraryScreen's one-time auto-seed never
 // fires here — these tests set up their own records/albums explicitly and
 // assert on exact contents/counts.
-DemoSeedStore _alreadySeededStore() => DemoSeedStore(
-  store: FakeSecureStore()..seed(DemoSeedStore.seededKey, 'true'),
-);
+//
+// The flag lives in the asset store itself (see [DemoSeedStore]), so a
+// caller that also wants specific records passes the same store in.
+DemoSeedStore _alreadySeededStore([AssetRecordStore? store]) {
+  final recordStore = store ?? FakeAssetRecordStore();
+  return DemoSeedStore(recordStore: recordStore)..markSeeded();
+}
 
 void main() {
   testWidgets('shows the empty placeholder with no manual adds yet', (
@@ -394,7 +398,7 @@ void main() {
     (tester) async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
       final recordStore = FakeAssetRecordStore();
-      final demoSeedStore = DemoSeedStore(store: FakeSecureStore());
+      final demoSeedStore = DemoSeedStore(recordStore: recordStore);
 
       await tester.pumpWidget(
         _wrap(

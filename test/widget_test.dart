@@ -6,17 +6,25 @@ import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
 
 import 'settings/fake_secure_store.dart';
 import 'support/fake_album_store.dart';
+import 'support/fake_person_store.dart';
 import 'support/fake_asset_record_store.dart';
 import 'support/fake_sync_job_store.dart';
 
-BackupTargetsStore _fakeSettingsStore() => BackupTargetsStore(store: FakeSecureStore());
+BackupTargetsStore _fakeSettingsStore() =>
+    BackupTargetsStore(store: FakeSecureStore());
 
 FakeAssetRecordStore _fakeAssetRecordStore() => FakeAssetRecordStore();
 
 void main() {
   testWidgets('shows the Library page with no bottom tab bar', (tester) async {
     await tester.pumpWidget(
-      App(settingsStore: _fakeSettingsStore(), assetRecordStore: _fakeAssetRecordStore(), albumStore: FakeAlbumStore(), syncJobStore: FakeSyncJobStore()),
+      App(
+        settingsStore: _fakeSettingsStore(),
+        assetRecordStore: _fakeAssetRecordStore(),
+        albumStore: FakeAlbumStore(),
+        syncJobStore: FakeSyncJobStore(),
+        personStore: FakePersonStore(),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -33,7 +41,13 @@ void main() {
     });
 
     await tester.pumpWidget(
-      App(settingsStore: _fakeSettingsStore(), assetRecordStore: _fakeAssetRecordStore(), albumStore: FakeAlbumStore(), syncJobStore: FakeSyncJobStore()),
+      App(
+        settingsStore: _fakeSettingsStore(),
+        assetRecordStore: _fakeAssetRecordStore(),
+        albumStore: FakeAlbumStore(),
+        syncJobStore: FakeSyncJobStore(),
+        personStore: FakePersonStore(),
+      ),
     );
     await tester.pumpAndSettle();
 

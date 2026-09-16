@@ -419,6 +419,7 @@ must natively support backup all configs and app data to mobile local storage, a
 Purpose is to survive phone change, app reinstall...
 And can support cloud bucket backup if confirmed in design.
 
+- **Know what survives a reinstall, because it isn't what you'd guess.** On iOS the app's container — database, caches, files — is deleted on uninstall, while **Keychain items survive it**. Put a flag in secure storage and it outlives the records it describes: reinstall, and the app is certain it has already seeded a library that is now empty. Keep state next to the data it's about (same database file), and keep secrets in the Keychain, which is the one thing worth surviving.
 - Never record a file by its picker/temp path. Copy into app-owned storage (hash-named) before recording.
 - Never treat an absolute path as a durable handle: container UUIDs change on reinstall. Re-resolve by filename, and heal stale records on read.
 
