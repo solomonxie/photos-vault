@@ -97,6 +97,18 @@ Future<void> _sendLifecycle(WidgetTester tester, AppLifecycleState state) =>
       (_) {},
     );
 
+/// The real service pages the camera roll newest-first; these fakes hand
+/// back one page and then nothing, which is all any of these cases need.
+Future<List<AssetEntity>> Function(int, int) pagedFrom(
+  List<AssetEntity> entities,
+) =>
+    (page, size) async => page == 0 ? entities : const [];
+
+Future<List<AssetEntity>> Function(int, int) pagedBy(
+  List<AssetEntity> Function() entities,
+) =>
+    (page, size) async => page == 0 ? entities() : const [];
+
 void main() {
   testWidgets('shows the empty placeholder with no manual adds yet', (
     tester,
@@ -133,14 +145,14 @@ void main() {
       final photoLibraryService = PhotoLibraryService(
         store: recordStore,
         requestPermission: () async => PermissionState.authorized,
-        listAllAssets: () async => [
+        listAssetPage: pagedFrom([
           AssetEntity(
             id: 'roll1',
             typeInt: AssetType.image.index,
             width: 100,
             height: 100,
           ),
-        ],
+        ]),
         // Backing up a synced asset needs its file, resolved via the real
         // plugin (`AssetEntity.file`) — untouchable in a widget test. Stub it
         // out so the sync completes without ever hitting the platform channel.
@@ -1043,7 +1055,7 @@ void main() {
       final photoLibraryService = PhotoLibraryService(
         store: recordStore,
         requestPermission: () async => PermissionState.authorized,
-        listAllAssets: () async {
+        listAssetPage: pagedBy(() {
           scans++;
           return [
             AssetEntity(
@@ -1054,7 +1066,7 @@ void main() {
               isFavorite: favouritedInPhotos,
             ),
           ];
-        },
+        }),
         loadEntity: (_) async => null,
       );
 

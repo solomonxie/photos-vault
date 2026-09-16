@@ -37,18 +37,18 @@ class PhotoLibraryService {
   PhotoLibraryService({
     required this.store,
     Future<PermissionState> Function()? requestPermission,
-    Future<List<AssetEntity>> Function()? listAllAssets,
+    Future<List<AssetEntity>> Function(int page, int size)? listAssetPage,
     Future<AssetEntity?> Function(String id)? loadEntity,
     Future<List<String>> Function(List<String> ids)? deleteAssets,
   }) : _requestPermission =
            requestPermission ?? (() => PhotoManager.requestPermissionExtend()),
-       _listAllAssets = listAllAssets ?? _defaultListAllAssets,
+       _listAssetPage = listAssetPage ?? _defaultListAssetPage,
        _loadEntity = loadEntity ?? AssetEntity.fromId,
        _deleteAssets = deleteAssets ?? _defaultDeleteAssets;
 
   final AssetRecordStore store;
   final Future<PermissionState> Function() _requestPermission;
-  final Future<List<AssetEntity>> Function() _listAllAssets;
+  final Future<List<AssetEntity>> Function(int page, int size) _listAssetPage;
   final Future<AssetEntity?> Function(String id) _loadEntity;
 
   /// Overridable for tests so they never really delete from the OS library.
@@ -59,21 +59,30 @@ class PhotoLibraryService {
 
   static const _pageSize = 200;
 
-  /// Metadata-only pull of the whole camera roll, paginated — no `.file`/
-  /// thumbnail bytes touched here, so no iCloud downloads triggered.
-  static Future<List<AssetEntity>> _defaultListAllAssets() async {
+  /// One page of the camera roll, **newest first**. Metadata only — no
+  /// `.file`/thumbnail bytes touched here, so no iCloud downloads
+  /// triggered.
+  ///
+  /// The order is the whole point. A first scan works backwards from the
+  /// most recent photo, so the page the user is actually looking at fills
+  /// first and everything after it arrives off-screen, above. Scanning in
+  /// library order would put 2011 on screen and then shove it around for a
+  /// minute as the rest of the decade landed on top of it.
+  static Future<List<AssetEntity>> _defaultListAssetPage(
+    int page,
+    int size,
+  ) async {
     final paths = await PhotoManager.getAssetPathList(
       type: RequestType.common,
       onlyAll: true,
+      filterOption: FilterOptionGroup(
+        orders: const [
+          OrderOption(type: OrderOptionType.createDate, asc: false),
+        ],
+      ),
     );
     if (paths.isEmpty) return const [];
-    final all = paths.first;
-    final total = await all.assetCountAsync;
-    final entities = <AssetEntity>[];
-    for (var page = 0; page * _pageSize < total; page++) {
-      entities.addAll(await all.getAssetListPaged(page: page, size: _pageSize));
-    }
-    return entities;
+    return paths.first.getAssetListPaged(page: page, size: size);
   }
 
   static const _idPrefix = 'photo:';
@@ -96,6 +105,10 @@ class PhotoLibraryService {
   /// except for the favourite flag: Photos owns that for its own assets, so
   /// a heart added over there shows up here on the next scan. The reverse
   /// direction is [setFavoriteInLibrary].
+  /// [onPage] is called as each page lands, newest photos first, so the
+  /// screen can show the most recent day before the scan has walked back
+  /// through the rest of the decade.
+  ///
   /// [reconcileDeletions] also accounts for assets that have *gone* from
   /// the library since the last scan — see [_reconcileDeletions]. Off by
   /// default, and the caller must only turn it on with full access: under
@@ -103,31 +116,49 @@ class PhotoLibraryService {
   /// else would look deleted.
   Future<PhotoLibrarySyncResult> syncAll({
     bool reconcileDeletions = false,
+    void Function(PhotoLibrarySyncResult page)? onPage,
   }) async {
-    final entities = await _listAllAssets();
     final added = <AssetRecord>[];
     final seen = <String>{};
     var updated = 0;
-    for (final entity in entities) {
-      final localId = localIdFor(entity);
-      seen.add(localId);
-      final existing = await store.getByLocalId(localId);
-      if (existing != null) {
-        if (existing.isFavorite != entity.isFavorite) {
-          await store.setFavorite(localId, entity.isFavorite);
-          updated++;
+
+    // Page by page rather than the whole roll in one go: a decade of photos
+    // is hundreds of thousands of entities, and holding them all in memory
+    // to loop over once is a spike for nothing. Each page is also a chance
+    // to show what's been found — see [onPage].
+    for (var page = 0; ; page++) {
+      final entities = await _listAssetPage(page, _pageSize);
+      if (entities.isEmpty) break;
+      final pageAdded = <AssetRecord>[];
+      var pageUpdated = 0;
+      for (final entity in entities) {
+        final localId = localIdFor(entity);
+        seen.add(localId);
+        final existing = await store.getByLocalId(localId);
+        if (existing != null) {
+          if (existing.isFavorite != entity.isFavorite) {
+            await store.setFavorite(localId, entity.isFavorite);
+            pageUpdated++;
+          }
+          // Back from the OS's own Recently Deleted, or restored some other
+          // way: it has a local original again.
+          if (existing.localDeleted && existing.sourcePath == null) {
+            await store.setLocalDeleted(localId, false);
+            if (existing.isDeleted) await store.restore(localId);
+            pageUpdated++;
+          }
+          continue;
         }
-        // Back from the OS's own Recently Deleted, or restored some other
-        // way: it has a local original again.
-        if (existing.localDeleted && existing.sourcePath == null) {
-          await store.setLocalDeleted(localId, false);
-          if (existing.isDeleted) await store.restore(localId);
-          updated++;
-        }
-        continue;
+        pageAdded.add(await _insert(entity, localId));
       }
-      added.add(await _insert(entity, localId));
+      added.addAll(pageAdded);
+      updated += pageUpdated;
+      onPage?.call(
+        PhotoLibrarySyncResult(added: pageAdded, updated: pageUpdated),
+      );
+      if (entities.length < _pageSize) break;
     }
+
     if (reconcileDeletions) updated += await _reconcileDeletions(seen);
     return PhotoLibrarySyncResult(added: added, updated: updated);
   }

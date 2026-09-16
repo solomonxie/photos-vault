@@ -4,6 +4,7 @@ import 'package:bring_your_own_photos/viewer/asset_grid.dart';
 import 'package:bring_your_own_photos/viewer/asset_grid_view.dart';
 import 'package:bring_your_own_photos/viewer/date_scrubber.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 AssetRecord _record(String id, DateTime createdAt) => AssetRecord(
@@ -36,6 +37,20 @@ Widget _wrap(Widget child) => CupertinoApp(
   supportedLocales: AppLocalizations.supportedLocales,
   home: CupertinoPageScaffold(child: child),
 );
+
+/// The grid tile drawn closest to [y] on screen, and where it sits — what
+/// "the photo you were looking at" means to a test.
+({Key? key, double dy})? _tileNearest(WidgetTester tester, double y) {
+  ({Key? key, double dy})? best;
+  for (final element in find.byType(AssetTile).evaluate()) {
+    final box = element.renderObject! as RenderBox;
+    final dy = box.localToGlobal(Offset.zero).dy + box.size.height / 2;
+    if (best == null || (dy - y).abs() < (best!.dy - y).abs()) {
+      best = (key: element.widget.key, dy: dy);
+    }
+  }
+  return best;
+}
 
 void main() {
   // A phone-sized surface, not the 800x600 test default — tile size (and
@@ -160,20 +175,34 @@ void main() {
       expect(key.currentState!.isAtNewest, isTrue);
     });
 
-    testWidgets('leaves a scrolled-away position where it is', (tester) async {
+    testWidgets('leaves what you were looking at where it was', (tester) async {
       final key = GlobalKey<AssetGridViewState>();
       var records = _daily(40);
       final setOuter = await pumpGrowable(tester, key, () => records);
 
       await tester.drag(find.byType(CustomScrollView), const Offset(0, 600));
       await tester.pumpAndSettle();
-      final scrolledTo = key.currentState!.scrollController.offset;
       expect(key.currentState!.isAtNewest, isFalse);
+
+      // Whatever tile is under the middle of the screen has to still be
+      // there afterwards. Holding the *scroll offset* wouldn't do it: the
+      // eighty older days land above this one and push it down the page by
+      // their own height.
+      final middle = tester.getSize(find.byType(AssetGridView)).height / 2;
+      final before = _tileNearest(tester, middle);
+      expect(before, isNotNull);
 
       setOuter(() => records = _daily(120));
       await tester.pumpAndSettle();
 
-      expect(key.currentState!.scrollController.offset, scrolledTo);
+      final after = _tileNearest(tester, middle);
+      expect(after?.key, before!.key);
+      expect(after!.dy, closeTo(before.dy, 1));
+      expect(
+        key.currentState!.scrollController.offset,
+        greaterThan(0),
+        reason: 'the offset moved; the photo did not',
+      );
     });
   });
 

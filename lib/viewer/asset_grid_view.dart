@@ -127,6 +127,49 @@ class AssetGridViewState extends State<AssetGridView> {
     });
   }
 
+  /// What the top of the viewport is resting on, as something that
+  /// survives the list changing under it: *when* that photo was taken, plus
+  /// how far into its row the viewport has scrolled.
+  ///
+  /// The library grows from both ends — the camera-roll scan works
+  /// backwards through older photos while new ones arrive at the bottom —
+  /// and anything inserted above the viewport pushes what you're looking at
+  /// down the page by exactly its own height. Holding a pixel offset would
+  /// therefore drift the content under the reader's thumb every time a page
+  /// of the scan landed. Holding a *photo* doesn't.
+  ({DateTime day, double within})? _viewportPin() {
+    if (!_scrollController.hasClients || _layout.isEmpty) return null;
+    final position = _scrollController.position;
+    if (!position.hasPixels) return null;
+    final offset = position.pixels - _gridStartOffset;
+    if (offset < 0 || offset >= _layout.totalExtent) return null;
+    final row = _layout.rowAtOffset(offset);
+    final spec = _layout.rowAt(row);
+    final index = spec.isHeader
+        ? _layout.sections[spec.section].firstRecord
+        : spec.firstRecord;
+    return (
+      day: _layout.records[index].createdAt,
+      within: offset - _layout.offsetOfRow(row),
+    );
+  }
+
+  void _restore(({DateTime day, double within}) pin) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || _layout.isEmpty || !_scrollController.hasClients) return;
+      final index = _layout.indexOnOrAfter(pin.day);
+      if (index >= _layout.records.length) return;
+      final position = _scrollController.position;
+      final target =
+          (_gridStartOffset +
+                  _layout.offsetOfRow(_layout.rowOfRecord(index)) +
+                  pin.within)
+              .clamp(position.minScrollExtent, position.maxScrollExtent);
+      if ((target - position.pixels).abs() < 0.5) return;
+      _scrollController.jumpTo(target);
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     // The viewport's own width, not the screen's — a grid screen can be
@@ -144,8 +187,13 @@ class AssetGridViewState extends State<AssetGridView> {
     // scan. Anywhere else on the page is the user's position to keep.
     final wasResting = !_anchored || isAtNewest;
     final grew = _layout.records.length != widget.records.length;
+    final pinned = wasResting ? null : _viewportPin();
     _layout = PhotoGridLayout.of(records: widget.records, width: width);
-    if (wasResting && grew) _anchorAfterLayout();
+    if (wasResting && grew) {
+      _anchorAfterLayout();
+    } else if (pinned != null && grew) {
+      _restore(pinned);
+    }
 
     final empty = widget.emptySliver;
     return Stack(
