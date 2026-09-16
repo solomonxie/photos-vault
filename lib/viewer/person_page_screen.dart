@@ -15,10 +15,13 @@ import 'person_avatar.dart';
 import 'person_profile_screen.dart';
 import 'zoom_page_route.dart';
 
-/// One person's page: avatar, name (chevron beside it jumps to the full
+/// One person's page: avatar, name (the whole name line opens the full
 /// editable profile), and their tagged photos. See DESIGN.md's "People
 /// profiles" section and IMPLEMENTATION_PLAN.md T7.3.
 class PersonPageScreen extends StatefulWidget {
+  /// The name-and-chevron line, which opens the profile.
+  static const nameLineKey = Key('personNameLine');
+
   const PersonPageScreen({
     super.key,
     required this.person,
@@ -163,25 +166,43 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                     size: 88,
                   ),
                   const SizedBox(height: 8),
+                  // The whole line, not the glyphs on it: a bare
+                  // `GestureDetector` around a min-width Row is only
+                  // hit-testable where something is painted, so the gaps
+                  // between the letters — and most of the line — did
+                  // nothing, leaving the chevron looking like the only
+                  // target.
                   GestureDetector(
+                    key: PersonPageScreen.nameLineKey,
+                    behavior: HitTestBehavior.opaque,
                     onTap: _openProfile,
-                    child: Row(
-                      mainAxisSize: MainAxisSize.min,
-                      children: [
-                        Text(
-                          _person.name,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
+                    child: Padding(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 16,
+                        vertical: 8,
+                      ),
+                      child: Row(
+                        mainAxisAlignment: MainAxisAlignment.center,
+                        children: [
+                          Flexible(
+                            child: Text(
+                              _person.name,
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: const TextStyle(
+                                fontSize: 20,
+                                fontWeight: FontWeight.bold,
+                              ),
+                            ),
                           ),
-                        ),
-                        const SizedBox(width: 4),
-                        const Icon(
-                          CupertinoIcons.chevron_forward,
-                          size: 18,
-                          color: CupertinoColors.systemGrey,
-                        ),
-                      ],
+                          const SizedBox(width: 4),
+                          const Icon(
+                            CupertinoIcons.chevron_forward,
+                            size: 18,
+                            color: CupertinoColors.systemGrey,
+                          ),
+                        ],
+                      ),
                     ),
                   ),
                 ],
