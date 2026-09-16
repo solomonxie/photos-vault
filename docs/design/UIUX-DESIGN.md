@@ -355,6 +355,8 @@ app cached thumb ──found──▶  draw it
 
 ### Pickers and inputs
 
+- **Don't ask twice for something already typed.** A picker whose search field holds "cc" and whose create row then opens a dialog asking for the name is charging two taps and a screen to confirm what the user just said. The typed text *is* the name — say so on the row ("New Person \"cc\"") and create it. Keep the prompt only for the case with nothing typed.
+- **A first example is better than an empty slot.** Linking the first photo to a person sets their picture from it, because a face on the row beats a placeholder and nobody wants a second step to say so. Only ever fills an empty slot — a portrait chosen on purpose stays.
 - Any value that is free text but repeats across records (location, event, tag, school, employer, organization) gets a **fuzzy search-or-create picker**: typing filters existing values across all records, and the same field creates a new one. No separate "create" button, no separate mode.
 - That picker is a **drop-down sheet over the current page**, never a page push — picking a value shouldn't cost a navigation. It carries the field name, a checkmark on the current value, and a clear row when one is set.
 - **Size it to what's in it**, capped at 55% of the screen and floored at something worth opening. Choosing between three events should be a small pop-up; the same half-screen slab every time reads as a page and buries the photo behind it.
