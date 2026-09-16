@@ -955,9 +955,15 @@ class LibraryScreenState extends State<LibraryScreen> {
             ),
           ),
         ),
-        // Sits above `CupertinoPageScaffold`'s own status-bar tap target,
-        // which would scroll to the *oldest* photo — the one place in a
-        // ten-year library nobody means to go. See [_jumpHome].
+        // The whole header sends you home, not just the title: the status
+        // bar strip, and the navigation bar under it.
+        //
+        // The status-bar half has to be opaque, to beat
+        // `CupertinoPageScaffold`'s own tap target underneath it — that one
+        // scrolls to the *oldest* photo, the one place in a ten-year
+        // library nobody means to go. The navigation-bar half is
+        // translucent instead, so a drag that starts on the bar still
+        // reaches the scroll view and scrolls the page. See [_jumpHome].
         Positioned(
           top: 0,
           left: 0,
@@ -968,9 +974,23 @@ class LibraryScreenState extends State<LibraryScreen> {
             onTap: _jumpHome,
           ),
         ),
+        Positioned(
+          top: MediaQuery.paddingOf(context).top,
+          left: 0,
+          right: 0,
+          height: _navigationBarHeight,
+          child: GestureDetector(
+            behavior: HitTestBehavior.translucent,
+            onTap: _jumpHome,
+          ),
+        ),
       ],
     );
   }
+
+  /// `CupertinoSliverNavigationBar`'s collapsed height — the strip that
+  /// stays pinned under the status bar however far the page is scrolled.
+  static const _navigationBarHeight = 44.0;
 
   /// Back to the newest photos — and, tapped again from there, on up to the
   /// very top. Bound to both the status bar and the large title, the two

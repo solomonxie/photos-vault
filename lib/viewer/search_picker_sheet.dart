@@ -7,6 +7,12 @@ import '../l10n/app_localizations.dart';
 const _sheetBackground = Color(0xFF1C1C1E);
 const _fieldBackground = Color(0xFF2C2C2E);
 
+/// Everything above the list — grab handle, title, search field — and one
+/// row's height, so the sheet can be sized to its own content.
+const _chromeExtent = 128.0;
+const _rowExtent = 45.0;
+const _minSheetExtent = 220.0;
+
 /// Searchable drop-down over [options] — the sheet stays on top of the page
 /// that opened it, so picking a location/tag/school never costs a full page
 /// push. Pops with the chosen option, the typed value, `''` when cleared, or
@@ -119,10 +125,21 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
         ? null
         : widget.createLabel!(query);
 
-    // Sit right above the keyboard, and never taller than what's left.
+    // Sized to what's actually in it: picking between three events should
+    // be a small pop-up, not the same half-screen slab every time. Still
+    // sits above the keyboard, still never taller than 55% of the screen,
+    // and still tall enough to be worth opening.
+    final rows =
+        matches.length +
+        (createLabel != null ? 1 : 0) +
+        (widget.clearLabel != null ? 1 : 0);
+    final content = _chromeExtent + math.max(rows, 1) * _rowExtent;
     final available =
         media.size.height - media.viewInsets.bottom - media.padding.top - 24;
-    final height = math.min(available, media.size.height * 0.55);
+    final height = math.min(
+      math.min(available, media.size.height * 0.55),
+      math.max(content, _minSheetExtent),
+    );
 
     return Padding(
       padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
