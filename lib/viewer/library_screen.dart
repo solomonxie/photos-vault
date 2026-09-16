@@ -41,6 +41,7 @@ import 'private_album_gate.dart';
 import 'recently_deleted_screen.dart';
 import 'search_picker_sheet.dart';
 import 'smart_collection_screen.dart';
+import 'zoom_page_route.dart';
 
 /// The whole app, one page — matches real Photos: no separate "Library" vs
 /// "Collections" tabs, just a day-grouped grid up top and Media
@@ -690,7 +691,7 @@ class LibraryScreenState extends State<LibraryScreen> {
   Future<void> _openRecord(AssetRecord record) async {
     final records = _filtered;
     await Navigator.of(context).push(
-      CupertinoPageRoute(
+      ZoomPageRoute(
         builder: (_) => DetailScreen(
           records: records,
           initialIndex: records.indexOf(record),

@@ -10,6 +10,7 @@ import 'asset_grid_view.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'private_album_gate.dart';
+import 'zoom_page_route.dart';
 
 /// One album's contents — same active-library set as the main grid, filtered
 /// to this album's membership (`AlbumStore.localIdsIn`). Shares the
@@ -91,7 +92,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
 
   void _open(AssetRecord record) {
     Navigator.of(context).push(
-      CupertinoPageRoute(
+      ZoomPageRoute(
         builder: (_) => DetailScreen(
           records: _records,
           initialIndex: _records.indexOf(record),
