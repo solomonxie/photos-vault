@@ -172,6 +172,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   leading: PersonAvatar(
                     assetRecordStore: widget.assetRecordStore,
                     localId: person.avatarLocalId,
+                    face: person.avatarFace,
                     size: 44,
                   ),
                   title: Text(person.name),

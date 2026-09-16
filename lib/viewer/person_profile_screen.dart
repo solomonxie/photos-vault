@@ -615,6 +615,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
               child: PersonAvatar(
                 assetRecordStore: widget.assetRecordStore,
                 localId: _person.avatarLocalId,
+                face: _person.avatarFace,
                 size: 96,
               ),
             ),

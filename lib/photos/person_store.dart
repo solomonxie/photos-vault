@@ -36,7 +36,7 @@ class PersonStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 4,
+        version: 5,
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await db.execute(
@@ -45,6 +45,11 @@ class PersonStore {
           }
           if (oldVersion < 3) {
             await db.execute(_createHistoryTableSql);
+          }
+          if (oldVersion < 5) {
+            await db.execute(
+              'ALTER TABLE $_personTable ADD COLUMN avatar_face TEXT',
+            );
           }
           if (oldVersion < 4) {
             await db.execute(
@@ -78,6 +83,7 @@ class PersonStore {
               id TEXT PRIMARY KEY,
               name TEXT NOT NULL,
               avatar_local_id TEXT,
+              avatar_face TEXT,
               bio TEXT NOT NULL DEFAULT '',
               birth_date INTEGER,
               gender TEXT,
@@ -512,6 +518,7 @@ class PersonStore {
     'id': person.id,
     'name': person.name,
     'avatar_local_id': person.avatarLocalId,
+    'avatar_face': person.avatarFace?.encode(),
     'bio': person.bio,
     'birth_date': person.birthDate?.millisecondsSinceEpoch,
     'gender': person.gender?.name,
@@ -535,6 +542,7 @@ class PersonStore {
       id: row['id'] as String,
       name: row['name'] as String,
       avatarLocalId: row['avatar_local_id'] as String?,
+      avatarFace: FaceRect.decode(row['avatar_face'] as String?),
       bio: row['bio'] as String? ?? '',
       birthDate: birthMillis == null
           ? null
