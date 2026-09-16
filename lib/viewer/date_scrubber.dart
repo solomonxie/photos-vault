@@ -58,9 +58,11 @@ class _DateScrubberState extends State<DateScrubber> {
   /// The handle rides a short track in the middle of the screen rather than
   /// the full height of it. Two reasons: a handle parked against the top or
   /// bottom edge reads as part of the chrome and goes unnoticed, and a
-  /// whole decade crossed in a third of a screen is less thumb travel, not
-  /// more — the track's length is just the gearing.
-  static const _trackFraction = 0.3;
+  /// whole decade crossed in a quarter of a screen is less thumb travel,
+  /// not more — the track's length is just the gearing. Short also keeps it
+  /// clear of the rows at the bottom of the page, which is where it would
+  /// otherwise sit exactly when you've scrolled down to tap one.
+  static const _trackFraction = 0.25;
 
   bool _visible = false;
   bool _dragging = false;
@@ -225,22 +227,32 @@ class _DateScrubberState extends State<DateScrubber> {
               top: top,
               child: GestureDetector(
                 key: DateScrubber.handleKey,
-                behavior: HitTestBehavior.opaque,
+                // Translucent, not opaque: the handle wants vertical drags
+                // and nothing else, so a *tap* that lands on it should
+                // reach whatever row it's floating over rather than being
+                // swallowed by a control that has no use for it.
+                behavior: HitTestBehavior.translucent,
                 onVerticalDragStart: _onDragStart,
                 onVerticalDragUpdate: (d) => _onDragUpdate(d, trackHeight),
                 onVerticalDragEnd: (_) => _onDragEnd(),
                 onVerticalDragCancel: _onDragEnd,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  crossAxisAlignment: CrossAxisAlignment.center,
-                  children: [
-                    if (_dragging && label != null)
-                      _ScrubberBubble(label: label),
-                    const _ScrubberThumb(
-                      width: _thumbWidth,
-                      height: _thumbHeight,
-                    ),
-                  ],
+                // The glyph itself takes no hits either: a translucent
+                // detector still stops at the first child that reports one,
+                // and the thumb is a painted box, so without this the tap
+                // dies on the decoration rather than falling through.
+                child: IgnorePointer(
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    crossAxisAlignment: CrossAxisAlignment.center,
+                    children: [
+                      if (_dragging && label != null)
+                        _ScrubberBubble(label: label),
+                      const _ScrubberThumb(
+                        width: _thumbWidth,
+                        height: _thumbHeight,
+                      ),
+                    ],
+                  ),
                 ),
               ),
             ),

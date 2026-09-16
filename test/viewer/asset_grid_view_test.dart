@@ -17,6 +17,20 @@ AssetRecord _record(String id, DateTime createdAt) => AssetRecord(
   updatedAt: createdAt,
 );
 
+/// Three photos a day, so every row is a full one — the right-hand column
+/// is what the scrubber handle floats over.
+List<AssetRecord> _dense(int days) {
+  final today = DateTime.now();
+  return [
+    for (var i = days - 1; i >= 0; i--)
+      for (var n = 0; n < 3; n++)
+        _record(
+          'manual:day$i-$n',
+          today.subtract(Duration(days: i, hours: 2, minutes: n)),
+        ),
+  ];
+}
+
 /// One photo a day, oldest first — `days` days ending today.
 List<AssetRecord> _daily(int days) {
   final today = DateTime.now();
@@ -37,6 +51,16 @@ Widget _wrap(Widget child) => CupertinoApp(
   supportedLocales: AppLocalizations.supportedLocales,
   home: CupertinoPageScaffold(child: child),
 );
+
+/// The first grid tile whose rectangle overlaps [rect].
+Rect? _tileOverlapping(WidgetTester tester, Rect rect) {
+  for (final element in find.byType(AssetTile).evaluate()) {
+    final box = element.renderObject! as RenderBox;
+    final tile = box.localToGlobal(Offset.zero) & box.size;
+    if (tile.overlaps(rect)) return tile;
+  }
+  return null;
+}
 
 /// The grid tile drawn closest to [y] on screen, and where it sits — what
 /// "the photo you were looking at" means to a test.
@@ -310,6 +334,36 @@ void main() {
       key.currentState!.jumpToNewest();
       await tester.pump();
       expect(handle().center.dy, lessThan(screen * 0.8));
+    });
+
+    testWidgets('a tap on the handle reaches what it is floating over', (
+      tester,
+    ) async {
+      AssetRecord? tapped;
+      await tester.pumpWidget(
+        _wrap(
+          AssetGridView(
+            records: _dense(40),
+            onTap: (record) => tapped = record,
+            actionsFor: (_) => _actions,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, 40));
+      await tester.pump();
+
+      // The handle only wants vertical drags; a tap has to fall through to
+      // the photo (or the settings row) underneath it. The handle is taller
+      // than a day header, so some tile always overlaps it.
+      final handle = tester.getRect(find.byKey(DateScrubber.handleKey));
+      final under = _tileOverlapping(tester, handle);
+      expect(under, isNotNull, reason: 'nothing under the handle to tap');
+
+      await tester.tapAt(under!.intersect(handle).center);
+      await tester.pumpAndSettle();
+
+      expect(tapped, isNotNull);
     });
 
     testWidgets('never appears for a library that barely scrolls', (
