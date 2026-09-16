@@ -205,6 +205,7 @@ Sometimes text link style look better than big button, depends on the usage.
 - **Oldest at the top, newest at the bottom**, and the page *opens* scrolled to the bottom. Time runs down the page, so "further up" means "further back" — and the newest day needs no scrolling at all.
 - That bottom-of-the-grid position is the page's **home anchor**: tapping anywhere on the header — the status bar strip *and* the navigation bar under it, not just the title — returns to it, and tapping again from there goes to the very top (the oldest day, and the search field). A tap target that's only the title's own glyphs is a target you have to aim at. Scrolling to the oldest photo is a thing you can ask for, never the thing you land on.
 - Past a couple of screens of content, a **fading date scrubber** rides the right edge: it appears while the grid moves, fades out ~1.4s after it stops, and while dragged shows the month it's landing on. It's the only way to cross years without flinging — so it **shows itself once, unprompted, on arrival** and lingers a beat longer that first time. A control that only ever appears *after* you've started thumbing is a control nobody discovers.
+- Its track is **half the screen, centred**, not edge to edge. A handle parked against the top or bottom reads as chrome and goes unnoticed; one in the middle is where the eye already is. Track length is only the gearing — a whole decade crossed in half a screen is *less* thumb travel, not more.
 - Large-title nav bar with a search field above it.
 - **3 tiles per row**, 8px gutters, 8px corner radius. Four-up at 2px gutters packs more in but reads as a contact sheet; at three the photo is the subject.
 - Badge only the **exceptional** state. A not-yet-synced dot, nothing at all when it's fine — a healthy library should read clean, not carry a checkmark on every tile.
@@ -236,10 +237,11 @@ date scrubber — only while the grid is moving:
 
 ┌─────────────────────┐        ┌─────────────────────┐
 │ ▦ ▦ ▦               │        │ ▦ ▦ ▦               │
-│ ▦ ▦ ▦            ▲  │        │ ▦ ▦ ▦   ┌────────┐▲ │
-│ ▦ ▦ ▦            ▼  │ ←idle  │ ▦ ▦ ▦   │Mar 2019│▼ │ ←dragging
-│ ▦ ▦ ▦               │  fades │ ▦ ▦ ▦   └────────┘   │  shows where
-└─────────────────────┘  out   └─────────────────────┘  it will land
+│ ▦ ▦ ▦          ┈┈┈  │        │ ▦ ▦ ▦          ┈┈┈  │ ← track: half the
+│ ▦ ▦ ▦            ▲  │ ←idle  │ ▦ ▦ ▦   ┌────────┐▲ │   screen, centred
+│ ▦ ▦ ▦            ▼  │  fades │ ▦ ▦ ▦   │Mar 2019│▼ │ ←dragging: shows
+│ ▦ ▦ ▦          ┈┈┈  │  out   │ ▦ ▦ ▦   └────────┘   │   where it lands
+└─────────────────────┘        └─────────────────────┘
 
 hold a tile ⇒ selection mode, and a bar appears for the batch:
 ┌──────────────────────────────────────────┐

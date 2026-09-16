@@ -51,6 +51,13 @@ class _DateScrubberState extends State<DateScrubber> {
   static const _thumbHeight = 52.0;
   static const _thumbWidth = 34.0;
 
+  /// The handle rides a short track in the middle of the screen rather than
+  /// the full height of it. Two reasons: a handle parked against the top or
+  /// bottom edge reads as part of the chrome and goes unnoticed, and a
+  /// whole decade crossed in half a screen is less thumb travel, not more —
+  /// the track's length is just the gearing.
+  static const _trackFraction = 0.5;
+
   bool _visible = false;
   bool _dragging = false;
   bool _introduced = false;
@@ -178,10 +185,20 @@ class _DateScrubberState extends State<DateScrubber> {
     return Padding(
       padding: widget.insets,
       child: LayoutBuilder(
-        builder: (context, constraints) => AnimatedBuilder(
-          animation: widget.controller,
-          builder: (context, _) => _track(constraints.maxHeight),
-        ),
+        builder: (context, constraints) {
+          final trackHeight = constraints.maxHeight * _trackFraction;
+          return Align(
+            alignment: Alignment.centerRight,
+            child: SizedBox(
+              width: constraints.maxWidth,
+              height: trackHeight,
+              child: AnimatedBuilder(
+                animation: widget.controller,
+                builder: (context, _) => _track(trackHeight),
+              ),
+            ),
+          );
+        },
       ),
     );
   }

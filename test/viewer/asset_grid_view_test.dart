@@ -253,6 +253,36 @@ void main() {
       );
     });
 
+    testWidgets('rides a short track in the middle of the screen', (
+      tester,
+    ) async {
+      final key = GlobalKey<AssetGridViewState>();
+      await tester.pumpWidget(
+        _wrap(
+          AssetGridView(
+            key: key,
+            records: _daily(40),
+            onTap: (_) {},
+            actionsFor: (_) => _actions,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final screen = tester.getSize(find.byType(AssetGridView)).height;
+      Rect handle() => tester.getRect(find.byKey(DateScrubber.handleKey));
+
+      // Both ends of the whole library sit within the middle half of the
+      // screen — never parked against an edge where it reads as chrome.
+      key.currentState!.jumpToOldest();
+      await tester.pump();
+      expect(handle().center.dy, greaterThan(screen * 0.2));
+
+      key.currentState!.jumpToNewest();
+      await tester.pump();
+      expect(handle().center.dy, lessThan(screen * 0.8));
+    });
+
     testWidgets('never appears for a library that barely scrolls', (
       tester,
     ) async {
