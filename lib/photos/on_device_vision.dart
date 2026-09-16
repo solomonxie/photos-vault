@@ -1,13 +1,5 @@
 import 'package:flutter/services.dart';
 
-/// One label Vision put on a photo.
-class VisionLabel {
-  const VisionLabel(this.label, this.confidence);
-
-  final String label;
-  final double confidence;
-}
-
 /// Where a face is in a photo, in Vision's normalised coordinates
 /// (0–1, origin bottom-left).
 class VisionFace {
@@ -28,21 +20,12 @@ class VisionFace {
   double get area => width * height;
 }
 
-class VisionAnalysis {
-  const VisionAnalysis({this.labels = const [], this.faces = const []});
-
-  final List<VisionLabel> labels;
-  final List<VisionFace> faces;
-}
-
-/// Photo analysis that runs on the phone: Apple's Vision framework, via
+/// Face detection on the phone: Apple's Vision framework, via
 /// `ios/Runner/VisionAnalysisChannel.swift`.
 ///
-/// It exists because the cloud path doesn't scale to the library this app
-/// is for. Analysing a hundred thousand photos through a vision API is a
-/// bill nobody wants; the same hundred thousand run locally cost nothing
-/// but time, need no key, work on a plane, and send not one byte anywhere.
-/// Nothing is downloaded either — the models are part of iOS.
+/// Free, offline, nothing downloaded — the models are part of iOS — and
+/// reliable in a way its scene *labels* were not, which is why only this
+/// half survived contact with a real library.
 ///
 /// Unavailable off iOS (and in tests), where every call returns empty
 /// rather than throwing: analysis is an enrichment, and a library without
@@ -55,29 +38,6 @@ class OnDeviceVisionService {
 
   final MethodChannel _channel;
 
-  /// Below this, Vision's guesses stop being worth showing to anyone. It
-  /// returns a confidence for all ~1,300 labels it knows, most of them
-  /// near zero, so a cut-off is the whole difference between tags and
-  /// noise.
-  static const minConfidence = 0.4;
-
-  /// Vision's labels run from the specific ("golden retriever") to the
-  /// nearly contentless ("outdoor", "plant"). The vague ones are true of
-  /// half a camera roll and make a tag list useless as a filter.
-  static const _uselessLabels = {
-    'outdoor',
-    'indoor',
-    'people',
-    'adult',
-    'material',
-    'structure',
-    'plant',
-    'object',
-    'nature',
-    'daylight',
-    'sky',
-  };
-
   Future<bool> get isAvailable async {
     try {
       await _channel.invokeMethod<List<Object?>>('faces', {'path': ''});
@@ -89,22 +49,6 @@ class OnDeviceVisionService {
       // is all this needed to know.
       return true;
     }
-  }
-
-  /// Labels worth keeping for [path], strongest first.
-  Future<List<VisionLabel>> classify(String path, {int limit = 20}) async {
-    final raw = await _invoke('classify', {'path': path, 'limit': limit});
-    return [
-      for (final item in raw)
-        if (item is Map &&
-            item['label'] is String &&
-            (item['confidence'] as num? ?? 0) >= minConfidence &&
-            !_uselessLabels.contains(item['label']))
-          VisionLabel(
-            item['label'] as String,
-            (item['confidence'] as num).toDouble(),
-          ),
-    ];
   }
 
   Future<List<VisionFace>> faces(String path) async {
@@ -120,9 +64,6 @@ class OnDeviceVisionService {
           ),
     ];
   }
-
-  Future<VisionAnalysis> analyze(String path) async =>
-      VisionAnalysis(labels: await classify(path), faces: await faces(path));
 
   Future<List<Object?>> _invoke(
     String method,

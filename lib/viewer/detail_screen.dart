@@ -1184,10 +1184,7 @@ class _InfoPanelState extends State<_InfoPanel> {
 
   late final OnDeviceAnalysisService _onDeviceAnalysis =
       widget.onDeviceAnalysis ??
-      OnDeviceAnalysisService(
-        recordStore: widget.assetRecordStore,
-        analysisStore: AiAnalysisStore(),
-      );
+      OnDeviceAnalysisService(analysisStore: AiAnalysisStore());
   late final AiVisionService _aiVision =
       widget.aiVisionService ?? AiVisionService();
 
@@ -1205,18 +1202,12 @@ class _InfoPanelState extends State<_InfoPanel> {
     });
     final faces = await _onDeviceAnalysis.analyze(widget.record, path);
     final crops = await FaceCrops.of(path, faces);
-    final refreshed = await widget.assetRecordStore.getByLocalId(
-      widget.record.localId,
-    );
     if (!mounted) return;
     setState(() {
       _suggesting = false;
       _faces = crops;
-      _suggestNote = (refreshed?.tags.length ?? 0) == widget.record.tags.length
-          ? (crops.isEmpty ? l10n.detailSuggestNothing : null)
-          : null;
+      _suggestNote = crops.isEmpty ? l10n.detailSuggestNothing : null;
     });
-    if (refreshed != null) widget.onRecordChanged(refreshed);
   }
 
   Future<void> _suggestWithAi() async {
@@ -1605,30 +1596,9 @@ class _InfoPanelState extends State<_InfoPanel> {
               onChanged: _saveDescription,
             ),
           ),
-          const SizedBox(height: 24),
-          _SectionHeader(title: l10n.detailTagsHeader, onAdd: _addTag),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              for (final tag in record.tags)
-                _Chip(label: tag, onRemove: () => _removeTag(tag)),
-            ],
-          ),
           const SizedBox(height: 20),
-          // Two buttons and nothing else: what each costs is the only thing
-          // worth saying about them, and it fits on the buttons themselves.
           Row(
             children: [
-              _SuggestButton(
-                label: l10n.detailSuggestOnDevice,
-                icon: CupertinoIcons.wand_stars,
-                onPressed: _suggesting || widget.resolvedPath == null
-                    ? null
-                    : _suggestOnDevice,
-              ),
-              const SizedBox(width: 8),
               _SuggestButton(
                 label: l10n.detailSuggestAi,
                 icon: CupertinoIcons.sparkles,
@@ -1656,9 +1626,43 @@ class _InfoPanelState extends State<_InfoPanel> {
                 ),
               ),
             ),
+          const SizedBox(height: 24),
+          _SectionHeader(title: l10n.detailTagsHeader, onAdd: _addTag),
+          const SizedBox(height: 8),
+          Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final tag in record.tags)
+                _Chip(label: tag, onRemove: () => _removeTag(tag)),
+            ],
+          ),
+          const SizedBox(height: 24),
+          _SectionHeader(
+            title: l10n.detailPeopleHeader,
+            onAdd: _addPerson,
+            // Finding faces is a way of answering "who's in this photo",
+            // so it belongs on that question's heading rather than in a
+            // row of its own.
+            action: CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              minimumSize: Size.zero,
+              onPressed: _suggesting || widget.resolvedPath == null
+                  ? null
+                  : _suggestOnDevice,
+              child: Text(
+                l10n.detailFindFaces,
+                style: TextStyle(
+                  fontSize: 13,
+                  color: _suggesting || widget.resolvedPath == null
+                      ? CupertinoColors.systemGrey
+                      : CupertinoColors.activeBlue,
+                ),
+              ),
+            ),
+          ),
           if (_faces.isNotEmpty) ...[
-            const SizedBox(height: 16),
-            _SectionHeader(title: l10n.detailFacesHeader),
+            const SizedBox(height: 8),
             Padding(
               padding: const EdgeInsets.only(top: 2, bottom: 8),
               child: Text(
@@ -1689,8 +1693,7 @@ class _InfoPanelState extends State<_InfoPanel> {
               ),
             ),
           ],
-          const SizedBox(height: 24),
-          _SectionHeader(title: l10n.detailPeopleHeader, onAdd: _addPerson),
+
           const SizedBox(height: 8),
           Wrap(
             spacing: 16,
@@ -1712,12 +1715,16 @@ class _InfoPanelState extends State<_InfoPanel> {
 }
 
 class _SectionHeader extends StatelessWidget {
-  const _SectionHeader({required this.title, this.onAdd});
+  const _SectionHeader({required this.title, this.onAdd, this.action});
 
   final String title;
 
   /// Absent for a section with nothing to add by hand.
   final VoidCallback? onAdd;
+
+  /// One extra control on the heading row, left of the `+` — for something
+  /// that fills the section in rather than adding one item to it.
+  final Widget? action;
 
   @override
   Widget build(BuildContext context) {
@@ -1732,6 +1739,7 @@ class _SectionHeader extends StatelessWidget {
             fontSize: 16,
           ),
         ),
+        ?action,
         if (onAdd != null)
           CupertinoButton(
             padding: EdgeInsets.zero,

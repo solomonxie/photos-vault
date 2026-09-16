@@ -1119,4 +1119,40 @@ void main() {
       );
     });
   });
+
+  testWidgets('AI Suggest sits above Tags, and Find Faces is on People', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [_record(localId: 'a')],
+          initialIndex: 0,
+          assetRecordStore: FakeAssetRecordStore(),
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _scrollToInfoPanel(tester);
+
+    // Tagging is the vendor models' job, so its button leads the Tags
+    // section; finding faces answers "who's in this photo", so it rides on
+    // the People heading instead of a row of its own.
+    expect(
+      tester.getTopLeft(find.text('AI Suggest')).dy,
+      lessThan(tester.getTopLeft(find.text('Tags')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Find Faces')).dy,
+      greaterThan(tester.getTopLeft(find.text('Tags')).dy),
+    );
+    expect(
+      tester.getTopLeft(find.text('Find Faces')).dy,
+      closeTo(tester.getTopLeft(find.text('People')).dy, 20),
+      reason: 'same row as the People title',
+    );
+  });
 }
