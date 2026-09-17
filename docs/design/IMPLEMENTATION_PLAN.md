@@ -68,6 +68,27 @@ Grows T4.4's count-only People grouping into per-person identity + a full profil
 
 Demo data for both features (so they're immediately explorable, not just implemented): `DemoAssetsService.addAll()` now also seeds a demo Private Album at passcode `1234` (3 photos moved in, 1 copied in) and three demo `Person` profiles with bios, tagged photos, a friend + a family relationship, and one location history — all idempotent/reset-safe like the existing demo albums. See `lib/photos/demo_assets_service.dart`.
 
+## Backlog: Library zoom
+
+Pinch to change grid density, the way real Photos does — designed in
+UIUX-DESIGN.md ("Library zoom"), not built. The app has one density (4
+across, day sections); this adds three more and two new groupings.
+
+- [ ] TZ.1 `PhotoGridLayout` takes a `crossAxisCount` and a sectioning
+      strategy (day/month/year) instead of assuming 4-across days — see
+      `lib/viewer/photo_grid_layout.dart` — depends: nothing
+- [ ] TZ.2 Pinch handling on `AssetGridView`: one level per pinch past a
+      threshold, tiles scaling smoothly within a level, viewport pinned on
+      the top photo across the change (reuses `_viewportPin`) — depends:
+      TZ.1
+- [ ] TZ.3 Cheap tiles for dense levels: no badges, no context menu, and
+      thumbnails decoded at a smaller `cacheWidth` — a year view of 20,000
+      photos must not decode 20,000 full-size thumbnails — depends: TZ.1
+- [ ] TZ.4 `Years · Months · All` pill: appears on pinch and when scrolling
+      stops, fades while scrolling, taps change level — depends: TZ.2
+- [ ] TZ.5 Date scrubber labels follow the level (days → months → years) —
+      see `lib/viewer/date_scrubber.dart` — depends: TZ.1
+
 ## Backlog: Android
 Deferred until iOS is solid. The Flutter codebase already builds for Android (`android/` scaffold exists); these are the tasks to pick up when Android gets prioritized, not new platform work.
 

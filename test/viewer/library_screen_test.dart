@@ -958,7 +958,7 @@ void main() {
   );
 
   testWidgets(
-    'Collections lists People, Places and Events; People opens the People screen',
+    'People, Places and Events each get a section; People opens its screen',
     (tester) async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
       final recordStore = FakeAssetRecordStore();
@@ -996,10 +996,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      final collectionsY = tester.getCenter(find.text('Collections')).dy;
+      // Albums, People, Places and Events are sections in their own right
+      // now — there's no "Collections" heading above them to look for.
+      final albumsY = tester.getCenter(find.text('Albums')).dy;
       final peopleY = tester.getCenter(find.text('People')).dy;
       final utilitiesY = tester.getCenter(find.text('Utilities')).dy;
-      expect(collectionsY, lessThan(peopleY));
+      expect(albumsY, lessThan(peopleY));
       expect(peopleY, lessThan(utilitiesY));
       expect(find.text('Places'), findsOneWidget);
       expect(find.text('Events'), findsOneWidget);

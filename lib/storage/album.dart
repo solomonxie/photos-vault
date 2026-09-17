@@ -9,6 +9,7 @@ class Album {
     this.isDemo = false,
     this.description = '',
     this.tags = const [],
+    this.coverLocalId,
   });
 
   final String id;
@@ -26,13 +27,23 @@ class Album {
   final String description;
   final List<String> tags;
 
-  Album copyWith({String? name, String? description, List<String>? tags}) =>
-      Album(
-        id: id,
-        name: name ?? this.name,
-        createdAt: createdAt,
-        isDemo: isDemo,
-        description: description ?? this.description,
-        tags: tags ?? this.tags,
-      );
+  /// The photo to show on the album's card, if one was chosen. Null means
+  /// "pick one" — the newest photo in it, which is the one that made the
+  /// album worth opening again.
+  final String? coverLocalId;
+
+  Album copyWith({
+    String? name,
+    String? description,
+    List<String>? tags,
+    String? coverLocalId,
+  }) => Album(
+    id: id,
+    name: name ?? this.name,
+    createdAt: createdAt,
+    isDemo: isDemo,
+    description: description ?? this.description,
+    tags: tags ?? this.tags,
+    coverLocalId: coverLocalId ?? this.coverLocalId,
+  );
 }
