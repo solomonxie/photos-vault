@@ -944,10 +944,12 @@ void main() {
       expect(albumsY, lessThan(peopleY));
       expect(find.text('Nature'), findsOneWidget);
 
-      // A single horizontally-scrolling row, not a multi-row grid.
+      // A single horizontally-scrolling row, not a multi-row grid. The
+      // built-in Favourites and Videos cards come first, so the user's own
+      // albums are further along it.
       expect(
         tester.getCenter(find.text('Nature')).dy,
-        tester.getCenter(find.text('City')).dy,
+        tester.getCenter(find.text('Videos')).dy,
       );
 
       await tester.tap(find.text('Nature'));

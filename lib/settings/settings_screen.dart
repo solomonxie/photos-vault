@@ -302,20 +302,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     await _reload();
   }
 
-  Widget _pauseButton(AppLocalizations l10n) {
-    final queue = widget.syncQueue!;
-    return ValueListenableBuilder<bool>(
-      valueListenable: queue.paused,
-      builder: (context, paused, _) => SettingsPillButton(
-        icon: paused ? CupertinoIcons.play_fill : CupertinoIcons.pause_fill,
-        label: paused
-            ? l10n.backupQueueResumeAction
-            : l10n.backupQueuePauseAction,
-        onPressed: () => queue.setPaused(!paused),
-      ),
-    );
-  }
-
   /// How many uploads run at once, as a stepper rather than a menu: it's a
   /// number you nudge and watch, not a value you pick from a list.
   Widget _paceButtons(AppLocalizations l10n) {
@@ -599,20 +585,22 @@ class _SettingsScreenState extends State<SettingsScreen>
                 icon: CupertinoIcons.arrow_2_circlepath,
               ),
               title: l10n.settingsSyncQueueRow,
-              // Paused belongs out here, not only inside the sheet: a
-              // paused queue takes nothing new, so it's the answer to "why
-              // is nothing backing up" and has to be visible from where
-              // that gets asked.
+              // The state in words under the title, so the switch doesn't
+              // have to carry it: a bare "Paused" toggle leaves nobody sure
+              // which way means running.
               subtitle: paused
                   ? l10n.backupQueuePausedNote
                   : pending == 0
                   ? l10n.backupQueueIdle
                   : l10n.settingsSyncQueuePending(pending, concurrency),
               onTap: _openQueue,
-              trailing: const Icon(
-                CupertinoIcons.chevron_forward,
-                size: 14,
-                color: settingsSecondary,
+              // On is running. It sits on the queue's own row because
+              // that's the thing it stops — a pause button off among the
+              // actions read as one more thing to press rather than the
+              // state of the list beside it.
+              trailing: CupertinoSwitch(
+                value: !paused,
+                onChanged: (running) => queue.setPaused(!running),
               ),
             ),
           ),
@@ -685,25 +673,22 @@ class _SettingsScreenState extends State<SettingsScreen>
         const SizedBox(height: 4),
         _queueRow(l10n),
         const SizedBox(height: 12),
-        // The two things you come to this page to press, under everything
-        // that describes what they'll do.
+        // The one thing you come to this page to press, under everything
+        // that describes what it'll do. (Pause isn't here: it's the switch
+        // on the queue's own row, because the queue is what it stops.)
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: settingsPagePadding),
-          child: Wrap(
-            spacing: 10,
-            runSpacing: 10,
-            children: [
-              SettingsPillButton(
-                icon: CupertinoIcons.arrow_2_circlepath,
-                label: _syncing
-                    ? l10n.settingsSyncingMessage
-                    : l10n.settingsSyncNowButton,
-                // Never a silent no-op: with nothing configured there is
-                // nowhere to sync to, so the control stays visible but dead.
-                onPressed: targets.isEmpty || _syncing ? null : _syncNow,
-              ),
-              if (widget.syncQueue != null) _pauseButton(l10n),
-            ],
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: SettingsPillButton(
+              icon: CupertinoIcons.arrow_2_circlepath,
+              label: _syncing
+                  ? l10n.settingsSyncingMessage
+                  : l10n.settingsSyncNowButton,
+              // Never a silent no-op: with nothing configured there is
+              // nowhere to sync to, so the control stays visible but dead.
+              onPressed: targets.isEmpty || _syncing ? null : _syncNow,
+            ),
           ),
         ),
         const SizedBox(height: 10),

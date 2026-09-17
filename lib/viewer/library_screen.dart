@@ -1414,13 +1414,18 @@ class LibraryScreenState extends State<LibraryScreen>
   /// already answer.
   List<AssetRecord> get _videos => _active.where((r) => r.isVideo).toList();
 
-  Album _videosAlbum(AppLocalizations l10n) => Album(
-    id: _videosAlbumId,
-    name: l10n.albumsVideosName,
-    createdAt: DateTime.now(),
-  );
+  List<AssetRecord> get _favorites =>
+      _active.where((r) => r.isFavorite).toList();
+
+  /// A card for a grouping the library makes itself. No row of its own in
+  /// the database: there's nothing to add to it or remove from it, and a
+  /// stored membership list would only be a second, staler answer to a
+  /// question the library can already answer.
+  Album _builtInAlbum(String id, String name) =>
+      Album(id: id, name: name, createdAt: DateTime.now());
 
   static const _videosAlbumId = 'builtin:videos';
+  static const _favoritesAlbumId = 'builtin:favorites';
 
   void _openVideos() {
     final l10n = AppLocalizations.of(context)!;
@@ -1723,24 +1728,37 @@ class LibraryScreenState extends State<LibraryScreen>
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            // Videos first and always: it isn't one of the user's albums,
-            // it's the one grouping the library can make on its own.
-            itemCount: _albums.length + 1,
+            // Favourites, then Videos, then the user's own. The first two
+            // aren't albums anybody made — they're the two groupings the
+            // library can always answer for itself, so they're always
+            // there and there's nothing to delete.
+            itemCount: _albums.length + 2,
             separatorBuilder: (context, i) => const SizedBox(width: 12),
             itemBuilder: (context, i) => SizedBox(
               width: 140,
-              child: i == 0
-                  ? _AlbumCard(
-                      album: _videosAlbum(l10n),
-                      records: _videos,
-                      onTap: _openVideos,
-                    )
-                  : _AlbumCard(
-                      album: _albums[i - 1],
-                      records: _albumAssets[_albums[i - 1].id] ?? const [],
-                      onTap: () => _openAlbum(_albums[i - 1]),
-                      onDelete: () => _confirmDeleteAlbum(_albums[i - 1]),
-                    ),
+              child: switch (i) {
+                0 => _AlbumCard(
+                  album: _builtInAlbum(
+                    _favoritesAlbumId,
+                    l10n.collectionsFavoritesRow,
+                  ),
+                  records: _favorites,
+                  onTap: () => _push(
+                    FavoritesScreen(assetRecordStore: assetRecordStore),
+                  ),
+                ),
+                1 => _AlbumCard(
+                  album: _builtInAlbum(_videosAlbumId, l10n.albumsVideosName),
+                  records: _videos,
+                  onTap: _openVideos,
+                ),
+                _ => _AlbumCard(
+                  album: _albums[i - 2],
+                  records: _albumAssets[_albums[i - 2].id] ?? const [],
+                  onTap: () => _openAlbum(_albums[i - 2]),
+                  onDelete: () => _confirmDeleteAlbum(_albums[i - 2]),
+                ),
+              },
             ),
           ),
         ),
@@ -1828,14 +1846,6 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
         children: [
           _row(
-            icon: CupertinoIcons.heart_fill,
-            color: CupertinoColors.systemRed,
-            title: l10n.collectionsFavoritesRow,
-            count: _favoriteCount,
-            onTap: () =>
-                _push(FavoritesScreen(assetRecordStore: assetRecordStore)),
-          ),
-          _row(
             // Filled, like every other glyph in this list — the outline
             // silo drawn for this row read as a different icon set. An
             // archive box is what a bucket you own actually is: things put
@@ -1847,18 +1857,18 @@ class LibraryScreenState extends State<LibraryScreen>
             onTap: _openCloudBackups,
           ),
           _row(
-            icon: CupertinoIcons.sparkles,
-            color: CupertinoColors.systemIndigo,
-            title: l10n.collectionsAiSettingsRow,
-            onTap: () => _push(const AiSettingsScreen()),
-          ),
-          _row(
             icon: CupertinoIcons.arrow_2_circlepath,
             color: CupertinoColors.systemTeal,
             title: l10n.collectionsSyncQueueRow,
             count: _queuedCount,
             onTap: () =>
                 showSyncQueueSheet(context, syncQueue, onOpenAsset: _openById),
+          ),
+          _row(
+            icon: CupertinoIcons.sparkles,
+            color: CupertinoColors.systemIndigo,
+            title: l10n.collectionsAiSettingsRow,
+            onTap: () => _push(const AiSettingsScreen()),
           ),
           _row(
             icon: CupertinoIcons.arrow_2_circlepath,
