@@ -277,6 +277,45 @@ class SettingsRow extends StatelessWidget {
   }
 }
 
+/// An action with a face: icon, label, and a filled pill around both.
+///
+/// The bare accent-coloured words this page used elsewhere are fine inside
+/// a row of text, and wrong for the two things you actually come here to
+/// press — "sync now" and "how often". A pill says where to put your thumb.
+class SettingsPillButton extends StatelessWidget {
+  const SettingsPillButton({
+    super.key,
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = onPressed != null;
+    final color = enabled ? settingsAccent : settingsTertiary;
+    return CupertinoButton(
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
+      minimumSize: const Size(0, 44),
+      borderRadius: BorderRadius.circular(22),
+      color: const Color(0xFF2C2C2E),
+      onPressed: onPressed,
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 18, color: color),
+          const SizedBox(width: 8),
+          Text(label, style: TextStyle(fontSize: 15, color: color)),
+        ],
+      ),
+    );
+  }
+}
+
 class SettingsAccentButton extends StatelessWidget {
   const SettingsAccentButton({
     super.key,

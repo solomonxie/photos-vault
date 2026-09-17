@@ -622,33 +622,6 @@ class _SettingsScreenState extends State<SettingsScreen>
           padding: const EdgeInsets.fromLTRB(settingsPagePadding, 0, 16, 0),
           child: Text(lastSynced, style: settingsFooterStyle),
         ),
-        const SizedBox(height: 4),
-        // The choice and the action on one line: "how often, or do it now"
-        // is one thought, and it was split across a heading and a button
-        // half a page apart.
-        Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              SettingsAccentButton(
-                label: l10n.settingsSyncHowOften(
-                  _frequencyLabel(l10n, _frequency),
-                ),
-                onPressed: _pickFrequency,
-                showChevron: true,
-              ),
-              const SizedBox(width: 12),
-              SettingsAccentButton(
-                label: _syncing
-                    ? l10n.settingsSyncingMessage
-                    : l10n.settingsSyncNowButton,
-                // Never a silent no-op: with nothing configured there is
-                // nowhere to sync to, so the control stays visible but dead.
-                onPressed: targets.isEmpty || _syncing ? null : _syncNow,
-              ),
-            ],
-          ),
-        ),
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 12),
           child: Align(
@@ -664,6 +637,34 @@ class _SettingsScreenState extends State<SettingsScreen>
         ),
         const SizedBox(height: 4),
         _queueRow(l10n),
+        const SizedBox(height: 12),
+        // The two things you come to this page to press, under everything
+        // that describes what they'll do.
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: settingsPagePadding),
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
+              SettingsPillButton(
+                icon: CupertinoIcons.arrow_2_circlepath,
+                label: _syncing
+                    ? l10n.settingsSyncingMessage
+                    : l10n.settingsSyncNowButton,
+                // Never a silent no-op: with nothing configured there is
+                // nowhere to sync to, so the control stays visible but dead.
+                onPressed: targets.isEmpty || _syncing ? null : _syncNow,
+              ),
+              SettingsPillButton(
+                icon: CupertinoIcons.clock,
+                label: l10n.settingsSyncHowOften(
+                  _frequencyLabel(l10n, _frequency),
+                ),
+                onPressed: _pickFrequency,
+              ),
+            ],
+          ),
+        ),
       ],
     );
   }
