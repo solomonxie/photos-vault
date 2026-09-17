@@ -52,51 +52,6 @@ class _SyncQueueSheetState extends State<SyncQueueSheet> {
     SyncJobKind.analyzePhoto => l10n.backupQueueKindAnalyze,
   };
 
-  Future<void> _showActions() async {
-    final l10n = AppLocalizations.of(context)!;
-    await showCupertinoModalPopup<void>(
-      context: context,
-      builder: (sheetContext) => CupertinoActionSheet(
-        title: Text(l10n.backupQueueSpeed(widget.queue.concurrency.value)),
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () {
-              widget.queue.setConcurrency(widget.queue.concurrency.value - 1);
-              Navigator.of(sheetContext).pop();
-            },
-            child: Text(l10n.backupQueueSlower),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              widget.queue.setConcurrency(widget.queue.concurrency.value + 1);
-              Navigator.of(sheetContext).pop();
-            },
-            child: Text(l10n.backupQueueFaster),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              widget.queue.clearSynced();
-              Navigator.of(sheetContext).pop();
-            },
-            child: Text(l10n.backupQueueClearSynced),
-          ),
-          CupertinoActionSheetAction(
-            isDestructiveAction: true,
-            onPressed: () {
-              widget.queue.clearQueue();
-              Navigator.of(sheetContext).pop();
-            },
-            child: Text(l10n.backupQueueClearButton),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(sheetContext).pop(),
-          child: Text(l10n.actionCancel),
-        ),
-      ),
-    );
-  }
-
   /// How far down the finger has to go, from the top of the list, for the
   /// sheet to close. Short: this is a sheet, not a page, and the gesture
   /// that opens a sheet is the one that closes it.
@@ -212,63 +167,159 @@ class _SyncQueueSheetState extends State<SyncQueueSheet> {
 
   Widget _header(AppLocalizations l10n) {
     return Padding(
-      padding: const EdgeInsets.fromLTRB(settingsPagePadding, 0, 8, 8),
-      child: Row(
+      padding: const EdgeInsets.fromLTRB(settingsPagePadding, 0, 12, 4),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Expanded(
-            child: ValueListenableBuilder<List<SyncJob>>(
-              valueListenable: widget.queue.jobs,
-              builder: (context, jobs, _) => ValueListenableBuilder<bool>(
-                valueListenable: widget.queue.paused,
-                builder: (context, paused, _) => Row(
-                  children: [
+          ValueListenableBuilder<List<SyncJob>>(
+            valueListenable: widget.queue.jobs,
+            builder: (context, jobs, _) => ValueListenableBuilder<bool>(
+              valueListenable: widget.queue.paused,
+              builder: (context, paused, _) => Row(
+                children: [
+                  Text(
+                    l10n.backupQueueHeader(jobs.length),
+                    style: settingsRowTitleStyle,
+                  ),
+                  // Why nothing new is going in. A queue that quietly
+                  // refuses work looks identical to one with nothing to do.
+                  if (paused || _atCapacity(jobs)) ...[
+                    const SizedBox(width: 6),
                     Text(
-                      l10n.backupQueueHeader(jobs.length),
-                      style: settingsRowTitleStyle,
+                      paused
+                          ? l10n.backupQueuePausedNote
+                          : l10n.backupQueueFullNote,
+                      style: settingsRowSubtitleStyle,
                     ),
-                    // Why nothing new is going in. A queue that quietly
-                    // refuses work looks identical to one with nothing
-                    // to do.
-                    if (paused || _atCapacity(jobs)) ...[
-                      const SizedBox(width: 6),
-                      Text(
-                        paused
-                            ? l10n.backupQueuePausedNote
-                            : l10n.backupQueueFullNote,
-                        style: settingsRowSubtitleStyle,
-                      ),
-                    ],
                   ],
-                ),
+                ],
               ),
             ),
           ),
-          // A pause/play icon, not a toggle labelled with a state — a
-          // "Paused" switch leaves nobody sure which way means running.
-          ValueListenableBuilder<bool>(
-            valueListenable: widget.queue.paused,
-            builder: (context, paused, _) => CupertinoButton(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              minimumSize: Size.zero,
-              onPressed: () => widget.queue.setPaused(!paused),
-              child: Icon(
-                paused ? CupertinoIcons.play_fill : CupertinoIcons.pause_fill,
-                size: 20,
-                color: settingsAccent,
-              ),
-            ),
-          ),
-          CupertinoButton(
-            padding: const EdgeInsets.symmetric(horizontal: 8),
-            minimumSize: Size.zero,
-            onPressed: _showActions,
-            child: const Icon(
-              CupertinoIcons.ellipsis_circle,
-              size: 20,
-              color: settingsAccent,
-            ),
-          ),
+          const SizedBox(height: 8),
+          // The controls on the page rather than behind a "…" in the far
+          // corner: there were four of them, all one tap deep, and the tap
+          // that opened the menu was a 20-point glyph at the top-right of a
+          // sheet you hold at the bottom. Labelled, because a row of bare
+          // glyphs is a quiz.
+          _controls(l10n),
         ],
+      ),
+    );
+  }
+
+  Widget _controls(AppLocalizations l10n) {
+    return ValueListenableBuilder<bool>(
+      valueListenable: widget.queue.paused,
+      builder: (context, paused, _) => ValueListenableBuilder<int>(
+        valueListenable: widget.queue.concurrency,
+        builder: (context, concurrency, _) => Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // Two rows, not one that scrolls sideways: a control you have
+            // to drag the row to find is a control behind a menu again.
+            Row(
+              children: [
+                // Pause is the one that stops everything, so it reads
+                // first and carries the state word.
+                _QueueButton(
+                  icon: paused
+                      ? CupertinoIcons.play_fill
+                      : CupertinoIcons.pause_fill,
+                  label: paused
+                      ? l10n.backupQueueResumeAction
+                      : l10n.backupQueuePauseAction,
+                  onPressed: () => widget.queue.setPaused(!paused),
+                  prominent: true,
+                ),
+                _QueueButton(
+                  icon: CupertinoIcons.minus,
+                  label: l10n.backupQueueSlowerShort,
+                  onPressed: concurrency <= 1
+                      ? null
+                      : () => widget.queue.setConcurrency(concurrency - 1),
+                ),
+                // What "slower" and "faster" are actually moving.
+                Flexible(
+                  child: Text(
+                    l10n.backupQueueSpeed(concurrency),
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: settingsRowSubtitleStyle,
+                  ),
+                ),
+                const SizedBox(width: 8),
+                _QueueButton(
+                  icon: CupertinoIcons.plus,
+                  label: l10n.backupQueueFasterShort,
+                  onPressed: () => widget.queue.setConcurrency(concurrency + 1),
+                ),
+              ],
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                _QueueButton(
+                  icon: CupertinoIcons.checkmark_circle,
+                  label: l10n.backupQueueClearSyncedShort,
+                  onPressed: widget.queue.clearSynced,
+                ),
+                _QueueButton(
+                  icon: CupertinoIcons.clear_circled,
+                  label: l10n.backupQueueClearButton,
+                  onPressed: widget.queue.clearQueue,
+                  destructive: true,
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// One control in the queue's own row: icon over label, 44 points tall, with
+/// a face you can see. A tappable glyph with no background reads as
+/// decoration until it's tried.
+class _QueueButton extends StatelessWidget {
+  const _QueueButton({
+    required this.icon,
+    required this.label,
+    required this.onPressed,
+    this.prominent = false,
+    this.destructive = false,
+  });
+
+  final IconData icon;
+  final String label;
+  final VoidCallback? onPressed;
+  final bool prominent;
+  final bool destructive;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = onPressed == null
+        ? settingsTertiary
+        : destructive
+        ? CupertinoColors.systemRed
+        : settingsAccent;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: CupertinoButton(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
+        minimumSize: const Size(0, 44),
+        borderRadius: BorderRadius.circular(10),
+        color: prominent ? const Color(0xFF3A3A3C) : const Color(0xFF2C2C2E),
+        onPressed: onPressed,
+        child: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 16, color: color),
+            const SizedBox(width: 6),
+            Text(label, style: TextStyle(fontSize: 14, color: color)),
+          ],
+        ),
       ),
     );
   }

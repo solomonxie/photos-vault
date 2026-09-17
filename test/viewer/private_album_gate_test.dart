@@ -37,8 +37,7 @@ void main() {
 
       // No system keyboard involved — a numeric keypad, not a text field.
       expect(find.byType(CupertinoTextField), findsNothing);
-      // Only a "Cancel" action — no Enter/Create New to choose between.
-      expect(find.byType(CupertinoDialogAction), findsOneWidget);
+      // One way out — no Enter/Create New to choose between.
       expect(find.text('Cancel'), findsOneWidget);
 
       await _tapDigits(tester, '123');

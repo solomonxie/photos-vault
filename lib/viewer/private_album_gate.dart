@@ -19,29 +19,56 @@ Future<String?> showPrivateAlbumPasscodeSheet(
 }) {
   final l10n = AppLocalizations.of(context)!;
   var passcode = '';
-  return showCupertinoDialog<String>(
+  // A sheet, not an alert. An alert is about 270 points wide whatever the
+  // phone, and three keys across that leaves 60-point targets with no gaps
+  // — small enough that the digit you hit isn't reliably the one you meant.
+  // A sheet is as wide as the screen, which is where the room comes from.
+  return showCupertinoModalPopup<String>(
     context: context,
     builder: (context) => StatefulBuilder(
-      builder: (context, setState) {
-        return CupertinoAlertDialog(
-          title: Text(l10n.privateAlbumGateTitle),
-          content: Column(
+      builder: (context, setState) => Container(
+        decoration: const BoxDecoration(
+          color: Color(0xFF1C1C1E),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            mainAxisSize: MainAxisSize.min,
             children: [
-              const SizedBox(height: 8),
-              Text(l10n.privateAlbumGateBody),
-              if (note != null) ...[
-                const SizedBox(height: 8),
-                Text(
-                  note,
+              const SizedBox(height: 10),
+              Container(
+                width: 36,
+                height: 5,
+                decoration: BoxDecoration(
+                  color: CupertinoColors.systemGrey,
+                  borderRadius: BorderRadius.circular(3),
+                ),
+              ),
+              const SizedBox(height: 18),
+              Text(
+                l10n.privateAlbumGateTitle,
+                style: const TextStyle(
+                  color: CupertinoColors.white,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                ),
+              ),
+              const SizedBox(height: 6),
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 32),
+                child: Text(
+                  note ?? l10n.privateAlbumGateBody,
+                  textAlign: TextAlign.center,
                   style: const TextStyle(
                     fontSize: 13,
                     color: CupertinoColors.systemGrey,
                   ),
                 ),
-              ],
-              const SizedBox(height: 16),
+              ),
+              const SizedBox(height: 22),
               _PasscodeDots(length: passcode.length),
-              const SizedBox(height: 12),
+              const SizedBox(height: 26),
               _PasscodeKeypad(
                 onDigit: (digit) {
                   if (passcode.length >= 4) return;
@@ -58,16 +85,16 @@ Future<String?> showPrivateAlbumPasscodeSheet(
                         ),
                       ),
               ),
+              const SizedBox(height: 8),
+              CupertinoButton(
+                onPressed: () => Navigator.of(context).pop(),
+                child: Text(l10n.actionCancel),
+              ),
+              const SizedBox(height: 4),
             ],
           ),
-          actions: [
-            CupertinoDialogAction(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(l10n.actionCancel),
-            ),
-          ],
-        );
-      },
+        ),
+      ),
     ),
   );
 }
@@ -85,17 +112,13 @@ class _PasscodeDots extends StatelessWidget {
     children: [
       for (var i = 0; i < 4; i++)
         Container(
-          margin: const EdgeInsets.symmetric(horizontal: 7),
-          width: 14,
-          height: 14,
+          margin: const EdgeInsets.symmetric(horizontal: 9),
+          width: 15,
+          height: 15,
           decoration: BoxDecoration(
             shape: BoxShape.circle,
-            color: i < length
-                ? CupertinoDynamicColor.resolve(CupertinoColors.label, context)
-                : CupertinoDynamicColor.resolve(
-                    CupertinoColors.systemGrey4,
-                    context,
-                  ),
+            color: i < length ? CupertinoColors.white : null,
+            border: Border.all(color: CupertinoColors.systemGrey, width: 1.5),
           ),
         ),
     ],
@@ -103,6 +126,11 @@ class _PasscodeDots extends StatelessWidget {
 }
 
 /// 1-9-0 numeric keypad, tap-only — no system keyboard ever pops up.
+///
+/// Round, filled keys sized off the sheet's own width, the way the lock
+/// screen's are: a passcode is typed without looking, so each key has to be
+/// findable by where it is rather than by aiming at it. The circle isn't
+/// decoration — it's the target, drawn where the target actually is.
 class _PasscodeKeypad extends StatelessWidget {
   const _PasscodeKeypad({required this.onDigit, required this.onBackspace});
 
@@ -115,51 +143,85 @@ class _PasscodeKeypad extends StatelessWidget {
     ['7', '8', '9'],
   ];
 
+  /// Gap between keys, and the most a key will grow to. Bigger than this
+  /// and a thumb has to travel across the phone to reach the far column.
+  static const _gap = 22.0;
+  static const _maxKey = 78.0;
+
   Widget _key(
-    BuildContext context, {
+    double size, {
     String? label,
     IconData? icon,
     VoidCallback? onPressed,
   }) => SizedBox(
-    width: 60,
-    height: 44,
+    width: size,
+    height: size,
     child: CupertinoButton(
       padding: EdgeInsets.zero,
+      borderRadius: BorderRadius.circular(size / 2),
+      // The digits sit on a face; backspace is bare, because it isn't one
+      // of the ten and shouldn't look like it.
+      color: icon == null ? const Color(0xFF3A3A3C) : null,
       onPressed: onPressed,
       child: icon != null
-          ? Icon(icon, size: 20)
+          ? Icon(icon, size: 26, color: CupertinoColors.white)
           : Text(
               label!,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w500),
+              style: TextStyle(
+                fontSize: size * 0.42,
+                fontWeight: FontWeight.w400,
+                color: CupertinoColors.white,
+              ),
             ),
     ),
   );
 
   @override
-  Widget build(BuildContext context) => Column(
-    mainAxisSize: MainAxisSize.min,
-    children: [
-      for (final row in _rows)
-        Row(
-          mainAxisAlignment: MainAxisAlignment.center,
-          children: [
-            for (final digit in row)
-              _key(context, label: digit, onPressed: () => onDigit(digit)),
-          ],
-        ),
-      Row(
-        mainAxisAlignment: MainAxisAlignment.center,
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, constraints) {
+      final available = constraints.maxWidth.clamp(0.0, 420.0);
+      final size = ((available - _gap * 4) / 3).clamp(56.0, _maxKey);
+      return Column(
+        mainAxisSize: MainAxisSize.min,
         children: [
-          const SizedBox(width: 60, height: 44),
-          _key(context, label: '0', onPressed: () => onDigit('0')),
-          _key(
-            context,
-            icon: CupertinoIcons.delete_left,
-            onPressed: onBackspace,
+          for (final row in _rows) ...[
+            Row(
+              mainAxisAlignment: MainAxisAlignment.center,
+              children: [
+                for (final digit in row)
+                  Padding(
+                    padding: EdgeInsets.symmetric(horizontal: _gap / 2),
+                    child: _key(
+                      size,
+                      label: digit,
+                      onPressed: () => onDigit(digit),
+                    ),
+                  ),
+              ],
+            ),
+            SizedBox(height: _gap * 0.6),
+          ],
+          Row(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              SizedBox(width: size + _gap),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: _gap / 2),
+                child: _key(size, label: '0', onPressed: () => onDigit('0')),
+              ),
+              Padding(
+                padding: EdgeInsets.symmetric(horizontal: _gap / 2),
+                child: _key(
+                  size,
+                  icon: CupertinoIcons.delete_left,
+                  onPressed: onBackspace,
+                ),
+              ),
+            ],
           ),
         ],
-      ),
-    ],
+      );
+    },
   );
 }
 
