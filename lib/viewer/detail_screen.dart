@@ -906,7 +906,15 @@ class _MediaPageState extends State<_MediaPage> {
     );
   }
 
-  Widget _media(AppLocalizations l10n) {
+  Widget _media(AppLocalizations l10n) => AnimatedSwitcher(
+    // Short and plain: this covers the moment the exported original
+    // replaces the stand-in, and a cross-fade is the difference between a
+    // photo coming into focus and one photo being swapped for another.
+    duration: const Duration(milliseconds: 180),
+    child: _mediaContent(l10n),
+  );
+
+  Widget _mediaContent(AppLocalizations l10n) {
     if (_localDeleted) return _cloudOnly(l10n);
     final path = _path;
     if (path == null) {
@@ -916,9 +924,17 @@ class _MediaPageState extends State<_MediaPage> {
         // the library before it can be shown full-size, which takes about a
         // second — and for that second the app had nothing on screen but a
         // loading ring, over a photo the user had already seen.
+        //
+        // Screen-sized and *contained*, not a grid tile blown up: drawn
+        // cover, the stand-in is cropped differently from the photo that
+        // replaces it, so the swap reads as a jump rather than a photo
+        // sharpening. The OS keeps thumbnails at this size, so asking for
+        // one costs about as much as asking for the small one.
         return Center(
           child: assetImage(
             widget.record,
+            fit: BoxFit.contain,
+            thumbnailSize: 1200,
             placeholder: () => const ColoredBox(color: CupertinoColors.black),
           ),
         );

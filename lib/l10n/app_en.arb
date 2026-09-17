@@ -190,7 +190,7 @@
 
   "backupQueueTitle": "Sync Queue",
   "backupQueueEmpty": "Nothing in the queue — everything's backed up.",
-  "backupQueueClearButton": "Clear Queue",
+  "backupQueueClearButton": "Empty Queue",
   "backupQueueRetryFailedButton": "Retry Failed",
   "backupQueueHeader": "Queue ({count})",
   "@backupQueueHeader": {
@@ -224,8 +224,8 @@
   },
 
   "settingsCloudSyncHeading": "Cloud Sync",
-  "settingsSyncHowOften": "How often: {value}",
-  "@settingsSyncHowOften": {
+  "settingsSyncSchedule": "Schedule: {value}",
+  "@settingsSyncSchedule": {
     "placeholders": { "value": { "type": "String" } }
   },
   "settingsBackupFormatLabel": "Format: {value}",

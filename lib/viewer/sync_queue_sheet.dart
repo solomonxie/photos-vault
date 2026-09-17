@@ -216,8 +216,9 @@ class _SyncQueueSheetState extends State<SyncQueueSheet> {
         builder: (context, concurrency, _) => Column(
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
-            // Two rows, not one that scrolls sideways: a control you have
-            // to drag the row to find is a control behind a menu again.
+            // What you do *to this list*: stop it, tidy it, empty it. How
+            // fast it goes and how often it starts are settings, and they
+            // live with the other sync settings rather than here.
             Row(
               children: [
                 // Pause is the one that stops everything, so it reads
@@ -232,33 +233,6 @@ class _SyncQueueSheetState extends State<SyncQueueSheet> {
                   onPressed: () => widget.queue.setPaused(!paused),
                   prominent: true,
                 ),
-                _QueueButton(
-                  icon: CupertinoIcons.minus,
-                  label: l10n.backupQueueSlowerShort,
-                  onPressed: concurrency <= 1
-                      ? null
-                      : () => widget.queue.setConcurrency(concurrency - 1),
-                ),
-                // What "slower" and "faster" are actually moving.
-                Flexible(
-                  child: Text(
-                    l10n.backupQueueSpeed(concurrency),
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: settingsRowSubtitleStyle,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                _QueueButton(
-                  icon: CupertinoIcons.plus,
-                  label: l10n.backupQueueFasterShort,
-                  onPressed: () => widget.queue.setConcurrency(concurrency + 1),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
                 _QueueButton(
                   icon: CupertinoIcons.checkmark_circle,
                   label: l10n.backupQueueClearSyncedShort,
