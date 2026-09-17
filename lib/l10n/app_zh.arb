@@ -185,7 +185,7 @@
   "backupQueueCheckingMessage": "{count, plural, other{正在检查 {count} 张照片是否有更改…}}",
 
   "settingsCloudSyncHeading": "云同步",
-  "settingsSyncHowOften": "频率：{value}",
+  "settingsSyncSchedule": "计划：{value}",
   "settingsBackupFormatLabel": "格式：{value}",
   "settingsSyncFrequencyHeading": "同步频率",
   "settingsSyncFrequencyHint": "仅在应用打开时才会择机检查——目前还没有后台同步权限,应用未打开时不会自动同步。",

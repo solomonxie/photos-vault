@@ -117,7 +117,7 @@ void main() {
   });
 
   testWidgets(
-    'Clear Queue drops what is waiting without touching anything else',
+    'Empty Queue drops what is waiting without touching anything else',
     (tester) async {
       final queue = newQueue();
       await queue.store.enqueue(
@@ -137,7 +137,7 @@ void main() {
       await tester.pumpAndSettle();
 
       // The queue's controls are on the sheet now, not behind a "…".
-      await tester.tap(find.text('Clear Queue'));
+      await tester.tap(find.text('Empty Queue'));
       await tester.pumpAndSettle();
 
       final remaining = await queue.store.all();

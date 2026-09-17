@@ -171,13 +171,15 @@ class _DayHeader extends StatelessWidget {
 Widget assetImage(
   AssetRecord record, {
   required Widget Function() placeholder,
+  BoxFit fit = BoxFit.cover,
+  int? thumbnailSize,
 }) {
   Widget cached() {
     final thumbnail = record.thumbnailPath;
     if (thumbnail == null) return placeholder();
     return Image.file(
       File(thumbnail),
-      fit: BoxFit.cover,
+      fit: fit,
       errorBuilder: (context, error, stackTrace) => placeholder(),
     );
   }
@@ -187,13 +189,17 @@ Widget assetImage(
   if (path != null) {
     return Image.file(
       File(path),
-      fit: BoxFit.cover,
+      fit: fit,
       errorBuilder: (context, error, stackTrace) => cached(),
     );
   }
   final libraryId = PhotoLibraryService.libraryIdOf(record);
   if (record.sourceType == AssetSourceType.photoManager && libraryId != null) {
-    return PhotoManagerThumbnail(assetId: libraryId);
+    return PhotoManagerThumbnail(
+      assetId: libraryId,
+      fit: fit,
+      size: thumbnailSize,
+    );
   }
   return cached();
 }
@@ -426,7 +432,24 @@ class AddPhotosTile extends StatelessWidget {
 /// `photoManager` records carry no `sourcePath`, only the id needed to
 /// resolve one via `photo_manager`. See IMPLEMENTATION_PLAN.md T2.1.
 class PhotoManagerThumbnail extends StatefulWidget {
-  const PhotoManagerThumbnail({super.key, required this.assetId});
+  const PhotoManagerThumbnail({
+    super.key,
+    required this.assetId,
+    this.fit = BoxFit.cover,
+    this.size,
+  });
+
+  /// How the thumbnail is fitted. A grid tile covers its square; the
+  /// viewer, which shows this while the full-size original is still being
+  /// exported, has to *contain* — the same photo drawn cover then contain
+  /// visibly jumps when the real one arrives.
+  final BoxFit fit;
+
+  /// Longest edge to ask the OS for, in pixels. A grid tile is happy with
+  /// the default; standing in for a full-screen photo is not, and a 200px
+  /// thumbnail blown up to the screen then replaced is the blur-then-snap
+  /// everybody notices.
+  final int? size;
 
   /// The *library's* id for the asset (`PhotoLibraryService.libraryIdOf`),
   /// not this app's `localId` — for a photo that left the library and came
@@ -440,13 +463,19 @@ class PhotoManagerThumbnail extends StatefulWidget {
 /// The OS library's own thumbnail for a `photoManager` asset, cached for
 /// the session. `null` when the asset is gone from the library, or the
 /// plugin isn't there (tests).
-Future<Uint8List?> photoManagerThumbnailBytes(String assetId) async {
-  final cached = _thumbnailBytes[assetId];
+Future<Uint8List?> photoManagerThumbnailBytes(
+  String assetId, {
+  int? size,
+}) async {
+  final key = size == null ? assetId : '$assetId@$size';
+  final cached = _thumbnailBytes[key];
   if (cached != null) return cached;
   try {
     final entity = await AssetEntity.fromId(assetId);
-    final bytes = await entity?.thumbnailData;
-    if (bytes != null) _thumbnailBytes[assetId] = bytes;
+    final bytes = size == null
+        ? await entity?.thumbnailData
+        : await entity?.thumbnailDataWithSize(ThumbnailSize.square(size));
+    if (bytes != null) _thumbnailBytes[key] = bytes;
     return bytes;
   } catch (_) {
     return null;
@@ -465,7 +494,10 @@ class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
   }
 
   Future<void> _load() async {
-    final bytes = await photoManagerThumbnailBytes(widget.assetId);
+    final bytes = await photoManagerThumbnailBytes(
+      widget.assetId,
+      size: widget.size,
+    );
     if (bytes == null || !mounted) return;
     setState(() => _bytes = bytes);
   }
@@ -478,7 +510,7 @@ class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
     }
     return Image.memory(
       bytes,
-      fit: BoxFit.cover,
+      fit: widget.fit,
       errorBuilder: (context, error, stackTrace) => const ColoredBox(
         color: CupertinoColors.systemGrey5,
         child: Icon(CupertinoIcons.photo),

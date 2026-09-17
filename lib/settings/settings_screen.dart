@@ -302,6 +302,53 @@ class _SettingsScreenState extends State<SettingsScreen>
     await _reload();
   }
 
+  Widget _pauseButton(AppLocalizations l10n) {
+    final queue = widget.syncQueue!;
+    return ValueListenableBuilder<bool>(
+      valueListenable: queue.paused,
+      builder: (context, paused, _) => SettingsPillButton(
+        icon: paused ? CupertinoIcons.play_fill : CupertinoIcons.pause_fill,
+        label: paused
+            ? l10n.backupQueueResumeAction
+            : l10n.backupQueuePauseAction,
+        onPressed: () => queue.setPaused(!paused),
+      ),
+    );
+  }
+
+  /// How many uploads run at once, as a stepper rather than a menu: it's a
+  /// number you nudge and watch, not a value you pick from a list.
+  Widget _paceButtons(AppLocalizations l10n) {
+    final queue = widget.syncQueue!;
+    return ValueListenableBuilder<int>(
+      valueListenable: queue.concurrency,
+      builder: (context, concurrency, _) => Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          SettingsPillButton(
+            icon: CupertinoIcons.minus,
+            label: l10n.backupQueueSlowerShort,
+            onPressed: concurrency <= 1
+                ? null
+                : () => queue.setConcurrency(concurrency - 1),
+          ),
+          Padding(
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            child: Text(
+              l10n.backupQueueSpeed(concurrency),
+              style: settingsRowSubtitleStyle,
+            ),
+          ),
+          SettingsPillButton(
+            icon: CupertinoIcons.plus,
+            label: l10n.backupQueueFasterShort,
+            onPressed: () => queue.setConcurrency(concurrency + 1),
+          ),
+        ],
+      ),
+    );
+  }
+
   String _formatLabel(AppLocalizations l10n, BackupFormat f) => switch (f) {
     BackupFormat.original => l10n.settingsBackupFormatOriginal,
     BackupFormat.optimized => l10n.settingsBackupFormatOptimized,
@@ -655,13 +702,28 @@ class _SettingsScreenState extends State<SettingsScreen>
                 // nowhere to sync to, so the control stays visible but dead.
                 onPressed: targets.isEmpty || _syncing ? null : _syncNow,
               ),
+              if (widget.syncQueue != null) _pauseButton(l10n),
+            ],
+          ),
+        ),
+        const SizedBox(height: 10),
+        // The standing arrangement, on its own line: how often it runs and
+        // how hard it pushes. Pace used to live in the queue sheet, two
+        // taps away from the schedule it belongs beside.
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: settingsPagePadding),
+          child: Wrap(
+            spacing: 10,
+            runSpacing: 10,
+            children: [
               SettingsPillButton(
                 icon: CupertinoIcons.clock,
-                label: l10n.settingsSyncHowOften(
+                label: l10n.settingsSyncSchedule(
                   _frequencyLabel(l10n, _frequency),
                 ),
                 onPressed: _pickFrequency,
               ),
+              if (widget.syncQueue != null) _paceButtons(l10n),
             ],
           ),
         ),
