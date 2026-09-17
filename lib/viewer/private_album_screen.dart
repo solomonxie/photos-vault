@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../photos/library_metadata.dart';
 import '../l10n/app_localizations.dart';
+import '../photos/library_custody.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
@@ -25,16 +26,22 @@ class PrivateAlbumScreen extends StatefulWidget {
     super.key,
     required this.passcodeHash,
     required this.assetRecordStore,
+    this.custody,
   });
 
   final String passcodeHash;
   final AssetRecordStore assetRecordStore;
+
+  /// Overridable for tests so they never touch the real photo library.
+  final LibraryCustody? custody;
 
   @override
   State<PrivateAlbumScreen> createState() => _PrivateAlbumScreenState();
 }
 
 class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
+  late final LibraryCustody _custody =
+      widget.custody ?? LibraryCustody(store: widget.assetRecordStore);
   List<AssetRecord> _records = const [];
   int _totalBytes = 0;
   bool _selecting = false;
@@ -82,12 +89,38 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
   /// Clears `passcodeHash` (back to the main library) for every id — shared
   /// by the single-tile "Remove from Private Album" action and
   /// multi-select's "Move to Library".
+  ///
+  /// "Back to the library" means the OS photo library too: hiding took the
+  /// photo out of Photos, so taking it out of hiding puts it back. A photo
+  /// the library refuses is still un-hidden here — it just stays this
+  /// app's alone, which is the state it was already in.
   Future<void> _removeManyFromAlbum(Iterable<String> localIds) async {
+    var failed = 0;
     for (final id in localIds) {
+      final record = await widget.assetRecordStore.getByLocalId(id);
       await widget.assetRecordStore.setPasscodeHash(id, null);
+      if (record == null) continue;
+      if (await _custody.putBack(record) == CustodyResult.failed) failed++;
+    }
+    if (failed > 0 && mounted) {
+      final l10n = AppLocalizations.of(context)!;
+      await _showNote(l10n.privateAlbumReturnFailed(failed));
     }
     await _reload();
   }
+
+  Future<void> _showNote(String message) => showCupertinoDialog<void>(
+    context: context,
+    builder: (context) => CupertinoAlertDialog(
+      content: Text(message),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(AppLocalizations.of(context)!.actionOk),
+        ),
+      ],
+    ),
+  );
 
   void _enterSelectMode() => setState(() => _selecting = true);
 

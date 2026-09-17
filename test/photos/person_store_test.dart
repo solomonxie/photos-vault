@@ -384,7 +384,7 @@ void main() {
     await store.update(
       ada.copyWith(
         avatarLocalId: 'manual:group',
-        avatarFace: const FaceRect(0.6, 0.1, 0.2, 0.25),
+        avatarFace: () => const FaceRect(0.6, 0.1, 0.2, 0.25),
       ),
     );
 

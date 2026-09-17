@@ -97,12 +97,24 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
       _person.id,
       picked.map((r) => r.localId),
     );
-    if (_person.avatarLocalId == null) {
-      final updated = _person.copyWith(avatarLocalId: picked.first.localId);
-      await widget.personStore.update(updated);
-      _person = updated;
-    }
+    // Linking a photo is also where somebody with no picture gets one, and
+    // the store does that itself — read back rather than second-guess it.
+    final refreshed = await widget.personStore.getById(_person.id);
+    if (refreshed != null) _person = refreshed;
     await _reload();
+  }
+
+  /// Their picture, cropped to nothing in particular: a photo picked whole
+  /// carries no face box, so any one left over from a face tapped in a
+  /// different photo has to go with it.
+  Future<void> _setProfilePhoto(AssetRecord record) async {
+    final updated = _person.copyWith(
+      avatarLocalId: record.localId,
+      avatarFace: () => null,
+    );
+    await widget.personStore.update(updated);
+    if (!mounted) return;
+    setState(() => _person = updated);
   }
 
   Future<void> _removeFromPerson(AssetRecord record) async {
@@ -160,10 +172,10 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
               padding: const EdgeInsets.symmetric(vertical: 16),
               child: Column(
                 children: [
-                  PersonAvatar(
+                  PersonAvatar.forPerson(
                     assetRecordStore: widget.assetRecordStore,
-                    localId: _person.avatarLocalId,
-                    face: _person.avatarFace,
+                    person: _person,
+                    firstTaggedLocalId: _records.firstOrNull?.localId,
                     size: 88,
                   ),
                   const SizedBox(height: 8),
@@ -231,6 +243,11 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                               ? l10n.libraryUnfavorite
                               : l10n.libraryFavorite,
                           onPressed: () => _toggleFavorite(r),
+                        ),
+                        TileAction(
+                          icon: CupertinoIcons.person_crop_circle,
+                          label: l10n.personPageUseAsProfilePhoto,
+                          onPressed: () => _setProfilePhoto(r),
                         ),
                         TileAction(
                           icon: CupertinoIcons.person_badge_minus,

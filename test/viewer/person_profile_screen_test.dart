@@ -2,6 +2,7 @@ import 'package:bring_your_own_photos/l10n/app_localizations.dart';
 import 'package:bring_your_own_photos/photos/person.dart';
 import 'package:bring_your_own_photos/storage/passcode_hash.dart';
 import 'package:bring_your_own_photos/viewer/person_profile_screen.dart';
+import 'package:bring_your_own_photos/viewer/search_picker_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -102,10 +103,7 @@ void main() {
       // Places Lived, Custom Fields — Education's is first.
       await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
       await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byType(CupertinoSearchTextField),
-        'UC Berkeley',
-      );
+      await tester.enterText(find.byKey(searchPickerFieldKey), 'UC Berkeley');
       await tester.pump();
       await tester.tap(find.text('Use "UC Berkeley"'));
       await tester.pumpAndSettle();
@@ -280,7 +278,7 @@ void main() {
 
     await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(CupertinoSearchTextField), 'Ada');
+    await tester.enterText(find.byKey(searchPickerFieldKey), 'Ada');
     await tester.pumpAndSettle();
 
     // The row says what it will do, and doing it doesn't ask again — the
@@ -299,7 +297,7 @@ void main() {
     );
   });
 
-  testWidgets('"New Person…" creates and links someone not in the registry', (
+  testWidgets('the keyboard\'s Done key creates and links them too', (
     tester,
   ) async {
     final personStore = FakePersonStore();
@@ -318,23 +316,49 @@ void main() {
 
     await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New Person…'));
+    await tester.enterText(find.byKey(searchPickerFieldKey), 'Grandma Lily');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byType(CupertinoTextField).last,
-      'Grandma Lily',
+
+    await tester.tap(find.text('Family'));
+    await tester.pumpAndSettle();
+
+    expect(
+      (await personStore.listAll()).map((p) => p.name),
+      containsAll(['Mia', 'Grandma Lily']),
     );
-    await tester.pump();
-    await tester.tap(find.text('Add'));
+    final relationships = await personStore.relationshipsFor(mia.id);
+    expect(relationships.single.type, RelationshipType.family);
+  });
+
+  testWidgets('Done on a name already in the list picks that one', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.create(name: 'Daniel');
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(searchPickerFieldKey), 'daniel');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Grandma Lily', skipOffstage: false), findsOneWidget);
-    final all = await personStore.listAll();
-    expect(all.map((p) => p.name), containsAll(['Mia', 'Grandma Lily']));
-    final relationships = await personStore.relationshipsFor(mia.id);
-    expect(relationships.single.type, RelationshipType.family);
+    // One Daniel, not a second one spelled differently.
+    expect((await personStore.listAll()), hasLength(2));
   });
 
   testWidgets(
@@ -364,10 +388,7 @@ void main() {
 
       // The organization prompt is labeled "Company" for colleagues.
       expect(find.text('Company'), findsWidgets);
-      await tester.enterText(
-        find.byType(CupertinoSearchTextField),
-        'Acme Corp',
-      );
+      await tester.enterText(find.byKey(searchPickerFieldKey), 'Acme Corp');
       await tester.pump();
       await tester.tap(find.text('Use "Acme Corp"'));
       await tester.pumpAndSettle();

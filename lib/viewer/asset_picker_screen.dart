@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/photo_library_service.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
@@ -192,8 +193,11 @@ class _PickerTile extends StatelessWidget {
                   child: Icon(CupertinoIcons.photo),
                 ),
               )
-            else if (record.sourceType == AssetSourceType.photoManager)
-              PhotoManagerThumbnail(assetId: record.localId)
+            else if (record.sourceType == AssetSourceType.photoManager &&
+                PhotoLibraryService.libraryIdOf(record) != null)
+              PhotoManagerThumbnail(
+                assetId: PhotoLibraryService.libraryIdOf(record)!,
+              )
             else
               const ColoredBox(
                 color: CupertinoColors.systemGrey5,

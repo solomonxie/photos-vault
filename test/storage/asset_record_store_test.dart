@@ -54,6 +54,90 @@ void main() {
     expect((await store.getByLocalId('asset-2'))!.isVideo, isTrue);
   });
 
+  test('coordinates and pixel size survive a round trip', () async {
+    final store = newStore();
+    await store.upsert(
+      localId: 'a',
+      contentHash: 'a',
+      platform: 'ios',
+      latitude: 48.86,
+      longitude: 2.35,
+      width: 5857,
+      height: 3905,
+    );
+
+    final saved = (await store.getByLocalId('a'))!;
+    expect(saved.latitude, 48.86);
+    expect(saved.longitude, 2.35);
+    expect(saved.width, 5857);
+    expect(saved.height, 3905);
+    expect(saved.hasCoordinates, isTrue);
+  });
+
+  test('setLibraryMetadata fills blanks and leaves the rest alone', () async {
+    final store = newStore();
+    await store.upsert(
+      localId: 'a',
+      contentHash: 'a',
+      platform: 'ios',
+      latitude: 48.86,
+      longitude: 2.35,
+    );
+
+    await store.setLibraryMetadata('a', width: 100, height: 50);
+
+    final saved = (await store.getByLocalId('a'))!;
+    expect(saved.width, 100);
+    // Not passed, so not touched — a re-scan of a photo whose GPS tag has
+    // since been stripped doesn't lose the coordinates it was found with.
+    expect(saved.latitude, 48.86);
+  });
+
+  test('listAwaitingPlaceName is photos with a tag and no name', () async {
+    final store = newStore();
+    await store.upsert(
+      localId: 'tagged',
+      contentHash: 'tagged',
+      platform: 'ios',
+      latitude: 1,
+      longitude: 2,
+    );
+    await store.upsert(
+      localId: 'named',
+      contentHash: 'named',
+      platform: 'ios',
+      latitude: 1,
+      longitude: 2,
+    );
+    await store.setLocation('named', 'Paris, France');
+    await store.upsert(
+      localId: 'untagged',
+      contentHash: 'untagged',
+      platform: 'ios',
+    );
+
+    final waiting = await store.listAwaitingPlaceName();
+
+    expect(waiting.map((r) => r.localId), ['tagged']);
+  });
+
+  test(
+    'a cached place name tells "nothing there" from "never asked"',
+    () async {
+      final store = newStore();
+
+      expect(await store.cachedPlaceName('1:2'), isNull);
+
+      await store.cachePlaceName('1:2', null);
+      final asked = await store.cachedPlaceName('1:2');
+      expect(asked, isNotNull);
+      expect(asked!.name, isNull);
+
+      await store.cachePlaceName('3:4', 'Paris, France');
+      expect((await store.cachedPlaceName('3:4'))!.name, 'Paris, France');
+    },
+  );
+
   test('upsert is idempotent for an already-tracked localId', () async {
     final store = newStore();
     final first = await store.upsert(

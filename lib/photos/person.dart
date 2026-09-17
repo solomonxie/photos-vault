@@ -137,7 +137,11 @@ class Person {
   Person copyWith({
     String? name,
     String? avatarLocalId,
-    FaceRect? avatarFace,
+
+    // Closure-wrapped so a new profile photo can clear the old one's face
+    // box — keeping it would crop the new photo to where the face was in a
+    // different one.
+    FaceRect? Function()? avatarFace,
     String? bio,
     DateTime? Function()? birthDate,
     Gender? Function()? gender,
@@ -151,7 +155,7 @@ class Person {
     createdAt: createdAt,
     updatedAt: DateTime.now(),
     avatarLocalId: avatarLocalId ?? this.avatarLocalId,
-    avatarFace: avatarFace ?? this.avatarFace,
+    avatarFace: avatarFace != null ? avatarFace() : this.avatarFace,
     bio: bio ?? this.bio,
     birthDate: birthDate != null ? birthDate() : this.birthDate,
     gender: gender != null ? gender() : this.gender,

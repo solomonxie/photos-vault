@@ -63,6 +63,11 @@ class AssetRecord {
     this.location,
     this.event,
     this.passcodeHash,
+    this.latitude,
+    this.longitude,
+    this.width,
+    this.height,
+    this.libraryId,
   });
 
   final String localId;
@@ -126,6 +131,33 @@ class AssetRecord {
   /// existing the moment none do. See `private_album_gate.dart`.
   final String? passcodeHash;
 
+  /// Where the camera says the photo was taken, copied off the library
+  /// entry when the scan first sees it. Kept as numbers, not just the
+  /// place name they resolve to: the name is a lookup away and can change
+  /// (a different language, a better geocoder), the coordinates can't.
+  final double? latitude;
+  final double? longitude;
+
+  /// Pixel size, likewise read off the library entry rather than by
+  /// decoding the photo — the info panel used to decode a full-size
+  /// original just to print "5857 × 3905".
+  final int? width;
+  final int? height;
+
+  bool get hasCoordinates => latitude != null && longitude != null;
+
+  /// The OS photo library's own id for this photo, while the library has
+  /// it. Separate from [localId] because the two are separate things: this
+  /// app's name for a photo has to outlive the library's, which changes
+  /// when a hidden photo is taken out of Photos and handed back later —
+  /// PhotoKit gives back a *new* asset, and everything this app knows about
+  /// the photo (its tags, who's in it, which albums it's in) is keyed on
+  /// [localId].
+  ///
+  /// `null` for a photo the library doesn't have: one imported by hand, or
+  /// one in a hidden album.
+  final String? libraryId;
+
   bool get isDeleted => deletedAt != null;
 
   DerivativeState stateOf(DerivativeKind kind) =>
@@ -146,6 +178,11 @@ class AssetRecord {
     String? Function()? location,
     String? Function()? event,
     String? Function()? passcodeHash,
+    double? latitude,
+    double? longitude,
+    int? width,
+    int? height,
+    String? Function()? libraryId,
   }) => AssetRecord(
     localId: localId,
     contentHash: contentHash,
@@ -167,6 +204,11 @@ class AssetRecord {
     location: location != null ? location() : this.location,
     event: event != null ? event() : this.event,
     passcodeHash: passcodeHash != null ? passcodeHash() : this.passcodeHash,
+    latitude: latitude ?? this.latitude,
+    longitude: longitude ?? this.longitude,
+    width: width ?? this.width,
+    height: height ?? this.height,
+    libraryId: libraryId != null ? libraryId() : this.libraryId,
   );
 
   AssetRecord withDerivative(DerivativeKind kind, DerivativeState state) =>
@@ -200,4 +242,32 @@ class AssetRecord {
       _copyWith(thumbnailPath: value);
 
   AssetRecord withLocalDeleted(bool value) => _copyWith(localDeleted: value);
+
+  /// Which photo-library asset this record is currently the record *of* —
+  /// null once the library no longer has it.
+  AssetRecord withLibraryId(String? value) => _copyWith(libraryId: () => value);
+
+  /// What the photo library knows about the photo itself, as opposed to
+  /// what this app has done with it. Only ever fills blanks — a null here
+  /// means "the library didn't say", not "forget what you had".
+  AssetRecord withLibraryMetadata({
+    double? latitude,
+    double? longitude,
+    int? width,
+    int? height,
+  }) => _copyWith(
+    latitude: latitude,
+    longitude: longitude,
+    width: width,
+    height: height,
+  );
+}
+
+/// A cached reverse-geocode result. Distinct from a bare `String?` so
+/// "never looked up" and "looked up, nothing there" can't be confused —
+/// see `AssetRecordStore.cachedPlaceName`.
+class PlaceNameEntry {
+  const PlaceNameEntry(this.name);
+
+  final String? name;
 }

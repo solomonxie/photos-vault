@@ -93,6 +93,18 @@ class PhotoLibraryService {
       ? localId.substring(_idPrefix.length)
       : null;
 
+  /// Which asset in the OS photo library [record] currently *is*, or null
+  /// if the library hasn't got it.
+  ///
+  /// [AssetRecord.libraryId] and nothing else. The id inside [localId] is
+  /// only ever the id the photo was *first* scanned under: a photo that was
+  /// hidden has left the library entirely, and one that came back is a new
+  /// asset with a new id, so reading [localId] here would hand out the name
+  /// of something PhotoKit destroyed. Rows written before the column
+  /// existed are filled in by the schema migration, and the scan's own
+  /// lookup ([AssetRecordStore.getByLibraryId]) matches them either way.
+  static String? libraryIdOf(AssetRecord record) => record.libraryId;
+
   Future<PhotoLibraryAccess> requestAccess() async {
     final state = await _requestPermission();
     if (state.isAuth) return PhotoLibraryAccess.granted;
@@ -133,20 +145,24 @@ class PhotoLibraryService {
       var pageUpdated = 0;
       for (final entity in entities) {
         final localId = localIdFor(entity);
-        seen.add(localId);
-        final existing = await store.getByLocalId(localId);
+        final existing = await store.getByLibraryId(entity.id);
+        seen.add(existing?.localId ?? localId);
         if (existing != null) {
           if (existing.isFavorite != entity.isFavorite) {
-            await store.setFavorite(localId, entity.isFavorite);
+            await store.setFavorite(existing.localId, entity.isFavorite);
             pageUpdated++;
           }
           // Back from the OS's own Recently Deleted, or restored some other
           // way: it has a local original again.
           if (existing.localDeleted && existing.sourcePath == null) {
-            await store.setLocalDeleted(localId, false);
-            if (existing.isDeleted) await store.restore(localId);
+            await store.setLocalDeleted(existing.localId, false);
+            if (existing.isDeleted) await store.restore(existing.localId);
             pageUpdated++;
           }
+          // Photos tracked before this app started keeping coordinates and
+          // pixel sizes: the entity is right here, so the backfill is the
+          // scan itself rather than a separate pass over the library.
+          if (await _fillLibraryMetadata(existing, entity)) pageUpdated++;
           continue;
         }
         pageAdded.add(await _insert(entity, localId));
@@ -183,24 +199,25 @@ class PhotoLibraryService {
       // deals with it.
       if (entity == null) continue;
       final localId = localIdFor(entity);
-      final existing = await store.getByLocalId(localId);
+      final existing = await store.getByLibraryId(entity.id);
       if (existing == null) {
         added.add(await _insert(entity, localId));
         continue;
       }
       if (existing.isFavorite != entity.isFavorite) {
-        await store.setFavorite(localId, entity.isFavorite);
+        await store.setFavorite(existing.localId, entity.isFavorite);
         updated++;
       }
       if (existing.localDeleted && existing.sourcePath == null) {
-        await store.setLocalDeleted(localId, false);
-        if (existing.isDeleted) await store.restore(localId);
+        await store.setLocalDeleted(existing.localId, false);
+        if (existing.isDeleted) await store.restore(existing.localId);
         updated++;
       }
+      if (await _fillLibraryMetadata(existing, entity)) updated++;
     }
 
     for (final id in change.deleted) {
-      final record = await store.getByLocalId('$_idPrefix$id');
+      final record = await store.getByLibraryId(id);
       if (record == null) continue;
       if (await _markGone(record)) updated++;
     }
@@ -232,12 +249,16 @@ class PhotoLibraryService {
     for (final record in await store.listAll()) {
       if (record.sourceType != AssetSourceType.photoManager) continue;
       if (seen.contains(record.localId)) continue;
+      // A hidden photo is out of the library on purpose — this app took it
+      // out itself, and holds the only copy. Nothing to reconcile.
+      if (record.libraryId == null && record.sourcePath != null) continue;
       if (await _markGone(record)) changed++;
     }
     return changed;
   }
 
   Future<AssetRecord> _insert(AssetEntity entity, String localId) async {
+    final latLng = _coordinatesOf(entity);
     final record = await store.upsert(
       localId: localId,
       contentHash: entity.id,
@@ -246,10 +267,57 @@ class PhotoLibraryService {
       isVideo: entity.type == AssetType.video,
       isLivePhoto: entity.isLivePhoto,
       createdAt: entity.createDateTime,
+      libraryId: entity.id,
+      latitude: latLng?.latitude,
+      longitude: latLng?.longitude,
+      width: entity.width > 0 ? entity.width : null,
+      height: entity.height > 0 ? entity.height : null,
     );
     if (!entity.isFavorite) return record;
     await store.setFavorite(localId, true);
     return record.withFavorite(true);
+  }
+
+  /// Writes anything the library knows and the record doesn't. Blanks
+  /// only: a photo whose GPS tag was stripped keeps the coordinates it was
+  /// scanned with rather than losing them to a re-scan.
+  Future<bool> _fillLibraryMetadata(
+    AssetRecord record,
+    AssetEntity entity,
+  ) async {
+    final latLng = record.hasCoordinates ? null : _coordinatesOf(entity);
+    final width = record.width == null && entity.width > 0
+        ? entity.width
+        : null;
+    final height = record.height == null && entity.height > 0
+        ? entity.height
+        : null;
+    if (latLng == null && width == null && height == null) return false;
+    await store.setLibraryMetadata(
+      record.localId,
+      latitude: latLng?.latitude,
+      longitude: latLng?.longitude,
+      width: width,
+      height: height,
+    );
+    return true;
+  }
+
+  /// What the library entry already carries, taken while the scan has it
+  /// in hand — it costs nothing here and saves asking the OS again later,
+  /// one photo at a time, for something it told us the first time.
+  ///
+  /// The synchronous reading only. On iOS that's `PHAsset.location`, which
+  /// arrives with the asset; on Android GPS lives in the file's EXIF and
+  /// only `latlngAsync` digs it out, which means reading the file — so
+  /// there it stays a lazy, on-view lookup (`PhotoLocationService`).
+  static LatLng? _coordinatesOf(AssetEntity entity) {
+    final latLng = entity.latLng;
+    if (latLng == null) return null;
+    // A photo with no location tag reads back as 0,0 rather than null —
+    // and Null Island is nobody's holiday.
+    if (latLng.latitude == 0 && latLng.longitude == 0) return null;
+    return latLng;
   }
 
   /// The "no longer in the photo library" rule, shared by the scan and the
@@ -274,7 +342,7 @@ class PhotoLibraryService {
   /// it's been deleted from the library since, or [record] isn't
   /// `photoManager`-sourced.
   Future<AssetEntity?> entityFor(AssetRecord record) {
-    final id = entityIdFrom(record.localId);
+    final id = libraryIdOf(record);
     if (id == null) return Future.value(null);
     return _loadEntity(id);
   }
@@ -294,7 +362,7 @@ class PhotoLibraryService {
   /// went (false if the user declined the prompt, or it wasn't ours to
   /// delete).
   Future<bool> deleteFromLibrary(AssetRecord record) async {
-    final id = entityIdFrom(record.localId);
+    final id = libraryIdOf(record);
     if (id == null) return false;
     final deleted = await _deleteAssets([id]);
     return deleted.contains(id);
@@ -359,7 +427,7 @@ class PhotoLibraryService {
 
   static Future<AssetEntity?> _entityOf(AssetRecord record) async {
     if (record.sourceType != AssetSourceType.photoManager) return null;
-    final id = entityIdFrom(record.localId);
+    final id = libraryIdOf(record);
     if (id == null) return null;
     try {
       return await AssetEntity.fromId(id);
@@ -374,7 +442,7 @@ class PhotoLibraryService {
   /// Android). Asking for the origin *with* the subtype is what makes
   /// `photo_manager` hand back the `.mov` rather than the still frame.
   static Future<File?> resolveLivePhotoVideo(AssetRecord record) async {
-    final id = entityIdFrom(record.localId);
+    final id = libraryIdOf(record);
     if (id == null) return null;
     final entity = await AssetEntity.fromId(id);
     if (entity == null || !entity.isLivePhoto) return null;
@@ -385,7 +453,7 @@ class PhotoLibraryService {
   /// instance (a [store] to construct one) — for read-only call sites like
   /// the detail viewer that only ever look up, never sync.
   static Future<File?> resolveFile(AssetRecord record) async {
-    final id = entityIdFrom(record.localId);
+    final id = libraryIdOf(record);
     if (id == null) return null;
     final entity = await AssetEntity.fromId(id);
     return entity?.file;

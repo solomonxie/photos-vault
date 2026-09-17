@@ -9,11 +9,12 @@ import 'search_picker_sheet.dart';
 /// on the spot (no photo required). Returns the chosen/created [Person], or
 /// `null` if dismissed.
 ///
-/// Typing a name and tapping the create row *is* the creation: the name is
-/// already typed, so asking for it again in a dialog was one extra screen
-/// and two extra taps to confirm something the user had just said. The
-/// prompt only survives for the case it's actually needed — tapping create
-/// with nothing typed.
+/// Typing a name *is* the creation: the name is already in the field, so
+/// the create row carries it and one tap — or the keyboard's Done key —
+/// makes the person. Nothing asks for it a second time; a dialog on top of
+/// a name already typed was two taps to confirm something the user had just
+/// said. With the field still empty there's no name to work from, so
+/// there's nothing to offer yet either: the row waits until there is.
 Future<Person?> showPersonPickerSheet({
   required BuildContext context,
   required List<Person> candidates,
@@ -26,49 +27,9 @@ Future<Person?> showPersonPickerSheet({
     title: title ?? l10n.relationshipPickerTitle,
     options: candidates,
     labelOf: (p) => p.name,
-    createLabel: (query) => query.trim().isEmpty
-        ? l10n.personProfileNewPersonOption
-        : l10n.personPickerNewNamed(query.trim()),
-    onCreate: (query) => query.trim().isEmpty
-        ? _promptForName(context, personStore)
-        : personStore.create(name: query.trim()),
+    emptyHint: l10n.personPickerTypeToCreate,
+    createLabel: (query) =>
+        query.isEmpty ? null : l10n.personPickerNewNamed(query),
+    onCreate: (query) => personStore.create(name: query),
   );
-}
-
-/// Only for "New Person…" tapped with an empty search field — there's no
-/// name to work from, so this is the one place one has to be asked for.
-Future<Person?> _promptForName(BuildContext context, PersonStore store) async {
-  final l10n = AppLocalizations.of(context)!;
-  final nameController = TextEditingController();
-  final name = await showCupertinoDialog<String>(
-    context: context,
-    builder: (context) => StatefulBuilder(
-      builder: (context, setState) => CupertinoAlertDialog(
-        title: Text(l10n.peopleNamePromptTitle),
-        content: Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: CupertinoTextField(
-            controller: nameController,
-            autofocus: true,
-            onChanged: (_) => setState(() {}),
-          ),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(),
-            child: Text(l10n.actionCancel),
-          ),
-          CupertinoDialogAction(
-            onPressed: nameController.text.trim().isEmpty
-                ? null
-                : () => Navigator.of(context).pop(nameController.text.trim()),
-            child: Text(l10n.actionAdd),
-          ),
-        ],
-      ),
-    ),
-  );
-  nameController.dispose();
-  if (name == null || name.isEmpty) return null;
-  return store.create(name: name);
 }

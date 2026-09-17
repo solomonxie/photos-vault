@@ -11,7 +11,8 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   Future<void> close() async {}
 
   @override
-  Future<void> save(AiPhotoAnalysis analysis) async => _analyses[analysis.localId] = analysis;
+  Future<void> save(AiPhotoAnalysis analysis) async =>
+      _analyses[analysis.localId] = analysis;
 
   @override
   Future<Map<String, AiPhotoAnalysis>> listAll() async => Map.of(_analyses);

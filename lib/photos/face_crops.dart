@@ -54,22 +54,29 @@ List<Uint8List> _cropAll((Uint8List, List<_NormalisedRect>) args) {
   if (decoded == null) return const [];
   final crops = <Uint8List>[];
   for (final rect in args.$2) {
-    final side = (rect.width * decoded.width * (1 + FaceCrops.padding * 2))
-        .round();
-    final height = (rect.height * decoded.height * (1 + FaceCrops.padding * 2))
-        .round();
-    final box = side > height ? side : height;
-    if (box <= 0) continue;
+    final width = rect.width * decoded.width;
+    final height = rect.height * decoded.height;
+    final padded =
+        (width > height ? width : height) * (1 + FaceCrops.padding * 2);
+    // Never wider than the photo, and slid back inside it rather than
+    // shrunk against its edge — a face at the frame's edge is exactly the
+    // group-shot case, and a short-sided crop there resizes to a stretched
+    // face. One crop per face either way: the caller pairs them up by
+    // index, so a skipped one would name the wrong person.
+    final shortest = decoded.width < decoded.height
+        ? decoded.width
+        : decoded.height;
+    final box = padded.round().clamp(1, shortest);
     final centreX = (rect.x + rect.width / 2) * decoded.width;
     final centreY = (rect.y + rect.height / 2) * decoded.height;
-    final left = (centreX - box / 2).round().clamp(0, decoded.width - 1);
-    final top = (centreY - box / 2).round().clamp(0, decoded.height - 1);
+    final left = (centreX - box / 2).round().clamp(0, decoded.width - box);
+    final top = (centreY - box / 2).round().clamp(0, decoded.height - box);
     final cropped = img.copyCrop(
       decoded,
       x: left,
       y: top,
-      width: box.clamp(1, decoded.width - left),
-      height: box.clamp(1, decoded.height - top),
+      width: box,
+      height: box,
     );
     crops.add(
       Uint8List.fromList(

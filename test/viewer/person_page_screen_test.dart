@@ -1,4 +1,5 @@
 import 'package:bring_your_own_photos/l10n/app_localizations.dart';
+import 'package:bring_your_own_photos/photos/person.dart';
 import 'package:bring_your_own_photos/storage/asset_record.dart';
 import 'package:bring_your_own_photos/viewer/person_page_screen.dart';
 import 'package:bring_your_own_photos/viewer/person_profile_screen.dart';
@@ -94,4 +95,90 @@ void main() {
 
     expect(find.byType(PersonProfileScreen), findsOneWidget);
   });
+
+  testWidgets('holding a photo opens its menu, profile-photo option and all', (
+    tester,
+  ) async {
+    final assetStore = FakeAssetRecordStore();
+    final personStore = FakePersonStore();
+    await assetStore.upsert(
+      localId: 'manual:a',
+      contentHash: 'a',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/a.jpg',
+    );
+    final person = await personStore.create(name: 'Mia');
+    await personStore.addAssets(person.id, ['manual:a']);
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonPageScreen(
+          person: person,
+          personStore: personStore,
+          assetRecordStore: assetStore,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _hold(tester, find.byKey(const ValueKey('manual:a')));
+
+    expect(find.text('Use as Profile Photo'), findsOneWidget);
+    expect(find.text('Remove from Person'), findsOneWidget);
+  });
+
+  testWidgets('"Use as Profile Photo" repoints the avatar at that photo', (
+    tester,
+  ) async {
+    final assetStore = FakeAssetRecordStore();
+    final personStore = FakePersonStore();
+    for (final id in ['manual:first', 'manual:second']) {
+      await assetStore.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+    }
+    final person = await personStore.create(name: 'Mia');
+    await personStore.addAssets(person.id, ['manual:first', 'manual:second']);
+    // A face tapped in the first photo — it can't survive onto another one.
+    await personStore.update(
+      (await personStore.getById(person.id))!
+          .copyWith(avatarFace: () => const FaceRect(0.1, 0.1, 0.2, 0.2)),
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonPageScreen(
+          person: (await personStore.getById(person.id))!,
+          personStore: personStore,
+          assetRecordStore: assetStore,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _hold(tester, find.byKey(const ValueKey('manual:second')));
+    await tester.tap(find.text('Use as Profile Photo'));
+    await tester.pumpAndSettle();
+
+    final saved = (await personStore.getById(person.id))!;
+    expect(saved.avatarLocalId, 'manual:second');
+    expect(saved.avatarFace, isNull);
+  });
+}
+
+/// A long press that actually opens a [CupertinoContextMenu] — it wants the
+/// full 800ms preview animation, which `tester.longPress` is too short for.
+Future<void> _hold(WidgetTester tester, Finder finder) async {
+  final gesture = await tester.startGesture(tester.getCenter(finder));
+  await tester.pump();
+  await tester.pump(const Duration(milliseconds: 400));
+  await tester.pump(const Duration(milliseconds: 800));
+  await tester.pumpAndSettle();
+  await gesture.up();
+  await tester.pumpAndSettle();
 }

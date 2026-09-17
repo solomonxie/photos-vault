@@ -12,10 +12,19 @@ class FakeAlbumStore implements AlbumStore {
   Future<void> close() async {}
 
   @override
-  Future<Album> upsert({required String id, required String name, bool isDemo = false}) async {
+  Future<Album> upsert({
+    required String id,
+    required String name,
+    bool isDemo = false,
+  }) async {
     final existing = _albums[id];
     if (existing != null) return existing;
-    final album = Album(id: id, name: name, createdAt: DateTime.now(), isDemo: isDemo);
+    final album = Album(
+      id: id,
+      name: name,
+      createdAt: DateTime.now(),
+      isDemo: isDemo,
+    );
     _albums[id] = album;
     return album;
   }
@@ -25,7 +34,8 @@ class FakeAlbumStore implements AlbumStore {
 
   @override
   Future<List<Album>> listAll() async =>
-      _albums.values.toList()..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      _albums.values.toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
   @override
   Future<void> addAssets(String albumId, Iterable<String> localIds) async {
@@ -38,7 +48,8 @@ class FakeAlbumStore implements AlbumStore {
   }
 
   @override
-  Future<List<String>> localIdsIn(String albumId) async => _members[albumId]?.toList() ?? const [];
+  Future<List<String>> localIdsIn(String albumId) async =>
+      _members[albumId]?.toList() ?? const [];
 
   @override
   Future<void> remove(String albumId) async {

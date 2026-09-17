@@ -14,6 +14,7 @@ import 'package:bring_your_own_photos/upload/s3_uploader.dart';
 import 'package:bring_your_own_photos/viewer/asset_grid.dart';
 import 'package:bring_your_own_photos/viewer/detail_screen.dart';
 import 'package:bring_your_own_photos/viewer/library_screen.dart';
+import 'package:bring_your_own_photos/viewer/search_picker_sheet.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
@@ -553,7 +554,7 @@ void main() {
 
     await tester.tap(find.text('Set Place'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(CupertinoSearchTextField).last, 'Kyoto');
+    await tester.enterText(find.byKey(searchPickerFieldKey), 'Kyoto');
     await tester.pump();
     await tester.tap(find.text('Use "Kyoto"'));
     await tester.pumpAndSettle();
@@ -953,9 +954,9 @@ void main() {
         sourcePath: '/tmp/one.jpg',
       );
 
-      // Tall surface: People/Places/Events are full horizontal-scroll
-      // subsections (header + a row of placeholder cards each), not single
-      // list rows, so there's a lot of vertical content to fit.
+      // Tall surface: People is a full horizontal-scroll subsection and
+      // Places/Events are lists under their own headers, so there's a lot
+      // of vertical content to fit.
       await tester.binding.setSurfaceSize(const Size(400, 3200));
       addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -1006,6 +1007,109 @@ void main() {
       expect(find.text('No people yet. Tap + to add someone.'), findsWidgets);
     },
   );
+
+  testWidgets('Places reads as a list, folding the long tail behind Show All', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    const places = ['Kyoto', 'Osaka', 'Nara', 'Tokyo', 'Hakone', 'Nikko'];
+    for (final place in places) {
+      await recordStore.upsert(
+        localId: 'manual:$place',
+        contentHash: place,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$place.jpg',
+      );
+      await recordStore.setLocation('manual:$place', place);
+    }
+
+    await tester.binding.setSurfaceSize(const Size(400, 3200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+          aiAnalysisStore: FakeAiAnalysisStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Five of the six, then the way to the rest.
+    expect(find.text('Kyoto'), findsOneWidget);
+    expect(find.text('Nikko'), findsNothing);
+    await tester.tap(find.text('Show All (6)'));
+    await tester.pumpAndSettle();
+    expect(find.text('Nikko'), findsOneWidget);
+  });
+
+  testWidgets('Events lists what happened most recently first', (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:one',
+      contentHash: 'one',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/one.jpg',
+    );
+    await recordStore.setEvent('manual:one', "Nina's Wedding");
+    // Older, and with more photos in it — which would put it first if
+    // events ranked by size the way places do.
+    for (final id in ['two', 'three']) {
+      await recordStore.upsert(
+        localId: 'manual:$id',
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+        createdAt: DateTime(2019, 4, 2),
+      );
+      await recordStore.setEvent('manual:$id', 'Japan 2019');
+    }
+
+    await tester.binding.setSurfaceSize(const Size(400, 3200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+          aiAnalysisStore: FakeAiAnalysisStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Shown straight away, newest event at the top.
+    expect(
+      tester.getCenter(find.text("Nina's Wedding")).dy,
+      lessThan(tester.getCenter(find.text('Japan 2019')).dy),
+    );
+  });
 
   testWidgets(
     'People cards show each person\'s name and open their page on tap',

@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/library_custody.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/passcode_hash.dart';
@@ -12,7 +13,10 @@ import 'private_album_screen.dart';
 /// "create": the group of assets sharing this passcode's hash *is* the
 /// album (see `AssetRecord.passcodeHash`), whether or not anything's in it
 /// yet. Pops with the raw passcode, or `null` if backed out via the "x".
-Future<String?> showPrivateAlbumPasscodeSheet(BuildContext context) {
+Future<String?> showPrivateAlbumPasscodeSheet(
+  BuildContext context, {
+  String? note,
+}) {
   final l10n = AppLocalizations.of(context)!;
   var passcode = '';
   return showCupertinoDialog<String>(
@@ -25,6 +29,16 @@ Future<String?> showPrivateAlbumPasscodeSheet(BuildContext context) {
             children: [
               const SizedBox(height: 8),
               Text(l10n.privateAlbumGateBody),
+              if (note != null) ...[
+                const SizedBox(height: 8),
+                Text(
+                  note,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: CupertinoColors.systemGrey,
+                  ),
+                ),
+              ],
               const SizedBox(height: 16),
               _PasscodeDots(length: passcode.length),
               const SizedBox(height: 12),
@@ -154,6 +168,7 @@ class _PasscodeKeypad extends StatelessWidget {
 Future<void> openPrivateAlbums(
   BuildContext context, {
   required AssetRecordStore assetRecordStore,
+  LibraryCustody? custody,
 }) async {
   final passcode = await showPrivateAlbumPasscodeSheet(context);
   if (passcode == null || !context.mounted) return;
@@ -162,6 +177,7 @@ Future<void> openPrivateAlbums(
       builder: (_) => PrivateAlbumScreen(
         passcodeHash: hashPasscode(passcode),
         assetRecordStore: assetRecordStore,
+        custody: custody,
       ),
     ),
   );
@@ -177,7 +193,12 @@ Future<bool> hideIntoPrivateAlbum(
   required AssetRecordStore assetRecordStore,
   required AssetRecord record,
 }) async {
-  final passcode = await showPrivateAlbumPasscodeSheet(context);
+  // Said before the passcode, not after the photo has gone: hiding takes
+  // the photo out of Photos, and that's worth knowing in advance.
+  final passcode = await showPrivateAlbumPasscodeSheet(
+    context,
+    note: AppLocalizations.of(context)!.libraryHideNote,
+  );
   if (passcode == null) return false;
   await assetRecordStore.setPasscodeHash(
     record.localId,

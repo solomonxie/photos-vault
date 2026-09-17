@@ -33,6 +33,8 @@
 	<true/>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Used to back up your photos and videos to your own S3 bucket.</string>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Used to put a photo back into Photos when you take it out of a hidden album.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

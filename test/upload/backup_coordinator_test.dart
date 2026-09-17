@@ -19,7 +19,11 @@ class _FakeS3Uploader implements S3Uploader {
   final keys = <String>[];
 
   @override
-  Future<bool> put({required String filePath, required String key, required S3BackupTarget target}) async {
+  Future<bool> put({
+    required String filePath,
+    required String key,
+    required S3BackupTarget target,
+  }) async {
     keys.add(key);
     return result;
   }
@@ -30,10 +34,15 @@ class _FakeS3Uploader implements S3Uploader {
 /// which keys were uploaded.
 class _RecordingS3Uploader implements S3Uploader {
   _RecordingS3Uploader(this._resultFor);
-  final bool Function(String filePath, String key, S3BackupTarget target) _resultFor;
+  final bool Function(String filePath, String key, S3BackupTarget target)
+  _resultFor;
 
   @override
-  Future<bool> put({required String filePath, required String key, required S3BackupTarget target}) async {
+  Future<bool> put({
+    required String filePath,
+    required String key,
+    required S3BackupTarget target,
+  }) async {
     return _resultFor(filePath, key, target);
   }
 }
@@ -45,7 +54,10 @@ void main() {
   // default), so distinct stores using the same sentinel path leak state
   // across tests unless each is explicitly closed.
   AssetRecordStore newRecordStore() {
-    final store = AssetRecordStore(databaseFactory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    final store = AssetRecordStore(
+      databaseFactory: databaseFactoryFfi,
+      path: inMemoryDatabasePath,
+    );
     addTearDown(store.close);
     return store;
   }
@@ -53,79 +65,167 @@ void main() {
   test('with no configured targets, status stays pending', () async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     final recordStore = newRecordStore();
-    final record = await recordStore.upsert(localId: 'manual:abc', contentHash: 'abc', platform: 'ios');
-    final coordinator = BackupCoordinator(targetsStore: targetsStore, recordStore: recordStore);
+    final record = await recordStore.upsert(
+      localId: 'manual:abc',
+      contentHash: 'abc',
+      platform: 'ios',
+    );
+    final coordinator = BackupCoordinator(
+      targetsStore: targetsStore,
+      recordStore: recordStore,
+    );
 
-    final succeeded = await coordinator.backUpDerivative(record: record, kind: DerivativeKind.original, filePath: '/tmp/a.jpg');
+    final succeeded = await coordinator.backUpDerivative(
+      record: record,
+      kind: DerivativeKind.original,
+      filePath: '/tmp/a.jpg',
+    );
 
     expect(succeeded, 0);
     final updated = await recordStore.getByLocalId('manual:abc');
-    expect(updated!.stateOf(DerivativeKind.original).status, UploadStatus.pending);
+    expect(
+      updated!.stateOf(DerivativeKind.original).status,
+      UploadStatus.pending,
+    );
   });
 
   test('uploads to an S3 target and marks the derivative uploaded', () async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-    await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: 'p/');
+    await targetsStore.addS3(
+      accessKeyId: 'a',
+      secretAccessKey: 'b',
+      region: 'us-east-1',
+      bucket: 'bucket',
+      prefix: 'p/',
+    );
     final recordStore = newRecordStore();
-    final record = await recordStore.upsert(localId: 'manual:abc', contentHash: 'abc', platform: 'ios');
+    final record = await recordStore.upsert(
+      localId: 'manual:abc',
+      contentHash: 'abc',
+      platform: 'ios',
+    );
     final fakeUploader = _FakeS3Uploader(true);
-    final coordinator = BackupCoordinator(targetsStore: targetsStore, recordStore: recordStore, s3Uploader: fakeUploader);
+    final coordinator = BackupCoordinator(
+      targetsStore: targetsStore,
+      recordStore: recordStore,
+      s3Uploader: fakeUploader,
+    );
 
-    final succeeded = await coordinator.backUpDerivative(record: record, kind: DerivativeKind.original, filePath: '/tmp/a.jpg');
+    final succeeded = await coordinator.backUpDerivative(
+      record: record,
+      kind: DerivativeKind.original,
+      filePath: '/tmp/a.jpg',
+    );
 
     expect(succeeded, 1);
     expect(fakeUploader.keys.single, 'p/originals/manual_abc.jpg');
     final updated = await recordStore.getByLocalId('manual:abc');
-    expect(updated!.stateOf(DerivativeKind.original).status, UploadStatus.uploaded);
-    expect(updated.stateOf(DerivativeKind.original).destinationKey, 'p/originals/manual_abc.jpg');
+    expect(
+      updated!.stateOf(DerivativeKind.original).status,
+      UploadStatus.uploaded,
+    );
+    expect(
+      updated.stateOf(DerivativeKind.original).destinationKey,
+      'p/originals/manual_abc.jpg',
+    );
   });
 
   test('marks the derivative failed when every target fails', () async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-    await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: '');
+    await targetsStore.addS3(
+      accessKeyId: 'a',
+      secretAccessKey: 'b',
+      region: 'us-east-1',
+      bucket: 'bucket',
+      prefix: '',
+    );
     final recordStore = newRecordStore();
-    final record = await recordStore.upsert(localId: 'manual:abc', contentHash: 'abc', platform: 'ios');
+    final record = await recordStore.upsert(
+      localId: 'manual:abc',
+      contentHash: 'abc',
+      platform: 'ios',
+    );
     final coordinator = BackupCoordinator(
       targetsStore: targetsStore,
       recordStore: recordStore,
       s3Uploader: _FakeS3Uploader(false),
     );
 
-    final succeeded = await coordinator.backUpDerivative(record: record, kind: DerivativeKind.original, filePath: '/tmp/a.jpg');
+    final succeeded = await coordinator.backUpDerivative(
+      record: record,
+      kind: DerivativeKind.original,
+      filePath: '/tmp/a.jpg',
+    );
 
     expect(succeeded, 0);
     final updated = await recordStore.getByLocalId('manual:abc');
-    expect(updated!.stateOf(DerivativeKind.original).status, UploadStatus.failed);
-  });
-
-  test('a thumbnail derivative lands under thumbnails/, not originals/', () async {
-    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-    await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: 'p/');
-    final recordStore = newRecordStore();
-    final record = await recordStore.upsert(localId: 'manual:abc', contentHash: 'abc', platform: 'ios');
-    final fakeUploader = _FakeS3Uploader(true);
-    final coordinator = BackupCoordinator(
-      targetsStore: targetsStore,
-      recordStore: recordStore,
-      s3Uploader: fakeUploader,
-      hashFile: (path) async => 'hash',
+    expect(
+      updated!.stateOf(DerivativeKind.original).status,
+      UploadStatus.failed,
     );
-
-    await coordinator.backUpDerivative(record: record, kind: DerivativeKind.thumbnail, filePath: '/tmp/a-thumb.jpg');
-
-    expect(fakeUploader.keys.single, 'p/thumbnails/manual_abc.jpg');
-    final updated = await recordStore.getByLocalId('manual:abc');
-    expect(updated!.stateOf(DerivativeKind.thumbnail).status, UploadStatus.uploaded);
-    // The original is tracked independently and hasn't been touched.
-    expect(updated.stateOf(DerivativeKind.original).status, UploadStatus.pending);
   });
+
+  test(
+    'a thumbnail derivative lands under thumbnails/, not originals/',
+    () async {
+      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+      await targetsStore.addS3(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'bucket',
+        prefix: 'p/',
+      );
+      final recordStore = newRecordStore();
+      final record = await recordStore.upsert(
+        localId: 'manual:abc',
+        contentHash: 'abc',
+        platform: 'ios',
+      );
+      final fakeUploader = _FakeS3Uploader(true);
+      final coordinator = BackupCoordinator(
+        targetsStore: targetsStore,
+        recordStore: recordStore,
+        s3Uploader: fakeUploader,
+        hashFile: (path) async => 'hash',
+      );
+
+      await coordinator.backUpDerivative(
+        record: record,
+        kind: DerivativeKind.thumbnail,
+        filePath: '/tmp/a-thumb.jpg',
+      );
+
+      expect(fakeUploader.keys.single, 'p/thumbnails/manual_abc.jpg');
+      final updated = await recordStore.getByLocalId('manual:abc');
+      expect(
+        updated!.stateOf(DerivativeKind.thumbnail).status,
+        UploadStatus.uploaded,
+      );
+      // The original is tracked independently and hasn't been touched.
+      expect(
+        updated.stateOf(DerivativeKind.original).status,
+        UploadStatus.pending,
+      );
+    },
+  );
 
   group('backedUpHash', () {
     test('set to the hashed local file once an upload succeeds', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: '');
+      await targetsStore.addS3(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'bucket',
+        prefix: '',
+      );
       final recordStore = newRecordStore();
-      final record = await recordStore.upsert(localId: 'manual:abc', contentHash: 'abc', platform: 'ios');
+      final record = await recordStore.upsert(
+        localId: 'manual:abc',
+        contentHash: 'abc',
+        platform: 'ios',
+      );
       final coordinator = BackupCoordinator(
         targetsStore: targetsStore,
         recordStore: recordStore,
@@ -133,21 +233,41 @@ void main() {
         hashFile: (path) async => 'hash-of-$path',
       );
 
-      await coordinator.backUpDerivative(record: record, kind: DerivativeKind.original, filePath: '/tmp/a.jpg');
+      await coordinator.backUpDerivative(
+        record: record,
+        kind: DerivativeKind.original,
+        filePath: '/tmp/a.jpg',
+      );
 
       final updated = await recordStore.getByLocalId('manual:abc');
-      expect(updated!.stateOf(DerivativeKind.original).backedUpHash, 'hash-of-/tmp/a.jpg');
+      expect(
+        updated!.stateOf(DerivativeKind.original).backedUpHash,
+        'hash-of-/tmp/a.jpg',
+      );
     });
 
     test('kept as-is when every target fails, rather than cleared', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: '');
+      await targetsStore.addS3(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'bucket',
+        prefix: '',
+      );
       final recordStore = newRecordStore();
-      await recordStore.upsert(localId: 'manual:abc', contentHash: 'abc', platform: 'ios');
+      await recordStore.upsert(
+        localId: 'manual:abc',
+        contentHash: 'abc',
+        platform: 'ios',
+      );
       await recordStore.updateDerivative(
         'manual:abc',
         DerivativeKind.original,
-        const DerivativeState(status: UploadStatus.uploaded, backedUpHash: 'previous-hash'),
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          backedUpHash: 'previous-hash',
+        ),
       );
       final staleRecord = (await recordStore.getByLocalId('manual:abc'))!;
       final coordinator = BackupCoordinator(
@@ -157,44 +277,98 @@ void main() {
         hashFile: (path) async => 'new-hash',
       );
 
-      await coordinator.backUpDerivative(record: staleRecord, kind: DerivativeKind.original, filePath: '/tmp/a.jpg');
-
-      final updated = await recordStore.getByLocalId('manual:abc');
-      expect(updated!.stateOf(DerivativeKind.original).status, UploadStatus.failed);
-      expect(updated.stateOf(DerivativeKind.original).backedUpHash, 'previous-hash');
-    });
-
-    test('a hashing failure does not stop the derivative being marked uploaded', () async {
-      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: '');
-      final recordStore = newRecordStore();
-      final record = await recordStore.upsert(localId: 'manual:abc', contentHash: 'abc', platform: 'ios');
-      final coordinator = BackupCoordinator(
-        targetsStore: targetsStore,
-        recordStore: recordStore,
-        s3Uploader: _FakeS3Uploader(true),
-        hashFile: (path) async => throw Exception('disk error'),
+      await coordinator.backUpDerivative(
+        record: staleRecord,
+        kind: DerivativeKind.original,
+        filePath: '/tmp/a.jpg',
       );
 
-      final succeeded = await coordinator.backUpDerivative(record: record, kind: DerivativeKind.original, filePath: '/tmp/a.jpg');
-
-      expect(succeeded, 1);
       final updated = await recordStore.getByLocalId('manual:abc');
-      expect(updated!.stateOf(DerivativeKind.original).status, UploadStatus.uploaded);
-      expect(updated.stateOf(DerivativeKind.original).backedUpHash, isNull);
+      expect(
+        updated!.stateOf(DerivativeKind.original).status,
+        UploadStatus.failed,
+      );
+      expect(
+        updated.stateOf(DerivativeKind.original).backedUpHash,
+        'previous-hash',
+      );
     });
+
+    test(
+      'a hashing failure does not stop the derivative being marked uploaded',
+      () async {
+        final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+        await targetsStore.addS3(
+          accessKeyId: 'a',
+          secretAccessKey: 'b',
+          region: 'us-east-1',
+          bucket: 'bucket',
+          prefix: '',
+        );
+        final recordStore = newRecordStore();
+        final record = await recordStore.upsert(
+          localId: 'manual:abc',
+          contentHash: 'abc',
+          platform: 'ios',
+        );
+        final coordinator = BackupCoordinator(
+          targetsStore: targetsStore,
+          recordStore: recordStore,
+          s3Uploader: _FakeS3Uploader(true),
+          hashFile: (path) async => throw Exception('disk error'),
+        );
+
+        final succeeded = await coordinator.backUpDerivative(
+          record: record,
+          kind: DerivativeKind.original,
+          filePath: '/tmp/a.jpg',
+        );
+
+        expect(succeeded, 1);
+        final updated = await recordStore.getByLocalId('manual:abc');
+        expect(
+          updated!.stateOf(DerivativeKind.original).status,
+          UploadStatus.uploaded,
+        );
+        expect(updated.stateOf(DerivativeKind.original).backedUpHash, isNull);
+      },
+    );
   });
 
   group('backUpBatch', () {
     test('fileByFile (default) mirrors each record to every target', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'one', prefix: '');
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'two', prefix: '');
+      await targetsStore.addS3(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'one',
+        prefix: '',
+      );
+      await targetsStore.addS3(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'two',
+        prefix: '',
+      );
       final recordStore = newRecordStore();
-      final a = await recordStore.upsert(localId: 'manual:a', contentHash: 'a', platform: 'ios');
-      final b = await recordStore.upsert(localId: 'manual:b', contentHash: 'b', platform: 'ios');
+      final a = await recordStore.upsert(
+        localId: 'manual:a',
+        contentHash: 'a',
+        platform: 'ios',
+      );
+      final b = await recordStore.upsert(
+        localId: 'manual:b',
+        contentHash: 'b',
+        platform: 'ios',
+      );
       final fakeUploader = _FakeS3Uploader(true);
-      final coordinator = BackupCoordinator(targetsStore: targetsStore, recordStore: recordStore, s3Uploader: fakeUploader);
+      final coordinator = BackupCoordinator(
+        targetsStore: targetsStore,
+        recordStore: recordStore,
+        s3Uploader: fakeUploader,
+      );
 
       final succeeded = await coordinator.backUpBatch(
         records: [a, b],
@@ -205,53 +379,127 @@ void main() {
       expect(succeeded, 2);
       // Every record's pair of targets uploaded before moving to the next
       // record: a→one, a→two, b→one, b→two.
-      expect(fakeUploader.keys, ['originals/manual_a.jpg', 'originals/manual_a.jpg', 'originals/manual_b.jpg', 'originals/manual_b.jpg']);
-      expect((await recordStore.getByLocalId('manual:a'))!.stateOf(DerivativeKind.original).status, UploadStatus.uploaded);
-      expect((await recordStore.getByLocalId('manual:b'))!.stateOf(DerivativeKind.original).status, UploadStatus.uploaded);
-    });
-
-    test('bucketByBucket finishes every record against one target before the next', () async {
-      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'one', prefix: '');
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'two', prefix: '');
-      await targetsStore.setOrderStrategy(BackupOrderStrategy.bucketByBucket);
-      final recordStore = newRecordStore();
-      final a = await recordStore.upsert(localId: 'manual:a', contentHash: 'a', platform: 'ios');
-      final b = await recordStore.upsert(localId: 'manual:b', contentHash: 'b', platform: 'ios');
-      final callOrder = <String>[];
-      final fakeUploader = _RecordingS3Uploader((filePath, key, target) {
-        callOrder.add('$filePath -> ${target.bucket}');
-        return true;
-      });
-      final coordinator = BackupCoordinator(targetsStore: targetsStore, recordStore: recordStore, s3Uploader: fakeUploader);
-
-      final succeeded = await coordinator.backUpBatch(
-        records: [a, b],
-        kind: DerivativeKind.original,
-        resolvePath: (r) async => '/tmp/${r.localId}.jpg',
-      );
-
-      expect(succeeded, 2);
-      // Every record against "one" before either is tried against "two".
-      expect(callOrder, [
-        '/tmp/manual:a.jpg -> one',
-        '/tmp/manual:b.jpg -> one',
-        '/tmp/manual:a.jpg -> two',
-        '/tmp/manual:b.jpg -> two',
+      expect(fakeUploader.keys, [
+        'originals/manual_a.jpg',
+        'originals/manual_a.jpg',
+        'originals/manual_b.jpg',
+        'originals/manual_b.jpg',
       ]);
-      expect((await recordStore.getByLocalId('manual:a'))!.stateOf(DerivativeKind.original).status, UploadStatus.uploaded);
-      expect((await recordStore.getByLocalId('manual:b'))!.stateOf(DerivativeKind.original).status, UploadStatus.uploaded);
+      expect(
+        (await recordStore.getByLocalId('manual:a'))!
+            .stateOf(DerivativeKind.original)
+            .status,
+        UploadStatus.uploaded,
+      );
+      expect(
+        (await recordStore.getByLocalId('manual:b'))!
+            .stateOf(DerivativeKind.original)
+            .status,
+        UploadStatus.uploaded,
+      );
     });
+
+    test(
+      'bucketByBucket finishes every record against one target before the next',
+      () async {
+        final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+        await targetsStore.addS3(
+          accessKeyId: 'a',
+          secretAccessKey: 'b',
+          region: 'us-east-1',
+          bucket: 'one',
+          prefix: '',
+        );
+        await targetsStore.addS3(
+          accessKeyId: 'a',
+          secretAccessKey: 'b',
+          region: 'us-east-1',
+          bucket: 'two',
+          prefix: '',
+        );
+        await targetsStore.setOrderStrategy(BackupOrderStrategy.bucketByBucket);
+        final recordStore = newRecordStore();
+        final a = await recordStore.upsert(
+          localId: 'manual:a',
+          contentHash: 'a',
+          platform: 'ios',
+        );
+        final b = await recordStore.upsert(
+          localId: 'manual:b',
+          contentHash: 'b',
+          platform: 'ios',
+        );
+        final callOrder = <String>[];
+        final fakeUploader = _RecordingS3Uploader((filePath, key, target) {
+          callOrder.add('$filePath -> ${target.bucket}');
+          return true;
+        });
+        final coordinator = BackupCoordinator(
+          targetsStore: targetsStore,
+          recordStore: recordStore,
+          s3Uploader: fakeUploader,
+        );
+
+        final succeeded = await coordinator.backUpBatch(
+          records: [a, b],
+          kind: DerivativeKind.original,
+          resolvePath: (r) async => '/tmp/${r.localId}.jpg',
+        );
+
+        expect(succeeded, 2);
+        // Every record against "one" before either is tried against "two".
+        expect(callOrder, [
+          '/tmp/manual:a.jpg -> one',
+          '/tmp/manual:b.jpg -> one',
+          '/tmp/manual:a.jpg -> two',
+          '/tmp/manual:b.jpg -> two',
+        ]);
+        expect(
+          (await recordStore.getByLocalId('manual:a'))!
+              .stateOf(DerivativeKind.original)
+              .status,
+          UploadStatus.uploaded,
+        );
+        expect(
+          (await recordStore.getByLocalId('manual:b'))!
+              .stateOf(DerivativeKind.original)
+              .status,
+          UploadStatus.uploaded,
+        );
+      },
+    );
 
     test('bucketByBucket still marks a record uploaded if only one target succeeds', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'good', prefix: '');
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bad', prefix: '');
+      await targetsStore.addS3(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'good',
+        prefix: '',
+      );
+      await targetsStore.addS3(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'bad',
+        prefix: '',
+      );
       await targetsStore.setOrderStrategy(BackupOrderStrategy.bucketByBucket);
       final recordStore = newRecordStore();
-      final a = await recordStore.upsert(localId: 'manual:a', contentHash: 'a', platform: 'ios');
-      final fakeUploader = _RecordingS3Uploader((filePath, key, target) => target.bucket == 'good');
-      final coordinator = BackupCoordinator(targetsStore: targetsStore, recordStore: recordStore, s3Uploader: fakeUploader);
+      final a = await recordStore.upsert(
+        localId: 'manual:a',
+        contentHash: 'a',
+        platform: 'ios',
+      );
+      final fakeUploader = _RecordingS3Uploader(
+        (filePath, key, target) => target.bucket == 'good',
+      );
+      final coordinator = BackupCoordinator(
+        targetsStore: targetsStore,
+        recordStore: recordStore,
+        s3Uploader: fakeUploader,
+      );
 
       final succeeded = await coordinator.backUpBatch(
         records: [a],
@@ -260,15 +508,34 @@ void main() {
       );
 
       expect(succeeded, 1);
-      expect((await recordStore.getByLocalId('manual:a'))!.stateOf(DerivativeKind.original).status, UploadStatus.uploaded);
+      expect(
+        (await recordStore.getByLocalId('manual:a'))!
+            .stateOf(DerivativeKind.original)
+            .status,
+        UploadStatus.uploaded,
+      );
     });
 
     test('skips a record whose path fails to resolve', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'one', prefix: '');
+      await targetsStore.addS3(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'one',
+        prefix: '',
+      );
       final recordStore = newRecordStore();
-      final a = await recordStore.upsert(localId: 'manual:a', contentHash: 'a', platform: 'ios');
-      final coordinator = BackupCoordinator(targetsStore: targetsStore, recordStore: recordStore, s3Uploader: _FakeS3Uploader(true));
+      final a = await recordStore.upsert(
+        localId: 'manual:a',
+        contentHash: 'a',
+        platform: 'ios',
+      );
+      final coordinator = BackupCoordinator(
+        targetsStore: targetsStore,
+        recordStore: recordStore,
+        s3Uploader: _FakeS3Uploader(true),
+      );
 
       final succeeded = await coordinator.backUpBatch(
         records: [a],
@@ -277,51 +544,111 @@ void main() {
       );
 
       expect(succeeded, 0);
-      expect((await recordStore.getByLocalId('manual:a'))!.stateOf(DerivativeKind.original).status, UploadStatus.pending);
+      expect(
+        (await recordStore.getByLocalId('manual:a'))!
+            .stateOf(DerivativeKind.original)
+            .status,
+        UploadStatus.pending,
+      );
     });
   });
 
   group('cancelToken', () {
-    test('fileByFile: cancelling mid-run leaves un-attempted records untouched', () async {
-      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'one', prefix: '');
-      final recordStore = newRecordStore();
-      final a = await recordStore.upsert(localId: 'manual:a', contentHash: 'a', platform: 'ios');
-      final b = await recordStore.upsert(localId: 'manual:b', contentHash: 'b', platform: 'ios');
-      final token = BackupCancelToken();
-      final fakeUploader = _RecordingS3Uploader((filePath, key, target) {
-        token.cancel(); // cancel as soon as the first upload happens
-        return true;
-      });
-      final coordinator = BackupCoordinator(targetsStore: targetsStore, recordStore: recordStore, s3Uploader: fakeUploader);
+    test(
+      'fileByFile: cancelling mid-run leaves un-attempted records untouched',
+      () async {
+        final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+        await targetsStore.addS3(
+          accessKeyId: 'a',
+          secretAccessKey: 'b',
+          region: 'us-east-1',
+          bucket: 'one',
+          prefix: '',
+        );
+        final recordStore = newRecordStore();
+        final a = await recordStore.upsert(
+          localId: 'manual:a',
+          contentHash: 'a',
+          platform: 'ios',
+        );
+        final b = await recordStore.upsert(
+          localId: 'manual:b',
+          contentHash: 'b',
+          platform: 'ios',
+        );
+        final token = BackupCancelToken();
+        final fakeUploader = _RecordingS3Uploader((filePath, key, target) {
+          token.cancel(); // cancel as soon as the first upload happens
+          return true;
+        });
+        final coordinator = BackupCoordinator(
+          targetsStore: targetsStore,
+          recordStore: recordStore,
+          s3Uploader: fakeUploader,
+        );
 
-      final succeeded = await coordinator.backUpBatch(
-        records: [a, b],
-        kind: DerivativeKind.original,
-        resolvePath: (r) async => '/tmp/${r.localId}.jpg',
-        cancelToken: token,
-      );
+        final succeeded = await coordinator.backUpBatch(
+          records: [a, b],
+          kind: DerivativeKind.original,
+          resolvePath: (r) async => '/tmp/${r.localId}.jpg',
+          cancelToken: token,
+        );
 
-      expect(succeeded, 1);
-      expect((await recordStore.getByLocalId('manual:a'))!.stateOf(DerivativeKind.original).status, UploadStatus.uploaded);
-      // "b" was never attempted — still pending, not failed.
-      expect((await recordStore.getByLocalId('manual:b'))!.stateOf(DerivativeKind.original).status, UploadStatus.pending);
-    });
+        expect(succeeded, 1);
+        expect(
+          (await recordStore.getByLocalId('manual:a'))!
+              .stateOf(DerivativeKind.original)
+              .status,
+          UploadStatus.uploaded,
+        );
+        // "b" was never attempted — still pending, not failed.
+        expect(
+          (await recordStore.getByLocalId('manual:b'))!
+              .stateOf(DerivativeKind.original)
+              .status,
+          UploadStatus.pending,
+        );
+      },
+    );
 
     test('bucketByBucket: cancelling mid-run leaves un-attempted records untouched', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'one', prefix: '');
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'two', prefix: '');
+      await targetsStore.addS3(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'one',
+        prefix: '',
+      );
+      await targetsStore.addS3(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'two',
+        prefix: '',
+      );
       await targetsStore.setOrderStrategy(BackupOrderStrategy.bucketByBucket);
       final recordStore = newRecordStore();
-      final a = await recordStore.upsert(localId: 'manual:a', contentHash: 'a', platform: 'ios');
-      final b = await recordStore.upsert(localId: 'manual:b', contentHash: 'b', platform: 'ios');
+      final a = await recordStore.upsert(
+        localId: 'manual:a',
+        contentHash: 'a',
+        platform: 'ios',
+      );
+      final b = await recordStore.upsert(
+        localId: 'manual:b',
+        contentHash: 'b',
+        platform: 'ios',
+      );
       final token = BackupCancelToken();
       final fakeUploader = _RecordingS3Uploader((filePath, key, target) {
         token.cancel(); // cancel as soon as the very first (record, target) attempt happens
         return true;
       });
-      final coordinator = BackupCoordinator(targetsStore: targetsStore, recordStore: recordStore, s3Uploader: fakeUploader);
+      final coordinator = BackupCoordinator(
+        targetsStore: targetsStore,
+        recordStore: recordStore,
+        s3Uploader: fakeUploader,
+      );
 
       final succeeded = await coordinator.backUpBatch(
         records: [a, b],
@@ -335,8 +662,18 @@ void main() {
       // attempt at all, so it's left alone rather than reconciled as
       // "failed".
       expect(succeeded, 1);
-      expect((await recordStore.getByLocalId('manual:a'))!.stateOf(DerivativeKind.original).status, UploadStatus.uploaded);
-      expect((await recordStore.getByLocalId('manual:b'))!.stateOf(DerivativeKind.original).status, UploadStatus.pending);
+      expect(
+        (await recordStore.getByLocalId('manual:a'))!
+            .stateOf(DerivativeKind.original)
+            .status,
+        UploadStatus.uploaded,
+      );
+      expect(
+        (await recordStore.getByLocalId('manual:b'))!
+            .stateOf(DerivativeKind.original)
+            .status,
+        UploadStatus.pending,
+      );
     });
   });
 
@@ -348,13 +685,28 @@ void main() {
 
     test('re-encodes a photo to WebP and uploads it under a .webp key', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: '');
+      await targetsStore.addS3(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'bucket',
+        prefix: '',
+      );
       await targetsStore.setBackupFormat(BackupFormat.optimized);
       final recordStore = newRecordStore();
-      final record = await recordStore.upsert(localId: 'manual:abc', contentHash: 'abc', platform: 'ios');
-      final photoFile = File('${tempDir.path}/a.jpg')..writeAsBytesSync(img.encodeJpg(img.Image(width: 4, height: 4)));
+      final record = await recordStore.upsert(
+        localId: 'manual:abc',
+        contentHash: 'abc',
+        platform: 'ios',
+      );
+      final photoFile = File('${tempDir.path}/a.jpg')
+        ..writeAsBytesSync(img.encodeJpg(img.Image(width: 4, height: 4)));
       final fakeUploader = _FakeS3Uploader(true);
-      final coordinator = BackupCoordinator(targetsStore: targetsStore, recordStore: recordStore, s3Uploader: fakeUploader);
+      final coordinator = BackupCoordinator(
+        targetsStore: targetsStore,
+        recordStore: recordStore,
+        s3Uploader: fakeUploader,
+      );
 
       final succeeded = await coordinator.backUpDerivative(
         record: record,
@@ -368,43 +720,79 @@ void main() {
       expect(photoFile.existsSync(), isTrue);
     });
 
-    test('videos always upload as original, even with optimized selected', () async {
-      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: '');
-      await targetsStore.setBackupFormat(BackupFormat.optimized);
-      final recordStore = newRecordStore();
-      final record = await recordStore.upsert(localId: 'manual:vid', contentHash: 'vid', platform: 'ios', isVideo: true);
-      final fakeUploader = _FakeS3Uploader(true);
-      final coordinator = BackupCoordinator(targetsStore: targetsStore, recordStore: recordStore, s3Uploader: fakeUploader);
+    test(
+      'videos always upload as original, even with optimized selected',
+      () async {
+        final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+        await targetsStore.addS3(
+          accessKeyId: 'a',
+          secretAccessKey: 'b',
+          region: 'us-east-1',
+          bucket: 'bucket',
+          prefix: '',
+        );
+        await targetsStore.setBackupFormat(BackupFormat.optimized);
+        final recordStore = newRecordStore();
+        final record = await recordStore.upsert(
+          localId: 'manual:vid',
+          contentHash: 'vid',
+          platform: 'ios',
+          isVideo: true,
+        );
+        final fakeUploader = _FakeS3Uploader(true);
+        final coordinator = BackupCoordinator(
+          targetsStore: targetsStore,
+          recordStore: recordStore,
+          s3Uploader: fakeUploader,
+        );
 
-      final succeeded = await coordinator.backUpDerivative(
-        record: record,
-        kind: DerivativeKind.original,
-        filePath: '${tempDir.path}/a.mp4',
-      );
+        final succeeded = await coordinator.backUpDerivative(
+          record: record,
+          kind: DerivativeKind.original,
+          filePath: '${tempDir.path}/a.mp4',
+        );
 
-      expect(succeeded, 1);
-      expect(fakeUploader.keys.single, 'originals/manual_vid.mp4');
-    });
+        expect(succeeded, 1);
+        expect(fakeUploader.keys.single, 'originals/manual_vid.mp4');
+      },
+    );
 
-    test('falls back to the original bytes when the file is not a decodable image', () async {
-      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(accessKeyId: 'a', secretAccessKey: 'b', region: 'us-east-1', bucket: 'bucket', prefix: '');
-      await targetsStore.setBackupFormat(BackupFormat.optimized);
-      final recordStore = newRecordStore();
-      final record = await recordStore.upsert(localId: 'manual:bad', contentHash: 'bad', platform: 'ios');
-      final notAnImage = File('${tempDir.path}/a.jpg')..writeAsStringSync('not actually an image');
-      final fakeUploader = _FakeS3Uploader(true);
-      final coordinator = BackupCoordinator(targetsStore: targetsStore, recordStore: recordStore, s3Uploader: fakeUploader);
+    test(
+      'falls back to the original bytes when the file is not a decodable image',
+      () async {
+        final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+        await targetsStore.addS3(
+          accessKeyId: 'a',
+          secretAccessKey: 'b',
+          region: 'us-east-1',
+          bucket: 'bucket',
+          prefix: '',
+        );
+        await targetsStore.setBackupFormat(BackupFormat.optimized);
+        final recordStore = newRecordStore();
+        final record = await recordStore.upsert(
+          localId: 'manual:bad',
+          contentHash: 'bad',
+          platform: 'ios',
+        );
+        final notAnImage = File('${tempDir.path}/a.jpg')
+          ..writeAsStringSync('not actually an image');
+        final fakeUploader = _FakeS3Uploader(true);
+        final coordinator = BackupCoordinator(
+          targetsStore: targetsStore,
+          recordStore: recordStore,
+          s3Uploader: fakeUploader,
+        );
 
-      final succeeded = await coordinator.backUpDerivative(
-        record: record,
-        kind: DerivativeKind.original,
-        filePath: notAnImage.path,
-      );
+        final succeeded = await coordinator.backUpDerivative(
+          record: record,
+          kind: DerivativeKind.original,
+          filePath: notAnImage.path,
+        );
 
-      expect(succeeded, 1);
-      expect(fakeUploader.keys.single, 'originals/manual_bad.jpg');
-    });
+        expect(succeeded, 1);
+        expect(fakeUploader.keys.single, 'originals/manual_bad.jpg');
+      },
+    );
   });
 }

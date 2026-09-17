@@ -581,12 +581,11 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     if (confirmed != true || !mounted) return;
     await widget.personStore.remove(_person.id);
     if (!mounted) return;
-    // Pops both this profile screen and the person page beneath it (a
-    // single shared `Navigator`, no nesting) — lands back on the People
-    // list, which no longer has anything to show for the deleted person.
-    final navigator = Navigator.of(context);
-    navigator.pop();
-    navigator.pop();
+    // Just this screen. The person page beneath re-reads the person when
+    // this one returns and pops itself when it's gone — popping it from
+    // here too raced that, and two screens each popping one route took the
+    // People list down with them, leaving an empty navigator.
+    Navigator.of(context).pop();
   }
 
   @override
