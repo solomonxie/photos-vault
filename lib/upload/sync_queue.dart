@@ -75,6 +75,7 @@ class SyncQueue {
   Future<void> resume() async {
     await _loadSettings();
     await store.requeueStaleRunning();
+    await store.trimHistory();
     await refresh();
     unawaited(start());
   }

@@ -4,6 +4,7 @@ import 'dart:io';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:photo_manager/photo_manager.dart';
+import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 
 import '../l10n/app_localizations.dart';
@@ -651,7 +652,12 @@ class LibraryScreenState extends State<LibraryScreen>
       return l10n.backupQueueHiddenItem;
     }
     final path = record.sourcePath;
-    return path == null ? record.localId : p.basename(path);
+    if (path != null) return p.basename(path);
+    // A camera-roll photo has no filename this app can see, and the row
+    // used to print the library's raw identifier —
+    // "photo:E5599B0A-9341-43CB-…", which identifies nothing to a reader.
+    // When it was taken does.
+    return DateFormat.yMMMd().add_jm().format(record.createdAt);
   }
 
   Future<bool> _hasBackupTarget() async {
@@ -790,8 +796,22 @@ class LibraryScreenState extends State<LibraryScreen>
   /// re-upload straight away rather than waiting for the next sync.
   Future<void> _checkOneForLocalChanges(AssetRecord record) async {
     final path = await _filePathFor(record);
-    if (path == null) return;
-    final hash = await _hashFile(path);
+    if (path == null) {
+      _unresolvable.add(record.localId);
+      return;
+    }
+    final String hash;
+    try {
+      hash = await _hashFile(path);
+    } catch (_) {
+      // The file went between the check and the read — deleted in Photos
+      // mid-pass, most likely. "Is this photo different from the copy in
+      // the bucket?" has no answer when there's no photo to compare, and
+      // that is not a failure worth a red row in the queue: the backup
+      // that's already up there is still good.
+      _unresolvable.add(record.localId);
+      return;
+    }
     final state = record.stateOf(DerivativeKind.original);
     if (hash == state.backedUpHash) return;
     await assetRecordStore.updateDerivative(
@@ -871,8 +891,12 @@ class LibraryScreenState extends State<LibraryScreen>
   /// than a silent pass, and shows up in the queue by name.
   Future<int> _enqueueChangeChecks() async {
     final uploaded = _all.where((r) {
-      // Cloud-only assets have no local file left to compare against.
+      // Cloud-only assets have no local file left to compare against, and
+      // neither has one whose file this pass already failed to find —
+      // asking again every sync is how one deleted photo becomes a
+      // permanent red row.
       if (r.isDeleted || r.localDeleted) return false;
+      if (_unresolvable.contains(r.localId)) return false;
       return r.stateOf(DerivativeKind.original).status == UploadStatus.uploaded;
     }).toList();
     for (final record in uploaded) {
