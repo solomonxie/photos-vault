@@ -97,9 +97,51 @@ class _SyncQueueSheetState extends State<SyncQueueSheet> {
     );
   }
 
+  /// How far down the finger has to go, from the top of the list, for the
+  /// sheet to close. Short: this is a sheet, not a page, and the gesture
+  /// that opens a sheet is the one that closes it.
+  static const _dismissPullDistance = 44.0;
+
+  Offset? _pullOrigin;
+  bool _dismissed = false;
+
+  /// True only when the list can't scroll up any further — a drag from
+  /// halfway down the queue is someone reading it, not someone leaving.
+  bool get _atTop => !_scroll.hasClients || _scroll.position.pixels <= 0;
+
+  final _scroll = ScrollController();
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  void _onPointerDown(PointerDownEvent event) =>
+      _pullOrigin = _atTop ? event.position : null;
+
+  void _onPointerMove(PointerMoveEvent event) {
+    final origin = _pullOrigin;
+    if (origin == null || _dismissed || !_atTop) return;
+    final moved = event.position - origin;
+    if (moved.dy < _dismissPullDistance || moved.dy <= moved.dx.abs()) return;
+    _dismissed = true;
+    Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    return Listener(
+      onPointerDown: _onPointerDown,
+      onPointerMove: _onPointerMove,
+      onPointerUp: (_) => _pullOrigin = null,
+      onPointerCancel: (_) => _pullOrigin = null,
+      child: _sheet(context, l10n),
+    );
+  }
+
+  Widget _sheet(BuildContext context, AppLocalizations l10n) {
     return Container(
       height: MediaQuery.of(context).size.height * 0.7,
       decoration: const BoxDecoration(
@@ -130,6 +172,7 @@ class _SyncQueueSheetState extends State<SyncQueueSheet> {
                     );
                   }
                   return ListView.separated(
+                    controller: _scroll,
                     itemCount: jobs.length,
                     separatorBuilder: (_, _) =>
                         const SettingsHairline(indent: settingsPagePadding),
