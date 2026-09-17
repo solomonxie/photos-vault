@@ -1,4 +1,5 @@
 import 'package:bring_your_own_photos/l10n/app_localizations.dart';
+import 'package:bring_your_own_photos/photos/library_custody.dart';
 import 'package:bring_your_own_photos/storage/asset_record.dart';
 import 'package:bring_your_own_photos/storage/passcode_hash.dart';
 import 'package:bring_your_own_photos/viewer/private_album_screen.dart';
@@ -12,6 +13,28 @@ Widget _wrap(Widget child) => CupertinoApp(
   supportedLocales: AppLocalizations.supportedLocales,
   home: child,
 );
+
+/// Records what the album asked to be taken out of Photos, without a photo
+/// library to take anything out of.
+class _RecordingCustody implements LibraryCustody {
+  final takenOut = <String>[];
+  final returned = <String>[];
+
+  @override
+  Future<CustodyResult> takeOut(AssetRecord record) async {
+    takenOut.add(record.localId);
+    return CustodyResult.taken;
+  }
+
+  @override
+  Future<CustodyResult> putBack(AssetRecord record) async {
+    returned.add(record.localId);
+    return CustodyResult.returned;
+  }
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
 
 final _hash = hashPasscode('1234');
 
@@ -96,7 +119,7 @@ void main() {
   });
 
   testWidgets(
-    'multi-select "Move to Library" clears the passcode hash on every selected asset',
+    'multi-select "Recover to Library" clears the passcode hash on every selected asset',
     (tester) async {
       final assetStore = FakeAssetRecordStore();
       await assetStore.upsert(
@@ -129,7 +152,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('manual:b')));
       await tester.pump();
 
-      await tester.tap(find.text('Move 2 to Library'));
+      await tester.tap(find.text('Recover 2 to Library'));
       await tester.pumpAndSettle();
 
       expect(find.text('Nothing here yet.'), findsOneWidget);
@@ -189,8 +212,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(CupertinoIcons.ellipsis_circle));
-      await tester.pumpAndSettle();
+      // The page's own actions sit on the bar, not behind a "…".
       await tester.tap(find.text('Delete Private Album'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete'));
@@ -199,4 +221,84 @@ void main() {
       expect((await assetStore.getByLocalId('manual:a'))!.passcodeHash, isNull);
     },
   );
+
+  testWidgets('adding from the library takes the photos out of Photos too', (
+    tester,
+  ) async {
+    final assetStore = FakeAssetRecordStore();
+    await assetStore.upsert(
+      localId: 'manual:free',
+      contentHash: 'free',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/free.jpg',
+    );
+    final custody = _RecordingCustody();
+
+    await tester.pumpWidget(
+      _wrap(
+        PrivateAlbumScreen(
+          passcodeHash: _hash,
+          assetRecordStore: assetStore,
+          custody: custody,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manual:free')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add 1'));
+    await tester.pumpAndSettle();
+
+    // Says what it is about to do, every time — the originals leave Photos
+    // and this app becomes the only holder.
+    expect(find.textContaining('removed from your iPhone'), findsOneWidget);
+    await tester.tap(find.text('Hide and Remove'));
+    await tester.pumpAndSettle();
+
+    // The album is already open, so its passcode isn't asked for again.
+    expect((await assetStore.getByLocalId('manual:free'))!.passcodeHash, _hash);
+    expect(custody.takenOut, ['manual:free'], reason: 'gone from Photos');
+  });
+
+  testWidgets('backing out of the warning hides nothing', (tester) async {
+    final assetStore = FakeAssetRecordStore();
+    await assetStore.upsert(
+      localId: 'manual:free',
+      contentHash: 'free',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/free.jpg',
+    );
+    final custody = _RecordingCustody();
+
+    await tester.pumpWidget(
+      _wrap(
+        PrivateAlbumScreen(
+          passcodeHash: _hash,
+          assetRecordStore: assetStore,
+          custody: custody,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manual:free')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add 1'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(
+      (await assetStore.getByLocalId('manual:free'))!.passcodeHash,
+      isNull,
+    );
+    expect(custody.takenOut, isEmpty);
+  });
 }

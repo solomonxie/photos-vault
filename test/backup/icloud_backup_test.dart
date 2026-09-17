@@ -89,7 +89,7 @@ void main() {
     // Flipping it on backed up at once, rather than waiting for the next
     // change — which could be days off.
     expect(drive.files, hasLength(1));
-    expect(drive.files.keys.single, ICloudBackup.fileNameFor(DateTime.now()));
+    expect(drive.files.keys.single, ICloudBackup.fileName);
   });
 
   test('a reinstall gets its library back without being asked', () async {
@@ -215,12 +215,29 @@ void main() {
     expect(await backup.isEnabled(), isTrue);
   });
 
-  test('one file a day, in a month folder, named for what it is', () {
-    expect(
-      ICloudBackup.fileNameFor(DateTime(2026, 9, 17)),
-      '202609/library-20260917.json',
-    );
-  });
+  test(
+    'one file, overwritten — not a shelf of near-identical snapshots',
+    () async {
+      final source = _stores();
+      await source.assets.upsert(
+        localId: 'photo:PH1',
+        contentHash: 'PH1',
+        platform: 'ios',
+      );
+      final drive = _FakeDrive();
+      final backup = ICloudBackup(
+        snapshots: source.io,
+        settings: source.assets,
+        drive: drive,
+      );
+
+      await backup.setEnabled(true);
+      await backup.backUpNow();
+      await backup.backUpNow();
+
+      expect(drive.files.keys.toList(), [ICloudBackup.fileName]);
+    },
+  );
 
   group('the snapshot', () {
     test('survives a round trip through text', () async {

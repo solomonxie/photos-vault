@@ -183,26 +183,90 @@ Future<void> openPrivateAlbums(
   );
 }
 
-/// The grid tiles' long-press "Hide" action: same passcode popup, then
-/// tags `record` with the resulting hash directly — no separate album to
-/// create first. Returns `false` (no-op) if the popup was cancelled —
-/// callers that optimistically update local state should check this
-/// rather than assume the hide happened.
+/// Hides [records]: tags each with a passcode hash — no separate album to
+/// create first, the group sharing a hash *is* the album — and takes them
+/// out of the OS photo library, which is the half that makes "hidden" mean
+/// anything. Returns `false` (no-op) if the passcode popup was cancelled.
+///
+/// Both halves live here rather than at the call sites. They were split
+/// once, with the library grid doing the taking-out and the three other
+/// ways into a hidden album doing only the tagging — so a photo added from
+/// inside the album disappeared from this app and stayed in Photos, which
+/// is the one outcome a hidden album must not produce.
+///
+/// [passcodeHash] is for a hidden album that's already open: it knows its
+/// own hash, and asking for it again to add to it would be asking a
+/// question already answered.
 Future<bool> hideIntoPrivateAlbum(
   BuildContext context, {
   required AssetRecordStore assetRecordStore,
-  required AssetRecord record,
+  required List<AssetRecord> records,
+  String? passcodeHash,
+  LibraryCustody? custody,
 }) async {
-  // Said before the passcode, not after the photo has gone: hiding takes
-  // the photo out of Photos, and that's worth knowing in advance.
-  final passcode = await showPrivateAlbumPasscodeSheet(
-    context,
-    note: AppLocalizations.of(context)!.libraryHideNote,
+  final l10n = AppLocalizations.of(context)!;
+  // Asked every time, before anything moves. Hiding deletes the originals
+  // out of Photos — a destructive, one-way step that this app is the only
+  // holder of afterwards — and a step like that is confirmed at the point
+  // of action, not explained in a note beside a keypad.
+  final confirmed = await showCupertinoDialog<bool>(
+    context: context,
+    builder: (context) => CupertinoAlertDialog(
+      title: Text(l10n.libraryHideConfirmTitle(records.length)),
+      content: Text(l10n.libraryHideConfirmBody),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(l10n.actionCancel),
+        ),
+        CupertinoDialogAction(
+          isDestructiveAction: true,
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(l10n.libraryHideConfirmAction),
+        ),
+      ],
+    ),
   );
-  if (passcode == null) return false;
-  await assetRecordStore.setPasscodeHash(
-    record.localId,
-    hashPasscode(passcode),
-  );
-  return true;
+  if (confirmed != true || !context.mounted) return false;
+  var hash = passcodeHash;
+  if (hash == null) {
+    final passcode = await showPrivateAlbumPasscodeSheet(context);
+    if (passcode == null) return false;
+    hash = hashPasscode(passcode);
+  }
+  final keeper = custody ?? LibraryCustody(store: assetRecordStore);
+  var stillInLibrary = 0;
+  var failed = 0;
+  for (final record in records) {
+    await assetRecordStore.setPasscodeHash(record.localId, hash);
+    switch (await keeper.takeOut(record)) {
+      case CustodyResult.failed:
+        // Nothing was copied out, so nothing should have been hidden
+        // either — a hidden photo this app doesn't hold is a photo nobody
+        // holds.
+        await assetRecordStore.setPasscodeHash(record.localId, null);
+        failed++;
+      case CustodyResult.takenButStillInLibrary:
+        stillInLibrary++;
+      case CustodyResult.taken || CustodyResult.returned:
+        break;
+    }
+  }
+  if (context.mounted && (failed > 0 || stillInLibrary > 0)) {
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        content: Text(
+          failed > 0 ? l10n.libraryHideFailed : l10n.libraryHideStillInPhotos,
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(l10n.actionOk),
+          ),
+        ],
+      ),
+    );
+  }
+  return failed < records.length;
 }
