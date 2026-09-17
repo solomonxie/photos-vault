@@ -210,6 +210,11 @@
   "@backupQueueSpeed": {
     "placeholders": {"count": {"type": "int"}}
   },
+  "backupQueuePauseAction": "Pause",
+  "backupQueueResumeAction": "Resume",
+  "backupQueueSlowerShort": "Slower",
+  "backupQueueFasterShort": "Faster",
+  "backupQueueClearSyncedShort": "Clear Done",
   "backupQueueSlower": "Slower (one fewer at a time)",
   "backupQueueFaster": "Faster (one more at a time)",
   "backupQueueClearSynced": "Clear Finished",

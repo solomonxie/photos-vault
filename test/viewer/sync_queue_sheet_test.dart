@@ -136,8 +136,7 @@ void main() {
       await tester.pumpWidget(_wrap(SyncQueueSheet(queue: queue)));
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(CupertinoIcons.ellipsis_circle));
-      await tester.pumpAndSettle();
+      // The queue's controls are on the sheet now, not behind a "…".
       await tester.tap(find.text('Clear Queue'));
       await tester.pumpAndSettle();
 
