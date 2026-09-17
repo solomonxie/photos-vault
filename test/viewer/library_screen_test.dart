@@ -341,15 +341,6 @@ void main() {
       picker: ({type = FileType.any, allowMultiple = false}) async => [],
     );
 
-    // Adding files is the tile at the end of the roll now, so the library
-    // needs a photo for there to be an end of the roll to put it after.
-    await recordStore.upsert(
-      localId: 'manual:one',
-      contentHash: 'one',
-      platform: 'ios',
-      sourceType: AssetSourceType.manualFile,
-      sourcePath: '/tmp/one.jpg',
-    );
     await tester.binding.setSurfaceSize(const Size(400, 1200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -373,7 +364,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byType(AddPhotosTile));
+    // Adding lives on the header row, where it's reachable from anywhere
+    // in the library rather than only from the bottom of it.
+    await tester.tap(find.byIcon(CupertinoIcons.add));
     await tester.pumpAndSettle();
 
     expect(find.text('Added 0 file(s), backed up 0.'), findsOneWidget);

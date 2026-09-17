@@ -1390,7 +1390,6 @@ class LibraryScreenState extends State<LibraryScreen>
                   onLongPress: _startSelecting,
                   selectedIds: selection,
                   actionsFor: (r) => _actionsFor(l10n, r),
-                  onAdd: _busy ? null : addFiles,
                   emptySliver: _all.isEmpty
                       ? SliverToBoxAdapter(
                           child: _EmptyState(
@@ -1475,8 +1474,11 @@ class LibraryScreenState extends State<LibraryScreen>
   /// stays pinned under the status bar however far the page is scrolled.
   static const _navigationBarHeight = 44.0;
 
-  /// Kept clear at the trailing end of the bar for its own button.
-  static const _navigationBarActionWidth = 72.0;
+  /// Kept clear at the trailing end of the bar for its own buttons — add
+  /// and search. A translucent overlay still wins the gesture arena against
+  /// what's under it, so anything covered here is a button that can't be
+  /// pressed.
+  static const _navigationBarActionWidth = 128.0;
 
   /// The system's own status-bar tap. It never reaches the widget tree — iOS
   /// hands it to the engine, which forwards it to every
@@ -1500,17 +1502,27 @@ class LibraryScreenState extends State<LibraryScreen>
         onTap: _jumpHome,
         child: Text(l10n.tabLibrary),
       ),
-      // A button, not a field. A search box living at the top of the scroll
+      // Buttons, not fields. A search box living at the top of the scroll
       // content is a box nobody can reach: the page opens at the *newest*
-      // photo, so the field sat a decade of scrolling away. As a navigation
-      // bar button it's in the same place whatever you're looking at.
-      trailing: _all.isEmpty
-          ? null
-          : CupertinoButton(
-              // A bar button is a thumb target, not a glyph: zero padding
-              // around a 22pt icon is a quarter of the area a finger needs.
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              minimumSize: const Size(44, 44),
+      // photo, so the field sat a decade of scrolling away. On the
+      // navigation bar they're in the same place whatever you're looking
+      // at — which is the whole argument for importing living here too,
+      // rather than at the end of a grid you have to reach the bottom of.
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          CupertinoButton(
+            // A bar button is a thumb target, not a glyph: zero padding
+            // around a 22pt icon is a quarter of the area a finger needs.
+            padding: const EdgeInsets.symmetric(horizontal: 6),
+            minimumSize: const Size(40, 44),
+            onPressed: _busy ? null : addFiles,
+            child: const Icon(CupertinoIcons.add, size: 24),
+          ),
+          if (_all.isNotEmpty)
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 6),
+              minimumSize: const Size(40, 44),
               onPressed: _toggleSearch,
               // "Cancel" while open, not a second ✕: the field has its own
               // clear button, and two identical crosses a centimetre apart
@@ -1522,6 +1534,8 @@ class LibraryScreenState extends State<LibraryScreen>
                     )
                   : const Icon(CupertinoIcons.search, size: 24),
             ),
+        ],
+      ),
     ),
     SliverToBoxAdapter(
       child: AnimatedBuilder(
