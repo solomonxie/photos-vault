@@ -102,6 +102,7 @@
   "albumsVideosName": "Videos",
   "albumsNewTitle": "New Album",
   "albumsNewNamePlaceholder": "Album name",
+  "albumUseAsCover": "Use as Album Cover",
   "albumAddPhotos": "Add Photos",
   "albumDescriptionPlaceholder": "Add a note about this album",
   "albumTagsHeading": "Tags",
@@ -217,6 +218,15 @@
     "placeholders": {"count": {"type": "int"}}
   },
 
+  "settingsCloudSyncHeading": "Cloud Sync",
+  "settingsSyncHowOften": "How often: {value}",
+  "@settingsSyncHowOften": {
+    "placeholders": { "value": { "type": "String" } }
+  },
+  "settingsBackupFormatLabel": "Format: {value}",
+  "@settingsBackupFormatLabel": {
+    "placeholders": { "value": { "type": "String" } }
+  },
   "settingsSyncFrequencyHeading": "Sync Frequency",
   "settingsSyncFrequencyHint": "Checked opportunistically while the app is open — there's no background-sync permission yet, so a closed app won't sync on its own.",
   "settingsSyncFrequencyManual": "Manual Only",

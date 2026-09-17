@@ -387,22 +387,19 @@ class _SettingsScreenState extends State<SettingsScreen>
           : SafeArea(
               child: ListView(
                 padding: const EdgeInsets.only(top: 8, bottom: 32),
-                // How and how often, then where. The two settings are the
-                // page's actual controls; the bucket list below them is a
-                // list of places, and reading it doesn't answer either
-                // question.
+                // What it does, then where it puts things. The sync
+                // section is the page's actual controls; the two
+                // destination lists under it are places, and reading them
+                // answers none of the questions above. iCloud comes first
+                // of the two because it's the one with no setup at all.
                 children: [
                   _syncSection(l10n, targets),
-                  const SettingsSectionDivider(),
-                  _formatSection(l10n),
-                  const SettingsSectionDivider(),
-                  _bucketsSection(l10n, targets),
-                  const SettingsSectionDivider(),
-                  _queueSection(l10n),
                   if (_icloudState != ICloudState.unsupported) ...[
                     const SettingsSectionDivider(),
                     _appDataSection(l10n),
                   ],
+                  const SettingsSectionDivider(),
+                  _bucketsSection(l10n, targets),
                 ],
               ),
             ),
@@ -528,23 +525,18 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
-  /// The queue gets a row rather than a line of footer text under the
-  /// bucket list. It's the answer to "is anything happening?", which is the
-  /// most-asked question on this page and was the smallest thing on it.
-  Widget _queueSection(AppLocalizations l10n) {
+  /// The queue as one row, in with the rest of the sync controls. It's the
+  /// answer to "is anything happening?", which is the most-asked question
+  /// on this page and used to be the smallest thing on it.
+  Widget _queueRow(AppLocalizations l10n) {
     final queue = widget.syncQueue;
     if (queue == null) {
-      return SettingsSection(
-        heading: l10n.settingsSyncQueueRow.toUpperCase(),
-        primary: false,
-        children: [
-          SettingsRow(
-            leading: const SettingsIconTile(
-              icon: CupertinoIcons.arrow_2_circlepath,
-            ),
-            title: l10n.backupQueueIdle,
-          ),
-        ],
+      return SettingsRow(
+        leading: const SettingsIconTile(
+          icon: CupertinoIcons.arrow_2_circlepath,
+        ),
+        title: l10n.settingsSyncQueueRow,
+        subtitle: l10n.backupQueueIdle,
       );
     }
     return ValueListenableBuilder<List<SyncJob>>(
@@ -555,32 +547,26 @@ class _SettingsScreenState extends State<SettingsScreen>
           valueListenable: queue.paused,
           builder: (context, paused, _) => ValueListenableBuilder<int>(
             valueListenable: queue.concurrency,
-            builder: (context, concurrency, _) => SettingsSection(
-              heading: l10n.settingsSyncQueueRow.toUpperCase(),
-              primary: false,
-              children: [
-                SettingsRow(
-                  leading: const SettingsIconTile(
-                    icon: CupertinoIcons.arrow_2_circlepath,
-                  ),
-                  title: l10n.settingsSyncQueueRow,
-                  // Paused belongs out here, not only inside the sheet: a
-                  // paused queue takes nothing new, so it's the answer to
-                  // "why is nothing backing up" and has to be visible from
-                  // where that gets asked.
-                  subtitle: paused
-                      ? l10n.backupQueuePausedNote
-                      : pending == 0
-                      ? l10n.backupQueueIdle
-                      : l10n.settingsSyncQueuePending(pending, concurrency),
-                  onTap: _openQueue,
-                  trailing: const Icon(
-                    CupertinoIcons.chevron_forward,
-                    size: 14,
-                    color: settingsSecondary,
-                  ),
-                ),
-              ],
+            builder: (context, concurrency, _) => SettingsRow(
+              leading: const SettingsIconTile(
+                icon: CupertinoIcons.arrow_2_circlepath,
+              ),
+              title: l10n.settingsSyncQueueRow,
+              // Paused belongs out here, not only inside the sheet: a
+              // paused queue takes nothing new, so it's the answer to "why
+              // is nothing backing up" and has to be visible from where
+              // that gets asked.
+              subtitle: paused
+                  ? l10n.backupQueuePausedNote
+                  : pending == 0
+                  ? l10n.backupQueueIdle
+                  : l10n.settingsSyncQueuePending(pending, concurrency),
+              onTap: _openQueue,
+              trailing: const Icon(
+                CupertinoIcons.chevron_forward,
+                size: 14,
+                color: settingsSecondary,
+              ),
             ),
           ),
         );
@@ -617,60 +603,68 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
   }
 
+  /// One section for the whole of "how this app talks to the cloud": how
+  /// often, the button that does it now, what gets uploaded, and what's
+  /// queued. They were four separate headings, each with one control under
+  /// it, which made a page of headings rather than a page of settings.
   Widget _syncSection(AppLocalizations l10n, List<S3BackupTarget> targets) {
-    final l10nLastSynced = _lastSyncAt == null
+    final lastSynced = _lastSyncAt == null
         ? l10n.settingsLastSyncedNever
         : l10n.settingsLastSyncedAt(
             DateFormat.MMMd().add_jm().format(_lastSyncAt!),
           );
     return SettingsSection(
-      heading: l10n.settingsSyncFrequencyHeading.toUpperCase(),
+      heading: l10n.settingsCloudSyncHeading.toUpperCase(),
       primary: false,
-      action: SettingsAccentButton(
-        label: _frequencyLabel(l10n, _frequency),
-        onPressed: _pickFrequency,
-        showChevron: true,
-      ),
       hint: l10n.settingsSyncFrequencyHint,
       children: [
         Padding(
-          padding: const EdgeInsets.fromLTRB(
-            settingsPagePadding,
-            0,
-            settingsPagePadding,
-            0,
-          ),
-          child: Text(l10nLastSynced, style: settingsFooterStyle),
+          padding: const EdgeInsets.fromLTRB(settingsPagePadding, 0, 16, 0),
+          child: Text(lastSynced, style: settingsFooterStyle),
         ),
         const SizedBox(height: 4),
-        Align(
-          alignment: Alignment.centerLeft,
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 12),
+        // The choice and the action on one line: "how often, or do it now"
+        // is one thought, and it was split across a heading and a button
+        // half a page apart.
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Row(
+            children: [
+              SettingsAccentButton(
+                label: l10n.settingsSyncHowOften(
+                  _frequencyLabel(l10n, _frequency),
+                ),
+                onPressed: _pickFrequency,
+                showChevron: true,
+              ),
+              const SizedBox(width: 12),
+              SettingsAccentButton(
+                label: _syncing
+                    ? l10n.settingsSyncingMessage
+                    : l10n.settingsSyncNowButton,
+                // Never a silent no-op: with nothing configured there is
+                // nowhere to sync to, so the control stays visible but dead.
+                onPressed: targets.isEmpty || _syncing ? null : _syncNow,
+              ),
+            ],
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          child: Align(
+            alignment: Alignment.centerLeft,
             child: SettingsAccentButton(
-              label: _syncing
-                  ? l10n.settingsSyncingMessage
-                  : l10n.settingsSyncNowButton,
-              // Never a silent no-op: with nothing configured there is
-              // nowhere to sync to, so the control stays visible but dead.
-              onPressed: targets.isEmpty || _syncing ? null : _syncNow,
+              label: l10n.settingsBackupFormatLabel(
+                _formatLabel(l10n, _format),
+              ),
+              onPressed: _pickFormat,
+              showChevron: true,
             ),
           ),
         ),
+        const SizedBox(height: 4),
+        _queueRow(l10n),
       ],
-    );
-  }
-
-  Widget _formatSection(AppLocalizations l10n) {
-    return SettingsSection(
-      heading: l10n.settingsBackupFormatHeading.toUpperCase(),
-      primary: false,
-      action: SettingsAccentButton(
-        label: _formatLabel(l10n, _format),
-        onPressed: _pickFormat,
-        showChevron: true,
-      ),
-      hint: l10n.settingsBackupFormatHint,
     );
   }
 }

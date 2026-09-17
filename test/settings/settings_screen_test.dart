@@ -223,7 +223,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Manual Only'), findsOneWidget);
+      expect(find.text('How often: Manual Only'), findsOneWidget);
       expect(find.text('Never synced'), findsOneWidget);
 
       // Present but disabled rather than missing — a manual action must never
@@ -249,7 +249,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Manual Only'));
+    await tester.tap(find.text('How often: Manual Only'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Every Hour'));
     await tester.pumpAndSettle();
@@ -272,7 +272,7 @@ void main() {
     // The page carries the current answer, not both answers and their
     // reasons laid out permanently.
     expect(find.textContaining('Full quality, byte-identical'), findsNothing);
-    await tester.tap(find.text('Original'));
+    await tester.tap(find.text('Format: Original'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Full quality, byte-identical'), findsOneWidget);
@@ -281,6 +281,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(await store.getBackupFormat(), BackupFormat.optimized);
-    expect(find.text('Optimized (WebP)'), findsOneWidget);
+    expect(find.text('Format: Optimized (WebP)'), findsOneWidget);
   });
 }

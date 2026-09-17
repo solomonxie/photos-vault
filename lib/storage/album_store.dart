@@ -32,8 +32,13 @@ class AlbumStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 3) {
+            await db.execute(
+              'ALTER TABLE $_albumTable ADD COLUMN cover_local_id TEXT',
+            );
+          }
           if (oldVersion < 2) {
             await db.execute(
               "ALTER TABLE $_albumTable ADD COLUMN description TEXT NOT NULL DEFAULT ''",
@@ -51,6 +56,7 @@ class AlbumStore {
               is_demo INTEGER NOT NULL DEFAULT 0,
               description TEXT NOT NULL DEFAULT '',
               tags TEXT NOT NULL DEFAULT '[]',
+              cover_local_id TEXT,
               created_at INTEGER NOT NULL
             )
           ''');
@@ -169,6 +175,7 @@ class AlbumStore {
         'name': album.name,
         'description': album.description,
         'tags': jsonEncode(album.tags),
+        'cover_local_id': album.coverLocalId,
       },
       where: 'id = ?',
       whereArgs: [album.id],
@@ -195,5 +202,6 @@ class AlbumStore {
     description: row['description'] as String? ?? '',
     tags: (jsonDecode(row['tags'] as String? ?? '[]') as List<dynamic>)
         .cast<String>(),
+    coverLocalId: row['cover_local_id'] as String?,
   );
 }
