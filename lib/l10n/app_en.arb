@@ -234,6 +234,19 @@
   "settingsBackupFormatVideoNote": "Videos always back up at original quality — there's no video re-encoding yet.",
   "settingsBackupFormatFolderNote": "Both formats still upload under the same \"originals/\" folder — that name means full resolution (as opposed to a future thumbnail/medium tier), not \"byte-for-byte unmodified\". An Optimized upload there just has a .webp extension instead of the original file's.",
 
+  "settingsAppDataHeading": "App Data",
+  "settingsAppDataHint": "Albums, people, tags, captions and places — everything that isn't the photo itself. Written to your iCloud Drive as one file a day, and pulled back automatically if you reinstall. Not sync between devices, and never your bucket keys.",
+  "settingsICloudRow": "iCloud Drive",
+  "settingsICloudPath": "Files → iCloud Drive → Bring Your Own Photos",
+  "settingsICloudNever": "Nothing backed up yet",
+  "settingsICloudLastBackup": "Last copy {when}",
+  "@settingsICloudLastBackup": {
+    "placeholders": { "when": { "type": "String" } }
+  },
+  "settingsICloudNotEntitled": "This build of the app isn't signed for iCloud",
+  "settingsICloudDriveOff": "iCloud Drive is off on this device",
+  "settingsICloudDriveOffFix": "Settings → your name → iCloud → Drive → turn on",
+  "settingsICloudNotReady": "iCloud isn't ready yet — try again shortly",
   "settingsCloudBucketsHeading": "Cloud Buckets",
   "settingsEmptyTitle": "No Cloud Buckets Yet",
   "settingsEmptyNote": "Add one to start backing up your photos and videos.",

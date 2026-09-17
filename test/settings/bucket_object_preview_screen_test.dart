@@ -26,7 +26,8 @@ void main() {
         BucketObjectPreviewScreen(
           target: _target,
           objectKey: 'originals/vacation.jpg',
-          presignGetUrl: ({required target, required key}) async => Uri.parse('https://example.com/$key'),
+          presignGetUrl: ({required target, required key}) async =>
+              Uri.parse('https://example.com/$key'),
         ),
       ),
     );
@@ -35,21 +36,25 @@ void main() {
     expect(find.text('vacation.jpg'), findsOneWidget);
   });
 
-  testWidgets('a non-image key offers Open Externally instead of an inline preview', (tester) async {
-    await tester.pumpWidget(
-      _wrap(
-        BucketObjectPreviewScreen(
-          target: _target,
-          objectKey: 'originals/notes.txt',
-          presignGetUrl: ({required target, required key}) async => Uri.parse('https://example.com/$key'),
+  testWidgets(
+    'a non-image key offers Open Externally instead of an inline preview',
+    (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          BucketObjectPreviewScreen(
+            target: _target,
+            objectKey: 'originals/notes.txt',
+            presignGetUrl: ({required target, required key}) async =>
+                Uri.parse('https://example.com/$key'),
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    expect(find.text("Can't preview this file type."), findsOneWidget);
-    expect(find.text('Open Externally'), findsOneWidget);
-  });
+      expect(find.text("Can't preview this file type."), findsOneWidget);
+      expect(find.text('Open Externally'), findsOneWidget);
+    },
+  );
 
   testWidgets('shows the presign error inline when it fails', (tester) async {
     await tester.pumpWidget(
@@ -57,7 +62,8 @@ void main() {
         BucketObjectPreviewScreen(
           target: _target,
           objectKey: 'originals/a.jpg',
-          presignGetUrl: ({required target, required key}) async => throw Exception('no credentials'),
+          presignGetUrl: ({required target, required key}) async =>
+              throw Exception('no credentials'),
         ),
       ),
     );

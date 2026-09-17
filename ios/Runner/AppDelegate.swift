@@ -17,5 +17,10 @@ import UIKit
     ) {
       VisionAnalysisChannel.register(with: registrar)
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "ICloudDriveChannel"
+    ) {
+      ICloudDriveChannel.register(with: registrar)
+    }
   }
 }

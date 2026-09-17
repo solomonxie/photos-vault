@@ -2,7 +2,12 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show MaterialPageRoute;
 import 'package:intl/intl.dart';
 
+import '../backup/app_snapshot.dart';
+import '../backup/icloud_backup.dart';
+import '../backup/icloud_drive.dart';
 import '../l10n/app_localizations.dart';
+import '../photos/person_store.dart';
+import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/backup_coordinator.dart';
@@ -29,6 +34,7 @@ class SettingsScreen extends StatefulWidget {
     this.syncEverything,
     this.syncQueue,
     this.openAsset,
+    this.icloudBackup,
   });
 
   final BackupTargetsStore? store;
@@ -51,6 +57,11 @@ class SettingsScreen extends StatefulWidget {
   /// just reads as idle.
   final SyncQueue? syncQueue;
 
+  /// The iCloud copy of everything that isn't a photo. Optional so the
+  /// screen still stands alone in tests, which have no platform channel to
+  /// answer for the container.
+  final ICloudBackup? icloudBackup;
+
   /// Opens one asset in the photo viewer — what tapping a queue row does.
   /// Owned by `LibraryScreen`, which is where the viewer and the records
   /// live. Absent, queue rows aren't tappable.
@@ -60,7 +71,8 @@ class SettingsScreen extends StatefulWidget {
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
 
-class _SettingsScreenState extends State<SettingsScreen> {
+class _SettingsScreenState extends State<SettingsScreen>
+    with WidgetsBindingObserver {
   late final BackupTargetsStore _store = widget.store ?? BackupTargetsStore();
   late final AssetRecordStore _assetRecordStore =
       widget.assetRecordStore ?? AssetRecordStore();
@@ -88,6 +100,22 @@ class _SettingsScreenState extends State<SettingsScreen> {
         return _retryRecords(due);
       };
 
+  late final ICloudBackup _icloudBackup =
+      widget.icloudBackup ??
+      ICloudBackup(
+        settings: _assetRecordStore,
+        snapshots: AppSnapshotIo(
+          assetRecordStore: _assetRecordStore,
+          albumStore: AlbumStore(),
+          personStore: PersonStore(),
+        ),
+      );
+
+  ICloudState _icloudState = ICloudState.unsupported;
+  bool _icloudEnabled = false;
+  DateTime? _icloudLastBackupAt;
+  bool _icloudBusy = false;
+
   List<S3BackupTarget>? _targets;
   List<AssetRecord> _records = const [];
   BackupFormat _format = BackupFormat.original;
@@ -99,6 +127,60 @@ class _SettingsScreenState extends State<SettingsScreen> {
   void initState() {
     super.initState();
     _reload();
+    _reloadICloud();
+    WidgetsBinding.instance.addObserver(this);
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    super.dispose();
+  }
+
+  /// The fix for "iCloud Drive is off" happens over in the Settings app, so
+  /// the user leaves and comes back. A row still showing the old state on
+  /// their return reads as "it didn't work".
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) _reloadICloud();
+  }
+
+  Future<void> _reloadICloud() async {
+    var state = ICloudState.unsupported;
+    var enabled = false;
+    DateTime? lastBackupAt;
+    try {
+      state = await _icloudBackup.drive.status();
+      enabled = await _icloudBackup.isEnabled();
+      if (state == ICloudState.available) {
+        lastBackupAt = await _icloudBackup.drive.latestWriteAt();
+      }
+    } catch (_) {
+      // No channel and no database to remember the switch in — which is a
+      // build that can't do this at all, and the row stays off the page.
+      state = ICloudState.unsupported;
+    }
+    if (!mounted) return;
+    setState(() {
+      _icloudState = state;
+      _icloudEnabled = enabled;
+      _icloudLastBackupAt = lastBackupAt;
+    });
+  }
+
+  /// Flipping it on copies straight away rather than waiting for the next
+  /// change, which could be days off — so "did that work?" is answered by
+  /// the switch itself, and there's no Sync Now button beside it papering
+  /// over the doubt.
+  Future<void> _toggleICloud(bool value) async {
+    setState(() {
+      _icloudEnabled = value;
+      _icloudBusy = value;
+    });
+    await _icloudBackup.setEnabled(value);
+    if (!mounted) return;
+    setState(() => _icloudBusy = false);
+    await _reloadICloud();
   }
 
   Future<void> _reload() async {
@@ -262,6 +344,10 @@ class _SettingsScreenState extends State<SettingsScreen> {
                 padding: const EdgeInsets.only(top: 8, bottom: 32),
                 children: [
                   _bucketsSection(l10n, targets),
+                  if (_icloudState != ICloudState.unsupported) ...[
+                    const SettingsSectionDivider(),
+                    _appDataSection(l10n),
+                  ],
                   const SettingsSectionDivider(),
                   _syncSection(l10n, targets),
                   const SettingsSectionDivider(),
@@ -271,6 +357,68 @@ class _SettingsScreenState extends State<SettingsScreen> {
             ),
     );
   }
+
+  /// One switch and nothing else. "Back up here" and "do it
+  /// automatically" as separate toggles, plus a Sync Now beside them, is
+  /// three controls for one decision and nobody can predict what any
+  /// combination does.
+  ///
+  /// A container that can't work *right now* still shows its row: hiding it
+  /// makes the feature invisible to exactly the person who needs telling
+  /// about it. What changes is the line under the title — and only the one
+  /// state the user can actually fix gets told how.
+  Widget _appDataSection(AppLocalizations l10n) {
+    final blocked = switch (_icloudState) {
+      ICloudState.notEntitled => l10n.settingsICloudNotEntitled,
+      ICloudState.driveOff => l10n.settingsICloudDriveOff,
+      ICloudState.notReady => l10n.settingsICloudNotReady,
+      ICloudState.available || ICloudState.unsupported => null,
+    };
+    final lastBackupAt = _icloudLastBackupAt;
+    return SettingsSection(
+      heading: l10n.settingsAppDataHeading,
+      primary: false,
+      hint: l10n.settingsAppDataHint,
+      children: [
+        SettingsRow(
+          leading: const SettingsIconTile(icon: CupertinoIcons.cloud_upload),
+          title: l10n.settingsICloudRow,
+          // Says it once: a blocked row's reason *replaces* the location
+          // line rather than being appended to it.
+          subtitle: blocked ?? l10n.settingsICloudPath,
+          detail: blocked != null
+              ? null
+              : lastBackupAt == null
+              ? l10n.settingsICloudNever
+              : l10n.settingsICloudLastBackup(_formatWhen(lastBackupAt)),
+          trailing: _icloudBusy
+              ? const CupertinoActivityIndicator(radius: 9)
+              : CupertinoSwitch(
+                  value: _icloudEnabled,
+                  onChanged: _icloudState == ICloudState.available
+                      ? _toggleICloud
+                      : null,
+                ),
+        ),
+        if (_icloudState == ICloudState.driveOff)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(
+              settingsPagePadding,
+              0,
+              settingsPagePadding,
+              8,
+            ),
+            child: Text(
+              l10n.settingsICloudDriveOffFix,
+              style: const TextStyle(fontSize: 12, color: settingsAccent),
+            ),
+          ),
+      ],
+    );
+  }
+
+  String _formatWhen(DateTime at) =>
+      DateFormat.yMMMd().add_jm().format(at.toLocal());
 
   Widget _bucketsSection(AppLocalizations l10n, List<S3BackupTarget> targets) {
     return SettingsSection(

@@ -18,6 +18,8 @@ import '../photos/on_device_analysis.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/photo_library_change.dart';
+import '../backup/app_snapshot.dart';
+import '../backup/icloud_backup.dart';
 import '../photos/library_custody.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
@@ -69,6 +71,7 @@ class LibraryScreen extends StatefulWidget {
     this.photoLibraryService,
     this.photoLocationService,
     this.libraryCustody,
+    this.icloudBackup,
     this.personStore,
     this.hashFile,
     this.thumbnailCache,
@@ -97,6 +100,10 @@ class LibraryScreen extends StatefulWidget {
   /// Overridable for tests so hiding never deletes from a real photo
   /// library.
   final LibraryCustody? libraryCustody;
+
+  /// Overridable for tests so a fresh library never reaches for a real
+  /// iCloud container.
+  final ICloudBackup? icloudBackup;
 
   /// Overridable for tests so they never open the real file picker.
   final ManualAddService? manualAddService;
@@ -157,6 +164,16 @@ class LibraryScreenState extends State<LibraryScreen>
       widget.photoLocationService ?? PhotoLocationService();
   late final LibraryCustody _custody =
       widget.libraryCustody ?? LibraryCustody(store: assetRecordStore);
+  late final ICloudBackup _icloudBackup =
+      widget.icloudBackup ??
+      ICloudBackup(
+        settings: assetRecordStore,
+        snapshots: AppSnapshotIo(
+          assetRecordStore: assetRecordStore,
+          albumStore: _albumStore,
+          personStore: _personStore,
+        ),
+      );
   late final Future<String> Function(String path) _hashFile =
       widget.hashFile ?? file_hash.hashFile;
   late final ThumbnailCache _thumbnailCache =
@@ -209,6 +226,14 @@ class LibraryScreenState extends State<LibraryScreen>
   @override
   void didChangeAppLifecycleState(AppLifecycleState state) {
     super.didChangeAppLifecycleState(state);
+    // Going away is when the day's work is done and nothing is mid-edit —
+    // the right moment to write the copy, and the one moment that costs the
+    // user nothing. (Once a day: the file is named for the day, so a second
+    // write replaces the first rather than piling up.)
+    if (state == AppLifecycleState.paused) {
+      unawaited(_icloudBackup.backUpIfEnabled());
+      return;
+    }
     if (state != AppLifecycleState.resumed || !mounted) return;
     unawaited(_syncPhotoLibrary());
     unawaited(_runScheduledSyncIfDue());
@@ -325,6 +350,11 @@ class LibraryScreenState extends State<LibraryScreen>
   /// unasked put fake photos in among real ones and made the first thing
   /// the app showed somebody else's pictures.
   Future<void> _init() async {
+    // Before anything else writes, and before the camera-roll scan starts
+    // inserting records the snapshot also has: a fresh install pulls its
+    // own work back from iCloud, once, without asking. There's nothing to
+    // overwrite and no context yet for a "restore from backup?" question.
+    await _restoreFromICloud();
     await reload();
     // Picks up whatever a previous run left queued — including jobs left
     // `running` by a kill mid-sync — and starts draining.
@@ -338,6 +368,15 @@ class LibraryScreenState extends State<LibraryScreen>
     // other natural "app came to the foreground" moment, alongside
     // returning to this screen from Cloud Backups (see `_openCloudBackups`).
     unawaited(_runScheduledSyncIfDue());
+  }
+
+  Future<void> _restoreFromICloud() async {
+    try {
+      await _icloudBackup.restoreIfFreshInstall();
+    } catch (_) {
+      // No container, no channel, nothing in it — an empty library is the
+      // same empty library it would have been.
+    }
   }
 
   /// Pulls in the real camera roll (T2.1) — permission prompt on first run,
@@ -1169,6 +1208,7 @@ class LibraryScreenState extends State<LibraryScreen>
           syncEverything: _syncEverything,
           syncQueue: syncQueue,
           openAsset: _openById,
+          icloudBackup: _icloudBackup,
         ),
       ),
     );

@@ -47,10 +47,11 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 11,
+        version: 12,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createPlaceNameTableSql);
+          await db.execute(_createAppStateTableSql);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -96,6 +97,9 @@ class AssetRecordStore {
             await db.execute(
               'ALTER TABLE $_table ADD COLUMN is_live_photo INTEGER NOT NULL DEFAULT 0',
             );
+          }
+          if (oldVersion < 12) {
+            await db.execute(_createAppStateTableSql);
           }
           if (oldVersion < 11) {
             await db.execute('ALTER TABLE $_table ADD COLUMN library_id TEXT');
@@ -165,6 +169,21 @@ class AssetRecordStore {
   /// see `PhotoLocationService`, which owns the rounding and the reasoning.
   /// A row with a null `name` is a remembered "there's nothing there",
   /// which is just as worth not asking twice.
+  /// Flags about the library as a whole — whether iCloud backup is on,
+  /// whether a restore has already happened. In the same database file as
+  /// the records they describe, so the two can't disagree: the keychain,
+  /// the other obvious home, *outlives* an uninstall on iOS, which would
+  /// leave a fresh install convinced it had already restored.
+  static const _appStateTable = 'app_state';
+
+  static const _createAppStateTableSql =
+      '''
+    CREATE TABLE $_appStateTable (
+      key TEXT PRIMARY KEY,
+      value TEXT NOT NULL
+    )
+  ''';
+
   static const _placeNameTable = 'place_name';
 
   static const _createPlaceNameTableSql =
@@ -418,6 +437,26 @@ class AssetRecordStore {
       where: 'local_id = ?',
       whereArgs: [localId],
     );
+  }
+
+  Future<String?> getAppState(String key) async {
+    final db = await _open();
+    final rows = await db.query(
+      _appStateTable,
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return rows.single['value'] as String?;
+  }
+
+  Future<void> setAppState(String key, String value) async {
+    final db = await _open();
+    await db.insert(_appStateTable, {
+      'key': key,
+      'value': value,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// Which photo-library asset this record is the record of. Set to null

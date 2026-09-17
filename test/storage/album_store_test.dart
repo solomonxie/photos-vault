@@ -6,31 +6,44 @@ void main() {
   setUpAll(sqfliteFfiInit);
 
   AlbumStore newStore() {
-    final store = AlbumStore(databaseFactory: databaseFactoryFfi, path: inMemoryDatabasePath);
+    final store = AlbumStore(
+      databaseFactory: databaseFactoryFfi,
+      path: inMemoryDatabasePath,
+    );
     addTearDown(store.close);
     return store;
   }
 
-  test('upsert creates an album, and is idempotent for an already-tracked id', () async {
-    final store = newStore();
+  test(
+    'upsert creates an album, and is idempotent for an already-tracked id',
+    () async {
+      final store = newStore();
 
-    final first = await store.upsert(id: 'a1', name: 'Nature', isDemo: true);
-    final second = await store.upsert(id: 'a1', name: 'Renamed', isDemo: false);
+      final first = await store.upsert(id: 'a1', name: 'Nature', isDemo: true);
+      final second = await store.upsert(
+        id: 'a1',
+        name: 'Renamed',
+        isDemo: false,
+      );
 
-    expect(second.name, first.name);
-    expect(second.isDemo, first.isDemo);
-    expect(await store.listAll(), hasLength(1));
-  });
+      expect(second.name, first.name);
+      expect(second.isDemo, first.isDemo);
+      expect(await store.listAll(), hasLength(1));
+    },
+  );
 
-  test('addAssets / localIdsIn track membership, ignoring duplicates', () async {
-    final store = newStore();
-    await store.upsert(id: 'a1', name: 'Nature');
+  test(
+    'addAssets / localIdsIn track membership, ignoring duplicates',
+    () async {
+      final store = newStore();
+      await store.upsert(id: 'a1', name: 'Nature');
 
-    await store.addAssets('a1', ['p1', 'p2']);
-    await store.addAssets('a1', ['p2', 'p3']);
+      await store.addAssets('a1', ['p1', 'p2']);
+      await store.addAssets('a1', ['p2', 'p3']);
 
-    expect(await store.localIdsIn('a1'), unorderedEquals(['p1', 'p2', 'p3']));
-  });
+      expect(await store.localIdsIn('a1'), unorderedEquals(['p1', 'p2', 'p3']));
+    },
+  );
 
   test('removeAsset drops one member without affecting the rest', () async {
     final store = newStore();
