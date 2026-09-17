@@ -31,6 +31,22 @@
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSUbiquitousContainers</key>
+	<dict>
+		<key>iCloud.com.example.backYourOwnPhotos</key>
+		<dict>
+			<!-- Document scope, so the folder is one the user can actually
+			     open in Files. A container that syncs but stays hidden is
+			     worse than a local file: the backup is there and they can't
+			     get at it. -->
+			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
+			<true/>
+			<key>NSUbiquitousContainerName</key>
+			<string>Bring Your Own Photos</string>
+			<key>NSUbiquitousContainerSupportedFolderLevels</key>
+			<string>Any</string>
+		</dict>
+	</dict>
 	<key>NSPhotoLibraryUsageDescription</key>
 	<string>Used to back up your photos and videos to your own S3 bucket.</string>
 	<key>NSPhotoLibraryAddUsageDescription</key>

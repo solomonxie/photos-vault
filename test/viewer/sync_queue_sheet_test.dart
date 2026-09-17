@@ -32,14 +32,31 @@ void main() {
     await tester.pumpWidget(_wrap(SyncQueueSheet(queue: newQueue())));
     await tester.pumpAndSettle();
 
-    expect(find.text("Nothing in the queue — everything's backed up."), findsOneWidget);
+    expect(
+      find.text("Nothing in the queue — everything's backed up."),
+      findsOneWidget,
+    );
   });
 
-  testWidgets('lists every kind of work, labelled, not just uploads', (tester) async {
+  testWidgets('lists every kind of work, labelled, not just uploads', (
+    tester,
+  ) async {
     final queue = newQueue();
-    await queue.store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'beach.jpg');
-    await queue.store.enqueue(localId: 'a', kind: SyncJobKind.uploadThumbnail, displayName: 'beach.jpg');
-    await queue.store.enqueue(localId: 'b', kind: SyncJobKind.checkChanges, displayName: 'sunset.jpg');
+    await queue.store.enqueue(
+      localId: 'a',
+      kind: SyncJobKind.uploadOriginal,
+      displayName: 'beach.jpg',
+    );
+    await queue.store.enqueue(
+      localId: 'a',
+      kind: SyncJobKind.uploadThumbnail,
+      displayName: 'beach.jpg',
+    );
+    await queue.store.enqueue(
+      localId: 'b',
+      kind: SyncJobKind.checkChanges,
+      displayName: 'sunset.jpg',
+    );
     await queue.refresh();
 
     await tester.pumpWidget(_wrap(SyncQueueSheet(queue: queue)));
@@ -53,9 +70,15 @@ void main() {
     expect(find.text('Waiting'), findsNWidgets(3));
   });
 
-  testWidgets('a failed job shows its error and can be retried', (tester) async {
+  testWidgets('a failed job shows its error and can be retried', (
+    tester,
+  ) async {
     final queue = newQueue();
-    final job = await queue.store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'beach.jpg');
+    final job = await queue.store.enqueue(
+      localId: 'a',
+      kind: SyncJobKind.uploadOriginal,
+      displayName: 'beach.jpg',
+    );
     await queue.store.markFailed(job.id, 'Access denied');
     await queue.refresh();
 
@@ -67,12 +90,20 @@ void main() {
     await tester.tap(find.byIcon(CupertinoIcons.arrow_clockwise_circle_fill));
     await tester.pumpAndSettle();
 
-    expect((await queue.store.all()).single.status, SyncJobStatus.done, reason: 'retried, then drained by the no-op processor');
+    expect(
+      (await queue.store.all()).single.status,
+      SyncJobStatus.done,
+      reason: 'retried, then drained by the no-op processor',
+    );
   });
 
   testWidgets('pausing is reflected in the toggle', (tester) async {
     final queue = newQueue();
-    await queue.store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'beach.jpg');
+    await queue.store.enqueue(
+      localId: 'a',
+      kind: SyncJobKind.uploadOriginal,
+      displayName: 'beach.jpg',
+    );
     await queue.refresh();
 
     await tester.pumpWidget(_wrap(SyncQueueSheet(queue: queue)));
@@ -85,22 +116,37 @@ void main() {
     expect(find.byIcon(CupertinoIcons.play_fill), findsOneWidget);
   });
 
-  testWidgets('Clear Queue drops what is waiting without touching anything else', (tester) async {
-    final queue = newQueue();
-    await queue.store.enqueue(localId: 'a', kind: SyncJobKind.uploadOriginal, displayName: 'beach.jpg');
-    final done = await queue.store.enqueue(localId: 'b', kind: SyncJobKind.uploadOriginal, displayName: 'sunset.jpg');
-    await queue.store.markDone(done.id);
-    await queue.refresh();
+  testWidgets(
+    'Clear Queue drops what is waiting without touching anything else',
+    (tester) async {
+      final queue = newQueue();
+      await queue.store.enqueue(
+        localId: 'a',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'beach.jpg',
+      );
+      final done = await queue.store.enqueue(
+        localId: 'b',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'sunset.jpg',
+      );
+      await queue.store.markDone(done.id);
+      await queue.refresh();
 
-    await tester.pumpWidget(_wrap(SyncQueueSheet(queue: queue)));
-    await tester.pumpAndSettle();
+      await tester.pumpWidget(_wrap(SyncQueueSheet(queue: queue)));
+      await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(CupertinoIcons.ellipsis_circle));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Clear Queue'));
-    await tester.pumpAndSettle();
+      await tester.tap(find.byIcon(CupertinoIcons.ellipsis_circle));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Clear Queue'));
+      await tester.pumpAndSettle();
 
-    final remaining = await queue.store.all();
-    expect(remaining.single.id, done.id, reason: 'finished rows stay; only the waiting one is dropped');
-  });
+      final remaining = await queue.store.all();
+      expect(
+        remaining.single.id,
+        done.id,
+        reason: 'finished rows stay; only the waiting one is dropped',
+      );
+    },
+  );
 }

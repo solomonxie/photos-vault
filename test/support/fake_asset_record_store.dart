@@ -164,6 +164,15 @@ class FakeAssetRecordStore implements AssetRecordStore {
     return null;
   }
 
+  final _appState = <String, String>{};
+
+  @override
+  Future<String?> getAppState(String key) async => _appState[key];
+
+  @override
+  Future<void> setAppState(String key, String value) async =>
+      _appState[key] = value;
+
   final _placeNames = <String, PlaceNameEntry>{};
 
   @override

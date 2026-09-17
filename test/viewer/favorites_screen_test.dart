@@ -49,7 +49,9 @@ void main() {
   });
 
   testWidgets('shows the empty state with no favorites', (tester) async {
-    await tester.pumpWidget(_wrap(FavoritesScreen(assetRecordStore: FakeAssetRecordStore())));
+    await tester.pumpWidget(
+      _wrap(FavoritesScreen(assetRecordStore: FakeAssetRecordStore())),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('No favorites yet.'), findsOneWidget);
