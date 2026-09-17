@@ -207,36 +207,32 @@ void main() {
     expect(find.text('1 bucket · 1 of 2 photos backed up'), findsOneWidget);
   });
 
-  testWidgets(
-    'sync frequency is a heading control, and Sync Now is dead with no bucket',
-    (tester) async {
-      await _useTallSurface(tester);
-      final store = BackupTargetsStore(store: FakeSecureStore());
+  testWidgets('the schedule is a pill, and Sync Now is dead with no bucket', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final store = BackupTargetsStore(store: FakeSecureStore());
 
-      await tester.pumpWidget(
-        _wrap(
-          SettingsScreen(
-            store: store,
-            assetRecordStore: FakeAssetRecordStore(),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(store: store, assetRecordStore: FakeAssetRecordStore()),
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      expect(find.text('How often: Manual Only'), findsOneWidget);
-      expect(find.text('Never synced'), findsOneWidget);
+    expect(find.text('Schedule: Manual Only'), findsOneWidget);
+    expect(find.text('Never synced'), findsOneWidget);
 
-      // Present but disabled rather than missing — a manual action must never
-      // be a silent no-op.
-      final syncNow = tester.widget<CupertinoButton>(
-        find.ancestor(
-          of: find.text('Sync Now'),
-          matching: find.byType(CupertinoButton),
-        ),
-      );
-      expect(syncNow.onPressed, isNull);
-    },
-  );
+    // Present but disabled rather than missing — a manual action must never
+    // be a silent no-op.
+    final syncNow = tester.widget<CupertinoButton>(
+      find.ancestor(
+        of: find.text('Sync Now'),
+        matching: find.byType(CupertinoButton),
+      ),
+    );
+    expect(syncNow.onPressed, isNull);
+  });
 
   testWidgets('picking a sync frequency persists it', (tester) async {
     await _useTallSurface(tester);
@@ -249,7 +245,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('How often: Manual Only'));
+    await tester.tap(find.text('Schedule: Manual Only'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Every Hour'));
     await tester.pumpAndSettle();
