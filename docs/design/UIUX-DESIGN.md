@@ -776,3 +776,65 @@ Round Robin ▾  call 1 ─▶ key1        advances every call, win or lose —
   │ ╰──────────╯ │ + iOS mask        │              │   the rounding
   ╰──────────────╯ = double edge     └──────────────┘
 ```
+
+
+### Library zoom (designed, not built)
+
+Real Photos gives one gesture four densities. Pinch out for fewer, bigger
+tiles; pinch in for more, smaller ones, until the grid stops being tiles at
+all and becomes a shape of a year. The grid this app has is one density —
+four across, day headers — which is the right *middle*, and no way up or
+down from it.
+
+Four levels, each with its own grouping and header. The middle two are what
+the app has today at different tile sizes; the outer two are new groupings.
+
+```
+    pinch out ◀────────────────────────────────────────▶ pinch in
+  ┌──────────┐  ┌──────┬──────┐  ┌──┬──┬──┬──┐  ┌─┬─┬─┬─┬─┬─┬─┬─┐
+  │          │  │      │      │  ├──┼──┼──┼──┤  ├─┼─┼─┼─┼─┼─┼─┼─┤
+  │          │  ├──────┼──────┤  ├──┼──┼──┼──┤  ├─┼─┼─┼─┼─┼─┼─┼─┤
+  └──────────┘  └──────┴──────┘  └──┴──┴──┴──┘  └─┴─┴─┴─┴─┴─┴─┴─┘
+     1 across      2 across        4 across        8 across
+   ── Days ──    ── Days ──      ── Days ──      ── Months ──
+                                   (today)      then ── Years ──
+```
+
+- **Days** at 1, 2 and 4 across. Same day sections the app already draws;
+  only the tile size changes. 4 is today's grid and stays the default.
+- **Months** at 8 across. Section per month, header `Mar 2026` — the month
+  bold, the year muted, as Photos does.
+- **Years** below that. Section per year, header `2026`, tiles small enough
+  that a year is a block of colour you recognise rather than photos you
+  read.
+
+**The gesture.** Pinch anywhere on the grid. The level changes when the
+scale passes a threshold (about 1.4× up, 0.7× down), one level per pinch —
+not a continuous zoom, because the layout has to re-section at each step and
+a half-way state has no meaning. Tiles scale smoothly *within* a level so
+the pinch feels connected to something, then snap at the boundary.
+
+**Holding your place.** The photo nearest the top of the viewport before the
+pinch is the photo nearest the top after it. The grid already does this for
+photos arriving mid-scroll (`AssetGridView._viewportPin`) and the same pin
+applies: anchor on a *photo*, not a pixel offset, or a decade of library
+slides under the reader's thumb on every zoom.
+
+**The control.** A pill above the bottom edge, the way the screenshots show:
+`Years · Months · All`, current level filled, plus a sort toggle on the left
+and a close on the right. It appears on pinch and after a moment of no
+scrolling, and fades out while scrolling — a permanent bar over a photo grid
+costs a row of photos forever. Tapping a level is the same as pinching to
+it; the pill is the discoverable half of the gesture, not a second feature.
+
+**What doesn't change.** Tap opens the viewer at any level. Hold still
+selects. The date scrubber stays on the right edge, and its labels follow
+the level (days → months → years). Multi-select at Years is possible but
+not useful; the selection bar's actions apply the same regardless.
+
+**Cost.** `PhotoGridLayout` already computes sections, rows and offsets from
+a record list and a width, so most of this is a second sectioning function
+(month/year instead of day) and a `crossAxisCount` that isn't fixed at 4.
+The tile widget needs a cheaper path at 8-across and below: no badges, no
+context menu, and thumbnails decoded at a smaller `cacheWidth`, or a year
+view of 20,000 photos will decode 20,000 full-size thumbnails.

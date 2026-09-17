@@ -151,6 +151,16 @@ class _AlbumScreenState extends State<AlbumScreen> {
     return true;
   }
 
+  /// The album's own picture. Videos count: a poster frame is what the
+  /// grid already draws for one, so an album of videos has a cover like
+  /// any other.
+  Future<void> _setCover(AssetRecord record) async {
+    final updated = _album.copyWith(coverLocalId: record.localId);
+    await widget.albumStore.update(updated);
+    if (!mounted) return;
+    setState(() => _album = updated);
+  }
+
   Future<void> _removeFromAlbum(AssetRecord record) async {
     await widget.albumStore.removeAsset(_album.id, record.localId);
     await _reload();
@@ -214,6 +224,11 @@ class _AlbumScreenState extends State<AlbumScreen> {
                         ? l10n.libraryUnfavorite
                         : l10n.libraryFavorite,
                     onPressed: () => _toggleFavorite(r),
+                  ),
+                  TileAction(
+                    icon: CupertinoIcons.rectangle_on_rectangle,
+                    label: l10n.albumUseAsCover,
+                    onPressed: () => _setCover(r),
                   ),
                   TileAction(
                     icon: CupertinoIcons.rectangle_stack_badge_minus,

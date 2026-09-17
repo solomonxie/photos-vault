@@ -1712,9 +1712,6 @@ class LibraryScreenState extends State<LibraryScreen>
   ) => [
     if (_all.isNotEmpty) ...[
       SliverToBoxAdapter(
-        child: _SectionHeader(title: l10n.collectionsCollections),
-      ),
-      SliverToBoxAdapter(
         child: _SubsectionHeader(
           title: l10n.collectionsAlbums,
           onAdd: _createAlbum,
@@ -1764,7 +1761,7 @@ class LibraryScreenState extends State<LibraryScreen>
                 ),
               )
             : SizedBox(
-                height: 128,
+                height: 150,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -1773,7 +1770,7 @@ class LibraryScreenState extends State<LibraryScreen>
                   itemBuilder: (context, i) {
                     final person = _people[i];
                     return SizedBox(
-                      width: 84,
+                      width: 100,
                       child: _PersonCard(
                         person: person,
                         assetRecordStore: assetRecordStore,
@@ -1981,11 +1978,26 @@ class _AlbumCard extends StatelessWidget {
     );
   }
 
+  /// The photo on the card: the one chosen for it, else the newest in the
+  /// album. Always *something* while the album has anything in it — the
+  /// card used to draw a grey icon unless the cover happened to be a
+  /// manually-added file, so an album of camera-roll photos (which is most
+  /// of them) looked empty.
+  AssetRecord? get _cover {
+    if (records.isEmpty) return null;
+    final chosen = album.coverLocalId;
+    if (chosen != null) {
+      for (final record in records) {
+        if (record.localId == chosen) return record;
+      }
+    }
+    return records.last;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final cover = records.isEmpty ? null : records.first.sourcePath;
-    final coverIsVideo = records.isNotEmpty && records.first.isVideo;
+    final cover = _cover;
 
     return GestureDetector(
       onTap: onTap,
@@ -1996,29 +2008,23 @@ class _AlbumCard extends StatelessWidget {
           Expanded(
             child: ClipRRect(
               borderRadius: BorderRadius.circular(10),
-              child: coverIsVideo
+              child: cover == null
                   ? const ColoredBox(
-                      color: CupertinoColors.darkBackgroundGray,
-                      child: Icon(
-                        CupertinoIcons.play_circle_fill,
-                        color: CupertinoColors.white,
-                        size: 28,
-                      ),
-                    )
-                  : cover != null
-                  ? Image.file(
-                      File(cover),
-                      fit: BoxFit.cover,
-                      width: double.infinity,
-                      errorBuilder: (context, error, stackTrace) =>
-                          const ColoredBox(
-                            color: CupertinoColors.systemGrey5,
-                            child: Icon(CupertinoIcons.photo),
-                          ),
-                    )
-                  : const ColoredBox(
                       color: CupertinoColors.systemGrey5,
                       child: Icon(CupertinoIcons.photo_on_rectangle),
+                    )
+                  // Drawn the way a grid tile is, which is what makes a
+                  // camera-roll photo — or a video's poster frame — show
+                  // up here at all.
+                  : SizedBox(
+                      width: double.infinity,
+                      child: assetImage(
+                        cover,
+                        placeholder: () => const ColoredBox(
+                          color: CupertinoColors.systemGrey5,
+                          child: Icon(CupertinoIcons.photo),
+                        ),
+                      ),
                     ),
             ),
           ),
@@ -2064,7 +2070,7 @@ class _PersonCard extends StatelessWidget {
         PersonAvatar.forPerson(
           assetRecordStore: assetRecordStore,
           person: person,
-          size: 76,
+          size: 92,
         ),
         const SizedBox(height: 6),
         Text(
@@ -2103,6 +2109,10 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
+/// Albums, People, Places, Events — each a section of the page, not a
+/// subsection of one. They used to sit under a "Collections" heading that
+/// named a category nobody was looking for: you look for people, or for a
+/// place, and the extra level only pushed all four further down.
 class _SubsectionHeader extends StatelessWidget {
   const _SubsectionHeader({
     required this.title,
@@ -2131,13 +2141,19 @@ class _SubsectionHeader extends StatelessWidget {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+      padding: const EdgeInsets.fromLTRB(16, 28, 16, 8),
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          Text(
-            title,
-            style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 17),
+          // Flexible, because a section title at this size plus a "More"
+          // beside it is wider than a phone in some languages.
+          Flexible(
+            child: Text(
+              title,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 22),
+            ),
           ),
           if (onAdd != null)
             CupertinoButton(
