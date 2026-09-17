@@ -75,6 +75,20 @@ class FakeSyncJobStore implements SyncJobStore {
       _jobs.removeWhere((j) => j.status == SyncJobStatus.done);
 
   @override
+  Future<void> trimHistory({int keepFinished = 40}) async {
+    _jobs.removeWhere(
+      (j) =>
+          j.status == SyncJobStatus.failed &&
+          j.kind == SyncJobKind.checkChanges,
+    );
+    final done = _jobs.where((j) => j.status == SyncJobStatus.done).toList();
+    if (done.length <= keepFinished) return;
+    for (final job in done.take(done.length - keepFinished)) {
+      _jobs.remove(job);
+    }
+  }
+
+  @override
   Future<void> requeueStaleRunning() async {
     for (var i = 0; i < _jobs.length; i++) {
       if (_jobs[i].status == SyncJobStatus.running) {

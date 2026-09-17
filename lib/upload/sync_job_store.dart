@@ -212,6 +212,38 @@ class SyncJobStore {
     );
   }
 
+  /// Keeps the history short and drops failures nothing can act on.
+  ///
+  /// Two kinds of row pile up. Finished ones, which are a receipt nobody
+  /// reads past the last few dozen — a queue of two hundred green ticks is
+  /// a log, and the one row that matters is lost in it. And failed
+  /// *change-checks*, which ask "is this photo different from the copy in
+  /// the bucket?" — a question with no answer when the file has gone, and
+  /// nothing to retry: the backup already up there is still good.
+  Future<void> trimHistory({int keepFinished = 40}) async {
+    final db = await _open();
+    await db.delete(
+      _table,
+      where: 'status = ? AND kind = ?',
+      whereArgs: [SyncJobStatus.failed.name, SyncJobKind.checkChanges.name],
+    );
+    final rows = await db.query(
+      _table,
+      columns: ['id'],
+      where: 'status = ?',
+      whereArgs: [SyncJobStatus.done.name],
+      orderBy: 'updated_at DESC',
+    );
+    if (rows.length <= keepFinished) return;
+    final stale = rows.skip(keepFinished).map((r) => r['id'] as String);
+    final placeholders = List.filled(stale.length, '?').join(', ');
+    await db.delete(
+      _table,
+      where: 'id IN ($placeholders)',
+      whereArgs: stale.toList(),
+    );
+  }
+
   /// A crash mid-sync leaves rows stuck as `running` with no worker behind
   /// them — put them back in line at startup rather than stranding them.
   Future<void> requeueStaleRunning() async {
