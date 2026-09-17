@@ -397,6 +397,8 @@ class _SettingsScreenState extends State<SettingsScreen>
                   _formatSection(l10n),
                   const SettingsSectionDivider(),
                   _bucketsSection(l10n, targets),
+                  const SettingsSectionDivider(),
+                  _queueSection(l10n),
                   if (_icloudState != ICloudState.unsupported) ...[
                     const SettingsSectionDivider(),
                     _appDataSection(l10n),
@@ -515,31 +517,34 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   Widget _bucketsFooter(AppLocalizations l10n, List<S3BackupTarget> targets) {
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SettingsFooterLine(
-          text: l10n.settingsCloudBucketsFooter(
-            targets.length,
-            _backedUpCount,
-            _trackedCount,
-          ),
-          busy: _syncing,
-          busyText: l10n.settingsSyncingMessage,
-        ),
-        const SizedBox(height: 6),
-        _queueLine(l10n),
-      ],
+    return SettingsFooterLine(
+      text: l10n.settingsCloudBucketsFooter(
+        targets.length,
+        _backedUpCount,
+        _trackedCount,
+      ),
+      busy: _syncing,
+      busyText: l10n.settingsSyncingMessage,
     );
   }
 
-  /// The queue is global across connections, so it lives here once rather
-  /// than behind each bucket's menu — and opens as a sheet, not a page.
-  Widget _queueLine(AppLocalizations l10n) {
+  /// The queue gets a row rather than a line of footer text under the
+  /// bucket list. It's the answer to "is anything happening?", which is the
+  /// most-asked question on this page and was the smallest thing on it.
+  Widget _queueSection(AppLocalizations l10n) {
     final queue = widget.syncQueue;
     if (queue == null) {
-      return SettingsFooterLine(
-        text: '${l10n.settingsSyncQueueRow}: ${l10n.backupQueueIdle}',
+      return SettingsSection(
+        heading: l10n.settingsSyncQueueRow.toUpperCase(),
+        primary: false,
+        children: [
+          SettingsRow(
+            leading: const SettingsIconTile(
+              icon: CupertinoIcons.arrow_2_circlepath,
+            ),
+            title: l10n.backupQueueIdle,
+          ),
+        ],
       );
     }
     return ValueListenableBuilder<List<SyncJob>>(
@@ -550,17 +555,32 @@ class _SettingsScreenState extends State<SettingsScreen>
           valueListenable: queue.paused,
           builder: (context, paused, _) => ValueListenableBuilder<int>(
             valueListenable: queue.concurrency,
-            builder: (context, concurrency, _) => SettingsFooterLine(
-              // Paused belongs out here, not only inside the sheet: a
-              // paused queue takes nothing new, so it's the answer to "why
-              // is nothing backing up" and has to be visible from where
-              // that question gets asked.
-              text: paused
-                  ? '${l10n.settingsSyncQueueRow}: ${l10n.backupQueuePausedNote}'
-                  : pending == 0
-                  ? '${l10n.settingsSyncQueueRow}: ${l10n.backupQueueIdle}'
-                  : '${l10n.settingsSyncQueueRow}: ${l10n.settingsSyncQueuePending(pending, concurrency)}',
-              onTap: _openQueue,
+            builder: (context, concurrency, _) => SettingsSection(
+              heading: l10n.settingsSyncQueueRow.toUpperCase(),
+              primary: false,
+              children: [
+                SettingsRow(
+                  leading: const SettingsIconTile(
+                    icon: CupertinoIcons.arrow_2_circlepath,
+                  ),
+                  title: l10n.settingsSyncQueueRow,
+                  // Paused belongs out here, not only inside the sheet: a
+                  // paused queue takes nothing new, so it's the answer to
+                  // "why is nothing backing up" and has to be visible from
+                  // where that gets asked.
+                  subtitle: paused
+                      ? l10n.backupQueuePausedNote
+                      : pending == 0
+                      ? l10n.backupQueueIdle
+                      : l10n.settingsSyncQueuePending(pending, concurrency),
+                  onTap: _openQueue,
+                  trailing: const Icon(
+                    CupertinoIcons.chevron_forward,
+                    size: 14,
+                    color: settingsSecondary,
+                  ),
+                ),
+              ],
             ),
           ),
         );

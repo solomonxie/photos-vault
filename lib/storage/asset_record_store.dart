@@ -32,6 +32,7 @@ class AssetRecordStore {
   final Future<Directory> Function() _appSupportDirectory;
 
   Database? _db;
+  Directory? _appSupport;
 
   static const _table = 'asset_record';
 
@@ -286,17 +287,31 @@ class AssetRecordStore {
     return _healed(_fromRow(rows.single));
   }
 
-  /// Repairs a `manualFile` record whose `sourcePath` no longer exists by
-  /// re-resolving its filename under the current app-support directory. A
-  /// no-op (and no `path_provider` call) when the path already resolves.
+  /// Repairs a record whose `sourcePath` no longer exists by re-resolving
+  /// its filename under the current app-support directory. A no-op (and no
+  /// `path_provider` call) when the path already resolves.
+  ///
+  /// Any record holding a file of this app's own, not just a manually-added
+  /// one. A hidden photo is a camera-roll record that owns a copy — the
+  /// app took it out of Photos and holds the only one — and leaving it out
+  /// of the healing meant that after a reinstall moved the container, its
+  /// path pointed nowhere and its backup failed with "path not found"
+  /// forever. The paths are absolute and the container's UUID isn't stable
+  /// across installs, which is exactly the case this exists for.
   Future<AssetRecord> _healed(AssetRecord record) async {
     final path = record.sourcePath;
-    if (record.sourceType != AssetSourceType.manualFile ||
-        path == null ||
-        File(path).existsSync()) {
+    if (path == null || File(path).existsSync()) return record;
+    // Looked up once and kept: healing runs per row, and asking the
+    // platform for the same directory a thousand times during one library
+    // read is a thousand channel round-trips for one answer. Failure means
+    // no platform to ask (a pure-Dart test) — the record is handed back as
+    // it is rather than taking the whole read down with it.
+    Directory dir;
+    try {
+      dir = _appSupport ??= await _appSupportDirectory();
+    } catch (_) {
       return record;
     }
-    final dir = await _appSupportDirectory();
     final healedPath = p.join(dir.path, p.basename(path));
     if (healedPath == path || !File(healedPath).existsSync()) return record;
 

@@ -50,6 +50,7 @@ import 'private_album_gate.dart';
 import 'recently_deleted_screen.dart';
 import 'search_picker_sheet.dart';
 import 'smart_collection_screen.dart';
+import 'sync_queue_sheet.dart';
 import 'zoom_page_route.dart';
 
 /// The whole app, one page — matches real Photos: no separate "Library" vs
@@ -72,6 +73,7 @@ class LibraryScreen extends StatefulWidget {
     this.photoLocationService,
     this.libraryCustody,
     this.icloudBackup,
+    this.backgroundPassInterval,
     this.personStore,
     this.hashFile,
     this.thumbnailCache,
@@ -104,6 +106,13 @@ class LibraryScreen extends StatefulWidget {
   /// Overridable for tests so a fresh library never reaches for a real
   /// iCloud container.
   final ICloudBackup? icloudBackup;
+
+  /// How often the background pass looks for work — backups still owed,
+  /// then the camera roll, then the on-device face pass. Null switches it
+  /// off, which is the default: a periodic timer is something a caller
+  /// opts into, and a widget test that never asked for one would otherwise
+  /// wait for it forever.
+  final Duration? backgroundPassInterval;
 
   /// Overridable for tests so they never open the real file picker.
   final ManualAddService? manualAddService;
@@ -237,6 +246,7 @@ class LibraryScreenState extends State<LibraryScreen>
     if (state != AppLifecycleState.resumed || !mounted) return;
     unawaited(_syncPhotoLibrary());
     unawaited(_runScheduledSyncIfDue());
+    _startTrickle();
   }
 
   /// Keeping up with Photos while the app is open costs a notification per
@@ -296,6 +306,7 @@ class LibraryScreenState extends State<LibraryScreen>
     _searchController.dispose();
     PhotoManager.removeChangeCallback(_onPhotoLibraryChanged);
     WidgetsBinding.instance.removeObserver(this);
+    _trickle?.cancel();
     syncQueue.draining.removeListener(_onDrainingChanged);
     AiTouchUpQueue.instance.removeListener(_onAiTouchUpChanged);
     syncQueue.dispose();
@@ -338,7 +349,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // found nothing to do must not go looking for work — the sync-frequency
     // setting says when to start one, and "Manual" is a promise.
     if (syncQueue.processedInLastDrain == 0) return;
-    final remaining = _pendingAndFailed;
+    final remaining = _refillable;
     if (remaining.isEmpty) return;
     await _backUpRecords(remaining);
   }
@@ -411,6 +422,10 @@ class LibraryScreenState extends State<LibraryScreen>
           unawaited(reload());
         },
       );
+      // A re-read of the library is the one event that can put a missing
+      // file back — an asset restored from Photos' own trash, a container
+      // path healed. Everything given up on gets another chance.
+      _unresolvable.clear();
       // Names the places the scan collected coordinates for. Runs after
       // the pages are in and on its own time (see
       // `PhotoLocationService.spacing`), so Places fills itself in from
@@ -428,6 +443,47 @@ class LibraryScreenState extends State<LibraryScreen>
     } finally {
       _syncingLibrary = false;
     }
+  }
+
+  /// The background pass: whatever the library still owes, a little at a
+  /// time, for as long as the app is open.
+  ///
+  /// Three kinds of work, in the order of what's lost if it never happens:
+  /// photos not yet in the bucket, the camera roll not yet re-read, and
+  /// faces not yet looked for. Each round tops the queue up to what's free
+  /// rather than enqueuing a library's worth — the queue is capped, and a
+  /// list nobody can review or cancel isn't a queue, it's a log.
+  ///
+  /// Deliberately slow. This runs while somebody is using the app, on a
+  /// phone they're holding: a pause between rounds is the difference
+  /// between a library that quietly catches up and one that's hot to the
+  /// touch with a flat battery.
+  Timer? _trickle;
+
+  void _startTrickle() {
+    final interval = widget.backgroundPassInterval;
+    if (interval == null) return;
+    _trickle?.cancel();
+    _trickle = Timer.periodic(interval, (_) => unawaited(_trickleRound()));
+  }
+
+  Future<void> _trickleRound() async {
+    if (!mounted || _busy || syncQueue.paused.value) return;
+    if (syncQueue.draining.value) return;
+    final pending = _pendingAndFailed;
+    if (pending.isNotEmpty) {
+      await _backUpRecords(pending);
+      return;
+    }
+    // Nothing owed to the bucket: re-read the camera roll, then spend the
+    // idle time on the on-device pass. Neither costs a penny — no key, no
+    // upload, no per-photo bill — which is what makes them fair game for a
+    // background loop at all.
+    if (!_syncingLibrary) {
+      await _syncPhotoLibrary();
+      if (!mounted) return;
+    }
+    await analyzeLibrary();
   }
 
   Future<void> _namePlaces() async {
@@ -531,17 +587,69 @@ class LibraryScreenState extends State<LibraryScreen>
 
   int get _favoriteCount =>
       _all.where((r) => r.isFavorite && !r.isDeleted).length;
+
+  /// Work outstanding, not jobs recorded — a finished job is history, and
+  /// a count that includes it says the app is busy when it isn't.
+  int get _queuedCount =>
+      syncQueue.jobs.value.where((job) => !job.isFinished).length;
+
   int get _hiddenCount => _all.where((r) => r.isHidden && !r.isDeleted).length;
   int get _deletedCount => _all.where((r) => r.isDeleted).length;
 
+  /// What the automatic refill is allowed to pick up: everything owed,
+  /// minus what has already been tried and didn't work.
+  ///
+  /// Without the subtraction a photo that can't upload — a bucket refusing
+  /// it, a file that isn't there — is queued, fails, is queued again by the
+  /// drain that follows, and so on for as long as the app is open. The
+  /// queue looks busy, nothing lands, and the battery goes. Retrying those
+  /// is what Sync Now is for: a person deciding to try again, having seen
+  /// the failure.
+  List<AssetRecord> get _refillable => _pendingAndFailed
+      .where((r) => !_triedAndFailed.contains(r.localId))
+      .toList();
+
+  /// Uploads that failed since the app opened. Cleared by an explicit sync,
+  /// so "try again" still means try again.
+  final _triedAndFailed = <String>{};
+
+  /// Everything given up on gets another go — this is somebody deciding to
+  /// retry, which is the whole point of the button.
+  void _forgetFailures() {
+    _triedAndFailed.clear();
+    _unresolvable.clear();
+  }
+
+  /// Photos whose file couldn't be found this session. Kept so the refill
+  /// stops offering them: a record still marked pending, whose file can't
+  /// be resolved, is picked up by every refill, dropped by every worker,
+  /// and picked up again — a loop that never uploads anything and never
+  /// ends. Cleared whenever the camera roll is re-read, so a photo that
+  /// comes back gets another go.
+  final _unresolvable = <String>{};
+
+  /// Everything still owed an upload — including hidden photos, which need
+  /// it most: the app took them out of Photos, so the bucket is the only
+  /// other copy there is.
   List<AssetRecord> get _pendingAndFailed => _all.where((r) {
-    if (r.isDeleted) return false;
+    if (r.isDeleted || _unresolvable.contains(r.localId)) return false;
     final status = r.stateOf(DerivativeKind.original).status;
     return status == UploadStatus.pending || status == UploadStatus.failed;
   }).toList();
 
   /// Everything the queue shows per row — the filename where there is one.
+  ///
+  /// Except for a hidden photo, which shows no name at all. Hidden ones do
+  /// still get backed up, and have to: this app holds the only copy of
+  /// them, so leaving them out of the bucket would make the hidden album
+  /// the least safe place in the library. But the queue is a list anyone
+  /// can read over your shoulder without a passcode, and a filename there
+  /// is the photo. So the work is visible and the subject isn't.
   String _displayNameFor(AssetRecord record) {
+    final l10n = AppLocalizations.of(context)!;
+    if (record.passcodeHash != null || record.isHidden) {
+      return l10n.backupQueueHiddenItem;
+    }
     final path = record.sourcePath;
     return path == null ? record.localId : p.basename(path);
   }
@@ -611,12 +719,28 @@ class LibraryScreenState extends State<LibraryScreen>
         await _checkOneForLocalChanges(record);
       case SyncJobKind.uploadOriginal:
         final path = await _filePathFor(record);
-        if (path == null) return;
-        await _coordinator.backUpDerivative(
-          record: record,
-          kind: DerivativeKind.original,
-          filePath: path,
-        );
+        if (path == null) {
+          _unresolvable.add(record.localId);
+          return;
+        }
+        try {
+          await _coordinator.backUpDerivative(
+            record: record,
+            kind: DerivativeKind.original,
+            filePath: path,
+          );
+          final after = await assetRecordStore.getByLocalId(record.localId);
+          if (after?.stateOf(DerivativeKind.original).status ==
+              UploadStatus.failed) {
+            _triedAndFailed.add(record.localId);
+          }
+        } catch (_) {
+          // Thrown or recorded, a failure is a failure: remembered either
+          // way, so the refill stops handing this one back to the queue.
+          // Rethrown so the queue still shows the row and its reason.
+          _triedAndFailed.add(record.localId);
+          rethrow;
+        }
       case SyncJobKind.uploadThumbnail:
         final path = await _uploadableThumbnailFor(record);
         if (path == null) return;
@@ -629,7 +753,10 @@ class LibraryScreenState extends State<LibraryScreen>
         // Videos have no still to look at, and Vision only reads images.
         if (record.isVideo) return;
         final path = await _filePathFor(record);
-        if (path == null) return;
+        if (path == null) {
+          _unresolvable.add(record.localId);
+          return;
+        }
         await _onDeviceAnalysis.analyze(record, path);
     }
   }
@@ -767,6 +894,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // — see [SyncQueue.enqueue]), so honouring the pause here would make
     // the button do nothing at all and say nothing about why.
     await syncQueue.setPaused(false);
+    _forgetFailures();
     await _enqueueChangeChecks();
     await _backUpRecords(_pendingAndFailed);
     try {
@@ -788,7 +916,10 @@ class LibraryScreenState extends State<LibraryScreen>
     // that was deleted.
     if (record.localDeleted) return null;
     final path = record.sourcePath;
-    if (path != null) return path;
+    // Checked, not assumed: a job that hands the uploader a path to
+    // nothing fails loudly and stays failed, which is how one moved file
+    // turned into a permanent red row in the queue.
+    if (path != null && File(path).existsSync()) return path;
     if (record.sourceType != AssetSourceType.photoManager) return null;
     final file = await _photoLibraryService.fileFor(record);
     return file?.path;
@@ -993,6 +1124,9 @@ class LibraryScreenState extends State<LibraryScreen>
   Future<void> _openById(String localId) async {
     final record = await assetRecordStore.getByLocalId(localId);
     if (record == null || !mounted) return;
+    // A hidden photo's row says only that work is happening. Opening it
+    // from there would walk straight past the passcode.
+    if (record.passcodeHash != null || record.isHidden) return;
     await _openRecord(record);
   }
 
@@ -1709,6 +1843,14 @@ class LibraryScreenState extends State<LibraryScreen>
                       onRemove: _removeDemoPhotos,
                     ),
                   ),
+          ),
+          _row(
+            icon: CupertinoIcons.arrow_2_circlepath,
+            color: CupertinoColors.systemTeal,
+            title: l10n.collectionsSyncQueueRow,
+            count: _queuedCount,
+            onTap: () =>
+                showSyncQueueSheet(context, syncQueue, onOpenAsset: _openById),
           ),
           _row(
             icon: CupertinoIcons.eye_slash_fill,

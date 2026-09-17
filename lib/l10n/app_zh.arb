@@ -229,6 +229,8 @@
   },
   "settingsBrowseFilesAction": "浏览文件",
   "settingsDeleteConnectionAction": "删除连接",
+  "backupQueueHiddenItem": "隐藏的照片",
+  "collectionsSyncQueueRow": "同步队列",
   "settingsSyncQueueRow": "同步队列",
   "settingsSyncQueuePending": "{pending} 个待处理 · 每次 {concurrency} 个",
   "@settingsSyncQueuePending": {

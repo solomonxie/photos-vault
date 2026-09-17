@@ -123,7 +123,7 @@ void main() {
     expect(find.text('my-bucket'), findsOneWidget);
   });
 
-  testWidgets('the queue is one status line that opens a sheet, not a page', (
+  testWidgets('the queue is a row of its own that opens a sheet, not a page', (
     tester,
   ) async {
     await _useTallSurface(tester);
@@ -168,9 +168,11 @@ void main() {
     await tester.pumpAndSettle();
 
     // Counts outstanding *jobs* — one photo can be several units of work.
-    expect(find.text('Sync queue: 1 pending · 2 at a time'), findsOneWidget);
+    expect(find.text('1 pending · 2 at a time'), findsOneWidget);
 
-    await tester.tap(find.text('Sync queue: 1 pending · 2 at a time'));
+    // Its own row now, not a line of footer text: "is anything happening?"
+    // is the most-asked question on this page.
+    await tester.tap(find.text('1 pending · 2 at a time'));
     await tester.pumpAndSettle();
 
     expect(find.byType(SyncQueueSheet), findsOneWidget);

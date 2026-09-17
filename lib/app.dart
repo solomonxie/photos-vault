@@ -71,6 +71,9 @@ class App extends StatelessWidget {
         albumStore: albumStore,
         syncJobStore: syncJobStore,
         personStore: personStore,
+        // The real app keeps working in the background while it's open:
+        // uploads still owed, then the camera roll, then faces.
+        backgroundPassInterval: const Duration(seconds: 20),
       ),
     );
   }
