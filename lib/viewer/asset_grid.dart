@@ -393,6 +393,35 @@ class StatusDot extends StatelessWidget {
   }
 }
 
+/// The square at the end of the roll that adds photos. Shaped like a tile
+/// because it stands where one would: same size, same corners, and the plus
+/// where the picture would be.
+class AddPhotosTile extends StatelessWidget {
+  const AddPhotosTile({super.key, required this.extent, required this.onTap});
+
+  final double extent;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: SizedBox.square(
+      dimension: extent,
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(8),
+        child: ColoredBox(
+          color: CupertinoColors.systemGrey5.darkColor,
+          child: Icon(
+            CupertinoIcons.add,
+            size: extent * 0.32,
+            color: CupertinoColors.systemGrey,
+          ),
+        ),
+      ),
+    ),
+  );
+}
+
 /// Loads and caches a camera-roll asset's thumbnail bytes on demand —
 /// `photoManager` records carry no `sourcePath`, only the id needed to
 /// resolve one via `photo_manager`. See IMPLEMENTATION_PLAN.md T2.1.

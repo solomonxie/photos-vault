@@ -20,7 +20,7 @@ import 'bucket_browser_screen.dart';
 import 's3_backup_target.dart';
 import 'settings_section.dart';
 
-/// "Private Cloud" — one flat page: the bucket list up top, then the
+/// "Cloud Settings" — one flat page: the bucket list up top, then the
 /// settings that govern syncing it. Nothing here pushes a sub-page that
 /// only holds controls; per-connection actions live in that row's own `…`
 /// sheet, and the queue opens as a sheet over this page rather than a
@@ -302,6 +302,51 @@ class _SettingsScreenState extends State<SettingsScreen>
     await _reload();
   }
 
+  String _formatLabel(AppLocalizations l10n, BackupFormat f) => switch (f) {
+    BackupFormat.original => l10n.settingsBackupFormatOriginal,
+    BackupFormat.optimized => l10n.settingsBackupFormatOptimized,
+  };
+
+  /// The same drop-down the sync frequency uses, for the same reason: two
+  /// choices and a sentence about each is a sheet's worth of content, not
+  /// half a page of permanently-visible radio rows under a setting that
+  /// gets changed once.
+  Future<void> _pickFormat() async {
+    final l10n = AppLocalizations.of(context)!;
+    final picked = await showCupertinoModalPopup<BackupFormat>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: Text(l10n.settingsBackupFormatHeading),
+        // What each one costs you, where the choice is actually made.
+        message: Text(
+          '${l10n.settingsBackupFormatOriginal}: '
+          '${l10n.settingsBackupFormatOriginalDescription}\n\n'
+          '${l10n.settingsBackupFormatOptimized}: '
+          '${l10n.settingsBackupFormatOptimizedDescription}\n\n'
+          '${l10n.settingsBackupFormatVideoNote}\n'
+          '${l10n.settingsBackupFormatFolderNote}',
+        ),
+        actions: [
+          for (final f in BackupFormat.values)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(sheetContext).pop(f),
+              child: Text(
+                f == _format
+                    ? '${_formatLabel(l10n, f)}  ✓'
+                    : _formatLabel(l10n, f),
+              ),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (picked == null) return;
+    await _setFormat(picked);
+  }
+
   Future<void> _setFormat(BackupFormat value) async {
     setState(() => _format = value);
     await _store.setBackupFormat(value);
@@ -335,23 +380,27 @@ class _SettingsScreenState extends State<SettingsScreen>
       navigationBar: CupertinoNavigationBar(
         backgroundColor: settingsPageBackground,
         border: null,
-        middle: Text(l10n.collectionsPrivateCloudRow),
+        middle: Text(l10n.collectionsCloudSettingsRow),
       ),
       child: targets == null
           ? const Center(child: CupertinoActivityIndicator())
           : SafeArea(
               child: ListView(
                 padding: const EdgeInsets.only(top: 8, bottom: 32),
+                // How and how often, then where. The two settings are the
+                // page's actual controls; the bucket list below them is a
+                // list of places, and reading it doesn't answer either
+                // question.
                 children: [
+                  _syncSection(l10n, targets),
+                  const SettingsSectionDivider(),
+                  _formatSection(l10n),
+                  const SettingsSectionDivider(),
                   _bucketsSection(l10n, targets),
                   if (_icloudState != ICloudState.unsupported) ...[
                     const SettingsSectionDivider(),
                     _appDataSection(l10n),
                   ],
-                  const SettingsSectionDivider(),
-                  _syncSection(l10n, targets),
-                  const SettingsSectionDivider(),
-                  _formatSection(l10n),
                 ],
               ),
             ),
@@ -596,30 +645,12 @@ class _SettingsScreenState extends State<SettingsScreen>
     return SettingsSection(
       heading: l10n.settingsBackupFormatHeading.toUpperCase(),
       primary: false,
-      hint: l10n.settingsBackupFormatHint,
-      footer: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(l10n.settingsBackupFormatVideoNote, style: settingsHintStyle),
-          const SizedBox(height: 4),
-          Text(l10n.settingsBackupFormatFolderNote, style: settingsHintStyle),
-        ],
+      action: SettingsAccentButton(
+        label: _formatLabel(l10n, _format),
+        onPressed: _pickFormat,
+        showChevron: true,
       ),
-      children: [
-        SettingsChoiceRow(
-          title: l10n.settingsBackupFormatOriginal,
-          description: l10n.settingsBackupFormatOriginalDescription,
-          selected: _format == BackupFormat.original,
-          onTap: () => _setFormat(BackupFormat.original),
-        ),
-        const SettingsHairline(indent: settingsPagePadding),
-        SettingsChoiceRow(
-          title: l10n.settingsBackupFormatOptimized,
-          description: l10n.settingsBackupFormatOptimizedDescription,
-          selected: _format == BackupFormat.optimized,
-          onTap: () => _setFormat(BackupFormat.optimized),
-        ),
-      ],
+      hint: l10n.settingsBackupFormatHint,
     );
   }
 }

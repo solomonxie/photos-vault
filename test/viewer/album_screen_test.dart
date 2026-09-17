@@ -2,6 +2,7 @@ import 'package:bring_your_own_photos/l10n/app_localizations.dart';
 import 'package:bring_your_own_photos/storage/album.dart';
 import 'package:bring_your_own_photos/storage/asset_record.dart';
 import 'package:bring_your_own_photos/viewer/album_screen.dart';
+import 'package:bring_your_own_photos/viewer/search_picker_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -110,5 +111,79 @@ void main() {
     await albumStore.removeAsset('a1', 'manual:in');
     expect(await albumStore.localIdsIn('a1'), isEmpty);
     expect(await recordStore.getByLocalId('manual:in'), isNotNull);
+  });
+
+  testWidgets('an album carries its own note and tags', (tester) async {
+    final recordStore = FakeAssetRecordStore();
+    final albumStore = FakeAlbumStore();
+    await albumStore.upsert(id: 'a1', name: 'Nature');
+
+    await tester.pumpWidget(
+      _wrap(
+        AlbumScreen(
+          album: album,
+          assetRecordStore: recordStore,
+          albumStore: albumStore,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.enterText(find.byType(CupertinoTextField), 'Kyoto, October');
+    await tester.pump();
+
+    // The note is about the set, not about any one photo in it.
+    expect((await albumStore.getById('a1'))!.description, 'Kyoto, October');
+
+    await tester.tap(find.text('Tags'));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(searchPickerFieldKey), 'trip');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Use "trip"'));
+    await tester.pumpAndSettle();
+
+    expect((await albumStore.getById('a1'))!.tags, ['trip']);
+    expect(find.text('trip'), findsOneWidget);
+  });
+
+  testWidgets('photos are added from the library, not imported again', (
+    tester,
+  ) async {
+    final recordStore = FakeAssetRecordStore();
+    final albumStore = FakeAlbumStore();
+    await albumStore.upsert(id: 'a1', name: 'Nature');
+    await recordStore.upsert(
+      localId: 'manual:free',
+      contentHash: 'free',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/free.jpg',
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        AlbumScreen(
+          album: album,
+          assetRecordStore: recordStore,
+          albumStore: albumStore,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The nav bar's own +, not the "add a tag" one in the header.
+    await tester.tap(
+      find.descendant(
+        of: find.byType(CupertinoNavigationBar),
+        matching: find.byIcon(CupertinoIcons.add),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manual:free')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add 1'));
+    await tester.pumpAndSettle();
+
+    expect(await albumStore.localIdsIn('a1'), ['manual:free']);
   });
 }

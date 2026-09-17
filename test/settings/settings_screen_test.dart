@@ -255,9 +255,8 @@ void main() {
     expect(await store.getSyncFrequency(), SyncFrequency.everyHour);
   });
 
-  testWidgets('backup format options each carry their own pro/con line', (
-    tester,
-  ) async {
+  testWidgets('the backup format is one row, and what each costs is in the '
+      'sheet where it is chosen', (tester) async {
     await _useTallSurface(tester);
     final store = await _storeWithBucket();
 
@@ -268,12 +267,18 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    // The page carries the current answer, not both answers and their
+    // reasons laid out permanently.
+    expect(find.textContaining('Full quality, byte-identical'), findsNothing);
+    await tester.tap(find.text('Original'));
+    await tester.pumpAndSettle();
+
     expect(find.textContaining('Full quality, byte-identical'), findsOneWidget);
     expect(find.textContaining('Re-encodes photos as WebP'), findsOneWidget);
-
     await tester.tap(find.text('Optimized (WebP)'));
     await tester.pumpAndSettle();
 
     expect(await store.getBackupFormat(), BackupFormat.optimized);
+    expect(find.text('Optimized (WebP)'), findsOneWidget);
   });
 }

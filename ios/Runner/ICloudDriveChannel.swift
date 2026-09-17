@@ -63,7 +63,12 @@ class ICloudDriveChannel {
   /// signed in to go and sign in.
   private static func status() -> String {
     if containerURL() != nil { return "available" }
-    if !isEntitled() { return "notEntitled" }
+    // Only a build we can *see* the capability on gets to claim one of the
+    // states that might fix itself. Anything else is reported as the build's
+    // fault, which is the one answer that asks nothing of the user — telling
+    // someone to try again shortly, when no amount of shortly will help, is
+    // the failure this whole enum exists to avoid.
+    guard isEntitled() else { return "notEntitled" }
     if FileManager.default.ubiquityIdentityToken == nil { return "driveOff" }
     return "notReady"
   }
@@ -75,14 +80,21 @@ class ICloudDriveChannel {
 
   /// Reads the capability out of the embedded provisioning profile.
   /// `SecTaskCopyValueForEntitlement` isn't in the iOS SDK, so the profile
-  /// is the only way to ask the build about itself. No profile means an App
-  /// Store build, which is entitled or it wouldn't have shipped.
+  /// is the only way to ask a build about itself.
+  ///
+  /// No readable profile counts as *not* entitled. The generous reading —
+  /// assume an App Store build, which would be entitled or it wouldn't have
+  /// shipped — was tried, and on a development build that couldn't reach
+  /// the profile it produced "iCloud isn't ready yet, try again shortly"
+  /// forever. A build that can't prove it holds the capability shouldn't
+  /// promise anything on its behalf.
   private static func isEntitled() -> Bool {
-    guard let url = Bundle.main.url(
-      forResource: "embedded", withExtension: "mobileprovision"
-    ), let data = try? Data(contentsOf: url) else {
-      return true
-    }
+    // Straight off the bundle rather than through `forResource:`, which
+    // searches the resource directory and can miss a file that sits at the
+    // bundle root.
+    let url = Bundle.main.bundleURL
+      .appendingPathComponent("embedded.mobileprovision")
+    guard let data = try? Data(contentsOf: url) else { return false }
     guard let raw = String(data: data, encoding: .isoLatin1),
           let start = raw.range(of: "<?xml"),
           let end = raw.range(of: "</plist>")

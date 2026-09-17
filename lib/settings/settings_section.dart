@@ -277,60 +277,6 @@ class SettingsRow extends StatelessWidget {
   }
 }
 
-/// A row whose whole job is picking one of a few options, each with its own
-/// one-sentence pro/con — too much text for a menu, so it stays a list.
-class SettingsChoiceRow extends StatelessWidget {
-  const SettingsChoiceRow({
-    super.key,
-    required this.title,
-    required this.description,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String title;
-  final String description;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.symmetric(
-          horizontal: settingsPagePadding,
-          vertical: 10,
-        ),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(title, style: settingsRowTitleStyle),
-                  const SizedBox(height: 2),
-                  Text(description, style: settingsHintStyle),
-                ],
-              ),
-            ),
-            const SizedBox(width: 12),
-            Icon(
-              CupertinoIcons.checkmark_alt,
-              size: 18,
-              color: selected ? settingsAccent : const Color(0x00000000),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// Accent text control for a heading row — the one place a section is
-/// allowed a control, and a text link rather than a filled button.
 class SettingsAccentButton extends StatelessWidget {
   const SettingsAccentButton({
     super.key,

@@ -11,6 +11,7 @@ import 'package:bring_your_own_photos/storage/asset_record.dart';
 import 'package:bring_your_own_photos/storage/asset_record_store.dart';
 import 'package:bring_your_own_photos/upload/backup_coordinator.dart';
 import 'package:bring_your_own_photos/upload/s3_uploader.dart';
+import 'package:bring_your_own_photos/viewer/album_screen.dart';
 import 'package:bring_your_own_photos/viewer/asset_grid.dart';
 import 'package:bring_your_own_photos/viewer/detail_screen.dart';
 import 'package:bring_your_own_photos/viewer/library_screen.dart';
@@ -340,9 +341,15 @@ void main() {
       picker: ({type = FileType.any, allowMultiple = false}) async => [],
     );
 
-    // Import Photos now sits below Favorites/Cloud Backups/AI Settings/Reset
-    // Demo in Utilities — tall surface so it's built by the lazy
-    // CustomScrollView without needing a scroll.
+    // Adding files is the tile at the end of the roll now, so the library
+    // needs a photo for there to be an end of the roll to put it after.
+    await recordStore.upsert(
+      localId: 'manual:one',
+      contentHash: 'one',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/one.jpg',
+    );
     await tester.binding.setSurfaceSize(const Size(400, 1200));
     addTearDown(() => tester.binding.setSurfaceSize(null));
 
@@ -366,7 +373,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Import Photos'));
+    await tester.tap(find.byType(AddPhotosTile));
     await tester.pumpAndSettle();
 
     expect(find.text('Added 0 file(s), backed up 0.'), findsOneWidget);
@@ -724,7 +731,7 @@ void main() {
       expect(find.text('Favorites'), findsOneWidget);
       expect(find.text('Hidden'), findsOneWidget);
       expect(find.text('Recently Deleted'), findsOneWidget);
-      expect(find.text('Private Cloud'), findsOneWidget);
+      expect(find.text('Cloud Settings'), findsOneWidget);
 
       await tester.tap(find.text('Favorites'));
       await tester.pumpAndSettle();
@@ -791,7 +798,7 @@ void main() {
         UploadStatus.pending,
       );
 
-      await tester.tap(find.text('Private Cloud'));
+      await tester.tap(find.text('Cloud Settings'));
       await tester.pumpAndSettle();
       await tester.pageBack();
       await tester.pumpAndSettle();
@@ -860,7 +867,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Private Cloud'));
+      await tester.tap(find.text('Cloud Settings'));
       await tester.pumpAndSettle();
       await tester.pageBack();
       await tester.pumpAndSettle();
@@ -1007,6 +1014,74 @@ void main() {
       expect(find.text('No people yet. Tap + to add someone.'), findsWidgets);
     },
   );
+
+  testWidgets('Albums always shows, with Videos in it and a way to make one', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:clip',
+      contentHash: 'clip',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/clip.mp4',
+      isVideo: true,
+    );
+    final albumStore = FakeAlbumStore();
+
+    await tester.binding.setSurfaceSize(const Size(400, 3200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: albumStore,
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+          aiAnalysisStore: FakeAiAnalysisStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // With no albums of the user's own, the section is still there — it has
+    // the one the library makes for itself.
+    expect(find.text('Albums'), findsOneWidget);
+    expect(find.text('Videos'), findsOneWidget);
+
+    // Albums come before People.
+    expect(
+      tester.getCenter(find.text('Albums')).dy,
+      lessThan(tester.getCenter(find.text('People')).dy),
+    );
+
+    await tester.tap(
+      find.descendant(
+        of: find
+            .ancestor(of: find.text('Albums'), matching: find.byType(Row))
+            .first,
+        matching: find.byIcon(CupertinoIcons.add_circled),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(CupertinoTextField).last, 'Japan');
+    await tester.pump();
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
+
+    expect((await albumStore.listAll()).single.name, 'Japan');
+    // Straight into the new album: the next question is what goes in it.
+    expect(find.byType(AlbumScreen), findsOneWidget);
+  });
 
   testWidgets('Places reads as a list, folding the long tail behind Show All', (
     tester,
