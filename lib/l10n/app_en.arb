@@ -277,6 +277,8 @@
   },
   "settingsBrowseFilesAction": "Browse Files",
   "settingsDeleteConnectionAction": "Delete Connection",
+  "backupQueueHiddenItem": "Hidden photo",
+  "collectionsSyncQueueRow": "Sync Queue",
   "settingsSyncQueueRow": "Sync queue",
   "settingsSyncQueuePending": "{pending} pending · {concurrency} at a time",
   "@settingsSyncQueuePending": {

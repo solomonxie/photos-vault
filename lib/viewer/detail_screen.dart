@@ -24,6 +24,7 @@ import '../photos/on_device_vision.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
 import '../settings/backup_targets_store.dart';
+import 'asset_grid.dart';
 import '../storage/album.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
@@ -154,6 +155,10 @@ class _DetailScreenState extends State<DetailScreen> {
 
   /// Whether the photo on screen is zoomed in — see the pager's `physics`.
   bool _zoomed = false;
+
+  /// Whether a pull-to-dismiss is under way on the current page. The pager
+  /// stands down while it is: one drag, one meaning.
+  bool _pulling = false;
 
   @override
   void dispose() {
@@ -548,10 +553,19 @@ class _DetailScreenState extends State<DetailScreen> {
                 // one and swiping to the next are the same gesture, and
                 // the pager wins that fight by default — which made a
                 // zoomed photo impossible to look around.
-                physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
+                // A zoomed photo, or one being pulled down, owns every
+                // drag on it: one drag, one meaning.
+                physics: _zoomed || _pulling
+                    ? const NeverScrollableScrollPhysics()
+                    : null,
                 onPageChanged: (i) => setState(() => _index = i),
                 itemBuilder: (context, i) => _MediaPage(
                   record: _records[i],
+                  onPullChanged: (pulling) {
+                    if (pulling != _pulling) {
+                      setState(() => _pulling = pulling);
+                    }
+                  },
                   albumStore: widget.albumStore,
                   resolveFile: widget.resolvePhotoManagerFile,
                   resolveLiveVideo: widget.resolveLivePhotoVideo,
@@ -626,6 +640,7 @@ class _MediaPage extends StatefulWidget {
     required this.onRecordChanged,
     required this.scrollController,
     required this.albumStore,
+    required this.onPullChanged,
     required this.onZoomChanged,
     this.onDeviceAnalysis,
     this.aiVisionService,
@@ -657,6 +672,10 @@ class _MediaPage extends StatefulWidget {
   /// bar drives it directly, so this page's `CustomScrollView` just needs
   /// to use it.
   final ScrollController scrollController;
+
+  /// Tells the pager a pull-to-dismiss is under way, so it stops taking the
+  /// drag sideways while the photo is being pulled down.
+  final ValueChanged<bool> onPullChanged;
 
   /// Tells the pager this page is zoomed, so it stops taking the drags that
   /// are meant to move the photo around.
@@ -892,8 +911,16 @@ class _MediaPageState extends State<_MediaPage> {
     final path = _path;
     if (path == null) {
       if (_resolvingPath) {
-        return const Center(
-          child: CupertinoActivityIndicator(color: CupertinoColors.white),
+        // The same picture the grid was just showing, rather than a
+        // spinner over black. A camera-roll photo has to be exported out of
+        // the library before it can be shown full-size, which takes about a
+        // second — and for that second the app had nothing on screen but a
+        // loading ring, over a photo the user had already seen.
+        return Center(
+          child: assetImage(
+            widget.record,
+            placeholder: () => const ColoredBox(color: CupertinoColors.black),
+          ),
         );
       }
       return _MissingFileNote(message: l10n.detailFileUnavailable);

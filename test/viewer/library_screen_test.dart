@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:bring_your_own_photos/l10n/app_localizations.dart';
 import 'package:bring_your_own_photos/photos/demo_assets_service.dart';
 import 'package:bring_your_own_photos/photos/manual_add.dart';
@@ -744,12 +746,20 @@ void main() {
         prefix: '',
       );
       final recordStore = FakeAssetRecordStore();
+      // A file that's really there: the queue skips a photo whose path
+      // resolves to nothing, so a fake path would test the skip rather
+      // than the retry. Made synchronously — an awaited file operation
+      // inside `testWidgets` waits on a clock the test controls, and never
+      // comes back.
+      final dir = Directory.systemTemp.createTempSync('pending');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final file = File('${dir.path}/pending.jpg')..writeAsBytesSync([1, 2, 3]);
       await recordStore.upsert(
         localId: 'manual:pending',
         contentHash: 'p',
         platform: 'ios',
         sourceType: AssetSourceType.manualFile,
-        sourcePath: '/tmp/pending.jpg',
+        sourcePath: file.path,
       );
 
       // Wide enough that Cloud Backups' own "Cloud Buckets" row (heading +
@@ -767,13 +777,15 @@ void main() {
             albumStore: FakeAlbumStore(),
             personStore: FakePersonStore(),
             backupTargetsStore: targetsStore,
+            // The screen and the coordinator have to agree on what a file
+            // hashes to. Give them different answers and every check for
+            // local changes finds one, flips the record back to pending,
+            // re-uploads, and finds one again — forever.
+            hashFile: (path) async => 'fake-hash',
             backupCoordinator: BackupCoordinator(
               targetsStore: targetsStore,
               recordStore: recordStore,
               s3Uploader: _FakeS3Uploader(true),
-              // Never touches the real filesystem — this test only cares
-              // about the pending→uploaded status transition, not real
-              // change-detection hashing.
               hashFile: (path) async => 'fake-hash',
             ),
           ),
@@ -817,12 +829,16 @@ void main() {
         prefix: '',
       );
       final recordStore = FakeAssetRecordStore();
+      // A real file, made synchronously — see the note in the test above.
+      final dir = Directory.systemTemp.createTempSync('edited');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final file = File('${dir.path}/edited.jpg')..writeAsBytesSync([1, 2, 3]);
       await recordStore.upsert(
         localId: 'manual:edited',
         contentHash: 'e',
         platform: 'ios',
         sourceType: AssetSourceType.manualFile,
-        sourcePath: '/tmp/edited.jpg',
+        sourcePath: file.path,
       );
       // Already backed up, but the "local file" now hashes differently —
       // simulates an edit made in Photos after the last successful backup.
