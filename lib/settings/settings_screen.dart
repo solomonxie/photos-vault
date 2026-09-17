@@ -434,17 +434,17 @@ class _SettingsScreenState extends State<SettingsScreen>
           : SafeArea(
               child: ListView(
                 padding: const EdgeInsets.only(top: 8, bottom: 32),
-                // What it does, then where it puts things. The sync
-                // section is the page's actual controls; the two
-                // destination lists under it are places, and reading them
-                // answers none of the questions above. iCloud comes first
-                // of the two because it's the one with no setup at all.
+                // App data first: it's one switch, it needs no setup, and
+                // it's the one that decides whether a reinstall starts from
+                // nothing. Then how the photos sync, then the buckets they
+                // sync to — the list of places belongs under the settings
+                // that govern it, not above them.
                 children: [
-                  _syncSection(l10n, targets),
                   if (_icloudState != ICloudState.unsupported) ...[
-                    const SettingsSectionDivider(),
                     _appDataSection(l10n),
+                    const SettingsSectionDivider(),
                   ],
+                  _syncSection(l10n, targets),
                   const SettingsSectionDivider(),
                   _bucketsSection(l10n, targets),
                 ],
