@@ -47,7 +47,7 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
     final hidden = await hideIntoPrivateAlbum(
       context,
       assetRecordStore: widget.assetRecordStore,
-      record: record,
+      records: [record],
     );
     if (!hidden) return;
     setState(

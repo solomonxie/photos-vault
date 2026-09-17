@@ -139,7 +139,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
     await hideIntoPrivateAlbum(
       context,
       assetRecordStore: widget.assetRecordStore,
-      record: record,
+      records: [record],
     );
     await _reload();
   }

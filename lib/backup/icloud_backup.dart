@@ -1,5 +1,3 @@
-import 'package:intl/intl.dart';
-
 import '../storage/asset_record_store.dart';
 import 'app_snapshot.dart';
 import 'icloud_drive.dart';
@@ -13,14 +11,11 @@ import 'icloud_drive.dart';
 /// written, one file read on a fresh install — and the section hint says so
 /// rather than letting the word "iCloud" imply a merge.
 ///
-/// One file per day, named so the folder reads without opening anything:
-///
-/// ```
-/// 202609/library-20260917.json
-/// ```
-///
-/// Re-running on the same day replaces that day's file. A shelf of
-/// near-identical snapshots isn't a history, it's a bill.
+/// One file, `library.json`, overwritten every time. Dated files in month
+/// folders were tried first and are the wrong shape for what this is for:
+/// the job is to survive the app being deleted, which one current copy does
+/// completely. Keeping older ones would be offering a history nothing in
+/// the app can read back, in a folder the user can see, at their expense.
 class ICloudBackup {
   ICloudBackup({
     required this.snapshots,
@@ -58,7 +53,7 @@ class ICloudBackup {
   Future<bool> backUpNow() async {
     if (await drive.status() != ICloudState.available) return false;
     final snapshot = await snapshots.export();
-    return drive.write(fileNameFor(DateTime.now()), snapshot.encode());
+    return drive.write(fileName, snapshot.encode());
   }
 
   /// Backs up only if switched on — what every "something changed" caller
@@ -91,10 +86,7 @@ class ICloudBackup {
     return restored;
   }
 
-  /// `202609/library-20260917.json` — month folders so a year of daily
-  /// files doesn't land in one flat list, and a name that says what it is
-  /// and when without being opened.
-  static String fileNameFor(DateTime day) =>
-      '${DateFormat('yyyyMM').format(day)}/'
-      'library-${DateFormat('yyyyMMdd').format(day)}.json';
+  /// The one file, at the top of the app's iCloud folder — a name that says
+  /// what it is to anyone who opens the folder looking.
+  static const fileName = 'library.json';
 }

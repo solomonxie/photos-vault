@@ -12,6 +12,7 @@ import 'asset_grid_view.dart';
 import 'asset_picker_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
+import 'private_album_gate.dart';
 import 'zoom_page_route.dart';
 
 /// Contents of a private "album" — every [AssetRecord] currently tagged
@@ -157,13 +158,18 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
         ),
       ),
     );
-    if (picked == null || picked.isEmpty) return;
-    for (final record in picked) {
-      await widget.assetRecordStore.setPasscodeHash(
-        record.localId,
-        widget.passcodeHash,
-      );
-    }
+    if (picked == null || picked.isEmpty || !mounted) return;
+    // The same hide the grid's own action performs — including taking the
+    // photos out of Photos. Adding from in here used to only set the hash,
+    // so the photos vanished from this app and stayed in the camera roll.
+    // The album is already open, so its passcode isn't asked for again.
+    await hideIntoPrivateAlbum(
+      context,
+      assetRecordStore: widget.assetRecordStore,
+      records: picked,
+      passcodeHash: widget.passcodeHash,
+      custody: _custody,
+    );
     await _reload();
   }
 
@@ -188,40 +194,10 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
       ),
     );
     if (confirmed != true || !mounted) return;
-    for (final record in _records) {
-      await widget.assetRecordStore.setPasscodeHash(record.localId, null);
-    }
+    // Through the same path a single "Move to Library" takes, so every
+    // photo goes back to Photos rather than only losing its passcode.
+    await _removeManyFromAlbum(_records.map((r) => r.localId).toList());
     if (mounted) Navigator.of(context).pop();
-  }
-
-  void _showMenu() {
-    final l10n = AppLocalizations.of(context)!;
-    showCupertinoModalPopup<void>(
-      context: context,
-      builder: (context) => CupertinoActionSheet(
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.of(context).pop();
-              _addFromLibrary();
-            },
-            child: Text(l10n.privateAlbumMoveFromLibrary),
-          ),
-          CupertinoActionSheetAction(
-            isDestructiveAction: true,
-            onPressed: () {
-              Navigator.of(context).pop();
-              _confirmDeleteAlbum();
-            },
-            child: Text(l10n.privateAlbumDeleteAlbum),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(context).pop(),
-          child: Text(l10n.actionCancel),
-        ),
-      ),
-    );
   }
 
   Future<void> _toggleFavorite(AssetRecord record) async {
@@ -264,22 +240,46 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
                 child: Text(l10n.actionCancel),
               )
             : null,
+        // The two things this page does, on the page, rather than behind a
+        // "…" — there were only ever two of them, and a menu holding two
+        // items is a tap spent on finding out what they are.
         trailing: _selecting
             ? null
             : Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
-                  if (_records.isNotEmpty)
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: _enterSelectMode,
-                      child: Text(l10n.privateAlbumSelectButton),
-                    ),
                   CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: _showMenu,
-                    child: const Icon(CupertinoIcons.ellipsis_circle),
+                    padding: const EdgeInsets.symmetric(horizontal: 6),
+                    minimumSize: Size.zero,
+                    onPressed: _addFromLibrary,
+                    child: Text(
+                      l10n.privateAlbumMoveFromLibrary,
+                      style: const TextStyle(fontSize: 15),
+                    ),
                   ),
+                  if (_records.isNotEmpty) ...[
+                    CupertinoButton(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      minimumSize: Size.zero,
+                      onPressed: _enterSelectMode,
+                      child: Text(
+                        l10n.privateAlbumSelectButton,
+                        style: const TextStyle(fontSize: 15),
+                      ),
+                    ),
+                    CupertinoButton(
+                      padding: const EdgeInsets.symmetric(horizontal: 6),
+                      minimumSize: Size.zero,
+                      onPressed: _confirmDeleteAlbum,
+                      child: Text(
+                        l10n.privateAlbumDeleteAlbum,
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: CupertinoColors.systemRed,
+                        ),
+                      ),
+                    ),
+                  ],
                 ],
               ),
       ),

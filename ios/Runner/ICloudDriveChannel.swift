@@ -129,25 +129,18 @@ class ICloudDriveChannel {
     }
   }
 
-  /// Newest by name — the caller names files `yyyyMM/library-yyyyMMdd.json`,
-  /// which sorts chronologically, and reading the *name* avoids trusting
-  /// modification dates that iCloud rewrites as it syncs.
+  /// The newest — and only — snapshot. One file, overwritten: what this is
+  /// for is surviving the app being deleted, and one current copy does that
+  /// completely.
   private static func latestFile() -> URL? {
     guard let root = containerURL() else { return nil }
-    guard let months = try? FileManager.default.contentsOfDirectory(
+    let files = (try? FileManager.default.contentsOfDirectory(
       at: root, includingPropertiesForKeys: nil
-    ) else { return nil }
-    var newest: URL?
-    for month in months.sorted(by: { $0.lastPathComponent < $1.lastPathComponent }) {
-      guard let files = try? FileManager.default.contentsOfDirectory(
-        at: month, includingPropertiesForKeys: nil
-      ) else { continue }
-      for file in files.sorted(by: { $0.lastPathComponent < $1.lastPathComponent })
-      where file.pathExtension == "json" {
-        newest = file
-      }
-    }
-    return newest
+    )) ?? []
+    return files
+      .filter { $0.pathExtension == "json" }
+      .sorted { $0.lastPathComponent < $1.lastPathComponent }
+      .last
   }
 
   private static func readLatest() -> String? {

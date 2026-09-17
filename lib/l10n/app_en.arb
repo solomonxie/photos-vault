@@ -373,6 +373,12 @@
   },
   "libraryHideStillInPhotos": "Hidden here, but Photos still has it — the removal was declined.",
   "libraryHideFailed": "Could not copy the original, so nothing was hidden.",
+  "libraryHideConfirmTitle": "{count, plural, one{Hide this photo?} other{Hide {count} photos?}}",
+  "@libraryHideConfirmTitle": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "libraryHideConfirmBody": "The originals are removed from your iPhone's Photos library. This app keeps the only copy, in the hidden album — deleting the app deletes them with it.",
+  "libraryHideConfirmAction": "Hide and Remove",
   "libraryHideNote": "Hidden photos are removed from Photos and kept by this app alone.",
   "libraryDeleteBackupFailed": "Couldn't remove the backed-up copy from your bucket. The photo is still here — try again when you're back online.",
   "actionCancel": "Cancel",
@@ -389,11 +395,11 @@
   "privateAlbumEmpty": "Nothing here yet.",
   "privateAlbumRemove": "Remove from Private Album",
   "privateAlbumSelectButton": "Select",
-  "privateAlbumMoveSelectedToLibrary": "{count, plural, one{Move 1 to Library} other{Move {count} to Library}}",
+  "privateAlbumMoveSelectedToLibrary": "{count, plural, one{Recover 1 to Library} other{Recover {count} to Library}}",
   "@privateAlbumMoveSelectedToLibrary": {
     "placeholders": {"count": {"type": "int"}}
   },
-  "privateAlbumMoveFromLibrary": "Move from Library",
+  "privateAlbumMoveFromLibrary": "Add",
   "privateAlbumDeleteAlbum": "Delete Private Album",
   "privateAlbumDeleteConfirmTitle": "Delete this private album?",
   "privateAlbumDeleteConfirmBody": "Moved photos return to your library. Nothing is deleted.",

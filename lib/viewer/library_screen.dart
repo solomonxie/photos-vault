@@ -859,27 +859,16 @@ class LibraryScreenState extends State<LibraryScreen>
   /// open on it. The copy into this app's own storage happens first, so
   /// there's never a moment where the only copy is the one being deleted.
   Future<void> _hide(AssetRecord record) async {
-    final l10n = AppLocalizations.of(context)!;
-    if (!await hideIntoPrivateAlbum(
-      context,
-      assetRecordStore: assetRecordStore,
-      record: record,
-    )) {
-      return;
-    }
     setState(() => _busy = true);
-    final CustodyResult result;
     try {
-      result = await _custody.takeOut(record);
+      await hideIntoPrivateAlbum(
+        context,
+        assetRecordStore: assetRecordStore,
+        records: [record],
+        custody: _custody,
+      );
     } finally {
       if (mounted) setState(() => _busy = false);
-    }
-    if (result == CustodyResult.failed) {
-      // Nothing was copied, so nothing should have been hidden either.
-      await assetRecordStore.setPasscodeHash(record.localId, null);
-      if (mounted) _showResult(l10n.libraryHideFailed);
-    } else if (result == CustodyResult.takenButStillInLibrary && mounted) {
-      _showResult(l10n.libraryHideStillInPhotos);
     }
     await reload();
   }
