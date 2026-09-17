@@ -5,7 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:sqflite/sqflite.dart'
-    show Database, DatabaseFactory, OpenDatabaseOptions;
+    show ConflictAlgorithm, Database, DatabaseFactory, OpenDatabaseOptions;
 
 import 'asset_record.dart';
 
@@ -47,8 +47,11 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 9,
-        onCreate: (db, version) => db.execute(_createTableSql),
+        version: 11,
+        onCreate: (db, version) async {
+          await db.execute(_createTableSql);
+          await db.execute(_createPlaceNameTableSql);
+        },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await db.execute(
@@ -94,6 +97,23 @@ class AssetRecordStore {
               'ALTER TABLE $_table ADD COLUMN is_live_photo INTEGER NOT NULL DEFAULT 0',
             );
           }
+          if (oldVersion < 11) {
+            await db.execute('ALTER TABLE $_table ADD COLUMN library_id TEXT');
+            // Every camera-roll record so far carried the library's id
+            // inside its own — 'photo:<id>'. Lift it out so the two can
+            // part ways when a hidden photo leaves the library.
+            await db.execute(
+              "UPDATE $_table SET library_id = substr(local_id, 7) "
+              "WHERE source_type = 'photoManager' AND local_id LIKE 'photo:%'",
+            );
+          }
+          if (oldVersion < 10) {
+            await db.execute('ALTER TABLE $_table ADD COLUMN latitude REAL');
+            await db.execute('ALTER TABLE $_table ADD COLUMN longitude REAL');
+            await db.execute('ALTER TABLE $_table ADD COLUMN width INTEGER');
+            await db.execute('ALTER TABLE $_table ADD COLUMN height INTEGER');
+            await db.execute(_createPlaceNameTableSql);
+          }
         },
       ),
     );
@@ -130,7 +150,28 @@ class AssetRecordStore {
       location TEXT,
       event TEXT,
       passcode_hash TEXT,
+      library_id TEXT,
+      latitude REAL,
+      longitude REAL,
+      width INTEGER,
+      height INTEGER,
       created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  ''';
+
+  /// One row per rounded-off patch of the world, so a thousand photos from
+  /// one trip cost one question to the geocoder rather than a thousand —
+  /// see `PhotoLocationService`, which owns the rounding and the reasoning.
+  /// A row with a null `name` is a remembered "there's nothing there",
+  /// which is just as worth not asking twice.
+  static const _placeNameTable = 'place_name';
+
+  static const _createPlaceNameTableSql =
+      '''
+    CREATE TABLE $_placeNameTable (
+      cell TEXT PRIMARY KEY,
+      name TEXT,
       updated_at INTEGER NOT NULL
     )
   ''';
@@ -157,6 +198,11 @@ class AssetRecordStore {
     bool isVideo = false,
     bool isLivePhoto = false,
     DateTime? createdAt,
+    double? latitude,
+    double? longitude,
+    int? width,
+    int? height,
+    String? libraryId,
   }) async {
     final db = await _open();
     final existing = await getByLocalId(localId);
@@ -183,6 +229,11 @@ class AssetRecordStore {
       'source_path': sourcePath,
       'is_video': isVideo ? 1 : 0,
       'is_live_photo': isLivePhoto ? 1 : 0,
+      'library_id': libraryId,
+      'latitude': latitude,
+      'longitude': longitude,
+      'width': width,
+      'height': height,
       'created_at': now.millisecondsSinceEpoch,
       'updated_at': now.millisecondsSinceEpoch,
     });
@@ -194,6 +245,11 @@ class AssetRecordStore {
       sourcePath: sourcePath,
       isVideo: isVideo,
       isLivePhoto: isLivePhoto,
+      libraryId: libraryId,
+      latitude: latitude,
+      longitude: longitude,
+      width: width,
+      height: height,
       createdAt: now,
       updatedAt: now,
     );
@@ -362,6 +418,105 @@ class AssetRecordStore {
       where: 'local_id = ?',
       whereArgs: [localId],
     );
+  }
+
+  /// Which photo-library asset this record is the record of. Set to null
+  /// when the photo leaves the library (hidden), and to the new asset's id
+  /// when it's handed back — see `LibraryCustody`.
+  Future<void> setLibraryId(String localId, String? value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {
+        'library_id': value,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  /// The record for a photo-library asset, whatever this app calls it —
+  /// how the scan recognises a photo it already tracks.
+  Future<AssetRecord?> getByLibraryId(String libraryId) async {
+    final db = await _open();
+    final rows = await db.query(
+      _table,
+      // The second clause is for rows written before `library_id` existed,
+      // which carry the library's id inside their own and may not have
+      // been re-scanned since the migration that lifts it out.
+      where: 'library_id = ? OR (library_id IS NULL AND local_id = ?)',
+      whereArgs: [libraryId, 'photo:$libraryId'],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return _healed(_fromRow(rows.single));
+  }
+
+  /// What the photo library itself knows about a photo — where it was
+  /// taken, how big it is. Fills blanks only: a null argument means "the
+  /// library didn't say", and leaves whatever's stored alone.
+  Future<void> setLibraryMetadata(
+    String localId, {
+    double? latitude,
+    double? longitude,
+    int? width,
+    int? height,
+  }) async {
+    final values = <String, Object?>{
+      'latitude': ?latitude,
+      'longitude': ?longitude,
+      'width': ?width,
+      'height': ?height,
+    };
+    if (values.isEmpty) return;
+    final db = await _open();
+    await db.update(
+      _table,
+      {...values, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  /// Photos carrying a GPS tag that nobody — neither the user nor the
+  /// geocoder — has put a name to yet. Oldest-scanned first so a run picks
+  /// up where the last one stopped.
+  Future<List<AssetRecord>> listAwaitingPlaceName({int limit = 200}) async {
+    final db = await _open();
+    final rows = await db.query(
+      _table,
+      where:
+          "latitude IS NOT NULL AND longitude IS NOT NULL "
+          "AND (location IS NULL OR location = '') AND deleted_at IS NULL",
+      orderBy: 'created_at DESC',
+      limit: limit,
+    );
+    return rows.map(_fromRow).toList();
+  }
+
+  /// The name already worked out for a patch of the world, or `null` if
+  /// that patch has never been looked up. The record it returns can itself
+  /// hold a null [PlaceNameEntry.name] — a remembered "nothing there".
+  Future<PlaceNameEntry?> cachedPlaceName(String cell) async {
+    final db = await _open();
+    final rows = await db.query(
+      _placeNameTable,
+      where: 'cell = ?',
+      whereArgs: [cell],
+      limit: 1,
+    );
+    if (rows.isEmpty) return null;
+    return PlaceNameEntry(rows.single['name'] as String?);
+  }
+
+  Future<void> cachePlaceName(String cell, String? name) async {
+    final db = await _open();
+    await db.insert(_placeNameTable, {
+      'cell': cell,
+      'name': name,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// Every distinct location already used across all photos — the
@@ -542,6 +697,11 @@ class AssetRecordStore {
       location: row['location'] as String?,
       event: row['event'] as String?,
       passcodeHash: row['passcode_hash'] as String?,
+      libraryId: row['library_id'] as String?,
+      latitude: row['latitude'] as double?,
+      longitude: row['longitude'] as double?,
+      width: row['width'] as int?,
+      height: row['height'] as int?,
     );
   }
 }

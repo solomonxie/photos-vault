@@ -28,5 +28,6 @@ base class TestPlatformFile extends PlatformFile {
   Future<Uint8List> readAsBytes() => File(path!).readAsBytes();
 
   @override
-  Stream<Uint8List> readAsByteStream() => File(path!).openRead().map(Uint8List.fromList);
+  Stream<Uint8List> readAsByteStream() =>
+      File(path!).openRead().map(Uint8List.fromList);
 }

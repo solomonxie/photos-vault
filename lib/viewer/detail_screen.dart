@@ -537,10 +537,10 @@ class _DetailScreenState extends State<DetailScreen> {
               child: PageView.builder(
                 controller: _pageController,
                 itemCount: _records.length,
-                // A zoomed photo owns every drag on it. Panning around one
-                // and swiping to the next are the same gesture, and the
-                // pager wins that fight by default — which made a zoomed
-                // photo impossible to look around.
+                // A zoomed photo owns every drag on it. Panning around
+                // one and swiping to the next are the same gesture, and
+                // the pager wins that fight by default — which made a
+                // zoomed photo impossible to look around.
                 physics: _zoomed ? const NeverScrollableScrollPhysics() : null,
                 onPageChanged: (i) => setState(() => _index = i),
                 itemBuilder: (context, i) => _MediaPage(
@@ -671,30 +671,70 @@ class _MediaPageState extends State<_MediaPage> {
   String? _path;
   bool _resolvingPath = false;
 
-  /// Pulling down while already at the top rubber-bands the scroll position
-  /// negative (`BouncingScrollPhysics`) instead of doing nothing — past
-  /// [_dismissPullThreshold] of that, dismiss back to the grid, same as
-  /// real Photos. Checked against live drag updates only (`dragDetails !=
-  /// null`) — once the finger lifts, the same negative position keeps
-  /// generating updates as it springs back to 0, which would otherwise
-  /// trigger this on every release, however small the actual pull was.
   bool _dismissed = false;
 
-  /// Deliberately small. This is measured in *overscroll*, not finger
-  /// travel, and `BouncingScrollPhysics` gives back roughly a third of the
-  /// drag once past the edge — so 80pt of overscroll cost a drag halfway
-  /// down the screen before the photo would let go.
-  static const _dismissPullThreshold = 28.0;
+  /// Pull the photo down and it goes back to the grid, same as real Photos
+  /// — and a pull that comes out at an angle is still a pull.
+  ///
+  /// Read straight off the pointer rather than off the scroll view's
+  /// overscroll, because that reading was never really about the pull: the
+  /// pager and the scroll view both watch for a drag, Flutter's drag
+  /// recognisers measure the *length of the path* travelled rather than
+  /// its direction, so the two tie on anything diagonal — and the pager
+  /// took the tie. Only a pull whose sideways component was exactly zero
+  /// ever reached the scroll view.
+  ///
+  /// Settling that fight by giving the pager a longer threshold doesn't
+  /// work: the two accumulate at the same rate, so *any* consistent lean,
+  /// even a few degrees, would go to the page instead of the pager and
+  /// swiping between photos would stop working. So the fight is left alone
+  /// and the pull is read from the pointer, outside the arena, where the
+  /// only question that matters can be asked directly: did this go down
+  /// far enough, and more down than sideways?
+  static const _dismissPullDistance = 64.0;
 
-  bool _onScrollNotification(ScrollNotification notification) {
-    if (!_dismissed &&
-        notification is ScrollUpdateNotification &&
-        notification.dragDetails != null &&
-        notification.metrics.pixels < -_dismissPullThreshold) {
-      _dismissed = true;
-      Navigator.of(context).pop();
+  /// How much of the drag is allowed to be sideways. A thumb pulling down
+  /// swings through an arc, so demanding it go down further than it goes
+  /// across ruled out most real pulls; at 0.7 anything steeper than about
+  /// 35 degrees off horizontal counts, which still leaves a swipe to the
+  /// next photo unmistakable.
+  static const _dismissPullLean = 0.7;
+
+  int _pointers = 0;
+  Offset? _pullOrigin;
+
+  /// Only from the top of the page: further down, a drag downward is the
+  /// info panel being put back, not the photo being let go of.
+  bool get _atTop {
+    final controller = widget.scrollController;
+    return !controller.hasClients || controller.position.pixels <= 0;
+  }
+
+  void _onPointerDown(PointerDownEvent event) {
+    _pointers++;
+    // A second finger means a pinch — nobody dismisses a photo with two.
+    _pullOrigin = _pointers > 1 || _zoomed || !_atTop ? null : event.position;
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    final origin = _pullOrigin;
+    if (origin == null || _dismissed) return;
+    final moved = event.position - origin;
+    if (moved.dy < _dismissPullDistance ||
+        moved.dy <= moved.dx.abs() * _dismissPullLean) {
+      return;
     }
-    return false;
+    if (!_atTop) {
+      _pullOrigin = null;
+      return;
+    }
+    _dismissed = true;
+    Navigator.of(context).pop();
+  }
+
+  void _onPointerDone(PointerEvent event) {
+    if (_pointers > 0) _pointers--;
+    _pullOrigin = null;
   }
 
   /// True while the photo is zoomed in. Everything that scrolls has to
@@ -912,8 +952,11 @@ class _MediaPageState extends State<_MediaPage> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return NotificationListener<ScrollNotification>(
-      onNotification: _onScrollNotification,
+    return Listener(
+      onPointerDown: _onPointerDown,
+      onPointerMove: _onPointerMove,
+      onPointerUp: _onPointerDone,
+      onPointerCancel: _onPointerDone,
       child: LayoutBuilder(
         builder: (context, constraints) => CustomScrollView(
           controller: widget.scrollController,
@@ -1159,7 +1202,11 @@ class _InfoPanelState extends State<_InfoPanel> {
     final existing = record.location;
     if (existing != null && existing.isNotEmpty) return;
     final resolve =
-        widget.resolvePlaceName ?? PhotoLocationService().placeNameFor;
+        widget.resolvePlaceName ??
+        (AssetRecord r) => PhotoLocationService().placeNameFor(
+          r,
+          store: widget.assetRecordStore,
+        );
     final name = await resolve(record);
     if (name == null || name.isEmpty || !mounted) return;
     // Raced by a hand-typed value while the geocoder was working: theirs wins.
@@ -1272,7 +1319,7 @@ class _InfoPanelState extends State<_InfoPanel> {
         await widget.personStore.update(
           latest.copyWith(
             avatarLocalId: widget.record.localId,
-            avatarFace: _faceRects[index].toPersonFace(),
+            avatarFace: () => _faceRects[index].toPersonFace(),
           ),
         );
       }
@@ -1443,6 +1490,16 @@ class _InfoPanelState extends State<_InfoPanel> {
   }
 
   Future<void> _load() async {
+    // Pixel size comes off the library entry at scan time; decoding a
+    // full-size original just to print "5857 × 3905" is only the fallback
+    // for a manually-added file the scan never saw.
+    final stored = widget.record;
+    if (stored.width != null && stored.height != null) {
+      setState(() {
+        _width = stored.width;
+        _height = stored.height;
+      });
+    }
     final path = widget.resolvedPath;
     if (path == null) return;
     final file = File(path);
@@ -1450,7 +1507,7 @@ class _InfoPanelState extends State<_InfoPanel> {
     try {
       bytes = (await file.stat()).size;
     } catch (_) {}
-    if (!widget.record.isVideo) {
+    if (!widget.record.isVideo && _width == null) {
       try {
         final codec = await ui.instantiateImageCodec(await file.readAsBytes());
         final frame = await codec.getNextFrame();
@@ -1461,8 +1518,8 @@ class _InfoPanelState extends State<_InfoPanel> {
     if (!mounted) return;
     setState(() {
       _bytes = bytes;
-      _width = width;
-      _height = height;
+      _width = width ?? _width;
+      _height = height ?? _height;
     });
   }
 

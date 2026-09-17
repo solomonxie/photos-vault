@@ -18,7 +18,9 @@ import '../photos/on_device_analysis.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/photo_library_change.dart';
+import '../photos/library_custody.dart';
 import '../photos/photo_library_service.dart';
+import '../photos/photo_location.dart';
 import '../photos/thumbnail_cache.dart';
 import '../settings/ai_settings_screen.dart';
 import '../settings/backup_targets_store.dart';
@@ -65,6 +67,8 @@ class LibraryScreen extends StatefulWidget {
     this.backupCoordinator,
     this.aiAnalysisStore,
     this.photoLibraryService,
+    this.photoLocationService,
+    this.libraryCustody,
     this.personStore,
     this.hashFile,
     this.thumbnailCache,
@@ -86,6 +90,13 @@ class LibraryScreen extends StatefulWidget {
   /// Overridable for tests so they never touch the real `photo_manager`
   /// platform channel.
   final PhotoLibraryService? photoLibraryService;
+
+  /// Overridable for tests so they never call the real OS geocoder.
+  final PhotoLocationService? photoLocationService;
+
+  /// Overridable for tests so hiding never deletes from a real photo
+  /// library.
+  final LibraryCustody? libraryCustody;
 
   /// Overridable for tests so they never open the real file picker.
   final ManualAddService? manualAddService;
@@ -142,6 +153,10 @@ class LibraryScreenState extends State<LibraryScreen>
   late final PhotoLibraryService _photoLibraryService =
       widget.photoLibraryService ??
       PhotoLibraryService(store: assetRecordStore);
+  late final PhotoLocationService _photoLocationService =
+      widget.photoLocationService ?? PhotoLocationService();
+  late final LibraryCustody _custody =
+      widget.libraryCustody ?? LibraryCustody(store: assetRecordStore);
   late final Future<String> Function(String path) _hashFile =
       widget.hashFile ?? file_hash.hashFile;
   late final ThumbnailCache _thumbnailCache =
@@ -357,6 +372,11 @@ class LibraryScreenState extends State<LibraryScreen>
           unawaited(reload());
         },
       );
+      // Names the places the scan collected coordinates for. Runs after
+      // the pages are in and on its own time (see
+      // `PhotoLocationService.spacing`), so Places fills itself in from
+      // photos nobody has opened yet — which is most of them.
+      unawaited(_namePlaces());
       if (result.isEmpty) return;
       if (result.added.isNotEmpty) await _backUpRecords(result.added);
       // Also redraws for a scan that only *changed* things — a heart taken
@@ -368,6 +388,16 @@ class LibraryScreenState extends State<LibraryScreen>
       // rather than crash; manual add/demo photos still work.
     } finally {
       _syncingLibrary = false;
+    }
+  }
+
+  Future<void> _namePlaces() async {
+    try {
+      final named = await _photoLocationService.fillMissing(assetRecordStore);
+      if (named > 0 && mounted) await reload();
+    } catch (_) {
+      // No geocoder (tests, no network, throttled) — the photos keep their
+      // coordinates and get their names on a later run.
     }
   }
 
@@ -424,7 +454,16 @@ class LibraryScreenState extends State<LibraryScreen>
   /// Places and Events are both "group the library by one free-text field
   /// the user filled in" — biggest group first, so the row leads with what
   /// they actually photograph.
-  Map<String, List<AssetRecord>> _groupedBy(String? Function(AssetRecord) of) {
+  /// Grouped by one free-text field, biggest group first — the place you
+  /// have five hundred photos of is the one you mean.
+  ///
+  /// [byRecency] ranks by the newest photo in each group instead, which is
+  /// what an event wants: "Nina's Wedding" is interesting for a month and
+  /// then it isn't, however many photos it holds.
+  Map<String, List<AssetRecord>> _groupedBy(
+    String? Function(AssetRecord) of, {
+    bool byRecency = false,
+  }) {
     final groups = <String, List<AssetRecord>>{};
     for (final record in _active) {
       final key = of(record);
@@ -432,9 +471,16 @@ class LibraryScreenState extends State<LibraryScreen>
       groups.putIfAbsent(key, () => []).add(record);
     }
     final sorted = groups.entries.toList()
-      ..sort((a, b) => b.value.length.compareTo(a.value.length));
+      ..sort(
+        byRecency
+            ? (a, b) => _newest(b.value).compareTo(_newest(a.value))
+            : (a, b) => b.value.length.compareTo(a.value.length),
+      );
     return {for (final entry in sorted) entry.key: entry.value};
   }
+
+  static DateTime _newest(List<AssetRecord> records) =>
+      records.map((r) => r.createdAt).reduce((a, b) => a.isAfter(b) ? a : b);
 
   void _openGroup(String title, List<AssetRecord> records) => _push(
     AssetGroupScreen(
@@ -769,12 +815,33 @@ class LibraryScreenState extends State<LibraryScreen>
     await reload();
   }
 
+  /// Hiding takes the photo out of Photos as well — otherwise "hidden"
+  /// would only mean hidden from this app, and the camera roll would still
+  /// open on it. The copy into this app's own storage happens first, so
+  /// there's never a moment where the only copy is the one being deleted.
   Future<void> _hide(AssetRecord record) async {
-    await hideIntoPrivateAlbum(
+    final l10n = AppLocalizations.of(context)!;
+    if (!await hideIntoPrivateAlbum(
       context,
       assetRecordStore: assetRecordStore,
       record: record,
-    );
+    )) {
+      return;
+    }
+    setState(() => _busy = true);
+    final CustodyResult result;
+    try {
+      result = await _custody.takeOut(record);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (result == CustodyResult.failed) {
+      // Nothing was copied, so nothing should have been hidden either.
+      await assetRecordStore.setPasscodeHash(record.localId, null);
+      if (mounted) _showResult(l10n.libraryHideFailed);
+    } else if (result == CustodyResult.takenButStillInLibrary && mounted) {
+      _showResult(l10n.libraryHideStillInPhotos);
+    }
     await reload();
   }
 
@@ -1080,7 +1147,11 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _openPrivateAlbums() async {
-    await openPrivateAlbums(context, assetRecordStore: assetRecordStore);
+    await openPrivateAlbums(
+      context,
+      assetRecordStore: assetRecordStore,
+      custody: _custody,
+    );
     await reload();
   }
 
@@ -1375,16 +1446,16 @@ class LibraryScreenState extends State<LibraryScreen>
                 ),
               )
             : SizedBox(
-                height: 100,
+                height: 128,
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
                   itemCount: _people.length,
-                  separatorBuilder: (context, i) => const SizedBox(width: 8),
+                  separatorBuilder: (context, i) => const SizedBox(width: 12),
                   itemBuilder: (context, i) {
                     final person = _people[i];
                     return SizedBox(
-                      width: 64,
+                      width: 84,
                       child: _PersonCard(
                         person: person,
                         assetRecordStore: assetRecordStore,
@@ -1400,10 +1471,11 @@ class LibraryScreenState extends State<LibraryScreen>
         child: _SubsectionHeader(title: l10n.collectionsPlacesRow),
       ),
       SliverToBoxAdapter(
-        child: _GroupCardRow(
+        child: _GroupList(
           groups: _groupedBy((r) => r.location),
           emptyNote: l10n.collectionsPlacesEmpty,
           icon: CupertinoIcons.map_pin_ellipse,
+          color: CupertinoColors.systemTeal,
           onTap: _openGroup,
         ),
       ),
@@ -1421,10 +1493,11 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       ),
       SliverToBoxAdapter(
-        child: _GroupCardRow(
-          groups: _groupedBy((r) => r.event),
+        child: _GroupList(
+          groups: _groupedBy((r) => r.event, byRecency: true),
           emptyNote: l10n.collectionsEventsEmpty,
           icon: CupertinoIcons.calendar,
+          color: CupertinoColors.systemOrange,
           onTap: _openGroup,
         ),
       ),
@@ -1663,19 +1736,18 @@ class _PersonCard extends StatelessWidget {
     child: Column(
       mainAxisSize: MainAxisSize.min,
       children: [
-        PersonAvatar(
+        PersonAvatar.forPerson(
           assetRecordStore: assetRecordStore,
-          localId: person.avatarLocalId,
-          face: person.avatarFace,
-          size: 56,
+          person: person,
+          size: 76,
         ),
-        const SizedBox(height: 4),
+        const SizedBox(height: 6),
         Text(
           person.name,
           maxLines: 1,
           overflow: TextOverflow.ellipsis,
           textAlign: TextAlign.center,
-          style: const TextStyle(fontSize: 12),
+          style: const TextStyle(fontSize: 13),
         ),
         Text(
           '$photoCount',
@@ -1905,96 +1977,112 @@ class _SelectionAction extends StatelessWidget {
   );
 }
 
-/// Places/Events: one card per distinct value the user has set, covered by
-/// that group's newest photo. Same shape as an album card, since that's
-/// what a place or an event is here — a live album keyed off one field.
-class _GroupCardRow extends StatelessWidget {
-  const _GroupCardRow({
+/// Places/Events: one text row per distinct value the user has set.
+///
+/// These were cover cards, the same 140x190 as an album. A place is a word,
+/// though, and most places had no photo worth that much room — the section
+/// read as a row of grey pins with a name under each. A name and a count is
+/// the whole content, so it gets a line, and the section gets its screen
+/// back. Long lists fold after [_unfoldedRows], with the rest one tap
+/// away.
+class _GroupList extends StatefulWidget {
+  const _GroupList({
     required this.groups,
     required this.emptyNote,
     required this.icon,
+    required this.color,
     required this.onTap,
   });
 
   final Map<String, List<AssetRecord>> groups;
   final String emptyNote;
   final IconData icon;
+  final Color color;
   final void Function(String title, List<AssetRecord> records) onTap;
+
+  /// Enough to see what's there without the page becoming a list of
+  /// places; the rest are one tap away.
+  static const _unfoldedRows = 5;
+
+  @override
+  State<_GroupList> createState() => _GroupListState();
+}
+
+class _GroupListState extends State<_GroupList> {
+  bool _showAll = false;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    if (groups.isEmpty) {
+    final entries = widget.groups.entries.toList();
+    if (entries.isEmpty) {
       return Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 16),
+        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
         child: Text(
-          emptyNote,
+          widget.emptyNote,
           style: const TextStyle(color: CupertinoColors.systemGrey),
         ),
       );
     }
 
-    final entries = groups.entries.toList();
-    return SizedBox(
-      height: 190,
-      child: ListView.separated(
-        scrollDirection: Axis.horizontal,
-        padding: const EdgeInsets.symmetric(horizontal: 16),
-        itemCount: entries.length,
-        separatorBuilder: (context, i) => const SizedBox(width: 12),
-        itemBuilder: (context, i) {
-          final entry = entries[i];
-          final cover = entry.value.first;
-          return SizedBox(
-            width: 140,
-            child: GestureDetector(
-              onTap: () => onTap(entry.key, entry.value),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  Expanded(
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(10),
-                      child: cover.sourcePath != null && !cover.isVideo
-                          ? Image.file(
-                              File(cover.sourcePath!),
-                              fit: BoxFit.cover,
-                              width: double.infinity,
-                              errorBuilder: (context, error, stackTrace) =>
-                                  _GroupCardFallback(icon: icon),
-                            )
-                          : _GroupCardFallback(icon: icon),
-                    ),
-                  ),
-                  const SizedBox(height: 6),
-                  Text(entry.key, maxLines: 1, overflow: TextOverflow.ellipsis),
-                  Text(
-                    l10n.collectionsGroupPhotoCount(entry.value.length),
-                    style: const TextStyle(
-                      color: CupertinoColors.systemGrey,
-                      fontSize: 13,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          );
-        },
+    final visible = _showAll
+        ? entries
+        : entries.take(_GroupList._unfoldedRows).toList();
+    return CupertinoListSection.insetGrouped(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      backgroundColor: const Color(0xFF1C1C1E),
+      decoration: const BoxDecoration(
+        color: Color(0xFF2C2C2E),
+        borderRadius: BorderRadius.all(Radius.circular(10)),
       ),
+      children: [
+        for (final entry in visible)
+          CupertinoListTile(
+            key: ValueKey(entry.key),
+            leading: Container(
+              width: 29,
+              height: 29,
+              decoration: BoxDecoration(
+                color: widget.color,
+                borderRadius: BorderRadius.circular(7),
+              ),
+              child: Icon(widget.icon, color: CupertinoColors.white, size: 17),
+            ),
+            title: Text(
+              entry.key,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${entry.value.length}',
+                  style: const TextStyle(color: CupertinoColors.systemGrey),
+                ),
+                const SizedBox(width: 4),
+                const Icon(
+                  CupertinoIcons.chevron_forward,
+                  size: 18,
+                  color: CupertinoColors.systemGrey2,
+                ),
+              ],
+            ),
+            onTap: () => widget.onTap(entry.key, entry.value),
+          ),
+        if (entries.length > visible.length || _showAll)
+          CupertinoListTile(
+            title: Text(
+              _showAll
+                  ? l10n.collectionsShowLess
+                  : l10n.collectionsShowAll(entries.length),
+              style: const TextStyle(color: CupertinoColors.activeBlue),
+            ),
+            onTap: () => setState(() => _showAll = !_showAll),
+          ),
+      ],
     );
   }
-}
-
-class _GroupCardFallback extends StatelessWidget {
-  const _GroupCardFallback({required this.icon});
-
-  final IconData icon;
-
-  @override
-  Widget build(BuildContext context) => ColoredBox(
-    color: CupertinoDynamicColor.resolve(CupertinoColors.systemGrey5, context),
-    child: Icon(icon, color: CupertinoColors.systemGrey, size: 32),
-  );
 }
 
 class _EmptyState extends StatelessWidget {

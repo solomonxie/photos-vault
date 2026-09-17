@@ -13,13 +13,17 @@ AssetEntity _entity(
   AssetType type = AssetType.image,
   int createSecond = 0,
   bool isFavorite = false,
+  int width = 100,
+  int height = 100,
+  LatLng? latLng,
 }) => AssetEntity(
   id: id,
   typeInt: type.index,
-  width: 100,
-  height: 100,
+  width: width,
+  height: height,
   createDateSecond: createSecond,
   isFavorite: isFavorite,
+  latLng: latLng,
 );
 
 /// The real service pages the camera roll newest-first; these fakes hand
@@ -79,6 +83,59 @@ void main() {
     expect(await store.listAll(), hasLength(2));
   });
 
+  test(
+    'syncAll keeps what the library already knows: where and how big',
+    () async {
+      final store = FakeAssetRecordStore();
+      final service = PhotoLibraryService(
+        store: store,
+        listAssetPage: pagedFrom([
+          _entity(
+            'a1',
+            width: 5857,
+            height: 3905,
+            latLng: const LatLng(latitude: 48.86, longitude: 2.35),
+          ),
+          // No GPS tag: reads back as Null Island, which is nobody's holiday.
+          _entity('a2', latLng: const LatLng(latitude: 0, longitude: 0)),
+        ]),
+      );
+
+      await service.syncAll();
+
+      final tagged = (await store.getByLocalId('photo:a1'))!;
+      expect(tagged.latitude, 48.86);
+      expect(tagged.longitude, 2.35);
+      expect(tagged.width, 5857);
+      expect(tagged.height, 3905);
+      expect((await store.getByLocalId('photo:a2'))!.hasCoordinates, isFalse);
+    },
+  );
+
+  test(
+    'a photo tracked before any of that was kept gets it on the next scan',
+    () async {
+      final store = FakeAssetRecordStore();
+      // Scanned by an older build: tracked, but nothing about it recorded.
+      await store.upsert(
+        localId: 'photo:a1',
+        contentHash: 'a1',
+        platform: 'ios',
+      );
+      final service = PhotoLibraryService(
+        store: store,
+        listAssetPage: pagedFrom([
+          _entity('a1', latLng: const LatLng(latitude: 48.86, longitude: 2.35)),
+        ]),
+      );
+
+      final result = await service.syncAll();
+
+      expect(result.updated, 1);
+      expect((await store.getByLocalId('photo:a1'))!.latitude, 48.86);
+    },
+  );
+
   test('syncAll is a no-op for assets already tracked', () async {
     final store = FakeAssetRecordStore();
     final service = PhotoLibraryService(
@@ -111,7 +168,7 @@ void main() {
   });
 
   test(
-    'entityFor resolves a photoManager record via its bare asset id',
+    'entityFor resolves a photoManager record via the library id it holds',
     () async {
       final store = FakeAssetRecordStore();
       final record = await store.upsert(
@@ -119,6 +176,7 @@ void main() {
         contentHash: 'a1',
         platform: 'ios',
         sourceType: AssetSourceType.photoManager,
+        libraryId: 'a1',
       );
       String? requestedId;
       final service = PhotoLibraryService(
@@ -133,6 +191,36 @@ void main() {
 
       expect(requestedId, 'a1');
       expect(entity?.id, 'a1');
+    },
+  );
+
+  test(
+    'a photo taken out of the library resolves to no asset at all',
+    () async {
+      final store = FakeAssetRecordStore();
+      await store.upsert(
+        localId: 'photo:a1',
+        contentHash: 'a1',
+        platform: 'ios',
+        sourceType: AssetSourceType.photoManager,
+        libraryId: 'a1',
+      );
+      // Hidden: this app holds the only copy now.
+      await store.setLibraryId('photo:a1', null);
+      final hidden = (await store.getByLocalId('photo:a1'))!;
+      var requested = 0;
+      final service = PhotoLibraryService(
+        store: store,
+        loadEntity: (id) async {
+          requested++;
+          return _entity(id);
+        },
+      );
+
+      // The id inside its localId names the asset PhotoKit destroyed — asking
+      // for it would hand back the wrong thing, or nothing, at random.
+      expect(await service.entityFor(hidden), isNull);
+      expect(requested, 0);
     },
   );
 

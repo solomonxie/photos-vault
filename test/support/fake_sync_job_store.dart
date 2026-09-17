@@ -58,17 +58,21 @@ class FakeSyncJobStore implements SyncJobStore {
   Future<void> markDone(String id) async => _setStatus(id, SyncJobStatus.done);
 
   @override
-  Future<void> markFailed(String id, String error) async => _setStatus(id, SyncJobStatus.failed, error: error);
+  Future<void> markFailed(String id, String error) async =>
+      _setStatus(id, SyncJobStatus.failed, error: error);
 
   @override
   Future<void> retry(String id) async => _setStatus(id, SyncJobStatus.pending);
 
   @override
-  Future<void> clearQueue() async =>
-      _jobs.removeWhere((j) => j.status == SyncJobStatus.pending || j.status == SyncJobStatus.failed);
+  Future<void> clearQueue() async => _jobs.removeWhere(
+    (j) =>
+        j.status == SyncJobStatus.pending || j.status == SyncJobStatus.failed,
+  );
 
   @override
-  Future<void> clearSynced() async => _jobs.removeWhere((j) => j.status == SyncJobStatus.done);
+  Future<void> clearSynced() async =>
+      _jobs.removeWhere((j) => j.status == SyncJobStatus.done);
 
   @override
   Future<void> requeueStaleRunning() async {
@@ -85,14 +89,15 @@ class FakeSyncJobStore implements SyncJobStore {
     _jobs[index] = _copy(_jobs[index], status, error: error);
   }
 
-  static SyncJob _copy(SyncJob job, SyncJobStatus status, {String? error}) => SyncJob(
-    id: job.id,
-    localId: job.localId,
-    kind: job.kind,
-    displayName: job.displayName,
-    status: status,
-    errorMessage: error,
-    createdAt: job.createdAt,
-    updatedAt: DateTime.now(),
-  );
+  static SyncJob _copy(SyncJob job, SyncJobStatus status, {String? error}) =>
+      SyncJob(
+        id: job.id,
+        localId: job.localId,
+        kind: job.kind,
+        displayName: job.displayName,
+        status: status,
+        errorMessage: error,
+        createdAt: job.createdAt,
+        updatedAt: DateTime.now(),
+      );
 }

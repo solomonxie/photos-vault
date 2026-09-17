@@ -5,6 +5,7 @@ import 'package:bring_your_own_photos/l10n/app_localizations.dart';
 import 'package:bring_your_own_photos/storage/asset_record.dart';
 import 'package:bring_your_own_photos/viewer/detail_screen.dart';
 import 'package:bring_your_own_photos/viewer/zoom_page_route.dart';
+import 'package:bring_your_own_photos/viewer/search_picker_sheet.dart';
 
 import '../support/fake_asset_record_store.dart';
 import '../support/fake_person_store.dart';
@@ -195,6 +196,72 @@ void main() {
       expect(find.byType(DetailScreen), findsNothing);
     },
   );
+
+  testWidgets('a pull down that comes out at an angle still dismisses', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        Builder(
+          builder: (context) => CupertinoButton(
+            onPressed: () => Navigator.of(context).push(
+              CupertinoPageRoute(
+                builder: (_) => DetailScreen(
+                  records: [
+                    _record(localId: 'a'),
+                    _record(localId: 'b'),
+                  ],
+                  initialIndex: 0,
+                  assetRecordStore: FakeAssetRecordStore(),
+                  personStore: FakePersonStore(),
+                  onDelete: (_) async => true,
+                  onToggleFavorite: (_) async {},
+                ),
+              ),
+            ),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    // Down, but well off vertical — a thumb arcs, it doesn't travel
+    // straight. Fed a few pixels at a time, the way a finger arrives: the
+    // pager takes this drag, and the pull is read from the pointer anyway.
+    await _dragBy(tester, const Offset(3, 3), steps: 30);
+
+    expect(find.byType(DetailScreen), findsNothing);
+  });
+
+  testWidgets('a flat sideways swipe still pages instead of dismissing', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [
+            _record(localId: 'a'),
+            _record(localId: 'b'),
+          ],
+          initialIndex: 0,
+          assetRecordStore: FakeAssetRecordStore(),
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // Sideways with a little lift in it — about 11 degrees.
+    await _dragBy(tester, const Offset(-15, -3), steps: 40);
+
+    expect(find.byType(DetailScreen), findsOneWidget);
+    final pager = tester.widget<PageView>(find.byType(PageView));
+    expect(pager.controller!.page, closeTo(1, 0.01));
+  });
 
   testWidgets('a small downward drag snaps back instead of dismissing', (
     tester,
@@ -443,10 +510,7 @@ void main() {
 
     expect(find.text('No Location'), findsOneWidget);
     await _tapInPanel(tester, find.text('No Location'));
-    await tester.enterText(
-      find.byType(CupertinoSearchTextField),
-      'Kyoto, Japan',
-    );
+    await tester.enterText(find.byKey(searchPickerFieldKey), 'Kyoto, Japan');
     await tester.pump();
     await tester.tap(find.text('Use "Kyoto, Japan"'));
     await tester.pumpAndSettle();
@@ -488,10 +552,7 @@ void main() {
     expect(find.text('No Event'), findsOneWidget);
     await tester.tap(find.text('No Event'));
     await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byType(CupertinoSearchTextField),
-      "Nina's Wedding",
-    );
+    await tester.enterText(find.byKey(searchPickerFieldKey), "Nina's Wedding");
     await tester.pump();
     await tester.tap(find.text('Use "Nina\'s Wedding"'));
     await tester.pumpAndSettle();
@@ -581,13 +642,13 @@ void main() {
     // A compact popup, not a full-page push — the search field sits well
     // below the screen's midpoint, not flush with the top.
     final searchFieldTop = tester
-        .getTopLeft(find.byType(CupertinoSearchTextField))
+        .getTopLeft(find.byKey(searchPickerFieldKey))
         .dy;
     final screenHeight =
         tester.view.physicalSize.height / tester.view.devicePixelRatio;
     expect(searchFieldTop, greaterThan(screenHeight * 0.4));
 
-    await tester.enterText(find.byType(CupertinoSearchTextField), 'sunset');
+    await tester.enterText(find.byKey(searchPickerFieldKey), 'sunset');
     await tester.pump();
     await tester.tap(find.text('Use "sunset"'));
     await tester.pumpAndSettle();
@@ -1155,4 +1216,23 @@ void main() {
       reason: 'a row of its own under the heading, not inside it',
     );
   });
+}
+
+/// A drag delivered in small steps from the middle of the page, so the
+/// gesture arena resolves it the way a real finger would rather than in one
+/// jump past everyone's slop.
+Future<void> _dragBy(
+  WidgetTester tester,
+  Offset step, {
+  required int steps,
+}) async {
+  final gesture = await tester.startGesture(
+    tester.getCenter(find.byType(PageView)),
+  );
+  for (var i = 0; i < steps; i++) {
+    await gesture.moveBy(step);
+    await tester.pump();
+  }
+  await gesture.up();
+  await tester.pumpAndSettle();
 }

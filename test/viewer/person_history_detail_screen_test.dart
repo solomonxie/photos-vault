@@ -1,6 +1,7 @@
 import 'package:bring_your_own_photos/l10n/app_localizations.dart';
 import 'package:bring_your_own_photos/photos/person.dart';
 import 'package:bring_your_own_photos/viewer/person_history_detail_screen.dart';
+import 'package:bring_your_own_photos/viewer/search_picker_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -15,7 +16,12 @@ Widget _wrap(Widget child) => CupertinoApp(
 void main() {
   testWidgets('Done is visible and pops the screen', (tester) async {
     final personStore = FakePersonStore();
-    const entry = PersonHistoryEntry(id: 'e1', personId: 'p1', category: HistoryCategory.job, title: 'Acme Corp');
+    const entry = PersonHistoryEntry(
+      id: 'e1',
+      personId: 'p1',
+      category: HistoryCategory.job,
+      title: 'Acme Corp',
+    );
 
     await tester.pumpWidget(
       _wrap(
@@ -23,7 +29,11 @@ void main() {
           builder: (context) => CupertinoButton(
             onPressed: () => Navigator.of(context).push(
               CupertinoPageRoute(
-                builder: (_) => PersonHistoryDetailScreen(entry: entry, categoryLabel: 'Job', personStore: personStore),
+                builder: (_) => PersonHistoryDetailScreen(
+                  entry: entry,
+                  categoryLabel: 'Job',
+                  personStore: personStore,
+                ),
               ),
             ),
             child: const Text('open'),
@@ -42,18 +52,31 @@ void main() {
     expect(find.text('Acme Corp'), findsNothing);
   });
 
-  testWidgets('renaming via the title row persists the new title', (tester) async {
+  testWidgets('renaming via the title row persists the new title', (
+    tester,
+  ) async {
     final personStore = FakePersonStore();
-    const entry = PersonHistoryEntry(id: 'e1', personId: 'p1', category: HistoryCategory.education, title: 'MIT');
+    const entry = PersonHistoryEntry(
+      id: 'e1',
+      personId: 'p1',
+      category: HistoryCategory.education,
+      title: 'MIT',
+    );
 
     await tester.pumpWidget(
-      _wrap(PersonHistoryDetailScreen(entry: entry, categoryLabel: 'Education', personStore: personStore)),
+      _wrap(
+        PersonHistoryDetailScreen(
+          entry: entry,
+          categoryLabel: 'Education',
+          personStore: personStore,
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('MIT'));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(CupertinoSearchTextField), 'Stanford');
+    await tester.enterText(find.byKey(searchPickerFieldKey), 'Stanford');
     await tester.pump();
     await tester.tap(find.text('Use "Stanford"'));
     await tester.pumpAndSettle();
@@ -63,12 +86,25 @@ void main() {
     expect(saved.single.title, 'Stanford');
   });
 
-  testWidgets('End defaults to Present, and can be set to a specific date', (tester) async {
+  testWidgets('End defaults to Present, and can be set to a specific date', (
+    tester,
+  ) async {
     final personStore = FakePersonStore();
-    const entry = PersonHistoryEntry(id: 'e1', personId: 'p1', category: HistoryCategory.job, title: 'Acme Corp');
+    const entry = PersonHistoryEntry(
+      id: 'e1',
+      personId: 'p1',
+      category: HistoryCategory.job,
+      title: 'Acme Corp',
+    );
 
     await tester.pumpWidget(
-      _wrap(PersonHistoryDetailScreen(entry: entry, categoryLabel: 'Job', personStore: personStore)),
+      _wrap(
+        PersonHistoryDetailScreen(
+          entry: entry,
+          categoryLabel: 'Job',
+          personStore: personStore,
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -87,10 +123,21 @@ void main() {
 
   testWidgets('adding a custom field persists label and value', (tester) async {
     final personStore = FakePersonStore();
-    const entry = PersonHistoryEntry(id: 'e1', personId: 'p1', category: HistoryCategory.job, title: 'Acme Corp');
+    const entry = PersonHistoryEntry(
+      id: 'e1',
+      personId: 'p1',
+      category: HistoryCategory.job,
+      title: 'Acme Corp',
+    );
 
     await tester.pumpWidget(
-      _wrap(PersonHistoryDetailScreen(entry: entry, categoryLabel: 'Job', personStore: personStore)),
+      _wrap(
+        PersonHistoryDetailScreen(
+          entry: entry,
+          categoryLabel: 'Job',
+          personStore: personStore,
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -101,9 +148,15 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(addButton);
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(CupertinoTextField, 'Field'), 'Title');
+    await tester.enterText(
+      find.widgetWithText(CupertinoTextField, 'Field'),
+      'Title',
+    );
     await tester.pump();
-    await tester.enterText(find.widgetWithText(CupertinoTextField, 'Value'), 'Senior Engineer');
+    await tester.enterText(
+      find.widgetWithText(CupertinoTextField, 'Value'),
+      'Senior Engineer',
+    );
     await tester.pump();
 
     final saved = await personStore.historyFor('p1', HistoryCategory.job);
@@ -113,17 +166,31 @@ void main() {
 
   testWidgets('adding a Title shows on the entry and persists', (tester) async {
     final personStore = FakePersonStore();
-    const entry = PersonHistoryEntry(id: 'e1', personId: 'p1', category: HistoryCategory.job, title: 'Acme Corp');
+    const entry = PersonHistoryEntry(
+      id: 'e1',
+      personId: 'p1',
+      category: HistoryCategory.job,
+      title: 'Acme Corp',
+    );
 
     await tester.pumpWidget(
-      _wrap(PersonHistoryDetailScreen(entry: entry, categoryLabel: 'Job', personStore: personStore)),
+      _wrap(
+        PersonHistoryDetailScreen(
+          entry: entry,
+          categoryLabel: 'Job',
+          personStore: personStore,
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('Titles'), findsOneWidget);
     await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(CupertinoTextField, 'Title'), 'Senior Engineer');
+    await tester.enterText(
+      find.widgetWithText(CupertinoTextField, 'Title'),
+      'Senior Engineer',
+    );
     await tester.pump();
     await tester.tap(find.text('Add'));
     await tester.pumpAndSettle();
@@ -133,12 +200,25 @@ void main() {
     expect(saved.single.titles.single.title, 'Senior Engineer');
   });
 
-  testWidgets('education entries label the Titles section "Majors / Degrees"', (tester) async {
+  testWidgets('education entries label the Titles section "Majors / Degrees"', (
+    tester,
+  ) async {
     final personStore = FakePersonStore();
-    const entry = PersonHistoryEntry(id: 'e1', personId: 'p1', category: HistoryCategory.education, title: 'MIT');
+    const entry = PersonHistoryEntry(
+      id: 'e1',
+      personId: 'p1',
+      category: HistoryCategory.education,
+      title: 'MIT',
+    );
 
     await tester.pumpWidget(
-      _wrap(PersonHistoryDetailScreen(entry: entry, categoryLabel: 'Education', personStore: personStore)),
+      _wrap(
+        PersonHistoryDetailScreen(
+          entry: entry,
+          categoryLabel: 'Education',
+          personStore: personStore,
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -147,10 +227,21 @@ void main() {
 
   testWidgets('adding a project with tags persists', (tester) async {
     final personStore = FakePersonStore();
-    const entry = PersonHistoryEntry(id: 'e1', personId: 'p1', category: HistoryCategory.job, title: 'Acme Corp');
+    const entry = PersonHistoryEntry(
+      id: 'e1',
+      personId: 'p1',
+      category: HistoryCategory.job,
+      title: 'Acme Corp',
+    );
 
     await tester.pumpWidget(
-      _wrap(PersonHistoryDetailScreen(entry: entry, categoryLabel: 'Job', personStore: personStore)),
+      _wrap(
+        PersonHistoryDetailScreen(
+          entry: entry,
+          categoryLabel: 'Job',
+          personStore: personStore,
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -159,9 +250,15 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(addButton);
     await tester.pumpAndSettle();
-    await tester.enterText(find.widgetWithText(CupertinoTextField, 'Project Name'), 'Checkout Revamp');
+    await tester.enterText(
+      find.widgetWithText(CupertinoTextField, 'Project Name'),
+      'Checkout Revamp',
+    );
     await tester.pump();
-    await tester.enterText(find.widgetWithText(CupertinoTextField, 'Tags, comma separated'), 'flutter, payments');
+    await tester.enterText(
+      find.widgetWithText(CupertinoTextField, 'Tags, comma separated'),
+      'flutter, payments',
+    );
     await tester.pump();
     await tester.tap(find.text('Add'));
     await tester.pumpAndSettle();
@@ -173,11 +270,22 @@ void main() {
 
   testWidgets('Delete Entry removes it from the store', (tester) async {
     final personStore = FakePersonStore();
-    const entry = PersonHistoryEntry(id: 'e1', personId: 'p1', category: HistoryCategory.job, title: 'Acme Corp');
+    const entry = PersonHistoryEntry(
+      id: 'e1',
+      personId: 'p1',
+      category: HistoryCategory.job,
+      title: 'Acme Corp',
+    );
     await personStore.addHistoryEntry(entry);
 
     await tester.pumpWidget(
-      _wrap(PersonHistoryDetailScreen(entry: entry, categoryLabel: 'Job', personStore: personStore)),
+      _wrap(
+        PersonHistoryDetailScreen(
+          entry: entry,
+          categoryLabel: 'Job',
+          personStore: personStore,
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 

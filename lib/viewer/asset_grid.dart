@@ -107,6 +107,7 @@ List<Widget> assetGridSlivers({
                   child: i < row.recordCount
                       ? _tileFor(
                           grid.records[row.firstRecord + i],
+                          extent: grid.tileExtent,
                           onTap: onTap,
                           onLongPress: onLongPress,
                           actionsFor: actionsFor,
@@ -125,6 +126,7 @@ List<Widget> assetGridSlivers({
 
 Widget _tileFor(
   AssetRecord record, {
+  required double extent,
   required void Function(AssetRecord) onTap,
   required void Function(AssetRecord)? onLongPress,
   required List<TileAction> Function(AssetRecord) actionsFor,
@@ -132,6 +134,7 @@ Widget _tileFor(
 }) => AssetTile(
   key: ValueKey(record.localId),
   record: record,
+  extent: extent,
   onTap: () => onTap(record),
   onLongPress: onLongPress == null ? null : () => onLongPress(record),
   actions: actionsFor(record),
@@ -156,10 +159,75 @@ class _DayHeader extends StatelessWidget {
   );
 }
 
+/// The best image available for [record]: the live local original first,
+/// then the OS library, and only then the app's own cached thumbnail —
+/// [placeholder] when none of them resolves.
+///
+/// The cache is the *fallback*, for when there's no original left
+/// (cloud-only), or the live source can't be read — a stale absolute path
+/// (the app container's UUID changes on reinstall), or an original in a
+/// format the engine can't decode (HEIC). Preferring it would blank a tile
+/// whose real photo is right there.
+Widget assetImage(
+  AssetRecord record, {
+  required Widget Function() placeholder,
+}) {
+  Widget cached() {
+    final thumbnail = record.thumbnailPath;
+    if (thumbnail == null) return placeholder();
+    return Image.file(
+      File(thumbnail),
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) => placeholder(),
+    );
+  }
+
+  if (record.localDeleted) return cached();
+  final path = record.sourcePath;
+  if (path != null) {
+    return Image.file(
+      File(path),
+      fit: BoxFit.cover,
+      errorBuilder: (context, error, stackTrace) => cached(),
+    );
+  }
+  final libraryId = PhotoLibraryService.libraryIdOf(record);
+  if (record.sourceType == AssetSourceType.photoManager && libraryId != null) {
+    return PhotoManagerThumbnail(assetId: libraryId);
+  }
+  return cached();
+}
+
+/// The same sources [assetImage] draws, most-preferred first, as image
+/// providers — for a caller that needs the pixels themselves (cropping to a
+/// face box) rather than a widget. Empty when nothing resolves.
+///
+/// More than one because the preferred source can still fail to *decode*
+/// (an HEIC original), and the cached thumbnail behind it is a JPEG this
+/// app wrote.
+Future<List<ImageProvider>> assetImageProviders(AssetRecord record) async {
+  final providers = <ImageProvider>[];
+  if (!record.localDeleted) {
+    final path = record.sourcePath;
+    if (path != null) providers.add(FileImage(File(path)));
+    final libraryId = PhotoLibraryService.libraryIdOf(record);
+    if (path == null &&
+        record.sourceType == AssetSourceType.photoManager &&
+        libraryId != null) {
+      final bytes = await photoManagerThumbnailBytes(libraryId);
+      if (bytes != null) providers.add(MemoryImage(bytes));
+    }
+  }
+  final thumbnail = record.thumbnailPath;
+  if (thumbnail != null) providers.add(FileImage(File(thumbnail)));
+  return providers;
+}
+
 class AssetTile extends StatelessWidget {
   const AssetTile({
     super.key,
     required this.record,
+    required this.extent,
     required this.onTap,
     required this.actions,
     this.selected,
@@ -167,6 +235,14 @@ class AssetTile extends StatelessWidget {
   });
 
   final AssetRecord record;
+
+  /// Side of the square tile, in logical pixels.
+  ///
+  /// Sized outright rather than an `AspectRatio` filling whatever it's
+  /// given: the long-press context menu lays its preview out inside a
+  /// `FittedBox`, which offers unbounded constraints, and an `AspectRatio`
+  /// handed those throws — so the menu never opened at all.
+  final double extent;
   final VoidCallback onTap;
   final List<TileAction> actions;
 
@@ -176,38 +252,6 @@ class AssetTile extends StatelessWidget {
   /// `null` outside multi-select mode; `true`/`false` while selecting (see
   /// `assetGridSlivers`' `selectedIds`).
   final bool? selected;
-
-  /// The live local original first, then the OS library, and only then the
-  /// app's own cached thumbnail — the cache is the *fallback*, for when
-  /// there's no original left (cloud-only) or the live source can't be
-  /// read. Preferring it would mean a stale cached path (they're absolute,
-  /// and the app container's UUID changes on reinstall) blanking a tile
-  /// whose real photo is right there.
-  Widget _image() {
-    if (record.localDeleted) return _cachedThumbnail();
-    final path = record.sourcePath;
-    if (path != null) {
-      return Image.file(
-        File(path),
-        fit: BoxFit.cover,
-        errorBuilder: (context, error, stackTrace) => _cachedThumbnail(),
-      );
-    }
-    if (record.sourceType == AssetSourceType.photoManager) {
-      return PhotoManagerThumbnail(assetId: record.localId);
-    }
-    return _cachedThumbnail();
-  }
-
-  Widget _cachedThumbnail() {
-    final thumbnail = record.thumbnailPath;
-    if (thumbnail == null) return _placeholder();
-    return Image.file(
-      File(thumbnail),
-      fit: BoxFit.cover,
-      errorBuilder: (context, error, stackTrace) => _placeholder(),
-    );
-  }
 
   /// Last resort when no image resolves. A video gets the dark play-glyph
   /// tile rather than the grey photo one — for a manually-added file
@@ -254,8 +298,8 @@ class AssetTile extends StatelessWidget {
   Widget _tile() {
     final video = record.isVideo;
 
-    return AspectRatio(
-      aspectRatio: 1,
+    return SizedBox.square(
+      dimension: extent,
       child: ClipRRect(
         borderRadius: BorderRadius.circular(8),
         child: Stack(
@@ -264,7 +308,7 @@ class AssetTile extends StatelessWidget {
             // Videos draw their poster frame like any other tile — the OS
             // library hands one back for them too, and a black square with
             // a play glyph told you nothing about which video it was.
-            _image(),
+            assetImage(record, placeholder: _placeholder),
             if (record.localDeleted)
               const Positioned(
                 top: 4,
@@ -355,15 +399,34 @@ class StatusDot extends StatelessWidget {
 class PhotoManagerThumbnail extends StatefulWidget {
   const PhotoManagerThumbnail({super.key, required this.assetId});
 
+  /// The *library's* id for the asset (`PhotoLibraryService.libraryIdOf`),
+  /// not this app's `localId` — for a photo that left the library and came
+  /// back, they name different things.
   final String assetId;
 
   @override
   State<PhotoManagerThumbnail> createState() => _PhotoManagerThumbnailState();
 }
 
-class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
-  static final _cache = <String, Uint8List>{};
+/// The OS library's own thumbnail for a `photoManager` asset, cached for
+/// the session. `null` when the asset is gone from the library, or the
+/// plugin isn't there (tests).
+Future<Uint8List?> photoManagerThumbnailBytes(String assetId) async {
+  final cached = _thumbnailBytes[assetId];
+  if (cached != null) return cached;
+  try {
+    final entity = await AssetEntity.fromId(assetId);
+    final bytes = await entity?.thumbnailData;
+    if (bytes != null) _thumbnailBytes[assetId] = bytes;
+    return bytes;
+  } catch (_) {
+    return null;
+  }
+}
 
+final _thumbnailBytes = <String, Uint8List>{};
+
+class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
   Uint8List? _bytes;
 
   @override
@@ -373,23 +436,9 @@ class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
   }
 
   Future<void> _load() async {
-    final cached = _cache[widget.assetId];
-    if (cached != null) {
-      setState(() => _bytes = cached);
-      return;
-    }
-    final id = PhotoLibraryService.entityIdFrom(widget.assetId);
-    if (id == null) return;
-    try {
-      final entity = await AssetEntity.fromId(id);
-      final bytes = await entity?.thumbnailData;
-      if (bytes == null || !mounted) return;
-      _cache[widget.assetId] = bytes;
-      setState(() => _bytes = bytes);
-    } catch (_) {
-      // Asset removed from the library since, or plugin unavailable in
-      // tests — falls through to the placeholder below.
-    }
+    final bytes = await photoManagerThumbnailBytes(widget.assetId);
+    if (bytes == null || !mounted) return;
+    setState(() => _bytes = bytes);
   }
 
   @override

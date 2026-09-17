@@ -107,6 +107,11 @@
   "collectionsMoreButton": "More",
   "collectionsPlacesRow": "Places",
   "collectionsEventsRow": "Events",
+  "collectionsShowAll": "Show All ({count})",
+  "@collectionsShowAll": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "collectionsShowLess": "Show Less",
   "collectionsPlacesEmpty": "Set a place on a photo and it shows up here.",
   "collectionsEventsEmpty": "Set an event on a photo and it shows up here.",
   "collectionsAiSuggestions": "AI Suggestions",
@@ -337,6 +342,13 @@
   "bucketPreviewOpenExternally": "Open Externally",
 
   "actionOk": "OK",
+  "privateAlbumReturnFailed": "{count, plural, one{One photo could not be put back into Photos. It is still here.} other{{count} photos could not be put back into Photos. They are still here.}}",
+  "@privateAlbumReturnFailed": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "libraryHideStillInPhotos": "Hidden here, but Photos still has it — the removal was declined.",
+  "libraryHideFailed": "Could not copy the original, so nothing was hidden.",
+  "libraryHideNote": "Hidden photos are removed from Photos and kept by this app alone.",
   "libraryDeleteBackupFailed": "Couldn't remove the backed-up copy from your bucket. The photo is still here — try again when you're back online.",
   "actionCancel": "Cancel",
   "actionDelete": "Delete",
@@ -376,6 +388,7 @@
   "personPageAddPhotos": "Add Photos",
   "personPagePhotosEmpty": "No photos tagged yet.",
   "personPageRemoveFromPerson": "Remove from Person",
+  "personPageUseAsProfilePhoto": "Use as Profile Photo",
 
   "personProfileTitle": "Profile",
   "personProfileNameLabel": "Name",
@@ -443,7 +456,7 @@
   "@personPickerNewNamed": {
     "placeholders": {"name": {"type": "String"}}
   },
-  "personProfileNewPersonOption": "New Person…",
+  "personPickerTypeToCreate": "Type a name to tag someone new.",
   "relationshipTypeFamily": "Family",
   "relationshipTypeSpouse": "Spouse",
   "relationshipTypeParent": "Parent of",

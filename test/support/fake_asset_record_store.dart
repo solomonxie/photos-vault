@@ -25,6 +25,11 @@ class FakeAssetRecordStore implements AssetRecordStore {
     bool isVideo = false,
     bool isLivePhoto = false,
     DateTime? createdAt,
+    double? latitude,
+    double? longitude,
+    int? width,
+    int? height,
+    String? libraryId,
   }) async {
     final existing = _records[localId];
     if (existing != null) return existing;
@@ -37,6 +42,11 @@ class FakeAssetRecordStore implements AssetRecordStore {
       sourcePath: sourcePath,
       isVideo: isVideo,
       isLivePhoto: isLivePhoto,
+      libraryId: libraryId,
+      latitude: latitude,
+      longitude: longitude,
+      width: width,
+      height: height,
       createdAt: now,
       updatedAt: now,
     );
@@ -135,6 +145,64 @@ class FakeAssetRecordStore implements AssetRecordStore {
     if (existing == null) return;
     _records[localId] = existing.withTags(value);
   }
+
+  @override
+  Future<void> setLibraryId(String localId, String? value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withLibraryId(value);
+  }
+
+  @override
+  Future<AssetRecord?> getByLibraryId(String libraryId) async {
+    for (final record in _records.values) {
+      if (record.libraryId == libraryId) return record;
+      if (record.libraryId == null && record.localId == 'photo:$libraryId') {
+        return record;
+      }
+    }
+    return null;
+  }
+
+  final _placeNames = <String, PlaceNameEntry>{};
+
+  @override
+  Future<void> setLibraryMetadata(
+    String localId, {
+    double? latitude,
+    double? longitude,
+    int? width,
+    int? height,
+  }) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withLibraryMetadata(
+      latitude: latitude,
+      longitude: longitude,
+      width: width,
+      height: height,
+    );
+  }
+
+  @override
+  Future<List<AssetRecord>> listAwaitingPlaceName({int limit = 200}) async =>
+      _records.values
+          .where(
+            (r) =>
+                r.hasCoordinates &&
+                (r.location == null || r.location!.isEmpty) &&
+                !r.isDeleted,
+          )
+          .take(limit)
+          .toList();
+
+  @override
+  Future<PlaceNameEntry?> cachedPlaceName(String cell) async =>
+      _placeNames[cell];
+
+  @override
+  Future<void> cachePlaceName(String cell, String? name) async =>
+      _placeNames[cell] = PlaceNameEntry(name);
 
   @override
   Future<void> setLocation(String localId, String? value) async {

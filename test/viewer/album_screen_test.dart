@@ -15,9 +15,16 @@ Widget _wrap(Widget child) => CupertinoApp(
 );
 
 void main() {
-  final album = Album(id: 'a1', name: 'Nature', createdAt: DateTime(2024), isDemo: true);
+  final album = Album(
+    id: 'a1',
+    name: 'Nature',
+    createdAt: DateTime(2024),
+    isDemo: true,
+  );
 
-  testWidgets('shows only this album\'s members, excluding hidden/deleted', (tester) async {
+  testWidgets('shows only this album\'s members, excluding hidden/deleted', (
+    tester,
+  ) async {
     final recordStore = FakeAssetRecordStore();
     final albumStore = FakeAlbumStore();
     await recordStore.upsert(
@@ -45,7 +52,13 @@ void main() {
     await albumStore.addAssets('a1', ['manual:in', 'manual:hidden']);
 
     await tester.pumpWidget(
-      _wrap(AlbumScreen(album: album, assetRecordStore: recordStore, albumStore: albumStore)),
+      _wrap(
+        AlbumScreen(
+          album: album,
+          assetRecordStore: recordStore,
+          albumStore: albumStore,
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
@@ -56,14 +69,22 @@ void main() {
 
   testWidgets('shows the empty state with no members', (tester) async {
     await tester.pumpWidget(
-      _wrap(AlbumScreen(album: album, assetRecordStore: FakeAssetRecordStore(), albumStore: FakeAlbumStore())),
+      _wrap(
+        AlbumScreen(
+          album: album,
+          assetRecordStore: FakeAssetRecordStore(),
+          albumStore: FakeAlbumStore(),
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('No photos in this album.'), findsOneWidget);
   });
 
-  testWidgets('Remove from Album drops membership without deleting the asset', (tester) async {
+  testWidgets('Remove from Album drops membership without deleting the asset', (
+    tester,
+  ) async {
     final recordStore = FakeAssetRecordStore();
     final albumStore = FakeAlbumStore();
     await recordStore.upsert(
@@ -76,7 +97,13 @@ void main() {
     await albumStore.addAssets('a1', ['manual:in']);
 
     await tester.pumpWidget(
-      _wrap(AlbumScreen(album: album, assetRecordStore: recordStore, albumStore: albumStore)),
+      _wrap(
+        AlbumScreen(
+          album: album,
+          assetRecordStore: recordStore,
+          albumStore: albumStore,
+        ),
+      ),
     );
     await tester.pumpAndSettle();
 

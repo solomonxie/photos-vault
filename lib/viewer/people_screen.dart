@@ -31,6 +31,7 @@ class PeopleScreen extends StatefulWidget {
 class _PeopleScreenState extends State<PeopleScreen> {
   List<Person> _people = const [];
   Map<String, int> _counts = const {};
+  Map<String, String> _firstPhoto = const {};
   String _query = '';
 
   @override
@@ -42,14 +43,17 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Future<void> _reload() async {
     final people = await widget.personStore.listAll();
     final counts = <String, int>{};
+    final firstPhoto = <String, String>{};
     for (final person in people) {
-      counts[person.id] = (await widget.personStore.localIdsIn(person.id))
-          .length;
+      final localIds = await widget.personStore.localIdsIn(person.id);
+      counts[person.id] = localIds.length;
+      if (localIds.isNotEmpty) firstPhoto[person.id] = localIds.first;
     }
     if (!mounted) return;
     setState(() {
       _people = people;
       _counts = counts;
+      _firstPhoto = firstPhoto;
     });
   }
 
@@ -169,10 +173,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
               for (final person in filtered)
                 CupertinoListTile(
                   key: ValueKey(person.id),
-                  leading: PersonAvatar(
+                  leading: PersonAvatar.forPerson(
                     assetRecordStore: widget.assetRecordStore,
-                    localId: person.avatarLocalId,
-                    face: person.avatarFace,
+                    person: person,
+                    firstTaggedLocalId: _firstPhoto[person.id],
                     size: 44,
                   ),
                   title: Text(person.name),

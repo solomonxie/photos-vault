@@ -4,6 +4,9 @@ import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 
+/// The sheet's search field — what a test types into.
+const searchPickerFieldKey = Key('searchPickerField');
+
 const _sheetBackground = Color(0xFF1C1C1E);
 const _fieldBackground = Color(0xFF2C2C2E);
 
@@ -55,6 +58,7 @@ Future<T?> showSearchPickerSheetOf<T>({
   T? clearValue,
   String? Function(String query)? createLabel,
   Future<T?> Function(String query)? onCreate,
+  String? emptyHint,
 }) {
   return showCupertinoModalPopup<T>(
     context: context,
@@ -67,6 +71,7 @@ Future<T?> showSearchPickerSheetOf<T>({
       clearValue: clearValue,
       createLabel: createLabel,
       onCreate: onCreate,
+      emptyHint: emptyHint,
     ),
   );
 }
@@ -81,6 +86,7 @@ class _SearchPickerSheet<T> extends StatefulWidget {
     this.clearValue,
     this.createLabel,
     this.onCreate,
+    this.emptyHint,
   });
 
   final String title;
@@ -91,6 +97,10 @@ class _SearchPickerSheet<T> extends StatefulWidget {
   final T? clearValue;
   final String? Function(String query)? createLabel;
   final Future<T?> Function(String query)? onCreate;
+
+  /// What to say when there's nothing to show yet — worth naming what gets
+  /// created here ("type a name"), since that's the only way forward.
+  final String? emptyHint;
 
   @override
   State<_SearchPickerSheet<T>> createState() => _SearchPickerSheetState<T>();
@@ -109,6 +119,22 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
   Future<void> _create(String query) async {
     final created = await widget.onCreate!(query);
     if (created != null && mounted) Navigator.of(context).pop(created);
+  }
+
+  /// The keyboard's Done key: the typed name is the answer, so take it —
+  /// as the one already on the list if it's there (typing a name somebody
+  /// already has shouldn't quietly make a second of them), otherwise as a
+  /// new one.
+  void _submit(String value) {
+    final query = value.trim();
+    if (query.isEmpty) return;
+    for (final option in widget.options) {
+      if (widget.labelOf(option).toLowerCase() == query.toLowerCase()) {
+        Navigator.of(context).pop(option);
+        return;
+      }
+    }
+    if (widget.onCreate != null) _create(query);
   }
 
   @override
@@ -175,17 +201,37 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
               ),
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: CupertinoSearchTextField(
+                // Hand-built rather than a `CupertinoSearchTextField`,
+                // which pins its return key to "Search". Here the key ends
+                // the job — it picks the match or makes the new one — and
+                // it should say so.
+                child: CupertinoTextField(
+                  key: searchPickerFieldKey,
                   controller: _controller,
                   autofocus: true,
-                  backgroundColor: _fieldBackground,
+                  placeholder: CupertinoLocalizations.of(context)
+                      .searchTextFieldPlaceholderLabel,
+                  prefix: const Padding(
+                    padding: EdgeInsets.only(left: 8),
+                    child: Icon(
+                      CupertinoIcons.search,
+                      size: 18,
+                      color: CupertinoColors.systemGrey,
+                    ),
+                  ),
+                  clearButtonMode: OverlayVisibilityMode.editing,
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 6,
+                    vertical: 9,
+                  ),
+                  decoration: BoxDecoration(
+                    color: _fieldBackground,
+                    borderRadius: BorderRadius.circular(9),
+                  ),
                   style: const TextStyle(color: CupertinoColors.white),
+                  textInputAction: TextInputAction.done,
                   onChanged: (v) => setState(() => _query = v),
-                  onSubmitted: (v) {
-                    if (widget.onCreate != null && v.trim().isNotEmpty) {
-                      _create(v.trim());
-                    }
-                  },
+                  onSubmitted: _submit,
                 ),
               ),
               Expanded(
@@ -221,7 +267,7 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
                           vertical: 24,
                         ),
                         child: Text(
-                          l10n.stringPickerTypeToCreate,
+                          widget.emptyHint ?? l10n.stringPickerTypeToCreate,
                           style: const TextStyle(
                             color: CupertinoColors.systemGrey,
                           ),

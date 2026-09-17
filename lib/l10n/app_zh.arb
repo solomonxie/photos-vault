@@ -101,6 +101,8 @@
   "collectionsMoreButton": "更多",
   "collectionsPlacesRow": "地点",
   "collectionsEventsRow": "事件",
+  "collectionsShowAll": "全部显示（{count}）",
+  "collectionsShowLess": "收起",
   "collectionsPlacesEmpty": "给照片设置地点后会显示在这里。",
   "collectionsEventsEmpty": "给照片设置事件后会显示在这里。",
   "collectionsAiSuggestions": "AI 推测",
@@ -275,6 +277,10 @@
   "bucketPreviewOpenExternally": "在外部打开",
 
   "actionOk": "好",
+  "privateAlbumReturnFailed": "有 {count} 张照片未能放回“照片”，仍保留在这里。",
+  "libraryHideStillInPhotos": "已在此隐藏，但“照片”中仍然保留——移除被取消。",
+  "libraryHideFailed": "无法复制原图，未做任何更改。",
+  "libraryHideNote": "隐藏的照片会从“照片”中移除，仅由本应用保管。",
   "libraryDeleteBackupFailed": "无法从存储桶中删除已备份的副本。照片仍保留在此——请在恢复联网后重试。",
   "actionCancel": "取消",
   "actionDelete": "删除",
@@ -305,6 +311,7 @@
   "personPageAddPhotos": "添加照片",
   "personPagePhotosEmpty": "尚未标记任何照片。",
   "personPageRemoveFromPerson": "从该人物中移除",
+  "personPageUseAsProfilePhoto": "设为头像",
 
   "personProfileTitle": "资料",
   "personProfileNameLabel": "姓名",
@@ -360,7 +367,7 @@
 
   "relationshipPickerTitle": "关联人物",
   "personPickerNewNamed": "新建人物“{name}”",
-  "personProfileNewPersonOption": "新建人物…",
+  "personPickerTypeToCreate": "输入姓名以新建人物。",
   "relationshipTypeFamily": "家人",
   "relationshipTypeSpouse": "配偶",
   "relationshipTypeParent": "父母",
