@@ -15,34 +15,39 @@ Plan: `docs/design/IMPLEMENTATION_PLAN.md`
 
 Or, if you already have Flutter installed system-wide: `flutter run`.
 
-### iCloud backup is built but not switched on in this project
+### iCloud backup needs this app's own container registered once
 
-The app data backup (Settings → App Data) writes to an iCloud Drive
-container. Everything for it is here — `ios/Runner/Runner.entitlements`,
-`ICloudDriveChannel.swift`, the Dart side — except the one line that would
-make every build of the app need it: the Runner target does **not** set
-`CODE_SIGN_ENTITLEMENTS`.
+Everything for it is here — `ios/Runner/Runner.entitlements`,
+`ICloudDriveChannel.swift`, the Dart side. What's missing is one thing that
+lives on the developer account rather than in the repo: an iCloud *container*
+registered against this app's App ID.
 
-That's deliberate. The entitlement only signs against a provisioning profile
-whose App ID has the iCloud capability and the
-`iCloud.com.solomonxie.backYourOwnPhotos` container registered, which is a
-paid Apple Developer Program thing. Adding the entitlement without that turns
-every `flutter build ios` into:
+The sibling apps each have one, which is what makes iCloud work in them:
 
 ```
-Provisioning profile "iOS Team Provisioning Profile: com.solomonxie.backYourOwnPhotos"
-doesn't match the entitlements file's values for the
-com.apple.developer.ubiquity-container-identifiers and
-com.apple.developer.icloud-container-identifiers entitlements.
+REPLACE_WITH_YOUR_TEAM_ID.com.solomonxie.buildyourownbudget -> ['iCloud.com.solomonxie.buildyourownbudget']
+REPLACE_WITH_YOUR_TEAM_ID.com.solomonxie.byopo             -> ['iCloud.com.solomonxie.byopo']
+REPLACE_WITH_YOUR_TEAM_ID.com.solomonxie.novelman          -> ['iCloud.com.solomonxie.novelman']
+REPLACE_WITH_YOUR_TEAM_ID.com.solomonxie.backYourOwnPhotos -> []          ← this app
 ```
 
-To turn it on with a paid account: open `ios/Runner.xcworkspace`, Runner
-target → Signing & Capabilities → + Capability → iCloud → tick iCloud
-Documents → add the container. Xcode writes the entitlement setting itself.
+(Read back out of the profiles in `~/Library/Developer/Xcode/UserData/Provisioning Profiles`.)
 
-Until then the app builds and runs as before, and the iCloud row reads "This
-build of the app isn't signed for iCloud" with its switch disabled — the
-state it's written to handle.
+The empty array is why the app reports itself unentitled and the switch stays
+off, and why adding `CODE_SIGN_ENTITLEMENTS` without doing this first breaks
+*every* build with "provisioning profile doesn't match the entitlements
+file's values". `xcodebuild -allowProvisioningUpdates` does not create
+containers; only Xcode's UI or the developer portal does.
+
+To register it: open `ios/Runner.xcworkspace` → Runner target → Signing &
+Capabilities → **+ Capability** → **iCloud** → tick **iCloud Documents** → **+**
+under Containers and accept `iCloud.com.solomonxie.backYourOwnPhotos`. Xcode
+writes `CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements` into the target
+itself, which is the line deliberately left out of the project until then.
+
+Until it's registered the app builds and runs as before, and the iCloud row
+reads "This build of the app isn't signed for iCloud" with its switch
+disabled — the state it's written to handle.
 
 ## Screenshots
 
