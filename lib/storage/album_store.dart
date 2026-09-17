@@ -1,4 +1,7 @@
+import 'dart:convert';
+
 import 'package:path/path.dart' as p;
+import 'package:uuid/uuid.dart';
 import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:sqflite/sqflite.dart'
     show Database, DatabaseFactory, OpenDatabaseOptions;
@@ -29,13 +32,25 @@ class AlbumStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 1,
+        version: 2,
+        onUpgrade: (db, oldVersion, newVersion) async {
+          if (oldVersion < 2) {
+            await db.execute(
+              "ALTER TABLE $_albumTable ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+            );
+            await db.execute(
+              "ALTER TABLE $_albumTable ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+            );
+          }
+        },
         onCreate: (db, version) async {
           await db.execute('''
             CREATE TABLE $_albumTable (
               id TEXT PRIMARY KEY,
               name TEXT NOT NULL,
               is_demo INTEGER NOT NULL DEFAULT 0,
+              description TEXT NOT NULL DEFAULT '',
+              tags TEXT NOT NULL DEFAULT '[]',
               created_at INTEGER NOT NULL
             )
           ''');
@@ -142,10 +157,43 @@ class AlbumStore {
     await db.delete(_albumTable, where: 'id = ?', whereArgs: [albumId]);
   }
 
+  String newId() => const Uuid().v4();
+
+  /// Renames, re-describes and re-tags — the album's own metadata, none of
+  /// which touches what's in it.
+  Future<void> update(Album album) async {
+    final db = await _open();
+    await db.update(
+      _albumTable,
+      {
+        'name': album.name,
+        'description': album.description,
+        'tags': jsonEncode(album.tags),
+      },
+      where: 'id = ?',
+      whereArgs: [album.id],
+    );
+  }
+
+  /// Every distinct tag used on an album — the picker's "select if exists"
+  /// list, kept apart from photo tags because they name different things.
+  Future<Set<String>> allTags() async {
+    final db = await _open();
+    final rows = await db.query(_albumTable, columns: ['tags']);
+    return {
+      for (final row in rows)
+        ...(jsonDecode(row['tags'] as String? ?? '[]') as List<dynamic>)
+            .cast<String>(),
+    };
+  }
+
   static Album _fromRow(Map<String, Object?> row) => Album(
     id: row['id'] as String,
     name: row['name'] as String,
     createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
     isDemo: (row['is_demo'] as int? ?? 0) != 0,
+    description: row['description'] as String? ?? '',
+    tags: (jsonDecode(row['tags'] as String? ?? '[]') as List<dynamic>)
+        .cast<String>(),
   );
 }

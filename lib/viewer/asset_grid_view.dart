@@ -29,6 +29,7 @@ class AssetGridView extends StatefulWidget {
     this.leadingSlivers = const [],
     this.trailingSlivers = const [],
     this.emptySliver,
+    this.onAdd,
     this.scrubberInsets = const EdgeInsets.symmetric(vertical: 12),
   });
 
@@ -46,6 +47,12 @@ class AssetGridView extends StatefulWidget {
 
   /// Shown in the grid's place when there are no records at all.
   final Widget? emptySliver;
+
+  /// Drawn as one more tile after the last photo, at the same size — the
+  /// "add photos" square. A button in the nav bar is a place you have to
+  /// know about; a tile at the end of the roll is where you already are
+  /// when you notice something's missing.
+  final VoidCallback? onAdd;
 
   /// Keeps the scrubber handle clear of whatever [leadingSlivers] pins to
   /// the top of the page.
@@ -214,6 +221,24 @@ class AssetGridViewState extends State<AssetGridView> {
                 onLongPress: widget.onLongPress,
                 selectedIds: widget.selectedIds,
                 actionsFor: widget.actionsFor,
+              ),
+            if (widget.onAdd != null && !_layout.isEmpty)
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: EdgeInsets.fromLTRB(
+                    _layout.horizontalPadding,
+                    0,
+                    _layout.horizontalPadding,
+                    _layout.spacing,
+                  ),
+                  child: Align(
+                    alignment: Alignment.centerLeft,
+                    child: AddPhotosTile(
+                      extent: _layout.tileExtent,
+                      onTap: widget.onAdd!,
+                    ),
+                  ),
+                ),
               ),
             ...widget.trailingSlivers,
           ],

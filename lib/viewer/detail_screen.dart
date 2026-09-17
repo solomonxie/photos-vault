@@ -24,6 +24,8 @@ import '../photos/on_device_vision.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
 import '../settings/backup_targets_store.dart';
+import '../storage/album.dart';
+import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/original_restore.dart';
@@ -74,6 +76,7 @@ class DetailScreen extends StatefulWidget {
     required this.onToggleFavorite,
     required this.assetRecordStore,
     this.personStore,
+    this.albumStore,
     this.resolvePhotoManagerFile,
     this.resolveLivePhotoVideo,
     this.resolvePlaceName,
@@ -98,6 +101,10 @@ class DetailScreen extends StatefulWidget {
   /// pattern as `LibraryScreen`'s own) when a caller doesn't already have
   /// one to pass.
   final PersonStore? personStore;
+
+  /// Lets the info panel show and edit which albums the photo is in. The
+  /// viewer works without one — that section just isn't offered.
+  final AlbumStore? albumStore;
 
   /// Resolves a `photoManager` record's on-disk file. Defaults to
   /// [PhotoLibraryService.resolveFile]; overridable so widget tests never
@@ -545,6 +552,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 onPageChanged: (i) => setState(() => _index = i),
                 itemBuilder: (context, i) => _MediaPage(
                   record: _records[i],
+                  albumStore: widget.albumStore,
                   resolveFile: widget.resolvePhotoManagerFile,
                   resolveLiveVideo: widget.resolveLivePhotoVideo,
                   resolvePlaceName: widget.resolvePlaceName,
@@ -617,6 +625,7 @@ class _MediaPage extends StatefulWidget {
     required this.personStore,
     required this.onRecordChanged,
     required this.scrollController,
+    required this.albumStore,
     required this.onZoomChanged,
     this.onDeviceAnalysis,
     this.aiVisionService,
@@ -636,6 +645,7 @@ class _MediaPage extends StatefulWidget {
   final Future<String?> Function(AssetRecord record)? resolvePlaceName;
   final AssetRecordStore assetRecordStore;
   final PersonStore personStore;
+  final AlbumStore? albumStore;
   final ValueChanged<AssetRecord> onRecordChanged;
 
   /// Re-downloads a cloud-only asset's original ([AssetRecord.localDeleted])
@@ -980,6 +990,7 @@ class _MediaPageState extends State<_MediaPage> {
                 videoController: _videoController,
                 assetRecordStore: widget.assetRecordStore,
                 personStore: widget.personStore,
+                albumStore: widget.albumStore,
                 onRecordChanged: widget.onRecordChanged,
               ),
             ),
@@ -1138,6 +1149,7 @@ class _InfoPanel extends StatefulWidget {
     required this.videoController,
     required this.assetRecordStore,
     required this.personStore,
+    required this.albumStore,
     required this.onRecordChanged,
   });
 
@@ -1157,6 +1169,11 @@ class _InfoPanel extends StatefulWidget {
   final VideoPlayerController? videoController;
   final AssetRecordStore assetRecordStore;
   final PersonStore personStore;
+
+  /// Optional: the viewer opens from places with no album store of their own
+  /// (a person's page, a smart collection), and this is the only section
+  /// that needs one.
+  final AlbumStore? albumStore;
   final ValueChanged<AssetRecord> onRecordChanged;
 
   @override
@@ -1177,6 +1194,7 @@ class _InfoPanelState extends State<_InfoPanel> {
     super.initState();
     _load();
     _loadPeople();
+    _loadAlbums();
     _fillLocationFromMetadata();
   }
 
@@ -1189,6 +1207,7 @@ class _InfoPanelState extends State<_InfoPanel> {
     if (oldWidget.record.localId != widget.record.localId) {
       _description.text = widget.record.description;
       _loadPeople();
+      _loadAlbums();
       _fillLocationFromMetadata();
     }
   }
@@ -1331,6 +1350,53 @@ class _InfoPanelState extends State<_InfoPanel> {
       _faceRects = [..._faceRects]..removeAt(index);
     });
     await _loadPeople();
+  }
+
+  /// Which albums this photo is in — shown as chips, tapped off to leave.
+  List<Album> _albums = const [];
+
+  Future<void> _loadAlbums() async {
+    final store = widget.albumStore;
+    if (store == null) return;
+    final albums = <Album>[];
+    for (final album in await store.listAll()) {
+      if ((await store.localIdsIn(album.id)).contains(widget.record.localId)) {
+        albums.add(album);
+      }
+    }
+    if (!mounted) return;
+    setState(() => _albums = albums);
+  }
+
+  /// Same picker as the library's, for the same reason: adding one photo to
+  /// an album is the same decision as adding forty, and a photo you're
+  /// already looking at is the likeliest one to want filed.
+  Future<void> _addToAlbum() async {
+    final l10n = AppLocalizations.of(context)!;
+    final store = widget.albumStore;
+    if (store == null) return;
+    final albums = await store.listAll();
+    if (!mounted) return;
+    final album = await showSearchPickerSheetOf<Album>(
+      context: context,
+      title: l10n.albumAddToAction,
+      options: albums.where((a) => !_albums.any((m) => m.id == a.id)).toList(),
+      labelOf: (a) => a.name,
+      emptyHint: l10n.albumsNewNamePlaceholder,
+      createLabel: (query) =>
+          query.isEmpty ? null : l10n.personPickerNewNamed(query),
+      onCreate: (query) => store.upsert(id: store.newId(), name: query),
+    );
+    if (album == null) return;
+    await store.addAssets(album.id, [widget.record.localId]);
+    await _loadAlbums();
+  }
+
+  Future<void> _removeFromAlbum(Album album) async {
+    final store = widget.albumStore;
+    if (store == null) return;
+    await store.removeAsset(album.id, widget.record.localId);
+    await _loadAlbums();
   }
 
   Future<void> _loadPeople() async {
@@ -1810,6 +1876,24 @@ class _InfoPanelState extends State<_InfoPanel> {
                 ),
             ],
           ),
+          // Only where the caller brought an album store: opened from a
+          // person's page there's nothing to file into.
+          if (widget.albumStore != null) ...[
+            const SizedBox(height: 24),
+            _SectionHeader(title: l10n.collectionsAlbums, onAdd: _addToAlbum),
+            const SizedBox(height: 8),
+            Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final album in _albums)
+                  _Chip(
+                    label: album.name,
+                    onRemove: () => _removeFromAlbum(album),
+                  ),
+              ],
+            ),
+          ],
         ],
       ),
     );

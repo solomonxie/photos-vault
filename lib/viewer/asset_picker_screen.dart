@@ -1,17 +1,21 @@
-import 'dart:io';
-
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
-import '../photos/photo_library_service.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import 'asset_grid.dart';
+import 'asset_grid_view.dart';
 
 /// Multi-select grid over the active library (not deleted, not hidden) —
 /// pops with the selected records, or `null` on cancel. Shared by Private
-/// Albums' "Move/Copy from Library" (T6.4) and People's "Add Photos" (T7.3);
-/// each caller decides what selecting means (move, copy, tag to a person).
+/// Albums' "Move/Copy from Library" (T6.4), People's "Add Photos" (T7.3)
+/// and an album's own; each caller decides what selecting means.
+///
+/// Built on the same [AssetGridView] as the library itself, rather than a
+/// grid of its own. It had one, and picking a photo from last year meant
+/// flicking past a decade: no date scrubber down the right edge, no opening
+/// at the newest photo, no tap-the-header to get back to it. A picker is
+/// where somebody is *looking* for a photo, which is exactly when those
+/// matter.
 class AssetPickerScreen extends StatefulWidget {
   const AssetPickerScreen({
     super.key,
@@ -32,6 +36,9 @@ class AssetPickerScreen extends StatefulWidget {
 }
 
 class _AssetPickerScreenState extends State<AssetPickerScreen> {
+  static const _navigationBarHeight = 44.0;
+
+  final _gridKey = GlobalKey<AssetGridViewState>();
   List<AssetRecord> _records = const [];
   final Set<String> _selected = {};
 
@@ -72,6 +79,10 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
     Navigator.of(context).pop(chosen);
   }
 
+  /// Same as the library's: back to the newest photo, and from there on to
+  /// the very top.
+  void _jumpHome() => _gridKey.currentState?.toggleAnchor();
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -86,139 +97,41 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
                 child: Text(l10n.privateAlbumPickerAddButton(_selected.length)),
               ),
       ),
-      child: SafeArea(
-        child: _records.isEmpty
-            ? Center(
-                child: Text(
-                  l10n.privateAlbumPickerEmpty,
-                  style: const TextStyle(color: CupertinoColors.systemGrey),
-                ),
-              )
-            : CustomScrollView(
-                slivers: _pickerSlivers(
-                  context: context,
-                  records: _records,
-                  selected: _selected,
-                  onToggle: _toggle,
-                ),
-              ),
-      ),
-    );
-  }
-}
-
-List<Widget> _pickerSlivers({
-  required BuildContext context,
-  required List<AssetRecord> records,
-  required Set<String> selected,
-  required void Function(AssetRecord) onToggle,
-}) {
-  final l10n = AppLocalizations.of(context)!;
-  final grouped = <String, List<AssetRecord>>{};
-  for (final r in records) {
-    grouped.putIfAbsent(dayLabel(l10n, r.createdAt), () => []).add(r);
-  }
-
-  return [
-    for (final entry in grouped.entries) ...[
-      SliverToBoxAdapter(
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
-          child: Text(
-            entry.key,
-            style: const TextStyle(fontWeight: FontWeight.bold, fontSize: 20),
+      child: Stack(
+        children: [
+          SafeArea(
+            child: _records.isEmpty
+                ? Center(
+                    child: Text(
+                      l10n.privateAlbumPickerEmpty,
+                      style: const TextStyle(color: CupertinoColors.systemGrey),
+                    ),
+                  )
+                : AssetGridView(
+                    key: _gridKey,
+                    records: _records,
+                    // Every tile is a checkbox here — there's no viewer to
+                    // open, so a tap and a hold mean the same thing.
+                    onTap: _toggle,
+                    onLongPress: _toggle,
+                    selectedIds: _selected,
+                    actionsFor: (r) => const [],
+                  ),
           ),
-        ),
-      ),
-      SliverPadding(
-        padding: const EdgeInsets.symmetric(horizontal: 2),
-        sliver: SliverGrid(
-          gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-            crossAxisCount: 4,
-            crossAxisSpacing: 2,
-            mainAxisSpacing: 2,
-          ),
-          delegate: SliverChildBuilderDelegate(
-            (context, i) => _PickerTile(
-              key: ValueKey(entry.value[i].localId),
-              record: entry.value[i],
-              selected: selected.contains(entry.value[i].localId),
-              onTap: () => onToggle(entry.value[i]),
+          // Tapping the header goes back to the newest photo, as on the
+          // library page. The status-bar strip above it can't be covered —
+          // iOS delivers that tap on a channel, not to the view.
+          Positioned(
+            top: MediaQuery.paddingOf(context).top,
+            left: 0,
+            right: 96,
+            height: _navigationBarHeight,
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: _jumpHome,
             ),
-            childCount: entry.value.length,
           ),
-        ),
-      ),
-    ],
-  ];
-}
-
-class _PickerTile extends StatelessWidget {
-  const _PickerTile({
-    super.key,
-    required this.record,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final AssetRecord record;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final path = record.sourcePath;
-    return GestureDetector(
-      onTap: onTap,
-      child: AspectRatio(
-        aspectRatio: 1,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            if (record.isVideo)
-              const ColoredBox(
-                color: CupertinoColors.darkBackgroundGray,
-                child: Icon(
-                  CupertinoIcons.play_circle_fill,
-                  color: CupertinoColors.white,
-                  size: 28,
-                ),
-              )
-            else if (path != null)
-              Image.file(
-                File(path),
-                fit: BoxFit.cover,
-                errorBuilder: (context, error, stackTrace) => const ColoredBox(
-                  color: CupertinoColors.systemGrey5,
-                  child: Icon(CupertinoIcons.photo),
-                ),
-              )
-            else if (record.sourceType == AssetSourceType.photoManager &&
-                PhotoLibraryService.libraryIdOf(record) != null)
-              PhotoManagerThumbnail(
-                assetId: PhotoLibraryService.libraryIdOf(record)!,
-              )
-            else
-              const ColoredBox(
-                color: CupertinoColors.systemGrey5,
-                child: Icon(CupertinoIcons.photo),
-              ),
-            if (selected) const ColoredBox(color: Color(0x662E7DFF)),
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Icon(
-                selected
-                    ? CupertinoIcons.checkmark_circle_fill
-                    : CupertinoIcons.circle,
-                color: selected
-                    ? CupertinoColors.activeBlue
-                    : CupertinoColors.white,
-                size: 20,
-              ),
-            ),
-          ],
-        ),
+        ],
       ),
     );
   }

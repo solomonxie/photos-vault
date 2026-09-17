@@ -184,7 +184,7 @@ class LibraryScreenState extends State<LibraryScreen>
       OnDeviceAnalysisService(analysisStore: _aiAnalysisStore);
 
   /// The one queue every unit of sync work goes through. Public so the
-  /// Private Cloud screen can show and control it.
+  /// Cloud Settings screen can show and control it.
   late final SyncQueue syncQueue = SyncQueue(
     store: _syncJobStore,
     settings: _backupTargetsStore,
@@ -980,6 +980,11 @@ class LibraryScreenState extends State<LibraryScreen>
       onPressed: () => _toggleFavorite(record),
     ),
     TileAction(
+      icon: CupertinoIcons.rectangle_stack_badge_plus,
+      label: l10n.albumAddToAction,
+      onPressed: () => _addToAlbum([record]),
+    ),
+    TileAction(
       icon: CupertinoIcons.eye_slash,
       label: l10n.libraryHide,
       onPressed: () => _hide(record),
@@ -1018,6 +1023,7 @@ class LibraryScreenState extends State<LibraryScreen>
           onToggleFavorite: _toggleFavorite,
           assetRecordStore: assetRecordStore,
           personStore: _personStore,
+          albumStore: _albumStore,
         ),
       ),
     );
@@ -1075,6 +1081,46 @@ class LibraryScreenState extends State<LibraryScreen>
     setState(() => _selection = null);
     await reload();
   }
+
+  /// Pick an album, or make one on the way — the same sheet the rest of
+  /// the app picks anything by name with. Returns null if nothing was
+  /// chosen.
+  Future<Album?> _pickAlbum() async {
+    final l10n = AppLocalizations.of(context)!;
+    final albums = await _albumStore.listAll();
+    if (!mounted) return null;
+    return showSearchPickerSheetOf<Album>(
+      context: context,
+      title: l10n.albumAddToAction,
+      options: albums,
+      labelOf: (a) => a.name,
+      emptyHint: l10n.albumsNewNamePlaceholder,
+      createLabel: (query) =>
+          query.isEmpty ? null : l10n.personPickerNewNamed(query),
+      onCreate: (query) =>
+          _albumStore.upsert(id: _albumStore.newId(), name: query),
+    );
+  }
+
+  /// One photo or forty, the same way: pick the album, or type a name and
+  /// get one. Nothing about "add this to an album" changes with the count,
+  /// so neither does the flow.
+  Future<void> _addToAlbum(List<AssetRecord> records) async {
+    if (records.isEmpty) return;
+    final album = await _pickAlbum();
+    if (album == null) return;
+    await _albumStore.addAssets(album.id, records.map((r) => r.localId));
+    if (!mounted) return;
+    setState(() => _selection = null);
+    await reload();
+    if (mounted) {
+      _showResult(
+        AppLocalizations.of(context)!.albumAddedToConfirm(album.name),
+      );
+    }
+  }
+
+  Future<void> _batchAddToAlbum() => _addToAlbum(_selectedRecords);
 
   Future<void> _batchAddTag() async {
     final l10n = AppLocalizations.of(context)!;
@@ -1215,6 +1261,66 @@ class LibraryScreenState extends State<LibraryScreen>
     await _syncEverything();
   }
 
+  /// Every video in the library, as an album. Not a row in the album table:
+  /// there's nothing to add to it or remove from it, and a membership list
+  /// would only be a second, staler answer to a question the library can
+  /// already answer.
+  List<AssetRecord> get _videos => _active.where((r) => r.isVideo).toList();
+
+  Album _videosAlbum(AppLocalizations l10n) => Album(
+    id: _videosAlbumId,
+    name: l10n.albumsVideosName,
+    createdAt: DateTime.now(),
+  );
+
+  static const _videosAlbumId = 'builtin:videos';
+
+  void _openVideos() {
+    final l10n = AppLocalizations.of(context)!;
+    _openGroup(l10n.albumsVideosName, _videos);
+  }
+
+  Future<void> _createAlbum() async {
+    final l10n = AppLocalizations.of(context)!;
+    final controller = TextEditingController();
+    final name = await showCupertinoDialog<String>(
+      context: context,
+      builder: (context) => StatefulBuilder(
+        builder: (context, setState) => CupertinoAlertDialog(
+          title: Text(l10n.albumsNewTitle),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: CupertinoTextField(
+              controller: controller,
+              autofocus: true,
+              placeholder: l10n.albumsNewNamePlaceholder,
+              onChanged: (_) => setState(() {}),
+            ),
+          ),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l10n.actionCancel),
+            ),
+            CupertinoDialogAction(
+              onPressed: controller.text.trim().isEmpty
+                  ? null
+                  : () => Navigator.of(context).pop(controller.text.trim()),
+              child: Text(l10n.actionAdd),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    if (name == null || name.isEmpty) return;
+    final album = await _albumStore.upsert(id: _albumStore.newId(), name: name);
+    await reload();
+    if (!mounted) return;
+    // Straight into it: a new album's next question is what goes in it.
+    _openAlbum(album);
+  }
+
   void _openAlbum(Album album) => _push(
     AlbumScreen(
       album: album,
@@ -1284,6 +1390,7 @@ class LibraryScreenState extends State<LibraryScreen>
                   onLongPress: _startSelecting,
                   selectedIds: selection,
                   actionsFor: (r) => _actionsFor(l10n, r),
+                  onAdd: _busy ? null : addFiles,
                   emptySliver: _all.isEmpty
                       ? SliverToBoxAdapter(
                           child: _EmptyState(
@@ -1305,6 +1412,7 @@ class LibraryScreenState extends State<LibraryScreen>
                     child: _SelectionBar(
                       count: selection.length,
                       onAddTag: _batchAddTag,
+                      onAddToAlbum: _batchAddToAlbum,
                       onSetPlace: _batchSetPlace,
                       onSetEvent: _batchSetEvent,
                       onAdjustDateTime: _batchAdjustDateTime,
@@ -1445,31 +1553,40 @@ class LibraryScreenState extends State<LibraryScreen>
       SliverToBoxAdapter(
         child: _SectionHeader(title: l10n.collectionsCollections),
       ),
-      if (_albums.isNotEmpty) ...[
-        SliverToBoxAdapter(
-          child: _SubsectionHeader(title: l10n.collectionsAlbums),
+      SliverToBoxAdapter(
+        child: _SubsectionHeader(
+          title: l10n.collectionsAlbums,
+          onAdd: _createAlbum,
         ),
-        SliverToBoxAdapter(
-          child: SizedBox(
-            height: 190,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: _albums.length,
-              separatorBuilder: (context, i) => const SizedBox(width: 12),
-              itemBuilder: (context, i) => SizedBox(
-                width: 140,
-                child: _AlbumCard(
-                  album: _albums[i],
-                  records: _albumAssets[_albums[i].id] ?? const [],
-                  onTap: () => _openAlbum(_albums[i]),
-                  onDelete: () => _confirmDeleteAlbum(_albums[i]),
-                ),
-              ),
+      ),
+      SliverToBoxAdapter(
+        child: SizedBox(
+          height: 190,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            padding: const EdgeInsets.symmetric(horizontal: 16),
+            // Videos first and always: it isn't one of the user's albums,
+            // it's the one grouping the library can make on its own.
+            itemCount: _albums.length + 1,
+            separatorBuilder: (context, i) => const SizedBox(width: 12),
+            itemBuilder: (context, i) => SizedBox(
+              width: 140,
+              child: i == 0
+                  ? _AlbumCard(
+                      album: _videosAlbum(l10n),
+                      records: _videos,
+                      onTap: _openVideos,
+                    )
+                  : _AlbumCard(
+                      album: _albums[i - 1],
+                      records: _albumAssets[_albums[i - 1].id] ?? const [],
+                      onTap: () => _openAlbum(_albums[i - 1]),
+                      onDelete: () => _confirmDeleteAlbum(_albums[i - 1]),
+                    ),
             ),
           ),
         ),
-      ],
+      ),
       SliverToBoxAdapter(
         child: _SubsectionHeader(
           title: l10n.collectionsPeopleRow,
@@ -1568,7 +1685,7 @@ class LibraryScreenState extends State<LibraryScreen>
             // iCloud, the one thing this isn't).
             icon: CupertinoIcons.archivebox_fill,
             color: CupertinoColors.systemTeal,
-            title: l10n.collectionsPrivateCloudRow,
+            title: l10n.collectionsCloudSettingsRow,
             onTap: _openCloudBackups,
           ),
           _row(
@@ -1589,12 +1706,6 @@ class LibraryScreenState extends State<LibraryScreen>
                       onRemove: _removeDemoPhotos,
                     ),
                   ),
-          ),
-          _row(
-            icon: CupertinoIcons.square_arrow_up,
-            color: CupertinoColors.systemIndigo,
-            title: l10n.collectionsImportPhotosRow,
-            onTap: _busy ? null : addFiles,
           ),
           _row(
             icon: CupertinoIcons.eye_slash_fill,
@@ -1665,15 +1776,20 @@ class _AlbumCard extends StatelessWidget {
     required this.album,
     required this.records,
     required this.onTap,
-    required this.onDelete,
+    this.onDelete,
   });
 
   final Album album;
   final List<AssetRecord> records;
   final VoidCallback onTap;
-  final VoidCallback onDelete;
+
+  /// Absent for the built-in Videos album — there's nothing there to
+  /// delete, and a greyed-out Delete would only invite the attempt.
+  final VoidCallback? onDelete;
 
   void _showActions(BuildContext context, AppLocalizations l10n) {
+    final onDelete = this.onDelete;
+    if (onDelete == null) return;
     showCupertinoModalPopup<void>(
       context: context,
       builder: (context) => CupertinoActionSheet(
@@ -1819,9 +1935,19 @@ class _SectionHeader extends StatelessWidget {
 }
 
 class _SubsectionHeader extends StatelessWidget {
-  const _SubsectionHeader({required this.title, this.onMore, this.moreLabel});
+  const _SubsectionHeader({
+    required this.title,
+    this.onMore,
+    this.moreLabel,
+    this.onAdd,
+  });
 
   final String title;
+
+  /// A "+" beside the title — the section's own create action (a new
+  /// album). Sits opposite [onMore], which is where the section goes on to
+  /// rather than what it makes.
+  final VoidCallback? onAdd;
 
   /// Shows a "More" chevron beside the title (People's entry point to the
   /// full `PeopleScreen`) instead of a separate trailing card in the row
@@ -1844,6 +1970,17 @@ class _SubsectionHeader extends StatelessWidget {
             title,
             style: const TextStyle(fontWeight: FontWeight.w600, fontSize: 17),
           ),
+          if (onAdd != null)
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              minimumSize: Size.zero,
+              onPressed: onAdd,
+              child: const Icon(
+                CupertinoIcons.add_circled,
+                size: 22,
+                color: CupertinoColors.activeBlue,
+              ),
+            ),
           if (onMore != null)
             CupertinoButton(
               padding: EdgeInsets.zero,
@@ -1877,6 +2014,7 @@ class _SelectionBar extends StatelessWidget {
   const _SelectionBar({
     required this.count,
     required this.onAddTag,
+    required this.onAddToAlbum,
     required this.onSetPlace,
     required this.onSetEvent,
     required this.onAdjustDateTime,
@@ -1886,6 +2024,7 @@ class _SelectionBar extends StatelessWidget {
 
   final int count;
   final VoidCallback onAddTag;
+  final VoidCallback onAddToAlbum;
   final VoidCallback onSetPlace;
   final VoidCallback onSetEvent;
   final VoidCallback onAdjustDateTime;
@@ -1943,6 +2082,11 @@ class _SelectionBar extends StatelessWidget {
                     icon: CupertinoIcons.tag,
                     label: l10n.selectionAddTag,
                     onPressed: count == 0 ? null : onAddTag,
+                  ),
+                  _SelectionAction(
+                    icon: CupertinoIcons.rectangle_stack_badge_plus,
+                    label: l10n.selectionAddToAlbum,
+                    onPressed: count == 0 ? null : onAddToAlbum,
                   ),
                   _SelectionAction(
                     icon: CupertinoIcons.map_pin_ellipse,

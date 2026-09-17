@@ -14,7 +14,7 @@ import 'settings_section.dart';
 /// (sequential or round-robin) so one dead/rate-limited key doesn't stop
 /// analysis outright.
 ///
-/// Same flat, dark section layout as Private Cloud: the key list is the
+/// Same flat, dark section layout as Cloud Settings: the key list is the
 /// subject, the fallback strategy is the one control on its heading, and
 /// adding a key is a half sheet rather than a form permanently parked
 /// under the list.

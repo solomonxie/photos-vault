@@ -30,6 +30,19 @@ class FakeAlbumStore implements AlbumStore {
   }
 
   @override
+  Future<void> update(Album album) async => _albums[album.id] = album;
+
+  @override
+  Future<Set<String>> allTags() async => {
+    for (final album in _albums.values) ...album.tags,
+  };
+
+  var _nextId = 0;
+
+  @override
+  String newId() => 'album-${_nextId++}';
+
+  @override
   Future<Album?> getById(String id) async => _albums[id];
 
   @override

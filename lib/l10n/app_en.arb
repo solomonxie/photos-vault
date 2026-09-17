@@ -99,6 +99,18 @@
   "detailPeopleTagPickerTitle": "Tag Person",
 
   "collectionsCollections": "Collections",
+  "albumsVideosName": "Videos",
+  "albumsNewTitle": "New Album",
+  "albumsNewNamePlaceholder": "Album name",
+  "albumAddPhotos": "Add Photos",
+  "albumDescriptionPlaceholder": "Add a note about this album",
+  "albumTagsHeading": "Tags",
+  "albumAddToAction": "Add to Album…",
+  "selectionAddToAlbum": "Album",
+  "albumAddedToConfirm": "Added to {name}",
+  "@albumAddedToConfirm": {
+    "placeholders": { "name": { "type": "String" } }
+  },
   "collectionsAlbums": "Albums",
   "albumDeleteAction": "Delete Album",
   "albumDeleteConfirmTitle": "Delete this album?",
@@ -158,7 +170,7 @@
   "collectionsFavoritesRow": "Favorites",
   "collectionsHiddenRow": "Hidden",
   "collectionsRecentlyDeletedRow": "Recently Deleted",
-  "collectionsPrivateCloudRow": "Private Cloud",
+  "collectionsCloudSettingsRow": "Cloud Settings",
   "collectionsAiSettingsRow": "AI Settings",
   "demoDataTitle": "Demo Data",
   "@demoDataTitle": {"description": "Utilities row and page title for the bundled sample photos"},
