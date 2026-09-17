@@ -299,17 +299,21 @@ class SettingsPillButton extends StatelessWidget {
     final enabled = onPressed != null;
     final color = enabled ? settingsAccent : settingsTertiary;
     return CupertinoButton(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 10),
-      minimumSize: const Size(0, 44),
-      borderRadius: BorderRadius.circular(22),
+      // Tight enough to read as a control on this page rather than a
+      // call to action: the pill is there to say "press here", and at
+      // full button size it was saying it much louder than the page's
+      // own rows.
+      padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+      minimumSize: const Size(0, 34),
+      borderRadius: BorderRadius.circular(17),
       color: const Color(0xFF2C2C2E),
       onPressed: onPressed,
       child: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 18, color: color),
-          const SizedBox(width: 8),
-          Text(label, style: TextStyle(fontSize: 15, color: color)),
+          Icon(icon, size: 15, color: color),
+          const SizedBox(width: 6),
+          Text(label, style: TextStyle(fontSize: 13, color: color)),
         ],
       ),
     );
