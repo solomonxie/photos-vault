@@ -1854,6 +1854,14 @@ class LibraryScreenState extends State<LibraryScreen>
           ),
           _row(
             icon: CupertinoIcons.arrow_2_circlepath,
+            color: CupertinoColors.systemTeal,
+            title: l10n.collectionsSyncQueueRow,
+            count: _queuedCount,
+            onTap: () =>
+                showSyncQueueSheet(context, syncQueue, onOpenAsset: _openById),
+          ),
+          _row(
+            icon: CupertinoIcons.arrow_2_circlepath,
             color: CupertinoColors.systemGreen,
             title: l10n.demoDataTitle,
             onTap: _busy
@@ -1864,14 +1872,6 @@ class LibraryScreenState extends State<LibraryScreen>
                       onRemove: _removeDemoPhotos,
                     ),
                   ),
-          ),
-          _row(
-            icon: CupertinoIcons.arrow_2_circlepath,
-            color: CupertinoColors.systemTeal,
-            title: l10n.collectionsSyncQueueRow,
-            count: _queuedCount,
-            onTap: () =>
-                showSyncQueueSheet(context, syncQueue, onOpenAsset: _openById),
           ),
           _row(
             icon: CupertinoIcons.eye_slash_fill,
