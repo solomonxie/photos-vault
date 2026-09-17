@@ -106,8 +106,15 @@ class ICloudDriveChannel {
           ) as? [String: Any],
           let entitlements = parsed["Entitlements"] as? [String: Any]
     else { return false }
-    return entitlements["com.apple.developer.icloud-container-identifiers"]
-      != nil
+    // Present *and* naming a container. A profile for an App ID with the
+    // iCloud capability available but no container registered carries the
+    // key with an empty array — which is not a build that can ever reach a
+    // container, and reporting it as "not ready yet" invites the user to
+    // wait for something that will never happen.
+    let containers = entitlements[
+      "com.apple.developer.icloud-container-identifiers"
+    ] as? [String]
+    return !(containers ?? []).isEmpty
   }
 
   // MARK: - Files
