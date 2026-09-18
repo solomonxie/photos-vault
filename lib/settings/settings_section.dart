@@ -683,6 +683,89 @@ class SettingsPickerField extends StatelessWidget {
   }
 }
 
+/// A field whose value is one of a handful — laid out as the choices
+/// themselves rather than a row that opens a sheet.
+///
+/// A sheet hides the question behind a tap: you have to know the row is a
+/// control before you can find out what it offers. With three or four
+/// options, showing them is both the label and the answer.
+class SettingsChoiceField extends StatelessWidget {
+  const SettingsChoiceField({
+    super.key,
+    required this.label,
+    required this.options,
+    required this.selected,
+    required this.onSelected,
+    this.helper,
+  });
+
+  final String label;
+  final List<String> options;
+  final int selected;
+
+  /// `null` disables the whole group — mid-save, not a missing option.
+  final ValueChanged<int>? onSelected;
+
+  final String? helper;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FieldFrame(
+      label: label,
+      helper: helper,
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          for (var i = 0; i < options.length; i++)
+            _ChoiceChip(
+              label: options[i],
+              selected: i == selected,
+              onTap: onSelected == null ? null : () => onSelected!(i),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+class _ChoiceChip extends StatelessWidget {
+  const _ChoiceChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: Container(
+        height: 44,
+        padding: const EdgeInsets.symmetric(horizontal: 14),
+        alignment: Alignment.center,
+        decoration: BoxDecoration(
+          color: selected ? settingsAccent : settingsControlFill,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        child: Text(
+          label,
+          style: TextStyle(
+            fontSize: 15,
+            fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+            color: onTap == null ? settingsTertiary : CupertinoColors.white,
+          ),
+        ),
+      ),
+    );
+  }
+}
+
 class _FieldFrame extends StatelessWidget {
   const _FieldFrame({
     required this.label,

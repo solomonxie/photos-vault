@@ -499,10 +499,9 @@ void _prefixTests() {
   });
 }
 
+/// The vendor chips are the page's own content — no sheet to open.
 Future<void> _pickProvider(WidgetTester tester, String name) async {
-  await tester.tap(find.text('Storage type'));
-  await tester.pumpAndSettle();
-  await tester.tap(find.text(name).last);
+  await tester.tap(find.text(name));
   await tester.pumpAndSettle();
 }
 
@@ -519,6 +518,28 @@ Future<void> _pickRegion(WidgetTester tester, String region) async {
 
 void _providerTests() {
   group('other providers', () {
+    testWidgets('every vendor is on the page, no sheet to open', (
+      tester,
+    ) async {
+      _tallSurface(tester);
+      await tester.pumpWidget(
+        _wrap(
+          AddBackupScreen(
+            store: BackupTargetsStore(store: FakeSecureStore()),
+            checkAccess: _okAccess,
+            detectRegion: _okRegion,
+            draftsStore: _fakeDraftsStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.text('Cloud vendor'), findsOneWidget);
+      expect(find.text('Amazon S3'), findsOneWidget);
+      expect(find.text('Tencent Cloud COS'), findsOneWidget);
+      expect(find.text('Alibaba Cloud OSS'), findsOneWidget);
+    });
+
     testWidgets('picking COS asks for a region and renames the key fields', (
       tester,
     ) async {

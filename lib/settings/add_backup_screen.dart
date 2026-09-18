@@ -207,52 +207,22 @@ class _AddBackupScreenState extends State<AddBackupScreen> {
     _onPastedTextChanged(text);
   }
 
-  /// Every backend, the unbuilt ones greyed rather than hidden — the
-  /// roadmap is worth showing, and a picker that silently lists three
-  /// options can't say the other three are coming.
-  Future<void> _pickProvider() async {
-    final l10n = AppLocalizations.of(context)!;
-    await showCupertinoModalPopup<void>(
-      context: context,
-      builder: (sheetContext) => CupertinoActionSheet(
-        title: Text(l10n.settingsStorageTypeLabel),
-        actions: [
-          for (final meta in backupStorageTypes)
-            CupertinoActionSheetAction(
-              // A disabled row still has to answer a tap somehow; doing
-              // nothing leaves the sheet open, which is the truth.
-              onPressed: meta.available
-                  ? () {
-                      Navigator.of(sheetContext).pop();
-                      if (meta.type == _provider) return;
-                      setState(() {
-                        _provider = meta.type;
-                        // A region id means nothing to another provider.
-                        _region = '';
-                        _fieldErrors.remove(regionFieldKey);
-                        _error = null;
-                      });
-                    }
-                  : () {},
-              child: Text(
-                meta.available
-                    ? meta.name
-                    : l10n.settingsStorageTypeComingSoon(meta.name),
-                style: TextStyle(
-                  color: meta.available ? settingsAccent : settingsTertiary,
-                  fontWeight: meta.type == _provider
-                      ? FontWeight.w600
-                      : FontWeight.w400,
-                ),
-              ),
-            ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(sheetContext).pop(),
-          child: Text(l10n.actionCancel),
-        ),
-      ),
-    );
+  /// The available backends, shown as themselves. The unbuilt ones are
+  /// named in the field's hint instead of sitting there as dead chips —
+  /// the roadmap is worth saying, not worth three tap targets that do
+  /// nothing.
+  static final _vendors = backupStorageTypes.where((m) => m.available).toList();
+
+  void _selectVendor(int index) {
+    final type = _vendors[index].type;
+    if (type == _provider) return;
+    setState(() {
+      _provider = type;
+      // A region id means nothing to another provider.
+      _region = '';
+      _fieldErrors.remove(regionFieldKey);
+      _error = null;
+    });
   }
 
   /// The provider's published regions as a searchable list that still takes
@@ -485,24 +455,15 @@ class _AddBackupScreenState extends State<AddBackupScreen> {
     onChanged: _onPastedTextChanged,
   );
 
-  /// Above the fields *and* the paste box: a pasted endpoint can change it,
-  /// and a block that doesn't snap back would otherwise change the provider
-  /// with nothing on screen saying so.
-  Widget _storageTypeRow(AppLocalizations l10n) => SettingsRow(
-    title: l10n.settingsStorageTypeLabel,
-    onTap: _saving ? null : _pickProvider,
-    trailing: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Text(_meta.name, style: settingsRowDetailStyle),
-        const SizedBox(width: 4),
-        const Icon(
-          CupertinoIcons.chevron_down,
-          size: 12,
-          color: settingsSecondary,
-        ),
-      ],
-    ),
+  /// Above the fields *and* the paste box: a pasted endpoint can change
+  /// it, and a block that doesn't snap back would otherwise change the
+  /// vendor with nothing on screen saying so.
+  Widget _vendorField(AppLocalizations l10n) => SettingsChoiceField(
+    label: l10n.settingsCloudVendorLabel,
+    helper: l10n.settingsCloudVendorHint,
+    options: [for (final meta in _vendors) meta.name],
+    selected: _vendors.indexWhere((m) => m.type == _provider),
+    onSelected: _saving ? null : _selectVendor,
   );
 
   List<Widget> _fields(AppLocalizations l10n) => [
@@ -602,7 +563,7 @@ class _AddBackupScreenState extends State<AddBackupScreen> {
                 onPressed: _saving ? null : _togglePasteMode,
               ),
               children: [
-                _storageTypeRow(l10n),
+                _vendorField(l10n),
                 const SettingsHairline(indent: settingsPagePadding),
                 const SizedBox(height: 12),
                 if (_pasteMode) _pasteBox(l10n) else ..._fields(l10n),
