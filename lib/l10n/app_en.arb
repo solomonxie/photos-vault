@@ -1,7 +1,7 @@
 {
   "@@locale": "en",
 
-  "appTitle": "BYO Photos",
+  "appTitle": "Photos Vault",
   "@appTitle": {"description": "App name, shown in the OS task switcher"},
 
   "tabLibrary": "Library",
@@ -257,7 +257,7 @@
   "settingsBucketDataRow": "Your Cloud Bucket",
   "settingsBucketDataPath": "app-data/YYYYMMDD.zip in every bucket",
   "settingsBucketDataNoBucket": "Add a bucket below first",
-  "settingsICloudPath": "Files → iCloud Drive → Bring Your Own Photos",
+  "settingsICloudPath": "Files → iCloud Drive → Photos Vault",
   "settingsICloudNever": "Nothing backed up yet",
   "settingsICloudLastBackup": "Last copy {when}",
   "@settingsICloudLastBackup": {
@@ -265,7 +265,7 @@
   },
   "settingsAppDataExportButton": "Export File",
   "settingsAppDataRestoreButton": "Restore from File",
-  "settingsAppDataLocalCopies": "Also kept on this iPhone — Files → On My iPhone → Bring Your Own Photos. The last 7 days, plus a copy taken before anything that rewrites a lot at once. Deleting the app deletes those too.",
+  "settingsAppDataLocalCopies": "Also kept on this iPhone — Files → On My iPhone → Photos Vault. The last 7 days, plus a copy taken before anything that rewrites a lot at once. Deleting the app deletes those too.",
   "settingsAppDataExportFailed": "Couldn't write the file. Check there's space free and try again.",
   "settingsAppDataRestoreUnreadable": "That file isn't a backup this version can read.",
   "settingsAppDataRestoreConfirmTitle": "Restore this backup?",
@@ -370,7 +370,7 @@
   "settingsPasteToggleBack": "(back to fields)",
   "settingsPasteBlockLabel": "Credentials block",
   "@settingsPasteBlockLabel": {"description": "Label above the paste box that replaces the credential fields"},
-  "settingsPasteBlockHint": "bucket: my-photos\nprefix: bring-your-own-photos/\naccess_key_id: AKIA…\nsecret_access_key: …",
+  "settingsPasteBlockHint": "bucket: my-photos\nprefix: photos-vault/\naccess_key_id: AKIA…\nsecret_access_key: …",
   "settingsPasteNote": "\"name: value\" or \"name=value\", any spelling. The region is still detected for you.",
   "settingsPasteNoteEndpoint": "\"name: value\" or \"name=value\", any spelling. Paste the bucket's endpoint URL and it fills in the region too.",
   "settingsPasteFromClipboard": "Paste from Clipboard",

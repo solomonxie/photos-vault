@@ -1,6 +1,6 @@
 import 'dart:io';
 
-import 'package:bring_your_own_photos/viewer/video_controls.dart';
+import 'package:photos_vault/viewer/video_controls.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:video_player/video_player.dart';

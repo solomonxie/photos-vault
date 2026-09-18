@@ -1,8 +1,8 @@
 import 'dart:io';
 
-import 'package:bring_your_own_photos/backup/app_snapshot.dart';
-import 'package:bring_your_own_photos/backup/snapshot_archive.dart';
-import 'package:bring_your_own_photos/backup/snapshot_file.dart';
+import 'package:photos_vault/backup/app_snapshot.dart';
+import 'package:photos_vault/backup/snapshot_archive.dart';
+import 'package:photos_vault/backup/snapshot_file.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -44,7 +44,7 @@ void main() {
       now: () => DateTime(2026, 9, 18),
     ).export();
 
-    expect(file!.path, endsWith('bring-your-own-photos-2026-09-18.zip'));
+    expect(file!.path, endsWith('photos-vault-2026-09-18.zip'));
     final snapshot = unzipSnapshot(file.readAsBytesSync());
     expect(snapshot!.assets.single['description'], 'a day at the beach');
   });

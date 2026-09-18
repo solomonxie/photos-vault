@@ -1,8 +1,8 @@
 import 'dart:io';
 
-import 'package:bring_your_own_photos/photos/manual_add.dart';
-import 'package:bring_your_own_photos/storage/asset_record.dart';
-import 'package:bring_your_own_photos/storage/asset_record_store.dart';
+import 'package:photos_vault/photos/manual_add.dart';
+import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';

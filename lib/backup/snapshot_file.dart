@@ -46,7 +46,7 @@ class SnapshotFile {
   /// for this app sorting a directory: the app name and the date, no
   /// prefixes nobody outside here would recognise.
   static String exportName(DateTime at) =>
-      'bring-your-own-photos-'
+      'photos-vault-'
       '${at.year.toString().padLeft(4, '0')}-'
       '${at.month.toString().padLeft(2, '0')}-'
       '${at.day.toString().padLeft(2, '0')}.zip';

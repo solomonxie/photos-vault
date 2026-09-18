@@ -1,7 +1,7 @@
 {
   "@@locale": "zh",
 
-  "appTitle": "BYO Photos",
+  "appTitle": "Photos Vault",
 
   "tabLibrary": "图库",
 
@@ -218,12 +218,12 @@
   "settingsBucketDataRow": "你的云存储桶",
   "settingsBucketDataPath": "每个存储桶中的 app-data/YYYYMMDD.zip",
   "settingsBucketDataNoBucket": "请先在下方添加存储桶",
-  "settingsICloudPath": "文件 → iCloud 云盘 → Bring Your Own Photos",
+  "settingsICloudPath": "文件 → iCloud 云盘 → Photos Vault",
   "settingsICloudNever": "尚未备份",
   "settingsICloudLastBackup": "上次备份于 {when}",
   "settingsAppDataExportButton": "导出文件",
   "settingsAppDataRestoreButton": "从文件恢复",
-  "settingsAppDataLocalCopies": "本机也留有副本——文件 → 我的 iPhone → Bring Your Own Photos。保留最近 7 天，外加每次大批量改写之前的一份。删除 App 时这些副本也会一并删除。",
+  "settingsAppDataLocalCopies": "本机也留有副本——文件 → 我的 iPhone → Photos Vault。保留最近 7 天，外加每次大批量改写之前的一份。删除 App 时这些副本也会一并删除。",
   "settingsAppDataExportFailed": "文件写入失败。请确认存储空间充足后重试。",
   "settingsAppDataRestoreUnreadable": "该文件不是当前版本能读取的备份。",
   "settingsAppDataRestoreConfirmTitle": "恢复这份备份？",
@@ -320,7 +320,7 @@
   "settingsPasteToggle": "（粘贴信息添加）",
   "settingsPasteToggleBack": "（返回表单）",
   "settingsPasteBlockLabel": "凭证信息",
-  "settingsPasteBlockHint": "bucket: my-photos\nprefix: bring-your-own-photos/\naccess_key_id: AKIA…\nsecret_access_key: …",
+  "settingsPasteBlockHint": "bucket: my-photos\nprefix: photos-vault/\naccess_key_id: AKIA…\nsecret_access_key: …",
   "settingsPasteNote": "“名称: 值”或“名称=值”，写法不限。区域仍会自动检测。",
   "settingsPasteNoteEndpoint": "“名称: 值”或“名称=值”，写法不限。粘贴存储桶的访问域名即可同时填好地域。",
   "settingsPasteFromClipboard": "从剪贴板粘贴",

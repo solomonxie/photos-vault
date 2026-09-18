@@ -1,8 +1,8 @@
-import 'package:bring_your_own_photos/l10n/app_localizations.dart';
-import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
-import 'package:bring_your_own_photos/upload/sync_job.dart';
-import 'package:bring_your_own_photos/upload/sync_queue.dart';
-import 'package:bring_your_own_photos/viewer/sync_queue_sheet.dart';
+import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/settings/backup_targets_store.dart';
+import 'package:photos_vault/upload/sync_job.dart';
+import 'package:photos_vault/upload/sync_queue.dart';
+import 'package:photos_vault/viewer/sync_queue_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 

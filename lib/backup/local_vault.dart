@@ -73,12 +73,12 @@ class LocalVault {
 
   /// The rolling copy, overwritten in place. One name, so a week of
   /// backgrounding the app leaves one file in Files rather than seven.
-  static const dailyFileName = 'bring-your-own-photos-daily.zip';
+  static const dailyFileName = 'photos-vault-daily.zip';
 
   /// Anything a large operation writes is named apart from the daily one,
   /// so the overwrite can't eat it and the user can tell at a glance what
-  /// it is: `bring-your-own-photos-before-restore-20260918-143210.zip`.
-  static const guardPrefix = 'bring-your-own-photos-before-';
+  /// it is: `photos-vault-before-restore-20260918-143210.zip`.
+  static const guardPrefix = 'photos-vault-before-';
 
   /// Raw database copies, out of the Files-visible folder: they're a
   /// mechanism for rollback, not something to hand anyone.
@@ -226,8 +226,7 @@ class LocalVault {
               .listSync()
               .whereType<File>()
               .where(
-                (file) =>
-                    p.basename(file.path).startsWith('bring-your-own-photos-'),
+                (file) => p.basename(file.path).startsWith('photos-vault-'),
               )
               .toList()
             ..sort(

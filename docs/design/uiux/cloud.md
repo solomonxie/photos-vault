@@ -11,7 +11,7 @@ own sheet, and the queue opens over this page.
  photo itself. Copied out once a day, on the days something changed,
  and pulled back automatically if you reinstall.
  ┌───┐ iCloud Drive                                        ─●
- │ ☁ │ Files → iCloud Drive → Bring Your Own Photos
+ │ ☁ │ Files → iCloud Drive → Photos Vault
  └───┘ Last copy 2 hours ago
  ┌───┐ Your Cloud Bucket                                   ─●
  │ ▣ │ app-data/YYYYMMDD.zip in every bucket
@@ -26,7 +26,7 @@ own sheet, and the queue opens over this page.
  straight to the bucket. Syncing runs only while the app is open — there's
  no background-sync permission yet.
  ┌───┐ my-photos                                           ›
- │ ☁ │ s3://my-photos/bring-your-own-photos/
+ │ ☁ │ s3://my-photos/photos-vault/
  └───┘ ca-central-1
  Last synced Sep 17, 12:04 PM                  ← 12 muted, above the block
  [ ⟳ Sync Now ]  [ 🕐 Manual ▾ ]  [ 📥 Queue (12) ]  ← reads "Paused"
@@ -67,7 +67,7 @@ A segmented "iCloud / bucket" would make the user pick when the answer is
         │                                      │
         ▼                                      ▼
  [ share sheet · OS ]                   [ Files picker · OS ]
- bring-your-own-photos-2026-09-18.zip          │
+ photos-vault-2026-09-18.zip          │
  AirDrop · Files · Mail                        ▼
                                  ┌──────────────────────────────────┐
                                  │ Restore this backup?             │
@@ -182,7 +182,7 @@ the fold on every visit and reads as a second page's worth of chrome.
  Required                        ← red, only on Save
  Key prefix
  ┌─────────────────────────────────────────────────┐
- │ bring-your-own-photos/                          │
+ │ photos-vault/                          │
  └─────────────────────────────────────────────────┘
  ⊗ Access denied. Check the access key, secret, and
    that this bucket allows it. (AccessDenied)
@@ -253,7 +253,7 @@ toggle) live in the `uiux` skill's `paste-to-fill.md`.
  Credentials block                                       endpoint moves it
  ┌─────────────────────────────────────────────────┐
  │ bucket: my-photos                               │
- │ prefix: bring-your-own-photos/                  │
+ │ prefix: photos-vault/                  │
  │ access_key_id: AKIA…                        📋  │
  │ secret_access_key: …                            │
  └─────────────────────────────────────────────────┘
@@ -268,7 +268,7 @@ One screen per depth, pushing itself. The listing is live — this answers
 "did my backup actually land?" without the AWS console.
 
 ```
- ‹        bring-your-own-photos/            Select
+ ‹        photos-vault/            Select
  📁 originals                                    ›
  📁 thumbnails                                   ›
  🖼 IMG_4934.HEIC                         4.2 MB ›

@@ -1,4 +1,4 @@
-name: bring_your_own_photos
+name: photos_vault
 description: "Back up iPhone/Android photos and videos to your own S3 bucket."
 publish_to: 'none'
 version: 1.0.0+1

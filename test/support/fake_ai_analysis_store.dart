@@ -1,5 +1,5 @@
-import 'package:bring_your_own_photos/photos/ai_analysis.dart';
-import 'package:bring_your_own_photos/photos/ai_analysis_store.dart';
+import 'package:photos_vault/photos/ai_analysis.dart';
+import 'package:photos_vault/photos/ai_analysis_store.dart';
 
 /// Pure-Dart, in-memory stand-in for [AiAnalysisStore] — see
 /// `fake_asset_record_store.dart` for why widget tests can't use the real

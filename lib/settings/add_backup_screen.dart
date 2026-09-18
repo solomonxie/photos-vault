@@ -15,7 +15,7 @@ import 'settings_section.dart';
 
 /// Default key prefix for a freshly added target: the app's own folder, so
 /// the user never has to think one up. Editable before saving.
-const defaultKeyPrefix = 'bring-your-own-photos/';
+const defaultKeyPrefix = 'photos-vault/';
 
 /// The fields, by name — what a test types into.
 const accessKeyIdFieldKey = Key('addBackupAccessKeyId');

@@ -1,8 +1,8 @@
-import 'package:bring_your_own_photos/l10n/app_localizations.dart';
-import 'package:bring_your_own_photos/settings/bucket_browser_screen.dart';
-import 'package:bring_your_own_photos/settings/bucket_object_preview_screen.dart';
-import 'package:bring_your_own_photos/settings/s3_backup_target.dart';
-import 'package:bring_your_own_photos/settings/s3_listing.dart';
+import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/settings/bucket_browser_screen.dart';
+import 'package:photos_vault/settings/bucket_object_preview_screen.dart';
+import 'package:photos_vault/settings/s3_backup_target.dart';
+import 'package:photos_vault/settings/s3_listing.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -18,7 +18,7 @@ const _target = S3BackupTarget(
   secretAccessKey: 'secret',
   region: 'us-east-1',
   bucket: 'my-bucket',
-  prefix: 'bring-your-own-photos/',
+  prefix: 'photos-vault/',
 );
 
 void main() {
@@ -34,10 +34,10 @@ void main() {
                   S3ListingResult(
                     S3ListingOutcome.ok,
                     page: S3ListingPage(
-                      folders: const ['bring-your-own-photos/originals/'],
+                      folders: const ['photos-vault/originals/'],
                       objects: [
                         S3Object(
-                          key: 'bring-your-own-photos/notes.txt',
+                          key: 'photos-vault/notes.txt',
                           size: 2048,
                           lastModified: DateTime(2024, 1, 1),
                         ),
@@ -65,11 +65,11 @@ void main() {
           listBucketFn:
               ({required target, prefix = '', continuationToken}) async {
                 requestedPrefix = prefix;
-                if (prefix == 'bring-your-own-photos/') {
+                if (prefix == 'photos-vault/') {
                   return const S3ListingResult(
                     S3ListingOutcome.ok,
                     page: S3ListingPage(
-                      folders: ['bring-your-own-photos/originals/'],
+                      folders: ['photos-vault/originals/'],
                       objects: [],
                     ),
                   );
@@ -87,7 +87,7 @@ void main() {
     await tester.tap(find.text('originals/'));
     await tester.pumpAndSettle();
 
-    expect(requestedPrefix, 'bring-your-own-photos/originals/');
+    expect(requestedPrefix, 'photos-vault/originals/');
     expect(
       find.text('originals'),
       findsOneWidget,
@@ -135,7 +135,7 @@ void main() {
                         folders: const [],
                         objects: [
                           S3Object(
-                            key: 'bring-your-own-photos/a.jpg',
+                            key: 'photos-vault/a.jpg',
                             size: 1,
                             lastModified: DateTime(2024, 1, 1),
                           ),
@@ -150,7 +150,7 @@ void main() {
                       folders: const [],
                       objects: [
                         S3Object(
-                          key: 'bring-your-own-photos/b.jpg',
+                          key: 'photos-vault/b.jpg',
                           size: 1,
                           lastModified: DateTime(2024, 1, 1),
                         ),
@@ -190,7 +190,7 @@ void main() {
                       folders: const [],
                       objects: [
                         S3Object(
-                          key: 'bring-your-own-photos/a.jpg',
+                          key: 'photos-vault/a.jpg',
                           size: 1,
                           lastModified: DateTime(2024, 1, 1),
                         ),
@@ -209,6 +209,6 @@ void main() {
     final preview = tester.widget<BucketObjectPreviewScreen>(
       find.byType(BucketObjectPreviewScreen),
     );
-    expect(preview.objectKey, 'bring-your-own-photos/a.jpg');
+    expect(preview.objectKey, 'photos-vault/a.jpg');
   });
 }

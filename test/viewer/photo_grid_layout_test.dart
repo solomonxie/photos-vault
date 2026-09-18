@@ -1,5 +1,5 @@
-import 'package:bring_your_own_photos/storage/asset_record.dart';
-import 'package:bring_your_own_photos/viewer/photo_grid_layout.dart';
+import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/viewer/photo_grid_layout.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 AssetRecord _record(String id, DateTime createdAt) => AssetRecord(

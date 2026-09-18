@@ -1,6 +1,6 @@
-import 'package:bring_your_own_photos/settings/backup_storage_type.dart';
-import 'package:bring_your_own_photos/settings/bucket_endpoint.dart';
-import 'package:bring_your_own_photos/settings/s3_backup_target.dart';
+import 'package:photos_vault/settings/backup_storage_type.dart';
+import 'package:photos_vault/settings/bucket_endpoint.dart';
+import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 S3BackupTarget _target(BackupStorageType provider, String region) =>

@@ -1,7 +1,7 @@
 import 'dart:io';
 
-import 'package:bring_your_own_photos/storage/asset_record.dart';
-import 'package:bring_your_own_photos/storage/asset_record_store.dart';
+import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/storage/asset_record_store.dart';
 
 /// Pure-Dart, in-memory stand-in for [AssetRecordStore] — for widget tests.
 ///

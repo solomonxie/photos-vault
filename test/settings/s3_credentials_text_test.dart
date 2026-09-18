@@ -1,18 +1,18 @@
-import 'package:bring_your_own_photos/settings/backup_storage_type.dart';
-import 'package:bring_your_own_photos/settings/s3_credentials_text.dart';
+import 'package:photos_vault/settings/backup_storage_type.dart';
+import 'package:photos_vault/settings/s3_credentials_text.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 void main() {
   test('parses the documented block', () {
     final parsed = S3CredentialsText.parse('''
 bucket: my-photos
-prefix: bring-your-own-photos/
+prefix: photos-vault/
 access_key_id: AKIAIOSFODNN7EXAMPLE
 secret_access_key: wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
 ''');
 
     expect(parsed.bucket, 'my-photos');
-    expect(parsed.prefix, 'bring-your-own-photos/');
+    expect(parsed.prefix, 'photos-vault/');
     expect(parsed.accessKeyId, 'AKIAIOSFODNN7EXAMPLE');
     expect(parsed.secretAccessKey, 'wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY');
     expect(parsed.fieldCount, 4);

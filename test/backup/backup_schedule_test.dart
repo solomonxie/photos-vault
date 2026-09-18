@@ -1,5 +1,5 @@
-import 'package:bring_your_own_photos/backup/app_snapshot.dart';
-import 'package:bring_your_own_photos/backup/backup_schedule.dart';
+import 'package:photos_vault/backup/app_snapshot.dart';
+import 'package:photos_vault/backup/backup_schedule.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fake_album_store.dart';

@@ -1,11 +1,11 @@
 import 'dart:convert';
 
-import 'package:bring_your_own_photos/backup/app_snapshot.dart';
-import 'package:bring_your_own_photos/backup/bucket_backup.dart';
-import 'package:bring_your_own_photos/backup/snapshot_archive.dart';
-import 'package:bring_your_own_photos/settings/s3_backup_target.dart';
-import 'package:bring_your_own_photos/settings/s3_listing.dart';
-import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
+import 'package:photos_vault/backup/app_snapshot.dart';
+import 'package:photos_vault/backup/bucket_backup.dart';
+import 'package:photos_vault/backup/snapshot_archive.dart';
+import 'package:photos_vault/settings/s3_backup_target.dart';
+import 'package:photos_vault/settings/s3_listing.dart';
+import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
