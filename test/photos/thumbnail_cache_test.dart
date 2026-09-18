@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:bring_your_own_photos/photos/thumbnail_cache.dart';
-import 'package:bring_your_own_photos/storage/asset_record.dart';
+import 'package:photos_vault/photos/thumbnail_cache.dart';
+import 'package:photos_vault/storage/asset_record.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fake_asset_record_store.dart';

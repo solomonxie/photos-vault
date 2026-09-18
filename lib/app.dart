@@ -43,7 +43,7 @@ class App extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     return CupertinoApp(
-      title: 'BYO Photos',
+      title: 'Photos Vault',
       theme: const CupertinoThemeData(
         brightness: Brightness.dark,
         primaryColor: CupertinoColors.systemBlue,

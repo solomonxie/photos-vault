@@ -1,5 +1,5 @@
-import 'package:bring_your_own_photos/upload/sync_job.dart';
-import 'package:bring_your_own_photos/upload/sync_job_store.dart';
+import 'package:photos_vault/upload/sync_job.dart';
+import 'package:photos_vault/upload/sync_job_store.dart';
 
 /// Pure-Dart, in-memory stand-in for [SyncJobStore] — for widget tests.
 ///

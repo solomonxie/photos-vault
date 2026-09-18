@@ -1,6 +1,6 @@
-import 'package:bring_your_own_photos/l10n/app_localizations.dart';
-import 'package:bring_your_own_photos/settings/bucket_object_preview_screen.dart';
-import 'package:bring_your_own_photos/settings/s3_backup_target.dart';
+import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/settings/bucket_object_preview_screen.dart';
+import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 

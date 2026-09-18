@@ -1,8 +1,8 @@
 import 'dart:io';
 
-import 'package:bring_your_own_photos/backup/app_snapshot.dart';
-import 'package:bring_your_own_photos/backup/local_vault.dart';
-import 'package:bring_your_own_photos/backup/snapshot_file.dart';
+import 'package:photos_vault/backup/app_snapshot.dart';
+import 'package:photos_vault/backup/local_vault.dart';
+import 'package:photos_vault/backup/snapshot_file.dart';
 
 /// Export and import with no disk and no picker.
 ///

@@ -1,6 +1,6 @@
-import 'package:bring_your_own_photos/l10n/app_localizations.dart';
-import 'package:bring_your_own_photos/photos/person.dart';
-import 'package:bring_your_own_photos/viewer/person_graph_screen.dart';
+import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/photos/person.dart';
+import 'package:photos_vault/viewer/person_graph_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 

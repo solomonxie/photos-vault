@@ -1,8 +1,8 @@
 import 'dart:math' as math;
 
-import 'package:bring_your_own_photos/photos/photo_library_change.dart';
-import 'package:bring_your_own_photos/photos/photo_library_service.dart';
-import 'package:bring_your_own_photos/storage/asset_record.dart';
+import 'package:photos_vault/photos/photo_library_change.dart';
+import 'package:photos_vault/photos/photo_library_service.dart';
+import 'package:photos_vault/storage/asset_record.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photo_manager/photo_manager.dart';
 

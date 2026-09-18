@@ -1,6 +1,6 @@
 import 'dart:typed_data';
 
-import 'package:bring_your_own_photos/photos/image_pipeline.dart';
+import 'package:photos_vault/photos/image_pipeline.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 

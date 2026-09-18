@@ -1,12 +1,12 @@
-import 'package:bring_your_own_photos/l10n/app_localizations.dart';
-import 'package:bring_your_own_photos/settings/add_backup_screen.dart';
-import 'package:bring_your_own_photos/settings/backup_storage_type.dart';
-import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
-import 'package:bring_your_own_photos/settings/s3_backup_target.dart';
-import 'package:bring_your_own_photos/settings/s3_connectivity.dart';
-import 'package:bring_your_own_photos/settings/s3_region_detection.dart';
-import 'package:bring_your_own_photos/settings/s3_target_drafts_store.dart';
-import 'package:bring_your_own_photos/viewer/search_picker_sheet.dart';
+import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/settings/add_backup_screen.dart';
+import 'package:photos_vault/settings/backup_storage_type.dart';
+import 'package:photos_vault/settings/backup_targets_store.dart';
+import 'package:photos_vault/settings/s3_backup_target.dart';
+import 'package:photos_vault/settings/s3_connectivity.dart';
+import 'package:photos_vault/settings/s3_region_detection.dart';
+import 'package:photos_vault/settings/s3_target_drafts_store.dart';
+import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -401,7 +401,7 @@ secret_access_key: pasted-secret
 
       expect(find.text('TYPED-BY-HAND'), findsOneWidget);
       expect(
-        find.text('bring-your-own-photos/'),
+        find.text('photos-vault/'),
         findsOneWidget,
         reason: 'no prefix in the block leaves the default alone',
       );

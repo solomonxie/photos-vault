@@ -1,8 +1,8 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:bring_your_own_photos/l10n/app_localizations.dart';
-import 'package:bring_your_own_photos/viewer/photo_edit_screen.dart';
+import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/viewer/photo_edit_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;

@@ -1,5 +1,5 @@
-import 'package:bring_your_own_photos/photos/ai_analysis.dart';
-import 'package:bring_your_own_photos/photos/suggestion_review.dart';
+import 'package:photos_vault/photos/ai_analysis.dart';
+import 'package:photos_vault/photos/suggestion_review.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fake_ai_analysis_store.dart';

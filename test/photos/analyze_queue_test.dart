@@ -1,13 +1,13 @@
 import 'dart:io';
 
-import 'package:bring_your_own_photos/photos/ai_analysis.dart';
-import 'package:bring_your_own_photos/photos/ai_vision_service.dart';
-import 'package:bring_your_own_photos/photos/analyze_queue.dart';
-import 'package:bring_your_own_photos/photos/on_device_analysis.dart';
-import 'package:bring_your_own_photos/photos/on_device_vision.dart';
-import 'package:bring_your_own_photos/settings/backup_targets_store.dart'
+import 'package:photos_vault/photos/ai_analysis.dart';
+import 'package:photos_vault/photos/ai_vision_service.dart';
+import 'package:photos_vault/photos/analyze_queue.dart';
+import 'package:photos_vault/photos/on_device_analysis.dart';
+import 'package:photos_vault/photos/on_device_vision.dart';
+import 'package:photos_vault/settings/backup_targets_store.dart'
     show SyncFrequency;
-import 'package:bring_your_own_photos/storage/asset_record.dart';
+import 'package:photos_vault/storage/asset_record.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import '../support/fake_ai_analysis_store.dart';

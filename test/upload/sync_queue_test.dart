@@ -1,9 +1,9 @@
 import 'dart:async';
 
-import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
-import 'package:bring_your_own_photos/upload/sync_job.dart';
-import 'package:bring_your_own_photos/upload/sync_job_store.dart';
-import 'package:bring_your_own_photos/upload/sync_queue.dart';
+import 'package:photos_vault/settings/backup_targets_store.dart';
+import 'package:photos_vault/upload/sync_job.dart';
+import 'package:photos_vault/upload/sync_job_store.dart';
+import 'package:photos_vault/upload/sync_queue.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 

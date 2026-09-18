@@ -1,8 +1,8 @@
-import 'package:bring_your_own_photos/l10n/app_localizations.dart';
-import 'package:bring_your_own_photos/photos/library_custody.dart';
-import 'package:bring_your_own_photos/storage/asset_record.dart';
-import 'package:bring_your_own_photos/storage/passcode_hash.dart';
-import 'package:bring_your_own_photos/viewer/private_album_screen.dart';
+import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/photos/library_custody.dart';
+import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/storage/passcode_hash.dart';
+import 'package:photos_vault/viewer/private_album_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 

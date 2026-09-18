@@ -1,8 +1,8 @@
 import 'package:flutter/widgets.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import 'package:bring_your_own_photos/app.dart';
-import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
+import 'package:photos_vault/app.dart';
+import 'package:photos_vault/settings/backup_targets_store.dart';
 
 import 'settings/fake_secure_store.dart';
 import 'support/fake_album_store.dart';

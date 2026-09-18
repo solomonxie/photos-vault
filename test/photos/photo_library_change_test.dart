@@ -1,4 +1,4 @@
-import 'package:bring_your_own_photos/photos/photo_library_change.dart';
+import 'package:photos_vault/photos/photo_library_change.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 

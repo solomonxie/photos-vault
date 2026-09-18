@@ -1,4 +1,4 @@
-import 'package:bring_your_own_photos/viewer/scroll_stop_guard.dart';
+import 'package:photos_vault/viewer/scroll_stop_guard.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
