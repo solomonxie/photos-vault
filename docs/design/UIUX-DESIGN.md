@@ -1,5 +1,9 @@
 # UI/UX Design Guideline
 
+**Every screen is drawn in `uiux/` — start there.** This file carries the rules
+and the reasoning behind those drawings; where the two disagree, `uiux/` is
+current.
+
 This app's UI/UX decisions and the reasoning behind each. Companion to
 [DESIGN.md](DESIGN.md) (architecture) — this one covers what the user sees.
 
@@ -21,7 +25,11 @@ leaves is the single most visible dark-mode bug (see Theme below).
 Two heading tiers, and only two:
 - **Primary** (the page's subject — the thing being listed): 20px, weight 700, white.
 - **Secondary** (settings that govern it): 12px, weight 600, letter-spacing 0.5, UPPERCASE, muted.
-- Heading row carries **at most one** right-aligned accent control (`Manual Only ▾`, `⊕`) — a text link or a bare glyph, never a filled button.
+- Heading row carries **at most one** right-aligned control (`⊕`, `⟳ Sync Now`) — a bare glyph or a single pill, never a full-width filled button. The section's verb belongs at the top right of what it acts on.
+- **Rows are the things; controls that act on them go underneath, together.** A list of buckets and the settings that govern syncing them are one subject — two headings for it made a page of headings, and the settings half had nothing to stand on without the list above it.
+- One block of pills under the list beats a column of one-control rows: `[⟳ Sync Now] [🕘 Manual Only] [⧉ Queue (94)]` reads as a toolbar for the thing above it. A number you nudge gets a stepper in the same pill shape: `[− 1 at a time +]`.
+- Never print the same fact twice in one section — the queue line said "2 at a time" while the control that sets it sat two lines below.
+- **A switch per destination, never a choice between them.** Two places to keep the same backup is two switches, both allowed on; a segmented "iCloud / bucket" would make the user pick when the answer is "both".
 - Hint under the heading: 11px muted, ~1.35 line-height. One short paragraph: what it's for, plus any privacy/cost caveat.
 - Row: 15px/w600 title, 11px muted subtitle, 12px muted detail line.
 - Container rows lead with a 44pt rounded square (radius 6) filled with an accent *gradient*, white glyph — flat fill reads dead at that size.
@@ -30,26 +38,22 @@ Two heading tiers, and only two:
 - Sections are separated by a full-width hairline with 24px above and below.
 
 ```
-Cloud Buckets                                        ⊕   ← 20 · 700 · white
+Cloud                                                ⊕   ← 20 · 700 · white
 Photos upload to storage you own. Credentials stay       (one control, right)
-on this device and go straight to the bucket.        ← hint: 11 muted
-┌────┐  slmx-archives2                              ⋯
+on this device. Syncing runs only while the app is    ← hint: 11 muted
+open — there's no background-sync permission yet.
+┌────┐  slmx-archives2                               ›
 │ ☁  │  s3://slmx-archives2/photos/                      ← 15/w600 · 11 muted
 └────┘  ca-central-1                                     ← 12 muted detail
   44     ────────────────────────────────────────────    ← hairline, inset to 56
-┌────┐  backup-eu                                   ⋯
+┌────┐  backup-eu                                   ›
 │ ☁  │  s3://backup-eu/photos/
 └────┘  eu-west-1
+Last synced Sep 15 4:26 PM                               ← 12 muted
+[⟳ Sync Now] [🕘 Manual Only] [⧉ Queue (12)]              ← the verb first, then
+[▣ Optimized (WebP)] [− 2 at a time +]                     the standing settings
 1 bucket · 56 of 57 photos backed up          ⟳ Syncing…  ← stats, 12 muted;
-Sync queue: 12 pending · 2 at a time  ›                     progress rides inline
-────────────────────────────────────────────────────────  ← 24px · hairline · 24px
-SYNC FREQUENCY                          Manual Only ▾   ← 12 · 600 · UPPERCASE
-Checked opportunistically while the app is open —
-there's no background-sync permission yet.
-Last synced Sep 15 4:26 PM
-Sync Now                                               ← accent link, left-aligned,
-                                                         disabled (not hidden) with
-                                                         no bucket configured
+                                                            progress rides inline
 ```
 
 Be honest in copy about limitations. If background sync isn't registered with the OS, say "only while the app is open" rather than implying otherwise.
@@ -82,6 +86,8 @@ bytes on the wire    →  decoded as latin-1  →  "ä¸­æ..."   ✗ mojibake
   - **picking a value never leaves the page** — tag, gender, location, school, employer, person all open a searchable drop-down sheet above the current page
   - a full page push is for *browsing or editing an entity*, never for choosing one value out of a list
   - a handful of actions on one object → `…` menu
+- **The first direction a drag goes decides what it means, and then it belongs to that one thing.** Sideways on a photo is the pager; downward from the top is the photo itself, which then follows the finger — both axes — shrinks as it goes, and either springs back or is let go of. A threshold that fires mid-drag ("past 64px, pop") is a different gesture: nothing moves, then everything does, and there's no way to change your mind halfway.
+- While something is being dragged out, the chrome that belongs to the screen it's leaving gets out of the way, and what's underneath is already there to be dragged toward.
 - Anything that names another entity must be tappable and open that entity. No dead-end references.
 - **A row of actions that all live elsewhere isn't a menu, it's a detour.** A per-connection `⋯` holding Sync Now, Sync Queue, Browse Files and Delete was three things already on the page plus one that belongs on the connection's own screen. Delete the menu; put the one real action where the thing it acts on lives.
 - Label actions by what they do: a `+` that opens a browse screen should say "More".

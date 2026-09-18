@@ -157,6 +157,7 @@
   "selectionSetEvent": "Set Event",
   "selectionAdjustDateTime": "Adjust Date",
   "selectionDelete": "Delete",
+  "selectionMore": "More",
   "selectionDeleteConfirmTitle": "{count, plural, one{Delete 1 photo?} other{Delete {count} photos?}}",
   "@selectionDeleteConfirmTitle": {
     "placeholders": {"count": {"type": "int"}}
@@ -183,9 +184,6 @@
   "demoDataRemoveTitle": "Delete all demo data?",
   "demoDataRemoveBody": "The sample photos, albums and people go. Anything you added yourself stays.",
   "demoDataWorking": "Working…",
-  "@analyzeLibraryQueued": {
-    "placeholders": {"count": {"type": "int"}}
-  },
   "collectionsImportPhotosRow": "Import Photos",
 
   "backupQueueTitle": "Sync Queue",
@@ -224,16 +222,11 @@
   },
 
   "settingsCloudSyncHeading": "Cloud Sync",
-  "settingsSyncSchedule": "Schedule: {value}",
-  "@settingsSyncSchedule": {
-    "placeholders": { "value": { "type": "String" } }
-  },
-  "settingsBackupFormatLabel": "Format: {value}",
-  "@settingsBackupFormatLabel": {
-    "placeholders": { "value": { "type": "String" } }
-  },
+  "settingsSyncScheduleRow": "Schedule",
+  "settingsBackupFormatRow": "Format",
+  "settingsSyncSpeedRow": "Upload speed",
   "settingsSyncFrequencyHeading": "Sync Frequency",
-  "settingsSyncFrequencyHint": "Checked opportunistically while the app is open — there's no background-sync permission yet, so a closed app won't sync on its own.",
+  "settingsSyncFrequencyHint": "Runs only while the app is open — there's no background-sync permission yet.",
   "settingsSyncFrequencyManual": "Manual Only",
   "settingsSyncFrequencyEvery15Minutes": "Every 15 Minutes",
   "settingsSyncFrequencyEveryHour": "Every Hour",
@@ -262,8 +255,11 @@
   "settingsBackupFormatFolderNote": "Both formats still upload under the same \"originals/\" folder — that name means full resolution (as opposed to a future thumbnail/medium tier), not \"byte-for-byte unmodified\". An Optimized upload there just has a .webp extension instead of the original file's.",
 
   "settingsAppDataHeading": "App Data",
-  "settingsAppDataHint": "Albums, people, tags, captions and places — everything that isn't the photo itself. Written to your iCloud Drive as one file a day, and pulled back automatically if you reinstall. Not sync between devices, and never your bucket keys.",
+  "settingsAppDataHint": "Albums, people, tags, captions and places — everything that isn't the photo itself. One file, rewritten when it changes and pulled back automatically if you reinstall. Keep a copy in either place, or both. Not sync between devices, and never your bucket keys.",
   "settingsICloudRow": "iCloud Drive",
+  "settingsBucketDataRow": "Your Cloud Bucket",
+  "settingsBucketDataPath": "app-data/YYYYMM.zip in every bucket",
+  "settingsBucketDataNoBucket": "Add a bucket below first",
   "settingsICloudPath": "Files → iCloud Drive → Bring Your Own Photos",
   "settingsICloudNever": "Nothing backed up yet",
   "settingsICloudLastBackup": "Last copy {when}",
@@ -275,6 +271,12 @@
   "settingsICloudDriveOffFix": "Settings → your name → iCloud → Drive → turn on",
   "settingsICloudNotReady": "iCloud isn't ready yet — try again shortly",
   "settingsCloudBucketsHeading": "Cloud Buckets",
+  "settingsCloudHeading": "Cloud",
+  "settingsCloudHint": "Photos upload to storage you own. Credentials stay on this device and go straight to the bucket. Syncing runs only while the app is open — there's no background-sync permission yet.",
+  "settingsSyncQueueButton": "Queue ({count})",
+  "@settingsSyncQueueButton": {
+    "placeholders": {"count": {"type": "int"}}
+  },
   "settingsEmptyTitle": "No Cloud Buckets Yet",
   "settingsEmptyNote": "Add one to start backing up your photos and videos.",
   "settingsAddButton": "Add Cloud Bucket",
@@ -294,12 +296,34 @@
   "settingsDeleteConnectionAction": "Delete Connection",
   "backupQueueHiddenItem": "Hidden photo",
   "collectionsSyncQueueRow": "Sync Queue",
+  "collectionsAnalyzeQueueRow": "Analyze Queue",
+  "analyzeQueueRemaining": "{count, plural, =0{Nothing left to look at} one{1 photo to look at} other{{count} photos to look at}}",
+  "@analyzeQueueRemaining": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "analyzeQueueListHeading": "IN THE QUEUE",
+  "analyzeQueueEmpty": "Nothing left to look at. New photos join the queue as they arrive.",
+  "analyzeQueueScanRow": "Photos library",
+  "analyzeQueueStepScan": "Re-reading Photos for new and changed items",
+  "analyzeQueueStepFaces": "Looking for faces",
+  "analyzeQueueStepSuggest": "Asking your AI for tags and a caption",
+  "analyzeQueueFrequencyHeading": "How Often",
+  "analyzeQueueFrequencyHint": "Runs only while the app is open, a few photos at a time — it is meant to take its time, not to finish today.",
+  "analyzeQueuePaidTitle": "Tags, events and captions",
+  "analyzeQueuePaidNote": "Costs one call to your AI vendor per photo. Faces and scanning stay free either way.",
+  "analyzeQueuePaidNoKey": "Add an AI key in Utilities → AI Settings to turn this on.",
+  "analyzeReviewSuggestionTitle": "Suggested",
+  "analyzeReviewSuggestedEvent": "Event: {value}",
+  "@analyzeReviewSuggestedEvent": {
+    "placeholders": {"value": {"type": "String"}}
+  },
+  "analyzeReviewAccept": "Keep",
+  "analyzeReviewDismiss": "No thanks",
   "settingsSyncQueueRow": "Sync queue",
-  "settingsSyncQueuePending": "{pending} pending · {concurrency} at a time",
+  "settingsSyncQueuePending": "{pending} pending",
   "@settingsSyncQueuePending": {
     "placeholders": {
-      "pending": {"type": "int"},
-      "concurrency": {"type": "int"}
+      "pending": {"type": "int"}
     }
   },
   "settingsLastSyncedAt": "Last synced {time}",

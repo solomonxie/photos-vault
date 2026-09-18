@@ -8,6 +8,8 @@ class AiPhotoAnalysis {
     required this.eventLabel,
     required this.analyzedAt,
     this.tags = const [],
+    this.description = '',
+    this.reviewed = false,
   });
 
   final String localId;
@@ -17,8 +19,19 @@ class AiPhotoAnalysis {
   final String eventLabel;
   final DateTime analyzedAt;
 
-  /// Suggested tags. Deliberately *not* persisted here: tags belong to the
-  /// photo, so they're merged onto its record and live there — this is
-  /// just how one analysis hands them over.
+  /// Suggested tags. Persisted here until they're reviewed, then merged
+  /// onto the photo's own record, which is where a tag lives once it's
+  /// been accepted — a suggestion isn't a tag yet.
   final List<String> tags;
+
+  /// A suggested one-line caption, empty when the model didn't offer one.
+  final String description;
+
+  /// Whether the user has been shown this suggestion and said yes or no.
+  /// What keeps the review list from offering the same photo forever.
+  final bool reviewed;
+
+  /// Whether there's anything here worth asking about.
+  bool get hasSuggestions =>
+      tags.isNotEmpty || eventLabel.isNotEmpty || description.isNotEmpty;
 }
