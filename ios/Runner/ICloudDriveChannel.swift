@@ -42,8 +42,23 @@ class ICloudDriveChannel {
         return
       }
       result(write(name: name, contents: contents))
+    case "writeBytes":
+      guard let arguments = call.arguments as? [String: Any],
+            let name = arguments["name"] as? String,
+            let bytes = arguments["bytes"] as? FlutterStandardTypedData
+      else {
+        result(false)
+        return
+      }
+      result(writeBytes(name: name, data: bytes.data))
     case "readLatest":
       result(readLatest())
+    case "readLatestBytes":
+      if let data = readLatestBytes() {
+        result(FlutterStandardTypedData(bytes: data))
+      } else {
+        result(nil)
+      }
     case "latestWriteAt":
       result(latestWriteAt())
     default:
@@ -136,26 +151,66 @@ class ICloudDriveChannel {
     }
   }
 
-  /// The newest — and only — snapshot. One file, overwritten: what this is
-  /// for is surviving the app being deleted, and one current copy does that
-  /// completely.
-  private static func latestFile() -> URL? {
+  private static func writeBytes(name: String, data: Data) -> Bool {
+    guard let root = containerURL() else { return false }
+    let file = root.appendingPathComponent(name)
+    do {
+      try FileManager.default.createDirectory(
+        at: file.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+      // Atomic, for the same reason the text write is: a half-written
+      // snapshot that syncs is worse than no snapshot, because it looks
+      // like one.
+      try data.write(to: file, options: .atomic)
+      return true
+    } catch {
+      return false
+    }
+  }
+
+  /// The newest snapshot of the given kind. Names sort by date — the app
+  /// writes one `YYYYMM.zip` per month — so the last name is the newest
+  /// file without having to stat every one of them.
+  private static func latestFile(withExtension ext: String) -> URL? {
     guard let root = containerURL() else { return nil }
     let files = (try? FileManager.default.contentsOfDirectory(
       at: root, includingPropertiesForKeys: nil
     )) ?? []
     return files
-      .filter { $0.pathExtension == "json" }
+      .filter { $0.pathExtension == ext }
       .sorted { $0.lastPathComponent < $1.lastPathComponent }
       .last
   }
 
+  /// Whichever kind is newer. `.json` is the single rolling file older
+  /// builds wrote; it stays readable so an upgrade doesn't lose the copy
+  /// it already had.
+  private static func latestFile() -> URL? {
+    let zip = latestFile(withExtension: "zip")
+    let json = latestFile(withExtension: "json")
+    guard let zip else { return json }
+    guard let json else { return zip }
+    return modifiedAt(zip) >= modifiedAt(json) ? zip : json
+  }
+
+  private static func modifiedAt(_ file: URL) -> Date {
+    let values = try? file.resourceValues(forKeys: [.contentModificationDateKey])
+    return values?.contentModificationDate ?? .distantPast
+  }
+
   private static func readLatest() -> String? {
-    guard let file = latestFile() else { return nil }
+    guard let file = latestFile(withExtension: "json") else { return nil }
     // The file may be in the cloud and not yet on this device — which is
     // exactly the fresh-install case this exists for.
     try? FileManager.default.startDownloadingUbiquitousItem(at: file)
     return try? String(contentsOf: file, encoding: .utf8)
+  }
+
+  private static func readLatestBytes() -> Data? {
+    guard let file = latestFile(withExtension: "zip") else { return nil }
+    try? FileManager.default.startDownloadingUbiquitousItem(at: file)
+    return try? Data(contentsOf: file)
   }
 
   private static func latestWriteAt() -> Int? {

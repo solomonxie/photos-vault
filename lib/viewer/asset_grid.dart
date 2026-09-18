@@ -71,6 +71,13 @@ List<Widget> assetGridSlivers({
   /// Identifies the grid's sliver render object, so a caller can ask the
   /// viewport where the grid starts.
   Key? gridKey,
+
+  /// See [PhotoManagerThumbnail.onMissing].
+  void Function(AssetRecord)? onMissing,
+
+  /// See [AssetTile.onSelectDragUpdate].
+  void Function(Offset globalPosition)? onSelectDragUpdate,
+  VoidCallback? onSelectDragEnd,
 }) {
   final l10n = AppLocalizations.of(context)!;
   final grid =
@@ -112,6 +119,9 @@ List<Widget> assetGridSlivers({
                           onLongPress: onLongPress,
                           actionsFor: actionsFor,
                           selectedIds: selectedIds,
+                          onMissing: onMissing,
+                          onSelectDragUpdate: onSelectDragUpdate,
+                          onSelectDragEnd: onSelectDragEnd,
                         )
                       : const SizedBox.shrink(),
                 ),
@@ -131,12 +141,18 @@ Widget _tileFor(
   required void Function(AssetRecord)? onLongPress,
   required List<TileAction> Function(AssetRecord) actionsFor,
   required Set<String>? selectedIds,
+  required void Function(AssetRecord)? onMissing,
+  required void Function(Offset globalPosition)? onSelectDragUpdate,
+  required VoidCallback? onSelectDragEnd,
 }) => AssetTile(
   key: ValueKey(record.localId),
   record: record,
   extent: extent,
   onTap: () => onTap(record),
   onLongPress: onLongPress == null ? null : () => onLongPress(record),
+  onMissing: onMissing == null ? null : () => onMissing(record),
+  onSelectDragUpdate: onSelectDragUpdate,
+  onSelectDragEnd: onSelectDragEnd,
   actions: actionsFor(record),
   selected: selectedIds?.contains(record.localId),
 );
@@ -173,6 +189,8 @@ Widget assetImage(
   required Widget Function() placeholder,
   BoxFit fit = BoxFit.cover,
   int? thumbnailSize,
+  bool fittedThumbnail = false,
+  VoidCallback? onMissing,
 }) {
   Widget cached() {
     final thumbnail = record.thumbnailPath;
@@ -199,6 +217,9 @@ Widget assetImage(
       assetId: libraryId,
       fit: fit,
       size: thumbnailSize,
+      fitted: fittedThumbnail,
+      placeholder: placeholder,
+      onMissing: onMissing,
     );
   }
   return cached();
@@ -238,6 +259,9 @@ class AssetTile extends StatelessWidget {
     required this.actions,
     this.selected,
     this.onLongPress,
+    this.onMissing,
+    this.onSelectDragUpdate,
+    this.onSelectDragEnd,
   });
 
   final AssetRecord record;
@@ -259,6 +283,16 @@ class AssetTile extends StatelessWidget {
   /// `assetGridSlivers`' `selectedIds`).
   final bool? selected;
 
+  /// See [PhotoManagerThumbnail.onMissing].
+  final VoidCallback? onMissing;
+
+  /// Where the finger is, while it is still down from the hold that
+  /// started selecting — or dragged sideways across the grid once it has.
+  /// Reported in global coordinates: which tile that is, is a question for
+  /// whoever owns the grid, not for one tile in it.
+  final void Function(Offset globalPosition)? onSelectDragUpdate;
+  final VoidCallback? onSelectDragEnd;
+
   /// Last resort when no image resolves. A video gets the dark play-glyph
   /// tile rather than the grey photo one — for a manually-added file
   /// there's no frame to decode, so this *is* its tile.
@@ -272,8 +306,15 @@ class AssetTile extends StatelessWidget {
           ),
         )
       : const ColoredBox(
-          color: CupertinoColors.systemGrey5,
-          child: Icon(CupertinoIcons.photo),
+          // Dark, like everything around it. A light grey square in a dark
+          // grid reads as a flash of white where a photo should be — which
+          // is exactly what a photo deleted over in Photos looked like.
+          color: CupertinoColors.darkBackgroundGray,
+          child: Icon(
+            CupertinoIcons.photo,
+            color: CupertinoColors.systemGrey,
+            size: 24,
+          ),
         );
 
   @override
@@ -281,7 +322,32 @@ class AssetTile extends StatelessWidget {
     final tile = GestureDetector(
       onTap: onTap,
       onLongPress: onLongPress,
-      child: _tile(),
+      // The hold that starts selecting has already won the arena, so every
+      // move after it comes here rather than to the scroll view — which is
+      // what lets one unbroken gesture hold, then sweep across the grid.
+      onLongPressMoveUpdate: onSelectDragUpdate == null
+          ? null
+          : (details) => onSelectDragUpdate!(details.globalPosition),
+      onLongPressEnd: onSelectDragEnd == null
+          ? null
+          : (_) => onSelectDragEnd!(),
+      // Once selecting, a sideways drag across tiles picks them up too.
+      // Horizontal only: up and down still belong to the grid, which has a
+      // library to scroll through.
+      onHorizontalDragUpdate: selected == null || onSelectDragUpdate == null
+          ? null
+          : (details) => onSelectDragUpdate!(details.globalPosition),
+      onHorizontalDragEnd: selected == null || onSelectDragEnd == null
+          ? null
+          : (_) => onSelectDragEnd!(),
+      child: MetaData(
+        // What [onSelectDragUpdate]'s reader hit-tests for: the tile under
+        // the finger identifies itself, so nobody has to reconstruct the
+        // grid's geometry from a scroll offset.
+        metaData: record,
+        behavior: HitTestBehavior.opaque,
+        child: _tile(),
+      ),
     );
     if (onLongPress != null) return tile;
     return CupertinoContextMenu(
@@ -314,7 +380,19 @@ class AssetTile extends StatelessWidget {
             // Videos draw their poster frame like any other tile — the OS
             // library hands one back for them too, and a black square with
             // a play glyph told you nothing about which video it was.
-            assetImage(record, placeholder: _placeholder),
+            // Aspect-fit, not the square crop the OS would give by
+            // default: `cover` on the tile crops it back to a square
+            // anyway, and asking this way means the viewer opening on top
+            // of this tile already has the whole picture in memory to put
+            // up on its first frame. 200 on the long edge leaves the short
+            // edge about where the old 150 square was.
+            assetImage(
+              record,
+              thumbnailSize: 200,
+              fittedThumbnail: true,
+              placeholder: _placeholder,
+              onMissing: onMissing,
+            ),
             if (record.localDeleted)
               const Positioned(
                 top: 4,
@@ -437,7 +515,15 @@ class PhotoManagerThumbnail extends StatefulWidget {
     required this.assetId,
     this.fit = BoxFit.cover,
     this.size,
+    this.fitted = false,
+    this.placeholder,
+    this.onMissing,
   });
+
+  /// Ask for the whole photo rather than a square crop of it — see
+  /// [photoManagerThumbnailBytes]. What a full-screen stand-in wants; a
+  /// grid tile wants the crop.
+  final bool fitted;
 
   /// How the thumbnail is fitted. A grid tile covers its square; the
   /// viewer, which shows this while the full-size original is still being
@@ -456,6 +542,16 @@ class PhotoManagerThumbnail extends StatefulWidget {
   /// back, they name different things.
   final String assetId;
 
+  /// Called once when the library turns out not to have this asset at all.
+  /// The grid is where a deleted photo is *noticed* — long before the next
+  /// full scan — so it's the grid that says so.
+  final VoidCallback? onMissing;
+
+  /// What to draw with nothing to draw yet. A grid tile's light grey is
+  /// right in a grid and wrong full-screen, where for one frame it is a
+  /// white flash between the photo you tapped and the photo you opened.
+  final Widget Function()? placeholder;
+
   @override
   State<PhotoManagerThumbnail> createState() => _PhotoManagerThumbnailState();
 }
@@ -466,23 +562,104 @@ class PhotoManagerThumbnail extends StatefulWidget {
 Future<Uint8List?> photoManagerThumbnailBytes(
   String assetId, {
   int? size,
+  bool fitted = false,
 }) async {
-  final key = size == null ? assetId : '$assetId@$size';
+  final key = _thumbnailKey(assetId, size, fitted);
   final cached = _thumbnailBytes[key];
   if (cached != null) return cached;
   try {
     final entity = await AssetEntity.fromId(assetId);
     final bytes = size == null
         ? await entity?.thumbnailData
-        : await entity?.thumbnailDataWithSize(ThumbnailSize.square(size));
-    if (bytes != null) _thumbnailBytes[key] = bytes;
+        : await entity?.thumbnailDataWithOption(
+            _thumbnailOption(size, fitted: fitted),
+          );
+    if (bytes != null) {
+      _thumbnailBytes[key] = bytes;
+      if (fitted) _rememberFitted(assetId, size!, bytes);
+    }
     return bytes;
   } catch (_) {
     return null;
   }
 }
 
+/// PhotoKit's default content mode is *aspect fill*, so asking for a
+/// square gets a square — a centre crop of the photo. Fine behind a grid
+/// tile drawn `cover`, and wrong anywhere the whole photo is meant to be
+/// visible: drawn `contain` the crop shows as a square picture that jumps
+/// to the real framing the moment the original arrives. [fitted] asks for
+/// aspect-fit instead, so a stand-in is the same picture, same shape.
+///
+/// And the size asked for is the size that comes back. PhotoKit's default
+/// delivery is *opportunistic*, which calls back twice — a degraded
+/// thumbnail first, the real render after — and the plugin answers on the
+/// first callback and ignores the second. So every request here, at any
+/// size, was quietly being served the degraded one. `highQualityFormat`
+/// calls back once, with the image that was actually asked for.
+ThumbnailOption _thumbnailOption(int size, {required bool fitted}) {
+  // The fitted options are PhotoKit's; everywhere else takes the plain
+  // request and the crop that comes with it.
+  if (!fitted || !(Platform.isIOS || Platform.isMacOS)) {
+    return ThumbnailOption(size: ThumbnailSize.square(size));
+  }
+  return ThumbnailOption.ios(
+    size: ThumbnailSize.square(size),
+    resizeContentMode: ResizeContentMode.fit,
+    deliveryMode: DeliveryMode.highQualityFormat,
+    resizeMode: ResizeMode.exact,
+  );
+}
+
+String _thumbnailKey(String assetId, int? size, bool fitted) {
+  if (size == null) return assetId;
+  return fitted ? '$assetId@${size}f' : '$assetId@$size';
+}
+
+/// Whether the OS library has no such asset any more — the difference
+/// between a thumbnail that didn't come back this time (iCloud, throttling,
+/// a busy device) and a photo that was deleted over in Photos. Only the
+/// second is worth acting on, and only the entity itself can tell them
+/// apart.
+Future<bool> photoManagerAssetMissing(String assetId) async {
+  try {
+    return await AssetEntity.fromId(assetId) == null;
+  } catch (_) {
+    // Couldn't ask — no plugin, no permission. Assume it's still there.
+    return false;
+  }
+}
+
+/// What's already in memory for [assetId], preferring the size asked for
+/// but taking any other over nothing: the grid has usually just drawn this
+/// photo smaller, and one frame of a smaller thumbnail is invisible next to
+/// the alternative, which is an empty rectangle.
+/// A [fitted] caller falls back only to other fitted sizes, though — the
+/// square crops in the cache are the jump it exists to avoid.
+Uint8List? cachedThumbnailBytes(
+  String assetId, {
+  int? size,
+  bool fitted = false,
+}) {
+  final exact = _thumbnailBytes[_thumbnailKey(assetId, size, fitted)];
+  if (exact != null) return exact;
+  if (fitted) return _fittedThumbnails[assetId]?.bytes;
+  return _thumbnailBytes[assetId];
+}
+
 final _thumbnailBytes = <String, Uint8List>{};
+
+/// The largest aspect-fit thumbnail seen for an asset, whatever size asked
+/// for it. The grid draws one of these per tile, which is what lets the
+/// viewer put the right picture up on its first frame instead of an empty
+/// rectangle while a bigger one renders.
+final _fittedThumbnails = <String, ({int size, Uint8List bytes})>{};
+
+void _rememberFitted(String assetId, int size, Uint8List bytes) {
+  final held = _fittedThumbnails[assetId];
+  if (held != null && held.size >= size) return;
+  _fittedThumbnails[assetId] = (size: size, bytes: bytes);
+}
 
 class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
   Uint8List? _bytes;
@@ -490,6 +667,13 @@ class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
   @override
   void initState() {
     super.initState();
+    // Whatever is in memory goes up on the first frame; the right size
+    // arrives over it.
+    _bytes = cachedThumbnailBytes(
+      widget.assetId,
+      size: widget.size,
+      fitted: widget.fitted,
+    );
     _load();
   }
 
@@ -497,8 +681,15 @@ class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
     final bytes = await photoManagerThumbnailBytes(
       widget.assetId,
       size: widget.size,
+      fitted: widget.fitted,
     );
-    if (bytes == null || !mounted) return;
+    if (bytes == null) {
+      if (await photoManagerAssetMissing(widget.assetId)) {
+        widget.onMissing?.call();
+      }
+      return;
+    }
+    if (!mounted || identical(bytes, _bytes)) return;
     setState(() => _bytes = bytes);
   }
 
@@ -506,7 +697,8 @@ class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
   Widget build(BuildContext context) {
     final bytes = _bytes;
     if (bytes == null) {
-      return const ColoredBox(color: CupertinoColors.systemGrey5);
+      return widget.placeholder?.call() ??
+          const ColoredBox(color: CupertinoColors.systemGrey5);
     }
     return Image.memory(
       bytes,

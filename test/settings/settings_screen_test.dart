@@ -1,3 +1,6 @@
+import 'package:bring_your_own_photos/backup/app_snapshot.dart';
+import 'package:bring_your_own_photos/backup/bucket_backup.dart';
+import 'package:bring_your_own_photos/backup/snapshot_archive.dart';
 import 'package:bring_your_own_photos/l10n/app_localizations.dart';
 import 'package:bring_your_own_photos/settings/add_s3_backup_screen.dart';
 import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
@@ -9,8 +12,11 @@ import 'package:bring_your_own_photos/upload/sync_queue.dart';
 import 'package:bring_your_own_photos/viewer/sync_queue_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:http/http.dart' as http;
 
+import '../support/fake_album_store.dart';
 import '../support/fake_asset_record_store.dart';
+import '../support/fake_person_store.dart';
 import '../support/fake_sync_job_store.dart';
 import 'fake_secure_store.dart';
 
@@ -41,7 +47,86 @@ Future<BackupTargetsStore> _storeWithBucket({String prefix = 'p/'}) async {
   return store;
 }
 
+/// An app-data backup pointed at a map instead of a bucket.
+({BucketBackup backup, Map<String, List<int>> objects}) _bucketBackup(
+  BackupTargetsStore targets,
+  FakeAssetRecordStore assets,
+) {
+  final objects = <String, List<int>>{};
+  return (
+    objects: objects,
+    backup: BucketBackup(
+      snapshots: AppSnapshotIo(
+        assetRecordStore: assets,
+        albumStore: FakeAlbumStore(),
+        personStore: FakePersonStore(),
+      ),
+      settings: assets,
+      targetsStore: targets,
+      put: (url, {body}) async {
+        objects[url.path] = body! as List<int>;
+        return http.Response('', 200);
+      },
+    ),
+  );
+}
+
 void main() {
+  testWidgets('app data offers the bucket as a second destination', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final store = await _storeWithBucket();
+    final assets = FakeAssetRecordStore();
+    final bucket = _bucketBackup(store, assets);
+
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(
+          store: store,
+          assetRecordStore: assets,
+          bucketBackup: bucket.backup,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Your Cloud Bucket'), findsOneWidget);
+    // Flipping it on writes the copy at once, rather than waiting for the
+    // next change — which could be days off.
+    await tester.tap(find.byType(CupertinoSwitch));
+    await tester.pumpAndSettle();
+
+    expect(
+      bucket.objects.keys.single,
+      '/p/app-data/${monthlyArchiveName(DateTime.now())}',
+    );
+    expect(await bucket.backup.isEnabled(), isTrue);
+  });
+
+  testWidgets('with no bucket, the app data switch says so and stays dead', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final store = BackupTargetsStore(store: FakeSecureStore());
+    final assets = FakeAssetRecordStore();
+
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(
+          store: store,
+          assetRecordStore: assets,
+          bucketBackup: _bucketBackup(store, assets).backup,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Add a bucket below first'), findsOneWidget);
+    final toggle = tester.widget<CupertinoSwitch>(find.byType(CupertinoSwitch));
+    expect(toggle.onChanged, isNull);
+  });
+
   testWidgets('shows the empty state with the add action right there', (
     tester,
   ) async {
@@ -123,7 +208,7 @@ void main() {
     expect(find.text('my-bucket'), findsOneWidget);
   });
 
-  testWidgets('the queue is a row of its own that opens a sheet, not a page', (
+  testWidgets('the queue is a pill of its own that opens a sheet, not a page', (
     tester,
   ) async {
     await _useTallSurface(tester);
@@ -168,14 +253,44 @@ void main() {
     await tester.pumpAndSettle();
 
     // Counts outstanding *jobs* — one photo can be several units of work.
-    expect(find.text('1 pending · 2 at a time'), findsOneWidget);
+    expect(find.text('Queue (1)'), findsOneWidget);
+    // The pace is the stepper's business, not a second copy here.
+    expect(find.text('2 at a time'), findsOneWidget);
 
-    // Its own row now, not a line of footer text: "is anything happening?"
-    // is the most-asked question on this page.
-    await tester.tap(find.text('1 pending · 2 at a time'));
+    // A control among the others, not a line of footer text: "is anything
+    // happening?" is the most-asked question on this page.
+    await tester.tap(find.text('Queue (1)'));
     await tester.pumpAndSettle();
 
     expect(find.byType(SyncQueueSheet), findsOneWidget);
+  });
+
+  testWidgets('the speed stepper steps the queue concurrency', (tester) async {
+    await _useTallSurface(tester);
+    final store = await _storeWithBucket();
+    final queue = SyncQueue(
+      store: FakeSyncJobStore(),
+      settings: store,
+      process: (_) async {},
+    );
+    await queue.refresh();
+
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(
+          store: store,
+          assetRecordStore: FakeAssetRecordStore(),
+          syncQueue: queue,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(CupertinoIcons.plus));
+    await tester.pumpAndSettle();
+
+    expect(queue.concurrency.value, 3);
+    expect(find.text('3 at a time'), findsOneWidget);
   });
 
   testWidgets('stats ride on one footer line under the bucket list', (
@@ -207,9 +322,8 @@ void main() {
     expect(find.text('1 bucket · 1 of 2 photos backed up'), findsOneWidget);
   });
 
-  testWidgets('the schedule is a pill, and Sync Now is dead with no bucket', (
-    tester,
-  ) async {
+  testWidgets('the schedule is a pill of its value, and Sync Now is dead '
+      'with no bucket', (tester) async {
     await _useTallSurface(tester);
     final store = BackupTargetsStore(store: FakeSecureStore());
 
@@ -220,7 +334,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Schedule: Manual Only'), findsOneWidget);
+    expect(find.text('Manual Only'), findsOneWidget);
     expect(find.text('Never synced'), findsOneWidget);
 
     // Present but disabled rather than missing — a manual action must never
@@ -245,7 +359,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Schedule: Manual Only'));
+    await tester.tap(find.text('Manual Only'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Every Hour'));
     await tester.pumpAndSettle();
@@ -268,7 +382,7 @@ void main() {
     // The page carries the current answer, not both answers and their
     // reasons laid out permanently.
     expect(find.textContaining('Full quality, byte-identical'), findsNothing);
-    await tester.tap(find.text('Format: Original'));
+    await tester.tap(find.text('Original'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('Full quality, byte-identical'), findsOneWidget);
@@ -277,6 +391,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(await store.getBackupFormat(), BackupFormat.optimized);
-    expect(find.text('Format: Optimized (WebP)'), findsOneWidget);
+    expect(find.text('Optimized (WebP)'), findsOneWidget);
   });
 }

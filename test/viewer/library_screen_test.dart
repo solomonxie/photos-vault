@@ -122,6 +122,15 @@ Future<List<AssetEntity>> Function(int, int) pagedBy(
 ) =>
     (page, size) async => page == 0 ? entities() : const [];
 
+/// The camera-roll scan is the first job in the analyze queue, and the
+/// queue rests between batches — so settling once only gets as far as it
+/// being queued.
+Future<void> _settleScan(WidgetTester tester) async {
+  await tester.pumpAndSettle();
+  await tester.pump(const Duration(seconds: 1));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('shows the empty placeholder with no manual adds yet', (
     tester,
@@ -190,7 +199,7 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await _settleScan(tester);
 
       expect(find.byKey(const ValueKey('photo:roll1')), findsOneWidget);
     },
@@ -505,13 +514,79 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('1 Selected'), findsOneWidget);
-    for (final action in ['Add Tag', 'Set Place', 'Set Event', 'Adjust Date']) {
+    // The bar carries the two anybody presses plus the way out; the batch
+    // metadata edits are a list, so they live in the menu.
+    for (final action in ['Album', 'Add Tag', 'More', 'Delete']) {
       expect(find.text(action), findsOneWidget);
     }
+    expect(find.text('Set Place'), findsNothing);
+
+    await tester.tap(find.text('More'));
+    await tester.pumpAndSettle();
+    for (final action in ['Set Place', 'Set Event', 'Adjust Date']) {
+      expect(find.text(action), findsOneWidget);
+    }
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
     expect(find.text('1 Selected'), findsNothing);
+  });
+
+  testWidgets('holding then sweeping picks up every tile on the way', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    for (final id in ['manual:one', 'manual:two', 'manual:three']) {
+      await recordStore.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+    }
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // One unbroken gesture: hold to start selecting, then keep going.
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('manual:one'))),
+    );
+    await tester.pump(const Duration(milliseconds: 600));
+    expect(find.text('1 Selected'), findsOneWidget);
+
+    await gesture.moveTo(
+      tester.getCenter(find.byKey(const ValueKey('manual:two'))),
+    );
+    await tester.pump();
+    await gesture.moveTo(
+      tester.getCenter(find.byKey(const ValueKey('manual:three'))),
+    );
+    await tester.pump();
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(find.text('3 Selected'), findsOneWidget);
   });
 
   testWidgets('a batch edit applies one place to every selected photo', (
@@ -554,6 +629,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('2 Selected'), findsOneWidget);
 
+    await tester.tap(find.text('More'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Set Place'));
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(searchPickerFieldKey), 'Kyoto');
@@ -726,6 +803,10 @@ void main() {
       expect(find.text('Favorites'), findsOneWidget);
       expect(find.text('Hidden'), findsOneWidget);
       expect(find.text('Recently Deleted'), findsOneWidget);
+      // The analyze pass is the one queue that lives here. The sync queue
+      // moved to Cloud Settings, beside the buckets it fills.
+      expect(find.text('Analyze Queue'), findsOneWidget);
+      expect(find.text('Sync Queue'), findsNothing);
       expect(find.text('Cloud Settings'), findsOneWidget);
 
       await tester.tap(find.text('Favorites'));
@@ -1289,7 +1370,7 @@ void main() {
           ),
         ),
       );
-      await tester.pumpAndSettle();
+      await _settleScan(tester);
       expect(scans, 1);
       expect(
         (await recordStore.getByLocalId('photo:roll1'))!.isFavorite,
@@ -1302,7 +1383,7 @@ void main() {
       favouritedInPhotos = false;
       await _sendLifecycle(tester, AppLifecycleState.inactive);
       await _sendLifecycle(tester, AppLifecycleState.resumed);
-      await tester.pumpAndSettle();
+      await _settleScan(tester);
 
       expect(scans, greaterThan(1));
       expect(

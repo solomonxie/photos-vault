@@ -1,6 +1,7 @@
 import '../storage/asset_record_store.dart';
 import 'app_snapshot.dart';
 import 'icloud_drive.dart';
+import 'snapshot_archive.dart';
 
 /// Keeps a copy of everything that isn't a photo in the user's own iCloud
 /// Drive, and puts it back after a reinstall.
@@ -11,11 +12,15 @@ import 'icloud_drive.dart';
 /// written, one file read on a fresh install — and the section hint says so
 /// rather than letting the word "iCloud" imply a merge.
 ///
-/// One file, `library.json`, overwritten every time. Dated files in month
-/// folders were tried first and are the wrong shape for what this is for:
-/// the job is to survive the app being deleted, which one current copy does
-/// completely. Keeping older ones would be offering a history nothing in
-/// the app can read back, in a folder the user can see, at their expense.
+/// One zip a month — `202609.zip` — overwritten within the month and left
+/// alone after it. A single rolling file was tried first and is the wrong
+/// shape for the job: the copy is there for the day something goes wrong,
+/// and "something went wrong" is usually noticed weeks later, by which
+/// time one rolling file has already been overwritten with the damage.
+/// Twelve small files a year is a year of undo for a few hundred kilobytes.
+///
+/// The restore reads the newest zip, and falls back to the `library.json`
+/// older builds wrote so an upgrade never loses the copy it already had.
 class ICloudBackup {
   ICloudBackup({
     required this.snapshots,
@@ -53,7 +58,10 @@ class ICloudBackup {
   Future<bool> backUpNow() async {
     if (await drive.status() != ICloudState.available) return false;
     final snapshot = await snapshots.export();
-    return drive.write(fileName, snapshot.encode());
+    return drive.writeBytes(
+      monthlyArchiveName(DateTime.now()),
+      zipSnapshot(snapshot),
+    );
   }
 
   /// Backs up only if switched on — what every "something changed" caller
@@ -74,9 +82,7 @@ class ICloudBackup {
     if (await settings.getAppState(restoredKey) != null) return 0;
     if ((await settings.listAll()).isNotEmpty) return 0;
     if (await drive.status() != ICloudState.available) return 0;
-    final contents = await drive.readLatest();
-    if (contents == null) return 0;
-    final snapshot = AppSnapshot.decode(contents);
+    final snapshot = await _latestSnapshot();
     if (snapshot == null || snapshot.isEmpty) return 0;
     final restored = await snapshots.import(snapshot);
     await settings.setAppState(restoredKey, DateTime.now().toIso8601String());
@@ -86,7 +92,18 @@ class ICloudBackup {
     return restored;
   }
 
-  /// The one file, at the top of the app's iCloud folder — a name that says
-  /// what it is to anyone who opens the folder looking.
-  static const fileName = 'library.json';
+  /// The newest monthly zip, or — for a backup taken before this app wrote
+  /// zips — the single `library.json` it used to write.
+  Future<AppSnapshot?> _latestSnapshot() async {
+    final bytes = await drive.readLatestBytes();
+    if (bytes != null) {
+      final snapshot = unzipSnapshot(bytes);
+      if (snapshot != null) return snapshot;
+    }
+    final contents = await drive.readLatest();
+    return contents == null ? null : AppSnapshot.decode(contents);
+  }
+
+  /// What older builds wrote, and what [restoreIfFreshInstall] still reads.
+  static const legacyFileName = 'library.json';
 }

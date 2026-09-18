@@ -2,11 +2,14 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:bring_your_own_photos/l10n/app_localizations.dart';
+import 'package:bring_your_own_photos/photos/ai_analysis.dart';
+import 'package:bring_your_own_photos/photos/on_device_analysis.dart';
 import 'package:bring_your_own_photos/storage/asset_record.dart';
 import 'package:bring_your_own_photos/viewer/detail_screen.dart';
 import 'package:bring_your_own_photos/viewer/zoom_page_route.dart';
 import 'package:bring_your_own_photos/viewer/search_picker_sheet.dart';
 
+import '../support/fake_ai_analysis_store.dart';
 import '../support/fake_asset_record_store.dart';
 import '../support/fake_person_store.dart';
 
@@ -263,6 +266,64 @@ void main() {
     expect(pager.controller!.page, closeTo(1, 0.01));
   });
 
+  testWidgets('the photo comes with the finger, and springs back', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [
+            _record(localId: 'a'),
+            _record(localId: 'b'),
+          ],
+          initialIndex: 0,
+          assetRecordStore: FakeAssetRecordStore(),
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    final photo = find.byType(CustomScrollView).first;
+    final resting = tester.getCenter(photo);
+
+    // 48 down, 24 across — a pull, delivered the way a thumb arrives.
+    final gesture = await tester.startGesture(
+      tester.getCenter(find.byType(PageView)),
+    );
+    for (var i = 0; i < 6; i++) {
+      await gesture.moveBy(const Offset(4, 8));
+      await tester.pump();
+    }
+
+    final held = tester.getCenter(photo);
+    expect(held.dy, greaterThan(resting.dy));
+    expect(
+      held.dx,
+      greaterThan(resting.dx),
+      reason: 'sideways too — the photo is in hand, not on a rail',
+    );
+    // The toolbars are out of the way of what's being dragged.
+    expect(
+      tester
+          .widgetList<Opacity>(find.byType(Opacity))
+          .any((o) => o.opacity < 1),
+      isTrue,
+    );
+
+    // Let go short of the threshold and it goes back where it was.
+    await gesture.up();
+    await tester.pumpAndSettle();
+
+    expect(find.byType(DetailScreen), findsOneWidget);
+    expect(
+      tester.getCenter(photo),
+      offsetMoreOrLessEquals(resting, epsilon: 1),
+    );
+  });
+
   testWidgets('a small downward drag snaps back instead of dismissing', (
     tester,
   ) async {
@@ -286,6 +347,99 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(DetailScreen), findsOneWidget);
+  });
+
+  testWidgets('a suggestion waits on the photo it is about', (tester) async {
+    final records = FakeAssetRecordStore();
+    final record = await records.upsert(
+      localId: 'a',
+      contentHash: 'a',
+      platform: 'ios',
+    );
+    final analyses = FakeAiAnalysisStore();
+    await analyses.saveSuggestion(
+      AiPhotoAnalysis(
+        localId: 'a',
+        peopleCount: 0,
+        eventLabel: 'Beach day',
+        analyzedAt: DateTime(2026, 9, 17),
+        tags: const ['beach'],
+        description: 'A day at the beach.',
+      ),
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [record],
+          initialIndex: 0,
+          assetRecordStore: records,
+          personStore: FakePersonStore(),
+          onDeviceAnalysis: OnDeviceAnalysisService(analysisStore: analyses),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _scrollToInfoPanel(tester);
+
+    // On the photo it's about, where the picture is — not in a list of
+    // little cards somewhere else.
+    expect(find.text('Suggested'), findsOneWidget);
+    expect(find.text('A day at the beach.'), findsOneWidget);
+    expect(find.text('beach'), findsOneWidget);
+
+    await _tapInPanel(tester, find.text('Keep'));
+
+    final after = (await records.getByLocalId('a'))!;
+    expect(after.tags, ['beach']);
+    expect(after.description, 'A day at the beach.');
+    expect(after.event, 'Beach day');
+    // Answered, so it stops asking.
+    expect(find.text('Suggested'), findsNothing);
+  });
+
+  testWidgets('turning a suggestion down leaves the photo as it was', (
+    tester,
+  ) async {
+    final records = FakeAssetRecordStore();
+    final record = await records.upsert(
+      localId: 'a',
+      contentHash: 'a',
+      platform: 'ios',
+    );
+    final analyses = FakeAiAnalysisStore();
+    await analyses.saveSuggestion(
+      AiPhotoAnalysis(
+        localId: 'a',
+        peopleCount: 0,
+        eventLabel: '',
+        analyzedAt: DateTime(2026, 9, 17),
+        tags: const ['beach'],
+      ),
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [record],
+          initialIndex: 0,
+          assetRecordStore: records,
+          personStore: FakePersonStore(),
+          onDeviceAnalysis: OnDeviceAnalysisService(analysisStore: analyses),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _scrollToInfoPanel(tester);
+
+    await _tapInPanel(tester, find.text('No thanks'));
+
+    expect((await records.getByLocalId('a'))!.tags, isEmpty);
+    expect(find.text('Suggested'), findsNothing);
   });
 
   testWidgets('Done pops the screen', (tester) async {
