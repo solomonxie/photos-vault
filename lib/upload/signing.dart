@@ -1,6 +1,7 @@
 import 'package:aws_common/aws_common.dart';
 import 'package:aws_signature_v4/aws_signature_v4.dart';
 
+import '../settings/bucket_endpoint.dart';
 import '../settings/s3_backup_target.dart';
 
 /// Builds the key layout every derivative lands under (`thumbnails/`,
@@ -30,11 +31,11 @@ Future<Uri> presignPutUrl({
       AWSCredentials(target.accessKeyId, target.secretAccessKey),
     ),
   );
-  final scope = AWSCredentialScope.raw(region: target.region, service: 's3');
-  final uri = Uri.https(
-    '${target.bucket}.s3.${target.region}.amazonaws.com',
-    '/$key',
+  final scope = AWSCredentialScope.raw(
+    region: signingRegion(target),
+    service: 's3',
   );
+  final uri = targetUri(target, path: '/$key');
   final request = AWSHttpRequest.put(uri, body: const []);
   return signer.presign(
     request,
@@ -56,11 +57,11 @@ Future<Uri> presignGetUrl({
       AWSCredentials(target.accessKeyId, target.secretAccessKey),
     ),
   );
-  final scope = AWSCredentialScope.raw(region: target.region, service: 's3');
-  final uri = Uri.https(
-    '${target.bucket}.s3.${target.region}.amazonaws.com',
-    '/$key',
+  final scope = AWSCredentialScope.raw(
+    region: signingRegion(target),
+    service: 's3',
   );
+  final uri = targetUri(target, path: '/$key');
   final request = AWSHttpRequest.get(uri);
   return signer.presign(
     request,

@@ -2,7 +2,7 @@ import 'package:bring_your_own_photos/backup/app_snapshot.dart';
 import 'package:bring_your_own_photos/backup/bucket_backup.dart';
 import 'package:bring_your_own_photos/backup/snapshot_archive.dart';
 import 'package:bring_your_own_photos/l10n/app_localizations.dart';
-import 'package:bring_your_own_photos/settings/add_s3_backup_screen.dart';
+import 'package:bring_your_own_photos/settings/add_backup_screen.dart';
 import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
 import 'package:bring_your_own_photos/settings/bucket_browser_screen.dart';
 import 'package:bring_your_own_photos/settings/settings_screen.dart';
@@ -37,7 +37,7 @@ Future<void> _useTallSurface(WidgetTester tester) async {
 
 Future<BackupTargetsStore> _storeWithBucket({String prefix = 'p/'}) async {
   final store = BackupTargetsStore(store: FakeSecureStore());
-  await store.addS3(
+  await store.add(
     accessKeyId: 'a',
     secretAccessKey: 'b',
     region: 'us-east-1',
@@ -189,7 +189,7 @@ void main() {
     await tester.tap(find.text('Add Cloud Bucket'));
     await tester.pumpAndSettle();
 
-    expect(find.byType(AddS3BackupScreen), findsOneWidget);
+    expect(find.byType(AddBackupScreen), findsOneWidget);
   });
 
   testWidgets('a bucket row is one tap target: the bucket itself', (

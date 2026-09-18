@@ -1,3 +1,4 @@
+import 'package:bring_your_own_photos/settings/backup_storage_type.dart';
 import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -13,7 +14,7 @@ void main() {
   test('add appends a target with a generated id and persists it', () async {
     final store = BackupTargetsStore(store: FakeSecureStore());
 
-    final added = await store.addS3(
+    final added = await store.add(
       accessKeyId: 'AKIA...',
       secretAccessKey: 'shh',
       region: 'us-east-1',
@@ -31,14 +32,14 @@ void main() {
   test('add twice keeps both targets, each with a distinct id', () async {
     final store = BackupTargetsStore(store: FakeSecureStore());
 
-    await store.addS3(
+    await store.add(
       accessKeyId: 'a',
       secretAccessKey: 'b',
       region: 'us-east-1',
       bucket: 'bucket-one',
       prefix: '',
     );
-    await store.addS3(
+    await store.add(
       accessKeyId: 'a',
       secretAccessKey: 'b',
       region: 'eu-west-1',
@@ -54,14 +55,14 @@ void main() {
 
   test('remove deletes only the matching target', () async {
     final store = BackupTargetsStore(store: FakeSecureStore());
-    final keep = await store.addS3(
+    final keep = await store.add(
       accessKeyId: 'a',
       secretAccessKey: 'b',
       region: 'r',
       bucket: 'keep-me',
       prefix: '',
     );
-    final drop = await store.addS3(
+    final drop = await store.add(
       accessKeyId: 'a',
       secretAccessKey: 'b',
       region: 'r',
@@ -159,5 +160,34 @@ void main() {
         isTrue,
       );
     });
+  });
+
+  test('a non-AWS target keeps its provider across a save and load', () async {
+    final store = BackupTargetsStore(store: FakeSecureStore());
+
+    await store.add(
+      accessKeyId: 'AKID...',
+      secretAccessKey: 'shh',
+      region: 'ap-guangzhou',
+      bucket: 'my-photos-1250000000',
+      prefix: 'backup/',
+      provider: BackupStorageType.tencentCos,
+    );
+
+    final loaded = (await store.loadAll()).single;
+    expect(loaded.provider, BackupStorageType.tencentCos);
+    expect(loaded.region, 'ap-guangzhou');
+  });
+
+  test('a target saved before providers existed reads back as S3', () async {
+    final secure = FakeSecureStore();
+    secure.seed(
+      'backup_targets_v1',
+      '[{"id":"1","accessKeyId":"a","secretAccessKey":"b",'
+          '"region":"us-east-1","bucket":"my-photos","prefix":"backup/"}]',
+    );
+
+    final loaded = (await BackupTargetsStore(store: secure).loadAll()).single;
+    expect(loaded.provider, BackupStorageType.s3);
   });
 }

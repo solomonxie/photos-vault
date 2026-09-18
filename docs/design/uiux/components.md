@@ -53,6 +53,26 @@ podcasts app.
  Manual ▾            accent button, ▾ = opens a menu of values
 ```
 
+Form fields, same chrome one step in — a fill, not an underline, because a
+bare field is nearly invisible on this background:
+
+```
+ Access key ID            ← 13pt semibold; a column of five at row weight
+ ┌───────────────────────────┐ reads as five headings
+ │ AKIAIOSFODNN7EXAMPLE      │  SettingsField
+ └───────────────────────────┘
+ 18 characters — usually 20.   ← helper, muted 11pt…
+ Required                      ← …replaced by the field's own error, red
+
+ Region                        SettingsPickerField — chosen, not typed
+ ┌─────────────────────────┬─┐
+ │ ap-guangzhou            │▾│ ← same box, chevron where the caret would be
+ └─────────────────────────┴─┘
+
+ ⊗ Access denied. (AccessDenied)   SettingsErrorLine — what stopped a save,
+                                   under the fields it points at
+```
+
 ## Chips
 
 ```

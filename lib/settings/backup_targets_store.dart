@@ -2,6 +2,7 @@ import 'dart:convert';
 
 import 'package:uuid/uuid.dart';
 
+import 'backup_storage_type.dart';
 import 's3_backup_target.dart';
 import 'secure_store.dart';
 
@@ -142,12 +143,13 @@ class BackupTargetsStore {
   }
 
   /// Adds a target, assigning it a fresh id, and persists the updated list.
-  Future<S3BackupTarget> addS3({
+  Future<S3BackupTarget> add({
     required String accessKeyId,
     required String secretAccessKey,
     required String region,
     required String bucket,
     required String prefix,
+    BackupStorageType provider = BackupStorageType.s3,
   }) async {
     final target = S3BackupTarget(
       id: _uuid.v4(),
@@ -156,6 +158,7 @@ class BackupTargetsStore {
       region: region,
       bucket: bucket,
       prefix: prefix,
+      provider: provider,
     );
     final targets = await loadAll();
     await _saveAll([...targets, target]);

@@ -2,6 +2,7 @@ import 'package:aws_common/aws_common.dart';
 import 'package:aws_signature_v4/aws_signature_v4.dart';
 import 'package:http/http.dart' as http;
 
+import '../settings/bucket_endpoint.dart';
 import '../settings/s3_backup_target.dart';
 
 /// Deletes one object from the bucket — signed `DELETE`, same credentials
@@ -27,11 +28,11 @@ Future<bool> deleteObject({
       AWSCredentials(target.accessKeyId, target.secretAccessKey),
     ),
   );
-  final scope = AWSCredentialScope.raw(region: target.region, service: 's3');
-  final uri = Uri.https(
-    '${target.bucket}.s3.${target.region}.amazonaws.com',
-    '/$key',
+  final scope = AWSCredentialScope.raw(
+    region: signingRegion(target),
+    service: 's3',
   );
+  final uri = targetUri(target, path: '/$key');
 
   final http.Client httpClient = client ?? http.Client();
   try {

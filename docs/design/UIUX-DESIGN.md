@@ -487,10 +487,10 @@ s3://<bucket>/<prefix>/
   (Standard → IA → Glacier). The app never sets a storage class.
 ```
 
-**Credentials arrive as text, so take text.** Retyping a 40-character secret off a phone keyboard is where this form actually fails — the values are already together in a password-manager note or a `.env`. So the field group's own header carries a bracketed button that swaps the fields for a paste box *in place*: one paste fills them and snaps straight back, because seeing the four fields filled is the confirmation. The fields are the form; the paste is a shortcut into them, not a second input above them.
+**Credentials arrive as text, so take text.** Retyping a 40-character secret off a phone keyboard is where this form actually fails — the values are already together in a password-manager note or a `.env`. So the field group's own header carries a bracketed button, at the right of the heading, that swaps the fields for a paste box *in place*: one paste fills them and snaps straight back, because seeing the four fields filled is the confirmation. The fields are the form; the paste is a shortcut into them, not a second input above them.
 
 ```
- S3 Bucket (paste info to add)      ← the bracket is the tappable part
+ Bucket                        (paste info to add)   ← tappable
  ┌──────────────────────────────┐
  │ Access key ID                │
  │ Secret access key            │   tap the bracket ↓
@@ -498,7 +498,7 @@ s3://<bucket>/<prefix>/
  │ Key prefix                   │
  └──────────────────────────────┘
 
- S3 Bucket (back to fields)         ← same spot, label flips
+ Bucket                           (back to fields)   ← label flips
  ┌──────────────────────────────┐
  │ bucket: my-photos            │   fields are REPLACED, not pushed down
  │ prefix: bring-your-own-…/    │   one paste ⇒ parse, fill, flip back
