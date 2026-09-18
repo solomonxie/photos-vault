@@ -44,6 +44,11 @@ LibraryScreen                                          library_screen.dart
         S3 Settings        ──► ../settings/settings_screen.dart
 ```
 
+`scroll_stop_guard.dart` sits over all of it (mounted in `app.dart`): a
+touch that lands on a still-moving page stops it and never opens the row
+underneath. Flutter gives that away for a fling but not for a bounce
+settling back — the case you hit at the end of every long scroll.
+
 Every list-grid screen above (Library, Favorites, PrivateAlbum, PersonPage,
 RecentlyDeleted, Album, AssetGroup) mounts `asset_grid_view.dart`'s
 `AssetGridView` — the grid plus the two things that make a decade-deep
