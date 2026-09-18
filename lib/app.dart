@@ -8,6 +8,7 @@ import 'upload/sync_job_store.dart';
 import 'storage/album_store.dart';
 import 'storage/asset_record_store.dart';
 import 'viewer/library_screen.dart';
+import 'viewer/scroll_stop_guard.dart';
 
 class App extends StatelessWidget {
   const App({
@@ -59,7 +60,9 @@ class App extends StatelessWidget {
           colorSchemeSeed: Colors.indigo,
           useMaterial3: true,
         ),
-        child: child!,
+        // Over every page and sheet: a touch that lands on a moving list
+        // stops it and nothing else.
+        child: ScrollStopGuard(child: child!),
       ),
       localizationsDelegates: AppLocalizations.localizationsDelegates,
       supportedLocales: AppLocalizations.supportedLocales,
