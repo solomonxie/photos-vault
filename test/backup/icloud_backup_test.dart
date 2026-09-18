@@ -1,9 +1,9 @@
-import 'package:bring_your_own_photos/backup/app_snapshot.dart';
-import 'package:bring_your_own_photos/backup/icloud_backup.dart';
-import 'package:bring_your_own_photos/backup/icloud_drive.dart';
-import 'package:bring_your_own_photos/backup/snapshot_archive.dart';
-import 'package:bring_your_own_photos/photos/person.dart';
-import 'package:bring_your_own_photos/storage/asset_record.dart';
+import 'package:photos_vault/backup/app_snapshot.dart';
+import 'package:photos_vault/backup/icloud_backup.dart';
+import 'package:photos_vault/backup/icloud_drive.dart';
+import 'package:photos_vault/backup/snapshot_archive.dart';
+import 'package:photos_vault/photos/person.dart';
+import 'package:photos_vault/storage/asset_record.dart';
 
 import 'dart:typed_data';
 

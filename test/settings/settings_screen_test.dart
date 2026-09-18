@@ -1,15 +1,15 @@
-import 'package:bring_your_own_photos/backup/app_snapshot.dart';
-import 'package:bring_your_own_photos/backup/bucket_backup.dart';
-import 'package:bring_your_own_photos/backup/snapshot_archive.dart';
-import 'package:bring_your_own_photos/l10n/app_localizations.dart';
-import 'package:bring_your_own_photos/settings/add_backup_screen.dart';
-import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
-import 'package:bring_your_own_photos/settings/bucket_browser_screen.dart';
-import 'package:bring_your_own_photos/settings/settings_screen.dart';
-import 'package:bring_your_own_photos/storage/asset_record.dart';
-import 'package:bring_your_own_photos/upload/sync_job.dart';
-import 'package:bring_your_own_photos/upload/sync_queue.dart';
-import 'package:bring_your_own_photos/viewer/sync_queue_sheet.dart';
+import 'package:photos_vault/backup/app_snapshot.dart';
+import 'package:photos_vault/backup/bucket_backup.dart';
+import 'package:photos_vault/backup/snapshot_archive.dart';
+import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/settings/add_backup_screen.dart';
+import 'package:photos_vault/settings/backup_targets_store.dart';
+import 'package:photos_vault/settings/bucket_browser_screen.dart';
+import 'package:photos_vault/settings/settings_screen.dart';
+import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/upload/sync_job.dart';
+import 'package:photos_vault/upload/sync_queue.dart';
+import 'package:photos_vault/viewer/sync_queue_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -255,7 +255,7 @@ void main() {
     tester,
   ) async {
     await _useTallSurface(tester);
-    final store = await _storeWithBucket(prefix: 'bring-your-own-photos/');
+    final store = await _storeWithBucket(prefix: 'photos-vault/');
 
     await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
     await tester.pumpAndSettle();
@@ -271,7 +271,7 @@ void main() {
     final browser = tester.widget<BucketBrowserScreen>(
       find.byType(BucketBrowserScreen),
     );
-    expect(browser.prefix, 'bring-your-own-photos/');
+    expect(browser.prefix, 'photos-vault/');
   });
 
   testWidgets('tapping add navigates to the add-backup screen', (tester) async {

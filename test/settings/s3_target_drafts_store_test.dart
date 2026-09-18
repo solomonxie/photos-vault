@@ -1,4 +1,4 @@
-import 'package:bring_your_own_photos/settings/s3_target_drafts_store.dart';
+import 'package:photos_vault/settings/s3_target_drafts_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_secure_store.dart';

@@ -1,7 +1,7 @@
-import 'package:bring_your_own_photos/l10n/app_localizations.dart';
-import 'package:bring_your_own_photos/photos/person.dart';
-import 'package:bring_your_own_photos/viewer/person_history_detail_screen.dart';
-import 'package:bring_your_own_photos/viewer/search_picker_sheet.dart';
+import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/photos/person.dart';
+import 'package:photos_vault/viewer/person_history_detail_screen.dart';
+import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 

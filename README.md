@@ -1,6 +1,6 @@
-# Bring Your Own Photos
+# Photo backup to a bucket you own
 
-Flutter app (iOS first, Android backlog) that backs up Photos/Videos to your own bucket — AWS S3, Tencent COS or Alibaba Cloud OSS — with thumbnail-first browsing and storage tiering via your bucket's own Lifecycle Rules. Localized (English, Mandarin) from the start.
+Photos Vault is a Flutter app (iOS first, Android backlog) that backs up Photos/Videos to your own bucket — AWS S3, Tencent COS or Alibaba Cloud OSS — with thumbnail-first browsing and storage tiering via your bucket's own Lifecycle Rules. Localized (English, Mandarin) from the start.
 
 Design: `docs/design/DESIGN.md`
 UI/UX: `docs/design/UIUX-DESIGN.md`
@@ -15,39 +15,43 @@ Plan: `docs/design/IMPLEMENTATION_PLAN.md`
 
 Or, if you already have Flutter installed system-wide: `flutter run`.
 
-### iCloud backup needs this app's own container registered once
+## Private albums have no wrong passcode
 
-Everything for it is here — `ios/Runner/Runner.entitlements`,
-`ICloudDriveChannel.swift`, the Dart side. What's missing is one thing that
-lives on the developer account rather than in the repo: an iCloud *container*
-registered against this app's App ID.
+Utilities → Hidden asks for four digits, and **every** code is valid. The
+code *is* the album: type one that's been used before and its photos are
+there, type anything else and a fresh empty album opens. There is no error
+state, because an error state is what leaks.
 
-The sibling apps each have one, which is what makes iCloud work in them:
+That gives a decoy for free. A code handed over under pressure opens a real,
+ordinary-looking album — and nothing anywhere says another one exists. The
+same property covers the honest case: mistype your own code and you get a
+blank album, not a "wrong passcode" message that would tell a shoulder-surfer
+they'd found something worth pushing on. (Signal's hidden-chat PIN works the
+same way.)
 
-```
-REPLACE_WITH_YOUR_TEAM_ID.com.solomonxie.buildyourownbudget -> ['iCloud.com.solomonxie.buildyourownbudget']
-REPLACE_WITH_YOUR_TEAM_ID.com.solomonxie.byopo             -> ['iCloud.com.solomonxie.byopo']
-REPLACE_WITH_YOUR_TEAM_ID.com.solomonxie.novelman          -> ['iCloud.com.solomonxie.novelman']
-REPLACE_WITH_YOUR_TEAM_ID.com.solomonxie.backYourOwnPhotos -> []          ← this app
-```
+Only the hash is stored, so a database dump doesn't list which codes are in
+use. Worth knowing what this is not: four digits is 10,000 combinations and
+the photo files themselves sit unencrypted on disk like any other asset.
+It's a lock against someone borrowing your phone, not encryption at rest.
 
-(Read back out of the profiles in `~/Library/Developer/Xcode/UserData/Provisioning Profiles`.)
+## iCloud backup and the app's container
 
-The empty array is why the app reports itself unentitled and the switch stays
-off, and why adding `CODE_SIGN_ENTITLEMENTS` without doing this first breaks
-*every* build with "provisioning profile doesn't match the entitlements
-file's values". `xcodebuild -allowProvisioningUpdates` does not create
-containers; only Xcode's UI or the developer portal does.
+iCloud Drive backup needs a container registered against this app's App ID —
+it lives on the developer account, not in the repo. `iCloud.com.solomonxie.photosVault`
+is registered, `CODE_SIGN_ENTITLEMENTS` is wired into the Runner target, and
+iCloud works.
 
-To register it: open `ios/Runner.xcworkspace` → Runner target → Signing &
-Capabilities → **+ Capability** → **iCloud** → tick **iCloud Documents** → **+**
-under Containers and accept `iCloud.com.solomonxie.backYourOwnPhotos`. Xcode
-writes `CODE_SIGN_ENTITLEMENTS = Runner/Runner.entitlements` into the target
-itself, which is the line deliberately left out of the project until then.
+If you ever change the bundle ID again, that pairing breaks: the new App ID
+has no container, and every build fails with "provisioning profile doesn't
+match the entitlements file's values". `xcodebuild -allowProvisioningUpdates`
+does not create containers; only Xcode's UI or the developer portal does.
+Re-register before building: open `ios/Runner.xcworkspace` → Runner target →
+Signing & Capabilities → **+ Capability** → **iCloud** → tick **iCloud
+Documents** → **+** under Containers.
 
-Until it's registered the app builds and runs as before, and the iCloud row
-reads "This build of the app isn't signed for iCloud" with its switch
-disabled — the state it's written to handle.
+Unregistered, the app still builds and runs — the iCloud row reads "This
+build of the app isn't signed for iCloud" with its switch disabled, a state
+it's written to handle.
 
 ## Screenshots
 

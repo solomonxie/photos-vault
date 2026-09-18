@@ -1,7 +1,7 @@
-import 'package:bring_your_own_photos/l10n/app_localizations.dart';
-import 'package:bring_your_own_photos/photos/ai_vendor.dart';
-import 'package:bring_your_own_photos/settings/ai_settings_screen.dart';
-import 'package:bring_your_own_photos/settings/ai_settings_store.dart';
+import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/photos/ai_vendor.dart';
+import 'package:photos_vault/settings/ai_settings_screen.dart';
+import 'package:photos_vault/settings/ai_settings_store.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 

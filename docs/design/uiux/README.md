@@ -1,4 +1,4 @@
-# UI/UX mockups — Bring Your Own Photos
+# UI/UX mockups — Photos Vault
 
 Every surface drawn as it is built today. `../UIUX-DESIGN.md` carries the
 style rules and the reasoning; these files carry the pictures.

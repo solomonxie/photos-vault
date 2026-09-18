@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import 'package:bring_your_own_photos/backup/app_snapshot.dart';
-import 'package:bring_your_own_photos/backup/local_vault.dart';
-import 'package:bring_your_own_photos/backup/snapshot_archive.dart';
-import 'package:bring_your_own_photos/storage/asset_record_store.dart';
+import 'package:photos_vault/backup/app_snapshot.dart';
+import 'package:photos_vault/backup/local_vault.dart';
+import 'package:photos_vault/backup/snapshot_archive.dart';
+import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -108,7 +108,7 @@ void main() {
     await vault.guard('restore');
 
     expect(namesIn(documents), [
-      'bring-your-own-photos-before-restore-20260918-143200.zip',
+      'photos-vault-before-restore-20260918-143200.zip',
       LocalVault.dailyFileName,
     ]);
   });
@@ -137,9 +137,12 @@ void main() {
 
     await vault.prune();
 
-    expect(namesIn(documents), [
-      '${LocalVault.guardPrefix}import-recent.zip',
-      'holiday.zip',
-    ]);
+    expect(
+      namesIn(documents),
+      unorderedEquals([
+        '${LocalVault.guardPrefix}import-recent.zip',
+        'holiday.zip',
+      ]),
+    );
   });
 }

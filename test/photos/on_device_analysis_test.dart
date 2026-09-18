@@ -1,6 +1,6 @@
-import 'package:bring_your_own_photos/photos/on_device_analysis.dart';
-import 'package:bring_your_own_photos/photos/on_device_vision.dart';
-import 'package:bring_your_own_photos/storage/asset_record.dart';
+import 'package:photos_vault/photos/on_device_analysis.dart';
+import 'package:photos_vault/photos/on_device_vision.dart';
+import 'package:photos_vault/storage/asset_record.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 

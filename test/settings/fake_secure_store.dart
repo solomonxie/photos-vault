@@ -1,4 +1,4 @@
-import 'package:bring_your_own_photos/settings/secure_store.dart';
+import 'package:photos_vault/settings/secure_store.dart';
 
 class FakeSecureStore implements SecureStore {
   final Map<String, String> _values = {};

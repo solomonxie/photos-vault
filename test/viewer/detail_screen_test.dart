@@ -1,13 +1,13 @@
 import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:bring_your_own_photos/l10n/app_localizations.dart';
-import 'package:bring_your_own_photos/photos/ai_analysis.dart';
-import 'package:bring_your_own_photos/photos/on_device_analysis.dart';
-import 'package:bring_your_own_photos/storage/asset_record.dart';
-import 'package:bring_your_own_photos/viewer/detail_screen.dart';
-import 'package:bring_your_own_photos/viewer/zoom_page_route.dart';
-import 'package:bring_your_own_photos/viewer/search_picker_sheet.dart';
+import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/photos/ai_analysis.dart';
+import 'package:photos_vault/photos/on_device_analysis.dart';
+import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/viewer/detail_screen.dart';
+import 'package:photos_vault/viewer/zoom_page_route.dart';
+import 'package:photos_vault/viewer/search_picker_sheet.dart';
 
 import '../support/fake_ai_analysis_store.dart';
 import '../support/fake_asset_record_store.dart';

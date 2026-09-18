@@ -42,10 +42,7 @@ class AssetRecordStore {
     if (existing != null) return existing;
     final path =
         _path ??
-        p.join(
-          await _databaseFactory.getDatabasesPath(),
-          'back_your_own_photos.db',
-        );
+        p.join(await _databaseFactory.getDatabasesPath(), 'photos_vault.db');
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(

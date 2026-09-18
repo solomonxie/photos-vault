@@ -1,9 +1,9 @@
 import 'dart:io';
 
-import 'package:bring_your_own_photos/backup/app_snapshot.dart';
-import 'package:bring_your_own_photos/backup/backup_schedule.dart';
-import 'package:bring_your_own_photos/backup/local_vault.dart';
-import 'package:bring_your_own_photos/storage/asset_record_store.dart';
+import 'package:photos_vault/backup/app_snapshot.dart';
+import 'package:photos_vault/backup/backup_schedule.dart';
+import 'package:photos_vault/backup/local_vault.dart';
+import 'package:photos_vault/storage/asset_record_store.dart';
 
 /// A vault that records what it was asked to do and touches no disk.
 ///

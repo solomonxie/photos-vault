@@ -1,7 +1,7 @@
 import 'dart:typed_data';
 import 'dart:ui' show Rect;
 
-import 'package:bring_your_own_photos/photos/photo_editor.dart';
+import 'package:photos_vault/photos/photo_editor.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 

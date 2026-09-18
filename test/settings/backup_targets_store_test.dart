@@ -1,5 +1,5 @@
-import 'package:bring_your_own_photos/settings/backup_storage_type.dart';
-import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
+import 'package:photos_vault/settings/backup_storage_type.dart';
+import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_secure_store.dart';

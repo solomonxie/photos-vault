@@ -1,5 +1,5 @@
-import 'package:bring_your_own_photos/photos/person.dart';
-import 'package:bring_your_own_photos/viewer/person_avatar.dart';
+import 'package:photos_vault/photos/person.dart';
+import 'package:photos_vault/viewer/person_avatar.dart';
 import 'package:flutter/painting.dart';
 import 'package:flutter_test/flutter_test.dart';
 
