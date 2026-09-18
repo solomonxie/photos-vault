@@ -90,7 +90,16 @@ the fold on every visit and reads as a second page's worth of chrome.
 ```
  ‹ Cloud Settings   Add Cloud Bucket            Save
  Bucket                          (paste info to add)
- Storage type                        Amazon S3   ▾
+ Cloud vendor
+ ┌───────────┐ ┌───────────────────┐
+ │ Amazon S3 │ │ Tencent Cloud COS │   ← the choices, not a
+ └───────────┘ └───────────────────┘     row that hides them
+ ┌───────────────────┐
+ │ Alibaba Cloud OSS │
+ └───────────────────┘
+ Whose cloud the bucket lives in — Amazon S3, Tencent
+ COS, Alibaba OSS. Google Cloud Storage, Azure Blob
+ and Backblaze B2 are coming.
  ───────────────────────────────────────────────────
  Access key ID
  ┌─────────────────────────────────────────────────┐
@@ -127,7 +136,7 @@ saving   Save ⇒ ⟳ in the nav bar, every field greyed
 COS and OSS differ by four lines, never by a second form:
 
 ```
- Storage type                 Tencent Cloud COS   ▾
+ Cloud vendor             [ Tencent Cloud COS ] ← filled
  SecretId                     ← each console's own words for the
  SecretKey                      two halves of a credential
  Bucket name
@@ -143,26 +152,30 @@ COS and OSS differ by four lines, never by a second form:
    screens later                    release can't be entered
 ```
 
-## The two pickers
+## Two ways to pick
 
 ```
- Storage type                        Region
+ Cloud vendor  — 3 of them             Region — 46 of them
  ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
- ┌──────────────────────────┐        ( Cancel )      Region
- │ Storage type             │        ┌──────────────────────┐
- │ **Amazon S3**            │        │ 🔍 ap-gu             │
- │ Tencent Cloud COS        │        └──────────────────────┘
- │ Alibaba Cloud OSS        │        ap-guangzhou          ✓
- │ Google Cloud Storage   · │ ← no-op ─────────────────────
- │ Azure Blob Storage     · │   grey, Use "ap-guangzhou-1"
- │ Backblaze B2           · │   the roadmap  ↑ typed, unlisted
- │ ( Cancel )               │      shown, not hidden
- └──────────────────────────┘
+ ┌───────────┐ ┌─────────┐           ( Cancel )      Region
+ │*Amazon S3*│ │ Tencent │           ┌──────────────────────┐
+ └───────────┘ └─────────┘           │ 🔍 ap-gu             │
+ on the page, always visible         └──────────────────────┘
+ no sheet, no second tap             ap-guangzhou          ✓
+                                     ─────────────────────
+                                     Use "ap-guangzhou-1"
+                                       ↑ typed, unlisted
+                                     shown, not hidden
 ```
 
-Region reuses `viewer/search_picker_sheet.dart` — the same search-or-create
-drop-down as places and tags. Storage type is an action sheet, like the AI
-key vendor picker.
+A handful of options is a row of chips: the question and its answers are
+both on the page, and choosing costs one tap. Forty-six is a sheet — Region
+reuses `viewer/search_picker_sheet.dart`, the same search-or-create
+drop-down as places and tags.
+
+The three unbuilt backends are named in the vendor hint rather than shown
+as dead chips: the roadmap is worth saying, not worth three tap targets
+that do nothing.
 
 ## Paste to fill
 
@@ -172,8 +185,8 @@ toggle) live in the `uiux` skill's `paste-to-fill.md`.
 
 ```
  Bucket                           (back to fields)
- Storage type                 Tencent Cloud COS  ▾   ← stays: a pasted
- Credentials block                                     endpoint moves it
+ Cloud vendor    [ Tencent Cloud COS ] filled          ← stays: a pasted
+ Credentials block                                       endpoint moves it
  ┌─────────────────────────────────────────────────┐
  │ bucket: my-photos                               │
  │ prefix: bring-your-own-photos/                  │

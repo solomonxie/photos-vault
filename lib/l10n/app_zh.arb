@@ -199,8 +199,8 @@
   "settingsSyncNowButton": "立即同步",
   "settingsSyncNowMessage": "{count, plural, =0{没有需要同步的内容} other{已备份 {count} 张照片}}",
 
-  "settingsStorageTypeLabel": "存储类型",
-  "settingsStorageTypeComingSoon": "{name}(即将推出)",
+  "settingsCloudVendorLabel": "云服务商",
+  "settingsCloudVendorHint": "存储桶所在的云——Amazon S3、腾讯云 COS、阿里云 OSS。Google Cloud Storage、Azure Blob 与 Backblaze B2 即将支持。",
 
 
   "settingsBackupFormatHint": "每张照片实际上传的内容。",

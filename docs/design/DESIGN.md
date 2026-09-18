@@ -18,7 +18,7 @@ Photo apps like Google Photos/iCloud lock the user's photos into a vendor's stor
 
 ## Non-goals (v1)
 - **Android build/test/release — backlog, not abandoned.** The Flutter codebase already runs on Android (scaffold builds for both), but Android-specific verification, permission-flow testing, and Play Store release are deferred until iOS is solid.
-- **Consumer cloud-app destinations (iCloud Drive, Google Drive, Dropbox, etc.).** The whole point of this app is storage the user owns and controls; anything backed by another vendor's app-managed cloud already has an official app that does that job perfectly well. (Other *object storage* vendors are a different case: same user-owned-bucket model as S3. Tencent COS and Alibaba Cloud OSS are built; Google Cloud Storage, Azure Blob and Backblaze B2 aren't, and the Add Backup storage-type picker lists those as "coming soon".)
+- **Consumer cloud-app destinations (iCloud Drive, Google Drive, Dropbox, etc.).** The whole point of this app is storage the user owns and controls; anything backed by another vendor's app-managed cloud already has an official app that does that job perfectly well. (Other *object storage* vendors are a different case: same user-owned-bucket model as S3. Tencent COS and Alibaba Cloud OSS are built; Google Cloud Storage, Azure Blob and Backblaze B2 aren't, and the Add Backup vendor hint names them as coming.)
 - Multi-device sync / shared library.
 - Managing S3 Lifecycle Rules from inside the app (user configures these directly in AWS).
 - Web/desktop platforms (mobile only).
