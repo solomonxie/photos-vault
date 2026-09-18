@@ -819,7 +819,7 @@ void main() {
     'returning from Cloud Backups retries whatever is still pending/failed',
     (tester) async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
@@ -902,7 +902,7 @@ void main() {
     'a local edit since backup is re-hashed and re-uploaded on the next sync',
     (tester) async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',

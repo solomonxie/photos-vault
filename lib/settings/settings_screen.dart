@@ -15,9 +15,11 @@ import '../upload/backup_coordinator.dart';
 import '../upload/sync_job.dart';
 import '../upload/sync_queue.dart';
 import '../viewer/sync_queue_sheet.dart';
-import 'add_s3_backup_screen.dart';
+import 'add_backup_screen.dart';
+import 'backup_storage_type.dart';
 import 'backup_targets_store.dart';
 import 'bucket_browser_screen.dart';
+import 'bucket_endpoint.dart';
 import 's3_backup_target.dart';
 import 'settings_section.dart';
 
@@ -271,7 +273,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   Future<void> _addBackup() async {
     final added = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => AddS3BackupScreen(store: _store)),
+      MaterialPageRoute(builder: (_) => AddBackupScreen(store: _store)),
     );
     if (added == true) await _reload();
   }
@@ -302,7 +304,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   String _targetPath(S3BackupTarget target) =>
-      's3://${target.bucket}/${target.prefix}';
+      '${bucketUriScheme(target.provider)}://${target.bucket}/${target.prefix}';
 
   // ------------------------------------------------------------------- sync
 
@@ -591,7 +593,8 @@ class _SettingsScreenState extends State<SettingsScreen>
               leading: const SettingsIconTile(icon: CupertinoIcons.cloud_fill),
               title: targets[i].bucket,
               subtitle: _targetPath(targets[i]),
-              detail: targets[i].region,
+              detail:
+                  '${backupStorageTypeMeta(targets[i].provider).shortName} · ${targets[i].region}',
               onTap: () => _browse(targets[i]),
               // No second tap target beside the row. The menu it used to
               // open held Sync Now and Sync Queue, which are both on this

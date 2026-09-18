@@ -37,7 +37,7 @@ void main() {
     'downloads the original, points the record at it, and clears cloud-only',
     () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
@@ -66,14 +66,14 @@ void main() {
     'falls through to the next target when the first does not have it',
     () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
         bucket: 'gone',
         prefix: '',
       );
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
@@ -102,7 +102,7 @@ void main() {
 
   test('stays cloud-only when every target fails', () async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-    await targetsStore.addS3(
+    await targetsStore.add(
       accessKeyId: 'a',
       secretAccessKey: 'b',
       region: 'us-east-1',

@@ -11,6 +11,7 @@ Everything else needs credentials and a place to record upload state — build t
 - [x] ~~T1.6 Generalize the settings store to a sealed `BackupTarget` list (`S3BackupTarget | LocalFolderBackupTarget`) instead of S3-only~~ — **dropped and reverted**: app is S3-only by decision (see design doc's "Backup destination scope" option) — depends: T1.3
 - [x] ~~T1.7 `LocalFolderBackupTarget` add flow~~ — **dropped**: non-S3 destinations are out of scope; those already have official apps — depends: T1.6
 - [x] ~~T1.8 Bookmark resolution + re-pick recovery~~ — **dropped** along with T1.7 — depends: T1.7
+- [x] T1.9 Tencent COS + Alibaba Cloud OSS targets over their S3-compatible endpoints: provider on `S3BackupTarget`, per-provider host/region in `lib/settings/bucket_endpoint.dart`, region picked-or-typed on the add form (both vendors' region lists), paste box reads an endpoint/console URL, `SecretId`/`AccessKeySecret` and a COS `appid` — see `lib/settings/bucket_endpoint.dart`, `lib/settings/backup_storage_type.dart` — depends: T1.3, T1.4
 
 ## Phase 2: Photo Processing Pipeline
 Turns raw `photo_manager` assets into the derivatives the upload engine will send. Depends on the SQLite schema to record what's been processed.
