@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:bring_your_own_photos/photos/person.dart';
 import 'package:bring_your_own_photos/photos/person_store.dart';
 
@@ -192,4 +194,15 @@ class FakePersonStore implements PersonStore {
 
   @override
   String newId() => 'fake-person-${_nextId++}';
+
+  /// No file and no log: these fakes are maps, and the tier-1 copy has
+  /// nothing to copy. `LocalVault` treats both as "nothing to snapshot".
+  @override
+  Future<File?> checkpointedFile() async => null;
+
+  @override
+  Future<int> changeMark() async => 0;
+
+  @override
+  Future<List<Map<String, Object?>>> changeLogRows() async => const [];
 }

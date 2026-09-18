@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart' as sqflite;
@@ -6,6 +7,7 @@ import 'package:sqflite/sqflite.dart'
     show Database, DatabaseFactory, OpenDatabaseOptions;
 import 'package:uuid/uuid.dart';
 
+import '../backup/change_log.dart';
 import 'person.dart';
 
 /// Local `sqflite` store for [Person] profiles, their tagged-photo
@@ -127,6 +129,15 @@ class PersonStore {
         },
       ),
     );
+    // After the migrations, never inside them: a trigger has to describe
+    // the schema the app just finished upgrading to.
+    await installChangeLog(db, const [
+      _personTable,
+      _memberTable,
+      _relationshipTable,
+      _locationTable,
+      _historyTable,
+    ]);
     _db = db;
     return db;
   }
@@ -152,6 +163,29 @@ class PersonStore {
     await _db?.close();
     _db = null;
   }
+
+  /// This store's database file, with the write-ahead log folded back in
+  /// first — a copy taken without the checkpoint is missing the newest
+  /// writes, which are still sitting in the `-wal` sidecar.
+  ///
+  /// `null` for an in-memory database, which has no file to copy.
+  Future<File?> checkpointedFile() async {
+    final db = await _open();
+    try {
+      await db.execute('PRAGMA wal_checkpoint(FULL)');
+    } catch (_) {
+      // Not in WAL mode, or a factory that doesn't support the pragma.
+    }
+    final file = File(db.path);
+    return file.existsSync() ? file : null;
+  }
+
+  /// How far this database's change log has got. See `change_log.dart`.
+  Future<int> changeMark() async => changeLogMark(await _open());
+
+  /// The tail of this database's change log, for the copy in the backup.
+  Future<List<Map<String, Object?>>> changeLogRows() async =>
+      changeLogTail(await _open());
 
   /// Creates a new person under a fresh id, unless [id] is given (demo
   /// seeding's stable-id-for-idempotent-reset trick, same as `Album.isDemo`)

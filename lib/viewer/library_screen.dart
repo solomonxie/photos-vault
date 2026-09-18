@@ -26,6 +26,7 @@ import '../photos/photo_library_change.dart';
 import '../backup/app_snapshot.dart';
 import '../backup/bucket_backup.dart';
 import '../backup/icloud_backup.dart';
+import '../backup/local_vault.dart';
 import '../photos/library_custody.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
@@ -80,6 +81,7 @@ class LibraryScreen extends StatefulWidget {
     this.libraryCustody,
     this.icloudBackup,
     this.bucketBackup,
+    this.vault,
     this.backgroundPassInterval,
     this.personStore,
     this.hashFile,
@@ -119,6 +121,10 @@ class LibraryScreen extends StatefulWidget {
   /// Overridable for tests so a fresh library never reaches for a real
   /// bucket.
   final BucketBackup? bucketBackup;
+
+  /// Overridable for tests so backgrounding never writes into the real
+  /// app container.
+  final LocalVault? vault;
 
   /// How often the background pass looks for work — backups still owed,
   /// then the camera roll, then the on-device face pass. Null switches it
@@ -194,26 +200,25 @@ class LibraryScreenState extends State<LibraryScreen>
       widget.photoLocationService ?? PhotoLocationService();
   late final LibraryCustody _custody =
       widget.libraryCustody ?? LibraryCustody(store: assetRecordStore);
+
+  /// One reader of the three stores, shared by every tier below it.
+  late final AppSnapshotIo _snapshots = AppSnapshotIo(
+    assetRecordStore: assetRecordStore,
+    albumStore: _albumStore,
+    personStore: _personStore,
+  );
+  late final LocalVault _vault =
+      widget.vault ??
+      LocalVault(snapshots: _snapshots, settings: assetRecordStore);
   late final ICloudBackup _icloudBackup =
       widget.icloudBackup ??
-      ICloudBackup(
-        settings: assetRecordStore,
-        snapshots: AppSnapshotIo(
-          assetRecordStore: assetRecordStore,
-          albumStore: _albumStore,
-          personStore: _personStore,
-        ),
-      );
+      ICloudBackup(settings: assetRecordStore, snapshots: _snapshots);
   late final BucketBackup _bucketBackup =
       widget.bucketBackup ??
       BucketBackup(
         settings: assetRecordStore,
         targetsStore: _backupTargetsStore,
-        snapshots: AppSnapshotIo(
-          assetRecordStore: assetRecordStore,
-          albumStore: _albumStore,
-          personStore: _personStore,
-        ),
+        snapshots: _snapshots,
       );
   late final Future<String> Function(String path) _hashFile =
       widget.hashFile ?? file_hash.hashFile;
@@ -288,6 +293,10 @@ class LibraryScreenState extends State<LibraryScreen>
     // user nothing. (Once a day: the file is named for the day, so a second
     // write replaces the first rather than piling up.)
     if (state == AppLifecycleState.paused) {
+      // The copy in the app's own container first, and unconditionally —
+      // it needs no switch, no network and no credentials, and it's the
+      // one that gets used when an operation goes wrong an hour from now.
+      unawaited(_vault.keepDailyCopy());
       unawaited(_icloudBackup.backUpIfEnabled());
       unawaited(_bucketBackup.backUpIfEnabled());
       return;
@@ -1073,9 +1082,18 @@ class LibraryScreenState extends State<LibraryScreen>
   /// Also doubles as Utilities' "Reset Demo Data": re-adds any bundled demo
   /// photos/videos missing from the Library (e.g. deleted there) and backs
   /// them up — a no-op add for ones already present, keyed by content hash.
-  Future<void> _addDemoPhotos() => _runBusy(_demoAssetsService.addAll);
+  ///
+  /// Both directions take a copy first. Seeding and clearing demo data each
+  /// rewrite a lot of rows at once, which is exactly the shape of operation
+  /// people undo an hour later — and the day's rolling copy is no help,
+  /// because it was taken before any of this or not at all.
+  Future<void> _addDemoPhotos() => _runBusy(() async {
+    await _vault.guard('demo-data');
+    return _demoAssetsService.addAll();
+  });
 
   Future<int> _removeDemoPhotos() async {
+    await _vault.guard('demo-data');
     final removed = await _demoAssetsService.removeAll();
     await reload();
     return removed;

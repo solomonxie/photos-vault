@@ -57,6 +57,13 @@ class _FakeDrive implements ICloudDrive {
   @override
   Future<DateTime?> latestWriteAt() async =>
       files.isEmpty && archives.isEmpty ? null : DateTime(2026, 9, 17);
+
+  @override
+  Future<List<String>> list() async => [...files.keys, ...archives.keys];
+
+  @override
+  Future<bool> delete(String name) async =>
+      files.remove(name) != null || archives.remove(name) != null;
 }
 
 ({
@@ -108,7 +115,59 @@ void main() {
     // Flipping it on backed up at once, rather than waiting for the next
     // change — which could be days off.
     expect(drive.archives, hasLength(1));
-    expect(drive.archives.keys.single, monthlyArchiveName(DateTime.now()));
+    expect(drive.archives.keys.single, dailyArchiveName(DateTime.now()));
+  });
+
+  test('the folder keeps ten days and drops the eleventh', () async {
+    final source = _stores();
+    await source.assets.upsert(
+      localId: 'photo:PH1',
+      contentHash: 'PH1',
+      platform: 'ios',
+    );
+    final drive = _FakeDrive();
+    // Ten already up there, plus a file that isn't ours.
+    for (var day = 1; day <= 10; day++) {
+      drive.archives['202609${day.toString().padLeft(2, '0')}.zip'] = Uint8List(
+        0,
+      );
+    }
+    drive.archives['holiday.zip'] = Uint8List(0);
+
+    await ICloudBackup(
+      snapshots: source.io,
+      settings: source.assets,
+      drive: drive,
+    ).backUpNow();
+
+    // Eleven of ours, so the oldest goes — and the user's own file stays,
+    // because the folder is theirs.
+    expect(drive.archives, hasLength(11));
+    expect(drive.archives.keys, isNot(contains('20260901.zip')));
+    expect(drive.archives.keys, contains('holiday.zip'));
+    expect(drive.archives.keys, contains(dailyArchiveName(DateTime.now())));
+  });
+
+  test('a write that did not happen is not remembered as done', () async {
+    final source = _stores();
+    await source.assets.upsert(
+      localId: 'photo:PH1',
+      contentHash: 'PH1',
+      platform: 'ios',
+    );
+    final drive = _FakeDrive(state: ICloudState.notReady);
+    final backup = ICloudBackup(
+      snapshots: source.io,
+      settings: source.assets,
+      drive: drive,
+    );
+
+    expect(await backup.backUpNow(), isFalse);
+
+    // Recorded anyway, and tomorrow's gate would see no change and skip —
+    // for good.
+    expect(await backup.schedule.lastRunAt(), isNull);
+    expect(await backup.schedule.isDue(), isTrue);
   });
 
   test('a reinstall gets its library back without being asked', () async {
@@ -256,9 +315,7 @@ void main() {
 
       // Same month, same file: a backup twice in September is one
       // September.
-      expect(drive.archives.keys.toList(), [
-        monthlyArchiveName(DateTime.now()),
-      ]);
+      expect(drive.archives.keys.toList(), [dailyArchiveName(DateTime.now())]);
     },
   );
 

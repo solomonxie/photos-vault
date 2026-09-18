@@ -109,6 +109,30 @@ class ICloudDrive {
     }
   }
 
+  /// Every file in the folder, by name. What pruning needs: the folder is
+  /// the only place that knows how many copies are really up there, and a
+  /// device that has been off for a month can't work it out from its own
+  /// records.
+  Future<List<String>> list() async {
+    try {
+      final names = await _channel.invokeMethod<List<Object?>>('list');
+      return (names ?? const []).whereType<String>().toList();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Removes one file by name. Only ever called on a name this app wrote —
+  /// the folder is the user's, and anything else in it is theirs.
+  Future<bool> delete(String name) async {
+    try {
+      return await _channel.invokeMethod<bool>('delete', {'name': name}) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// When the newest file was written, for the row's subtitle.
   Future<DateTime?> latestWriteAt() async {
     try {

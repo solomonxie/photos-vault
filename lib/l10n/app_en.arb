@@ -252,16 +252,38 @@
   "settingsBackupFormatFolderNote": "Both formats still upload under the same \"originals/\" folder — that name means full resolution (as opposed to a future thumbnail/medium tier), not \"byte-for-byte unmodified\". An Optimized upload there just has a .webp extension instead of the original file's.",
 
   "settingsAppDataHeading": "App Data",
-  "settingsAppDataHint": "Albums, people, tags, captions and places — everything that isn't the photo itself. One file, rewritten when it changes and pulled back automatically if you reinstall. Keep a copy in either place, or both. Not sync between devices, and never your bucket keys.",
+  "settingsAppDataHint": "Albums, people, tags, captions and places — everything that isn't the photo itself. Copied out once a day, on the days something changed, and pulled back automatically if you reinstall. Keep a copy in either place, or both. Not sync between devices, and never your bucket keys.",
   "settingsICloudRow": "iCloud Drive",
   "settingsBucketDataRow": "Your Cloud Bucket",
-  "settingsBucketDataPath": "app-data/YYYYMM.zip in every bucket",
+  "settingsBucketDataPath": "app-data/YYYYMMDD.zip in every bucket",
   "settingsBucketDataNoBucket": "Add a bucket below first",
   "settingsICloudPath": "Files → iCloud Drive → Bring Your Own Photos",
   "settingsICloudNever": "Nothing backed up yet",
   "settingsICloudLastBackup": "Last copy {when}",
   "@settingsICloudLastBackup": {
     "placeholders": { "when": { "type": "String" } }
+  },
+  "settingsAppDataExportButton": "Export File",
+  "settingsAppDataRestoreButton": "Restore from File",
+  "settingsAppDataLocalCopies": "Also kept on this iPhone — Files → On My iPhone → Bring Your Own Photos. The last 7 days, plus a copy taken before anything that rewrites a lot at once. Deleting the app deletes those too.",
+  "settingsAppDataExportFailed": "Couldn't write the file. Check there's space free and try again.",
+  "settingsAppDataRestoreUnreadable": "That file isn't a backup this version can read.",
+  "settingsAppDataRestoreConfirmTitle": "Restore this backup?",
+  "settingsAppDataRestoreConfirmBody": "Adds the albums, people, tags and captions from {when}. Nothing already here is changed, and a copy of today is saved first.",
+  "@settingsAppDataRestoreConfirmBody": {
+    "placeholders": { "when": { "type": "String" } }
+  },
+  "settingsAppDataRestoreConfirmAction": "Restore",
+  "settingsAppDataRestoreDone": "Restored {count} photos' details.",
+  "@settingsAppDataRestoreDone": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "settingsAppDataRestorePartial": "Restored {count} photos' details. {waiting} were already here and kept what they had.",
+  "@settingsAppDataRestorePartial": {
+    "placeholders": {
+      "count": { "type": "int" },
+      "waiting": { "type": "int" }
+    }
   },
   "settingsICloudNotEntitled": "This build of the app isn't signed for iCloud",
   "settingsICloudDriveOff": "iCloud Drive is off on this device",
