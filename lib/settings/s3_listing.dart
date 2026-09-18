@@ -5,6 +5,7 @@ import 'package:aws_signature_v4/aws_signature_v4.dart';
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
 
+import 'bucket_endpoint.dart';
 import 's3_backup_target.dart';
 
 /// One object under a listed prefix.
@@ -65,11 +66,13 @@ Future<S3ListingResult> listBucket({
       AWSCredentials(target.accessKeyId, target.secretAccessKey),
     ),
   );
-  final scope = AWSCredentialScope.raw(region: target.region, service: 's3');
-  final uri = Uri.https(
-    '${target.bucket}.s3.${target.region}.amazonaws.com',
-    '/',
-    {
+  final scope = AWSCredentialScope.raw(
+    region: signingRegion(target),
+    service: 's3',
+  );
+  final uri = targetUri(
+    target,
+    query: {
       'list-type': '2',
       'delimiter': '/',
       if (prefix.isNotEmpty) 'prefix': prefix,

@@ -80,38 +80,109 @@ keeps the pill shape with a stepper inside: it's a dial, not a list.
     [[ Add Cloud Bucket ]]
 ```
 
-## Add a bucket  `lib/settings/add_s3_backup_screen.dart`
+## Add a bucket  `lib/settings/add_backup_screen.dart`
+
+The same dark, card-less page as Cloud Settings one step in — section
+heading, rows on the background, filled fields under small labels. Save is
+a navigation-bar action: a filled button under the drafts list sits below
+the fold on every visit and reads as a second page's worth of chrome.
 
 ```
- ‹            Add Cloud Bucket
- Storage type                      Amazon S3 ▾
-                                   Backblaze B2 (coming soon) ·
- ┌ S3 Bucket (paste info to add) ──────────────┐  ← the "(…)" is the button
- │ Access key ID                               │
- │ 18 characters — AWS keys are usually 20.    │  ← paste-length sanity hint
- │ Check for a bad paste.                      │
- │ Secret access key                           │
- │ Bucket                     Required         │
- │ Key prefix   bring-your-own-photos/         │  ← filled in for you
- └─────────────────────────────────────────────┘
- [[ Save ]]     ⟳ Validating bucket access…
- ⊗ Access denied. Check the access key, secret, and that this bucket
-   allows it.
- ⊗ Bucket not found. Check the bucket name.
- ⊗ Could not reach S3. Check your network and try again.
- ⊗ Couldn't detect this bucket's region automatically.
- Drafts                                        ← an unfinished add is kept
- (no bucket yet)                            🗑
+ ‹ Cloud Settings   Add Cloud Bucket            Save
+ Bucket                          (paste info to add)
+ Storage type                        Amazon S3   ▾
+ ───────────────────────────────────────────────────
+ Access key ID
+ ┌─────────────────────────────────────────────────┐
+ │ AKIAIOSFODNN7EXAMP                              │
+ └─────────────────────────────────────────────────┘
+ 18 characters — AWS keys are usually 20. Check for
+ a bad paste.                    ← AWS lengths only
+ Secret access key
+ ┌────────────────────────────────────────────┬────┐
+ │ ••••••••••••                               │ 👁 │
+ └────────────────────────────────────────────┴────┘
+ Bucket name
+ ┌─────────────────────────────────────────────────┐
+ │ holiday-snaps                                   │
+ └─────────────────────────────────────────────────┘
+ Required                        ← red, only on Save
+ Key prefix
+ ┌─────────────────────────────────────────────────┐
+ │ bring-your-own-photos/                          │
+ └─────────────────────────────────────────────────┘
+ ⊗ Access denied. Check the access key, secret, and
+   that this bucket allows it. (AccessDenied)
+ ═══════════════════════════════════════════════════
+ DRAFTS
+ holiday-snaps                                    ⊗
+ S3 · AKIA…MPLE
+```
 
- tap (paste info to add) ↓
- ┌ S3 Bucket (back to fields) ─────────────────┐            📋
- │ bucket: my-photos                           │  ← Paste from Clipboard
- │ prefix: bring-your-own-photos/              │
- │ access_key_id: AKIA…                        │
- │ secret_access_key: …                        │
- └─────────────────────────────────────────────┘
- "name: value" or "name=value", any spelling. The region is still
- detected for you.
+```
+saving   Save ⇒ ⟳ in the nav bar, every field greyed
+         ⟳ Validating bucket access…   ← under the fields, not over them
+```
+
+COS and OSS differ by four lines, never by a second form:
+
+```
+ Storage type                 Tencent Cloud COS   ▾
+ SecretId                     ← each console's own words for the
+ SecretKey                      two halves of a credential
+ Bucket name
+ │ holiday-snaps-1250000000                       │
+ Including the APPID suffix, e.g. my-photos-1250000000.
+ Region
+ │ ap-guangzhou                                 ▾ │  ← tap ⇒ picker sheet
+ The one the bucket's console shows. Pick it or type it.
+ Pick the region this bucket is in.   ← red, on Save
+
+ ✗ a free-text region box        ✗ a closed dropdown
+   a typo is a 404 two              a region added after this
+   screens later                    release can't be entered
+```
+
+## The two pickers
+
+```
+ Storage type                        Region
+ ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁       ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
+ ┌──────────────────────────┐        ( Cancel )      Region
+ │ Storage type             │        ┌──────────────────────┐
+ │ **Amazon S3**            │        │ 🔍 ap-gu             │
+ │ Tencent Cloud COS        │        └──────────────────────┘
+ │ Alibaba Cloud OSS        │        ap-guangzhou          ✓
+ │ Google Cloud Storage   · │ ← no-op ─────────────────────
+ │ Azure Blob Storage     · │   grey, Use "ap-guangzhou-1"
+ │ Backblaze B2           · │   the roadmap  ↑ typed, unlisted
+ │ ( Cancel )               │      shown, not hidden
+ └──────────────────────────┘
+```
+
+Region reuses `viewer/search_picker_sheet.dart` — the same search-or-create
+drop-down as places and tags. Storage type is an action sheet, like the AI
+key vendor picker.
+
+## Paste to fill
+
+The group's header carries it; the box replaces the fields in place. Rules
+(one paste then snap back, typing keeps it open, buffer cleared on every
+toggle) live in the `uiux` skill's `paste-to-fill.md`.
+
+```
+ Bucket                           (back to fields)
+ Storage type                 Tencent Cloud COS  ▾   ← stays: a pasted
+ Credentials block                                     endpoint moves it
+ ┌─────────────────────────────────────────────────┐
+ │ bucket: my-photos                               │
+ │ prefix: bring-your-own-photos/                  │
+ │ access_key_id: AKIA…                        📋  │
+ │ secret_access_key: …                            │
+ └─────────────────────────────────────────────────┘
+ "name: value" or "name=value", any spelling. Paste
+ the bucket's endpoint URL and it fills in the
+ region too.
 ```
 
 ## Bucket browser  `lib/settings/bucket_browser_screen.dart`

@@ -91,7 +91,7 @@ void main() {
 
   test('uploads to an S3 target and marks the derivative uploaded', () async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-    await targetsStore.addS3(
+    await targetsStore.add(
       accessKeyId: 'a',
       secretAccessKey: 'b',
       region: 'us-east-1',
@@ -132,7 +132,7 @@ void main() {
 
   test('marks the derivative failed when every target fails', () async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-    await targetsStore.addS3(
+    await targetsStore.add(
       accessKeyId: 'a',
       secretAccessKey: 'b',
       region: 'us-east-1',
@@ -169,7 +169,7 @@ void main() {
     'a thumbnail derivative lands under thumbnails/, not originals/',
     () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
@@ -213,7 +213,7 @@ void main() {
   group('backedUpHash', () {
     test('set to the hashed local file once an upload succeeds', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
@@ -248,7 +248,7 @@ void main() {
 
     test('kept as-is when every target fails, rather than cleared', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
@@ -298,7 +298,7 @@ void main() {
       'a hashing failure does not stop the derivative being marked uploaded',
       () async {
         final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-        await targetsStore.addS3(
+        await targetsStore.add(
           accessKeyId: 'a',
           secretAccessKey: 'b',
           region: 'us-east-1',
@@ -338,14 +338,14 @@ void main() {
   group('backUpBatch', () {
     test('fileByFile (default) mirrors each record to every target', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
         bucket: 'one',
         prefix: '',
       );
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
@@ -403,14 +403,14 @@ void main() {
       'bucketByBucket finishes every record against one target before the next',
       () async {
         final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-        await targetsStore.addS3(
+        await targetsStore.add(
           accessKeyId: 'a',
           secretAccessKey: 'b',
           region: 'us-east-1',
           bucket: 'one',
           prefix: '',
         );
-        await targetsStore.addS3(
+        await targetsStore.add(
           accessKeyId: 'a',
           secretAccessKey: 'b',
           region: 'us-east-1',
@@ -471,14 +471,14 @@ void main() {
 
     test('bucketByBucket still marks a record uploaded if only one target succeeds', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
         bucket: 'good',
         prefix: '',
       );
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
@@ -518,7 +518,7 @@ void main() {
 
     test('skips a record whose path fails to resolve', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
@@ -558,7 +558,7 @@ void main() {
       'fileByFile: cancelling mid-run leaves un-attempted records untouched',
       () async {
         final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-        await targetsStore.addS3(
+        await targetsStore.add(
           accessKeyId: 'a',
           secretAccessKey: 'b',
           region: 'us-east-1',
@@ -613,14 +613,14 @@ void main() {
 
     test('bucketByBucket: cancelling mid-run leaves un-attempted records untouched', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
         bucket: 'one',
         prefix: '',
       );
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
@@ -685,7 +685,7 @@ void main() {
 
     test('re-encodes a photo to WebP and uploads it under a .webp key', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.addS3(
+      await targetsStore.add(
         accessKeyId: 'a',
         secretAccessKey: 'b',
         region: 'us-east-1',
@@ -724,7 +724,7 @@ void main() {
       'videos always upload as original, even with optimized selected',
       () async {
         final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-        await targetsStore.addS3(
+        await targetsStore.add(
           accessKeyId: 'a',
           secretAccessKey: 'b',
           region: 'us-east-1',
@@ -761,7 +761,7 @@ void main() {
       'falls back to the original bytes when the file is not a decodable image',
       () async {
         final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-        await targetsStore.addS3(
+        await targetsStore.add(
           accessKeyId: 'a',
           secretAccessKey: 'b',
           region: 'us-east-1',

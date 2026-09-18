@@ -2,10 +2,11 @@ import 'dart:convert';
 
 import 'package:uuid/uuid.dart';
 
+import 'backup_storage_type.dart';
 import 's3_target_draft.dart';
 import 'secure_store.dart';
 
-/// Remembers what was typed on recent attempts at adding an S3 target, so
+/// Remembers what was typed on recent attempts at adding a target, so
 /// a failed or abandoned attempt doesn't mean retyping everything from
 /// scratch. Shown as a quick-fill list on the add screen.
 class S3TargetDraftsStore {
@@ -45,6 +46,8 @@ class S3TargetDraftsStore {
     required String secretAccessKey,
     required String bucket,
     required String prefix,
+    String region = '',
+    BackupStorageType provider = BackupStorageType.s3,
   }) async {
     final drafts = await loadAll();
     final existingIndex = drafts.indexWhere(
@@ -56,6 +59,8 @@ class S3TargetDraftsStore {
       secretAccessKey: secretAccessKey,
       bucket: bucket,
       prefix: prefix,
+      region: region,
+      provider: provider,
     );
     final updated = [...drafts];
     if (existingIndex >= 0) {

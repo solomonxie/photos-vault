@@ -1,7 +1,7 @@
 # upload
 
-Fans one derivative file out to every configured S3 target and records the
-aggregate outcome.
+Fans one derivative file out to every configured target — S3, COS or OSS,
+all over the S3 API — and records the aggregate outcome.
 
 ```text
 BackupCoordinator.backUpDerivative(record, kind, filePath)
@@ -26,7 +26,8 @@ records aggregate status + first destinationKey    ../storage/asset_record_store
 
 - `backup_coordinator.dart` — the fan-out and status bookkeeping above.
 - `s3_uploader.dart` — one presigned PUT via `background_downloader`.
-- `signing.dart` — AWS SigV4 presigning and the `thumbnails/`/`medium/`/
+- `signing.dart` — SigV4 presigning (host from
+  `../settings/bucket_endpoint.dart`) and the `thumbnails/`/`medium/`/
   `originals/` key layout.
 
 Known limitation: status/key is tracked once per derivative, not once per

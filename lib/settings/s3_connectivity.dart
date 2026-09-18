@@ -5,6 +5,9 @@ import 'package:aws_signature_v4/aws_signature_v4.dart';
 import 'package:http/http.dart' as http;
 import 'package:xml/xml.dart';
 
+import 'backup_storage_type.dart';
+import 'bucket_endpoint.dart';
+
 enum S3AccessCheckOutcome { ok, forbidden, notFound, networkError }
 
 class S3AccessCheckResult {
@@ -19,17 +22,22 @@ class S3AccessCheckResult {
   bool get isOk => outcome == S3AccessCheckOutcome.ok;
 }
 
-/// Verifies the given credentials can reach [bucket] in [region] — a signed
-/// `ListObjectsV2` request (needs `s3:ListBucket`, the same permission
-/// actual backups will need). Uses `GET`, not `HEAD`: S3 only includes the
-/// diagnostic `<Code>`/`<Message>` XML body on non-HEAD requests, and that
-/// detail is the difference between "wrong key", "wrong secret", and "right
-/// credentials, no permission".
+/// Verifies the given credentials can reach [bucket] in [region] on
+/// [provider] — a signed `ListObjectsV2` request (needs `s3:ListBucket`,
+/// the same permission actual backups will need). Uses `GET`, not `HEAD`:
+/// the S3 API only includes the diagnostic `<Code>`/`<Message>` XML body on
+/// non-HEAD requests, and that detail is the difference between "wrong
+/// key", "wrong secret", and "right credentials, no permission".
+///
+/// This is also where a wrong region shows up for COS and OSS, which can't
+/// be asked for one ahead of time the way S3's bucket name can: the
+/// endpoint for the wrong region answers 404 rather than redirecting.
 Future<S3AccessCheckResult> checkBucketAccess({
   required String accessKeyId,
   required String secretAccessKey,
   required String region,
   required String bucket,
+  BackupStorageType provider = BackupStorageType.s3,
 }) async {
   final signer = AWSSigV4Signer(
     credentialsProvider: AWSCredentialsProvider(
@@ -37,10 +45,12 @@ Future<S3AccessCheckResult> checkBucketAccess({
     ),
   );
   final scope = AWSCredentialScope.raw(region: region, service: 's3');
-  final uri = Uri.https('$bucket.s3.$region.amazonaws.com', '/', {
-    'list-type': '2',
-    'max-keys': '1',
-  });
+  final uri = bucketUri(
+    provider: provider,
+    region: region,
+    bucket: bucket,
+    query: {'list-type': '2', 'max-keys': '1'},
+  );
   final request = AWSHttpRequest.get(uri);
 
   try {

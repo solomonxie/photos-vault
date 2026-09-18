@@ -1,17 +1,19 @@
 import 'package:bring_your_own_photos/l10n/app_localizations.dart';
-import 'package:bring_your_own_photos/settings/add_s3_backup_screen.dart';
+import 'package:bring_your_own_photos/settings/add_backup_screen.dart';
+import 'package:bring_your_own_photos/settings/backup_storage_type.dart';
 import 'package:bring_your_own_photos/settings/backup_targets_store.dart';
 import 'package:bring_your_own_photos/settings/s3_backup_target.dart';
 import 'package:bring_your_own_photos/settings/s3_connectivity.dart';
 import 'package:bring_your_own_photos/settings/s3_region_detection.dart';
 import 'package:bring_your_own_photos/settings/s3_target_drafts_store.dart';
-import 'package:flutter/material.dart';
+import 'package:bring_your_own_photos/viewer/search_picker_sheet.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_secure_store.dart';
 
 Widget _wrap(Widget child) {
-  return MaterialApp(
+  return CupertinoApp(
     localizationsDelegates: AppLocalizations.localizationsDelegates,
     supportedLocales: AppLocalizations.supportedLocales,
     home: child,
@@ -26,6 +28,7 @@ Future<S3AccessCheckResult> _okAccess({
   required String secretAccessKey,
   required String region,
   required String bucket,
+  BackupStorageType provider = BackupStorageType.s3,
 }) async => const S3AccessCheckResult(S3AccessCheckOutcome.ok);
 
 Future<S3RegionDetectionResult> _okRegion(String bucket) async =>
@@ -35,18 +38,9 @@ Future<S3RegionDetectionResult> _okRegion(String bucket) async =>
     );
 
 Future<void> _fillForm(WidgetTester tester) async {
-  await tester.enterText(
-    find.widgetWithText(TextFormField, 'Access key ID'),
-    'AKIA123',
-  );
-  await tester.enterText(
-    find.widgetWithText(TextFormField, 'Secret access key'),
-    'topsecret',
-  );
-  await tester.enterText(
-    find.widgetWithText(TextFormField, 'Bucket'),
-    'my-bucket',
-  );
+  await tester.enterText(find.byKey(accessKeyIdFieldKey), 'AKIA123');
+  await tester.enterText(find.byKey(secretAccessKeyFieldKey), 'topsecret');
+  await tester.enterText(find.byKey(bucketFieldKey), 'my-bucket');
 }
 
 /// The drafts list sits under the whole form; a taller surface keeps it and
@@ -63,13 +57,14 @@ void _tallSurface(WidgetTester tester) {
 Future<void> _pasteBlock(WidgetTester tester, String text) async {
   await tester.tap(find.text('(paste info to add)'));
   await tester.pumpAndSettle();
-  await tester.enterText(find.byType(TextField).last, text);
+  await tester.enterText(find.byKey(pasteFieldKey), text);
   await tester.pumpAndSettle();
 }
 
 void main() {
   _pasteToFillTests();
   _prefixTests();
+  _providerTests();
 
   testWidgets(
     'shows a validation error when saving with empty required fields',
@@ -77,7 +72,7 @@ void main() {
       final store = BackupTargetsStore(store: FakeSecureStore());
       await tester.pumpWidget(
         _wrap(
-          AddS3BackupScreen(
+          AddBackupScreen(
             store: store,
             checkAccess: _okAccess,
             detectRegion: _okRegion,
@@ -99,7 +94,7 @@ void main() {
     final store = BackupTargetsStore(store: FakeSecureStore());
     await tester.pumpWidget(
       _wrap(
-        AddS3BackupScreen(
+        AddBackupScreen(
           store: store,
           checkAccess: _okAccess,
           detectRegion: _okRegion,
@@ -108,7 +103,7 @@ void main() {
       ),
     );
 
-    expect(find.text(defaultS3Prefix), findsOneWidget);
+    expect(find.text(defaultKeyPrefix), findsOneWidget);
   });
 
   testWidgets(
@@ -121,10 +116,10 @@ void main() {
       await tester.pumpWidget(
         _wrap(
           Builder(
-            builder: (context) => ElevatedButton(
+            builder: (context) => CupertinoButton(
               onPressed: () => Navigator.of(context).push(
-                MaterialPageRoute(
-                  builder: (_) => AddS3BackupScreen(
+                CupertinoPageRoute(
+                  builder: (_) => AddBackupScreen(
                     store: store,
                     draftsStore: draftsStore,
                     detectRegion: (bucket) async {
@@ -140,6 +135,7 @@ void main() {
                           required secretAccessKey,
                           required region,
                           required bucket,
+                          provider = BackupStorageType.s3,
                         }) async {
                           checkedRegion = region;
                           return const S3AccessCheckResult(
@@ -163,13 +159,13 @@ void main() {
 
       expect(detectedForBucket, 'my-bucket');
       expect(checkedRegion, 'eu-west-1');
-      expect(find.byType(AddS3BackupScreen), findsNothing);
+      expect(find.byType(AddBackupScreen), findsNothing);
       final saved = await store.loadAll();
       expect(saved, hasLength(1));
       final target = saved.single;
       expect(target.bucket, 'my-bucket');
       expect(target.region, 'eu-west-1');
-      expect(target.prefix, defaultS3Prefix);
+      expect(target.prefix, defaultKeyPrefix);
 
       // The draft from this attempt graduated into a real target, so it
       // shouldn't also linger in the draft list.
@@ -183,7 +179,7 @@ void main() {
       final store = BackupTargetsStore(store: FakeSecureStore());
       await tester.pumpWidget(
         _wrap(
-          AddS3BackupScreen(
+          AddBackupScreen(
             store: store,
             checkAccess: _okAccess,
             detectRegion: (bucket) async => const S3RegionDetectionResult(
@@ -209,7 +205,7 @@ void main() {
       final store = BackupTargetsStore(store: FakeSecureStore());
       await tester.pumpWidget(
         _wrap(
-          AddS3BackupScreen(
+          AddBackupScreen(
             store: store,
             detectRegion: _okRegion,
             draftsStore: _fakeDraftsStore(),
@@ -219,6 +215,7 @@ void main() {
                   required secretAccessKey,
                   required region,
                   required bucket,
+                  provider = BackupStorageType.s3,
                 }) async =>
                     const S3AccessCheckResult(S3AccessCheckOutcome.forbidden),
           ),
@@ -232,7 +229,7 @@ void main() {
       expect(find.textContaining('Access denied'), findsOneWidget);
       expect(await store.loadAll(), isEmpty);
       // Screen stays open so the user can fix and retry.
-      expect(find.byType(AddS3BackupScreen), findsOneWidget);
+      expect(find.byType(AddBackupScreen), findsOneWidget);
     },
   );
 
@@ -243,7 +240,7 @@ void main() {
       final draftsStore = _fakeDraftsStore();
       await tester.pumpWidget(
         _wrap(
-          AddS3BackupScreen(
+          AddBackupScreen(
             store: store,
             detectRegion: _okRegion,
             draftsStore: draftsStore,
@@ -253,6 +250,7 @@ void main() {
                   required secretAccessKey,
                   required region,
                   required bucket,
+                  provider = BackupStorageType.s3,
                 }) async =>
                     const S3AccessCheckResult(S3AccessCheckOutcome.forbidden),
           ),
@@ -268,7 +266,7 @@ void main() {
       expect(drafts.single.bucket, 'my-bucket');
       // Below the fold once the storage-type picker and length-hint text make
       // the form taller, hence skipOffstage: false.
-      expect(find.text('Drafts', skipOffstage: false), findsOneWidget);
+      expect(find.text('DRAFTS', skipOffstage: false), findsOneWidget);
       expect(find.text('my-bucket', skipOffstage: false), findsNWidgets(2));
     },
   );
@@ -286,7 +284,7 @@ void main() {
 
     await tester.pumpWidget(
       _wrap(
-        AddS3BackupScreen(
+        AddBackupScreen(
           store: store,
           checkAccess: _okAccess,
           detectRegion: _okRegion,
@@ -299,12 +297,10 @@ void main() {
     await tester.tap(find.text('drafted-bucket'));
     await tester.pumpAndSettle();
 
-    expect(find.widgetWithText(TextFormField, 'AKIA999'), findsOneWidget);
-    expect(
-      find.widgetWithText(TextFormField, 'drafted-bucket'),
-      findsOneWidget,
-    );
-    expect(find.widgetWithText(TextFormField, 'p/'), findsOneWidget);
+    expect(find.text('AKIA999'), findsOneWidget);
+    // Once in the field, once as the draft row it was filled from.
+    expect(find.text('drafted-bucket'), findsNWidgets(2));
+    expect(find.text('p/'), findsOneWidget);
   });
 
   testWidgets('deleting a draft removes it from the list', (tester) async {
@@ -320,7 +316,7 @@ void main() {
 
     await tester.pumpWidget(
       _wrap(
-        AddS3BackupScreen(
+        AddBackupScreen(
           store: store,
           checkAccess: _okAccess,
           detectRegion: _okRegion,
@@ -330,7 +326,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byTooltip('Delete draft'));
+    await tester.tap(find.byIcon(CupertinoIcons.xmark));
     await tester.pumpAndSettle();
 
     expect(find.text('drafted-bucket'), findsNothing);
@@ -343,7 +339,7 @@ void _pasteToFillTests() {
     Future<void> pumpForm(WidgetTester tester) async {
       await tester.pumpWidget(
         _wrap(
-          AddS3BackupScreen(
+          AddBackupScreen(
             store: BackupTargetsStore(store: FakeSecureStore()),
             checkAccess: _okAccess,
             detectRegion: _okRegion,
@@ -359,13 +355,13 @@ void _pasteToFillTests() {
     ) async {
       await pumpForm(tester);
 
-      expect(find.widgetWithText(TextFormField, 'Bucket'), findsOneWidget);
+      expect(find.byKey(bucketFieldKey), findsOneWidget);
 
       await tester.tap(find.text('(paste info to add)'));
       await tester.pumpAndSettle();
 
       // A mode of the same group: the fields are replaced, not pushed down.
-      expect(find.widgetWithText(TextFormField, 'Bucket'), findsNothing);
+      expect(find.byKey(bucketFieldKey), findsNothing);
       expect(find.text('(back to fields)'), findsOneWidget);
     });
 
@@ -382,12 +378,9 @@ secret_access_key: pasted-secret
 
       // Back on the fields, which are the confirmation.
       expect(find.text('(paste info to add)'), findsOneWidget);
-      expect(find.widgetWithText(TextFormField, 'AKIAPASTED'), findsOneWidget);
-      expect(
-        find.widgetWithText(TextFormField, 'pasted-bucket'),
-        findsOneWidget,
-      );
-      expect(find.widgetWithText(TextFormField, 'pasted/'), findsOneWidget);
+      expect(find.text('AKIAPASTED'), findsOneWidget);
+      expect(find.text('pasted-bucket'), findsOneWidget);
+      expect(find.text('pasted/'), findsOneWidget);
     });
 
     testWidgets('a block that names no field leaves the box open', (
@@ -403,18 +396,12 @@ secret_access_key: pasted-secret
       tester,
     ) async {
       await pumpForm(tester);
-      await tester.enterText(
-        find.widgetWithText(TextFormField, 'Access key ID'),
-        'TYPED-BY-HAND',
-      );
+      await tester.enterText(find.byKey(accessKeyIdFieldKey), 'TYPED-BY-HAND');
       await _pasteBlock(tester, 'bucket: pasted-bucket');
 
+      expect(find.text('TYPED-BY-HAND'), findsOneWidget);
       expect(
-        find.widgetWithText(TextFormField, 'TYPED-BY-HAND'),
-        findsOneWidget,
-      );
-      expect(
-        find.widgetWithText(TextFormField, 'bring-your-own-photos/'),
+        find.text('bring-your-own-photos/'),
         findsOneWidget,
         reason: 'no prefix in the block leaves the default alone',
       );
@@ -424,7 +411,7 @@ secret_access_key: pasted-secret
       await pumpForm(tester);
       await tester.tap(find.text('(paste info to add)'));
       await tester.pumpAndSettle();
-      await tester.enterText(find.byType(TextField).last, 'b');
+      await tester.enterText(find.byKey(pasteFieldKey), 'b');
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('(back to fields)'));
@@ -444,7 +431,7 @@ void _prefixTests() {
     final store = BackupTargetsStore(store: FakeSecureStore());
     await tester.pumpWidget(
       _wrap(
-        AddS3BackupScreen(
+        AddBackupScreen(
           store: store,
           checkAccess: _okAccess,
           detectRegion: _okRegion,
@@ -455,10 +442,7 @@ void _prefixTests() {
     await tester.pumpAndSettle();
 
     await _fillForm(tester);
-    await tester.enterText(
-      find.widgetWithText(TextFormField, defaultS3Prefix),
-      '/holiday-snaps',
-    );
+    await tester.enterText(find.byKey(prefixFieldKey), '/holiday-snaps');
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
@@ -470,7 +454,7 @@ void _prefixTests() {
   ) async {
     await tester.pumpWidget(
       _wrap(
-        AddS3BackupScreen(
+        AddBackupScreen(
           store: BackupTargetsStore(store: FakeSecureStore()),
           checkAccess: _okAccess,
           // Fails, so the form stays open and its fields can be read back.
@@ -484,17 +468,11 @@ void _prefixTests() {
     await tester.pumpAndSettle();
 
     await _fillForm(tester);
-    await tester.enterText(
-      find.widgetWithText(TextFormField, defaultS3Prefix),
-      'holiday-snaps',
-    );
+    await tester.enterText(find.byKey(prefixFieldKey), 'holiday-snaps');
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
-    expect(
-      find.widgetWithText(TextFormField, 'holiday-snaps/'),
-      findsOneWidget,
-    );
+    expect(find.text('holiday-snaps/'), findsOneWidget);
   });
 
   group('key prefix', () {
@@ -517,6 +495,163 @@ void _prefixTests() {
 
     test('surrounding whitespace from a paste goes', () {
       expect(normalizeKeyPrefix('  photos  '), 'photos/');
+    });
+  });
+}
+
+Future<void> _pickProvider(WidgetTester tester, String name) async {
+  await tester.tap(find.text('Storage type'));
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(name).last);
+  await tester.pumpAndSettle();
+}
+
+/// The region sheet is the app's search-or-create picker: type to filter,
+/// tap the match.
+Future<void> _pickRegion(WidgetTester tester, String region) async {
+  await tester.tap(find.byKey(regionFieldKey));
+  await tester.pumpAndSettle();
+  await tester.enterText(find.byKey(searchPickerFieldKey), region);
+  await tester.pumpAndSettle();
+  await tester.tap(find.text(region).last);
+  await tester.pumpAndSettle();
+}
+
+void _providerTests() {
+  group('other providers', () {
+    testWidgets('picking COS asks for a region and renames the key fields', (
+      tester,
+    ) async {
+      _tallSurface(tester);
+      await tester.pumpWidget(
+        _wrap(
+          AddBackupScreen(
+            store: BackupTargetsStore(store: FakeSecureStore()),
+            checkAccess: _okAccess,
+            detectRegion: _okRegion,
+            draftsStore: _fakeDraftsStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(find.byKey(regionFieldKey), findsNothing);
+
+      await _pickProvider(tester, 'Tencent Cloud COS');
+
+      expect(find.byKey(regionFieldKey), findsOneWidget);
+      expect(find.text('SecretId'), findsOneWidget);
+      expect(find.text('SecretKey'), findsOneWidget);
+      expect(find.text('Access key ID'), findsNothing);
+    });
+
+    testWidgets('a COS target saves with its picked region, undetected', (
+      tester,
+    ) async {
+      _tallSurface(tester);
+      final store = BackupTargetsStore(store: FakeSecureStore());
+      var detected = false;
+      var checkedProvider = BackupStorageType.s3;
+      await tester.pumpWidget(
+        _wrap(
+          AddBackupScreen(
+            store: store,
+            draftsStore: _fakeDraftsStore(),
+            detectRegion: (bucket) async {
+              detected = true;
+              return const S3RegionDetectionResult(
+                S3RegionDetectionOutcome.networkError,
+              );
+            },
+            checkAccess:
+                ({
+                  required accessKeyId,
+                  required secretAccessKey,
+                  required region,
+                  required bucket,
+                  provider = BackupStorageType.s3,
+                }) async {
+                  checkedProvider = provider;
+                  return const S3AccessCheckResult(S3AccessCheckOutcome.ok);
+                },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _pickProvider(tester, 'Tencent Cloud COS');
+      await tester.enterText(find.byKey(accessKeyIdFieldKey), 'AKIDexample');
+      await tester.enterText(find.byKey(secretAccessKeyFieldKey), 'shh');
+      await tester.enterText(
+        find.byKey(bucketFieldKey),
+        'my-photos-1250000000',
+      );
+      await _pickRegion(tester, 'ap-guangzhou');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      // S3's bucket-name trick means nothing to COS, so it isn't tried.
+      expect(detected, isFalse);
+      expect(checkedProvider, BackupStorageType.tencentCos);
+      final saved = (await store.loadAll()).single;
+      expect(saved.provider, BackupStorageType.tencentCos);
+      expect(saved.region, 'ap-guangzhou');
+      expect(saved.bucket, 'my-photos-1250000000');
+    });
+
+    testWidgets('saving without a region says so instead of failing later', (
+      tester,
+    ) async {
+      _tallSurface(tester);
+      final store = BackupTargetsStore(store: FakeSecureStore());
+      await tester.pumpWidget(
+        _wrap(
+          AddBackupScreen(
+            store: store,
+            checkAccess: _okAccess,
+            detectRegion: _okRegion,
+            draftsStore: _fakeDraftsStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _pickProvider(tester, 'Alibaba Cloud OSS');
+      await tester.enterText(find.byKey(accessKeyIdFieldKey), 'LTAIexample');
+      await tester.enterText(find.byKey(secretAccessKeyFieldKey), 'shh');
+      await tester.enterText(find.byKey(bucketFieldKey), 'my-photos');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining('Pick the region'), findsOneWidget);
+      expect(await store.loadAll(), isEmpty);
+    });
+
+    testWidgets('a pasted endpoint switches provider and fills the region', (
+      tester,
+    ) async {
+      _tallSurface(tester);
+      await tester.pumpWidget(
+        _wrap(
+          AddBackupScreen(
+            store: BackupTargetsStore(store: FakeSecureStore()),
+            checkAccess: _okAccess,
+            detectRegion: _okRegion,
+            draftsStore: _fakeDraftsStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _pasteBlock(tester, '''
+https://holiday-snaps-1250000000.cos.ap-shanghai.myqcloud.com
+SecretId: AKIDexample
+SecretKey: shh
+''');
+
+      expect(find.text('holiday-snaps-1250000000'), findsOneWidget);
+      expect(find.text('AKIDexample'), findsOneWidget);
+      expect(find.text('ap-shanghai'), findsOneWidget);
     });
   });
 }

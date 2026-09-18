@@ -85,7 +85,7 @@ Future<BackupTargetsStore> _storeWithBucket({
   String prefix = 'photos/',
 }) async {
   final store = BackupTargetsStore(store: FakeSecureStore());
-  await store.addS3(
+  await store.add(
     accessKeyId: 'a',
     secretAccessKey: 'b',
     region: 'us-east-1',

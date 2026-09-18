@@ -16,8 +16,12 @@ const settingsSecondary = Color(0x99EBEBF5);
 const settingsTertiary = Color(0x4DEBEBF5);
 const settingsSeparator = Color(0xA6545458);
 
-/// The fill behind a pill-shaped control — one step lighter than the page.
+/// The fill behind a pill-shaped control, or a form field — one step
+/// lighter than the page.
 const settingsControlFill = Color(0xFF2C2C2E);
+
+/// iOS dark-mode red. Only ever a field's own error, never a heading.
+const settingsError = Color(0xFFFF453A);
 
 const settingsHeadingStyle = TextStyle(
   fontSize: 20,
@@ -61,6 +65,20 @@ const settingsRowDetailStyle = TextStyle(
 const settingsRowValueStyle = TextStyle(fontSize: 15, color: settingsSecondary);
 
 const settingsFooterStyle = TextStyle(fontSize: 12, color: settingsSecondary);
+
+/// Above a form field — smaller than a row title, because a column of five
+/// of them at row weight reads as five headings.
+const settingsFieldLabelStyle = TextStyle(
+  fontSize: 13,
+  fontWeight: FontWeight.w600,
+  color: CupertinoColors.white,
+);
+
+const settingsErrorStyle = TextStyle(
+  fontSize: 11,
+  height: 1.35,
+  color: settingsError,
+);
 
 /// Horizontal page margin, and the left inset of a row hairline so it
 /// starts under the row's title rather than under its icon.
@@ -502,6 +520,245 @@ class SettingsFooterLine extends StatelessWidget {
       behavior: HitTestBehavior.opaque,
       onTap: onTap,
       child: line,
+    );
+  }
+}
+
+/// A labelled input on a settings-style page: label above, filled rounded
+/// box under it, and one muted line below for a hint or an error.
+///
+/// Bare underlined fields are nearly invisible on this background — the
+/// fill is what makes a field read as somewhere to type. Same box as the
+/// Add AI Key sheet, so every form in the app has one field shape.
+class SettingsField extends StatelessWidget {
+  const SettingsField({
+    super.key,
+    required this.label,
+    required this.controller,
+    this.fieldKey,
+    this.placeholder,
+    this.helper,
+    this.errorText,
+    this.enabled = true,
+    this.obscure = false,
+    this.suffix,
+    this.monospace = false,
+    this.minLines,
+    this.maxLines = 1,
+    this.autofocus = false,
+    this.onChanged,
+  });
+
+  final String label;
+  final TextEditingController controller;
+
+  /// On the field itself rather than this widget, so a test types into the
+  /// input and not its label.
+  final Key? fieldKey;
+
+  final String? placeholder;
+
+  /// The muted line under the field. Replaced by [errorText] when set.
+  final String? helper;
+  final String? errorText;
+
+  final bool enabled;
+  final bool obscure;
+  final Widget? suffix;
+  final bool monospace;
+  final int? minLines;
+  final int? maxLines;
+  final bool autofocus;
+  final ValueChanged<String>? onChanged;
+
+  @override
+  Widget build(BuildContext context) {
+    return _FieldFrame(
+      label: label,
+      helper: helper,
+      errorText: errorText,
+      child: CupertinoTextField(
+        key: fieldKey,
+        controller: controller,
+        enabled: enabled,
+        obscureText: obscure,
+        autofocus: autofocus,
+        minLines: minLines,
+        maxLines: maxLines,
+        placeholder: placeholder,
+        // Credential fields: smart punctuation silently corrupts a pasted
+        // key into a signature error that looks like wrong credentials.
+        autocorrect: false,
+        enableSuggestions: false,
+        smartDashesType: SmartDashesType.disabled,
+        smartQuotesType: SmartQuotesType.disabled,
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 12),
+        style: TextStyle(
+          fontSize: 15,
+          color: enabled ? CupertinoColors.white : settingsSecondary,
+          fontFamily: monospace ? 'monospace' : null,
+        ),
+        placeholderStyle: const TextStyle(
+          fontSize: 15,
+          color: settingsTertiary,
+        ),
+        decoration: BoxDecoration(
+          color: settingsControlFill,
+          borderRadius: BorderRadius.circular(10),
+        ),
+        suffix: suffix,
+        onChanged: onChanged,
+      ),
+    );
+  }
+}
+
+/// A field whose value is chosen rather than typed — same box, a chevron
+/// where the caret would be, and a sheet on tap.
+class SettingsPickerField extends StatelessWidget {
+  const SettingsPickerField({
+    super.key,
+    required this.label,
+    required this.value,
+    required this.placeholder,
+    required this.onTap,
+    this.fieldKey,
+    this.helper,
+    this.errorText,
+  });
+
+  final String label;
+  final String value;
+  final String placeholder;
+  final VoidCallback? onTap;
+
+  /// On the box rather than this widget, so a tap lands on the control and
+  /// not its label.
+  final Key? fieldKey;
+
+  final String? helper;
+  final String? errorText;
+
+  @override
+  Widget build(BuildContext context) {
+    final empty = value.isEmpty;
+    return _FieldFrame(
+      label: label,
+      helper: helper,
+      errorText: errorText,
+      child: GestureDetector(
+        key: fieldKey,
+        behavior: HitTestBehavior.opaque,
+        onTap: onTap,
+        child: Container(
+          height: 44,
+          padding: const EdgeInsets.symmetric(horizontal: 12),
+          decoration: BoxDecoration(
+            color: settingsControlFill,
+            borderRadius: BorderRadius.circular(10),
+          ),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  empty ? placeholder : value,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
+                  style: TextStyle(
+                    fontSize: 15,
+                    color: empty ? settingsTertiary : CupertinoColors.white,
+                  ),
+                ),
+              ),
+              const Icon(
+                CupertinoIcons.chevron_down,
+                size: 14,
+                color: settingsSecondary,
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _FieldFrame extends StatelessWidget {
+  const _FieldFrame({
+    required this.label,
+    required this.child,
+    this.helper,
+    this.errorText,
+  });
+
+  final String label;
+  final Widget child;
+  final String? helper;
+  final String? errorText;
+
+  @override
+  Widget build(BuildContext context) {
+    final note = errorText ?? helper;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        settingsPagePadding,
+        0,
+        settingsPagePadding,
+        12,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(label, style: settingsFieldLabelStyle),
+          const SizedBox(height: 6),
+          child,
+          if (note != null)
+            Padding(
+              padding: const EdgeInsets.only(top: 6),
+              child: Text(
+                note,
+                style: errorText != null
+                    ? settingsErrorStyle
+                    : settingsHintStyle,
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+}
+
+/// The line that says why a save didn't happen — the provider's own words,
+/// under the fields they point at rather than in an alert over them.
+class SettingsErrorLine extends StatelessWidget {
+  const SettingsErrorLine({super.key, required this.message});
+
+  final String message;
+
+  @override
+  Widget build(BuildContext context) {
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(
+        settingsPagePadding,
+        4,
+        settingsPagePadding,
+        4,
+      ),
+      child: Row(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          const Padding(
+            padding: EdgeInsets.only(top: 1),
+            child: Icon(
+              CupertinoIcons.exclamationmark_circle,
+              size: 14,
+              color: settingsError,
+            ),
+          ),
+          const SizedBox(width: 6),
+          Expanded(child: Text(message, style: settingsErrorStyle)),
+        ],
+      ),
     );
   }
 }
