@@ -213,14 +213,36 @@
   "settingsBackupFormatFolderNote": "两种格式都仍会上传到同一个「originals/」文件夹——这个名字指的是「原始分辨率」(相对于未来的缩略图/中等尺寸档位),不是「字节级别未经修改」。选择优化上传时,该文件夹里的文件只是扩展名变成 .webp。",
 
   "settingsAppDataHeading": "应用数据",
-  "settingsAppDataHint": "相册、人物、标签、说明和地点——除照片本身以外的一切。只有一个文件，内容变化时重写，重装后会自动取回。可以存到其中一处，也可以两处都存。这不是多设备同步，也绝不包含你的存储密钥。",
+  "settingsAppDataHint": "相册、人物、标签、说明和地点——除照片本身以外的一切。每天一份，只在有改动的那天写出，重装后会自动取回。可以存到其中一处，也可以两处都存。这不是多设备同步，也绝不包含你的存储密钥。",
   "settingsICloudRow": "iCloud 云盘",
   "settingsBucketDataRow": "你的云存储桶",
-  "settingsBucketDataPath": "每个存储桶中的 app-data/YYYYMM.zip",
+  "settingsBucketDataPath": "每个存储桶中的 app-data/YYYYMMDD.zip",
   "settingsBucketDataNoBucket": "请先在下方添加存储桶",
   "settingsICloudPath": "文件 → iCloud 云盘 → Bring Your Own Photos",
   "settingsICloudNever": "尚未备份",
   "settingsICloudLastBackup": "上次备份于 {when}",
+  "settingsAppDataExportButton": "导出文件",
+  "settingsAppDataRestoreButton": "从文件恢复",
+  "settingsAppDataLocalCopies": "本机也留有副本——文件 → 我的 iPhone → Bring Your Own Photos。保留最近 7 天，外加每次大批量改写之前的一份。删除 App 时这些副本也会一并删除。",
+  "settingsAppDataExportFailed": "文件写入失败。请确认存储空间充足后重试。",
+  "settingsAppDataRestoreUnreadable": "该文件不是当前版本能读取的备份。",
+  "settingsAppDataRestoreConfirmTitle": "恢复这份备份？",
+  "settingsAppDataRestoreConfirmBody": "将加入 {when} 的相册、人物、标签和说明。已有内容不会被改动，并会先保存一份今天的副本。",
+  "@settingsAppDataRestoreConfirmBody": {
+    "placeholders": { "when": { "type": "String" } }
+  },
+  "settingsAppDataRestoreConfirmAction": "恢复",
+  "settingsAppDataRestoreDone": "已恢复 {count} 张照片的信息。",
+  "@settingsAppDataRestoreDone": {
+    "placeholders": { "count": { "type": "int" } }
+  },
+  "settingsAppDataRestorePartial": "已恢复 {count} 张照片的信息。另有 {waiting} 张本机已有，保留原有内容。",
+  "@settingsAppDataRestorePartial": {
+    "placeholders": {
+      "count": { "type": "int" },
+      "waiting": { "type": "int" }
+    }
+  },
   "settingsICloudNotEntitled": "此版本未签署 iCloud 权限",
   "settingsICloudDriveOff": "此设备未开启 iCloud 云盘",
   "settingsICloudDriveOffFix": "设置 → 你的姓名 → iCloud → 云盘 → 打开",

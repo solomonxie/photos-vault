@@ -28,6 +28,7 @@ import '../settings/fake_secure_store.dart';
 import '../support/fake_ai_analysis_store.dart';
 import '../support/fake_album_store.dart';
 import '../support/fake_asset_record_store.dart';
+import '../support/fake_local_vault.dart';
 import '../support/fake_person_store.dart';
 import '../support/fake_sync_job_store.dart';
 
@@ -399,6 +400,7 @@ void main() {
           personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           demoAssetsService: _FakeDemoAssetsService(recordStore),
+          vault: FakeLocalVault(),
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
             recordStore: recordStore,
@@ -431,6 +433,7 @@ void main() {
           personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           demoAssetsService: _FakeDemoAssetsService(recordStore),
+          vault: FakeLocalVault(),
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
             recordStore: recordStore,
@@ -462,6 +465,7 @@ void main() {
           personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
           demoAssetsService: _FakeDemoAssetsService(recordStore),
+          vault: FakeLocalVault(),
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
             recordStore: recordStore,

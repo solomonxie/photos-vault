@@ -61,6 +61,16 @@ class ICloudDriveChannel {
       }
     case "latestWriteAt":
       result(latestWriteAt())
+    case "list":
+      result(list())
+    case "delete":
+      guard let arguments = call.arguments as? [String: Any],
+            let name = arguments["name"] as? String
+      else {
+        result(false)
+        return
+      }
+      result(delete(name: name))
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -169,8 +179,35 @@ class ICloudDriveChannel {
     }
   }
 
+  /// Every file in the folder, by name. Pruning happens here rather than
+  /// from the app's own records because the folder is the only thing that
+  /// knows what is really up there — a device restored from a year-old
+  /// backup has no idea.
+  private static func list() -> [String] {
+    guard let root = containerURL() else { return [] }
+    let files = (try? FileManager.default.contentsOfDirectory(
+      at: root, includingPropertiesForKeys: nil
+    )) ?? []
+    return files.map { $0.lastPathComponent }
+  }
+
+  /// Removes one file by name. `lastPathComponent` on the way in, so a
+  /// name carrying `../` can't reach outside the app's own folder.
+  private static func delete(name: String) -> Bool {
+    guard let root = containerURL() else { return false }
+    let file = root.appendingPathComponent(
+      URL(fileURLWithPath: name).lastPathComponent
+    )
+    do {
+      try FileManager.default.removeItem(at: file)
+      return true
+    } catch {
+      return false
+    }
+  }
+
   /// The newest snapshot of the given kind. Names sort by date — the app
-  /// writes one `YYYYMM.zip` per month — so the last name is the newest
+  /// writes one `YYYYMMDD.zip` per day — so the last name is the newest
   /// file without having to stat every one of them.
   private static func latestFile(withExtension ext: String) -> URL? {
     guard let root = containerURL() else { return nil }

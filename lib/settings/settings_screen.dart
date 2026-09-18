@@ -2,10 +2,14 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show MaterialPageRoute;
 import 'package:intl/intl.dart';
 
+import 'package:share_plus/share_plus.dart';
+
 import '../backup/app_snapshot.dart';
 import '../backup/bucket_backup.dart';
 import '../backup/icloud_backup.dart';
 import '../backup/icloud_drive.dart';
+import '../backup/local_vault.dart';
+import '../backup/snapshot_file.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/person_store.dart';
 import '../storage/album_store.dart';
@@ -39,6 +43,8 @@ class SettingsScreen extends StatefulWidget {
     this.openAsset,
     this.icloudBackup,
     this.bucketBackup,
+    this.vault,
+    this.snapshotFile,
   });
 
   final BackupTargetsStore? store;
@@ -69,6 +75,15 @@ class SettingsScreen extends StatefulWidget {
   /// The same copy kept in the user's own bucket. Optional so the screen
   /// still stands alone in tests, which never reach a real bucket.
   final BucketBackup? bucketBackup;
+
+  /// The copy in the app's own container — what the export and restore
+  /// pills go through. Optional so tests can hand in one pointed at a
+  /// temp folder rather than the real container.
+  final LocalVault? vault;
+
+  /// Export to a file, and import one back. Optional so tests can supply a
+  /// stand-in picker rather than opening the system one.
+  final SnapshotFile? snapshotFile;
 
   /// Opens one asset in the photo viewer — what tapping a queue row does.
   /// Owned by `LibraryScreen`, which is where the viewer and the records
@@ -108,28 +123,40 @@ class _SettingsScreenState extends State<SettingsScreen>
         return _retryRecords(due);
       };
 
+  /// One reader of the three stores, shared by every destination on this
+  /// page. They each used to build their own, which meant three sets of
+  /// database handles for one library.
+  late final AppSnapshotIo _snapshots = AppSnapshotIo(
+    assetRecordStore: _assetRecordStore,
+    albumStore: AlbumStore(),
+    personStore: PersonStore(),
+  );
+
   late final ICloudBackup _icloudBackup =
       widget.icloudBackup ??
-      ICloudBackup(
-        settings: _assetRecordStore,
-        snapshots: AppSnapshotIo(
-          assetRecordStore: _assetRecordStore,
-          albumStore: AlbumStore(),
-          personStore: PersonStore(),
-        ),
-      );
+      ICloudBackup(settings: _assetRecordStore, snapshots: _snapshots);
 
   late final BucketBackup _bucketBackup =
       widget.bucketBackup ??
       BucketBackup(
         settings: _assetRecordStore,
         targetsStore: _store,
-        snapshots: AppSnapshotIo(
-          assetRecordStore: _assetRecordStore,
-          albumStore: AlbumStore(),
-          personStore: PersonStore(),
-        ),
+        snapshots: _snapshots,
       );
+
+  /// The copy in the app's own container. Not a destination on this page —
+  /// it dies with the app, and offering it beside two that don't would
+  /// promise something it can't keep. It's here because the export and
+  /// restore pills both go through it.
+  late final LocalVault _vault =
+      widget.vault ??
+      LocalVault(snapshots: _snapshots, settings: _assetRecordStore);
+
+  late final SnapshotFile _snapshotFile =
+      widget.snapshotFile ?? SnapshotFile(snapshots: _snapshots, vault: _vault);
+
+  bool _exporting = false;
+  bool _restoring = false;
 
   ICloudState _icloudState = ICloudState.unsupported;
   bool _icloudEnabled = false;
@@ -558,12 +585,145 @@ class _SettingsScreenState extends State<SettingsScreen>
                   onChanged: targets.isEmpty ? null : _toggleBucketData,
                 ),
         ),
+        const SizedBox(height: 14),
+        _appDataFileControls(l10n),
       ],
     );
   }
 
+  /// The manual door, as pills under the switches rather than as two more
+  /// rows with switches of their own: these are things you press once, not
+  /// arrangements you leave standing.
+  ///
+  /// The copy in the app's own container is a footer line, not a third
+  /// switch. It shares the app's sandbox — deleting the app takes it and
+  /// the library together — so listing it as a destination beside two that
+  /// outlive the app would promise something it can't keep. What it can
+  /// promise is the folder, so the folder is what the line names.
+  Widget _appDataFileControls(AppLocalizations l10n) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: settingsPagePadding),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Wrap(
+          spacing: 8,
+          runSpacing: 8,
+          children: [
+            SettingsPillButton(
+              icon: CupertinoIcons.square_arrow_up,
+              label: l10n.settingsAppDataExportButton,
+              onPressed: _exporting ? null : _exportFile,
+            ),
+            SettingsPillButton(
+              icon: CupertinoIcons.square_arrow_down,
+              label: l10n.settingsAppDataRestoreButton,
+              onPressed: _restoring ? null : _restoreFile,
+            ),
+          ],
+        ),
+        const SizedBox(height: 8),
+        Text(l10n.settingsAppDataLocalCopies, style: settingsFooterStyle),
+      ],
+    ),
+  );
+
   String _formatWhen(DateTime at) =>
       DateFormat.yMMMd().add_jm().format(at.toLocal());
+
+  // -------------------------------------------------------- file in / out
+
+  /// Hands the payload to the share sheet — AirDrop, Files, Mail, whatever
+  /// the user keeps things in. The automatic tiers all answer "I lost my
+  /// phone"; none of them answers "I want the file".
+  Future<void> _exportFile() async {
+    if (_exporting) return;
+    setState(() => _exporting = true);
+    try {
+      final file = await _snapshotFile.export();
+      if (!mounted) return;
+      if (file == null) {
+        await _tell(AppLocalizations.of(context)!.settingsAppDataExportFailed);
+        return;
+      }
+      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+    } finally {
+      if (mounted) setState(() => _exporting = false);
+    }
+  }
+
+  /// Pick, confirm, merge. The confirmation is here rather than inside
+  /// [SnapshotFile] because it belongs at the point of action, in the
+  /// user's language, restating what the thing about to happen does.
+  Future<void> _restoreFile() async {
+    if (_restoring) return;
+    setState(() => _restoring = true);
+    try {
+      final snapshot = await _snapshotFile.pick();
+      if (!mounted || snapshot == null) return;
+      final l10n = AppLocalizations.of(context)!;
+      if (snapshot.isEmpty) {
+        await _tell(l10n.settingsAppDataRestoreUnreadable);
+        return;
+      }
+      if (!await _confirmRestore(snapshot)) return;
+      final restored = await _snapshotFile.restore(snapshot);
+      if (!mounted) return;
+      // Says what didn't land as well as what did. A file whose photos
+      // aren't on this phone yet still restores their captions and tags —
+      // the records are there, waiting for a sync to match them up — and
+      // reporting only the matches would read as a half-failed import.
+      await _tell(
+        restored == snapshot.assets.length
+            ? l10n.settingsAppDataRestoreDone(restored)
+            : l10n.settingsAppDataRestorePartial(
+                restored,
+                snapshot.assets.length - restored,
+              ),
+      );
+      await _reload();
+    } finally {
+      if (mounted) setState(() => _restoring = false);
+    }
+  }
+
+  Future<bool> _confirmRestore(AppSnapshot snapshot) async {
+    final l10n = AppLocalizations.of(context)!;
+    final answer = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(l10n.settingsAppDataRestoreConfirmTitle),
+        content: Text(
+          l10n.settingsAppDataRestoreConfirmBody(
+            DateFormat.yMMMd().format(snapshot.exportedAt.toLocal()),
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.settingsAppDataRestoreConfirmAction),
+          ),
+        ],
+      ),
+    );
+    return answer ?? false;
+  }
+
+  Future<void> _tell(String message) => showCupertinoDialog<void>(
+    context: context,
+    builder: (dialogContext) => CupertinoAlertDialog(
+      content: Text(message),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: Text(AppLocalizations.of(context)!.actionOk),
+        ),
+      ],
+    ),
+  );
 
   /// Buckets and the settings that govern them, in one section. They were
   /// two headings for one subject, and the settings half had nothing to

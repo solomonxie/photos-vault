@@ -8,14 +8,18 @@ own sheet, and the queue opens over this page.
  ‹           Cloud Settings
  App Data
  Albums, people, tags, captions and places — everything that isn't the
- photo itself. One file, rewritten when it changes and pulled back
- automatically if you reinstall.
+ photo itself. Copied out once a day, on the days something changed,
+ and pulled back automatically if you reinstall.
  ┌───┐ iCloud Drive                                        ─●
  │ ☁ │ Files → iCloud Drive → Bring Your Own Photos
  └───┘ Last copy 2 hours ago
  ┌───┐ Your Cloud Bucket                                   ─●
- │ ▣ │ app-data/YYYYMM.zip in every bucket
+ │ ▣ │ app-data/YYYYMMDD.zip in every bucket
  └───┘ Nothing backed up yet
+ [ ⇧ Export File ]  [ ⇩ Restore from File ]   ← press-once, so pills
+ Also kept on this iPhone — Files → On My iPhone → Bring Your
+ Own Photos. The last 7 days, plus a copy taken before anything
+ that rewrites a lot at once. Deleting the app deletes those too.
  ══════════════════════════════════════════════════════════
  Cloud                                                    ⊕
  Photos upload to storage you own. Credentials stay on this device and go
@@ -35,6 +39,66 @@ Pills, not bare accent words, for the things you come here to press. A pill
 says where to put your thumb — and one block of them under the list reads as
 a toolbar for it, where a column of one-control rows read as a pile. Speed
 keeps the pill shape with a stepper inside: it's a dial, not a list.
+
+## Three tiers, two switches
+
+The copy in the app's own container is a **footer line, never a third
+switch**. It shares the app's sandbox — deleting the app takes it and the
+library together — so standing it beside two destinations that outlive the
+app would promise something it can't keep. What it *can* promise is a
+folder you can open, so the folder is what the line names.
+
+```
+ tier          answers                        switch?
+ ─────────────────────────────────────────────────────────────
+ this iPhone   "that import was a mistake"    no — a footer line
+ iCloud Drive  "I reinstalled"                yes
+ your bucket   "what did March look like?"    yes
+```
+
+Nothing is a *choice* between destinations: two switches, both allowed on.
+A segmented "iCloud / bucket" would make the user pick when the answer is
+"both".
+
+## Export and restore
+
+```
+ [ ⇧ Export File ]                    [ ⇩ Restore from File ]
+        │                                      │
+        ▼                                      ▼
+ [ share sheet · OS ]                   [ Files picker · OS ]
+ bring-your-own-photos-2026-09-18.zip          │
+ AirDrop · Files · Mail                        ▼
+                                 ┌──────────────────────────────────┐
+                                 │ Restore this backup?             │
+                                 │ Adds the albums, people, tags    │
+                                 │ and captions from Sep 12.        │
+                                 │ Nothing already here is changed, │
+                                 │ and a copy of today is saved     │
+                                 │ first.                           │
+                                 │      ( Cancel )   ( Restore )    │
+                                 └──────────────────────────────────┘
+                                                │
+                                                ▼
+                                 "Restored 184 photos' details.
+                                  26 were already here and kept
+                                  what they had."
+```
+
+The confirmation sits at the point of action and restates what the thing
+about to happen does — not "are you sure", which tells the user nothing
+they didn't already know. What it adds is the date in the file and the two
+facts they can't see: nothing already here is overwritten, and a copy of
+today goes in the folder first.
+
+The result line reports what *didn't* land as well as what did. A file
+whose photos aren't on this phone yet still restores their captions and
+tags; saying only "184 restored" out of 210 reads as a half-failed import.
+
+The one restore with no confirmation is a fresh install pulling its own
+data back. There is nothing to overwrite and no context yet for the
+question — and getting the library's work back is the whole point of
+having taken the copy.
 
 ## Blocked iCloud, all four
 

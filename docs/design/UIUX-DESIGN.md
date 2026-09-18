@@ -442,12 +442,32 @@ fix:  autocorrect off · smart quotes off · smart dashes off
 ```
 
 
-### Local backup
+### Backup and restore
 
-must natively support backup all configs and app data to mobile local storage, and can import from it.
-Purpose is to survive phone change, app reinstall...
-And can support cloud bucket backup if confirmed in design.
+One payload, three tiers, two front ends. The file the share sheet hands
+out, the one in iCloud Drive and the one in the bucket are the same bytes —
+only the destination differs. See `uiux/cloud.md` for the screen.
 
+```
+backup.zip
+├── library.json     version, user-authored data, connection list (no secrets)
+└── change-log.json  every row write since the log began
+```
+
+| Tier | Answers | Survives deleting the app | Cadence | Retention |
+|---|---|---|---|---|
+| **App container** (incl. the Files-visible Documents folder) | data still there but now **wrong**: bad import, bad reseed | No | on background, max daily; plus one before any big operation | **7 days by age** |
+| **iCloud Drive** | phone lost or app reinstalled; also "let me see the file" | Yes | daily, only if changed | **latest 10**, prune older |
+| **Object bucket** | everything else, plus "what did March look like" | Yes | daily, only if changed | **never deleted** |
+
+- **Tier 1 not surviving deletion is a different job, not a weakness.** It's the only copy that is instant, offline and fine-grained. Most real data loss is not a lost phone — it's an operation that did what you asked on data you didn't mean. So it is never listed as a *destination*: it dies with the app, and offering it beside two that don't would promise something it can't keep.
+- **A large operation earns its own file, out of band.** Before a restore or a demo reseed, an extra zip under a distinct name (`…-before-restore-<ts>.zip`) so the daily overwrite can't eat it. This is the copy that actually gets used: the bad import happens minutes after the rolling copy captured the good state — or hours after, having captured nothing.
+- **Prune tier 1 by age, tier 2 by count.** Once an operation can add files, a count silently caps how many imports you get before losing yesterday; age keeps the promise legible ("anything from the last week"). Tier 2 inverts it because the user pays for that storage, and a count is what bounds the bill. Tier 3 deletes nothing — write-only credentials are the common case and the right default: a bucket this app can't delete from can't be wiped by a bug in this app.
+- **One schedule gate for every off-device tier**: daily, and only if the change log's high-water mark moved. Kept per destination, and recorded **only after a successful upload** — record it before, and a failed upload is remembered as done, so the next day's gate sees no change and skips indefinitely.
+- **The log is written by SQLite triggers, not by hand.** Forty-odd write sites across three databases; a log missing the one nobody remembered to record is worse than no log, because it looks complete. It travels inside the zip so the record outlives the phone, but is never replayed on restore — its ids were remapped on the way in.
+- **Copy the database with the WAL folded in** (`PRAGMA wal_checkpoint(FULL)`), or the copy is missing the newest writes. Raw `.db` copies, not zips: they restore by a file swap, and they're the only copy that survives a *schema* problem, which no row-level undo can fix.
+- **The dangerous direction is a bad local state overwriting a good remote copy**, not the reverse. Which is why the tiers lean as they do: tier 1 makes "undo the bad thing" possible without touching a remote copy, tier 3 can't delete, and restore only ever *adds* — a photo already tracked keeps what it has.
+- **Never credentials.** Keychain only, and the hint says so.
 - **Know what survives a reinstall, because it isn't what you'd guess.** On iOS the app's container — database, caches, files — is deleted on uninstall, while **Keychain items survive it**. Put a flag in secure storage and it outlives the records it describes: reinstall, and the app is certain it has already seeded a library that is now empty. Keep state next to the data it's about (same database file), and keep secrets in the Keychain, which is the one thing worth surviving.
 - Never record a file by its picker/temp path. Copy into app-owned storage (hash-named) before recording.
 - Never treat an absolute path as a durable handle: container UUIDs change on reinstall. Re-resolve by filename, and heal stale records on read.

@@ -16,7 +16,9 @@ import 'package:http/http.dart' as http;
 
 import '../support/fake_album_store.dart';
 import '../support/fake_asset_record_store.dart';
+import '../support/fake_local_vault.dart';
 import '../support/fake_person_store.dart';
+import '../support/fake_snapshot_file.dart';
 import '../support/fake_sync_job_store.dart';
 import 'fake_secure_store.dart';
 
@@ -71,7 +73,99 @@ Future<BackupTargetsStore> _storeWithBucket({String prefix = 'p/'}) async {
   );
 }
 
+/// One snapshot, and the fake pair the screen drives it through.
+({FakeSnapshotFile file, FakeLocalVault vault}) _pickedFile(
+  AppSnapshot snapshot,
+) {
+  final vault = FakeLocalVault();
+  return (vault: vault, file: FakeSnapshotFile(vault: vault, picked: snapshot));
+}
+
 void main() {
+  testWidgets('restoring a file says what it will do before it does it', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final assets = FakeAssetRecordStore();
+    final (:file, :vault) = _pickedFile(
+      AppSnapshot(
+        version: AppSnapshot.currentVersion,
+        exportedAt: DateTime(2026, 9, 12),
+        assets: const [
+          {'localId': 'a', 'contentHash': 'h', 'platform': 'ios'},
+        ],
+        albums: const [],
+        people: const [],
+      ),
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(
+          store: BackupTargetsStore(store: FakeSecureStore()),
+          assetRecordStore: assets,
+          vault: vault,
+          snapshotFile: file,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Restore from File'));
+    await tester.pumpAndSettle();
+
+    // The date in the file, and the two facts the user can't see for
+    // themselves: nothing here is overwritten, and a copy goes first.
+    expect(find.text('Restore this backup?'), findsOneWidget);
+    expect(find.textContaining('Sep 12, 2026'), findsOneWidget);
+    expect(find.textContaining('Nothing already here is changed'), findsOne);
+
+    await tester.tap(find.text('Restore'));
+    await tester.pumpAndSettle();
+
+    expect(vault.guards, ['restore']);
+    expect(file.restored.single.assets.single['localId'], 'a');
+    expect(find.textContaining("Restored 1 photos' details"), findsOneWidget);
+  });
+
+  testWidgets('backing out of the confirmation restores nothing', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final assets = FakeAssetRecordStore();
+    final (:file, :vault) = _pickedFile(
+      AppSnapshot(
+        version: AppSnapshot.currentVersion,
+        exportedAt: DateTime(2026, 9, 12),
+        assets: const [
+          {'localId': 'a', 'contentHash': 'h', 'platform': 'ios'},
+        ],
+        albums: const [],
+        people: const [],
+      ),
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(
+          store: BackupTargetsStore(store: FakeSecureStore()),
+          assetRecordStore: assets,
+          vault: vault,
+          snapshotFile: file,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Restore from File'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    expect(vault.guards, isEmpty);
+    expect(file.restored, isEmpty);
+  });
+
   testWidgets('app data offers the bucket as a second destination', (
     tester,
   ) async {
@@ -99,7 +193,7 @@ void main() {
 
     expect(
       bucket.objects.keys.single,
-      '/p/app-data/${monthlyArchiveName(DateTime.now())}',
+      '/p/app-data/${dailyArchiveName(DateTime.now())}',
     );
     expect(await bucket.backup.isEnabled(), isTrue);
   });
