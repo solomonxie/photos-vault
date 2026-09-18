@@ -26,19 +26,18 @@
 	<string>$(FLUTTER_BUILD_NUMBER)</string>
 	<key>LSApplicationQueriesSchemes</key>
 	<array>
-		<!-- "Edit in Photos" (DetailScreen) checks this before launching it. -->
 		<string>photos-redirect</string>
 	</array>
 	<key>LSRequiresIPhoneOS</key>
 	<true/>
+	<key>NSPhotoLibraryAddUsageDescription</key>
+	<string>Used to put a photo back into Photos when you take it out of a hidden album.</string>
+	<key>NSPhotoLibraryUsageDescription</key>
+	<string>Used to back up your photos and videos to your own S3 bucket.</string>
 	<key>NSUbiquitousContainers</key>
 	<dict>
 		<key>iCloud.com.solomonxie.backYourOwnPhotos</key>
 		<dict>
-			<!-- Document scope, so the folder is one the user can actually
-			     open in Files. A container that syncs but stays hidden is
-			     worse than a local file: the backup is there and they can't
-			     get at it. -->
 			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
 			<true/>
 			<key>NSUbiquitousContainerName</key>
@@ -47,10 +46,6 @@
 			<string>Any</string>
 		</dict>
 	</dict>
-	<key>NSPhotoLibraryUsageDescription</key>
-	<string>Used to back up your photos and videos to your own S3 bucket.</string>
-	<key>NSPhotoLibraryAddUsageDescription</key>
-	<string>Used to put a photo back into Photos when you take it out of a hidden album.</string>
 	<key>UIApplicationSceneManifest</key>
 	<dict>
 		<key>UIApplicationSupportsMultipleScenes</key>

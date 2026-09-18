@@ -116,6 +116,8 @@ class _CustomFieldsEditorState extends State<CustomFieldsEditor> {
                           width: 100,
                           child: CupertinoTextField.borderless(
                             controller: _rows[i].label,
+                            onTapOutside: (_) =>
+                                FocusManager.instance.primaryFocus?.unfocus(),
                             placeholder: l10n.customFieldsLabelPlaceholder,
                             padding: EdgeInsets.zero,
                             style: const TextStyle(
@@ -128,6 +130,8 @@ class _CustomFieldsEditorState extends State<CustomFieldsEditor> {
                           child: CupertinoTextField.borderless(
                             controller: _rows[i].value,
                             textAlign: TextAlign.end,
+                            onTapOutside: (_) =>
+                                FocusManager.instance.primaryFocus?.unfocus(),
                             placeholder: l10n.customFieldsValuePlaceholder,
                             padding: EdgeInsets.zero,
                             onChanged: (_) => _emit(),

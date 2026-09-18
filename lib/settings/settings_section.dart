@@ -16,6 +16,9 @@ const settingsSecondary = Color(0x99EBEBF5);
 const settingsTertiary = Color(0x4DEBEBF5);
 const settingsSeparator = Color(0xA6545458);
 
+/// The fill behind a pill-shaped control — one step lighter than the page.
+const settingsControlFill = Color(0xFF2C2C2E);
+
 const settingsHeadingStyle = TextStyle(
   fontSize: 20,
   fontWeight: FontWeight.w700,
@@ -52,6 +55,10 @@ const settingsRowDetailStyle = TextStyle(
   fontSize: 12,
   color: settingsSecondary,
 );
+
+/// The right-hand side of a row that carries a value rather than a switch
+/// — same size as the title, muted, iOS-style.
+const settingsRowValueStyle = TextStyle(fontSize: 15, color: settingsSecondary);
 
 const settingsFooterStyle = TextStyle(fontSize: 12, color: settingsSecondary);
 
@@ -306,7 +313,7 @@ class SettingsPillButton extends StatelessWidget {
       padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
       minimumSize: const Size(0, 34),
       borderRadius: BorderRadius.circular(17),
-      color: const Color(0xFF2C2C2E),
+      color: settingsControlFill,
       onPressed: onPressed,
       child: Row(
         mainAxisSize: MainAxisSize.min,
@@ -315,6 +322,84 @@ class SettingsPillButton extends StatelessWidget {
           const SizedBox(width: 6),
           Text(label, style: TextStyle(fontSize: 13, color: color)),
         ],
+      ),
+    );
+  }
+}
+
+/// A number you nudge and watch, in the shape of the pills beside it:
+/// `[ − 1 at a time + ]`. A menu would be wrong for it — the value is a
+/// dial, not a choice from a list.
+class SettingsStepper extends StatelessWidget {
+  const SettingsStepper({
+    super.key,
+    required this.label,
+    required this.onDecrease,
+    required this.onIncrease,
+    this.decreaseSemanticLabel,
+    this.increaseSemanticLabel,
+  });
+
+  final String label;
+  final VoidCallback? onDecrease;
+  final VoidCallback? onIncrease;
+  final String? decreaseSemanticLabel;
+  final String? increaseSemanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      height: 34,
+      decoration: BoxDecoration(
+        color: settingsControlFill,
+        borderRadius: BorderRadius.circular(17),
+      ),
+      child: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          _StepperButton(
+            icon: CupertinoIcons.minus,
+            onPressed: onDecrease,
+            semanticLabel: decreaseSemanticLabel,
+          ),
+          Text(
+            label,
+            style: const TextStyle(fontSize: 13, color: settingsSecondary),
+          ),
+          _StepperButton(
+            icon: CupertinoIcons.plus,
+            onPressed: onIncrease,
+            semanticLabel: increaseSemanticLabel,
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+class _StepperButton extends StatelessWidget {
+  const _StepperButton({
+    required this.icon,
+    required this.onPressed,
+    this.semanticLabel,
+  });
+
+  final IconData icon;
+  final VoidCallback? onPressed;
+  final String? semanticLabel;
+
+  @override
+  Widget build(BuildContext context) {
+    return CupertinoButton(
+      padding: EdgeInsets.zero,
+      minimumSize: const Size(38, 34),
+      borderRadius: BorderRadius.zero,
+      onPressed: onPressed,
+      child: Icon(
+        icon,
+        size: 15,
+        semanticLabel: semanticLabel,
+        color: onPressed == null ? settingsTertiary : settingsAccent,
       ),
     );
   }

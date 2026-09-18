@@ -1,8 +1,12 @@
 import 'package:bring_your_own_photos/backup/app_snapshot.dart';
 import 'package:bring_your_own_photos/backup/icloud_backup.dart';
 import 'package:bring_your_own_photos/backup/icloud_drive.dart';
+import 'package:bring_your_own_photos/backup/snapshot_archive.dart';
 import 'package:bring_your_own_photos/photos/person.dart';
 import 'package:bring_your_own_photos/storage/asset_record.dart';
+
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -17,6 +21,7 @@ class _FakeDrive implements ICloudDrive {
 
   ICloudState state;
   final files = <String, String>{};
+  final archives = <String, Uint8List>{};
 
   @override
   Future<ICloudState> status() async => state;
@@ -29,6 +34,13 @@ class _FakeDrive implements ICloudDrive {
   }
 
   @override
+  Future<bool> writeBytes(String name, Uint8List bytes) async {
+    if (state != ICloudState.available) return false;
+    archives[name] = bytes;
+    return true;
+  }
+
+  @override
   Future<String?> readLatest() async {
     if (files.isEmpty) return null;
     final newest = files.keys.toList()..sort();
@@ -36,8 +48,15 @@ class _FakeDrive implements ICloudDrive {
   }
 
   @override
+  Future<Uint8List?> readLatestBytes() async {
+    if (archives.isEmpty) return null;
+    final newest = archives.keys.toList()..sort();
+    return archives[newest.last];
+  }
+
+  @override
   Future<DateTime?> latestWriteAt() async =>
-      files.isEmpty ? null : DateTime(2026, 9, 17);
+      files.isEmpty && archives.isEmpty ? null : DateTime(2026, 9, 17);
 }
 
 ({
@@ -88,8 +107,8 @@ void main() {
     expect(await backup.isEnabled(), isTrue);
     // Flipping it on backed up at once, rather than waiting for the next
     // change — which could be days off.
-    expect(drive.files, hasLength(1));
-    expect(drive.files.keys.single, ICloudBackup.fileName);
+    expect(drive.archives, hasLength(1));
+    expect(drive.archives.keys.single, monthlyArchiveName(DateTime.now()));
   });
 
   test('a reinstall gets its library back without being asked', () async {
@@ -235,7 +254,11 @@ void main() {
       await backup.backUpNow();
       await backup.backUpNow();
 
-      expect(drive.files.keys.toList(), [ICloudBackup.fileName]);
+      // Same month, same file: a backup twice in September is one
+      // September.
+      expect(drive.archives.keys.toList(), [
+        monthlyArchiveName(DateTime.now()),
+      ]);
     },
   );
 

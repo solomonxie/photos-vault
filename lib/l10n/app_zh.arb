@@ -136,6 +136,7 @@
   "selectionSetEvent": "设置事件",
   "selectionAdjustDateTime": "调整日期",
   "selectionDelete": "删除",
+  "selectionMore": "更多",
   "selectionDeleteConfirmTitle": "删除 {count} 张照片？",
   "selectionDone": "完成",
   "selectionHint": "长按照片可继续多选。",
@@ -185,8 +186,9 @@
   "backupQueueCheckingMessage": "{count, plural, other{正在检查 {count} 张照片是否有更改…}}",
 
   "settingsCloudSyncHeading": "云同步",
-  "settingsSyncSchedule": "计划：{value}",
-  "settingsBackupFormatLabel": "格式：{value}",
+  "settingsSyncScheduleRow": "计划",
+  "settingsBackupFormatRow": "格式",
+  "settingsSyncSpeedRow": "上传速度",
   "settingsSyncFrequencyHeading": "同步频率",
   "settingsSyncFrequencyHint": "仅在应用打开时才会择机检查——目前还没有后台同步权限,应用未打开时不会自动同步。",
   "settingsSyncFrequencyManual": "仅手动",
@@ -211,8 +213,11 @@
   "settingsBackupFormatFolderNote": "两种格式都仍会上传到同一个「originals/」文件夹——这个名字指的是「原始分辨率」(相对于未来的缩略图/中等尺寸档位),不是「字节级别未经修改」。选择优化上传时,该文件夹里的文件只是扩展名变成 .webp。",
 
   "settingsAppDataHeading": "应用数据",
-  "settingsAppDataHint": "相册、人物、标签、说明和地点——除照片本身以外的一切。每天写入一份到你的 iCloud 云盘，重装后会自动取回。这不是多设备同步，也绝不包含你的存储密钥。",
+  "settingsAppDataHint": "相册、人物、标签、说明和地点——除照片本身以外的一切。只有一个文件，内容变化时重写，重装后会自动取回。可以存到其中一处，也可以两处都存。这不是多设备同步，也绝不包含你的存储密钥。",
   "settingsICloudRow": "iCloud 云盘",
+  "settingsBucketDataRow": "你的云存储桶",
+  "settingsBucketDataPath": "每个存储桶中的 app-data/YYYYMM.zip",
+  "settingsBucketDataNoBucket": "请先在下方添加存储桶",
   "settingsICloudPath": "文件 → iCloud 云盘 → Bring Your Own Photos",
   "settingsICloudNever": "尚未备份",
   "settingsICloudLastBackup": "上次备份于 {when}",
@@ -221,6 +226,12 @@
   "settingsICloudDriveOffFix": "设置 → 你的姓名 → iCloud → 云盘 → 打开",
   "settingsICloudNotReady": "iCloud 尚未就绪，请稍后再试",
   "settingsCloudBucketsHeading": "云存储桶",
+  "settingsCloudHeading": "云端",
+  "settingsCloudHint": "照片会上传到你自己的存储空间。凭据只保存在本机,直接发往存储桶。仅在应用打开时同步——目前还没有后台同步权限。",
+  "settingsSyncQueueButton": "队列({count})",
+  "@settingsSyncQueueButton": {
+    "placeholders": {"count": {"type": "int"}}
+  },
   "settingsEmptyTitle": "暂无云存储桶",
   "settingsEmptyNote": "添加一个以开始备份您的照片和视频。",
   "settingsAddButton": "添加云存储桶",
@@ -240,12 +251,34 @@
   "settingsDeleteConnectionAction": "删除连接",
   "backupQueueHiddenItem": "隐藏的照片",
   "collectionsSyncQueueRow": "同步队列",
+  "collectionsAnalyzeQueueRow": "分析队列",
+  "analyzeQueueRemaining": "{count, plural, =0{没有待分析的照片} other{{count} 张待分析}}",
+  "@analyzeQueueRemaining": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "analyzeQueueListHeading": "队列中",
+  "analyzeQueueEmpty": "没有待分析的照片。新照片会自动加入队列。",
+  "analyzeQueueScanRow": "照片图库",
+  "analyzeQueueStepScan": "重新读取「照片」中的新增与改动",
+  "analyzeQueueStepFaces": "寻找人脸",
+  "analyzeQueueStepSuggest": "请 AI 生成标签与描述",
+  "analyzeQueueFrequencyHeading": "运行频率",
+  "analyzeQueueFrequencyHint": "仅在应用打开时运行，每次几张——它本来就该慢慢来。",
+  "analyzeQueuePaidTitle": "标签、事件与描述",
+  "analyzeQueuePaidNote": "每张照片会调用一次你的 AI 服务商，按量计费。人脸识别与图库扫描始终免费。",
+  "analyzeQueuePaidNoKey": "请先在「工具 → AI 设置」中添加 AI 密钥。",
+  "analyzeReviewSuggestionTitle": "建议",
+  "analyzeReviewSuggestedEvent": "事件：{value}",
+  "@analyzeReviewSuggestedEvent": {
+    "placeholders": {"value": {"type": "String"}}
+  },
+  "analyzeReviewAccept": "保留",
+  "analyzeReviewDismiss": "不用了",
   "settingsSyncQueueRow": "同步队列",
-  "settingsSyncQueuePending": "{pending} 个待处理 · 每次 {concurrency} 个",
+  "settingsSyncQueuePending": "{pending} 个待处理",
   "@settingsSyncQueuePending": {
     "placeholders": {
-      "pending": {"type": "int"},
-      "concurrency": {"type": "int"}
+      "pending": {"type": "int"}
     }
   },
   "settingsLastSyncedAt": "上次同步于 {time}",

@@ -1,5 +1,4 @@
 import '../storage/asset_record.dart';
-import 'ai_analysis.dart';
 import 'ai_analysis_store.dart';
 import 'on_device_vision.dart';
 
@@ -34,14 +33,13 @@ class OnDeviceAnalysisService {
         .where((f) => f.area >= minFaceArea)
         .toList();
     if (faces.isEmpty) return faces;
-    // The count is what the People/Events smart collections read.
-    await analysisStore.save(
-      AiPhotoAnalysis(
-        localId: record.localId,
-        peopleCount: faces.length,
-        eventLabel: '',
-        analyzedAt: DateTime.now(),
-      ),
+    // The count is what the People/Events smart collections read. Written
+    // on its own so a suggestion waiting to be reviewed on the same photo
+    // isn't overwritten by a pass that knows nothing about it.
+    await analysisStore.saveFaceCount(
+      localId: record.localId,
+      peopleCount: faces.length,
+      analyzedAt: DateTime.now(),
     );
     return faces;
   }

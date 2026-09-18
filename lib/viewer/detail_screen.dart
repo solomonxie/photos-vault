@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/gestures.dart' show VelocityTracker;
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 import 'package:intl/intl.dart';
@@ -16,6 +17,7 @@ import '../photos/ai_touch_up_queue.dart';
 import '../photos/derived_asset.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
+import '../photos/ai_analysis.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/ai_vision_service.dart';
 import '../photos/face_crops.dart';
@@ -23,6 +25,7 @@ import '../photos/on_device_analysis.dart';
 import '../photos/on_device_vision.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
+import '../photos/suggestion_review.dart';
 import '../settings/backup_targets_store.dart';
 import 'asset_grid.dart';
 import '../storage/album.dart';
@@ -160,11 +163,54 @@ class _DetailScreenState extends State<DetailScreen> {
   /// stands down while it is: one drag, one meaning.
   bool _pulling = false;
 
+  /// How far that pull has got, 0 to 1 — `null` when there isn't one.
+  ///
+  /// A notifier rather than state because it changes every frame of the
+  /// drag, and rebuilding the pager (and with it both pages and their info
+  /// panels) sixty times a second to fade a toolbar is how a gesture that
+  /// should feel attached to the finger starts to stutter. Only the chrome
+  /// and the backdrop listen.
+  final ValueNotifier<double?> _pull = ValueNotifier(null);
+
+  void _onPull(double? progress) {
+    _pull.value = progress;
+    final pulling = progress != null;
+    if (pulling == _pulling) return;
+    setState(() => _pulling = pulling);
+    // What's underneath has to be *there* to be dragged away from. The
+    // route is opaque the rest of the time so the grid below isn't being
+    // painted under a photo that covers it.
+    _setBackdropVisible(pulling);
+    // The pager had already taken a few pixels of this drag before it
+    // turned out to be a pull, and cancelling its drag leaves it parked
+    // off-centre. Put it back on the page it was on.
+    if (!pulling) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || !_pageController.hasClients) return;
+        _pageController.animateToPage(
+          _index,
+          duration: const Duration(milliseconds: 180),
+          curve: Curves.easeOut,
+        );
+      });
+    }
+  }
+
+  void _setBackdropVisible(bool visible) {
+    final route = ModalRoute.of(context);
+    if (route == null || route.overlayEntries.isEmpty) return;
+    // Mid-transition the route is already see-through and owns the flag —
+    // taking it back here would cut the opening animation short.
+    if (!(route.animation?.isCompleted ?? true)) return;
+    route.overlayEntries.first.opaque = visible ? false : route.opaque;
+  }
+
   @override
   void dispose() {
     for (final controller in _scrollControllers.values) {
       controller.dispose();
     }
+    _pull.dispose();
     super.dispose();
   }
 
@@ -485,64 +531,76 @@ class _DetailScreenState extends State<DetailScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return CupertinoPageScaffold(
-      backgroundColor: _screenBackground,
-      // The keyboard must not relayout the page under it. Resizing shrinks
-      // the full-height media sliver, which drags the photo and everything
-      // under it upward the moment a caption field takes focus — the field
-      // scrolls into view on its own (see the info panel's keyboard
-      // padding), so nothing here needs to move.
-      resizeToAvoidBottomInset: false,
+    return ValueListenableBuilder<double?>(
+      valueListenable: _pull,
+      builder: (context, pull, child) => CupertinoPageScaffold(
+        // The backdrop clears as the photo is pulled off it, so what the
+        // photo is going back to is there underneath rather than appearing
+        // once it's gone.
+        backgroundColor: _screenBackground.withValues(alpha: 1 - (pull ?? 0)),
+        // The keyboard must not relayout the page under it. Resizing
+        // shrinks the full-height media sliver, which drags the photo and
+        // everything under it upward the moment a caption field takes
+        // focus — the field scrolls into view on its own (see the info
+        // panel's keyboard padding), so nothing here needs to move.
+        resizeToAvoidBottomInset: false,
+        child: child!,
+      ),
       child: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceBetween,
-                children: [
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: () => Navigator.of(context).pop(),
-                    child: Text(
-                      l10n.detailDoneButton,
-                      style: const TextStyle(color: CupertinoColors.white),
-                    ),
-                  ),
-                  AnimatedBuilder(
-                    animation: AiTouchUpQueue.instance,
-                    builder: (context, child) =>
-                        AiTouchUpQueue.instance.isRunning(
-                          _records[_index].localId,
-                        )
-                        ? Padding(
-                            padding: const EdgeInsets.symmetric(horizontal: 16),
-                            child: Row(
-                              children: [
-                                const CupertinoActivityIndicator(
-                                  color: CupertinoColors.white,
-                                ),
-                                const SizedBox(width: 8),
-                                Text(
-                                  l10n.aiTouchUpWorking,
-                                  style: const TextStyle(
-                                    color: CupertinoColors.white,
-                                  ),
-                                ),
-                              ],
-                            ),
-                          )
-                        : child!,
-                    child: CupertinoButton(
+            _ChromeFade(
+              pull: _pull,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                  children: [
+                    CupertinoButton(
                       padding: EdgeInsets.zero,
-                      onPressed: _showEditMenu,
+                      onPressed: () => Navigator.of(context).pop(),
                       child: Text(
-                        l10n.detailEditButton,
+                        l10n.detailDoneButton,
                         style: const TextStyle(color: CupertinoColors.white),
                       ),
                     ),
-                  ),
-                ],
+                    AnimatedBuilder(
+                      animation: AiTouchUpQueue.instance,
+                      builder: (context, child) =>
+                          AiTouchUpQueue.instance.isRunning(
+                            _records[_index].localId,
+                          )
+                          ? Padding(
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 16,
+                              ),
+                              child: Row(
+                                children: [
+                                  const CupertinoActivityIndicator(
+                                    color: CupertinoColors.white,
+                                  ),
+                                  const SizedBox(width: 8),
+                                  Text(
+                                    l10n.aiTouchUpWorking,
+                                    style: const TextStyle(
+                                      color: CupertinoColors.white,
+                                    ),
+                                  ),
+                                ],
+                              ),
+                            )
+                          : child!,
+                      child: CupertinoButton(
+                        padding: EdgeInsets.zero,
+                        onPressed: _showEditMenu,
+                        child: Text(
+                          l10n.detailEditButton,
+                          style: const TextStyle(color: CupertinoColors.white),
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
             Expanded(
@@ -561,11 +619,8 @@ class _DetailScreenState extends State<DetailScreen> {
                 onPageChanged: (i) => setState(() => _index = i),
                 itemBuilder: (context, i) => _MediaPage(
                   record: _records[i],
-                  onPullChanged: (pulling) {
-                    if (pulling != _pulling) {
-                      setState(() => _pulling = pulling);
-                    }
-                  },
+                  onPull: _onPull,
+
                   albumStore: widget.albumStore,
                   resolveFile: widget.resolvePhotoManagerFile,
                   resolveLiveVideo: widget.resolveLivePhotoVideo,
@@ -583,51 +638,81 @@ class _DetailScreenState extends State<DetailScreen> {
                 ),
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
-                children: [
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: _showShareSheet,
-                    child: const Icon(
-                      CupertinoIcons.share,
-                      color: CupertinoColors.white,
+            _ChromeFade(
+              pull: _pull,
+              child: Padding(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
+                  children: [
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _showShareSheet,
+                      child: const Icon(
+                        CupertinoIcons.share,
+                        color: CupertinoColors.white,
+                      ),
                     ),
-                  ),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: _toggleFavorite,
-                    child: Icon(
-                      _records[_index].isFavorite
-                          ? CupertinoIcons.heart_fill
-                          : CupertinoIcons.heart,
-                      color: CupertinoColors.white,
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _toggleFavorite,
+                      child: Icon(
+                        _records[_index].isFavorite
+                            ? CupertinoIcons.heart_fill
+                            : CupertinoIcons.heart,
+                        color: CupertinoColors.white,
+                      ),
                     ),
-                  ),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: _revealInfoPanel,
-                    child: const Icon(
-                      CupertinoIcons.info_circle,
-                      color: CupertinoColors.white,
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _revealInfoPanel,
+                      child: const Icon(
+                        CupertinoIcons.info_circle,
+                        color: CupertinoColors.white,
+                      ),
                     ),
-                  ),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: _delete,
-                    child: const Icon(
-                      CupertinoIcons.trash,
-                      color: CupertinoColors.white,
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _delete,
+                      child: const Icon(
+                        CupertinoIcons.trash,
+                        color: CupertinoColors.white,
+                      ),
                     ),
-                  ),
-                ],
+                  ],
+                ),
               ),
             ),
           ],
         ),
       ),
+    );
+  }
+}
+
+/// The toolbars get out of the way while the photo is being dragged —
+/// they belong to the screen, and the screen is on its way out. Quick, so
+/// they're gone by the time the photo has moved any real distance rather
+/// than trailing it down the page.
+class _ChromeFade extends StatelessWidget {
+  const _ChromeFade({required this.pull, required this.child});
+
+  final ValueListenable<double?> pull;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return ValueListenableBuilder<double?>(
+      valueListenable: pull,
+      child: child,
+      builder: (context, progress, child) {
+        final opacity = (1 - (progress ?? 0) * 5).clamp(0.0, 1.0);
+        if (opacity == 1) return child!;
+        return IgnorePointer(
+          ignoring: opacity == 0,
+          child: Opacity(opacity: opacity, child: child),
+        );
+      },
     );
   }
 }
@@ -640,7 +725,7 @@ class _MediaPage extends StatefulWidget {
     required this.onRecordChanged,
     required this.scrollController,
     required this.albumStore,
-    required this.onPullChanged,
+    required this.onPull,
     required this.onZoomChanged,
     this.onDeviceAnalysis,
     this.aiVisionService,
@@ -673,9 +758,10 @@ class _MediaPage extends StatefulWidget {
   /// to use it.
   final ScrollController scrollController;
 
-  /// Tells the pager a pull-to-dismiss is under way, so it stops taking the
-  /// drag sideways while the photo is being pulled down.
-  final ValueChanged<bool> onPullChanged;
+  /// How far the photo has been pulled down, 0 to 1, or `null` when it
+  /// isn't being pulled. The pager stands down while it is, and the chrome
+  /// fades out of the way of what's being dragged.
+  final ValueChanged<double?> onPull;
 
   /// Tells the pager this page is zoomed, so it stops taking the drags that
   /// are meant to move the photo around.
@@ -689,7 +775,8 @@ class _MediaPage extends StatefulWidget {
   State<_MediaPage> createState() => _MediaPageState();
 }
 
-class _MediaPageState extends State<_MediaPage> {
+class _MediaPageState extends State<_MediaPage>
+    with SingleTickerProviderStateMixin {
   VideoPlayerController? _videoController;
   Object? _error;
 
@@ -702,8 +789,11 @@ class _MediaPageState extends State<_MediaPage> {
 
   bool _dismissed = false;
 
-  /// Pull the photo down and it goes back to the grid, same as real Photos
-  /// — and a pull that comes out at an angle is still a pull.
+  /// Drag the photo down and it comes with the finger — sideways too — and
+  /// goes back to the grid when let go of far enough down. Let go of it
+  /// short of that and it springs back. Same as real Photos, and the same
+  /// bargain: the first direction decides what the drag means. Sideways is
+  /// the pager's; downward from the top of the page is the photo's.
   ///
   /// Read straight off the pointer rather than off the scroll view's
   /// overscroll, because that reading was never really about the pull: the
@@ -717,10 +807,19 @@ class _MediaPageState extends State<_MediaPage> {
   /// work: the two accumulate at the same rate, so *any* consistent lean,
   /// even a few degrees, would go to the page instead of the pager and
   /// swiping between photos would stop working. So the fight is left alone
-  /// and the pull is read from the pointer, outside the arena, where the
+  /// and the drag is read from the pointer, outside the arena, where the
   /// only question that matters can be asked directly: did this go down
   /// far enough, and more down than sideways?
+  static const _dragStartDistance = 24.0;
+
+  /// Past this, letting go dismisses; short of it, the photo springs back.
   static const _dismissPullDistance = 64.0;
+
+  /// A flick lets go early — the photo is already on its way out, and
+  /// holding it to the full distance would feel like it caught on
+  /// something.
+  static const _dismissFlickVelocity = 700.0;
+  static const _dismissFlickDistance = 40.0;
 
   /// How much of the drag is allowed to be sideways. A thumb pulling down
   /// swings through an arc, so demanding it go down further than it goes
@@ -729,8 +828,34 @@ class _MediaPageState extends State<_MediaPage> {
   /// next photo unmistakable.
   static const _dismissPullLean = 0.7;
 
+  /// The distance over which the photo shrinks and the backdrop clears.
+  /// Longer than the dismiss threshold on purpose: the photo should still
+  /// be growing smaller in the hand well past the point of no return.
+  static const _dragVisualRun = 240.0;
+
   int _pointers = 0;
+
+  /// Where the downward part of this gesture began — not where the finger
+  /// landed. Re-anchored (see [_onPointerMove]) for as long as the finger
+  /// isn't going down, so a pull that starts part-way through a sideways
+  /// swipe is measured from the turn rather than from the start.
   Offset? _pullOrigin;
+  VelocityTracker? _velocity;
+
+  /// Where the photo currently sits under the finger. A notifier, not
+  /// state: only the transform around the page needs to rebuild per frame,
+  /// not the page (and its info panel) inside it.
+  final ValueNotifier<Offset> _drag = ValueNotifier(Offset.zero);
+
+  /// True once the drag has been claimed — the pager and the scroll view
+  /// both stand down for the rest of it.
+  bool _dragging = false;
+
+  late final AnimationController _settle = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 240),
+  );
+  Animation<Offset>? _settleTween;
 
   /// Only from the top of the page: further down, a drag downward is the
   /// info panel being put back, not the photo being let go of.
@@ -739,31 +864,98 @@ class _MediaPageState extends State<_MediaPage> {
     return !controller.hasClients || controller.position.pixels <= 0;
   }
 
+  double _progressOf(Offset drag) => (drag.dy / _dragVisualRun).clamp(0.0, 1.0);
+
   void _onPointerDown(PointerDownEvent event) {
     _pointers++;
     // A second finger means a pinch — nobody dismisses a photo with two.
-    _pullOrigin = _pointers > 1 || _zoomed || !_atTop ? null : event.position;
-  }
-
-  void _onPointerMove(PointerMoveEvent event) {
-    final origin = _pullOrigin;
-    if (origin == null || _dismissed) return;
-    final moved = event.position - origin;
-    if (moved.dy < _dismissPullDistance ||
-        moved.dy <= moved.dx.abs() * _dismissPullLean) {
-      return;
-    }
-    if (!_atTop) {
+    if (_pointers > 1 || _zoomed || !_atTop) {
       _pullOrigin = null;
       return;
     }
-    _dismissed = true;
-    Navigator.of(context).pop();
+    _settle.stop();
+    _pullOrigin = event.position;
+    _velocity = VelocityTracker.withKind(event.kind);
+  }
+
+  void _onPointerMove(PointerMoveEvent event) {
+    var origin = _pullOrigin;
+    if (origin == null || _dismissed) return;
+    _velocity?.addPosition(event.timeStamp, event.position);
+    if (!_dragging) {
+      // The anchor follows the finger back up to the highest point it has
+      // reached. A swipe sideways holds its height, so it re-anchors every
+      // frame and never accumulates a sideways component to be measured
+      // against; the moment the finger turns downward, the pull is read
+      // from there. Without this, an L — swipe to the next photo, then
+      // pull it down — could never satisfy the lean test, because the
+      // sideways run was still counted against the downward one.
+      if (event.position.dy <= origin.dy) {
+        _pullOrigin = origin = event.position;
+        return;
+      }
+    }
+    final moved = event.position - origin;
+    if (!_dragging) {
+      if (moved.dy < _dragStartDistance ||
+          moved.dy <= moved.dx.abs() * _dismissPullLean) {
+        return;
+      }
+      if (!_atTop) {
+        _pullOrigin = null;
+        return;
+      }
+      setState(() => _dragging = true);
+    }
+    // The distance it took to claim the drag comes back off, so the photo
+    // doesn't jump out from under the finger the moment it's picked up.
+    _setDrag(moved - const Offset(0, _dragStartDistance));
   }
 
   void _onPointerDone(PointerEvent event) {
     if (_pointers > 0) _pointers--;
     _pullOrigin = null;
+    final velocity = _velocity?.getVelocity().pixelsPerSecond ?? Offset.zero;
+    _velocity = null;
+    if (!_dragging || _dismissed) return;
+    final pulled = _drag.value.dy + _dragStartDistance;
+    final flicked =
+        velocity.dy > _dismissFlickVelocity && pulled > _dismissFlickDistance;
+    if (pulled >= _dismissPullDistance || flicked) {
+      // Left where the finger put it: the route's own fade carries it out
+      // from there, rather than snapping back to the middle first.
+      _dismissed = true;
+      Navigator.of(context).pop();
+      return;
+    }
+    _springBack();
+  }
+
+  void _setDrag(Offset value) {
+    _drag.value = value;
+    widget.onPull(_progressOf(value));
+  }
+
+  void _springBack() {
+    _settleTween = Tween<Offset>(
+      begin: _drag.value,
+      end: Offset.zero,
+    ).animate(CurvedAnimation(parent: _settle, curve: Curves.easeOutCubic));
+    _settle
+      ..value = 0
+      ..forward();
+  }
+
+  void _onSettleTick() {
+    final tween = _settleTween;
+    if (tween != null) _setDrag(tween.value);
+  }
+
+  void _onSettleStatus(AnimationStatus status) {
+    if (status != AnimationStatus.completed) return;
+    _settleTween = null;
+    if (mounted) setState(() => _dragging = false);
+    widget.onPull(null);
   }
 
   /// True while the photo is zoomed in. Everything that scrolls has to
@@ -785,6 +977,9 @@ class _MediaPageState extends State<_MediaPage> {
   @override
   void initState() {
     super.initState();
+    _settle
+      ..addListener(_onSettleTick)
+      ..addStatusListener(_onSettleStatus);
     // Cloud-only: nothing local to resolve, and `sourcePath` still points
     // at the deleted file. The cached thumbnail carries the page until the
     // user asks for the original back.
@@ -834,6 +1029,8 @@ class _MediaPageState extends State<_MediaPage> {
   @override
   void dispose() {
     _videoController?.dispose();
+    _settle.dispose();
+    _drag.dispose();
     super.dispose();
   }
 
@@ -906,39 +1103,53 @@ class _MediaPageState extends State<_MediaPage> {
     );
   }
 
-  Widget _media(AppLocalizations l10n) => AnimatedSwitcher(
-    // Short and plain: this covers the moment the exported original
-    // replaces the stand-in, and a cross-fade is the difference between a
-    // photo coming into focus and one photo being swapped for another.
-    duration: const Duration(milliseconds: 180),
-    child: _mediaContent(l10n),
-  );
+  /// The photo, with the cached thumbnail held underneath it until the
+  /// full-size file has painted.
+  ///
+  /// Underneath, not cross-faded against: two half-transparent copies of
+  /// the same picture composited over black come out *dimmer* than either
+  /// of them, so a cross-fade between a photo and itself reads as a flash
+  /// in the middle of it. The stand-in simply stays put and the real photo
+  /// arrives on top of it.
+  Widget _media(AppLocalizations l10n) {
+    final standIn = _standIn();
+    final content = _mediaContent(l10n);
+    if (standIn == null) return content;
+    return Stack(fit: StackFit.expand, children: [standIn, content]);
+  }
+
+  /// The same picture the grid was just showing, screen-sized and
+  /// *contained* — drawn cover, the stand-in is cropped differently from
+  /// the photo that replaces it, so the swap reads as a jump rather than a
+  /// photo sharpening.
+  ///
+  /// `fittedThumbnail` is what makes that true of the pixels and not just
+  /// of the `BoxFit`: the OS hands back a centre-cropped square otherwise,
+  /// and a square drawn `contain` under a photo drawn `contain` is the
+  /// flash — the picture arrives, then re-frames.
+  ///
+  /// Only for stills: a video's controls sit under the frame, and a
+  /// thumbnail behind those is a thumbnail showing through them.
+  Widget? _standIn() {
+    if (widget.record.isVideo || _localDeleted || _error != null) return null;
+    return Center(
+      child: assetImage(
+        widget.record,
+        fit: BoxFit.contain,
+        thumbnailSize: 1200,
+        fittedThumbnail: true,
+        placeholder: () => const ColoredBox(color: CupertinoColors.black),
+      ),
+    );
+  }
 
   Widget _mediaContent(AppLocalizations l10n) {
     if (_localDeleted) return _cloudOnly(l10n);
     final path = _path;
     if (path == null) {
-      if (_resolvingPath) {
-        // The same picture the grid was just showing, rather than a
-        // spinner over black. A camera-roll photo has to be exported out of
-        // the library before it can be shown full-size, which takes about a
-        // second — and for that second the app had nothing on screen but a
-        // loading ring, over a photo the user had already seen.
-        //
-        // Screen-sized and *contained*, not a grid tile blown up: drawn
-        // cover, the stand-in is cropped differently from the photo that
-        // replaces it, so the swap reads as a jump rather than a photo
-        // sharpening. The OS keeps thumbnails at this size, so asking for
-        // one costs about as much as asking for the small one.
-        return Center(
-          child: assetImage(
-            widget.record,
-            fit: BoxFit.contain,
-            thumbnailSize: 1200,
-            placeholder: () => const ColoredBox(color: CupertinoColors.black),
-          ),
-        );
-      }
+      // The stand-in behind this is already showing the photo — see
+      // [_standIn]. Anything drawn here would be drawn on top of it.
+      if (_resolvingPath) return const SizedBox.shrink();
       return _MissingFileNote(message: l10n.detailFileUnavailable);
     }
     if (_error != null) {
@@ -1010,34 +1221,49 @@ class _MediaPageState extends State<_MediaPage> {
       onPointerMove: _onPointerMove,
       onPointerUp: _onPointerDone,
       onPointerCancel: _onPointerDone,
-      child: LayoutBuilder(
-        builder: (context, constraints) => CustomScrollView(
-          controller: widget.scrollController,
-          physics: _zoomed
-              ? const NeverScrollableScrollPhysics()
-              : const BouncingScrollPhysics(),
-          slivers: [
-            SliverToBoxAdapter(
-              child: SizedBox(
-                height: constraints.maxHeight,
-                child: _media(l10n),
+      child: ValueListenableBuilder<Offset>(
+        valueListenable: _drag,
+        // The photo follows the finger and shrinks as it goes — the
+        // shrinking is what says "this is leaving" while it's still in
+        // hand and can still be put back.
+        builder: (context, drag, child) => drag == Offset.zero
+            ? child!
+            : Transform.translate(
+                offset: drag,
+                child: Transform.scale(
+                  scale: 1 - 0.3 * _progressOf(drag),
+                  child: child,
+                ),
               ),
-            ),
-            SliverToBoxAdapter(
-              child: _InfoPanel(
-                record: widget.record,
-                onDeviceAnalysis: widget.onDeviceAnalysis,
-                aiVisionService: widget.aiVisionService,
-                resolvePlaceName: widget.resolvePlaceName,
-                resolvedPath: _path,
-                videoController: _videoController,
-                assetRecordStore: widget.assetRecordStore,
-                personStore: widget.personStore,
-                albumStore: widget.albumStore,
-                onRecordChanged: widget.onRecordChanged,
+        child: LayoutBuilder(
+          builder: (context, constraints) => CustomScrollView(
+            controller: widget.scrollController,
+            physics: _zoomed || _dragging
+                ? const NeverScrollableScrollPhysics()
+                : const BouncingScrollPhysics(),
+            slivers: [
+              SliverToBoxAdapter(
+                child: SizedBox(
+                  height: constraints.maxHeight,
+                  child: _media(l10n),
+                ),
               ),
-            ),
-          ],
+              SliverToBoxAdapter(
+                child: _InfoPanel(
+                  record: widget.record,
+                  onDeviceAnalysis: widget.onDeviceAnalysis,
+                  aiVisionService: widget.aiVisionService,
+                  resolvePlaceName: widget.resolvePlaceName,
+                  resolvedPath: _path,
+                  videoController: _videoController,
+                  assetRecordStore: widget.assetRecordStore,
+                  personStore: widget.personStore,
+                  albumStore: widget.albumStore,
+                  onRecordChanged: widget.onRecordChanged,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     );
@@ -1171,6 +1397,18 @@ class _ZoomableImageState extends State<_ZoomableImage>
             widget.file,
             fit: BoxFit.contain,
             errorBuilder: widget.errorBuilder,
+            // Already decoded (a photo swiped back to) paints at once;
+            // anything else comes up over the stand-in rather than
+            // appearing between two frames.
+            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) =>
+                wasSynchronouslyLoaded
+                ? child
+                : AnimatedOpacity(
+                    opacity: frame == null ? 0 : 1,
+                    duration: const Duration(milliseconds: 160),
+                    curve: Curves.easeOut,
+                    child: child,
+                  ),
           ),
         ),
       ),
@@ -1238,6 +1476,7 @@ class _InfoPanelState extends State<_InfoPanel> {
     _load();
     _loadPeople();
     _loadAlbums();
+    _loadSuggestion();
     _fillLocationFromMetadata();
   }
 
@@ -1251,6 +1490,7 @@ class _InfoPanelState extends State<_InfoPanel> {
       _description.text = widget.record.description;
       _loadPeople();
       _loadAlbums();
+      _loadSuggestion();
       _fillLocationFromMetadata();
     }
   }
@@ -1283,6 +1523,59 @@ class _InfoPanelState extends State<_InfoPanel> {
   void dispose() {
     _description.dispose();
     super.dispose();
+  }
+
+  /// What the analyze pass came back with for *this* photo, if nobody has
+  /// answered it yet. Asked here rather than collected into a list of its
+  /// own: the question is "is this right about this photo?", and only the
+  /// photo screen can show the photo it's about.
+  AiPhotoAnalysis? _suggestion;
+
+  Future<void> _loadSuggestion() async {
+    AiPhotoAnalysis? found;
+    try {
+      final analysis = await _onDeviceAnalysis.analysisStore.get(
+        widget.record.localId,
+      );
+      if (analysis != null && !analysis.reviewed && analysis.hasSuggestions) {
+        found = analysis;
+      }
+    } catch (_) {
+      // No analysis database (a test, a fresh install) — there's simply
+      // nothing to answer.
+    }
+    if (!mounted) return;
+    setState(() => _suggestion = found);
+  }
+
+  Future<void> _keepSuggestion() async {
+    final suggestion = _suggestion;
+    if (suggestion == null) return;
+    await acceptSuggestion(
+      suggestion,
+      records: widget.assetRecordStore,
+      analyses: _onDeviceAnalysis.analysisStore,
+    );
+    final updated = await widget.assetRecordStore.getByLocalId(
+      widget.record.localId,
+    );
+    if (!mounted) return;
+    setState(() {
+      _suggestion = null;
+      if (updated != null) _description.text = updated.description;
+    });
+    if (updated != null) widget.onRecordChanged(updated);
+  }
+
+  Future<void> _dropSuggestion() async {
+    final suggestion = _suggestion;
+    if (suggestion == null) return;
+    await dismissSuggestion(
+      suggestion.localId,
+      analyses: _onDeviceAnalysis.analysisStore,
+    );
+    if (!mounted) return;
+    setState(() => _suggestion = null);
   }
 
   /// Face thumbnails from the last Auto Suggest, waiting to be named. Not
@@ -1774,6 +2067,14 @@ class _InfoPanelState extends State<_InfoPanel> {
             ],
           ),
           const SizedBox(height: 16),
+          if (_suggestion != null) ...[
+            _SuggestionCard(
+              suggestion: _suggestion!,
+              onKeep: _keepSuggestion,
+              onDismiss: _dropSuggestion,
+            ),
+            const SizedBox(height: 16),
+          ],
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -1784,6 +2085,12 @@ class _InfoPanelState extends State<_InfoPanel> {
             child: CupertinoTextField.borderless(
               controller: _description,
               maxLines: null,
+              // A tap anywhere else on the page puts the keyboard away.
+              // Without this the field keeps focus until something else
+              // takes it, and on a page that is mostly photo there is
+              // usually nothing else to take it.
+              onTapOutside: (_) =>
+                  FocusManager.instance.primaryFocus?.unfocus(),
               placeholder: l10n.detailDescriptionPlaceholder,
               placeholderStyle: const TextStyle(
                 color: CupertinoColors.systemGrey,
@@ -1937,6 +2244,141 @@ class _InfoPanelState extends State<_InfoPanel> {
               ],
             ),
           ],
+        ],
+      ),
+    );
+  }
+}
+
+/// What the analyze pass suggested for this photo, waiting to be kept or
+/// thrown away. Nothing here is on the photo yet — that's the whole
+/// difference between a suggestion and a tag.
+class _SuggestionCard extends StatelessWidget {
+  const _SuggestionCard({
+    required this.suggestion,
+    required this.onKeep,
+    required this.onDismiss,
+  });
+
+  final AiPhotoAnalysis suggestion;
+  final Future<void> Function() onKeep;
+  final Future<void> Function() onDismiss;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFF2C2C2E),
+        borderRadius: BorderRadius.circular(10),
+        border: Border.all(color: const Color(0xFF0A84FF), width: 0.5),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                CupertinoIcons.sparkles,
+                size: 15,
+                color: Color(0xFF0A84FF),
+              ),
+              const SizedBox(width: 6),
+              Text(
+                l10n.analyzeReviewSuggestionTitle,
+                style: const TextStyle(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: Color(0xFF0A84FF),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          if (suggestion.description.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                suggestion.description,
+                style: const TextStyle(
+                  fontSize: 14,
+                  color: CupertinoColors.white,
+                ),
+              ),
+            ),
+          if (suggestion.eventLabel.isNotEmpty)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 8),
+              child: Text(
+                l10n.analyzeReviewSuggestedEvent(suggestion.eventLabel),
+                style: const TextStyle(
+                  fontSize: 12,
+                  color: CupertinoColors.systemGrey,
+                ),
+              ),
+            ),
+          if (suggestion.tags.isNotEmpty)
+            Wrap(
+              spacing: 6,
+              runSpacing: 6,
+              children: [
+                for (final tag in suggestion.tags)
+                  Container(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 10,
+                      vertical: 4,
+                    ),
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF3A3A3C),
+                      borderRadius: BorderRadius.circular(12),
+                    ),
+                    child: Text(
+                      tag,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: CupertinoColors.white,
+                      ),
+                    ),
+                  ),
+              ],
+            ),
+          const SizedBox(height: 12),
+          Row(
+            children: [
+              CupertinoButton(
+                padding: const EdgeInsets.symmetric(
+                  horizontal: 14,
+                  vertical: 6,
+                ),
+                minimumSize: const Size(0, 32),
+                borderRadius: BorderRadius.circular(16),
+                color: const Color(0xFF3A3A3C),
+                onPressed: () => onKeep(),
+                child: Text(
+                  l10n.analyzeReviewAccept,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: Color(0xFF0A84FF),
+                  ),
+                ),
+              ),
+              const SizedBox(width: 12),
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                minimumSize: Size.zero,
+                onPressed: () => onDismiss(),
+                child: Text(
+                  l10n.analyzeReviewDismiss,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: CupertinoColors.systemGrey,
+                  ),
+                ),
+              ),
+            ],
+          ),
         ],
       ),
     );

@@ -2,6 +2,8 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/gestures.dart' show HitTestResult;
+import 'package:flutter/rendering.dart' show RenderMetaData;
 import 'package:flutter/services.dart';
 import 'package:photo_manager/photo_manager.dart';
 import 'package:intl/intl.dart';
@@ -10,6 +12,8 @@ import 'package:path/path.dart' as p;
 import '../l10n/app_localizations.dart';
 import '../photos/library_metadata.dart';
 import '../photos/ai_analysis_store.dart';
+import '../photos/ai_vision_service.dart';
+import '../photos/analyze_queue.dart';
 import '../photos/ai_touch_up_queue.dart';
 import '../photos/demo_assets_service.dart';
 import '../photos/file_hash.dart' as file_hash;
@@ -20,6 +24,7 @@ import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/photo_library_change.dart';
 import '../backup/app_snapshot.dart';
+import '../backup/bucket_backup.dart';
 import '../backup/icloud_backup.dart';
 import '../photos/library_custody.dart';
 import '../photos/photo_library_service.dart';
@@ -38,6 +43,7 @@ import '../upload/sync_job_store.dart';
 import '../upload/sync_queue.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
+import 'analyze_queue_screen.dart';
 import 'asset_grid_view.dart';
 import 'asset_group_screen.dart';
 import 'delete_confirmation.dart';
@@ -51,7 +57,6 @@ import 'private_album_gate.dart';
 import 'recently_deleted_screen.dart';
 import 'search_picker_sheet.dart';
 import 'smart_collection_screen.dart';
-import 'sync_queue_sheet.dart';
 import 'zoom_page_route.dart';
 
 /// The whole app, one page — matches real Photos: no separate "Library" vs
@@ -74,12 +79,15 @@ class LibraryScreen extends StatefulWidget {
     this.photoLocationService,
     this.libraryCustody,
     this.icloudBackup,
+    this.bucketBackup,
     this.backgroundPassInterval,
     this.personStore,
     this.hashFile,
     this.thumbnailCache,
     this.syncJobStore,
     this.onDeviceAnalysis,
+    this.aiVisionService,
+    this.analyzeQueue,
   });
 
   final AssetRecordStore? assetRecordStore;
@@ -107,6 +115,10 @@ class LibraryScreen extends StatefulWidget {
   /// Overridable for tests so a fresh library never reaches for a real
   /// iCloud container.
   final ICloudBackup? icloudBackup;
+
+  /// Overridable for tests so a fresh library never reaches for a real
+  /// bucket.
+  final BucketBackup? bucketBackup;
 
   /// How often the background pass looks for work — backups still owed,
   /// then the camera roll, then the on-device face pass. Null switches it
@@ -137,6 +149,14 @@ class LibraryScreen extends StatefulWidget {
 
   /// Overridable for tests so they never reach the Vision platform channel.
   final OnDeviceAnalysisService? onDeviceAnalysis;
+
+  /// The paid half of the analyze pass. Overridable for tests so they
+  /// never make a vendor call.
+  final AiVisionService? aiVisionService;
+
+  /// Overridable for tests, which would otherwise have a background pass
+  /// walking a fake library while the test is trying to assert on it.
+  final AnalyzeQueue? analyzeQueue;
 
   @override
   State<LibraryScreen> createState() => LibraryScreenState();
@@ -184,6 +204,17 @@ class LibraryScreenState extends State<LibraryScreen>
           personStore: _personStore,
         ),
       );
+  late final BucketBackup _bucketBackup =
+      widget.bucketBackup ??
+      BucketBackup(
+        settings: assetRecordStore,
+        targetsStore: _backupTargetsStore,
+        snapshots: AppSnapshotIo(
+          assetRecordStore: assetRecordStore,
+          albumStore: _albumStore,
+          personStore: _personStore,
+        ),
+      );
   late final Future<String> Function(String path) _hashFile =
       widget.hashFile ?? file_hash.hashFile;
   late final ThumbnailCache _thumbnailCache =
@@ -200,6 +231,22 @@ class LibraryScreenState extends State<LibraryScreen>
     settings: _backupTargetsStore,
     process: _processJob,
   );
+
+  /// The other queue: reading the camera roll and looking at what's in it.
+  /// Separate from [syncQueue] because it answers a different question —
+  /// "what does the app know about my photos?" rather than "are they safe?"
+  /// — and because it is allowed to take all week.
+  late final AnalyzeQueue _analyzeQueue =
+      widget.analyzeQueue ??
+      AnalyzeQueue(
+        assetRecordStore: assetRecordStore,
+        analysisStore: _aiAnalysisStore,
+        onDeviceAnalysis: _onDeviceAnalysis,
+        aiVision: widget.aiVisionService ?? AiVisionService(),
+        scanLibrary: _syncPhotoLibrary,
+        resolvePath: _filePathFor,
+        displayNameFor: _displayNameFor,
+      );
 
   List<AssetRecord> _all = const [];
   List<Album> _albums = const [];
@@ -242,10 +289,14 @@ class LibraryScreenState extends State<LibraryScreen>
     // write replaces the first rather than piling up.)
     if (state == AppLifecycleState.paused) {
       unawaited(_icloudBackup.backUpIfEnabled());
+      unawaited(_bucketBackup.backUpIfEnabled());
       return;
     }
     if (state != AppLifecycleState.resumed || !mounted) return;
-    unawaited(_syncPhotoLibrary());
+    // The camera roll goes through the analyze queue like everything else
+    // it reads — one scan job at the head of the pass, rather than a
+    // second unpaced loop nobody can see or stop.
+    unawaited(_analyzeQueue.startIfDue(rescan: true));
     unawaited(_runScheduledSyncIfDue());
     _startTrickle();
   }
@@ -308,9 +359,12 @@ class LibraryScreenState extends State<LibraryScreen>
     PhotoManager.removeChangeCallback(_onPhotoLibraryChanged);
     WidgetsBinding.instance.removeObserver(this);
     _trickle?.cancel();
+    _missingDebounce?.cancel();
     syncQueue.draining.removeListener(_onDrainingChanged);
+    _analyzeQueue.remaining.removeListener(_onReviewCountChanged);
     AiTouchUpQueue.instance.removeListener(_onAiTouchUpChanged);
     syncQueue.dispose();
+    if (widget.analyzeQueue == null) _analyzeQueue.dispose();
     super.dispose();
   }
 
@@ -321,8 +375,15 @@ class LibraryScreenState extends State<LibraryScreen>
     _searchFocus.addListener(_onSearchFocusChanged);
     _watchPhotoLibrary();
     syncQueue.draining.addListener(_onDrainingChanged);
+    _analyzeQueue.remaining.addListener(_onReviewCountChanged);
     AiTouchUpQueue.instance.addListener(_onAiTouchUpChanged);
     _init();
+  }
+
+  /// The Utilities badge counts what's left to look at, and that number
+  /// moves while the pass runs rather than when anyone asks.
+  void _onReviewCountChanged() {
+    if (mounted) setState(() {});
   }
 
   /// A touch-up started from the detail screen finishes on its own time —
@@ -366,7 +427,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // inserting records the snapshot also has: a fresh install pulls its
     // own work back from iCloud, once, without asking. There's nothing to
     // overwrite and no context yet for a "restore from backup?" question.
-    await _restoreFromICloud();
+    await _restoreAppData();
     await reload();
     // Picks up whatever a previous run left queued — including jobs left
     // `running` by a kill mid-sync — and starts draining.
@@ -374,7 +435,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // Fire-and-forget: a full camera-roll scan (and any iCloud downloads it
     // triggers for backup) can be slow, and must never block showing the
     // manual/demo assets already on hand. Re-`reload()`s itself once done.
-    unawaited(_syncPhotoLibrary());
+    unawaited(_analyzeQueue.startIfDue(rescan: true));
     // Independent of camera-roll access: retries whatever's already
     // pending/failed if the configured sync frequency says it's due — the
     // other natural "app came to the foreground" moment, alongside
@@ -382,12 +443,17 @@ class LibraryScreenState extends State<LibraryScreen>
     unawaited(_runScheduledSyncIfDue());
   }
 
-  Future<void> _restoreFromICloud() async {
+  /// Whichever destination still has the snapshot. iCloud first because
+  /// it needs no credentials to be readable; the bucket is asked only if
+  /// that came back with nothing, and each guards itself against running
+  /// over a library that isn't empty.
+  Future<void> _restoreAppData() async {
     try {
-      await _icloudBackup.restoreIfFreshInstall();
+      if (await _icloudBackup.restoreIfFreshInstall() > 0) return;
+      await _bucketBackup.restoreIfFreshInstall();
     } catch (_) {
-      // No container, no channel, nothing in it — an empty library is the
-      // same empty library it would have been.
+      // No container, no channel, no bucket, nothing in any of them — an
+      // empty library is the same empty library it would have been.
     }
   }
 
@@ -476,15 +542,51 @@ class LibraryScreenState extends State<LibraryScreen>
       await _backUpRecords(pending);
       return;
     }
-    // Nothing owed to the bucket: re-read the camera roll, then spend the
-    // idle time on the on-device pass. Neither costs a penny — no key, no
-    // upload, no per-photo bill — which is what makes them fair game for a
-    // background loop at all.
-    if (!_syncingLibrary) {
-      await _syncPhotoLibrary();
-      if (!mounted) return;
+    // Nothing owed to the bucket: hand the idle time to the other queue,
+    // which re-reads the camera roll and looks at what it finds. Neither
+    // costs a penny — no key, no upload, no per-photo bill — which is what
+    // makes them fair game for a background loop at all, and both are its
+    // business rather than this one's.
+    await _analyzeQueue.startIfDue();
+  }
+
+  /// Photos this app still has a record of and the library doesn't.
+  ///
+  /// Batched: a screenful of tiles all discovering the same thing at once
+  /// would otherwise reconcile (and redraw the library) a dozen times in a
+  /// frame.
+  final _missingLibraryIds = <String>{};
+  Timer? _missingDebounce;
+
+  /// A tile found its photo gone from the library. That's news — the next
+  /// full scan is the backstop, not the mechanism, and until it runs the
+  /// grid is showing an empty square where a photo used to be.
+  void _onAssetMissing(AssetRecord record) {
+    final libraryId = PhotoLibraryService.libraryIdOf(record);
+    if (libraryId == null || !_missingLibraryIds.add(libraryId)) return;
+    _missingDebounce?.cancel();
+    _missingDebounce = Timer(
+      const Duration(milliseconds: 400),
+      () => unawaited(_reconcileMissing()),
+    );
+  }
+
+  Future<void> _reconcileMissing() async {
+    final ids = {..._missingLibraryIds};
+    _missingLibraryIds.clear();
+    if (ids.isEmpty || !mounted) return;
+    try {
+      // The same path an iOS deletion notification takes: backed up becomes
+      // cloud-only, not backed up goes to this app's Recently Deleted.
+      // Never a row deleted — see `PhotoLibraryService._reconcileDeletions`.
+      final result = await _photoLibraryService.applyChange(
+        PhotoLibraryChange(deleted: ids),
+      );
+      if (result.isEmpty || !mounted) return;
+      await reload();
+    } catch (_) {
+      // No plugin, no permission — the scan will get to it.
     }
-    await analyzeLibrary();
   }
 
   Future<void> _namePlaces() async {
@@ -589,10 +691,9 @@ class LibraryScreenState extends State<LibraryScreen>
   int get _favoriteCount =>
       _all.where((r) => r.isFavorite && !r.isDeleted).length;
 
-  /// Work outstanding, not jobs recorded — a finished job is history, and
-  /// a count that includes it says the app is busy when it isn't.
-  int get _queuedCount =>
-      syncQueue.jobs.value.where((job) => !job.isFinished).length;
+  /// What the analyze pass still has to get through — see the Analyze
+  /// Queue row.
+  int get _toAnalyzeCount => _analyzeQueue.remaining.value;
 
   int get _hiddenCount => _all.where((r) => r.isHidden && !r.isDeleted).length;
   int get _deletedCount => _all.where((r) => r.isDeleted).length;
@@ -765,30 +866,6 @@ class LibraryScreenState extends State<LibraryScreen>
         }
         await _onDeviceAnalysis.analyze(record, path);
     }
-  }
-
-  /// Queues an on-device look at every photo that hasn't had one. Costs
-  /// nothing but time and battery — no key, no upload, no per-photo bill —
-  /// which is the only reason it can be offered over a whole library.
-  Future<int> analyzeLibrary() async {
-    final analyzed = await _aiAnalysisStore.listAll();
-    final pending = _active
-        .where((r) => !r.isVideo && !analyzed.containsKey(r.localId))
-        .toList();
-    var queued = 0;
-    for (final record in pending) {
-      if (!await syncQueue.enqueue(
-        localId: record.localId,
-        kind: SyncJobKind.analyzePhoto,
-        displayName: _displayNameFor(record),
-      )) {
-        // Queue full or paused; the rest waits for the next pass.
-        break;
-      }
-      queued++;
-    }
-    if (queued > 0) unawaited(syncQueue.start());
-    return queued;
   }
 
   /// Re-hashes one asset's local file and, if it's been edited since its
@@ -1178,8 +1255,71 @@ class LibraryScreenState extends State<LibraryScreen>
     await reload();
   }
 
-  void _startSelecting(AssetRecord record) =>
-      setState(() => _selection = {record.localId});
+  void _startSelecting(AssetRecord record) {
+    setState(() => _selection = {record.localId});
+    // The finger is still down. Whatever it sweeps over next joins the
+    // selection rather than being dropped on the floor — see
+    // [_onSelectDragUpdate].
+    _dragSelecting = true;
+    _dragSelects = true;
+    _dragSeen = {record.localId};
+  }
+
+  /// A hold-then-sweep, or a sideways drag once selecting, is one gesture:
+  /// every tile it passes over gets the same treatment, and which treatment
+  /// that is was decided by the first one — sweeping off a selected photo
+  /// deselects, which is what makes a sweep undoable by sweeping back.
+  bool _dragSelecting = false;
+  bool _dragSelects = true;
+  Set<String> _dragSeen = const {};
+
+  void _onSelectDragUpdate(Offset globalPosition) {
+    final selection = _selection;
+    if (selection == null) return;
+    final record = _recordUnder(globalPosition);
+    if (record == null) return;
+    if (!_dragSelecting) {
+      // A sideways drag that started on a tile: its state decides whether
+      // this sweep is selecting or deselecting.
+      _dragSelecting = true;
+      _dragSelects = !selection.contains(record.localId);
+      _dragSeen = {};
+    }
+    if (!_dragSeen.add(record.localId)) return;
+    final next = {...selection};
+    if (_dragSelects) {
+      next.add(record.localId);
+    } else {
+      next.remove(record.localId);
+    }
+    if (next.length == selection.length) return;
+    setState(() => _selection = next);
+  }
+
+  void _onSelectDragEnd() {
+    _dragSelecting = false;
+    _dragSeen = const {};
+  }
+
+  /// Which tile is under [globalPosition], asked of the tiles themselves:
+  /// each one carries its record in a `MetaData` (see `AssetTile`), so this
+  /// is a hit test rather than arithmetic on the grid's geometry and the
+  /// scroll offset — which would have to be kept in step with the layout
+  /// and silently wouldn't be.
+  AssetRecord? _recordUnder(Offset globalPosition) {
+    final view = View.maybeOf(context);
+    if (view == null) return null;
+    final result = HitTestResult();
+    WidgetsBinding.instance.hitTestInView(result, globalPosition, view.viewId);
+    for (final entry in result.path) {
+      final target = entry.target;
+      if (target is RenderMetaData) {
+        final data = target.metaData;
+        if (data is AssetRecord) return data;
+      }
+    }
+    return null;
+  }
 
   void _toggleSelected(AssetRecord record) => setState(() {
     final next = {..._selection!};
@@ -1540,6 +1680,9 @@ class LibraryScreenState extends State<LibraryScreen>
                   records: filtered,
                   onTap: selection == null ? _openRecord : _toggleSelected,
                   onLongPress: _startSelecting,
+                  onMissing: _onAssetMissing,
+                  onSelectDragUpdate: _onSelectDragUpdate,
+                  onSelectDragEnd: _onSelectDragEnd,
                   selectedIds: selection,
                   actionsFor: (r) => _actionsFor(l10n, r),
                   emptySliver: _all.isEmpty
@@ -1856,13 +1999,17 @@ class LibraryScreenState extends State<LibraryScreen>
             title: l10n.collectionsCloudSettingsRow,
             onTap: _openCloudBackups,
           ),
+          // The sync queue isn't here any more: it lives on Cloud
+          // Settings, beside the buckets it's filling, and having it in
+          // two places made two answers to "is it working?".
           _row(
-            icon: CupertinoIcons.arrow_2_circlepath,
-            color: CupertinoColors.systemTeal,
-            title: l10n.collectionsSyncQueueRow,
-            count: _queuedCount,
-            onTap: () =>
-                showSyncQueueSheet(context, syncQueue, onOpenAsset: _openById),
+            icon: CupertinoIcons.wand_stars,
+            color: CupertinoColors.systemIndigo,
+            title: l10n.collectionsAnalyzeQueueRow,
+            count: _toAnalyzeCount == 0 ? null : _toAnalyzeCount,
+            onTap: () => _push(
+              AnalyzeQueueScreen(queue: _analyzeQueue, onOpenAsset: _openById),
+            ),
           ),
           _row(
             icon: CupertinoIcons.sparkles,
@@ -2269,45 +2416,89 @@ class _SelectionBar extends StatelessWidget {
               ),
             ),
             Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+              padding: const EdgeInsets.fromLTRB(8, 2, 8, 6),
+              // Four, not six. Six actions across a phone left each one a
+              // 9-point glyph over a word too small to read, and the two
+              // anybody presses — album and delete — were the same size as
+              // the ones nobody does. What's left is the batch *metadata*
+              // edits, which belong together in a menu because that's what
+              // they are: a list of fields to set.
               child: Row(
-                mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                 children: [
-                  _SelectionAction(
-                    icon: CupertinoIcons.tag,
-                    label: l10n.selectionAddTag,
-                    onPressed: count == 0 ? null : onAddTag,
+                  Expanded(
+                    child: _SelectionAction(
+                      icon: CupertinoIcons.rectangle_stack_badge_plus,
+                      label: l10n.selectionAddToAlbum,
+                      onPressed: count == 0 ? null : onAddToAlbum,
+                    ),
                   ),
-                  _SelectionAction(
-                    icon: CupertinoIcons.rectangle_stack_badge_plus,
-                    label: l10n.selectionAddToAlbum,
-                    onPressed: count == 0 ? null : onAddToAlbum,
+                  Expanded(
+                    child: _SelectionAction(
+                      icon: CupertinoIcons.tag,
+                      label: l10n.selectionAddTag,
+                      onPressed: count == 0 ? null : onAddTag,
+                    ),
                   ),
-                  _SelectionAction(
-                    icon: CupertinoIcons.map_pin_ellipse,
-                    label: l10n.selectionSetPlace,
-                    onPressed: count == 0 ? null : onSetPlace,
+                  Expanded(
+                    child: _SelectionAction(
+                      icon: CupertinoIcons.ellipsis_circle,
+                      label: l10n.selectionMore,
+                      onPressed: count == 0
+                          ? null
+                          : () => _showMore(context, l10n),
+                    ),
                   ),
-                  _SelectionAction(
-                    icon: CupertinoIcons.calendar,
-                    label: l10n.selectionSetEvent,
-                    onPressed: count == 0 ? null : onSetEvent,
-                  ),
-                  _SelectionAction(
-                    icon: CupertinoIcons.clock,
-                    label: l10n.selectionAdjustDateTime,
-                    onPressed: count == 0 ? null : onAdjustDateTime,
-                  ),
-                  _SelectionAction(
-                    icon: CupertinoIcons.delete,
-                    label: l10n.selectionDelete,
-                    destructive: true,
-                    onPressed: count == 0 ? null : onDelete,
+                  Expanded(
+                    child: _SelectionAction(
+                      icon: CupertinoIcons.delete,
+                      label: l10n.selectionDelete,
+                      destructive: true,
+                      onPressed: count == 0 ? null : onDelete,
+                    ),
                   ),
                 ],
               ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+
+  /// The rest of the batch edits — the ones that set a field on everything
+  /// selected. A sheet rather than four more buttons: they're rarer, they
+  /// read as a list, and each one opens a picker of its own anyway.
+  void _showMore(BuildContext context, AppLocalizations l10n) {
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: Text(l10n.selectionTitle(count)),
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              onSetPlace();
+            },
+            child: Text(l10n.selectionSetPlace),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              onSetEvent();
+            },
+            child: Text(l10n.selectionSetEvent),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              onAdjustDateTime();
+            },
+            child: Text(l10n.selectionAdjustDateTime),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: Text(l10n.actionCancel),
         ),
       ),
     );
@@ -2328,32 +2519,33 @@ class _SelectionAction extends StatelessWidget {
   final bool destructive;
 
   @override
-  Widget build(BuildContext context) => CupertinoButton(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-    onPressed: onPressed,
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: 22,
-          color: destructive && onPressed != null
-              ? CupertinoColors.systemRed
-              : null,
-        ),
-        const SizedBox(height: 2),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            color: destructive && onPressed != null
-                ? CupertinoColors.systemRed
-                : null,
+  Widget build(BuildContext context) {
+    final color = destructive && onPressed != null
+        ? CupertinoColors.systemRed
+        : null;
+    return CupertinoButton(
+      // A thumb-sized target with a face, not a glyph with a caption: at
+      // 44 points tall with a filled back it reads as a button from across
+      // the room, which is what a bar you press in a hurry needs.
+      padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 8),
+      minimumSize: const Size(0, 56),
+      borderRadius: BorderRadius.circular(12),
+      onPressed: onPressed,
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Icon(icon, size: 26, color: color),
+          const SizedBox(height: 4),
+          Text(
+            label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
+            style: TextStyle(fontSize: 12, color: color),
           ),
-        ),
-      ],
-    ),
-  );
+        ],
+      ),
+    );
+  }
 }
 
 /// Places/Events: one text row per distinct value the user has set.

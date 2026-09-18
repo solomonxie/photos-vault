@@ -25,6 +25,9 @@ class AssetGridView extends StatefulWidget {
     required this.onTap,
     required this.actionsFor,
     this.onLongPress,
+    this.onMissing,
+    this.onSelectDragUpdate,
+    this.onSelectDragEnd,
     this.selectedIds,
     this.leadingSlivers = const [],
     this.trailingSlivers = const [],
@@ -38,6 +41,14 @@ class AssetGridView extends StatefulWidget {
   final void Function(AssetRecord) onTap;
   final List<TileAction> Function(AssetRecord) actionsFor;
   final void Function(AssetRecord)? onLongPress;
+
+  /// See `PhotoManagerThumbnail.onMissing` — a tile is usually the first
+  /// thing to notice a photo has left the library.
+  final void Function(AssetRecord)? onMissing;
+
+  /// See `AssetTile.onSelectDragUpdate`.
+  final void Function(Offset globalPosition)? onSelectDragUpdate;
+  final VoidCallback? onSelectDragEnd;
   final Set<String>? selectedIds;
 
   /// Slivers above the grid (nav bar, search field) and below it (the
@@ -219,6 +230,9 @@ class AssetGridViewState extends State<AssetGridView> {
                 gridKey: _gridKey,
                 onTap: widget.onTap,
                 onLongPress: widget.onLongPress,
+                onMissing: widget.onMissing,
+                onSelectDragUpdate: widget.onSelectDragUpdate,
+                onSelectDragEnd: widget.onSelectDragEnd,
                 selectedIds: widget.selectedIds,
                 actionsFor: widget.actionsFor,
               ),

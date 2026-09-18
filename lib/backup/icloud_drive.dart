@@ -73,6 +73,31 @@ class ICloudDrive {
     }
   }
 
+  /// Writes [bytes] as [name], replacing a file of the same name — the
+  /// zipped snapshot, which is not text and can't go through [write].
+  Future<bool> writeBytes(String name, Uint8List bytes) async {
+    try {
+      return await _channel.invokeMethod<bool>('writeBytes', {
+            'name': name,
+            'bytes': bytes,
+          }) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// The newest `.zip` in the folder, by name. `null` if there isn't one —
+  /// including on an older backup, which is a single `.json` and comes back
+  /// from [readLatest] instead.
+  Future<Uint8List?> readLatestBytes() async {
+    try {
+      return await _channel.invokeMethod<Uint8List>('readLatestBytes');
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// The most recent file in the folder, by name — which sorts by date
   /// because of how [ICloudBackup] names them. `null` if the folder is
   /// empty or unreadable.

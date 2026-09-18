@@ -126,6 +126,18 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                 // to fall back to.
                 onPressed: _keys.length < 2 ? null : _toggleStrategy,
               ),
+              // Plain grey, the way iOS explains a setting under its list.
+              // The same two sentences in orange behind a warning triangle
+              // read as something having gone wrong — they're just what
+              // the keys are for and what using them costs.
+              footer: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(l10n.settingsAiTodoNote, style: settingsFooterStyle),
+                  const SizedBox(height: 8),
+                  Text(l10n.settingsAiUsageWarning, style: settingsFooterStyle),
+                ],
+              ),
               children: [
                 for (var i = 0; i < _keys.length; i++) ...[
                   if (i > 0)
@@ -162,38 +174,6 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
                   const SettingsHairline(indent: settingsPagePadding),
                 _AddKeyRow(label: l10n.settingsAddAiKeyLink, onTap: _addKey),
               ],
-            ),
-            const SettingsSectionDivider(),
-            Padding(
-              padding: const EdgeInsets.symmetric(
-                horizontal: settingsPagePadding,
-              ),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(l10n.settingsAiTodoNote, style: settingsHintStyle),
-                  const SizedBox(height: 12),
-                  Row(
-                    crossAxisAlignment: CrossAxisAlignment.start,
-                    children: [
-                      const Icon(
-                        CupertinoIcons.exclamationmark_triangle_fill,
-                        size: 14,
-                        color: CupertinoColors.systemOrange,
-                      ),
-                      const SizedBox(width: 6),
-                      Expanded(
-                        child: Text(
-                          l10n.settingsAiUsageWarning,
-                          style: settingsHintStyle.copyWith(
-                            color: CupertinoColors.systemOrange,
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ],
-              ),
             ),
           ],
         ),

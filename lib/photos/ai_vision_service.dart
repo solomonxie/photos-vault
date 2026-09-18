@@ -32,7 +32,9 @@ class AiVisionService {
       'Reply with JSON only, no prose: '
       '{"people_count": <integer, 0 if none>, '
       '"event_label": "<2-4 word scene or event description>", '
-      '"tags": ["<up to 5 short lowercase subject tags>"]}.';
+      '"tags": ["<up to 5 short lowercase subject tags>"], '
+      '"description": "<one plain sentence describing the photo, '
+      'as a caption its owner would write>"}.';
 
   final AiSettingsStore _aiSettingsStore;
   final http.Client _httpClient;
@@ -219,6 +221,7 @@ class AiVisionService {
             for (final tag in tags)
               if (tag is String && tag.trim().isNotEmpty) tag.trim(),
         ],
+        description: (parsed['description'] as String?)?.trim() ?? '',
       );
     } catch (_) {
       throw AiAnalysisException('Could not parse AI response');
