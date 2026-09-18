@@ -111,7 +111,7 @@ DO — one scrollable page              DON'T — a tab per section
 Surface ladder — match the surface to the weight of the decision:
 
 ```
-pick any value           ─▶  searchable drop-down sheet, ≤55% height
+pick any value           ─▶  searchable drop-down sheet, ≤50% height
   (tag, location,            ┌──────────────────────────┐
    school, person)           │           ▬▬             │
                              │        Location          │
@@ -367,7 +367,9 @@ app cached thumb ──found──▶  draw it
 - **A first example is better than an empty slot.** Linking the first photo to a person sets their picture from it, because a face on the row beats a placeholder and nobody wants a second step to say so. Only ever fills an empty slot — a portrait chosen on purpose stays.
 - Any value that is free text but repeats across records (location, event, tag, school, employer, organization) gets a **fuzzy search-or-create picker**: typing filters existing values across all records, and the same field creates a new one. No separate "create" button, no separate mode.
 - That picker is a **drop-down sheet over the current page**, never a page push — picking a value shouldn't cost a navigation. It carries the field name, a checkmark on the current value, and a clear row when one is set.
-- **Size it to what's in it**, capped at 55% of the screen and floored at something worth opening. Choosing between three events should be a small pop-up; the same half-screen slab every time reads as a page and buries the photo behind it.
+- **Size it to what's in it**, capped at **half** the screen and floored at something worth opening. Choosing between three events should be a small pop-up; the same slab every time reads as a page and buries the photo behind it. Half is the ceiling because the page underneath is the context for the choice — a sheet that covers it is a page push with extra steps.
+- **The keyboard only comes up unasked when typing is the point** — a list too long to scan (>8), or an empty one where typing is the only way forward. Everywhere else it would cover the page the sheet was careful not to, to save a tap on a field that's right there.
+- **A grabber is a promise.** A sheet drawn with one has to dismiss when it's pulled down — from the grabber, from the title beside it, or by pulling the list past its top. The list takes clamping physics so that last pull has somewhere to go; iOS bounce would swallow it into a stretch. A pull that stops short springs back.
 - Passcode entry: tap-only numeric keypad with dot indicators, not a system keyboard. Auto-submit on the final digit when there's nothing left to disambiguate.
 - Credential/technical fields: disable autocorrect and smart punctuation. Smart quotes and dashes silently corrupt pasted keys and produce "wrong credentials" errors that aren't.
 - Validate destructively-wrong input before saving, with non-blocking hints (e.g. "20 characters — AWS keys are usually 20") to catch bad pastes.
