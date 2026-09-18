@@ -7,6 +7,9 @@ import '../l10n/app_localizations.dart';
 /// The sheet's search field — what a test types into.
 const searchPickerFieldKey = Key('searchPickerField');
 
+/// The sheet itself — what a test measures and drags.
+const searchPickerSheetKey = Key('searchPickerSheet');
+
 const _sheetBackground = Color(0xFF1C1C1E);
 const _fieldBackground = Color(0xFF2C2C2E);
 
@@ -14,7 +17,23 @@ const _fieldBackground = Color(0xFF2C2C2E);
 /// row's height, so the sheet can be sized to its own content.
 const _chromeExtent = 128.0;
 const _rowExtent = 45.0;
-const _minSheetExtent = 220.0;
+const _minSheetExtent = 200.0;
+
+/// Never more than half the screen. The page underneath is the context for
+/// the choice being made — a sheet that covers it is a page push with extra
+/// steps, and one that covers it *and* raises a keyboard is the whole
+/// screen.
+const _maxSheetFraction = 0.5;
+
+/// Past this many options, scanning stops being practical and typing is
+/// the point — the only case where the keyboard is worth the third of the
+/// screen it takes on the way in.
+const _autofocusThreshold = 8;
+
+/// How far down the sheet has to be dragged before letting go dismisses it,
+/// and the flick that dismisses it from anywhere.
+const _dismissFraction = 0.3;
+const _dismissVelocity = 700.0;
 
 /// Searchable drop-down over [options] — the sheet stays on top of the page
 /// that opened it, so picking a location/tag/school never costs a full page
@@ -110,6 +129,35 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
   final _controller = TextEditingController();
   String _query = '';
 
+  /// How far the sheet has been pulled down, and whether it's on its way
+  /// back — the grabber is a promise that dragging does something, and an
+  /// undismissable sheet with one on it is the promise broken.
+  double _dragOffset = 0;
+  bool _settling = false;
+
+  /// Typing is the point only when the list is too long to scan, or empty
+  /// — anywhere else the keyboard would cover the page for nothing.
+  bool get _autofocus =>
+      widget.options.length > _autofocusThreshold || widget.options.isEmpty;
+
+  void _dragBy(double delta) => setState(() {
+    _settling = false;
+    _dragOffset = math.max(0, _dragOffset + delta);
+  });
+
+  /// Far enough, or fast enough, and it goes; anything less springs back.
+  void _endDrag(double height, double velocity) {
+    if (_dragOffset > math.min(height * _dismissFraction, 120) ||
+        velocity > _dismissVelocity) {
+      Navigator.of(context).pop();
+      return;
+    }
+    setState(() {
+      _settling = true;
+      _dragOffset = 0;
+    });
+  }
+
   @override
   void dispose() {
     _controller.dispose();
@@ -152,9 +200,8 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
         : widget.createLabel!(query);
 
     // Sized to what's actually in it: picking between three events should
-    // be a small pop-up, not the same half-screen slab every time. Still
-    // sits above the keyboard, still never taller than 55% of the screen,
-    // and still tall enough to be worth opening.
+    // be a small pop-up, not the same slab every time. Still sits above the
+    // keyboard, and still tall enough to be worth opening.
     final rows =
         matches.length +
         (createLabel != null ? 1 : 0) +
@@ -163,13 +210,19 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
     final available =
         media.size.height - media.viewInsets.bottom - media.padding.top - 24;
     final height = math.min(
-      math.min(available, media.size.height * 0.55),
+      math.min(available, media.size.height * _maxSheetFraction),
       math.max(content, _minSheetExtent),
     );
 
     return Padding(
       padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
-      child: Container(
+      child: AnimatedContainer(
+        key: searchPickerSheetKey,
+        // Only ever animates the spring back from a drag that didn't go far
+        // enough; under the finger it has to track it exactly.
+        duration: _settling ? const Duration(milliseconds: 180) : Duration.zero,
+        curve: Curves.easeOut,
+        transform: Matrix4.translationValues(0, _dragOffset, 0),
         height: height,
         decoration: const BoxDecoration(
           color: _sheetBackground,
@@ -179,24 +232,38 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
           top: false,
           child: Column(
             children: [
-              const SizedBox(height: 8),
-              Container(
-                width: 36,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: CupertinoColors.systemGrey,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                child: Text(
-                  widget.title,
-                  style: const TextStyle(
-                    color: CupertinoColors.white,
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                  ),
+              // The grabber and title are the drag handle — the search
+              // field isn't, or a drag meant to move the caret would throw
+              // the sheet off screen.
+              GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onVerticalDragStart: (_) => FocusScope.of(context).unfocus(),
+                onVerticalDragUpdate: (d) => _dragBy(d.delta.dy),
+                onVerticalDragEnd: (d) =>
+                    _endDrag(height, d.velocity.pixelsPerSecond.dy),
+                child: Column(
+                  children: [
+                    const SizedBox(height: 8),
+                    Container(
+                      width: 36,
+                      height: 5,
+                      decoration: BoxDecoration(
+                        color: CupertinoColors.systemGrey,
+                        borderRadius: BorderRadius.circular(3),
+                      ),
+                    ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
+                      child: Text(
+                        widget.title,
+                        style: const TextStyle(
+                          color: CupertinoColors.white,
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                  ],
                 ),
               ),
               Padding(
@@ -208,7 +275,7 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
                 child: CupertinoTextField(
                   key: searchPickerFieldKey,
                   controller: _controller,
-                  autofocus: true,
+                  autofocus: _autofocus,
                   placeholder: CupertinoLocalizations.of(context)
                       .searchTextFieldPlaceholderLabel,
                   prefix: const Padding(
@@ -235,45 +302,62 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
                 ),
               ),
               Expanded(
-                child: ListView(
-                  padding: EdgeInsets.zero,
-                  keyboardDismissBehavior:
-                      ScrollViewKeyboardDismissBehavior.onDrag,
-                  children: [
-                    if (createLabel != null)
-                      _PickerRow(
-                        label: createLabel,
-                        leading: CupertinoIcons.add_circled,
-                        onTap: () => _create(query),
-                      ),
-                    for (final option in matches)
-                      _PickerRow(
-                        label: widget.labelOf(option),
-                        selected: widget.isSelected?.call(option) ?? false,
-                        onTap: () => Navigator.of(context).pop(option),
-                      ),
-                    if (widget.clearLabel != null)
-                      _PickerRow(
-                        label: widget.clearLabel!,
-                        leading: CupertinoIcons.clear_circled,
-                        muted: true,
-                        onTap: () =>
-                            Navigator.of(context).pop(widget.clearValue),
-                      ),
-                    if (matches.isEmpty && createLabel == null)
-                      Padding(
-                        padding: const EdgeInsets.symmetric(
-                          horizontal: 16,
-                          vertical: 24,
+                // Pulling the list down past its top drags the sheet with
+                // it, which is what a grabber makes people try first.
+                // Clamping physics rather than iOS bounce so that pull has
+                // somewhere to go: bounce would swallow it into a stretch.
+                child: NotificationListener<ScrollNotification>(
+                  onNotification: (notification) {
+                    if (notification is OverscrollNotification &&
+                        notification.overscroll < 0) {
+                      _dragBy(-notification.overscroll);
+                    } else if (notification is ScrollEndNotification &&
+                        _dragOffset > 0) {
+                      _endDrag(height, 0);
+                    }
+                    return false;
+                  },
+                  child: ListView(
+                    padding: EdgeInsets.zero,
+                    physics: const ClampingScrollPhysics(),
+                    keyboardDismissBehavior:
+                        ScrollViewKeyboardDismissBehavior.onDrag,
+                    children: [
+                      if (createLabel != null)
+                        _PickerRow(
+                          label: createLabel,
+                          leading: CupertinoIcons.add_circled,
+                          onTap: () => _create(query),
                         ),
-                        child: Text(
-                          widget.emptyHint ?? l10n.stringPickerTypeToCreate,
-                          style: const TextStyle(
-                            color: CupertinoColors.systemGrey,
+                      for (final option in matches)
+                        _PickerRow(
+                          label: widget.labelOf(option),
+                          selected: widget.isSelected?.call(option) ?? false,
+                          onTap: () => Navigator.of(context).pop(option),
+                        ),
+                      if (widget.clearLabel != null)
+                        _PickerRow(
+                          label: widget.clearLabel!,
+                          leading: CupertinoIcons.clear_circled,
+                          muted: true,
+                          onTap: () =>
+                              Navigator.of(context).pop(widget.clearValue),
+                        ),
+                      if (matches.isEmpty && createLabel == null)
+                        Padding(
+                          padding: const EdgeInsets.symmetric(
+                            horizontal: 16,
+                            vertical: 24,
+                          ),
+                          child: Text(
+                            widget.emptyHint ?? l10n.stringPickerTypeToCreate,
+                            style: const TextStyle(
+                              color: CupertinoColors.systemGrey,
+                            ),
                           ),
                         ),
-                      ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
             ],

@@ -73,6 +73,26 @@ bare field is nearly invisible on this background:
                                    under the fields it points at
 ```
 
+## Search-or-create sheet  `lib/viewer/search_picker_sheet.dart`
+
+Every picked value in the app — tag, album, place, person, organization,
+bucket region — opens this one sheet over the page that asked for it.
+
+```
+ ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁  ← grabber: drag it down to dismiss,
+              ▬▬▬                     from here, the title, or by pulling
+             Region                   the list past its top
+ ┌────────────────────────────────┐
+ │ 🔍 ap-gu                       │  ← keyboard only unasked when the list
+ └────────────────────────────────┘    is >8 long, or empty
+ ⊕ Use "ap-gu"                        ← create row, only when nothing matches
+ ap-guangzhou                    ✓
+ ⊗ Clear                              ← only when a value is set
+
+ 3 options ⇒ 263pt        30 options ⇒ 426pt = half the screen, the cap
+ ↑ sized to its content   ↑ never more, so the page stays the context
+```
+
 ## Chips
 
 ```
