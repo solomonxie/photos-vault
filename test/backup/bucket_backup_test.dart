@@ -135,7 +135,7 @@ void main() {
     expect(await backup.isEnabled(), isTrue);
     // Flipping it on wrote at once, in its own folder beside the photos,
     // as this month's archive.
-    final name = monthlyArchiveName(DateTime.now());
+    final name = dailyArchiveName(DateTime.now());
     expect(bucket.objects.keys.single, 'my-bucket/photos/app-data/$name');
     expect(
       unzipSnapshot(bucket.objects.values.single)!.encode(),

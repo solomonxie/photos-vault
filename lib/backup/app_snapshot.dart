@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:io';
 
 import '../photos/person.dart';
 import '../photos/person_store.dart';
@@ -97,6 +98,32 @@ class AppSnapshotIo {
   final AssetRecordStore assetRecordStore;
   final AlbumStore albumStore;
   final PersonStore personStore;
+
+  /// The three database files behind this app, each checkpointed. What
+  /// `LocalVault` copies raw — the one copy that survives a *schema*
+  /// problem, which no row-level undo can fix.
+  Future<List<File>> databaseFiles() async => [
+    ?await assetRecordStore.checkpointedFile(),
+    ?await albumStore.checkpointedFile(),
+    ?await personStore.checkpointedFile(),
+  ];
+
+  /// One number for "has anything changed", across all three databases.
+  /// Summed rather than compared field by field: the gate only ever asks
+  /// whether it moved, and a write to any of the three moves it.
+  Future<int> changeMark() async =>
+      await assetRecordStore.changeMark() +
+      await albumStore.changeMark() +
+      await personStore.changeMark();
+
+  /// The change log as it travels in the backup zip — one document, the
+  /// three databases' logs side by side. Never replayed on restore; it
+  /// describes ids that were remapped on the way in.
+  Future<Map<String, Object?>> changeLog() async => {
+    'assets': await assetRecordStore.changeLogRows(),
+    'albums': await albumStore.changeLogRows(),
+    'people': await personStore.changeLogRows(),
+  };
 
   Future<AppSnapshot> export() async {
     final records = await assetRecordStore.listAll();

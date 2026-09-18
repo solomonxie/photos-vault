@@ -1,5 +1,6 @@
 import '../storage/asset_record_store.dart';
 import 'app_snapshot.dart';
+import 'backup_schedule.dart';
 import 'icloud_drive.dart';
 import 'snapshot_archive.dart';
 
@@ -12,15 +13,22 @@ import 'snapshot_archive.dart';
 /// written, one file read on a fresh install — and the section hint says so
 /// rather than letting the word "iCloud" imply a merge.
 ///
-/// One zip a month — `202609.zip` — overwritten within the month and left
-/// alone after it. A single rolling file was tried first and is the wrong
-/// shape for the job: the copy is there for the day something goes wrong,
-/// and "something went wrong" is usually noticed weeks later, by which
-/// time one rolling file has already been overwritten with the damage.
-/// Twelve small files a year is a year of undo for a few hundred kilobytes.
+/// One zip a day — `20260918.zip` — written only on a day something
+/// actually changed, and never more than once. A single rolling file was
+/// tried first and is the wrong shape for the job: the copy is there for
+/// the day something goes wrong, and "something went wrong" is usually
+/// noticed later, by which time one rolling file has already been
+/// overwritten with the damage.
 ///
-/// The restore reads the newest zip, and falls back to the `library.json`
-/// older builds wrote so an upgrade never loses the copy it already had.
+/// The folder keeps the **latest [keepCopies]** and prunes the rest. A
+/// count rather than an age, because here the user pays for the storage
+/// and a count is what bounds the bill — the opposite of `LocalVault`,
+/// where age is what keeps the promise legible. Depth beyond ten days is
+/// the bucket's job: it never deletes anything.
+///
+/// The restore reads the newest zip, and falls back to a `202609.zip` or
+/// the `library.json` older builds wrote, so an upgrade never loses the
+/// copy it already had.
 class ICloudBackup {
   ICloudBackup({
     required this.snapshots,
@@ -39,6 +47,18 @@ class ICloudBackup {
 
   static const enabledKey = 'icloud_backup_enabled';
   static const restoredKey = 'icloud_backup_restored_at';
+  static const markKey = 'icloud_backup_mark';
+  static const lastBackupKey = 'icloud_backup_at';
+
+  /// Ten days of undo. Past that the copy is the bucket's or nobody's.
+  static const keepCopies = 10;
+
+  late final BackupSchedule schedule = BackupSchedule(
+    settings: settings,
+    snapshots: snapshots,
+    markKey: markKey,
+    atKey: lastBackupKey,
+  );
 
   Future<bool> isEnabled() async =>
       await settings.getAppState(enabledKey) == 'true';
@@ -57,17 +77,39 @@ class ICloudBackup {
   /// interrupt anyone with.
   Future<bool> backUpNow() async {
     if (await drive.status() != ICloudState.available) return false;
-    final snapshot = await snapshots.export();
-    return drive.writeBytes(
-      monthlyArchiveName(DateTime.now()),
-      zipSnapshot(snapshot),
+    final wrote = await drive.writeBytes(
+      dailyArchiveName(DateTime.now()),
+      zipSnapshot(
+        await snapshots.export(),
+        changeLog: await snapshots.changeLog(),
+      ),
     );
+    if (!wrote) return false;
+    await schedule.recordSuccess();
+    await _pruneOldCopies();
+    return true;
   }
 
-  /// Backs up only if switched on — what every "something changed" caller
-  /// wants, so none of them has to remember to check.
+  /// Backs up only if switched on, and only when it's owed — what every
+  /// "something changed" caller wants, so none of them has to remember to
+  /// check either thing. See [BackupSchedule].
   Future<void> backUpIfEnabled() async {
-    if (await isEnabled()) await backUpNow();
+    if (!await isEnabled()) return;
+    if (!await schedule.isDue()) return;
+    await backUpNow();
+  }
+
+  /// Keeps the newest [keepCopies] and deletes this app's older ones.
+  /// Names sort by date, so "newest" is the tail of a sorted list — and
+  /// only names this app would have written are touched: the folder is the
+  /// user's, and anything else in it is theirs.
+  Future<void> _pruneOldCopies() async {
+    final mine = (await drive.list()).where(isSnapshotArchiveName).toList()
+      ..sort();
+    if (mine.length <= keepCopies) return;
+    for (final name in mine.take(mine.length - keepCopies)) {
+      await drive.delete(name);
+    }
   }
 
   /// Pulls the snapshot back on a fresh install, before anything else has
@@ -92,8 +134,9 @@ class ICloudBackup {
     return restored;
   }
 
-  /// The newest monthly zip, or — for a backup taken before this app wrote
-  /// zips — the single `library.json` it used to write.
+  /// The newest zip of either naming generation, or — for a backup taken
+  /// before this app wrote zips at all — the single `library.json` it used
+  /// to write.
   Future<AppSnapshot?> _latestSnapshot() async {
     final bytes = await drive.readLatestBytes();
     if (bytes != null) {

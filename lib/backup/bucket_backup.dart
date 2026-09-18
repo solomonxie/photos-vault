@@ -8,17 +8,25 @@ import '../settings/s3_listing.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/signing.dart';
 import 'app_snapshot.dart';
+import 'backup_schedule.dart';
 import 'snapshot_archive.dart';
 
 /// The same snapshot `ICloudBackup` writes to iCloud Drive, kept in the
 /// user's own bucket instead — for anyone whose photos already go there and
 /// who'd rather the one part that *isn't* a photo didn't depend on Apple.
 ///
-/// Deliberately the same shape as the iCloud copy: one zip a month,
-/// `app-data/202609.zip` under the target's prefix, overwritten within the
-/// month and left alone after it. Written to every configured bucket,
-/// restored from the first that answers — newest month first, and falling
-/// back to the `library.json` older builds wrote.
+/// Deliberately the same shape as the iCloud copy: one zip a day,
+/// `app-data/20260918.zip` under the target's prefix, written only on a day
+/// something actually changed. Written to every configured bucket,
+/// restored from the first that answers — newest day first, and falling
+/// back to the monthly zips and the `library.json` older builds wrote.
+///
+/// **Nothing here is ever deleted.** Where iCloud prunes to ten because the
+/// user pays for that storage by the account, a bucket is already theirs
+/// and a few hundred kilobytes a day is the price of being able to ask what
+/// the library looked like in March. Write-only credentials are the common
+/// case and the right default anyway: a bucket this app cannot delete from
+/// cannot be wiped by a bug in this app.
 ///
 /// It is the second destination, not a replacement — both switches can be
 /// on, and having the copy in two places is the point of offering two.
@@ -69,6 +77,17 @@ class BucketBackup {
   static const enabledKey = 'bucket_backup_enabled';
   static const restoredKey = 'bucket_backup_restored_at';
   static const lastBackupKey = 'bucket_backup_at';
+  static const markKey = 'bucket_backup_mark';
+
+  /// Its own gate, separate from iCloud's: the two fail independently, and
+  /// a week of unreachable buckets must not leave this one believing it is
+  /// up to date. See [BackupSchedule].
+  late final BackupSchedule schedule = BackupSchedule(
+    settings: settings,
+    snapshots: snapshots,
+    markKey: markKey,
+    atKey: lastBackupKey,
+  );
 
   /// Its own folder beside `originals/`, so a lifecycle rule written for
   /// the photos doesn't expire the files that describe them.
@@ -89,10 +108,7 @@ class BucketBackup {
     return backUpNow();
   }
 
-  Future<DateTime?> lastBackupAt() async {
-    final raw = await settings.getAppState(lastBackupKey);
-    return raw == null ? null : DateTime.tryParse(raw);
-  }
+  Future<DateTime?> lastBackupAt() => schedule.lastRunAt();
 
   /// Writes the current snapshot to every configured bucket. Silent about
   /// failure: this runs unattended, and a bucket that can't be reached
@@ -100,8 +116,11 @@ class BucketBackup {
   Future<bool> backUpNow() async {
     final targets = await targetsStore.loadAll();
     if (targets.isEmpty) return false;
-    final body = zipSnapshot(await snapshots.export());
-    final name = monthlyArchiveName(DateTime.now());
+    final body = zipSnapshot(
+      await snapshots.export(),
+      changeLog: await snapshots.changeLog(),
+    );
+    final name = dailyArchiveName(DateTime.now());
     var wrote = false;
     for (final target in targets) {
       try {
@@ -116,17 +135,16 @@ class BucketBackup {
         // and the copy in iCloud may already have it covered.
       }
     }
-    if (wrote) {
-      await settings.setAppState(
-        lastBackupKey,
-        DateTime.now().toIso8601String(),
-      );
-    }
+    // Only after a bucket actually took it. Recorded before, a failed
+    // upload is remembered as done and the next day's gate skips for good.
+    if (wrote) await schedule.recordSuccess();
     return wrote;
   }
 
   Future<void> backUpIfEnabled() async {
-    if (await isEnabled()) await backUpNow();
+    if (!await isEnabled()) return;
+    if (!await schedule.isDue()) return;
+    await backUpNow();
   }
 
   /// Pulls the snapshot back on a fresh install. Guarded the same way the
@@ -156,18 +174,18 @@ class BucketBackup {
     return 0;
   }
 
-  /// The newest monthly archive in [target], or the single `library.json`
-  /// an older build left there.
+  /// The newest archive in [target], of either naming generation, or the
+  /// single `library.json` an older build left there.
   ///
-  /// Listed rather than guessed at: the newest month is whatever is
-  /// actually in the folder, and a device that has been off for two months
-  /// has no way to know what that is.
+  /// Listed rather than guessed at: the newest copy is whatever is actually
+  /// in the folder, and a device that has been off for two months has no
+  /// way to know what that is.
   Future<AppSnapshot?> _latestSnapshotIn(S3BackupTarget target) async {
     final listing = await _list(target: target, prefix: keyFor(target, ''));
     final archives =
         (listing.page?.objects ?? const <S3Object>[])
             .map((object) => object.key.split('/').last)
-            .where(isMonthlyArchiveName)
+            .where(isSnapshotArchiveName)
             .toList()
           ..sort();
     for (final name in archives.reversed) {
