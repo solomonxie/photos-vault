@@ -238,11 +238,8 @@
     "placeholders": {"count": {"type": "int"}}
   },
 
-  "settingsStorageTypeLabel": "Storage type",
-  "settingsStorageTypeComingSoon": "{name} (coming soon)",
-  "@settingsStorageTypeComingSoon": {
-    "placeholders": {"name": {"type": "String"}}
-  },
+  "settingsCloudVendorLabel": "Cloud vendor",
+  "settingsCloudVendorHint": "Whose cloud the bucket lives in — Amazon S3, Tencent COS, Alibaba OSS. Google Cloud Storage, Azure Blob and Backblaze B2 are coming.",
 
 
   "settingsBackupFormatHint": "What actually gets uploaded for each photo.",

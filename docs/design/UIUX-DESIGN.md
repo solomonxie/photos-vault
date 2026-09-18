@@ -471,7 +471,7 @@ Applicable cloud bucket: S3, S3-compatible, Azure, Google
 
 Call it **Private Cloud** — the point is storage the user owns.
 
-Show the roadmap honestly: a storage-type picker listing every vendor, with unbuilt ones visibly disabled as "(coming soon)" rather than hidden.
+Show the roadmap honestly: the cloud-vendor hint names the backends that are coming, rather than leaving them unmentioned.
 
 Scope rule: object storage the user owns is in scope; consumer cloud *apps* (iCloud Drive, Google Drive, Dropbox) are not — those already have official apps.
 
