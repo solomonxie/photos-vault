@@ -32,9 +32,9 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
         │                        └─▶ [AddS3Backup]   └─▶ ObjectPreview
         Sync queue ──▶ [SyncQueueSheet]
         AI Settings ──▶ AiSettingsScreen ──▶ [AddKey sheet]
-        Demo Data ──▶ DemoDataScreen
         Hidden ──▶ [PrivateAlbumGate] ──▶ PrivateAlbumScreen
         Recently Deleted ──▶ RecentlyDeletedScreen
+        Optimize Storage ──▶ StorageOptimizationScreen
 ```
 
 ## Files
@@ -47,5 +47,6 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
 | `collections.md` | albums, favorites, groups, smart collections, hidden, deleted |
 | `cloud.md` | Cloud Settings, add bucket, bucket browser |
 | `queue.md` | sync queue sheet |
+| `storage.md` | optimize storage: problem filters, per-photo fixes, batch |
 | `ai.md` | AI settings and AI touch-up |
 | `components.md` | tiles, rows, scrubber, section chrome |

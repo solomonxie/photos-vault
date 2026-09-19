@@ -461,13 +461,8 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   // ------------------------------------------------------------------ stats
 
-  int get _backedUpCount => _records
-      .where(
-        (r) =>
-            !r.isDeleted &&
-            r.stateOf(DerivativeKind.original).status == UploadStatus.uploaded,
-      )
-      .length;
+  int get _backedUpCount =>
+      _records.where((r) => !r.isDeleted && r.isFullyBackedUp).length;
 
   int get _trackedCount => _records.where((r) => !r.isDeleted).length;
 

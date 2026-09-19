@@ -1,5 +1,6 @@
 import 'package:flutter/cupertino.dart';
 
+import '../photos/asset_removal.dart';
 import '../photos/library_metadata.dart';
 import '../l10n/app_localizations.dart';
 import '../storage/asset_record.dart';
@@ -35,6 +36,12 @@ class RecentlyDeletedScreen extends StatefulWidget {
 class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
   List<AssetRecord> _records = const [];
 
+  /// Only ever used here to drop what's left of a photo that is gone
+  /// everywhere — see [AssetRemoval.purgeVanished].
+  late final AssetRemoval _removal = AssetRemoval(
+    store: widget.assetRecordStore,
+  );
+
   @override
   void initState() {
     super.initState();
@@ -43,11 +50,13 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
 
   Future<void> _reload() async {
     final all = await widget.assetRecordStore.listAll();
+    final binned = await _removal.purgeVanished(
+      all.where((r) => r.isDeleted).toList(),
+    );
     if (!mounted) return;
     setState(
       () =>
-          _records = all.where((r) => r.isDeleted).toList()
-            ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
+          _records = binned..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
     );
   }
 

@@ -4,6 +4,28 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
+  test('a GIF round-trips, and counts as a video without being one', () async {
+    final store = AssetRecordStore(
+      databaseFactory: databaseFactoryFfi,
+      path: inMemoryDatabasePath,
+    );
+    addTearDown(store.close);
+
+    await store.upsert(
+      localId: 'manual:g',
+      contentHash: 'g',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/party.gif',
+      isGif: true,
+    );
+
+    final saved = (await store.getByLocalId('manual:g'))!;
+    expect(saved.isGif, isTrue);
+    expect(saved.isVideo, isFalse, reason: 'it never reaches video_player');
+    expect(saved.countsAsVideo, isTrue, reason: 'but it is in Videos');
+  });
+
   setUpAll(sqfliteFfiInit);
 
   // sqflite_common_ffi caches in-memory DBs by path (singleInstance

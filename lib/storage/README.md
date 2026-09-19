@@ -35,8 +35,9 @@ getByLocalId() / listAll() route every row through:
   doubles as the album id) and person-profile locks.
 
 `asset_record.db` also carries a small `app_state` key/value table for flags
-about the library as a whole (currently just "have the demo photos been
-seeded"). They belong here rather than in secure storage because an iOS
+about the library as a whole — whether a restore has already run, and
+which private albums are kept off the network
+(`private_album_sync.dart`). They belong here rather than in secure storage because an iOS
 Keychain item **survives an uninstall** and this database doesn't — a flag
 that outlives its records leaves a reinstalled app sure it has already done
 something to data that's gone.

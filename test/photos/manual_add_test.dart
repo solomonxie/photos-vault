@@ -10,6 +10,13 @@ import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 import '../support/test_platform_file.dart';
 
 void main() {
+  test('a GIF is filed with the videos without being one', () async {
+    // It moves, so it belongs in the Videos album; it decodes, so it must
+    // never reach the video player.
+    expect(isGifPath('/tmp/party.GIF'), isTrue);
+    expect(isGifPath('/tmp/party.jpg'), isFalse);
+  });
+
   setUpAll(sqfliteFfiInit);
 
   // sqflite_common_ffi caches in-memory DBs by path (singleInstance

@@ -18,7 +18,6 @@
   "libraryStatusUploading": "Uploading…",
   "libraryStatusUploaded": "Backed up",
   "libraryStatusFailed": "Failed",
-  "libraryAddDemoButton": "Try with Demo Photos",
   "libraryDeleteTooltip": "Delete",
   "libraryToday": "Today",
   "libraryYesterday": "Yesterday",
@@ -40,9 +39,14 @@
   "libraryDeleteEverywhere": "Delete Photo",
   "libraryDeleteFromDeviceFailed": "Couldn't remove this from the device.",
   "libraryDeleteConfirmBody": "It moves to Recently Deleted.",
+  "libraryDeleteConfirmBodyGone": "It isn't backed up, so this deletes it for good.",
   "libraryAlbumEmpty": "No photos in this album.",
   "libraryRemoveFromAlbum": "Remove from Album",
 
+  "detailGifBadge": "GIF",
+  "motionPlayHold": "Hold to play",
+  "motionPlayLoop": "Play on a loop",
+  "motionPlayStill": "Don't play",
   "detailLivePhotoBadge": "LIVE",
   "@detailLivePhotoBadge": {"description": "Badge on a Live Photo; hold the photo to play it"},
   "detailFileUnavailable": "This file is no longer available.",
@@ -158,6 +162,10 @@
   "selectionAdjustDateTime": "Adjust Date",
   "selectionDelete": "Delete",
   "selectionMore": "More",
+  "selectionDeleteAction": "{count, plural, one{Delete 1 Photo} other{Delete {count} Photos}}",
+  "@selectionDeleteAction": {
+    "placeholders": {"count": {"type": "int"}}
+  },
   "selectionDeleteConfirmTitle": "{count, plural, one{Delete 1 photo?} other{Delete {count} photos?}}",
   "@selectionDeleteConfirmTitle": {
     "placeholders": {"count": {"type": "int"}}
@@ -174,16 +182,6 @@
   "collectionsRecentlyDeletedRow": "Recently Deleted",
   "collectionsCloudSettingsRow": "Cloud Settings",
   "collectionsAiSettingsRow": "AI Settings",
-  "demoDataTitle": "Demo Data",
-  "@demoDataTitle": {"description": "Utilities row and page title for the bundled sample photos"},
-  "demoDataHint": "A handful of sample photos, albums and people bundled with the app, so there's something to explore before your own library is set up. They're ordinary items once added — backed up like anything else.",
-  "demoDataAddAction": "Add Demo Data",
-  "demoDataAddDescription": "Adds the sample photos, the Nature/City/Videos albums, a private album and a few people. Anything already there is left as it is.",
-  "demoDataRemoveAction": "Delete All Demo Data",
-  "demoDataRemoveDescription": "Removes every sample photo, album and person this app added. Your own photos and albums aren't touched.",
-  "demoDataRemoveTitle": "Delete all demo data?",
-  "demoDataRemoveBody": "The sample photos, albums and people go. Anything you added yourself stays.",
-  "demoDataWorking": "Working…",
   "collectionsImportPhotosRow": "Import Photos",
 
   "backupQueueTitle": "Sync Queue",
@@ -201,6 +199,7 @@
   "backupQueueKindCheck": "Checking for changes",
   "backupQueueKindOriginal": "Backing up original",
   "backupQueueKindThumbnail": "Backing up thumbnail",
+  "backupQueueKindLivePhoto": "Backing up Live Photo motion",
   "backupQueueKindAnalyze": "Looking at the photo",
   "backupQueueWaiting": "Waiting",
   "backupQueueIdle": "Idle",
@@ -322,8 +321,6 @@
   },
   "analyzeQueueListHeading": "IN THE QUEUE",
   "analyzeQueueEmpty": "Nothing left to look at. New photos join the queue as they arrive.",
-  "analyzeQueueScanRow": "Photos library",
-  "analyzeQueueStepScan": "Re-reading Photos for new and changed items",
   "analyzeQueueStepFaces": "Looking for faces",
   "analyzeQueueStepSuggest": "Asking your AI for tags and a caption",
   "analyzeQueueFrequencyHeading": "How Often",
@@ -440,6 +437,65 @@
   "bucketPreviewUnsupported": "Can't preview this file type.",
   "bucketPreviewOpenExternally": "Open Externally",
 
+  "collectionsStorageRow": "Optimize Storage",
+  "@collectionsStorageRow": {"description": "Utilities row and page title for the storage clean-up page"},
+  "storageTitle": "Optimize Storage",
+  "storageHint": "Back up first. Shrinking or removing a copy leaves the bucket holding the only full-quality one.",
+  "storageScanning": "Measuring {done} of {total}…",
+  "@storageScanning": {
+    "placeholders": {"done": {"type": "int"}, "total": {"type": "int"}}
+  },
+  "storageSummary": "Free up to {size}",
+  "storageSummaryDetail": "{count, plural, one{1 item, using {size} on this device} other{{count} items, using {size} on this device}}",
+  "@storageSummary": {
+    "placeholders": {"size": {"type": "String"}}
+  },
+  "@storageSummaryDetail": {
+    "placeholders": {"count": {"type": "int"}, "size": {"type": "String"}}
+  },
+  "storageScannedAt": "Scanned {when}",
+  "@storageScannedAt": {
+    "placeholders": {"when": {"type": "String"}}
+  },
+  "storageNeverScanned": "Not scanned yet.",
+  "storageRescan": "Rescan",
+  "storageEmpty": "Nothing to optimize. Everything is backed up, and no local copy is bigger than it needs to be.",
+  "storageFilterAll": "All",
+  "storageIssueOnDevice": "On device",
+  "storageIssueLargeFile": "Large file",
+  "storageIssueHighResolution": "High resolution",
+  "storageIssueOptimizableFormat": "Optimizable format",
+  "storageFixBackUpFirst": "Back Up First",
+  "storageFixRemoveFromDevice": "Remove from Device",
+  "storageFixReduceResolution": "Reduce Resolution",
+  "storageFixConvertFormat": "Convert to WebP",
+  "storageSelect": "Select",
+  "storageSelectAll": "All",
+  "storageSelected": "{count, plural, one{1 selected · frees up to {size}} other{{count} selected · frees up to {size}}}",
+  "@storageSelected": {
+    "placeholders": {"count": {"type": "int"}, "size": {"type": "String"}}
+  },
+  "storageFixSelected": "Optimize",
+  "storageOptimizeAction": "Optimize",
+  "storageConfirmTitle": "{count, plural, one{Optimize this photo?} other{Optimize {count} photos?}}",
+  "@storageConfirmTitle": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "storageConfirmBody": "Each photo gets the fix on its own card. Removing keeps it in your library and re-downloads on demand; reducing or converting replaces the copy on this device, and the bucket keeps the original.",
+  "storageResultFreed": "Freed {size}.",
+  "@storageResultFreed": {
+    "placeholders": {"size": {"type": "String"}}
+  },
+  "storageResultQueued": "{count, plural, one{1 queued for backup.} other{{count} queued for backup.}}",
+  "@storageResultQueued": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "storageResultSkipped": "{count, plural, one{1 was left alone.} other{{count} were left alone.}}",
+  "@storageResultSkipped": {
+    "placeholders": {"count": {"type": "int"}}
+  },
+  "storageResultNothing": "Nothing changed.",
+
   "actionOk": "OK",
   "privateAlbumReturnFailed": "{count, plural, one{One photo could not be put back into Photos. It is still here.} other{{count} photos could not be put back into Photos. They are still here.}}",
   "@privateAlbumReturnFailed": {
@@ -455,6 +511,10 @@
   "libraryHideConfirmAction": "Hide and Remove",
   "libraryHideNote": "Hidden photos are removed from Photos and kept by this app alone.",
   "libraryDeleteBackupFailed": "Couldn't remove the backed-up copy from your bucket. The photo is still here — try again when you're back online.",
+  "libraryDeleteBatchCapped": "Photos only takes {limit} at a time. The rest are still selected \u2014 delete again to carry on.",
+  "@libraryDeleteBatchCapped": {
+    "placeholders": {"limit": {"type": "int"}}
+  },
   "actionCancel": "Cancel",
   "actionDelete": "Delete",
   "actionAdd": "Add",
@@ -483,9 +543,18 @@
     "placeholders": {"count": {"type": "int"}}
   },
   "privateAlbumPickerEmpty": "No photos available to add.",
+  "privateAlbumBackupTitle": "Backup",
+  "privateAlbumBackupStatusOn": "This album is backed up with the rest of your library.",
+  "privateAlbumBackupStatusOff": "This album stays on this device.",
+  "privateAlbumBackupExplainer": "Hiding a photo takes it out of Photos, so this app holds the only copy of it on this device.\n\nBacked up, it goes to your buckets like every other photo: same folders, and its filename is replaced by an id, so nothing up there marks it as hidden. The photo itself is not encrypted \u2014 anyone who can read your bucket can open it.",
+  "privateAlbumBackupTradeOffOn": "A lost, broken or wiped phone does not take these photos with it.",
+  "privateAlbumBackupTradeOffOff": "Nothing leaves this device. Lose the phone or delete the app and these photos are gone, because Photos no longer has them. Anything uploaded before now stays in your bucket.",
+  "privateAlbumBackupDisable": "Keep this album on this device only",
+  "privateAlbumBackupEnable": "Back this album up",
 
   "peopleScreenTitle": "People",
   "peopleNamePromptTitle": "New Person",
+  "peopleUnnamedFace": "Who's this?",
   "peopleEmpty": "No people yet. Tap + to add someone.",
   "peopleSearchEmpty": "No people match your search.",
   "peopleAiAnalysisRow": "Find People with AI Analysis",
@@ -508,6 +577,9 @@
   "personProfileEducationLabel": "Education",
   "personProfileJobLabel": "Job",
   "personProfileBioLabel": "About",
+  "personProfileBioEmpty": "This person doesn't have any bio",
+  "personProfileAvatarPickerTitle": "Profile Picture",
+  "personProfileAvatarPickerEmpty": "Tag this person in a photo first, and you can pick one here.",
   "personProfileNotSet": "Not set",
   "personProfileLockButton": "Lock Profile",
   "personProfileUnlockButton": "Unlock",

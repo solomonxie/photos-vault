@@ -47,13 +47,11 @@ void main() {
   late FakeAssetRecordStore records;
   late FakeAiAnalysisStore analyses;
   late _FakeVision vision;
-  late int scans;
 
   setUp(() {
     records = FakeAssetRecordStore();
     analyses = FakeAiAnalysisStore();
     vision = _FakeVision();
-    scans = 0;
   });
 
   AnalyzeQueue build({AiVisionService? aiVision, bool hasKey = false}) {
@@ -66,7 +64,6 @@ void main() {
       ),
       aiVision: aiVision,
       hasAiKey: () async => hasKey,
-      scanLibrary: () async => scans++,
       resolvePath: (record) async => '/tmp/${record.localId}.jpg',
       displayNameFor: (record) => record.localId,
       rest: Duration.zero,
@@ -76,17 +73,27 @@ void main() {
   Future<AssetRecord> addPhoto(String id) =>
       records.upsert(localId: id, contentHash: id, platform: 'ios');
 
-  test('reads the camera roll first, then looks at what it found', () async {
+  test('looks at every photo it has not looked at', () async {
     await addPhoto('photo:a');
     await addPhoto('photo:b');
     final queue = build();
 
     await queue.start();
 
-    expect(scans, 1, reason: 'the scan leads the pass');
     expect(vision.calls, 2, reason: 'one look per photo');
     expect((await analyses.listAll()).keys, {'photo:a', 'photo:b'});
     expect(queue.remaining.value, 0);
+  });
+
+  test('re-reading the camera roll is not this queue\'s business', () async {
+    // It lives in `library_scanner.dart`: nobody chose it, nobody pays for
+    // it, and no pause switch may stop new photos arriving.
+    await addPhoto('photo:a');
+    final queue = build();
+
+    await queue.start();
+
+    expect(queue.jobs.value.every((job) => job.localId != null), isTrue);
   });
 
   test('a photo already looked at is not looked at twice', () async {
@@ -100,26 +107,6 @@ void main() {
     expect(vision.calls, 1, reason: 'nothing new to look at');
   });
 
-  test(
-    'the camera roll is re-read on the way back in, not on a timer',
-    () async {
-      await addPhoto('photo:a');
-      final queue = build();
-      await queue.start();
-      expect(scans, 1);
-
-      // A pass that happens to run again inside the window leaves Photos
-      // alone…
-      await queue.start();
-      expect(scans, 1);
-
-      // …but coming back from Photos is exactly when something may have
-      // changed over there.
-      await queue.start(rescan: true);
-      expect(scans, 2);
-    },
-  );
-
   test('paused means paused', () async {
     await addPhoto('photo:a');
     final queue = build();
@@ -127,24 +114,16 @@ void main() {
 
     await queue.start();
 
-    expect(scans, 0);
     expect(vision.calls, 0);
   });
 
-  test('manual means nothing is looked at unasked', () async {
+  test('manual is the default, and means nothing runs unasked', () async {
     await addPhoto('photo:a');
     final queue = build();
-    await queue.setFrequency(SyncFrequency.manual);
+
+    expect(queue.frequency.value, SyncFrequency.manual);
 
     await queue.startIfDue();
-    expect(scans, 0);
-    expect(vision.calls, 0);
-
-    // Coming back from Photos still re-reads the library — a photo taken
-    // while away isn't in it at all until that happens — but nothing gets
-    // looked at.
-    await queue.startIfDue(rescan: true);
-    expect(scans, 1);
     expect(vision.calls, 0);
 
     await queue.start();

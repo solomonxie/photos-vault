@@ -13,12 +13,11 @@ import 'ai_vision_service.dart';
 import 'on_device_analysis.dart';
 
 /// What one unit of work in the analyze pass actually does.
+///
+/// Re-reading the camera roll isn't one of them: it's nobody's choice and
+/// nobody's cost, so it runs out of sight in `library_scanner.dart` rather
+/// than as a row here that can be paced and paused.
 enum AnalyzeStep {
-  /// Re-read the camera roll: new photos, edits, deletions. One job for the
-  /// whole library rather than one per photo — Photos answers in pages, and
-  /// the pass is a single call that either ran or didn't.
-  scanLibrary,
-
   /// Look for faces on the phone. Free, offline, and the only thing this
   /// app can learn about a photo without asking anyone for money.
   findFaces,
@@ -43,8 +42,7 @@ class AnalyzeJob {
 
   final String id;
 
-  /// The photo this is about — `null` for [AnalyzeStep.scanLibrary], which
-  /// is about the library rather than any one item in it.
+  /// The photo this is about.
   final String? localId;
 
   final AnalyzeStep step;
@@ -67,9 +65,10 @@ class AnalyzeJob {
   );
 }
 
-/// The slow pass over the library: re-read what Photos has, look for faces
-/// in whatever hasn't been looked at, and — only if asked — pay a vendor to
-/// suggest tags and a caption.
+/// The slow pass over the library: look for faces in whatever hasn't been
+/// looked at, and — only if asked — pay a vendor to suggest tags and a
+/// caption. Finding the photos in the first place is
+/// `library_scanner.dart`'s job, not this one's.
 ///
 /// A queue of its own rather than more rows in the sync queue. The two are
 /// unlike in every way that matters: uploads are owed to a bucket and want
@@ -88,7 +87,6 @@ class AnalyzeQueue {
     required this.assetRecordStore,
     required this.analysisStore,
     required this.onDeviceAnalysis,
-    required this.scanLibrary,
     required this.resolvePath,
     required this.displayNameFor,
     this.aiVision,
@@ -101,10 +99,6 @@ class AnalyzeQueue {
   final AssetRecordStore assetRecordStore;
   final AiAnalysisStore analysisStore;
   final OnDeviceAnalysisService onDeviceAnalysis;
-
-  /// The camera-roll pass, owned by the library screen because it is what
-  /// redraws while the pages arrive.
-  final Future<void> Function() scanLibrary;
 
   /// A photo's file on disk — `null` for one the library can't produce
   /// right now, which is a skip rather than a failure.
@@ -135,17 +129,17 @@ class AnalyzeQueue {
   /// How many just-finished rows stay under the list.
   static const _finishedShown = 20;
 
-  /// How long a re-read of the camera roll stays good for. Without this the
-  /// queue would re-add the scan the moment it finished it and spend the
-  /// day reading Photos.
-  static const scanEvery = Duration(minutes: 5);
-
   final ValueNotifier<List<AnalyzeJob>> jobs = ValueNotifier(const []);
   final ValueNotifier<bool> running = ValueNotifier(false);
   final ValueNotifier<bool> paused = ValueNotifier(false);
   final ValueNotifier<int> pace = ValueNotifier(1);
+
+  /// Manual until asked otherwise — looking at photos costs battery, and
+  /// on the paid half, money. The camera-roll *scan* still runs on open
+  /// whatever this says (see [startIfDue]): a photo taken while the app
+  /// was away isn't in the library at all until it does.
   final ValueNotifier<SyncFrequency> frequency = ValueNotifier(
-    SyncFrequency.everyHour,
+    SyncFrequency.manual,
   );
 
   /// Whether the vendor step is in. Off until someone says otherwise: it is
@@ -165,10 +159,6 @@ class AnalyzeQueue {
   static const lastRunKey = 'analyze_last_run_at';
 
   bool _loaded = false;
-
-  /// When the camera roll was last re-read. In memory: a scan on launch is
-  /// exactly what a fresh start should do.
-  DateTime? _scannedAt;
 
   /// When the pass last looked at photos. Persisted, because "every six
   /// hours" has to mean something across a restart.
@@ -264,29 +254,15 @@ class AnalyzeQueue {
   }
 
   Future<List<AnalyzeJob>> _outstanding() async {
-    // Re-reading Photos is listed first and on its own: it is the one job
-    // here that doesn't need the analysis database, and a library that
-    // can't be *looked at* must still be read — otherwise one broken cache
-    // quietly stops new photos ever arriving.
-    final scan = [
-      if (_scannedAt == null ||
-          DateTime.now().difference(_scannedAt!) >= scanEvery)
-        const AnalyzeJob(
-          id: 'scan',
-          step: AnalyzeStep.scanLibrary,
-          displayName: '',
-        ),
-    ];
     List<AssetRecord> records;
     Map<String, AiPhotoAnalysis> analyzed;
     try {
       records = await _activeRecords();
       analyzed = await analysisStore.listAll();
     } catch (_) {
-      return scan;
+      return const [];
     }
     return [
-      ...scan,
       for (final record in records)
         if (!record.isVideo && !analyzed.containsKey(record.localId))
           AnalyzeJob(
@@ -331,26 +307,17 @@ class AnalyzeQueue {
 
   /// Runs until there's nothing left or it's paused. A second call joins
   /// the drain already running rather than starting another set of workers.
-  ///
-  /// [rescan] puts a re-read of the camera roll at the head of the pass
-  /// whatever [scanEvery] says — what coming back from Photos means, where
-  /// the whole point is that something may have changed over there while
-  /// we weren't looking.
-  Future<void> start({bool rescan = false}) =>
-      _start(rescan: rescan, analyse: true);
+  Future<void> start() => _start();
 
-  /// The scheduled version. Two different things follow the schedule here,
-  /// and only one of them is analysis: the camera roll is re-read whenever
-  /// the app comes back ([rescan]), because a photo taken while we were
-  /// away isn't in the library at all until it is — "Manual Only" is about
-  /// not *looking* at photos unasked, not about pretending new ones don't
-  /// exist.
-  Future<void> startIfDue({bool rescan = false}) async {
+  /// The scheduled version: nothing happens unless the frequency says it's
+  /// due, and "Manual" means it never is. New photos still arrive whatever
+  /// this says — that's `library_scanner.dart`, which this queue neither
+  /// owns nor gates.
+  Future<void> startIfDue() async {
     await load();
     if (paused.value) return;
-    final due = _isDue();
-    if (!due && !rescan) return;
-    await _start(rescan: rescan, analyse: due);
+    if (!_isDue()) return;
+    await _start();
   }
 
   bool _isDue() {
@@ -368,13 +335,12 @@ class AnalyzeQueue {
 
   Future<void>? _drain;
 
-  Future<void> _start({required bool rescan, required bool analyse}) async {
+  Future<void> _start() async {
     await load();
     if (paused.value) return;
-    if (rescan) _scannedAt = null;
     final inFlight = _drain;
     if (inFlight != null) return inFlight;
-    final future = _run(analyse: analyse);
+    final future = _run();
     _drain = future;
     try {
       await future;
@@ -383,17 +349,13 @@ class AnalyzeQueue {
     }
   }
 
-  Future<void> _run({required bool analyse}) async {
+  Future<void> _run() async {
     running.value = true;
     try {
       await refresh();
       while (!paused.value) {
         final batch = jobs.value
-            .where(
-              (job) =>
-                  job.status == AnalyzeJobStatus.pending &&
-                  (analyse || job.step == AnalyzeStep.scanLibrary),
-            )
+            .where((job) => job.status == AnalyzeJobStatus.pending)
             .take(pace.value)
             .toList();
         if (batch.isEmpty) break;
@@ -403,13 +365,8 @@ class AnalyzeQueue {
         if (!paused.value) await Future<void>.delayed(rest);
         await refresh();
       }
-      // Only a pass that actually looked at photos resets the clock — a
-      // scan-only trip would otherwise keep pushing the next real pass out
-      // of reach.
-      if (analyse) {
-        _lastRunAt = DateTime.now();
-        await _write(lastRunKey, _lastRunAt!.toIso8601String());
-      }
+      _lastRunAt = DateTime.now();
+      await _write(lastRunKey, _lastRunAt!.toIso8601String());
     } finally {
       running.value = false;
     }
@@ -426,9 +383,6 @@ class AnalyzeQueue {
   Future<void> _runOne(AnalyzeJob job) async {
     try {
       switch (job.step) {
-        case AnalyzeStep.scanLibrary:
-          await scanLibrary();
-          _scannedAt = DateTime.now();
         case AnalyzeStep.findFaces:
           await _findFaces(job);
         case AnalyzeStep.suggest:

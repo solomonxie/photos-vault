@@ -13,6 +13,10 @@ const _videoExtensions = {'.mp4', '.mov', '.m4v'};
 bool _isVideoPath(String path) =>
     _videoExtensions.any(path.toLowerCase().endsWith);
 
+/// A GIF is a still this app can decode, so it is never [isVideo] — but it
+/// moves, so it is filed with the videos. See [AssetRecord.countsAsVideo].
+bool isGifPath(String path) => path.toLowerCase().endsWith('.gif');
+
 /// Manual add flow (T2.5): lets the user pick files directly — from the
 /// Files app / iCloud Drive, or photos/videos via the system picker — and
 /// enqueues them into `asset_record` alongside auto-detected camera-roll
@@ -69,6 +73,7 @@ class ManualAddService {
       sourceType: AssetSourceType.manualFile,
       sourcePath: owned.path,
       isVideo: _isVideoPath(path),
+      isGif: isGifPath(path),
       createdAt: createdAt,
     );
   }

@@ -5,8 +5,10 @@ import 'package:flutter/cupertino.dart';
 import '../photos/library_metadata.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/library_custody.dart';
+import '../photos/asset_removal.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/private_album_sync.dart';
 import 'asset_grid.dart';
 import 'asset_grid_view.dart';
 import 'asset_picker_screen.dart';
@@ -43,8 +45,10 @@ class PrivateAlbumScreen extends StatefulWidget {
 class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
   late final LibraryCustody _custody =
       widget.custody ?? LibraryCustody(store: widget.assetRecordStore);
+  late final PrivateAlbumSync _sync = PrivateAlbumSync(widget.assetRecordStore);
   List<AssetRecord> _records = const [];
   int _totalBytes = 0;
+  bool _syncEnabled = true;
   bool _selecting = false;
   Set<String> _selectedIds = {};
 
@@ -58,11 +62,13 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
     final all = await widget.assetRecordStore.forPasscodeHash(
       widget.passcodeHash,
     );
+    final syncEnabled = await _sync.isEnabled(widget.passcodeHash);
     if (!mounted) return;
     final records = all.where((r) => !r.isDeleted).toList()
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     setState(() {
       _records = records;
+      _syncEnabled = syncEnabled;
       // Best-effort: only sums files already resolvable on disk
       // (`manualFile` records, or `photoManager` ones already downloaded) —
       // doesn't trigger an iCloud fetch just to render a header stat.
@@ -140,11 +146,20 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
     _exitSelectMode();
   }
 
+  /// Deleting is the same decision on every screen: keep the cloud copy
+  /// and free the space, or bin it. See `../photos/asset_removal.dart`.
+  late final AssetRemoval _removal = AssetRemoval(
+    store: widget.assetRecordStore,
+  );
+
   Future<bool> _delete(AssetRecord record) async {
-    if (!await confirmSoftDelete(context)) return false;
-    await widget.assetRecordStore.softDelete(record.localId);
+    final outcome = await deleteAsset(
+      context,
+      record: record,
+      removal: _removal,
+    );
     await _reload();
-    return true;
+    return outcome.leftTheList;
   }
 
   Future<void> _addFromLibrary() async {
@@ -227,6 +242,83 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
     );
   }
 
+  /// No confirmation either way: the cost of each choice is written
+  /// above the link that makes it, and neither direction destroys
+  /// anything. Turning it off stops the *next* upload — whatever already
+  /// reached the bucket stays there, which the copy says too.
+  Future<void> _toggleSync() async {
+    final next = !_syncEnabled;
+    await _sync.setEnabled(widget.passcodeHash, next);
+    if (!mounted) return;
+    setState(() => _syncEnabled = next);
+  }
+
+  /// What backing up a hidden photo actually does, on the screen where
+  /// hidden photos are. Somebody deciding whether to let these leave the
+  /// phone is deciding here, and the answer shouldn't live in a settings
+  /// page two taps away.
+  Widget _backupFooter(AppLocalizations l10n) => SliverToBoxAdapter(
+    child: Padding(
+      padding: const EdgeInsets.fromLTRB(20, 32, 20, 24),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l10n.privateAlbumBackupTitle.toUpperCase(),
+            style: const TextStyle(
+              fontSize: 13,
+              letterSpacing: 0.4,
+              color: CupertinoColors.systemGrey,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            _syncEnabled
+                ? l10n.privateAlbumBackupStatusOn
+                : l10n.privateAlbumBackupStatusOff,
+            style: const TextStyle(
+              fontSize: 15,
+              fontWeight: FontWeight.w600,
+              color: CupertinoColors.white,
+            ),
+          ),
+          const SizedBox(height: 10),
+          Text(
+            l10n.privateAlbumBackupExplainer,
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.45,
+              color: CupertinoColors.systemGrey,
+            ),
+          ),
+          const SizedBox(height: 12),
+          Text(
+            _syncEnabled
+                ? l10n.privateAlbumBackupTradeOffOn
+                : l10n.privateAlbumBackupTradeOffOff,
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.45,
+              color: CupertinoColors.systemGrey,
+            ),
+          ),
+          const SizedBox(height: 16),
+          CupertinoButton(
+            padding: EdgeInsets.zero,
+            minimumSize: Size.zero,
+            onPressed: _toggleSync,
+            child: Text(
+              _syncEnabled
+                  ? l10n.privateAlbumBackupDisable
+                  : l10n.privateAlbumBackupEnable,
+              style: const TextStyle(fontSize: 15),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -297,42 +389,50 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen> {
               ),
             ),
             Expanded(
-              child: _records.isEmpty
-                  ? Center(
+              child: AssetGridView(
+                records: _records,
+                onTap: _open,
+                selectedIds: _selecting ? _selectedIds : null,
+                // Mounted even with nothing in it, so the backup footer is
+                // there for the decision that gets made before the first
+                // photo goes in.
+                emptySliver: SliverToBoxAdapter(
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 48),
+                    child: Center(
                       child: Text(
                         l10n.privateAlbumEmpty,
                         style: const TextStyle(
                           color: CupertinoColors.systemGrey,
                         ),
                       ),
-                    )
-                  : AssetGridView(
-                      records: _records,
-                      onTap: _open,
-                      selectedIds: _selecting ? _selectedIds : null,
-                      actionsFor: (r) => [
-                        TileAction(
-                          icon: r.isFavorite
-                              ? CupertinoIcons.heart_slash
-                              : CupertinoIcons.heart,
-                          label: r.isFavorite
-                              ? l10n.libraryUnfavorite
-                              : l10n.libraryFavorite,
-                          onPressed: () => _toggleFavorite(r),
-                        ),
-                        TileAction(
-                          icon: CupertinoIcons.eye,
-                          label: l10n.privateAlbumRemove,
-                          onPressed: () => _removeFromAlbum(r),
-                        ),
-                        TileAction(
-                          icon: CupertinoIcons.delete,
-                          label: l10n.libraryDeleteTooltip,
-                          isDestructive: true,
-                          onPressed: () => _delete(r),
-                        ),
-                      ],
                     ),
+                  ),
+                ),
+                trailingSlivers: [_backupFooter(l10n)],
+                actionsFor: (r) => [
+                  TileAction(
+                    icon: r.isFavorite
+                        ? CupertinoIcons.heart_slash
+                        : CupertinoIcons.heart,
+                    label: r.isFavorite
+                        ? l10n.libraryUnfavorite
+                        : l10n.libraryFavorite,
+                    onPressed: () => _toggleFavorite(r),
+                  ),
+                  TileAction(
+                    icon: CupertinoIcons.eye,
+                    label: l10n.privateAlbumRemove,
+                    onPressed: () => _removeFromAlbum(r),
+                  ),
+                  TileAction(
+                    icon: CupertinoIcons.delete,
+                    label: l10n.libraryDeleteTooltip,
+                    isDestructive: true,
+                    onPressed: () => _delete(r),
+                  ),
+                ],
+              ),
             ),
             if (_selecting)
               SafeArea(

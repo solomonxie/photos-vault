@@ -4,6 +4,8 @@ import 'dart:ui' show Rect;
 
 import 'package:image/image.dart' as img;
 
+import 'image_pipeline.dart';
+
 /// Still-image edits (crop, rotate) in pure Dart, run off the calling
 /// isolate — decode+encode of a full-size photo janks frames otherwise.
 /// Re-encodes in the source's own format so an in-place save doesn't leave
@@ -14,7 +16,7 @@ Future<Uint8List?> rotateImage({
   required double degrees,
   required String extension,
 }) => Isolate.run(() {
-  final decoded = img.decodeImage(bytes);
+  final decoded = decodePhoto(bytes);
   if (decoded == null) return null;
   return _encode(img.copyRotate(decoded, angle: degrees), extension);
 });
@@ -26,7 +28,7 @@ Future<Uint8List?> cropImage({
   required Rect fraction,
   required String extension,
 }) => Isolate.run(() {
-  final decoded = img.decodeImage(bytes);
+  final decoded = decodePhoto(bytes);
   if (decoded == null) return null;
   final x = (fraction.left * decoded.width).round().clamp(0, decoded.width - 1);
   final y = (fraction.top * decoded.height).round().clamp(

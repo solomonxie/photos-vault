@@ -24,7 +24,6 @@ dependencies:
   file_picker: ^12.3.0
   background_downloader: ^9.6.1
   crypto: ^3.0.7
-  xml: ^7.0.1
   video_player: ^2.14.0
   path_provider: ^2.1.6
   photo_manager: ^3.12.0
@@ -46,8 +45,9 @@ dev_dependencies:
 flutter:
   uses-material-design: true
   generate: true
-  assets:
-    - assets/demo/
+  # Nothing is bundled. `assets/demo/` stays in the repo as test fixtures
+  # and for seeding a dev build by hand; shipping it put 208 KB of someone
+  # else's photos in every install. See CLAUDE.md's size budget.
 
 dependency_overrides:
   # connectivity_plus 7.3.1 (pulled in transitively by background_downloader)

@@ -18,6 +18,11 @@ const _derivativeDirs = {
   DerivativeKind.thumbnail: 'thumbnails',
   DerivativeKind.medium: 'medium',
   DerivativeKind.original: 'originals',
+  // Beside the still it belongs to, not in a folder of its own: the two
+  // halves are one photo. They share a base name and differ only by
+  // extension (`…HEIC` / `….mov`), so a bucket listing shows them as the
+  // pair they are.
+  DerivativeKind.livePhoto: 'originals',
 };
 
 /// Fans one derivative file out to every configured S3 target.
@@ -98,9 +103,15 @@ class BackupCoordinator {
   /// videos, [BackupFormat.original], or a re-encode that fails.
   Future<String> _resolveUploadPath({
     required AssetRecord record,
+    required DerivativeKind kind,
     required String filePath,
     required BackupFormat format,
   }) async {
+    // A Live Photo's `.mov` is never re-encoded. It isn't a still, and the
+    // QuickTime metadata that pairs it to the photo — the content
+    // identifier, the still-image-time marker — doesn't survive a trip
+    // through an image encoder. See `docs/design/uiux/detail.md`.
+    if (kind == DerivativeKind.livePhoto) return filePath;
     if (format != BackupFormat.optimized || record.isVideo) return filePath;
     try {
       final bytes = await File(filePath).readAsBytes();
@@ -152,6 +163,7 @@ class BackupCoordinator {
     final format = await targetsStore.getBackupFormat();
     final uploadPath = await _resolveUploadPath(
       record: record,
+      kind: kind,
       filePath: filePath,
       format: format,
     );
@@ -274,6 +286,7 @@ class BackupCoordinator {
         if (rawPath == null) continue;
         final uploadPath = await _resolveUploadPath(
           record: record,
+          kind: kind,
           filePath: rawPath,
           format: format,
         );

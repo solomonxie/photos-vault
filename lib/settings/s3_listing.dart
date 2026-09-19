@@ -3,9 +3,9 @@ import 'dart:convert';
 import 'package:aws_common/aws_common.dart';
 import 'package:aws_signature_v4/aws_signature_v4.dart';
 import 'package:http/http.dart' as http;
-import 'package:xml/xml.dart';
 
 import 'bucket_endpoint.dart';
+import 's3_xml.dart' as sx;
 import 's3_backup_target.dart';
 
 /// One object under a listed prefix.
@@ -112,25 +112,26 @@ Future<S3ListingResult> listBucket({
 }
 
 S3ListingPage _parsePage(String xmlBody) {
-  final doc = XmlDocument.parse(xmlBody);
-  final folders = doc
-      .findAllElements('CommonPrefixes')
-      .map((e) => e.getElement('Prefix')!.innerText)
-      .toList();
-  final objects = doc.findAllElements('Contents').map((e) {
-    return S3Object(
-      key: e.getElement('Key')!.innerText,
-      size: int.parse(e.getElement('Size')!.innerText),
-      lastModified: DateTime.parse(e.getElement('LastModified')!.innerText),
-    );
-  }).toList();
+  final folders = <String>[];
+  for (final block in sx.blocksOf(xmlBody, 'CommonPrefixes')) {
+    final prefix = sx.textOf(block, 'Prefix');
+    if (prefix != null) folders.add(prefix);
+  }
 
-  final truncatedEls = doc.findAllElements('IsTruncated');
-  final isTruncated =
-      truncatedEls.isNotEmpty && truncatedEls.first.innerText == 'true';
-  final tokenEls = doc.findAllElements('NextContinuationToken');
-  final nextToken = isTruncated && tokenEls.isNotEmpty
-      ? tokenEls.first.innerText
+  final objects = <S3Object>[];
+  for (final block in sx.blocksOf(xmlBody, 'Contents')) {
+    final key = sx.textOf(block, 'Key');
+    final size = int.tryParse(sx.textOf(block, 'Size') ?? '');
+    final modified = DateTime.tryParse(sx.textOf(block, 'LastModified') ?? '');
+    // A row missing any of the three is skipped rather than thrown on: one
+    // malformed entry shouldn't cost the user the whole page.
+    if (key == null || size == null || modified == null) continue;
+    objects.add(S3Object(key: key, size: size, lastModified: modified));
+  }
+
+  final isTruncated = sx.textOf(xmlBody, 'IsTruncated') == 'true';
+  final nextToken = isTruncated
+      ? sx.textOf(xmlBody, 'NextContinuationToken')
       : null;
 
   return S3ListingPage(
@@ -140,11 +141,4 @@ S3ListingPage _parsePage(String xmlBody) {
   );
 }
 
-String? _errorCodeFrom(String xmlBody) {
-  try {
-    final matches = XmlDocument.parse(xmlBody).findAllElements('Code');
-    return matches.isEmpty ? null : matches.first.innerText;
-  } catch (_) {
-    return null;
-  }
-}
+String? _errorCodeFrom(String xmlBody) => sx.textOf(xmlBody, 'Code');

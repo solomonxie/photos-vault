@@ -111,11 +111,7 @@ class AlbumStore {
   /// Inserts an album under [id] if it isn't tracked yet; no-op otherwise —
   /// so re-seeding a demo album after it's deleted, or re-adding one already
   /// present, never duplicates it.
-  Future<Album> upsert({
-    required String id,
-    required String name,
-    bool isDemo = false,
-  }) async {
+  Future<Album> upsert({required String id, required String name}) async {
     final db = await _open();
     final existing = await getById(id);
     if (existing != null) return existing;
@@ -124,10 +120,9 @@ class AlbumStore {
     await db.insert(_albumTable, {
       'id': id,
       'name': name,
-      'is_demo': isDemo ? 1 : 0,
       'created_at': now.millisecondsSinceEpoch,
     });
-    return Album(id: id, name: name, createdAt: now, isDemo: isDemo);
+    return Album(id: id, name: name, createdAt: now);
   }
 
   Future<Album?> getById(String id) async {
@@ -226,7 +221,6 @@ class AlbumStore {
     id: row['id'] as String,
     name: row['name'] as String,
     createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
-    isDemo: (row['is_demo'] as int? ?? 0) != 0,
     description: row['description'] as String? ?? '',
     tags: (jsonDecode(row['tags'] as String? ?? '[]') as List<dynamic>)
         .cast<String>(),

@@ -4,6 +4,7 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
+import 'package:photo_manager/photo_manager.dart';
 
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
@@ -21,14 +22,20 @@ class ThumbnailCache {
     required this.store,
     Future<Directory> Function()? directory,
     Future<Uint8List?> Function(File file)? encode,
+    Future<Uint8List?> Function(AssetRecord record)? libraryThumbnail,
   }) : _directory = directory ?? getApplicationSupportDirectory,
-       _encode = encode ?? _defaultEncode;
+       _encode = encode ?? _defaultEncode,
+       _libraryThumbnail = libraryThumbnail ?? _defaultLibraryThumbnail;
 
   final AssetRecordStore store;
   final Future<Directory> Function() _directory;
 
   /// Overridable for tests so they never decode a real image off disk.
   final Future<Uint8List?> Function(File file) _encode;
+
+  /// The poster frame PhotoKit already holds. Overridable for tests so
+  /// they never reach a real photo library.
+  final Future<Uint8List?> Function(AssetRecord record) _libraryThumbnail;
 
   static const _dirName = 'thumbnails';
 
@@ -37,6 +44,27 @@ class ThumbnailCache {
   static Future<Uint8List?> _defaultEncode(File file) async {
     final bytes = await file.readAsBytes();
     return Isolate.run(() => encodeThumbnail(bytes));
+  }
+
+  /// What the OS already has: a still for a photo, a poster frame for a
+  /// video. The only way to get a picture of a movie without a frame
+  /// extractor of our own — and the whole reason a video can now be
+  /// removed from the device and still draw in the grid.
+  static Future<Uint8List?> _defaultLibraryThumbnail(AssetRecord record) async {
+    final id = record.libraryId;
+    if (id == null) return null;
+    try {
+      final entity = await AssetEntity.fromId(id);
+      return await entity?.thumbnailDataWithOption(
+        const ThumbnailOption(
+          size: ThumbnailSize.square(thumbnailMaxEdge),
+          quality: 80,
+        ),
+      );
+    } catch (_) {
+      // No plugin, or gone from the library since.
+      return null;
+    }
   }
 
   Future<Directory> _thumbnailDirectory() async {
@@ -50,19 +78,27 @@ class ThumbnailCache {
     return '$base.jpg';
   }
 
-  /// Path to [record]'s cached thumbnail, generating it from the file at
-  /// [originalPath] the first time. Returns null when the original isn't a
-  /// decodable still image (videos) or can't be read — callers treat that
-  /// as "no thumbnail available", never as a failure worth surfacing.
+  /// Path to [record]'s cached thumbnail, generating it the first time:
+  /// from the file at [originalPath] for a still, and from the photo
+  /// library's own poster frame for a video or anything this app can't
+  /// decode. [originalPath] may be omitted when there's no local file to
+  /// decode — a video needs none, and exporting a whole movie to make a
+  /// thumbnail of it would be absurd.
+  ///
+  /// Null means "no thumbnail available", which callers treat as a skip
+  /// rather than a failure worth surfacing.
   ///
   /// Also persists the path onto the record, so a later local delete can
   /// find it without the original still being around.
-  Future<String?> ensureFor(AssetRecord record, String originalPath) async {
+  Future<String?> ensureFor(AssetRecord record, [String? originalPath]) async {
     try {
       final existing = record.thumbnailPath;
       if (existing != null && await File(existing).exists()) return existing;
 
-      final encoded = await _encode(File(originalPath));
+      var encoded = originalPath == null || record.isVideo
+          ? null
+          : await _encode(File(originalPath));
+      encoded ??= await _libraryThumbnail(record);
       if (encoded == null) return null;
 
       final file = File(
@@ -77,6 +113,18 @@ class ThumbnailCache {
       return null;
     }
   }
+
+  /// Whether anything would be left to draw once the full-resolution copy
+  /// is gone — the one precondition for going cloud-only, whether that's
+  /// Remove from Device or the storage page's batch.
+  ///
+  /// A photo is always fine (this app decodes it). A video needs the photo
+  /// library's poster frame, so one imported by hand, with no library
+  /// entry and nothing cached yet, is the single case with no answer.
+  static bool canThumbnail(AssetRecord record) =>
+      record.thumbnailPath != null ||
+      !record.isVideo ||
+      record.libraryId != null;
 
   Future<void> remove(AssetRecord record) async {
     final path = record.thumbnailPath;

@@ -1,8 +1,11 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 import '../storage/asset_record.dart';
+import 'manual_add.dart' show isGifPath;
 import 'photo_library_change.dart';
 import '../storage/asset_record_store.dart';
 
@@ -76,6 +79,10 @@ class PhotoLibraryService {
       type: RequestType.common,
       onlyAll: true,
       filterOption: FilterOptionGroup(
+        // The filename, which is the only thing that says "this is a GIF":
+        // PhotoKit's asset type calls it an image, and `mimeType` is null
+        // on iOS. Metadata, so it costs the scan nothing.
+        imageOption: const FilterOption(needTitle: true),
         orders: const [
           OrderOption(type: OrderOptionType.createDate, asc: false),
         ],
@@ -265,6 +272,7 @@ class PhotoLibraryService {
       platform: Platform.isIOS ? 'ios' : 'android',
       sourceType: AssetSourceType.photoManager,
       isVideo: entity.type == AssetType.video,
+      isGif: isGifPath(entity.title ?? ''),
       isLivePhoto: entity.isLivePhoto,
       createdAt: entity.createDateTime,
       libraryId: entity.id,
@@ -328,10 +336,18 @@ class PhotoLibraryService {
     // photo library, so its absence there says nothing.
     if (record.isDeleted || record.localDeleted) return false;
     if (record.sourcePath != null) return false;
-    final backedUp =
-        record.stateOf(DerivativeKind.original).status == UploadStatus.uploaded;
-    if (backedUp) {
+    // A Live Photo counts only with both halves up — see
+    // [AssetRecord.isFullyBackedUp]. Calling one cloud-only on the
+    // strength of its still would claim a photo is safe when its motion
+    // and sound are gone.
+    if (record.isFullyBackedUp) {
       await store.setLocalDeleted(record.localId, true);
+    } else if (record.hasNothingLeft) {
+      // Deleted over in Photos before it was ever backed up: no bytes here,
+      // none in the bucket, and none left in the library. Binning it would
+      // put an empty tile in Recently Deleted whose Recover button hands
+      // back nothing, so the record goes with it.
+      await store.remove(record.localId);
     } else {
       await store.softDelete(record.localId);
     }
@@ -361,11 +377,30 @@ class PhotoLibraryService {
   /// to the system's own Recently Deleted; returns whether it actually
   /// went (false if the user declined the prompt, or it wasn't ours to
   /// delete).
-  Future<bool> deleteFromLibrary(AssetRecord record) async {
-    final id = libraryIdOf(record);
-    if (id == null) return false;
-    final deleted = await _deleteAssets([id]);
-    return deleted.contains(id);
+  Future<bool> deleteFromLibrary(AssetRecord record) async =>
+      (await deleteManyFromLibrary([record])).contains(record.localId);
+
+  /// The most photos one call may take out. iOS puts up a single
+  /// confirmation listing what's about to go, and past a hundred thumbnails
+  /// that sheet stops being something anyone reads — a confirmation nobody
+  /// can check is not a confirmation. Anything over the cap is left for the
+  /// next batch rather than silently going with the rest.
+  static const deleteBatchLimit = 100;
+
+  /// The same delete for a batch, in **one** call — iOS prompts once per
+  /// `deleteWithIds`, so clearing fifty photos one at a time is fifty
+  /// prompts. Returns the `localId`s that actually went; anything past
+  /// [deleteBatchLimit] simply isn't in it.
+  Future<Set<String>> deleteManyFromLibrary(List<AssetRecord> records) async {
+    final localIds = <String, String>{};
+    for (final record in records) {
+      final id = libraryIdOf(record);
+      if (id != null) localIds[id] = record.localId;
+      if (localIds.length == deleteBatchLimit) break;
+    }
+    if (localIds.isEmpty) return const {};
+    final deleted = await _deleteAssets(localIds.keys.toList());
+    return {for (final id in deleted) ?localIds[id]};
   }
 
   /// Mirrors a favourite back into the OS photo library, so a heart set
@@ -442,11 +477,31 @@ class PhotoLibraryService {
   /// Android). Asking for the origin *with* the subtype is what makes
   /// `photo_manager` hand back the `.mov` rather than the still frame.
   static Future<File?> resolveLivePhotoVideo(AssetRecord record) async {
+    if (!record.isLivePhoto) return null;
     final id = libraryIdOf(record);
-    if (id == null) return null;
-    final entity = await AssetEntity.fromId(id);
-    if (entity == null || !entity.isLivePhoto) return null;
-    return entity.originFileWithSubtype;
+    if (id != null) {
+      final entity = await AssetEntity.fromId(id);
+      final file = await entity?.originFileWithSubtype;
+      if (file != null) return file;
+    }
+    // Nothing in the photo library — removed from the device, or restored
+    // onto a fresh install. The `.mov` that came back down from the bucket
+    // is named after its object key (`OriginalRestore`), so a restored
+    // Live Photo still moves and still has its sound.
+    return restoredLivePhotoVideo(record);
+  }
+
+  /// The re-downloaded `.mov`, if one has been pulled back.
+  static Future<File?> restoredLivePhotoVideo(AssetRecord record) async {
+    final key = record.stateOf(DerivativeKind.livePhoto).destinationKey;
+    if (key == null) return null;
+    try {
+      final dir = await getApplicationSupportDirectory();
+      final file = File(p.join(dir.path, p.basename(key)));
+      return await file.exists() ? file : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Same resolution as [fileFor], without needing a [PhotoLibraryService]

@@ -6,7 +6,6 @@ class Album {
     required this.id,
     required this.name,
     required this.createdAt,
-    this.isDemo = false,
     this.description = '',
     this.tags = const [],
     this.coverLocalId,
@@ -15,11 +14,6 @@ class Album {
   final String id;
   final String name;
   final DateTime createdAt;
-
-  /// Part of the bundled demo set (see `DemoAssetsService`) — deleting it is
-  /// allowed, and "Reset Demo Data" in Settings brings it right back with
-  /// the same [id], so its membership can be reseeded idempotently.
-  final bool isDemo;
 
   /// The album's own note and tags — what the *set* is, as opposed to what
   /// any one photo in it is. "Kyoto, October" is a sentence about the trip,
@@ -41,7 +35,6 @@ class Album {
     id: id,
     name: name ?? this.name,
     createdAt: createdAt,
-    isDemo: isDemo,
     description: description ?? this.description,
     tags: tags ?? this.tags,
     coverLocalId: coverLocalId ?? this.coverLocalId,

@@ -154,3 +154,92 @@ suggestion and a tag. Keep merges tags and fills a caption or event only
 where there isn't one; No thanks marks it answered so it is never offered,
 or paid for, twice. Faces work the same way and always have: **Find Faces**
 on the People section, one tap to put a name to one.
+
+
+# Moving pictures: Live Photos and GIFs
+
+Both are a still that moves, and both answer to one control rather than
+two — the question "how should these behave?" is the same question, and
+answering it twice means learning it twice.
+
+```
+ ┌─────────────────────────────────────────────┐
+ │ ⦿ LIVE                        [✋][↻][⏸]    │  ← badge · mode bar
+ │                                             │
+ │              the picture                    │
+ │                                             │
+ └─────────────────────────────────────────────┘
+      ✋  hold to play      (Photos' own behaviour, the default)
+      ↻   play on a loop    (runs while it's on screen)
+      ⏸   don't play        (frozen on the first frame)
+```
+
+Icons, not a menu: the whole set fits in the space one menu button would
+take, and the current answer is visible without opening anything — which
+matters for a control whose effect is only obvious while you watch the
+picture behind it.
+
+The badge lights up while it's actually moving, so it doubles as the
+answer to "is this playing?".
+
+The mode is a preference about *you*, not about any one picture: it's kept
+in app state, shared by every page in the pager, and survives a relaunch.
+Swiping from one Live Photo to the next must not change how they play.
+
+## GIFs
+
+Flutter's `Image` plays a GIF and gives you no way to stop it, so the two
+states are two different widgets (`gif_view.dart`): a decoded first frame
+while it's still, the real `Image` while it's running. Swapping between
+them is the pause button GIFs don't otherwise have — and releasing a hold
+drops the cached frames, so the next play starts at frame one rather than
+mid-loop.
+
+A GIF is **not** `isVideo`: that flag answers "does this need the video
+player?", and a GIF handed to `video_player` is a black rectangle. It is
+`isGif`, and `countsAsVideo` is what the Videos album and the grid badge
+read — it moves, so that's where somebody goes looking for it. Crop,
+rotate and Export As are off for the same reason they're off for video:
+all three re-encode, and re-encoding a GIF throws the animation away.
+
+The flag is set once, from the filename — `.gif`. On iOS that's the only
+thing that says so: PhotoKit calls the asset an image and `mimeType` is
+null, so the camera-roll scan asks for `needTitle`.
+
+
+## What a Live Photo *is*, and what gets backed up
+
+Not a format. On iOS a Live Photo is one `PHAsset` with **two resources**:
+a still (HEIC or JPEG) and a paired QuickTime `.mov` of roughly three
+seconds — which is where the motion *and the audio* live. They're tied
+together by a shared identifier in metadata: `kCGImagePropertyMakerApple`
+key 17 on the still, `com.apple.quicktime.content.identifier` on the movie,
+plus a still-image-time marker naming the key frame.
+
+So there is no single file to convert, and **"optimize the format" does
+not apply**. Re-encoding the still to WebP throws away the Apple maker
+note; re-encoding the movie through an image encoder is nonsense and
+through a video encoder drops the content identifier. Either one leaves
+two files that no longer know they're one photo — a still, and a short
+silent clip beside it. `BackupFormat.optimized` therefore skips the
+`livePhoto` derivative outright, and the storage page's Convert/Reduce
+fixes never touch one.
+
+Both halves go up under the **same `originals/` prefix**, sharing a base
+name and differing only by extension:
+
+```
+ originals/photo_ABC123.HEIC   the still
+ originals/photo_ABC123.mov    the motion and the sound
+```
+
+One folder, because they are one photo; a bucket listing shows them as the
+pair they are.
+
+`AssetRecord.isFullyBackedUp` is what everything asks before dropping a
+local copy — Remove from Device, the storage page, the "gone from the
+library" reconcile. For a Live Photo it means *both*: a still-only backup
+is a silent still, and offering to free the space on the strength of it
+would be the exact loss the option claims not to be. Restoring pulls both
+down, and the viewer plays the restored `.mov` when the photo library no
+longer has the asset.
