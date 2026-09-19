@@ -403,6 +403,19 @@ class AssetTile extends StatelessWidget {
                   color: CupertinoColors.white,
                 ),
               )
+            else if (record.isGif)
+              const Positioned(
+                top: 4,
+                left: 4,
+                child: Text(
+                  'GIF',
+                  style: TextStyle(
+                    fontSize: 9,
+                    fontWeight: FontWeight.w700,
+                    color: CupertinoColors.white,
+                  ),
+                ),
+              )
             else if (record.isLivePhoto)
               const Positioned(
                 top: 4,

@@ -34,7 +34,6 @@ class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
   }
 
   String _stepLabel(AppLocalizations l10n, AnalyzeStep step) => switch (step) {
-    AnalyzeStep.scanLibrary => l10n.analyzeQueueStepScan,
     AnalyzeStep.findFaces => l10n.analyzeQueueStepFaces,
     AnalyzeStep.suggest => l10n.analyzeQueueStepSuggest,
   };
@@ -142,7 +141,6 @@ class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
                   _JobRow(
                     job: jobs[i],
                     stepLabel: _stepLabel(l10n, jobs[i].step),
-                    scanLabel: l10n.analyzeQueueScanRow,
                     onOpen:
                         jobs[i].localId == null || widget.onOpenAsset == null
                         ? null
@@ -243,18 +241,10 @@ class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
 }
 
 class _JobRow extends StatelessWidget {
-  const _JobRow({
-    required this.job,
-    required this.stepLabel,
-    required this.scanLabel,
-    this.onOpen,
-  });
+  const _JobRow({required this.job, required this.stepLabel, this.onOpen});
 
   final AnalyzeJob job;
   final String stepLabel;
-
-  /// What the library-wide scan row is called — it has no photo to name.
-  final String scanLabel;
   final VoidCallback? onOpen;
 
   @override
@@ -272,7 +262,7 @@ class _JobRow extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  job.localId == null ? scanLabel : job.displayName,
+                  job.displayName,
                   maxLines: 1,
                   overflow: TextOverflow.ellipsis,
                   style: settingsRowTitleStyle,

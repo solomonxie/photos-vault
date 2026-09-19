@@ -16,12 +16,7 @@ Widget _wrap(Widget child) => CupertinoApp(
 );
 
 void main() {
-  final album = Album(
-    id: 'a1',
-    name: 'Nature',
-    createdAt: DateTime(2024),
-    isDemo: true,
-  );
+  final album = Album(id: 'a1', name: 'Nature', createdAt: DateTime(2024));
 
   testWidgets('shows only this album\'s members, excluding hidden/deleted', (
     tester,

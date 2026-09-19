@@ -46,7 +46,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 12,
+        version: 14,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createPlaceNameTableSql);
@@ -100,6 +100,28 @@ class AssetRecordStore {
           if (oldVersion < 12) {
             await db.execute(_createAppStateTableSql);
           }
+          if (oldVersion < 14) {
+            // The moving half of a Live Photo. Every Live Photo backed up
+            // before this is a still in the bucket and needs uploading
+            // again — the columns default to `pending`, which is exactly
+            // what makes the next sync pick them up.
+            await db.execute(
+              "ALTER TABLE $_table ADD COLUMN live_status TEXT NOT NULL "
+              "DEFAULT 'pending'",
+            );
+            await db.execute('ALTER TABLE $_table ADD COLUMN live_key TEXT');
+            await db.execute('ALTER TABLE $_table ADD COLUMN live_hash TEXT');
+          }
+          if (oldVersion < 13) {
+            // Backfilled where the name gives it away; camera-roll GIFs
+            // scanned before this get theirs on the next scan.
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN is_gif INTEGER NOT NULL DEFAULT 0',
+            );
+            await db.execute(
+              "UPDATE $_table SET is_gif = 1 WHERE lower(source_path) LIKE '%.gif'",
+            );
+          }
           if (oldVersion < 11) {
             await db.execute('ALTER TABLE $_table ADD COLUMN library_id TEXT');
             // Every camera-roll record so far carried the library's id
@@ -139,6 +161,7 @@ class AssetRecordStore {
       local_deleted INTEGER NOT NULL DEFAULT 0,
       is_video INTEGER NOT NULL DEFAULT 0,
       is_live_photo INTEGER NOT NULL DEFAULT 0,
+      is_gif INTEGER NOT NULL DEFAULT 0,
       thumbnail_status TEXT NOT NULL DEFAULT 'pending',
       thumbnail_key TEXT,
       thumbnail_hash TEXT,
@@ -148,6 +171,9 @@ class AssetRecordStore {
       original_status TEXT NOT NULL DEFAULT 'pending',
       original_key TEXT,
       original_hash TEXT,
+      live_status TEXT NOT NULL DEFAULT 'pending',
+      live_key TEXT,
+      live_hash TEXT,
       is_favorite INTEGER NOT NULL DEFAULT 0,
       is_hidden INTEGER NOT NULL DEFAULT 0,
       deleted_at INTEGER,
@@ -241,6 +267,7 @@ class AssetRecordStore {
     String? sourcePath,
     bool isVideo = false,
     bool isLivePhoto = false,
+    bool isGif = false,
     DateTime? createdAt,
     double? latitude,
     double? longitude,
@@ -273,6 +300,7 @@ class AssetRecordStore {
       'source_path': sourcePath,
       'is_video': isVideo ? 1 : 0,
       'is_live_photo': isLivePhoto ? 1 : 0,
+      'is_gif': isGif ? 1 : 0,
       'library_id': libraryId,
       'latitude': latitude,
       'longitude': longitude,
@@ -289,6 +317,7 @@ class AssetRecordStore {
       sourcePath: sourcePath,
       isVideo: isVideo,
       isLivePhoto: isLivePhoto,
+      isGif: isGif,
       libraryId: libraryId,
       latitude: latitude,
       longitude: longitude,
@@ -731,6 +760,7 @@ class AssetRecordStore {
     DerivativeKind.thumbnail => 'thumbnail',
     DerivativeKind.medium => 'medium',
     DerivativeKind.original => 'original',
+    DerivativeKind.livePhoto => 'live',
   };
 
   static AssetRecord _fromRow(Map<String, Object?> row) {
@@ -760,6 +790,7 @@ class AssetRecordStore {
       localDeleted: (row['local_deleted'] as int? ?? 0) != 0,
       isVideo: (row['is_video'] as int? ?? 0) != 0,
       isLivePhoto: (row['is_live_photo'] as int? ?? 0) != 0,
+      isGif: (row['is_gif'] as int? ?? 0) != 0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
       derivatives: {

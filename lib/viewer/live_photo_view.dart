@@ -1,19 +1,24 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:video_player/video_player.dart';
 
-import '../l10n/app_localizations.dart';
+import 'motion_playback.dart';
 
-/// A still that plays its paired video while held, like Photos' Live
-/// Photos. The `.mov` half is resolved lazily on the first press — asking
-/// for it up front would make every swipe through the viewer pull a video
-/// file (and possibly an iCloud download) for a photo nobody holds.
+/// A still that plays its paired video, like Photos' Live Photos — on a
+/// hold, on a loop, or not at all, per [mode].
+///
+/// The `.mov` half is resolved lazily on the first *play* — asking for it
+/// up front would make every swipe through the viewer pull a video file
+/// (and possibly an iCloud download) for a photo nobody watches.
 class LivePhotoView extends StatefulWidget {
   const LivePhotoView({
     super.key,
     required this.still,
     required this.resolveVideo,
+    required this.mode,
+    this.onPlayingChanged,
   });
 
   final Widget still;
@@ -21,6 +26,11 @@ class LivePhotoView extends StatefulWidget {
   /// The paired video, or `null` when there isn't one to be had (not
   /// downloaded, not a camera-roll asset, Android).
   final Future<File?> Function() resolveVideo;
+
+  final MotionPlayMode mode;
+
+  /// So the badge above can light up while it moves.
+  final ValueChanged<bool>? onPlayingChanged;
 
   @override
   State<LivePhotoView> createState() => _LivePhotoViewState();
@@ -36,18 +46,41 @@ class _LivePhotoViewState extends State<LivePhotoView> {
   bool _cancelled = false;
 
   @override
+  void initState() {
+    super.initState();
+    if (widget.mode == MotionPlayMode.loop) unawaited(_play());
+  }
+
+  @override
+  void didUpdateWidget(LivePhotoView old) {
+    super.didUpdateWidget(old);
+    if (old.mode == widget.mode) return;
+    if (widget.mode == MotionPlayMode.loop) {
+      unawaited(_play());
+    } else {
+      unawaited(_stop());
+    }
+  }
+
+  @override
   void dispose() {
     _controller?.dispose();
     super.dispose();
   }
 
-  Future<void> _onHoldStart() async {
+  void _report(bool playing) {
+    if (mounted) setState(() => _playing = playing);
+    widget.onPlayingChanged?.call(playing);
+  }
+
+  Future<void> _play() async {
     _cancelled = false;
     final existing = _controller;
     if (existing != null) {
+      await existing.setLooping(widget.mode == MotionPlayMode.loop);
       await existing.seekTo(Duration.zero);
       await existing.play();
-      if (mounted) setState(() => _playing = true);
+      _report(true);
       return;
     }
     if (_loading) return;
@@ -71,83 +104,42 @@ class _LivePhotoViewState extends State<LivePhotoView> {
       _controller = controller;
     });
     if (controller == null || _cancelled) return;
+    await controller.setLooping(widget.mode == MotionPlayMode.loop);
     await controller.play();
-    if (mounted) setState(() => _playing = true);
+    _report(true);
   }
 
-  Future<void> _onHoldEnd() async {
+  Future<void> _stop() async {
     _cancelled = true;
     final controller = _controller;
     if (controller == null) return;
     await controller.pause();
     await controller.seekTo(Duration.zero);
-    if (mounted) setState(() => _playing = false);
+    _report(false);
   }
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     final controller = _controller;
-    return GestureDetector(
-      onLongPressStart: (_) => _onHoldStart(),
-      onLongPressEnd: (_) => _onHoldEnd(),
-      onLongPressCancel: _onHoldEnd,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          widget.still,
-          if (_playing && controller != null)
-            Center(
-              child: AspectRatio(
-                aspectRatio: controller.value.aspectRatio,
-                child: VideoPlayer(controller),
-              ),
-            ),
-          Positioned(
-            top: 12,
-            left: 12,
-            child: _LiveBadge(
-              label: l10n.detailLivePhotoBadge,
-              active: _playing || _loading,
+    final frames = Stack(
+      fit: StackFit.expand,
+      children: [
+        widget.still,
+        if (_playing && controller != null)
+          Center(
+            child: AspectRatio(
+              aspectRatio: controller.value.aspectRatio,
+              child: VideoPlayer(controller),
             ),
           ),
-        ],
-      ),
+      ],
+    );
+    if (widget.mode != MotionPlayMode.hold) return frames;
+    return GestureDetector(
+      onLongPressStart: (_) => _play(),
+      onLongPressEnd: (_) => _stop(),
+      onLongPressCancel: _stop,
+      child: frames,
     );
   }
-}
-
-class _LiveBadge extends StatelessWidget {
-  const _LiveBadge({required this.label, required this.active});
-
-  final String label;
-  final bool active;
-
-  @override
-  Widget build(BuildContext context) => Container(
-    padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
-    decoration: BoxDecoration(
-      color: active ? const Color(0xE6FFFFFF) : const Color(0x8C000000),
-      borderRadius: BorderRadius.circular(12),
-    ),
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          CupertinoIcons.smallcircle_circle,
-          size: 14,
-          color: active ? CupertinoColors.black : CupertinoColors.white,
-        ),
-        const SizedBox(width: 4),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 11,
-            fontWeight: FontWeight.w600,
-            color: active ? CupertinoColors.black : CupertinoColors.white,
-          ),
-        ),
-      ],
-    ),
-  );
 }

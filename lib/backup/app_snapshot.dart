@@ -133,7 +133,6 @@ class AppSnapshotIo {
         'id': album.id,
         'name': album.name,
         'createdAt': album.createdAt.toIso8601String(),
-        'isDemo': album.isDemo,
         'localIds': await albumStore.localIdsIn(album.id),
       });
     }
@@ -179,6 +178,7 @@ class AppSnapshotIo {
     'sourcePath': record.sourcePath,
     'isVideo': record.isVideo,
     'isLivePhoto': record.isLivePhoto,
+    'isGif': record.isGif,
     'createdAt': record.createdAt.toIso8601String(),
     'isFavorite': record.isFavorite,
     'isHidden': record.isHidden,
@@ -224,6 +224,7 @@ class AppSnapshotIo {
       sourcePath: null,
       isVideo: row['isVideo'] as bool? ?? false,
       isLivePhoto: row['isLivePhoto'] as bool? ?? false,
+      isGif: row['isGif'] as bool? ?? false,
       createdAt: _date(row['createdAt']),
       libraryId: row['libraryId'] as String?,
       latitude: (row['latitude'] as num?)?.toDouble(),
@@ -285,11 +286,7 @@ class AppSnapshotIo {
     if (id == null || name == null) return;
     // The album's own creation date isn't restorable through the store's
     // API, and nothing reads it — albums sort by name.
-    await albumStore.upsert(
-      id: id,
-      name: name,
-      isDemo: row['isDemo'] as bool? ?? false,
-    );
+    await albumStore.upsert(id: id, name: name);
     final localIds = (row['localIds'] as List<dynamic>? ?? const [])
         .cast<String>();
     if (localIds.isNotEmpty) await albumStore.addAssets(id, localIds);
@@ -328,7 +325,6 @@ class AppSnapshotIo {
       'locked': person.locked,
       'passcodeHash': person.passcodeHash,
       'passcodeHint': person.passcodeHint,
-      'isDemo': person.isDemo,
       'localIds': await personStore.localIdsIn(person.id),
       'locations': [
         for (final location in await personStore.locationsFor(person.id))
@@ -355,11 +351,7 @@ class AppSnapshotIo {
     final id = row['id'] as String?;
     final name = row['name'] as String?;
     if (id == null || name == null) return;
-    final person = await personStore.create(
-      name: name,
-      id: id,
-      isDemo: row['isDemo'] as bool? ?? false,
-    );
+    final person = await personStore.create(name: name, id: id);
     await personStore.update(
       person.copyWith(
         name: name,

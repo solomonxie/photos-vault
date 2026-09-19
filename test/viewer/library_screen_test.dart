@@ -1,16 +1,15 @@
 import 'dart:io';
 
 import 'package:photos_vault/l10n/app_localizations.dart';
-import 'package:photos_vault/photos/demo_assets_service.dart';
 import 'package:photos_vault/photos/manual_add.dart';
-import 'package:photos_vault/photos/person_store.dart';
 import 'package:photos_vault/photos/photo_library_service.dart';
 import 'package:photos_vault/photos/thumbnail_cache.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/s3_backup_target.dart';
-import 'package:photos_vault/storage/album_store.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
+import 'package:photos_vault/storage/passcode_hash.dart';
+import 'package:photos_vault/storage/private_album_sync.dart';
 import 'package:photos_vault/upload/backup_coordinator.dart';
 import 'package:photos_vault/upload/s3_uploader.dart';
 import 'package:photos_vault/viewer/album_screen.dart';
@@ -54,42 +53,6 @@ class _FakeS3Uploader implements S3Uploader {
     required String key,
     required S3BackupTarget target,
   }) async => result;
-}
-
-// Never touches the real asset bundle / disk — inserts straight into the
-// given store instead, like the real service would after copying bytes out.
-class _FakeDemoAssetsService implements DemoAssetsService {
-  _FakeDemoAssetsService(this.store);
-  final AssetRecordStore store;
-
-  @override
-  ManualAddService get manualAddService => throw UnimplementedError();
-
-  @override
-  AlbumStore get albumStore => throw UnimplementedError();
-
-  @override
-  PersonStore get personStore => throw UnimplementedError();
-
-  @override
-  Future<Set<String>> demoLocalIds() async => const {'manual:demo1'};
-
-  @override
-  Future<int> removeAll() async {
-    await store.remove('manual:demo1');
-    return 1;
-  }
-
-  @override
-  Future<List<AssetRecord>> addAll() async => [
-    await store.upsert(
-      localId: 'manual:demo1',
-      contentHash: 'demo1',
-      platform: 'ios',
-      sourceType: AssetSourceType.manualFile,
-      sourcePath: '/tmp/demo_photo_1.jpg',
-    ),
-  ];
 }
 
 // Never decodes or writes a real image: `ensureFor` short-circuits on the
@@ -323,7 +286,9 @@ void main() {
 
       await tester.tap(find.byIcon(CupertinoIcons.trash));
       await tester.pumpAndSettle();
-      expect(find.text('Delete this item?'), findsOneWidget);
+      // A sheet at the bottom, the way Photos asks.
+      expect(find.byType(CupertinoActionSheet), findsOneWidget);
+      expect(find.text('It moves to Recently Deleted.'), findsOneWidget);
 
       // Cancelling leaves the item alone and the viewer open.
       await tester.tap(find.text('Cancel'));
@@ -333,7 +298,7 @@ void main() {
 
       await tester.tap(find.byIcon(CupertinoIcons.trash));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete'));
+      await tester.tap(find.text('Delete Photo'));
       await tester.pumpAndSettle();
 
       expect(find.byType(DetailScreen), findsNothing);
@@ -384,7 +349,7 @@ void main() {
     expect(find.text('Added 0 file(s), backed up 0.'), findsOneWidget);
   });
 
-  testWidgets('tapping Try with Demo Photos adds and lists the demo asset', (
+  testWidgets('a fresh install shows an empty library and seeds nothing', (
     tester,
   ) async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
@@ -399,7 +364,6 @@ void main() {
           albumStore: FakeAlbumStore(),
           personStore: FakePersonStore(),
           backupTargetsStore: targetsStore,
-          demoAssetsService: _FakeDemoAssetsService(recordStore),
           vault: FakeLocalVault(),
           backupCoordinator: BackupCoordinator(
             targetsStore: targetsStore,
@@ -411,75 +375,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Try with Demo Photos'));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('manual:demo1')), findsOneWidget);
-  });
-
-  testWidgets('a fresh install shows an empty library, not demo photos', (
-    tester,
-  ) async {
-    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-    final recordStore = FakeAssetRecordStore();
-
-    await tester.pumpWidget(
-      _wrap(
-        LibraryScreen(
-          assetRecordStore: recordStore,
-          thumbnailCache: _noThumbnails(recordStore),
-          syncJobStore: FakeSyncJobStore(),
-          albumStore: FakeAlbumStore(),
-          personStore: FakePersonStore(),
-          backupTargetsStore: targetsStore,
-          demoAssetsService: _FakeDemoAssetsService(recordStore),
-          vault: FakeLocalVault(),
-          backupCoordinator: BackupCoordinator(
-            targetsStore: targetsStore,
-            recordStore: recordStore,
-            s3Uploader: _UnusedS3Uploader(),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('manual:demo1')), findsNothing);
     expect(await recordStore.listAll(), isEmpty);
     expect(find.text('No Photos Yet'), findsOneWidget);
-  });
-
-  testWidgets('and offers them on the empty state, for whoever wants them', (
-    tester,
-  ) async {
-    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-    final recordStore = FakeAssetRecordStore();
-
-    await tester.pumpWidget(
-      _wrap(
-        LibraryScreen(
-          assetRecordStore: recordStore,
-          thumbnailCache: _noThumbnails(recordStore),
-          syncJobStore: FakeSyncJobStore(),
-          albumStore: FakeAlbumStore(),
-          personStore: FakePersonStore(),
-          backupTargetsStore: targetsStore,
-          demoAssetsService: _FakeDemoAssetsService(recordStore),
-          vault: FakeLocalVault(),
-          backupCoordinator: BackupCoordinator(
-            targetsStore: targetsStore,
-            recordStore: recordStore,
-            s3Uploader: _UnusedS3Uploader(),
-          ),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Try with Demo Photos'));
-    await tester.pumpAndSettle();
-
-    expect(find.byKey(const ValueKey('manual:demo1')), findsOneWidget);
   });
 
   testWidgets('holding a tile starts selection mode with its batch actions', (
@@ -724,7 +621,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Remove from Device'), findsNothing);
-      expect(find.text('Delete this item?'), findsOneWidget);
+      expect(find.text('It moves to Recently Deleted.'), findsOneWidget);
     },
   );
 
@@ -986,17 +883,9 @@ void main() {
         sourceType: AssetSourceType.manualFile,
         sourcePath: '/tmp/trip.jpg',
       );
-      await albumStore.upsert(
-        id: 'demo-album-nature',
-        name: 'Nature',
-        isDemo: true,
-      );
-      await albumStore.addAssets('demo-album-nature', ['manual:trip']);
-      await albumStore.upsert(
-        id: 'demo-album-city',
-        name: 'City',
-        isDemo: true,
-      );
+      await albumStore.upsert(id: 'album-nature', name: 'Nature');
+      await albumStore.addAssets('album-nature', ['manual:trip']);
+      await albumStore.upsert(id: 'album-city', name: 'City');
 
       // Tall surface so the Collections and Albums headers — below both the
       // main grid and the album grid — are simultaneously built by the lazy
@@ -1440,8 +1329,9 @@ void main() {
     await tester.pumpAndSettle();
 
     // Named, because by now the selection has usually scrolled out of view.
-    expect(find.text('Delete 2 photos?'), findsOneWidget);
-    await tester.tap(find.widgetWithText(CupertinoDialogAction, 'Delete'));
+    await tester.tap(
+      find.widgetWithText(CupertinoActionSheetAction, 'Delete 2 Photos'),
+    );
     await tester.pumpAndSettle();
 
     expect((await recordStore.getByLocalId('manual:one'))!.isDeleted, isTrue);
@@ -1600,5 +1490,79 @@ void main() {
       expect(find.byType(CupertinoSearchTextField), findsNothing);
       expect(find.byKey(const ValueKey('manual:beta')), findsOneWidget);
     });
+  });
+
+  testWidgets('a private album kept on-device is not uploaded, and its '
+      'neighbours still are', (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    await targetsStore.add(
+      accessKeyId: 'a',
+      secretAccessKey: 'b',
+      region: 'us-east-1',
+      bucket: 'bucket',
+      prefix: '',
+    );
+    final recordStore = FakeAssetRecordStore();
+    // Real files, made synchronously — see the note in the tests above.
+    final dir = Directory.systemTemp.createTempSync('private-sync');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    for (final name in ['secret', 'ordinary']) {
+      File('${dir.path}/$name.jpg').writeAsBytesSync([1, 2, 3]);
+      await recordStore.upsert(
+        localId: 'manual:$name',
+        contentHash: name,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '${dir.path}/$name.jpg',
+      );
+    }
+    final hash = hashPasscode('1234');
+    await recordStore.setPasscodeHash('manual:secret', hash);
+    await PrivateAlbumSync(recordStore).setEnabled(hash, false);
+
+    await tester.binding.setSurfaceSize(const Size(800, 2000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          hashFile: (path) async => 'fake-hash',
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _FakeS3Uploader(true),
+            hashFile: (path) async => 'fake-hash',
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Coming back from Cloud Settings syncs everything still owed.
+    await tester.tap(find.text('Cloud Settings'));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(
+      (await recordStore.getByLocalId('manual:ordinary'))!
+          .stateOf(DerivativeKind.original)
+          .status,
+      UploadStatus.uploaded,
+    );
+    // Opted out: never queued, so it is still owed an upload it will not
+    // get until somebody turns it back on.
+    expect(
+      (await recordStore.getByLocalId('manual:secret'))!
+          .stateOf(DerivativeKind.original)
+          .status,
+      UploadStatus.pending,
+    );
   });
 }

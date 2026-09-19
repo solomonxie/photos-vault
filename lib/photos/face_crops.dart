@@ -4,6 +4,8 @@ import 'dart:typed_data';
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
+import 'image_pipeline.dart';
+
 import 'on_device_vision.dart';
 
 /// Cuts the detected faces out of a photo so they can be shown and tapped.
@@ -50,7 +52,7 @@ typedef _NormalisedRect = ({double x, double y, double width, double height});
 /// Runs off the UI isolate: decoding a full-size photo to cut four
 /// thumbnails out of it is easily a dropped frame otherwise.
 List<Uint8List> _cropAll((Uint8List, List<_NormalisedRect>) args) {
-  final decoded = img.decodeImage(args.$1);
+  final decoded = decodePhoto(args.$1);
   if (decoded == null) return const [];
   final crops = <Uint8List>[];
   for (final rect in args.$2) {

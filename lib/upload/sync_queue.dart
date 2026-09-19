@@ -72,12 +72,15 @@ class SyncQueue {
   }
 
   /// Picks up anything a previous run left mid-flight, then starts draining.
-  Future<void> resume() async {
+  /// [drain] false repairs and reloads the queue but starts nothing — what
+  /// a "Manual" sync frequency means on launch. The jobs stay visible and
+  /// countable; none of them goes up until somebody asks.
+  Future<void> resume({bool drain = true}) async {
     await _loadSettings();
     await store.requeueStaleRunning();
     await store.trimHistory();
     await refresh();
-    unawaited(start());
+    if (drain) unawaited(start());
   }
 
   /// How many jobs are still to be done — waiting or running. What

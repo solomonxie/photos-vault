@@ -10,12 +10,13 @@ import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 
 import '../l10n/app_localizations.dart';
+import '../photos/asset_removal.dart';
 import '../photos/library_metadata.dart';
+import '../photos/library_scanner.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/ai_vision_service.dart';
 import '../photos/analyze_queue.dart';
 import '../photos/ai_touch_up_queue.dart';
-import '../photos/demo_assets_service.dart';
 import '../photos/file_hash.dart' as file_hash;
 import '../photos/image_pipeline.dart';
 import '../photos/manual_add.dart';
@@ -30,6 +31,8 @@ import '../backup/local_vault.dart';
 import '../photos/library_custody.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
+import '../photos/storage_advice.dart';
+import '../photos/storage_optimizer.dart';
 import '../photos/thumbnail_cache.dart';
 import '../settings/ai_settings_screen.dart';
 import '../settings/backup_targets_store.dart';
@@ -38,6 +41,7 @@ import '../storage/album.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/private_album_sync.dart';
 import '../upload/backup_coordinator.dart';
 import '../upload/sync_job.dart';
 import '../upload/sync_job_store.dart';
@@ -48,7 +52,6 @@ import 'analyze_queue_screen.dart';
 import 'asset_grid_view.dart';
 import 'asset_group_screen.dart';
 import 'delete_confirmation.dart';
-import 'demo_data_screen.dart';
 import 'detail_screen.dart';
 import 'favorites_screen.dart';
 import 'people_screen.dart';
@@ -58,13 +61,14 @@ import 'private_album_gate.dart';
 import 'recently_deleted_screen.dart';
 import 'search_picker_sheet.dart';
 import 'smart_collection_screen.dart';
+import 'storage_optimization_screen.dart';
 import 'zoom_page_route.dart';
 
 /// The whole app, one page — matches real Photos: no separate "Library" vs
 /// "Collections" tabs, just a day-grouped grid up top and Media
 /// Types/Utilities sections below (Favorites/Hidden/Recently Deleted are
 /// real; Cloud Backups/AI Settings are this app's own).
-/// Lists manually-added/demo files, not a real camera-roll grid (T4.1 still
+/// Lists manually-added files, not a real camera-roll grid (T4.1 still
 /// needs `photo_manager`, T2.1).
 class LibraryScreen extends StatefulWidget {
   const LibraryScreen({
@@ -73,7 +77,6 @@ class LibraryScreen extends StatefulWidget {
     this.backupTargetsStore,
     this.albumStore,
     this.manualAddService,
-    this.demoAssetsService,
     this.backupCoordinator,
     this.aiAnalysisStore,
     this.photoLibraryService,
@@ -137,7 +140,6 @@ class LibraryScreen extends StatefulWidget {
   final ManualAddService? manualAddService;
 
   /// Overridable for tests so they never touch the real asset bundle / disk.
-  final DemoAssetsService? demoAssetsService;
 
   /// Overridable for tests so they never construct a real `S3Uploader`
   /// (which touches the `background_downloader` platform channel).
@@ -178,13 +180,6 @@ class LibraryScreenState extends State<LibraryScreen>
   late final ManualAddService _manualAddService =
       widget.manualAddService ?? ManualAddService(store: assetRecordStore);
   late final PersonStore _personStore = widget.personStore ?? PersonStore();
-  late final DemoAssetsService _demoAssetsService =
-      widget.demoAssetsService ??
-      DemoAssetsService(
-        manualAddService: _manualAddService,
-        albumStore: _albumStore,
-        personStore: _personStore,
-      );
   late final BackupCoordinator _coordinator =
       widget.backupCoordinator ??
       BackupCoordinator(
@@ -224,6 +219,24 @@ class LibraryScreenState extends State<LibraryScreen>
       widget.hashFile ?? file_hash.hashFile;
   late final ThumbnailCache _thumbnailCache =
       widget.thumbnailCache ?? ThumbnailCache(store: assetRecordStore);
+  late final StorageAdvisor _storageAdvisor = StorageAdvisor(
+    store: assetRecordStore,
+    library: _photoLibraryService,
+  );
+  late final StorageOptimizer _storageOptimizer = StorageOptimizer(
+    store: assetRecordStore,
+    thumbnails: _thumbnailCache,
+    library: _photoLibraryService,
+    backUp: _backUpRecords,
+  );
+
+  /// Deleting is the same decision on every screen: keep the cloud copy
+  /// and free the space, or bin it. See `../photos/asset_removal.dart`.
+  late final AssetRemoval _removal = AssetRemoval(
+    store: assetRecordStore,
+    thumbnails: _thumbnailCache,
+    library: _photoLibraryService,
+  );
   late final SyncJobStore _syncJobStore = widget.syncJobStore ?? SyncJobStore();
   late final OnDeviceAnalysisService _onDeviceAnalysis =
       widget.onDeviceAnalysis ??
@@ -237,7 +250,15 @@ class LibraryScreenState extends State<LibraryScreen>
     process: _processJob,
   );
 
-  /// The other queue: reading the camera roll and looking at what's in it.
+  /// Not a queue anybody can see: re-reading the camera roll is the app
+  /// noticing what Photos did while it wasn't looking, not work the user
+  /// chose. Nothing about it is pausable or paceable — a library that
+  /// stopped noticing would quietly stop showing new photos.
+  late final LibraryScanner _libraryScanner = LibraryScanner(
+    scan: _syncPhotoLibrary,
+  );
+
+  /// The other queue: looking at the photos the scanner found.
   /// Separate from [syncQueue] because it answers a different question —
   /// "what does the app know about my photos?" rather than "are they safe?"
   /// — and because it is allowed to take all week.
@@ -248,7 +269,6 @@ class LibraryScreenState extends State<LibraryScreen>
         analysisStore: _aiAnalysisStore,
         onDeviceAnalysis: _onDeviceAnalysis,
         aiVision: widget.aiVisionService ?? AiVisionService(),
-        scanLibrary: _syncPhotoLibrary,
         resolvePath: _filePathFor,
         displayNameFor: _displayNameFor,
       );
@@ -258,6 +278,17 @@ class LibraryScreenState extends State<LibraryScreen>
   Map<String, List<AssetRecord>> _albumAssets = const {};
   List<Person> _people = const [];
   Map<String, int> _personPhotoCounts = const {};
+
+  /// Faces the app found and nobody has put a name to, newest first. They
+  /// sit in the People row beside the named profiles because that is where
+  /// somebody goes looking to name one — a face nobody can find is a face
+  /// nobody names, and the count alone ("3 people in this photo") was
+  /// never something you could tap.
+  List<UnnamedFace> _unnamedFaces = const [];
+
+  /// Enough to be worth scrolling, few enough that a fresh library doesn't
+  /// put a thousand strangers in front of the user's own albums.
+  static const _unnamedFacesShown = 20;
   String _query = '';
   bool _busy = false;
 
@@ -302,10 +333,10 @@ class LibraryScreenState extends State<LibraryScreen>
       return;
     }
     if (state != AppLifecycleState.resumed || !mounted) return;
-    // The camera roll goes through the analyze queue like everything else
-    // it reads — one scan job at the head of the pass, rather than a
-    // second unpaced loop nobody can see or stop.
-    unawaited(_analyzeQueue.startIfDue(rescan: true));
+    // Coming back from Photos is the whole reason for the forced pass:
+    // something may have changed over there while we weren't looking.
+    unawaited(_libraryScanner.run(force: true));
+    unawaited(_analyzeQueue.startIfDue());
     unawaited(_runScheduledSyncIfDue());
     _startTrickle();
   }
@@ -334,7 +365,9 @@ class LibraryScreenState extends State<LibraryScreen>
     try {
       final result = await _photoLibraryService.applyChange(change);
       if (result.isEmpty || !mounted) return;
-      if (result.added.isNotEmpty) await _backUpRecords(result.added);
+      if (result.added.isNotEmpty && await _autoSyncAllowed()) {
+        await _backUpRecords(result.added);
+      }
       await reload();
     } catch (_) {
       // Whatever this notification carried, the next scan finds anyway.
@@ -374,6 +407,7 @@ class LibraryScreenState extends State<LibraryScreen>
     AiTouchUpQueue.instance.removeListener(_onAiTouchUpChanged);
     syncQueue.dispose();
     if (widget.analyzeQueue == null) _analyzeQueue.dispose();
+    _libraryScanner.dispose();
     super.dispose();
   }
 
@@ -426,11 +460,10 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   /// A fresh install opens on a genuinely empty library — the user's own
-  /// photos arrive from the camera-roll scan below, and the bundled demo
-  /// content only ever appears if they ask for it ("Try with Demo Photos"
-  /// on the empty state, "Reset Demo Data" in Utilities). Seeding it
-  /// unasked put fake photos in among real ones and made the first thing
-  /// the app showed somebody else's pictures.
+  /// photos arrive from the camera-roll scan below, and nothing else ever
+  /// puts anything in it. Sample content used to be seedable from here;
+  /// it shipped 208 KB of someone else's pictures to every user to
+  /// demonstrate a photo app that already had the user's photos.
   Future<void> _init() async {
     // Before anything else writes, and before the camera-roll scan starts
     // inserting records the snapshot also has: a fresh install pulls its
@@ -439,12 +472,16 @@ class LibraryScreenState extends State<LibraryScreen>
     await _restoreAppData();
     await reload();
     // Picks up whatever a previous run left queued — including jobs left
-    // `running` by a kill mid-sync — and starts draining.
-    unawaited(syncQueue.resume());
+    // `running` by a kill mid-sync. Whether it then *drains* is the sync
+    // frequency's call: on "Manual" the jobs stay visible and nothing goes
+    // up until asked.
+    unawaited(_resumeQueue());
     // Fire-and-forget: a full camera-roll scan (and any iCloud downloads it
     // triggers for backup) can be slow, and must never block showing the
-    // manual/demo assets already on hand. Re-`reload()`s itself once done.
-    unawaited(_analyzeQueue.startIfDue(rescan: true));
+    // manually-added assets already on hand. Re-`reload()`s itself once
+    // done.
+    unawaited(_libraryScanner.run(force: true));
+    unawaited(_analyzeQueue.startIfDue());
     // Independent of camera-roll access: retries whatever's already
     // pending/failed if the configured sync frequency says it's due — the
     // other natural "app came to the foreground" moment, alongside
@@ -508,14 +545,16 @@ class LibraryScreenState extends State<LibraryScreen>
       // photos nobody has opened yet — which is most of them.
       unawaited(_namePlaces());
       if (result.isEmpty) return;
-      if (result.added.isNotEmpty) await _backUpRecords(result.added);
+      if (result.added.isNotEmpty && await _autoSyncAllowed()) {
+        await _backUpRecords(result.added);
+      }
       // Also redraws for a scan that only *changed* things — a heart taken
       // off a photo over in Photos adds nothing, and still has to show.
       await reload();
     } catch (_) {
       // No `photo_manager` platform channel (tests, unsupported platform)
       // or the permission flow failed — leave the camera roll unsynced
-      // rather than crash; manual add/demo photos still work.
+      // rather than crash; manually added photos still work.
     } finally {
       _syncingLibrary = false;
     }
@@ -547,7 +586,7 @@ class LibraryScreenState extends State<LibraryScreen>
     if (!mounted || _busy || syncQueue.paused.value) return;
     if (syncQueue.draining.value) return;
     final pending = _pendingAndFailed;
-    if (pending.isNotEmpty) {
+    if (pending.isNotEmpty && await _autoSyncAllowed()) {
       await _backUpRecords(pending);
       return;
     }
@@ -556,7 +595,16 @@ class LibraryScreenState extends State<LibraryScreen>
     // costs a penny — no key, no upload, no per-photo bill — which is what
     // makes them fair game for a background loop at all, and both are its
     // business rather than this one's.
+    await _libraryScanner.run();
     await _analyzeQueue.startIfDue();
+    // A handful of photos at a time, and only once nothing else wants the
+    // phone — so the Optimize Storage page is usually already answered by
+    // the time anybody opens it. On the page it runs flat out instead.
+    try {
+      await _storageAdvisor.sweep();
+    } catch (_) {
+      // No photo library to measure against — nothing owed here.
+    }
   }
 
   /// Photos this app still has a record of and the library doesn't.
@@ -610,6 +658,7 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Future<void> reload() async {
     final all = await assetRecordStore.listAll();
+    final syncOffHashes = await _privateSync.disabledHashes();
     final albums = await _albumStore.listAll();
     final albumAssets = <String, List<AssetRecord>>{};
     for (final album in albums) {
@@ -626,18 +675,62 @@ class LibraryScreenState extends State<LibraryScreen>
     }
     final people = await _personStore.listAll();
     final personPhotoCounts = <String, int>{};
+    final tagged = <String>{};
     for (final person in people) {
-      personPhotoCounts[person.id] = (await _personStore.localIdsIn(person.id))
-          .length;
+      final localIds = await _personStore.localIdsIn(person.id);
+      personPhotoCounts[person.id] = localIds.length;
+      tagged.addAll(localIds);
     }
+    final unnamedFaces = await _findUnnamedFaces(all, tagged);
     if (!mounted) return;
     setState(() {
       _all = all;
+      _syncOffHashes = syncOffHashes;
       _albums = albums;
       _albumAssets = albumAssets;
       _people = people;
       _personPhotoCounts = personPhotoCounts;
+      _unnamedFaces = unnamedFaces;
     });
+  }
+
+  /// A face in a photo nobody is tagged in. Per-photo rather than per-face
+  /// identity — iOS won't say whose face it is, so once one person is
+  /// named in a photo the app has no way to tell which of the remaining
+  /// boxes are still strangers, and guessing wrong is worse than stopping.
+  Future<List<UnnamedFace>> _findUnnamedFaces(
+    List<AssetRecord> all,
+    Set<String> tagged,
+  ) async {
+    final Map<String, List<FaceRect>> faces;
+    try {
+      faces = await _aiAnalysisStore.facesByAsset();
+    } catch (_) {
+      // No analysis database yet (a fresh install, a widget test) — the
+      // row just shows the named people.
+      return const [];
+    }
+    if (faces.isEmpty) return const [];
+    final candidates =
+        all
+            .where(
+              (r) =>
+                  !r.isDeleted &&
+                  !r.isHidden &&
+                  r.passcodeHash == null &&
+                  !tagged.contains(r.localId) &&
+                  faces.containsKey(r.localId),
+            )
+            .toList()
+          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final found = <UnnamedFace>[];
+    for (final record in candidates) {
+      for (final face in faces[record.localId]!) {
+        found.add(UnnamedFace(localId: record.localId, face: face));
+        if (found.length == _unnamedFacesShown) return found;
+      }
+    }
+    return found;
   }
 
   List<AssetRecord> get _active =>
@@ -697,15 +790,14 @@ class LibraryScreenState extends State<LibraryScreen>
     ),
   );
 
-  int get _favoriteCount =>
-      _all.where((r) => r.isFavorite && !r.isDeleted).length;
-
   /// What the analyze pass still has to get through — see the Analyze
   /// Queue row.
   int get _toAnalyzeCount => _analyzeQueue.remaining.value;
 
-  int get _hiddenCount => _all.where((r) => r.isHidden && !r.isDeleted).length;
-  int get _deletedCount => _all.where((r) => r.isDeleted).length;
+  /// What the bin will actually show — a record with nothing left of it
+  /// anywhere is dropped when the bin opens, and is not counted here.
+  int get _deletedCount =>
+      _all.where((r) => r.isDeleted && !r.hasNothingLeft).length;
 
   /// What the automatic refill is allowed to pick up: everything owed,
   /// minus what has already been tried and didn't work.
@@ -739,13 +831,26 @@ class LibraryScreenState extends State<LibraryScreen>
   /// comes back gets another go.
   final _unresolvable = <String>{};
 
-  /// Everything still owed an upload — including hidden photos, which need
-  /// it most: the app took them out of Photos, so the bucket is the only
-  /// other copy there is.
+  late final PrivateAlbumSync _privateSync = PrivateAlbumSync(assetRecordStore);
+
+  /// Private albums their owner has kept off the network, by passcode
+  /// hash. Re-read on every [reload], which is what coming back from
+  /// `PrivateAlbumScreen` does, so flipping the switch there takes effect
+  /// without a restart.
+  Set<String> _syncOffHashes = const {};
+
+  /// Everything still owed an upload — hidden photos included by default,
+  /// because they need it most: the app took them out of Photos, so the
+  /// bucket is the only other copy there is. A private album whose owner
+  /// has turned backup off is the one exception, and the screen that
+  /// offers that switch spells out what it costs.
   List<AssetRecord> get _pendingAndFailed => _all.where((r) {
     if (r.isDeleted || _unresolvable.contains(r.localId)) return false;
-    final status = r.stateOf(DerivativeKind.original).status;
-    return status == UploadStatus.pending || status == UploadStatus.failed;
+    final hash = r.passcodeHash;
+    if (hash != null && _syncOffHashes.contains(hash)) return false;
+    // A Live Photo whose still went up but whose `.mov` didn't is still
+    // owed to the bucket — what's up there is a silent still.
+    return !r.isFullyBackedUp;
   }).toList();
 
   /// Everything the queue shows per row — the filename where there is one.
@@ -793,8 +898,19 @@ class LibraryScreenState extends State<LibraryScreen>
     // with nowhere to put them. Adding a target runs `_syncEverything`,
     // which picks every pending asset up then.
     if (!await _hasBackupTarget()) return 0;
+    // Read here rather than trusting [_syncOffHashes], which a [reload]
+    // fills: an import or a scan can reach this method before the first
+    // reload has finished, and "never leaves the device" mustn't depend on
+    // which of the two won. One lookup per batch, not per photo.
+    final syncOff = await _privateSync.disabledHashes();
     var queued = 0;
     for (final record in records) {
+      // Enforced here rather than at each call site: a photo reaches this
+      // method from a scan, an import, a retry, a change-check re-upload
+      // and the refill, and "this album never leaves the device" has to
+      // hold on all five.
+      final hash = record.passcodeHash;
+      if (hash != null && syncOff.contains(hash)) continue;
       final name = _displayNameFor(record);
       final taken = await syncQueue.enqueue(
         localId: record.localId,
@@ -806,12 +922,18 @@ class LibraryScreenState extends State<LibraryScreen>
       // their own records for the next pass to find.
       if (!taken) break;
       queued++;
-      // Videos have no thumbnail pipeline yet (T2.3), so there'd be nothing
-      // for the job to do.
-      if (!record.isVideo) {
+      await syncQueue.enqueue(
+        localId: record.localId,
+        kind: SyncJobKind.uploadThumbnail,
+        displayName: name,
+      );
+      // The other half of a Live Photo. A job of its own rather than part
+      // of the original's, so it shows in the queue by name and a failure
+      // to fetch the `.mov` doesn't take the still down with it.
+      if (record.isLivePhoto) {
         await syncQueue.enqueue(
           localId: record.localId,
-          kind: SyncJobKind.uploadThumbnail,
+          kind: SyncJobKind.uploadLivePhoto,
           displayName: name,
         );
       }
@@ -857,6 +979,20 @@ class LibraryScreenState extends State<LibraryScreen>
           _triedAndFailed.add(record.localId);
           rethrow;
         }
+      case SyncJobKind.uploadLivePhoto:
+        // Straight from the photo library, with the subtype that makes
+        // PhotoKit hand back the `.mov` rather than the still frame.
+        final file = await _resolveLiveVideo(record);
+        if (file == null) {
+          // Not a Live Photo any more, or its video half isn't downloaded
+          // from iCloud. Nothing to upload and nothing to report.
+          return;
+        }
+        await _coordinator.backUpDerivative(
+          record: record,
+          kind: DerivativeKind.livePhoto,
+          filePath: file.path,
+        );
       case SyncJobKind.uploadThumbnail:
         final path = await _uploadableThumbnailFor(record);
         if (path == null) return;
@@ -922,7 +1058,10 @@ class LibraryScreenState extends State<LibraryScreen>
   /// derivative just stays `pending` — nothing was uploaded, and that's
   /// exactly what it says. Videos have no thumbnail pipeline yet (T2.3).
   Future<String?> _uploadableThumbnailFor(AssetRecord record) async {
-    if (record.isVideo) return null;
+    // A video's poster frame comes from the photo library, so there's no
+    // need to export the whole movie to make one — and no size question
+    // either: no video is small enough to skip the separate upload.
+    if (record.isVideo) return _thumbnailCache.ensureFor(record);
     final originalPath = await _filePathFor(record);
     if (originalPath == null) return null;
     final thumbnail = await _thumbnailCache.ensureFor(record, originalPath);
@@ -948,6 +1087,24 @@ class LibraryScreenState extends State<LibraryScreen>
     await reload();
     return count;
   }
+
+  /// Whether work nobody asked for may start on its own. "Manual" is a
+  /// promise: new photos still *arrive* (the scanner is not gated on
+  /// this), they just don't go up the wire until Sync Now or a frequency
+  /// says so.
+  Future<bool> _autoSyncAllowed() async {
+    try {
+      return await _backupTargetsStore.getSyncFrequency() !=
+          SyncFrequency.manual;
+    } catch (_) {
+      // Secure storage unavailable — the default is Manual, and a promise
+      // that can't be read is a promise kept.
+      return false;
+    }
+  }
+
+  Future<void> _resumeQueue() async =>
+      syncQueue.resume(drain: await _autoSyncAllowed());
 
   /// Opportunistic, foreground-only: there's no real iOS background-task
   /// hookup (`BGTaskScheduler`) yet, so a configured frequency only
@@ -1017,6 +1174,17 @@ class LibraryScreenState extends State<LibraryScreen>
     return syncQueue.jobs.value.where((job) => !job.isFinished).length;
   }
 
+  /// The `.mov` half of a Live Photo, or null when there isn't one to be
+  /// had. Overridable through the same seam the viewer uses.
+  Future<File?> _resolveLiveVideo(AssetRecord record) async {
+    try {
+      return await PhotoLibraryService.resolveLivePhotoVideo(record);
+    } catch (_) {
+      // No plugin, or gone from the library since.
+      return null;
+    }
+  }
+
   /// [AssetRecord.sourcePath] direct for `manualFile`; for `photoManager`
   /// it's resolved on demand via `photo_manager` — may trigger an iCloud
   /// download on iOS, so can be slow the first time.
@@ -1036,10 +1204,10 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   /// Backs up [records] (whatever this action just added) plus anything
-  /// else still pending/failed from before — e.g. "Try with Demo Photos"
-  /// tapped again is a no-op add for content already present (deduped by
-  /// hash), so on its own it would never retry those same demo photos if
-  /// they were still sitting pending from before a bucket was configured.
+  /// else still pending/failed from before — an import of content already
+  /// present is a no-op add (deduped by hash), so on its own it would
+  /// never retry photos still sitting pending from before a bucket was
+  /// configured.
   Future<void> _backUpAndReport(List<AssetRecord> records) async {
     final toBackUp = {for (final r in records) r.localId: r};
     for (final r in _pendingAndFailed) {
@@ -1079,26 +1247,6 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Future<void> addFiles() => _runBusy(_manualAddService.pickAndEnqueue);
 
-  /// Also doubles as Utilities' "Reset Demo Data": re-adds any bundled demo
-  /// photos/videos missing from the Library (e.g. deleted there) and backs
-  /// them up — a no-op add for ones already present, keyed by content hash.
-  ///
-  /// Both directions take a copy first. Seeding and clearing demo data each
-  /// rewrite a lot of rows at once, which is exactly the shape of operation
-  /// people undo an hour later — and the day's rolling copy is no help,
-  /// because it was taken before any of this or not at all.
-  Future<void> _addDemoPhotos() => _runBusy(() async {
-    await _vault.guard('demo-data');
-    return _demoAssetsService.addAll();
-  });
-
-  Future<int> _removeDemoPhotos() async {
-    await _vault.guard('demo-data');
-    final removed = await _demoAssetsService.removeAll();
-    await reload();
-    return removed;
-  }
-
   Future<void> _toggleFavorite(AssetRecord record) async {
     await setFavoriteEverywhere(assetRecordStore, record, !record.isFavorite);
     await reload();
@@ -1123,90 +1271,37 @@ class LibraryScreenState extends State<LibraryScreen>
     await reload();
   }
 
-  /// Offered only for a photo that's actually backed up and still has its
-  /// local original: otherwise "remove from device" would either lose the
-  /// only copy, or have nothing left to remove. Videos are out until they
-  /// have a thumbnail pipeline of their own (T2.3) — there'd be nothing to
-  /// draw in the grid afterwards.
-  bool _canRemoveFromDevice(AssetRecord record) =>
-      !record.localDeleted &&
-      !record.isVideo &&
-      record.stateOf(DerivativeKind.original).status == UploadStatus.uploaded;
-
   /// Returns whether the asset left the library — false for a
   /// remove-from-device, which deliberately keeps it there (cloud-only), so
   /// the detail viewer stays open on it rather than popping.
   Future<bool> _softDelete(AssetRecord record) async {
-    final choice = await chooseDelete(
-      context,
-      canRemoveFromDevice: _canRemoveFromDevice(record),
-    );
-    switch (choice) {
-      case DeleteChoice.cancel:
-        return false;
-      case DeleteChoice.fromDevice:
-        await _removeFromDevice(record);
-        return false;
-      case DeleteChoice.everywhere:
-        // Deleting here deletes the photo, not just this app's note about
-        // it: a camera-roll asset goes from the OS library too, into its
-        // own 30-day Recently Deleted. iOS puts up its own confirmation,
-        // and a decline lands here as false — which must leave the photo
-        // alone in both places rather than binning it only here.
-        if (record.sourceType == AssetSourceType.photoManager &&
-            !record.localDeleted &&
-            !await _deleteFromLibrary(record)) {
-          return false;
-        }
-        await assetRecordStore.softDelete(record.localId);
-        await reload();
-        return true;
+    final l10n = AppLocalizations.of(context)!;
+    setState(() => _busy = true);
+    final DeleteOutcome outcome;
+    try {
+      outcome = await deleteAsset(context, record: record, removal: _removal);
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
+    await reload();
+    if (mounted && outcome == DeleteOutcome.failed) {
+      _showResult(l10n.libraryDeleteFromDeviceFailed);
+    }
+    return outcome.leftTheList;
   }
 
-  /// The bucket copy is deliberately *not* touched here. This app's
-  /// Recently Deleted has to be restorable to mean anything, and the
+  /// The batch form. The bucket copy is deliberately *not* touched: this
+  /// app's Recently Deleted has to be restorable to mean anything, and the
   /// backed-up copy is the one that survives a lost phone — it's purged
   /// only when the user empties that bin (see
   /// `recently_deleted_screen.dart`).
-  Future<bool> _deleteFromLibrary(AssetRecord record) async {
+  Future<Set<String>> _deleteManyFromLibrary(List<AssetRecord> records) async {
     try {
-      return await _photoLibraryService.deleteFromLibrary(record);
+      return await _photoLibraryService.deleteManyFromLibrary(records);
     } catch (_) {
-      // No plugin, or the asset is already gone from the library — either
-      // way there's nothing over there left to delete.
-      return true;
-    }
-  }
-
-  /// Frees the device storage but keeps the asset in the library: cache a
-  /// thumbnail first (that's what the grid will draw from now on), then
-  /// drop the full-resolution local copy — from the OS photo library for a
-  /// camera-roll asset, since this app never held its own copy of one.
-  Future<void> _removeFromDevice(AssetRecord record) async {
-    final l10n = AppLocalizations.of(context)!;
-    setState(() => _busy = true);
-    try {
-      final path = await _filePathFor(record);
-      if (path == null) return;
-      final thumbnail = await _thumbnailCache.ensureFor(record, path);
-      if (thumbnail == null) {
-        if (mounted) _showResult(l10n.libraryDeleteFromDeviceFailed);
-        return;
-      }
-      if (record.sourceType == AssetSourceType.photoManager) {
-        // iOS puts up its own confirmation; a decline lands here as false
-        // and must not leave the record claiming to be cloud-only.
-        if (!await _photoLibraryService.deleteFromLibrary(record)) return;
-      } else {
-        await File(path).delete();
-      }
-      await assetRecordStore.setLocalDeleted(record.localId, true);
-      await reload();
-    } catch (_) {
-      if (mounted) _showResult(l10n.libraryDeleteFromDeviceFailed);
-    } finally {
-      if (mounted) setState(() => _busy = false);
+      // No plugin, or they're already out of the library — either way
+      // there's nothing over there left to delete.
+      return {for (final record in records) record.localId};
     }
   }
 
@@ -1366,16 +1461,35 @@ class LibraryScreenState extends State<LibraryScreen>
   Future<void> _batchDelete() async {
     final records = _selectedRecords;
     if (records.isEmpty) return;
-    if (!await confirmDeleteSelection(context, count: records.length)) return;
+    final l10n = AppLocalizations.of(context)!;
+    // iOS lists every photo of a single delete call in one sheet, and past
+    // a hundred thumbnails that sheet is not something anyone reads. The
+    // overflow stays selected for a second round rather than going unseen
+    // with the rest.
+    const limit = PhotoLibraryService.deleteBatchLimit;
+    final capped = records.length > limit;
+    final batch = capped ? records.take(limit).toList() : records;
+    if (!await confirmDeleteSelection(context, count: batch.length)) return;
     setState(() => _busy = true);
     try {
-      for (final record in records) {
-        if (record.sourceType == AssetSourceType.photoManager &&
-            !record.localDeleted &&
-            !await _deleteFromLibrary(record)) {
-          // Declined at the OS prompt — leave this one alone and stop,
-          // rather than asking about every remaining photo in turn.
-          break;
+      final fromLibrary = batch
+          .where(
+            (r) =>
+                r.sourceType == AssetSourceType.photoManager && !r.localDeleted,
+          )
+          .toList();
+      // One OS prompt for the whole batch. Asking forty times isn't a
+      // safeguard, it's a wall to click through.
+      final gone = fromLibrary.isEmpty
+          ? const <String>{}
+          : await _deleteManyFromLibrary(fromLibrary);
+      final needsLibrary = {for (final r in fromLibrary) r.localId};
+      for (final record in batch) {
+        // Declined at the OS prompt — leave that one alone rather than
+        // binning it here and claiming it went from Photos too.
+        if (needsLibrary.contains(record.localId) &&
+            !gone.contains(record.localId)) {
+          continue;
         }
         await assetRecordStore.softDelete(record.localId);
       }
@@ -1383,8 +1497,10 @@ class LibraryScreenState extends State<LibraryScreen>
       if (mounted) setState(() => _busy = false);
     }
     if (!mounted) return;
-    setState(() => _selection = null);
+    final left = {for (final r in records.skip(batch.length)) r.localId};
+    setState(() => _selection = left.isEmpty ? null : left);
     await reload();
+    if (capped && mounted) _showResult(l10n.libraryDeleteBatchCapped(limit));
   }
 
   /// Pick an album, or make one on the way — the same sheet the rest of
@@ -1570,7 +1686,10 @@ class LibraryScreenState extends State<LibraryScreen>
   /// there's nothing to add to it or remove from it, and a membership list
   /// would only be a second, staler answer to a question the library can
   /// already answer.
-  List<AssetRecord> get _videos => _active.where((r) => r.isVideo).toList();
+  /// GIFs among them: they move, so the Videos album is where somebody
+  /// goes looking for one. See [AssetRecord.countsAsVideo].
+  List<AssetRecord> get _videos =>
+      _active.where((r) => r.countsAsVideo).toList();
 
   List<AssetRecord> get _favorites =>
       _active.where((r) => r.isFavorite).toList();
@@ -1705,11 +1824,7 @@ class LibraryScreenState extends State<LibraryScreen>
                   actionsFor: (r) => _actionsFor(l10n, r),
                   emptySliver: _all.isEmpty
                       ? SliverToBoxAdapter(
-                          child: _EmptyState(
-                            busy: _busy,
-                            onAddDemo: _addDemoPhotos,
-                            onAddFiles: addFiles,
-                          ),
+                          child: _EmptyState(busy: _busy, onAddFiles: addFiles),
                         )
                       : null,
                   scrubberInsets: const EdgeInsets.only(top: 56, bottom: 16),
@@ -1931,7 +2046,7 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       ),
       SliverToBoxAdapter(
-        child: _people.isEmpty
+        child: _people.isEmpty && _unnamedFaces.isEmpty
             ? Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
@@ -1944,9 +2059,24 @@ class LibraryScreenState extends State<LibraryScreen>
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  itemCount: _people.length,
+                  // Named profiles first, then the strangers — the people
+                  // you know are what the row is for, and the faces after
+                  // them are the invitation to add more.
+                  itemCount: _people.length + _unnamedFaces.length,
                   separatorBuilder: (context, i) => const SizedBox(width: 12),
                   itemBuilder: (context, i) {
+                    if (i >= _people.length) {
+                      final face = _unnamedFaces[i - _people.length];
+                      return SizedBox(
+                        width: 100,
+                        child: _UnnamedFaceCard(
+                          face: face,
+                          assetRecordStore: assetRecordStore,
+                          label: l10n.peopleUnnamedFace,
+                          onTap: () => _openById(face.localId),
+                        ),
+                      );
+                    }
                     final person = _people[i];
                     return SizedBox(
                       width: 100,
@@ -2036,23 +2166,25 @@ class LibraryScreenState extends State<LibraryScreen>
             onTap: () => _push(const AiSettingsScreen()),
           ),
           _row(
-            icon: CupertinoIcons.arrow_2_circlepath,
-            color: CupertinoColors.systemGreen,
-            title: l10n.demoDataTitle,
-            onTap: _busy
-                ? null
-                : () => _push(
-                    DemoDataScreen(
-                      onAdd: _addDemoPhotos,
-                      onRemove: _removeDemoPhotos,
-                    ),
-                  ),
+            icon: CupertinoIcons.chart_pie_fill,
+            color: CupertinoColors.systemOrange,
+            title: l10n.collectionsStorageRow,
+            onTap: () => _push(
+              StorageOptimizationScreen(
+                advisor: _storageAdvisor,
+                optimizer: _storageOptimizer,
+                onOpenAsset: _openById,
+              ),
+            ),
           ),
           _row(
             icon: CupertinoIcons.eye_slash_fill,
             color: CupertinoColors.systemGrey,
             title: l10n.collectionsHiddenRow,
-            count: _hiddenCount,
+            // No count. A number here answers "is there a hidden album,
+            // and how big" for anyone holding the phone, before a single
+            // digit of the passcode is typed — which is the whole thing
+            // the gate exists not to answer. See DESIGN.md.
             onTap: _openPrivateAlbums,
           ),
           _row(
@@ -2260,6 +2392,58 @@ class _PersonCard extends StatelessWidget {
           style: const TextStyle(
             color: CupertinoColors.systemGrey,
             fontSize: 11,
+          ),
+        ),
+      ],
+    ),
+  );
+}
+
+/// A face with nobody's name on it. Same circle as a person card so the
+/// row reads as one thing, but ringed rather than plain and captioned with
+/// the question instead of a name — it is not a person yet, and a card
+/// that looked like one would be claiming the app knows who this is.
+class _UnnamedFaceCard extends StatelessWidget {
+  const _UnnamedFaceCard({
+    required this.face,
+    required this.assetRecordStore,
+    required this.label,
+    required this.onTap,
+  });
+
+  final UnnamedFace face;
+  final AssetRecordStore assetRecordStore;
+  final String label;
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: CupertinoColors.systemGrey, width: 1.5),
+          ),
+          padding: const EdgeInsets.all(2),
+          child: PersonAvatar(
+            assetRecordStore: assetRecordStore,
+            localId: face.localId,
+            face: face.face,
+            size: 88,
+          ),
+        ),
+        const SizedBox(height: 6),
+        Text(
+          label,
+          maxLines: 1,
+          overflow: TextOverflow.ellipsis,
+          textAlign: TextAlign.center,
+          style: const TextStyle(
+            fontSize: 13,
+            color: CupertinoColors.systemGrey,
           ),
         ),
       ],
@@ -2675,14 +2859,9 @@ class _GroupListState extends State<_GroupList> {
 }
 
 class _EmptyState extends StatelessWidget {
-  const _EmptyState({
-    required this.busy,
-    required this.onAddDemo,
-    required this.onAddFiles,
-  });
+  const _EmptyState({required this.busy, required this.onAddFiles});
 
   final bool busy;
-  final VoidCallback onAddDemo;
   final VoidCallback onAddFiles;
 
   @override
@@ -2712,10 +2891,6 @@ class _EmptyState extends StatelessWidget {
             ),
             const SizedBox(height: 20),
             CupertinoButton.filled(
-              onPressed: busy ? null : onAddDemo,
-              child: Text(l10n.libraryAddDemoButton),
-            ),
-            CupertinoButton(
               onPressed: busy ? null : onAddFiles,
               child: Text(l10n.libraryAddFilesButton),
             ),

@@ -5,7 +5,20 @@
 enum AssetSourceType { photoManager, manualFile }
 
 /// One of the derivatives generated per asset — each uploads independently.
-enum DerivativeKind { thumbnail, medium, original }
+enum DerivativeKind {
+  thumbnail,
+  medium,
+  original,
+
+  /// The moving half of a Live Photo: the paired `.mov`, which is where
+  /// the motion *and the audio* live. Uploaded beside [original] under the
+  /// same `originals/` prefix — the two are one photo, and filing them
+  /// apart would make restoring it an archaeology exercise.
+  ///
+  /// A Live Photo backed up without this is a still, silently. It is not a
+  /// nice-to-have derivative like a thumbnail.
+  livePhoto,
+}
 
 /// Per-derivative upload lifecycle. `uploaded` and `failed` are terminal
 /// until the scheduler (T3.4) retries.
@@ -53,6 +66,7 @@ class AssetRecord {
     this.thumbnailPath,
     this.localDeleted = false,
     this.isVideo = false,
+    this.isGif = false,
     this.isLivePhoto = false,
     this.derivatives = const {},
     this.isFavorite = false,
@@ -98,10 +112,34 @@ class AssetRecord {
   /// `sourcePath` to derive it from on demand.
   final bool isVideo;
 
+  /// An animated GIF. Set once at creation from the file name, the same
+  /// way [isVideo] is — a still this app *can* decode, so it never goes
+  /// near the video player, but moving pictures all the same.
+  final bool isGif;
+
+  /// Anywhere the question is "is this a moving picture?" — the Videos
+  /// album, the grid's corner badge, the media-type counts. Deliberately
+  /// not folded into [isVideo]: that one answers "does this need the video
+  /// player?", and a GIF handed to `video_player` is a black rectangle.
+  bool get countsAsVideo => isVideo || isGif;
+
   /// iOS Live Photo — a still with a paired few-second video, resolved on
   /// demand through `photo_manager` (there's no second file of our own).
   /// Always false on Android and for manually-added files.
   final bool isLivePhoto;
+
+  /// Everything this photo *is* is in the bucket — which for a Live Photo
+  /// means both halves. Anywhere the question is "is it safe to drop the
+  /// local copy?", this is the answer, not the original's status alone:
+  /// removing a Live Photo whose `.mov` never went up loses the motion and
+  /// the sound for good.
+  bool get isFullyBackedUp {
+    if (stateOf(DerivativeKind.original).status != UploadStatus.uploaded) {
+      return false;
+    }
+    if (!isLivePhoto) return true;
+    return stateOf(DerivativeKind.livePhoto).status == UploadStatus.uploaded;
+  }
 
   final Map<DerivativeKind, DerivativeState> derivatives;
 
@@ -160,6 +198,18 @@ class AssetRecord {
 
   bool get isDeleted => deletedAt != null;
 
+  /// Nothing of this photo survives here: no file of its own, no cached
+  /// thumbnail, and nothing in the bucket. Only ever true once the OS
+  /// library has let go of it too — until then the library still has the
+  /// pixels, and this says nothing.
+  ///
+  /// A record like this draws an empty tile and has nothing to give back,
+  /// so the bin doesn't keep it.
+  bool get hasNothingLeft =>
+      sourcePath == null &&
+      thumbnailPath == null &&
+      !derivatives.values.any((d) => d.status == UploadStatus.uploaded);
+
   DerivativeState stateOf(DerivativeKind kind) =>
       derivatives[kind] ?? const DerivativeState();
 
@@ -194,6 +244,7 @@ class AssetRecord {
     thumbnailPath: thumbnailPath ?? this.thumbnailPath,
     localDeleted: localDeleted ?? this.localDeleted,
     isVideo: isVideo,
+    isGif: isGif,
     isLivePhoto: isLivePhoto,
     derivatives: derivatives ?? this.derivatives,
     isFavorite: isFavorite ?? this.isFavorite,

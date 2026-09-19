@@ -14,7 +14,7 @@ Subfolders:
 
 - [`viewer/`](viewer/README.md) — screens & navigation; start here for the UI
 - [`storage/`](storage/README.md) — local sqlite asset-record store
-- [`photos/`](photos/README.md) — manual add + bundled demo assets
+- [`photos/`](photos/README.md) — manual add, editing, on-device analysis
 - [`upload/`](upload/README.md) — fan-out upload of derivatives to S3
 - [`backup/`](backup/README.md) — app-data snapshot: local, iCloud Drive, bucket
 - [`settings/`](settings/README.md) — S3 backup target config + secure storage

@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 import '../photos/library_metadata.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
+import '../photos/asset_removal.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
@@ -122,11 +123,20 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     await _reload();
   }
 
+  /// Deleting is the same decision on every screen: keep the cloud copy
+  /// and free the space, or bin it. See `../photos/asset_removal.dart`.
+  late final AssetRemoval _removal = AssetRemoval(
+    store: widget.assetRecordStore,
+  );
+
   Future<bool> _delete(AssetRecord record) async {
-    if (!await confirmSoftDelete(context)) return false;
-    await widget.assetRecordStore.softDelete(record.localId);
+    final outcome = await deleteAsset(
+      context,
+      record: record,
+      removal: _removal,
+    );
     await _reload();
-    return true;
+    return outcome.leftTheList;
   }
 
   Future<void> _toggleFavorite(AssetRecord record) async {

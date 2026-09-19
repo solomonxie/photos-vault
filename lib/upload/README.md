@@ -30,6 +30,17 @@ records aggregate status + first destinationKey    ../storage/asset_record_store
   `../settings/bucket_endpoint.dart`) and the `thumbnails/`/`medium/`/
   `originals/` key layout.
 
+A Live Photo goes up as **two** objects under one `originals/` prefix —
+`photo_X.HEIC` and `photo_X.mov`, the second being where the motion and the
+sound are. They are one photo, so they share a folder and a base name.
+`DerivativeKind.livePhoto` is never re-encoded whatever `BackupFormat`
+says: the QuickTime metadata pairing the halves doesn't survive it. See
+`docs/design/uiux/detail.md`.
+
+`AssetRecord.isFullyBackedUp` — not the original's status — is what gates
+every "drop the local copy" path, because a Live Photo backed up as a still
+alone is a silent still.
+
 Known limitation: status/key is tracked once per derivative, not once per
 target — see `backup_coordinator.dart`'s doc comment.
 

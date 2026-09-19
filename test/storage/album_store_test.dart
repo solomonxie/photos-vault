@@ -19,15 +19,10 @@ void main() {
     () async {
       final store = newStore();
 
-      final first = await store.upsert(id: 'a1', name: 'Nature', isDemo: true);
-      final second = await store.upsert(
-        id: 'a1',
-        name: 'Renamed',
-        isDemo: false,
-      );
+      final first = await store.upsert(id: 'a1', name: 'Nature');
+      final second = await store.upsert(id: 'a1', name: 'Renamed');
 
       expect(second.name, first.name);
-      expect(second.isDemo, first.isDemo);
       expect(await store.listAll(), hasLength(1));
     },
   );

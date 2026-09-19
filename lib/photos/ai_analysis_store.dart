@@ -6,6 +6,7 @@ import 'package:sqflite/sqflite.dart'
     show Database, DatabaseFactory, OpenDatabaseOptions;
 
 import 'ai_analysis.dart';
+import 'person.dart' show FaceRect;
 
 /// Local `sqflite` cache of per-asset AI analysis results, keyed by
 /// `AssetRecord.localId` — avoids re-billing OpenAI for a photo already
@@ -36,7 +37,7 @@ class AiAnalysisStore {
     final db = await _factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onCreate: (db, version) => db.execute('''
           CREATE TABLE $_table (
             local_id TEXT PRIMARY KEY,
@@ -45,25 +46,35 @@ class AiAnalysisStore {
             analyzed_at INTEGER NOT NULL,
             tags TEXT NOT NULL DEFAULT '',
             description TEXT NOT NULL DEFAULT '',
-            reviewed INTEGER NOT NULL DEFAULT 0
+            reviewed INTEGER NOT NULL DEFAULT 0,
+            faces TEXT NOT NULL DEFAULT ''
           )
         '''),
         // v2 added the columns a suggestion waits in. Added rather than
         // rebuilt: the face counts already in here cost a pass over the
         // whole library to work out again.
+        // v3 added `faces`: where in the photo each detected face is, so a
+        // face can be *shown* without re-running Vision over the library.
+        // The count alone could say "three faces here" and never draw one.
         onUpgrade: (db, from, to) async {
-          if (from >= 2) return;
-          await db.execute(
-            "ALTER TABLE $_table ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
-          );
-          await db.execute(
-            'ALTER TABLE $_table '
-            "ADD COLUMN description TEXT NOT NULL DEFAULT ''",
-          );
-          await db.execute(
-            'ALTER TABLE $_table '
-            'ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 0',
-          );
+          if (from < 2) {
+            await db.execute(
+              "ALTER TABLE $_table ADD COLUMN tags TEXT NOT NULL DEFAULT ''",
+            );
+            await db.execute(
+              'ALTER TABLE $_table '
+              "ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+            );
+            await db.execute(
+              'ALTER TABLE $_table '
+              'ADD COLUMN reviewed INTEGER NOT NULL DEFAULT 0',
+            );
+          }
+          if (from < 3) {
+            await db.execute(
+              "ALTER TABLE $_table ADD COLUMN faces TEXT NOT NULL DEFAULT ''",
+            );
+          }
         },
       ),
     );
@@ -97,13 +108,16 @@ class AiAnalysisStore {
     required String localId,
     required int peopleCount,
     required DateTime analyzedAt,
+    List<FaceRect> faces = const [],
   }) async {
     final db = await _open();
+    final encoded = encodeFaces(faces);
     final updated = await db.update(
       _table,
       {
         'people_count': peopleCount,
         'analyzed_at': analyzedAt.millisecondsSinceEpoch,
+        'faces': encoded,
       },
       where: 'local_id = ?',
       whereArgs: [localId],
@@ -117,7 +131,38 @@ class AiAnalysisStore {
       'tags': jsonEncode(const <String>[]),
       'description': '',
       'reviewed': 0,
+      'faces': encoded,
     }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+  }
+
+  /// Where the faces are, per photo — for drawing one, which a count can't.
+  /// Photos analyzed before v3 have none stored and simply aren't in here.
+  Future<Map<String, List<FaceRect>>> facesByAsset() async {
+    final db = await _open();
+    final rows = await db.query(
+      _table,
+      columns: const ['local_id', 'faces'],
+      where: "faces <> ''",
+    );
+    return {
+      for (final row in rows)
+        if (decodeFaces(row['faces'] as String?) case final faces
+            when faces.isNotEmpty)
+          row['local_id'] as String: faces,
+    };
+  }
+
+  /// `x,y,w,h;x,y,w,h` — one column, and readable in a database browser,
+  /// same trade as [FaceRect.encode] itself.
+  static String encodeFaces(List<FaceRect> faces) =>
+      faces.map((f) => f.encode()).join(';');
+
+  static List<FaceRect> decodeFaces(String? value) {
+    if (value == null || value.isEmpty) return const [];
+    return [
+      for (final part in value.split(';'))
+        if (FaceRect.decode(part) case final rect?) rect,
+    ];
   }
 
   /// The other half: what a vendor call came back with, waiting to be

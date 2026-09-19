@@ -3,10 +3,10 @@ import 'dart:convert';
 import 'package:aws_common/aws_common.dart';
 import 'package:aws_signature_v4/aws_signature_v4.dart';
 import 'package:http/http.dart' as http;
-import 'package:xml/xml.dart';
 
 import 'backup_storage_type.dart';
 import 'bucket_endpoint.dart';
+import 's3_xml.dart' as sx;
 
 enum S3AccessCheckOutcome { ok, forbidden, notFound, networkError }
 
@@ -86,11 +86,4 @@ Future<S3AccessCheckResult> checkBucketAccess({
   }
 }
 
-String? _errorCodeFrom(String xmlBody) {
-  try {
-    final matches = XmlDocument.parse(xmlBody).findAllElements('Code');
-    return matches.isEmpty ? null : matches.first.innerText;
-  } catch (_) {
-    return null;
-  }
-}
+String? _errorCodeFrom(String xmlBody) => sx.textOf(xmlBody, 'Code');

@@ -10,6 +10,10 @@ enum SyncJobKind {
   /// Upload the full-resolution original.
   uploadOriginal,
 
+  /// Upload the moving half of a Live Photo — the paired `.mov`, where
+  /// the motion and the sound are. Without it the backup is a still.
+  uploadLivePhoto,
+
   /// Generate/cache the thumbnail, and upload it unless the original is
   /// already small enough not to warrant a second object.
   uploadThumbnail,

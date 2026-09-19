@@ -5,6 +5,9 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart' show VelocityTracker;
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
+
+import '../photos/image_pipeline.dart';
+
 import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -35,7 +38,9 @@ import '../storage/asset_record_store.dart';
 import '../upload/original_restore.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
+import 'gif_view.dart';
 import 'live_photo_view.dart';
+import 'motion_playback.dart';
 import 'photo_edit_screen.dart';
 import 'person_picker_sheet.dart';
 import 'search_picker_sheet.dart';
@@ -56,7 +61,7 @@ enum _EditChoice { crop, rotate, aiTouchUp }
 /// Runs off the UI isolate via [compute] — decode+encode of a full-size
 /// photo is heavy enough to jank a frame otherwise.
 Uint8List? _reencode((Uint8List bytes, _ExportFormat format) args) {
-  final decoded = img.decodeImage(args.$1);
+  final decoded = decodePhoto(args.$1);
   if (decoded == null) return null;
   return switch (args.$2) {
     _ExportFormat.jpg => Uint8List.fromList(img.encodeJpg(decoded)),
@@ -148,6 +153,12 @@ class _DetailScreenState extends State<DetailScreen> {
   late List<AssetRecord> _records = widget.records;
   late final PersonStore _personStore = widget.personStore ?? PersonStore();
 
+  /// One setting shared by every page in the pager: swiping from one Live
+  /// Photo to the next must not change how they play.
+  late final MotionPlaybackSetting _motionPlayback = MotionPlaybackSetting(
+    settings: widget.assetRecordStore,
+  )..load();
+
   /// One per visited page (keyed by `localId`), so the info-circle button
   /// can reveal the *current* page's info panel without needing a fresh
   /// controller lookup through the `PageView`.
@@ -211,6 +222,7 @@ class _DetailScreenState extends State<DetailScreen> {
       controller.dispose();
     }
     _pull.dispose();
+    _motionPlayback.dispose();
     super.dispose();
   }
 
@@ -308,7 +320,7 @@ class _DetailScreenState extends State<DetailScreen> {
             onPressed: () => Navigator.of(context).pop(false),
             child: Text(l10n.detailShareOriginalOption),
           ),
-          if (!record.isVideo)
+          if (!record.countsAsVideo)
             CupertinoActionSheetAction(
               onPressed: () => Navigator.of(context).pop(true),
               child: Text(l10n.detailExportAsOption),
@@ -371,7 +383,7 @@ class _DetailScreenState extends State<DetailScreen> {
   /// stays as it is.
   Future<void> _showEditMenu() async {
     final l10n = AppLocalizations.of(context)!;
-    if (_records[_index].isVideo) {
+    if (_records[_index].countsAsVideo) {
       _showMessage(l10n.detailEditVideoUnsupported);
       return;
     }
@@ -624,6 +636,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   albumStore: widget.albumStore,
                   resolveFile: widget.resolvePhotoManagerFile,
                   resolveLiveVideo: widget.resolveLivePhotoVideo,
+                  motionPlayback: _motionPlayback,
                   resolvePlaceName: widget.resolvePlaceName,
                   restoreOriginal: widget.restoreOriginal,
                   onDeviceAnalysis: widget.onDeviceAnalysis,
@@ -727,6 +740,7 @@ class _MediaPage extends StatefulWidget {
     required this.albumStore,
     required this.onPull,
     required this.onZoomChanged,
+    required this.motionPlayback,
     this.onDeviceAnalysis,
     this.aiVisionService,
     this.resolveFile,
@@ -771,6 +785,10 @@ class _MediaPage extends StatefulWidget {
   final OnDeviceAnalysisService? onDeviceAnalysis;
   final AiVisionService? aiVisionService;
 
+  /// How Live Photos and GIFs behave, shared by every page in the pager
+  /// and remembered between launches.
+  final MotionPlaybackSetting motionPlayback;
+
   @override
   State<_MediaPage> createState() => _MediaPageState();
 }
@@ -779,6 +797,9 @@ class _MediaPageState extends State<_MediaPage>
     with SingleTickerProviderStateMixin {
   VideoPlayerController? _videoController;
   Object? _error;
+
+  /// Whether the Live Photo / GIF is moving right now — lights the badge.
+  bool _motionPlaying = false;
 
   /// `photoManager` records carry no `sourcePath` — it's resolved on demand
   /// here via `photo_manager`, same as the library grid does. `null` while
@@ -1198,19 +1219,86 @@ class _MediaPageState extends State<_MediaPage>
         ],
       );
     }
+    errorBuilder(BuildContext context, Object error, StackTrace? stack) =>
+        _MissingFileNote(message: l10n.detailFileUnavailable);
+
+    // A GIF is the only still this app draws that moves on its own, so it
+    // gets the animation itself rather than a plain `Image` — see
+    // `gif_view.dart` for why stopping one takes two widgets.
+    if (widget.record.isGif) {
+      return _motion(
+        label: l10n.detailGifBadge,
+        icon: CupertinoIcons.photo_on_rectangle,
+        child: (mode) => _ZoomableImage(
+          onZoomChanged: _onZoomChanged,
+          errorBuilder: errorBuilder,
+          file: File(path),
+          child: GifView(
+            file: File(path),
+            mode: mode,
+            errorBuilder: errorBuilder,
+            onPlayingChanged: _onMotionPlayingChanged,
+          ),
+        ),
+      );
+    }
+
     final still = _ZoomableImage(
       file: File(path),
       onZoomChanged: _onZoomChanged,
-      errorBuilder: (context, error, stackTrace) =>
-          _MissingFileNote(message: l10n.detailFileUnavailable),
+      errorBuilder: errorBuilder,
     );
     if (!widget.record.isLivePhoto) return still;
-    return LivePhotoView(
-      still: still,
-      resolveVideo: () =>
-          (widget.resolveLiveVideo ??
-          PhotoLibraryService.resolveLivePhotoVideo)(widget.record),
+    return _motion(
+      label: l10n.detailLivePhotoBadge,
+      icon: CupertinoIcons.smallcircle_circle,
+      child: (mode) => LivePhotoView(
+        still: still,
+        mode: mode,
+        onPlayingChanged: _onMotionPlayingChanged,
+        resolveVideo: () =>
+            (widget.resolveLiveVideo ??
+            PhotoLibraryService.resolveLivePhotoVideo)(widget.record),
+      ),
     );
+  }
+
+  /// A moving picture plus the two things that belong over one: the badge
+  /// saying what it is, and the three buttons saying how it should behave.
+  Widget _motion({
+    required String label,
+    required IconData icon,
+    required Widget Function(MotionPlayMode mode) child,
+  }) {
+    final setting = widget.motionPlayback;
+    return ValueListenableBuilder<MotionPlayMode>(
+      valueListenable: setting.mode,
+      builder: (context, mode, _) => Stack(
+        fit: StackFit.expand,
+        children: [
+          child(mode),
+          Positioned(
+            top: 12,
+            left: 12,
+            child: MotionBadge(
+              label: label,
+              icon: icon,
+              active: _motionPlaying,
+            ),
+          ),
+          Positioned(
+            top: 10,
+            right: 12,
+            child: MotionPlayModeBar(mode: mode, onChanged: setting.set),
+          ),
+        ],
+      ),
+    );
+  }
+
+  void _onMotionPlayingChanged(bool playing) {
+    if (!mounted || playing == _motionPlaying) return;
+    setState(() => _motionPlaying = playing);
   }
 
   @override
@@ -1307,10 +1395,16 @@ class _ZoomableImage extends StatefulWidget {
     required this.file,
     required this.errorBuilder,
     this.onZoomChanged,
+    this.child,
   });
 
   final File file;
   final ImageErrorWidgetBuilder errorBuilder;
+
+  /// Drawn instead of a plain `Image` of [file] — a GIF, which needs its
+  /// own widget to be stoppable. Zooming and double-tap work the same
+  /// either way.
+  final Widget? child;
 
   /// Fires when the photo becomes zoomed, or stops being. Everything that
   /// scrolls around this image has to get out of the way while it is:
@@ -1393,23 +1487,25 @@ class _ZoomableImageState extends State<_ZoomableImage>
         maxScale: _zoomedScale,
         panEnabled: _isZoomed,
         child: Center(
-          child: Image.file(
-            widget.file,
-            fit: BoxFit.contain,
-            errorBuilder: widget.errorBuilder,
-            // Already decoded (a photo swiped back to) paints at once;
-            // anything else comes up over the stand-in rather than
-            // appearing between two frames.
-            frameBuilder: (context, child, frame, wasSynchronouslyLoaded) =>
-                wasSynchronouslyLoaded
-                ? child
-                : AnimatedOpacity(
-                    opacity: frame == null ? 0 : 1,
-                    duration: const Duration(milliseconds: 160),
-                    curve: Curves.easeOut,
-                    child: child,
-                  ),
-          ),
+          child:
+              widget.child ??
+              Image.file(
+                widget.file,
+                fit: BoxFit.contain,
+                errorBuilder: widget.errorBuilder,
+                // Already decoded (a photo swiped back to) paints at once;
+                // anything else comes up over the stand-in rather than
+                // appearing between two frames.
+                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) =>
+                    wasSynchronouslyLoaded
+                    ? child
+                    : AnimatedOpacity(
+                        opacity: frame == null ? 0 : 1,
+                        duration: const Duration(milliseconds: 160),
+                        curve: Curves.easeOut,
+                        child: child,
+                      ),
+              ),
         ),
       ),
     );

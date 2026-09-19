@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../settings/backup_targets_store.dart';
+import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'signing.dart';
@@ -52,11 +53,36 @@ class OriginalRestore {
         await file.writeAsBytes(response.bodyBytes);
         await recordStore.setSourcePath(record.localId, file.path);
         await recordStore.setLocalDeleted(record.localId, false);
+        // The moving half comes with it, or the photo comes back as a
+        // still — which is the thing backing it up was supposed to
+        // prevent. Best-effort: a failure here still leaves a usable
+        // photo, so it must not lose the restore that already worked.
+        await _restoreLiveHalf(record, target, dir);
         return file.path;
       } catch (_) {
         // Wrong target, expired credentials, network — try the next one.
       }
     }
     return null;
+  }
+
+  Future<void> _restoreLiveHalf(
+    AssetRecord record,
+    S3BackupTarget target,
+    Directory dir,
+  ) async {
+    final key = record.stateOf(DerivativeKind.livePhoto).destinationKey;
+    if (key == null) return;
+    try {
+      final file = File(p.join(dir.path, p.basename(key)));
+      if (await file.exists()) return;
+      final response = await _get(
+        await presignGetUrl(target: target, key: key),
+      );
+      if (response.statusCode != 200) return;
+      await file.writeAsBytes(response.bodyBytes);
+    } catch (_) {
+      // See above — the still is back either way.
+    }
   }
 }

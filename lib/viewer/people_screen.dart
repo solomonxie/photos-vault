@@ -7,6 +7,7 @@ import '../photos/person_store.dart';
 import '../storage/asset_record_store.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
+import 'person_profile_screen.dart';
 import 'smart_collection_screen.dart';
 
 /// Collections' "People" row: named [Person] profiles (T7.1-T7.3), each with
@@ -57,39 +58,33 @@ class _PeopleScreenState extends State<PeopleScreen> {
     });
   }
 
+  /// Straight to the profile with the keyboard in the name field, rather
+  /// than a dialog asking for a name and then a page asking for everything
+  /// else. The person is real from the first keystroke — the profile
+  /// writes each field as it's typed, and there is nothing here that a
+  /// "Save" button would do.
+  ///
+  /// Leaving the name blank is how you back out: a nameless person is one
+  /// nobody started, so it's dropped on the way out rather than left in
+  /// the list as an untitled row.
   Future<void> _addPerson() async {
-    final l10n = AppLocalizations.of(context)!;
-    final controller = TextEditingController();
-    final name = await showCupertinoDialog<String>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => CupertinoAlertDialog(
-          title: Text(l10n.peopleNamePromptTitle),
-          content: Padding(
-            padding: const EdgeInsets.only(top: 12),
-            child: CupertinoTextField(
-              controller: controller,
-              autofocus: true,
-              onChanged: (_) => setState(() {}),
-            ),
-          ),
-          actions: [
-            CupertinoDialogAction(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(l10n.actionCancel),
-            ),
-            CupertinoDialogAction(
-              onPressed: controller.text.trim().isEmpty
-                  ? null
-                  : () => Navigator.of(context).pop(controller.text.trim()),
-              child: Text(l10n.actionAdd),
-            ),
-          ],
+    final person = await widget.personStore.create(name: '');
+    if (!mounted) return;
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => PersonProfileScreen(
+          person: person,
+          personStore: widget.personStore,
+          assetRecordStore: widget.assetRecordStore,
+          autofocusName: true,
         ),
       ),
     );
-    if (name == null || name.isEmpty) return;
-    await widget.personStore.create(name: name);
+    final saved = await widget.personStore.getById(person.id);
+    if ((saved?.name ?? '').trim().isEmpty) {
+      await widget.personStore.remove(person.id);
+    }
+    if (!mounted) return;
     await _reload();
   }
 

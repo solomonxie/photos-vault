@@ -132,3 +132,52 @@ Hand-rolled layout, no graph package.
                  ◯ Ken                 clusters, styled by type
  empty   Add relationships to see the graph.
 ```
+
+
+# Unnamed faces
+
+The Library's People row is named profiles **then** the faces nobody has
+put a name to, newest photo first, capped at twenty.
+
+```
+ People                                              More ›
+ ( ● )      ( ● )      ( ◌ )      ( ◌ )
+  Mia       Daniel    Who's this? Who's this?   ← dashed ring, grey caption
+  148        92
+```
+
+A face with a dashed ring and a question instead of a name: it is not a
+person yet, and a card that looked like one would claim the app knows who
+this is. Tapping opens the photo, where the face can be tagged.
+
+iOS finds faces but keeps identity to itself, so this is per-*photo*: a
+photo with nobody tagged in it offers its faces, and once one person is
+named there the rest go quiet — the app has no way to tell which remaining
+boxes are still strangers, and guessing is worse than stopping.
+
+The face boxes are stored (`ai_analysis` v3's `faces` column) rather than
+re-found on the fly. A count can say "three faces here"; only a box can
+draw one.
+
+# New person
+
+`+` on the People page creates the person and pushes straight to their
+profile with the keyboard in the name field. No dialog asking for a name
+and then a page asking for everything else.
+
+The profile writes each field as it's typed, so there is nothing a "Save"
+button would do. **A non-empty name is the save.** Leaving it blank is how
+you back out: a nameless person is one nobody started, and it's dropped on
+the way out rather than left in the list as an untitled row.
+
+# Profile picture
+
+Tap the avatar (it carries a small camera badge, or nobody tries) to pick
+from **that person's own** photos — `person_avatar_picker.dart`, not the
+library picker. A profile picture that isn't of them is the one thing this
+can get wrong, and the full library would make it the easiest thing to do.
+
+The face box is dropped along with the old photo: a crop only means
+anything on the picture it was tapped in.
+
+About is empty by default and says so — *This person doesn't have any bio*.

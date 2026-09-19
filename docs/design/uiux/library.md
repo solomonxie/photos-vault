@@ -42,8 +42,7 @@ People / Places / Events, then Utilities. Opens at the **newest** photo.
  │ ✨ AI Settings                        ›  │    not work left to do
  │                                         │    (the sync queue lives on
  │                                         │     Cloud Settings now)
- │ ⟳ Demo Data                          ›  │
- │ 👁⃠ Hidden                           3 ›  │
+ │ 👁⃠ Hidden                             ›  │  ← never a count
  │ 🗑 Recently Deleted                  5 ›  │
  └─────────────────────────────────────────┘
 ```
@@ -69,11 +68,10 @@ decade of scrolling away.
            │  Grant Photos access to back up your   │
            │  camera roll, or tap + to manually add │
            │  files from the Files app.             │
-           │      [[ Try with Demo Photos ]]        │
-           │      [ Add Files ]                     │
+           │      [[ Add Files ]]                   │
            └────────────────────────────────────────┘
            ← Albums/People/Places/Events are not drawn; Utilities still is
- busy      the ＋ and Demo Data rows go disabled while a pick is running
+ busy      the ＋ button goes disabled while a pick is running
  ai edit   ⟳ AI working…            ← thin row under the nav bar
 ```
 

@@ -17,11 +17,7 @@ class FakePersonStore implements PersonStore {
   Future<void> close() async {}
 
   @override
-  Future<Person> create({
-    required String name,
-    String? id,
-    bool isDemo = false,
-  }) async {
+  Future<Person> create({required String name, String? id}) async {
     if (id != null) {
       final existing = _people[id];
       if (existing != null) return existing;
@@ -32,7 +28,6 @@ class FakePersonStore implements PersonStore {
       name: name,
       createdAt: now,
       updatedAt: now,
-      isDemo: isDemo,
     );
     _people[person.id] = person;
     return person;

@@ -2,6 +2,7 @@ import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/photos/library_custody.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/passcode_hash.dart';
+import 'package:photos_vault/storage/private_album_sync.dart';
 import 'package:photos_vault/viewer/private_album_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -300,5 +301,85 @@ void main() {
       isNull,
     );
     expect(custody.takenOut, isEmpty);
+  });
+
+  testWidgets('backup is on by default, and says what that means', (
+    tester,
+  ) async {
+    final assetStore = FakeAssetRecordStore();
+
+    await tester.pumpWidget(
+      _wrap(
+        PrivateAlbumScreen(
+          passcodeHash: _hash,
+          assetRecordStore: assetStore,
+          custody: _RecordingCustody(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // The footer is there on an empty album too: the decision gets made
+    // before the first photo goes in.
+    expect(
+      find.textContaining('backed up with the rest of your library'),
+      findsOneWidget,
+    );
+    // Says plainly what the bucket does and does not hide.
+    expect(find.textContaining('is not encrypted'), findsOneWidget);
+    expect(find.text('Keep this album on this device only'), findsOneWidget);
+  });
+
+  testWidgets('the link turns backup off for this album, and back on', (
+    tester,
+  ) async {
+    final assetStore = FakeAssetRecordStore();
+    final sync = PrivateAlbumSync(assetStore);
+
+    await tester.pumpWidget(
+      _wrap(
+        PrivateAlbumScreen(
+          passcodeHash: _hash,
+          assetRecordStore: assetStore,
+          custody: _RecordingCustody(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Keep this album on this device only'));
+    await tester.pumpAndSettle();
+
+    expect(await sync.isEnabled(_hash), isFalse);
+    expect(find.text('This album stays on this device.'), findsOneWidget);
+    // The cost of the choice replaces the benefit of the other one.
+    expect(find.textContaining('Nothing leaves this device'), findsOneWidget);
+
+    await tester.tap(find.text('Back this album up'));
+    await tester.pumpAndSettle();
+
+    expect(await sync.isEnabled(_hash), isTrue);
+  });
+
+  testWidgets('one album opting out leaves another alone', (tester) async {
+    final assetStore = FakeAssetRecordStore();
+    final sync = PrivateAlbumSync(assetStore);
+    final other = hashPasscode('9999');
+
+    await tester.pumpWidget(
+      _wrap(
+        PrivateAlbumScreen(
+          passcodeHash: _hash,
+          assetRecordStore: assetStore,
+          custody: _RecordingCustody(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Keep this album on this device only'));
+    await tester.pumpAndSettle();
+
+    expect(await sync.isEnabled(other), isTrue);
   });
 }

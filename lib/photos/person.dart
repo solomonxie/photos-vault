@@ -33,6 +33,16 @@ class FaceRect {
   int get hashCode => Object.hash(x, y, width, height);
 }
 
+/// One face the app found, in the photo it found it in, that nobody has
+/// put a name to. Not a [Person] and deliberately not stored as one —
+/// there is nothing to remember about it beyond "here, look at this".
+class UnnamedFace {
+  const UnnamedFace({required this.localId, required this.face});
+
+  final String localId;
+  final FaceRect face;
+}
+
 /// How two [Person]s relate — drives both the profile's relationship list
 /// and the net graph's line color/style (T7.5/T7.6). `family`/`spouse`/
 /// `parent`/`child`/`sibling` cluster together in the graph's family circle;
@@ -93,7 +103,6 @@ class Person {
     this.locked = false,
     this.passcodeHash,
     this.passcodeHint,
-    this.isDemo = false,
   });
 
   final String id;
@@ -130,10 +139,6 @@ class Person {
   final String? passcodeHash;
   final String? passcodeHint;
 
-  /// Part of the bundled demo set — "Reset Demo Data" recreates it with the
-  /// same [id] if deleted, same trick as `Album.isDemo`.
-  final bool isDemo;
-
   Person copyWith({
     String? name,
     String? avatarLocalId,
@@ -163,7 +168,6 @@ class Person {
     locked: locked ?? this.locked,
     passcodeHash: passcodeHash != null ? passcodeHash() : this.passcodeHash,
     passcodeHint: passcodeHint != null ? passcodeHint() : this.passcodeHint,
-    isDemo: isDemo,
   );
 }
 

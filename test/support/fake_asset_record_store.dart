@@ -25,6 +25,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     AssetSourceType sourceType = AssetSourceType.photoManager,
     String? sourcePath,
     bool isVideo = false,
+    bool isGif = false,
     bool isLivePhoto = false,
     DateTime? createdAt,
     double? latitude,
@@ -43,6 +44,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
       sourceType: sourceType,
       sourcePath: sourcePath,
       isVideo: isVideo,
+      isGif: isGif,
       isLivePhoto: isLivePhoto,
       libraryId: libraryId,
       latitude: latitude,
@@ -187,11 +189,35 @@ class FakeAssetRecordStore implements AssetRecordStore {
   }) async {
     final existing = _records[localId];
     if (existing == null) return;
-    _records[localId] = existing.withLibraryMetadata(
-      latitude: latitude,
-      longitude: longitude,
-      width: width,
-      height: height,
+    // Matches the real store's SQL: a null argument leaves the column
+    // alone, a non-null one *writes*. `AssetRecord.withLibraryMetadata`
+    // fills blanks only, which is a call-site rule, not this one's.
+    _records[localId] = AssetRecord(
+      localId: existing.localId,
+      contentHash: existing.contentHash,
+      platform: existing.platform,
+      createdAt: existing.createdAt,
+      updatedAt: DateTime.now(),
+      sourceType: existing.sourceType,
+      sourcePath: existing.sourcePath,
+      thumbnailPath: existing.thumbnailPath,
+      localDeleted: existing.localDeleted,
+      isVideo: existing.isVideo,
+      isLivePhoto: existing.isLivePhoto,
+      derivatives: existing.derivatives,
+      isFavorite: existing.isFavorite,
+      isHidden: existing.isHidden,
+      deletedAt: existing.deletedAt,
+      description: existing.description,
+      tags: existing.tags,
+      location: existing.location,
+      event: existing.event,
+      passcodeHash: existing.passcodeHash,
+      latitude: latitude ?? existing.latitude,
+      longitude: longitude ?? existing.longitude,
+      width: width ?? existing.width,
+      height: height ?? existing.height,
+      libraryId: existing.libraryId,
     );
   }
 

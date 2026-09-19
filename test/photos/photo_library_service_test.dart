@@ -310,7 +310,7 @@ void main() {
     });
 
     test(
-      'one that never made it to the bucket goes to Recently Deleted',
+      'one that never made it to the bucket is forgotten, not binned',
       () async {
         final store = FakeAssetRecordStore();
         var listing = [_entity('a1')];
@@ -320,12 +320,12 @@ void main() {
         listing = [];
         await service.syncAll(reconcileDeletions: true);
 
-        final record = (await store.getByLocalId('photo:a1'))!;
-        expect(record.isDeleted, isTrue);
         expect(
-          record,
-          isNotNull,
-          reason: 'the row survives, so restoring it restores its metadata too',
+          await store.getByLocalId('photo:a1'),
+          isNull,
+          reason:
+              'no bytes here, none in the bucket, none in the library — '
+              'Recently Deleted would only hold an empty tile',
         );
       },
     );
@@ -446,9 +446,9 @@ void main() {
         reason: 'backed up — stays as a cloud-only item',
       );
       expect(
-        (await store.getByLocalId('photo:a2'))!.isDeleted,
-        isTrue,
-        reason: 'never backed up — binned',
+        await store.getByLocalId('photo:a2'),
+        isNull,
+        reason: 'never backed up — nothing left of it to bin',
       );
     });
 
