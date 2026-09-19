@@ -1,6 +1,8 @@
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/asset_removal.dart';
+import '../storage/asset_record.dart';
 
 /// What the user picked from [chooseDelete].
 enum DeleteChoice {
@@ -23,10 +25,11 @@ enum DeleteChoice {
 Future<DeleteChoice> chooseDelete(
   BuildContext context, {
   required bool canRemoveFromDevice,
+  bool recoverable = true,
 }) async {
   final l10n = AppLocalizations.of(context)!;
   if (!canRemoveFromDevice) {
-    return await confirmSoftDelete(context)
+    return await confirmSoftDelete(context, recoverable: recoverable)
         ? DeleteChoice.everywhere
         : DeleteChoice.cancel;
   }
@@ -55,30 +58,94 @@ Future<DeleteChoice> chooseDelete(
   return choice ?? DeleteChoice.cancel;
 }
 
-/// Confirms a soft-delete (Favorite/Hidden/Library/Album screens all route
-/// through this before calling `AssetRecordStore.softDelete`) — permanent
-/// delete from Recently Deleted has its own, separate confirmation.
-Future<bool> confirmSoftDelete(BuildContext context) async {
+/// Confirms a soft-delete — the one-choice case, for a photo with no
+/// backed-up copy to fall back on. Permanent delete from Recently Deleted
+/// has its own, separate confirmation.
+///
+/// A sheet at the bottom of the screen rather than an alert in the middle
+/// of it: that's where Photos asks, that's where the thumb already is, and
+/// a destructive choice under the finger beats one it has to reach for.
+///
+/// [recoverable] false says so plainly: nothing of this photo is anywhere
+/// else, so it doesn't go to Recently Deleted — promising a bin it will
+/// never appear in is the one thing this sheet must not do.
+Future<bool> confirmSoftDelete(
+  BuildContext context, {
+  bool recoverable = true,
+}) async {
   final l10n = AppLocalizations.of(context)!;
-  final confirmed = await showCupertinoDialog<bool>(
+  final confirmed = await showCupertinoModalPopup<bool>(
     context: context,
-    builder: (context) => CupertinoAlertDialog(
-      title: Text(l10n.libraryDeleteConfirmTitle),
-      content: Text(l10n.libraryDeleteConfirmBody),
+    builder: (context) => CupertinoActionSheet(
+      message: Text(
+        recoverable
+            ? l10n.libraryDeleteConfirmBody
+            : l10n.libraryDeleteConfirmBodyGone,
+      ),
       actions: [
-        CupertinoDialogAction(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: Text(l10n.actionCancel),
-        ),
-        CupertinoDialogAction(
+        CupertinoActionSheetAction(
           isDestructiveAction: true,
           onPressed: () => Navigator.of(context).pop(true),
-          child: Text(l10n.actionDelete),
+          child: Text(l10n.libraryDeleteEverywhere),
         ),
       ],
+      cancelButton: CupertinoActionSheetAction(
+        onPressed: () => Navigator.of(context).pop(false),
+        child: Text(l10n.actionCancel),
+      ),
     ),
   );
   return confirmed ?? false;
+}
+
+/// What a [deleteAsset] actually did.
+enum DeleteOutcome {
+  /// Cancelled, or declined at the OS's own prompt. Nothing to say.
+  none,
+
+  /// Now cloud-only, and still in the library — so a viewer above it
+  /// stays open on it rather than popping.
+  cloudOnly,
+
+  /// In this app's Recently Deleted, and out of the caller's list.
+  binned,
+
+  /// Asked for and couldn't be done — no thumbnail could be made, so
+  /// dropping the original would have left nothing to draw.
+  failed;
+
+  bool get leftTheList => this == DeleteOutcome.binned;
+}
+
+/// The whole two-choice delete for one asset: ask, carry it out, say what
+/// happened.
+///
+/// Every grid screen goes through this. Which choices are offered is a
+/// property of the photo — see [AssetRemoval.canRemoveFromDevice] — not of
+/// the page it happens to be on, and a photo the library offers to keep in
+/// the cloud must not be a plain delete over in Favorites.
+Future<DeleteOutcome> deleteAsset(
+  BuildContext context, {
+  required AssetRecord record,
+  required AssetRemoval removal,
+}) async {
+  final choice = await chooseDelete(
+    context,
+    canRemoveFromDevice: removal.canRemoveFromDevice(record),
+    recoverable: !record.hasNothingLeft,
+  );
+  switch (choice) {
+    case DeleteChoice.cancel:
+      return DeleteOutcome.none;
+    case DeleteChoice.fromDevice:
+      return await removal.removeFromDevice(record)
+          ? DeleteOutcome.cloudOnly
+          : DeleteOutcome.failed;
+    case DeleteChoice.everywhere:
+      return await removal.deleteEverywhere(record)
+          ? DeleteOutcome.binned
+          : DeleteOutcome.none;
+  }
 }
 
 /// One confirmation for a whole selection, naming the count — "delete 40
@@ -91,22 +158,21 @@ Future<bool> confirmDeleteSelection(
   required int count,
 }) async {
   final l10n = AppLocalizations.of(context)!;
-  final confirmed = await showCupertinoDialog<bool>(
+  final confirmed = await showCupertinoModalPopup<bool>(
     context: context,
-    builder: (context) => CupertinoAlertDialog(
-      title: Text(l10n.selectionDeleteConfirmTitle(count)),
-      content: Text(l10n.libraryDeleteConfirmBody),
+    builder: (context) => CupertinoActionSheet(
+      message: Text(l10n.libraryDeleteConfirmBody),
       actions: [
-        CupertinoDialogAction(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: Text(l10n.actionCancel),
-        ),
-        CupertinoDialogAction(
+        CupertinoActionSheetAction(
           isDestructiveAction: true,
           onPressed: () => Navigator.of(context).pop(true),
-          child: Text(l10n.actionDelete),
+          child: Text(l10n.selectionDeleteAction(count)),
         ),
       ],
+      cancelButton: CupertinoActionSheetAction(
+        onPressed: () => Navigator.of(context).pop(false),
+        child: Text(l10n.actionCancel),
+      ),
     ),
   );
   return confirmed ?? false;

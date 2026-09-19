@@ -10,6 +10,64 @@ import '../settings/fake_secure_store.dart';
 import '../support/fake_asset_record_store.dart';
 
 void main() {
+  test('a Live Photo comes back with its motion, not as a still', () async {
+    final store = FakeAssetRecordStore();
+    await store.upsert(
+      localId: 'photo:live',
+      contentHash: 'l',
+      platform: 'ios',
+      isLivePhoto: true,
+    );
+    await store.updateDerivative(
+      'photo:live',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'originals/photo_live.HEIC',
+      ),
+    );
+    await store.updateDerivative(
+      'photo:live',
+      DerivativeKind.livePhoto,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'originals/photo_live.mov',
+      ),
+    );
+    await store.setLocalDeleted('photo:live', true);
+    final record = (await store.getByLocalId('photo:live'))!;
+    final fetched = <String>[];
+
+    final tempDir = Directory.systemTemp.createTempSync('pv_restore_');
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+
+    final path = await OriginalRestore(
+      targetsStore: await () async {
+        final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+        await targetsStore.add(
+          accessKeyId: 'a',
+          secretAccessKey: 'b',
+          region: 'us-east-1',
+          bucket: 'bucket',
+          prefix: '',
+        );
+        return targetsStore;
+      }(),
+      recordStore: store,
+      directory: () async => tempDir,
+      get: (url) async {
+        fetched.add(url.path);
+        return http.Response.bytes([1, 2, 3], 200);
+      },
+    ).restore(record);
+
+    expect(path, endsWith('photo_live.HEIC'));
+    // Both halves, or what comes back is the still the backup was supposed
+    // to stop being the whole story.
+    expect(fetched.where((p) => p.endsWith('.mov')), hasLength(1));
+    expect(File('${tempDir.path}/photo_live.mov').existsSync(), isTrue);
+  });
+
   late Directory tempDir;
 
   setUp(() => tempDir = Directory.systemTemp.createTempSync('byop_restore_'));

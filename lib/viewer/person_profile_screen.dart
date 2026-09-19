@@ -9,6 +9,7 @@ import '../storage/passcode_hash.dart';
 import 'custom_fields_editor.dart';
 import 'passcode_prompt.dart';
 import 'person_avatar.dart';
+import 'person_avatar_picker.dart';
 import 'person_graph_screen.dart';
 import 'person_history_detail_screen.dart';
 import 'person_page_screen.dart';
@@ -28,11 +29,16 @@ class PersonProfileScreen extends StatefulWidget {
     required this.person,
     required this.personStore,
     required this.assetRecordStore,
+    this.autofocusName = false,
   });
 
   final Person person;
   final PersonStore personStore;
   final AssetRecordStore assetRecordStore;
+
+  /// Straight into the name field with the keyboard up — how a brand new
+  /// person arrives here, where the only thing missing is the name.
+  final bool autofocusName;
 
   @override
   State<PersonProfileScreen> createState() => _PersonProfileScreenState();
@@ -98,6 +104,25 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   Future<void> _persist(Person updated) async {
     setState(() => _person = updated);
     await widget.personStore.update(updated);
+  }
+
+  /// Their photos, one tap, done. The face box goes with it: a crop only
+  /// means anything on the photo it was tapped in, so carrying it over to
+  /// a different picture would frame somebody's elbow.
+  Future<void> _pickAvatar() async {
+    final chosen = await Navigator.of(context).push<String>(
+      CupertinoPageRoute(
+        builder: (_) => PersonAvatarPicker(
+          person: _person,
+          personStore: widget.personStore,
+          assetRecordStore: widget.assetRecordStore,
+        ),
+      ),
+    );
+    if (chosen == null || !mounted) return;
+    await _persist(
+      _person.copyWith(avatarLocalId: chosen, avatarFace: () => null),
+    );
   }
 
   /// "+": pick (or type) a title first — school/employer name is never
@@ -611,11 +636,35 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           padding: const EdgeInsets.symmetric(vertical: 16),
           children: [
             Center(
-              child: PersonAvatar(
-                assetRecordStore: widget.assetRecordStore,
-                localId: _person.avatarLocalId,
-                face: _person.avatarFace,
-                size: 96,
+              child: GestureDetector(
+                behavior: HitTestBehavior.opaque,
+                onTap: _pickAvatar,
+                child: Stack(
+                  alignment: Alignment.bottomRight,
+                  children: [
+                    PersonAvatar(
+                      assetRecordStore: widget.assetRecordStore,
+                      localId: _person.avatarLocalId,
+                      face: _person.avatarFace,
+                      size: 96,
+                    ),
+                    // Without this the circle is just a picture; people
+                    // don't try tapping pictures.
+                    Container(
+                      width: 28,
+                      height: 28,
+                      decoration: const BoxDecoration(
+                        shape: BoxShape.circle,
+                        color: CupertinoColors.activeBlue,
+                      ),
+                      child: const Icon(
+                        CupertinoIcons.camera_fill,
+                        size: 14,
+                        color: CupertinoColors.white,
+                      ),
+                    ),
+                  ],
+                ),
               ),
             ),
             const SizedBox(height: 16),
@@ -623,6 +672,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 24),
               child: CupertinoTextField.borderless(
                 controller: _name,
+                autofocus: widget.autofocusName,
                 textAlign: TextAlign.center,
                 placeholder: l10n.personProfileNameLabel,
                 style: const TextStyle(
@@ -679,7 +729,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                   controller: _bio,
                   maxLines: null,
                   textAlign: TextAlign.center,
-                  placeholder: l10n.personProfileBioLabel,
+                  placeholder: l10n.personProfileBioEmpty,
                   style: const TextStyle(
                     fontSize: 15,
                     color: CupertinoColors.systemGrey,

@@ -1,5 +1,6 @@
 import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/viewer/people_screen.dart';
+import 'package:photos_vault/viewer/person_profile_screen.dart';
 import 'package:photos_vault/viewer/person_page_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,7 +48,9 @@ void main() {
     expect(find.text('2'), findsOneWidget);
   });
 
-  testWidgets('+ adds a new named person', (tester) async {
+  testWidgets('+ opens a profile, and a typed name is the save', (
+    tester,
+  ) async {
     final personStore = FakePersonStore();
 
     await tester.pumpWidget(
@@ -62,13 +65,40 @@ void main() {
 
     await tester.tap(find.byIcon(CupertinoIcons.add));
     await tester.pumpAndSettle();
-    await tester.enterText(find.byType(CupertinoTextField), 'Daniel');
-    await tester.pump();
-    await tester.tap(find.text('Add'));
+
+    // Straight onto the profile page, in the name field.
+    expect(find.byType(PersonProfileScreen), findsOneWidget);
+    await tester.enterText(
+      find.widgetWithText(CupertinoTextField, 'Name'),
+      'Daniel',
+    );
+    await tester.pumpAndSettle();
+    await tester.pageBack();
     await tester.pumpAndSettle();
 
     expect(find.text('Daniel'), findsOneWidget);
     expect((await personStore.listAll()).map((p) => p.name), ['Daniel']);
+  });
+
+  testWidgets('a person left unnamed is not kept', (tester) async {
+    final personStore = FakePersonStore();
+
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(CupertinoIcons.add));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    expect(await personStore.listAll(), isEmpty);
   });
 
   testWidgets('the search field filters the list by name and autofocuses', (

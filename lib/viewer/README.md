@@ -15,7 +15,9 @@ LibraryScreen                                          library_screen.dart
   │     tap tile ──► DetailScreen                        detail_screen.dart
   │                    swipe-down-to-dismiss viewer + info panel (below image)
   │                    video ──► VideoControls            video_controls.dart
-  │                    live photo ──► hold to play        live_photo_view.dart
+  │                    live photo / GIF ──► motion_playback.dart
+  │                       hold · loop · freeze, one setting for both
+  │                       live_photo_view.dart · gif_view.dart
   │                    Edit ──► crop/rotate  PhotoEditScreen  photo_edit_screen.dart
   │                          └─ AI Touch Up  ../photos/ai_touch_up_queue.dart
   │                             (background; result filed by createDerivedAsset)
@@ -26,10 +28,14 @@ LibraryScreen                                          library_screen.dart
   │     Events' "AI Suggestions" ──► SmartCollectionScreen  smart_collection_screen.dart
   │
   ├─ "Collections" → People row ──► PeopleScreen            people_screen.dart
-  │     list of named Person profiles (../photos/person_store.dart)
+  │     named Person profiles, then the faces nobody has named yet
+  │       (../photos/ai_analysis_store.dart's stored face boxes)
+  │     "+" ──► a new Person straight into PersonProfileScreen, name focused;
+  │             left unnamed, it is dropped rather than kept as an empty row
   │     tap a person ──► PersonPageScreen                   person_page_screen.dart
   │                         their tagged photos + a chevron to:
   │                       PersonProfileScreen                person_profile_screen.dart
+  │                         tap the avatar ──► PersonAvatarPicker  person_avatar_picker.dart
   │                         bio fields (passcode+hint lock over them),
   │                         relationships ──► PersonGraphScreen  person_graph_screen.dart
   │                         location history
@@ -40,6 +46,9 @@ LibraryScreen                                          library_screen.dart
         Hidden             ──► passcode sheet, then:        private_album_gate.dart
                                 PrivateAlbumScreen            private_album_screen.dart
         Recently Deleted   ──► RecentlyDeletedScreen        recently_deleted_screen.dart
+        Optimize Storage   ──► StorageOptimizationScreen   storage_optimization_screen.dart
+                                filter chips per problem, a card per photo
+                                carrying its own fix; Select ⇒ batch
         Backup Status      ──► BackupScreen                 backup_screen.dart
         S3 Settings        ──► ../settings/settings_screen.dart
 ```

@@ -67,8 +67,7 @@ class AiSettingsStore {
   static const _cursorKey = 'ai_key_cursor_v1';
 
   /// Pre-multi-vendor storage slot — migrated into [_keysKey] the first
-  /// time it's read after this feature shipped, same one-time trick as
-  /// `Album.isDemo`'s fixed ids.
+  /// time it's read after this feature shipped.
   static const _legacyOpenAiKey = 'openai_api_key_v1';
 
   Future<List<AiKeyMeta>> listKeys() async {

@@ -187,14 +187,10 @@ class PersonStore {
   Future<List<Map<String, Object?>>> changeLogRows() async =>
       changeLogTail(await _open());
 
-  /// Creates a new person under a fresh id, unless [id] is given (demo
-  /// seeding's stable-id-for-idempotent-reset trick, same as `Album.isDemo`)
-  /// and one already exists at it — then that existing one is returned.
-  Future<Person> create({
-    required String name,
-    String? id,
-    bool isDemo = false,
-  }) async {
+  /// Creates a new person under a fresh id, unless [id] is given and one
+  /// already exists at it — then that existing one is returned, so a
+  /// caller holding a stable id can create-or-get idempotently.
+  Future<Person> create({required String name, String? id}) async {
     if (id != null) {
       final existing = await getById(id);
       if (existing != null) return existing;
@@ -206,7 +202,6 @@ class PersonStore {
       name: name,
       createdAt: now,
       updatedAt: now,
-      isDemo: isDemo,
     );
     await db.insert(_personTable, _toRow(person));
     return person;
@@ -562,7 +557,6 @@ class PersonStore {
     'locked': person.locked ? 1 : 0,
     'passcode_hash': person.passcodeHash,
     'passcode_hint': person.passcodeHint,
-    'is_demo': person.isDemo ? 1 : 0,
     'created_at': person.createdAt.millisecondsSinceEpoch,
     'updated_at': person.updatedAt.millisecondsSinceEpoch,
   };
@@ -588,7 +582,6 @@ class PersonStore {
       locked: (row['locked'] as int? ?? 0) != 0,
       passcodeHash: row['passcode_hash'] as String?,
       passcodeHint: row['passcode_hint'] as String?,
-      isDemo: (row['is_demo'] as int? ?? 0) != 0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
     );

@@ -1,11 +1,13 @@
 import 'package:photos_vault/photos/ai_analysis.dart';
 import 'package:photos_vault/photos/ai_analysis_store.dart';
+import 'package:photos_vault/photos/person.dart' show FaceRect;
 
 /// Pure-Dart, in-memory stand-in for [AiAnalysisStore] — see
 /// `fake_asset_record_store.dart` for why widget tests can't use the real
 /// `sqflite_common_ffi`-backed store.
 class FakeAiAnalysisStore implements AiAnalysisStore {
   final _analyses = <String, AiPhotoAnalysis>{};
+  final _faces = <String, List<FaceRect>>{};
 
   @override
   Future<void> close() async {}
@@ -25,7 +27,9 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     required String localId,
     required int peopleCount,
     required DateTime analyzedAt,
+    List<FaceRect> faces = const [],
   }) async {
+    if (faces.isNotEmpty) _faces[localId] = faces;
     final existing = _analyses[localId];
     _analyses[localId] = AiPhotoAnalysis(
       localId: localId,
@@ -65,6 +69,9 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
       reviewed: true,
     );
   }
+
+  @override
+  Future<Map<String, List<FaceRect>>> facesByAsset() async => Map.of(_faces);
 
   @override
   Future<List<AiPhotoAnalysis>> unreviewed() async => [

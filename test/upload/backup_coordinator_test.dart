@@ -62,6 +62,138 @@ void main() {
     return store;
   }
 
+  Future<BackupTargetsStore> oneTarget({
+    BackupFormat format = BackupFormat.original,
+  }) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    await targetsStore.add(
+      accessKeyId: 'a',
+      secretAccessKey: 'b',
+      region: 'us-east-1',
+      bucket: 'bucket',
+      prefix: '',
+    );
+    await targetsStore.setBackupFormat(format);
+    return targetsStore;
+  }
+
+  group('Live Photos', () {
+    test(
+      'the moving half lands beside the still, not in its own folder',
+      () async {
+        final recordStore = newRecordStore();
+        final record = await recordStore.upsert(
+          localId: 'photo:live',
+          contentHash: 'l',
+          platform: 'ios',
+          isLivePhoto: true,
+        );
+        final keys = <String>[];
+        final coordinator = BackupCoordinator(
+          targetsStore: await oneTarget(),
+          recordStore: recordStore,
+          s3Uploader: _RecordingS3Uploader((path, key, target) {
+            keys.add(key);
+            return true;
+          }),
+          hashFile: (_) async => 'hash',
+        );
+
+        await coordinator.backUpDerivative(
+          record: record,
+          kind: DerivativeKind.original,
+          filePath: '/tmp/IMG.HEIC',
+        );
+        await coordinator.backUpDerivative(
+          record: record,
+          kind: DerivativeKind.livePhoto,
+          filePath: '/tmp/IMG.mov',
+        );
+
+        // Same prefix, same base name, differing only by extension — a
+        // bucket listing shows them as the pair they are.
+        expect(keys, ['originals/photo_live.HEIC', 'originals/photo_live.mov']);
+      },
+    );
+
+    test('the .mov is never re-encoded, whatever the format says', () async {
+      final recordStore = newRecordStore();
+      final record = await recordStore.upsert(
+        localId: 'photo:live',
+        contentHash: 'l',
+        platform: 'ios',
+        isLivePhoto: true,
+      );
+      final keys = <String>[];
+
+      await BackupCoordinator(
+        targetsStore: await oneTarget(format: BackupFormat.optimized),
+        recordStore: recordStore,
+        s3Uploader: _RecordingS3Uploader((path, key, target) {
+          keys.add(key);
+          return true;
+        }),
+        hashFile: (_) async => 'hash',
+      ).backUpDerivative(
+        record: record,
+        kind: DerivativeKind.livePhoto,
+        filePath: '/tmp/IMG.mov',
+      );
+
+      // A WebP encoder would strip the QuickTime metadata that pairs the
+      // two halves, leaving a still with a video next to it.
+      expect(keys.single, endsWith('.mov'));
+    });
+
+    test('a still-only backup is not a backed-up Live Photo', () async {
+      final recordStore = newRecordStore();
+      await recordStore.upsert(
+        localId: 'photo:live',
+        contentHash: 'l',
+        platform: 'ios',
+        isLivePhoto: true,
+      );
+      await recordStore.updateDerivative(
+        'photo:live',
+        DerivativeKind.original,
+        const DerivativeState(status: UploadStatus.uploaded),
+      );
+
+      final half = (await recordStore.getByLocalId('photo:live'))!;
+      expect(half.isFullyBackedUp, isFalse, reason: 'the motion is missing');
+
+      await recordStore.updateDerivative(
+        'photo:live',
+        DerivativeKind.livePhoto,
+        const DerivativeState(status: UploadStatus.uploaded),
+      );
+
+      expect(
+        (await recordStore.getByLocalId('photo:live'))!.isFullyBackedUp,
+        isTrue,
+      );
+    });
+
+    test('a plain photo needs only its original', () async {
+      final recordStore = newRecordStore();
+      await recordStore.upsert(
+        localId: 'manual:a',
+        contentHash: 'a',
+        platform: 'ios',
+      );
+      await recordStore.updateDerivative(
+        'manual:a',
+        DerivativeKind.original,
+        const DerivativeState(status: UploadStatus.uploaded),
+      );
+
+      expect(
+        (await recordStore.getByLocalId('manual:a'))!.isFullyBackedUp,
+        isTrue,
+      );
+    });
+  });
+
   test('with no configured targets, status stays pending', () async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     final recordStore = newRecordStore();

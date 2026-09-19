@@ -20,12 +20,8 @@ void main() {
     () async {
       final store = newStore();
 
-      final first = await store.create(
-        name: 'Mia',
-        id: 'demo-mia',
-        isDemo: true,
-      );
-      final second = await store.create(name: 'Renamed', id: 'demo-mia');
+      final first = await store.create(name: 'Mia', id: 'fixed-mia');
+      final second = await store.create(name: 'Renamed', id: 'fixed-mia');
 
       expect(second.name, first.name);
       expect(await store.listAll(), hasLength(1));

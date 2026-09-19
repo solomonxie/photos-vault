@@ -1,8 +1,7 @@
 # photos
 
 Gets bytes onto disk and into `../storage` — for files the user picks
-manually, and for the bundled demo assets that make the app immediately
-tryable.
+manually, and for everything the app derives from them.
 
 ```text
 ManualAddService.pickAndEnqueue()
@@ -16,23 +15,10 @@ copy into app-owned dir (path_provider), named `$hash.ext`
   ▼
 AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
                                                 ../storage/asset_record_store.dart
-
-DemoAssetsService.addAll()
-  │ for each assets/demo/*.jpg|mp4        (rootBundle)
-  ▼
-write bytes to scratch targetDirectory (OS temp dir — not persisted here)
-  ▼
-ManualAddService.enqueueFile(scratchPath)   ── same hash-named/dedup path as above
 ```
 
 - `manual_add.dart` — file picker + hash-and-copy-in enqueue, shared by the
   manual "Add Files" flow and (T2.6) the share extension.
-- `demo_assets_service.dart` — unpacks bundled demo photos/videos through
-  `ManualAddService`, only ever when asked ("Try with Demo Photos" on the
-  empty state, "Reset Demo Data" in Utilities); re-running `addAll()` after a demo item is deleted
-  brings it right back (same content hash ⇒ same `localId`). Also seeds a
-  demo Private Album (passcode `1234`) and three demo `Person` profiles with
-  relationships/location history, same idempotent-by-fixed-id trick.
 - `photo_editor.dart` — crop/rotate in pure Dart, off the calling isolate,
   re-encoded in the source's own format.
 - `derived_asset.dart` — files edited bytes as a *new* library item carrying
@@ -68,6 +54,34 @@ ManualAddService.enqueueFile(scratchPath)   ── same hash-named/dedup path as
   that half was tried against a real library and dropped, because the
   labels were wrong often enough that checking them cost more than typing
   the right tag. Tagging is `ai_vision_service.dart`'s job now.
+- `thumbnail_cache.dart` — app-owned thumbnails. Stills are decoded here;
+  videos (and anything `image` can't read) fall back to the photo
+  library's own poster frame, which is what lets a video go cloud-only
+  and still draw in the grid.
 - `face_crops.dart` — cuts the detected faces out of a photo so each can be
   tapped and named. iOS finds faces for free but won't say whose they are,
   so the face is the question and the user is the answer.
+- `library_scanner.dart` — the camera-roll re-read, on its own and out of
+  sight. Not a row in the analyze queue and not configurable: nobody chose
+  it and nobody pays for it, and a pause switch able to stop new photos
+  arriving is one that breaks the app. One pass at a time, at most one
+  every five minutes, forced on coming back from Photos.
+- `asset_removal.dart` — the two ways a photo or video can go (cloud-only,
+  or into Recently Deleted) and which of them a given asset is eligible
+  for. One place, because that eligibility is a property of the photo, and
+  every grid screen working it out for itself is how Favorites ended up
+  offering a plain delete for something the library offered to keep.
+  Also the third way, which isn't a choice: a photo with no bucket copy,
+  no cached thumbnail and no file left anywhere is dropped outright rather
+  than binned — Recently Deleted would only hold an empty tile with
+  nothing to recover.
+- `storage_advice.dart` / `storage_optimizer.dart` — what's costing space and
+  what to do about it, behind `../viewer/storage_optimization_screen.dart`.
+  The scan is metadata-only for camera-roll assets (`AssetEntity.fileSize`
+  reads `PHAssetResource.fileSize`), so sizing a ten-year library pulls
+  nothing down from iCloud. The two re-encode fixes rewrite the local copy
+  in place — offered for backed-up assets alone, so the bucket still holds
+  the full-quality original, and they leave `backedUpHash` matching the new
+  local file so the next change check doesn't upload the shrunken one over
+  it. Findings are filed in app state (`storage_scan_v1`) so the page opens
+  on last time's answer rather than re-walking the library every visit.

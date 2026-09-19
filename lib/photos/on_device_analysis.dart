@@ -1,4 +1,5 @@
 import '../storage/asset_record.dart';
+import 'person.dart' show FaceRect;
 import 'ai_analysis_store.dart';
 import 'on_device_vision.dart';
 
@@ -28,6 +29,11 @@ class OnDeviceAnalysisService {
   /// user means, and counting it makes every holiday photo a group shot.
   static const minFaceArea = 0.004;
 
+  /// Vision measures from the bottom-left in 0-1; everything that *draws*
+  /// a box — the avatar crop, `FaceCrops` — indexes from the top-left.
+  static FaceRect toFaceRect(VisionFace face) =>
+      FaceRect(face.x, 1 - face.y - face.height, face.width, face.height);
+
   Future<List<VisionFace>> analyze(AssetRecord record, String path) async {
     final faces = (await vision.faces(path))
         .where((f) => f.area >= minFaceArea)
@@ -40,6 +46,7 @@ class OnDeviceAnalysisService {
       localId: record.localId,
       peopleCount: faces.length,
       analyzedAt: DateTime.now(),
+      faces: faces.map(toFaceRect).toList(),
     );
     return faces;
   }

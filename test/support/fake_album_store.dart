@@ -14,19 +14,10 @@ class FakeAlbumStore implements AlbumStore {
   Future<void> close() async {}
 
   @override
-  Future<Album> upsert({
-    required String id,
-    required String name,
-    bool isDemo = false,
-  }) async {
+  Future<Album> upsert({required String id, required String name}) async {
     final existing = _albums[id];
     if (existing != null) return existing;
-    final album = Album(
-      id: id,
-      name: name,
-      createdAt: DateTime.now(),
-      isDemo: isDemo,
-    );
+    final album = Album(id: id, name: name, createdAt: DateTime.now());
     _albums[id] = album;
     return album;
   }
