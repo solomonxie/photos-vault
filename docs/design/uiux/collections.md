@@ -75,6 +75,7 @@ nothing to distinguish "enter" from "create", so the popup never asks.
  ⚠ One photo could not be put back into Photos. It is still here.
 
  ── scrolled to the bottom, under the grid ──────────────
+ [ Move from Library ]                    ← where the photos end
  BACKUP
  This album is backed up with the rest of your library.
  Hiding a photo takes it out of Photos, so this app holds
@@ -85,7 +86,6 @@ nothing to distinguish "enter" from "create", so the popup never asks.
  not encrypted — anyone who can read your bucket can open it.
  A lost, broken or wiped phone does not take these photos
  with it.
- Keep this album on this device only          ← text link
 ```
 
 Hiding is two halves, always together: tag the record with the passcode hash
@@ -97,40 +97,68 @@ there answers "is there a hidden album, and how big is it" for anyone
 holding the phone, before a digit of the passcode is typed — which is the
 one question the gate exists not to answer.
 
-### Backup is per album, on unless turned off
+### One confirmation, and it is the system's
 
-The footer is on the screen the photos are on, not in Settings, because
-that is where somebody decides whether these particular photos leave the
-phone. Per album — an "album" is a passcode hash and nothing else, so one
-group can stay local while another is backed up
-(`lib/storage/private_album_sync.dart`).
+Hiding used to put up two dialogs of our own — "Hide N photos?" before, and
+"Still in Photos for 30 days" after — around the OS prompt in the middle,
+which iOS raises *per `deleteWithIds` call*, so hiding twenty photos meant
+twenty of them in a row.
 
-**On by default.** Hiding took the photo out of Photos, so with backup off
-the app container is the only copy in the world; defaulting to off would
-make the hidden album the least safe place in the library. Off is a
-deliberate choice with the cost written directly above the link that makes
-it. Neither direction is confirmed with a dialog: nothing is destroyed
-either way, and the copy has already said what happens.
+Now: none of ours, and **one** system prompt for the whole group
+(`LibraryCustody.takeOutMany` copies every original out first, then calls
+`deleteManyFromLibrary` once). The photos were already selected; asking
+again first is asking a question already answered, and two dialogs in a row
+saying nearly the same thing is how people learn to tap through both. The OS
+sheet lists exactly what is about to go, which is the confirmation that
+actually carries information.
 
-Turning it off stops the *next* upload. Whatever already reached the bucket
-stays there — the app only ever deletes from a bucket when Recently Deleted
-is emptied (`lib/upload/README.md`), and the footer copy says so.
+The 30-day Recently Deleted caveat still has to be said — it is the largest
+hole in the design — but it belongs where it can be read rather than
+dismissed: the album footer, and the first line of **How this works**.
 
-The switch is enforced in `LibraryScreen._backUpRecords`, not at each call
-site: a photo reaches that method from a scan, an import, a retry, a
-change-check re-upload and the queue refill, and "this album never leaves
-the device" has to hold on all five.
+### Backup is not a choice any more
 
-The preference is device-local (an `app_state` row, not in the app-data
-snapshot), so a restored install backs the album up again until someone
-turns it off a second time. That is the deliberate direction to fail in:
-the other one silently stops backing up photos the phone holds the only
-copy of.
+Everything hidden is cloud-native: hiding a photo *is* sending it to the
+bucket, encrypted, as a carrier (`docs/design/hidden-backup/DESIGN.md`).
+A per-album "back up this album" switch contradicted that — turning it off
+meant the app container held the only copy, unencrypted, forever. It and
+`PrivateAlbumSync` are gone.
 
-**The copy describes what the app does today, including "not encrypted".**
-If at-rest encryption for hidden photos ships, `privateAlbumBackupExplainer`
-is the string to rewrite — it is the only place that makes a claim about
-what the bucket copy is.
+The one fork left is whether a bucket exists at all, which is not a
+preference but a fact, so the footer states it rather than offering it:
+
+```text
+ ── scrolled to the bottom, under the grid ──────────────
+ [ Move from Library ]                    ← where the photos end
+ BACKUP
+ These photos live in your bucket, encrypted.
+ Hiding takes a photo out of Photos, and what leaves this
+ phone is an ordinary-looking picture with yours encrypted
+ inside it. Only your passphrase opens it.
+ Nothing about it stays here — no file, no thumbnail, no
+ record — so this album needs a connection to show anything.
+ Photos keeps what it deletes for 30 days. Hiding isn't
+ finished until you empty its Recently Deleted.
+
+ HOW THIS WORKS
+ • Every code opens an album. A code nobody has used opens…
+ • Hiding takes the photo out of Photos. This app becomes…
+ • What goes to your bucket looks like an ordinary photo…
+ More                                     ← seven more bullets
+```
+
+**Three bullets, then More.** The full list is ten plain sentences about
+decisions somebody wants to read once, before trusting this with anything —
+no wrong passcode, the decoy, where the key comes from, what stays on the
+phone, what an attacker who has read the source can still tell. All ten
+unasked-for is a wall on the screen the photos are on; three is enough to
+decide whether you want the rest.
+
+**The album's own actions live behind `•••`** — add a passphrase, forget it
+on this phone, delete the album. A row of them across the title bar read as
+a toolbar of unrelated verbs, with `Delete Private Album` in red one tap
+from `Add`. `Add` moved to the end of the grid, where you are when you want
+another photo.
 
 ## Smart collections  `lib/viewer/smart_collection_screen.dart`
 

@@ -9,7 +9,6 @@ import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:photos_vault/storage/passcode_hash.dart';
-import 'package:photos_vault/storage/private_album_sync.dart';
 import 'package:photos_vault/upload/backup_coordinator.dart';
 import 'package:photos_vault/upload/s3_uploader.dart';
 import 'package:photos_vault/viewer/album_screen.dart';
@@ -1492,8 +1491,8 @@ void main() {
     });
   });
 
-  testWidgets('a private album kept on-device is not uploaded, and its '
-      'neighbours still are', (tester) async {
+  testWidgets('a hidden photo is not uploaded while its album is locked, '
+      'and its neighbours still are', (tester) async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     await targetsStore.add(
       accessKeyId: 'a',
@@ -1518,7 +1517,6 @@ void main() {
     }
     final hash = hashPasscode('1234');
     await recordStore.setPasscodeHash('manual:secret', hash);
-    await PrivateAlbumSync(recordStore).setEnabled(hash, false);
 
     await tester.binding.setSurfaceSize(const Size(800, 2000));
     addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -1556,8 +1554,9 @@ void main() {
           .status,
       UploadStatus.uploaded,
     );
-    // Opted out: never queued, so it is still owed an upload it will not
-    // get until somebody turns it back on.
+    // Hidden, and no album key in the ring — this coordinator has no vault
+    // at all — so it is held rather than sent up in the clear. Still
+    // `pending`, deliberately: `failed` would read as something to fix.
     expect(
       (await recordStore.getByLocalId('manual:secret'))!
           .stateOf(DerivativeKind.original)

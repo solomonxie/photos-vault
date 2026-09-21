@@ -44,8 +44,13 @@ import '../storage/album.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import '../storage/private_album_sync.dart';
 import '../upload/backup_coordinator.dart';
+import '../vault/bucket.dart';
+import '../vault/carrier_upload.dart';
+import '../vault/decoy.dart';
+import '../vault/keys.dart';
+import '../vault/album_index.dart';
+import '../upload/pending_deletes.dart';
 import '../upload/sync_job.dart';
 import '../upload/sync_job_store.dart';
 import '../upload/sync_queue.dart';
@@ -186,11 +191,23 @@ class LibraryScreenState extends State<LibraryScreen>
   late final ManualAddService _manualAddService =
       widget.manualAddService ?? ManualAddService(store: assetRecordStore);
   late final PersonStore _personStore = widget.personStore ?? PersonStore();
+  late final VaultKeys _vaultKeys = VaultKeys();
+  late final CarrierBuilder _carriers = CarrierBuilder(
+    posterFrame: (record) => _thumbnailCache.libraryThumbnail(record),
+    videoDuration: _photoLibraryService.durationOf,
+  );
+  late final VaultBucket _vaultBucket = VaultBucket(
+    targetsStore: _backupTargetsStore,
+  );
+
   late final BackupCoordinator _coordinator =
       widget.backupCoordinator ??
       BackupCoordinator(
         targetsStore: _backupTargetsStore,
         recordStore: assetRecordStore,
+        carriers: _carriers,
+        vaultKeys: _vaultKeys,
+        decoyCandidates: _decoyCandidates,
       );
   late final AiAnalysisStore _aiAnalysisStore =
       widget.aiAnalysisStore ?? AiAnalysisStore();
@@ -692,7 +709,6 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Future<void> reload() async {
     final all = await assetRecordStore.listAll();
-    final syncOffHashes = await _privateSync.disabledHashes();
     final albums = await _albumStore.listAll();
     final albumAssets = <String, List<AssetRecord>>{};
     for (final album in albums) {
@@ -725,7 +741,6 @@ class LibraryScreenState extends State<LibraryScreen>
     if (!mounted) return;
     setState(() {
       _all = all;
-      _syncOffHashes = syncOffHashes;
       _albums = albums;
       _albumAssets = albumAssets;
       _people = people;
@@ -854,23 +869,30 @@ class LibraryScreenState extends State<LibraryScreen>
   /// comes back gets another go.
   final _unresolvable = <String>{};
 
-  late final PrivateAlbumSync _privateSync = PrivateAlbumSync(assetRecordStore);
+  /// Hidden photos waiting for their album to be opened. Not a failure —
+  /// nothing is wrong and nothing needs fixing — so they are kept out of
+  /// the queue rather than shown in it as a red row.
+  final Set<String> _heldUntilUnlocked = {};
+
+  /// Bucket objects a hide has to take back out. Drained on every sync,
+  /// kept until they actually land.
+  late final PendingDeletes _pendingDeletes = PendingDeletes(
+    store: assetRecordStore,
+  );
 
   /// Private albums their owner has kept off the network, by passcode
   /// hash. Re-read on every [reload], which is what coming back from
   /// `PrivateAlbumScreen` does, so flipping the switch there takes effect
-  /// without a restart.
-  Set<String> _syncOffHashes = const {};
 
   /// Everything still owed an upload — hidden photos included by default,
   /// because they need it most: the app took them out of Photos, so the
-  /// bucket is the only other copy there is. A private album whose owner
-  /// has turned backup off is the one exception, and the screen that
-  /// offers that switch spells out what it costs.
+  /// bucket is the only other copy there is.
   List<AssetRecord> get _pendingAndFailed => _all.where((r) {
     if (r.isDeleted || _unresolvable.contains(r.localId)) return false;
-    final hash = r.passcodeHash;
-    if (hash != null && _syncOffHashes.contains(hash)) return false;
+    // Hidden, with its album locked. Queueing it again would be a loop:
+    // the job takes, does nothing, finishes, and the refill hands it
+    // straight back. It gets picked up when the album is next opened.
+    if (_heldUntilUnlocked.contains(r.localId)) return false;
     // A Live Photo whose still went up but whose `.mov` didn't is still
     // owed to the bucket — what's up there is a silent still.
     return !r.isFullyBackedUp;
@@ -923,6 +945,120 @@ class LibraryScreenState extends State<LibraryScreen>
   /// knowable until the queue gets to them, and not how many were *asked*
   /// for: the queue is capped ([SyncQueue.capacity]) and refuses while
   /// paused, so a big library goes up a queueful at a time.
+  /// A hidden photo's carrier has landed, so the phone stops holding it:
+  /// the entry goes into the album's slice of the index, then the local
+  /// file and **the record itself** are deleted.
+  ///
+  /// The row matters as much as the file. It carries the photo's date,
+  /// name, description, place, people — and the count of rows is the answer
+  /// to the one question the gate exists not to answer. All of it rides to
+  /// the bucket in the daily snapshot.
+  Future<void> _finishHiddenUpload(AssetRecord record) async {
+    final hash = record.passcodeHash;
+    if (hash == null) return;
+    final keys = _vaultKeys.ringKeysFor(hash);
+    final key = record.stateOf(DerivativeKind.original).destinationKey;
+    if (keys == null || key == null || !record.isFullyBackedUp) return;
+
+    final album = await _vaultBucket.readAlbum(keys);
+    final entry = IndexEntry(
+      objectKey: key,
+      takenAt: record.createdAt,
+      width: record.width ?? 0,
+      height: record.height ?? 0,
+      isVideo: record.countsAsVideo,
+      name: _displayNameFor(record),
+    );
+    final wrote = await _vaultBucket.writeAlbum(
+      keys: keys,
+      entries: [
+        for (final e in album.entries)
+          if (e.objectKey != key) e,
+        entry,
+      ],
+      passphrases: await _vaultKeys.entries(),
+    );
+    // Only once the listing is safely up. A record deleted before it would
+    // leave an object nothing points at.
+    if (!wrote) return;
+
+    await _thumbnailCache.remove(record);
+    final path = record.sourcePath;
+    if (path != null) {
+      try {
+        await File(path).delete();
+      } catch (_) {
+        // Already gone.
+      }
+    }
+    await assetRecordStore.remove(record.localId);
+  }
+
+  /// What a carrier can pretend to be: ordinary photos this phone still
+  /// holds, with their real file sizes.
+  ///
+  /// Sampled rather than exhaustive — on a real library, stat-ing every
+  /// record to pick one decoy would be thousands of syscalls for a single
+  /// upload. Sixty is plenty to find something within a few percent of any
+  /// given size.
+  Future<List<DecoyCandidate>> _decoyCandidates() async {
+    final pool = [
+      for (final r in _all)
+        if (r.passcodeHash == null &&
+            r.deletedAt == null &&
+            !r.localDeleted &&
+            r.thumbnailPath != null &&
+            r.width != null &&
+            r.height != null)
+          r,
+    ]..shuffle();
+
+    final candidates = <DecoyCandidate>[];
+    for (final record in pool.take(60)) {
+      final path = await _filePathFor(record);
+      if (path == null) continue;
+      int size;
+      try {
+        size = await File(path).length();
+      } catch (_) {
+        continue;
+      }
+      candidates.add(
+        DecoyCandidate(
+          source: DecoySource(
+            id: record.localId,
+            sizeBytes: size,
+            width: record.width!,
+            height: record.height!,
+            takenAt: record.createdAt,
+            isVideo: record.countsAsVideo,
+          ),
+          duration: record.countsAsVideo
+              ? await _photoLibraryService.durationOf(record)
+              : null,
+          thumbnail: () async {
+            try {
+              return await File(record.thumbnailPath!).readAsBytes();
+            } catch (_) {
+              return null;
+            }
+          },
+        ),
+      );
+    }
+    return candidates;
+  }
+
+  /// Best-effort and unawaited: a delete that cannot land today is still
+  /// on the list tomorrow.
+  Future<void> _drainPendingDeletes() async {
+    try {
+      await _pendingDeletes.drain(await _backupTargetsStore.loadAll());
+    } catch (_) {
+      // Nothing to report — the tasks stay queued.
+    }
+  }
+
   Future<int> _backUpRecords(List<AssetRecord> records) async {
     // Nothing to upload *to* yet: queueing anyway would walk the whole
     // camera roll resolving each asset's file — on a real library that's
@@ -930,19 +1066,9 @@ class LibraryScreenState extends State<LibraryScreen>
     // with nowhere to put them. Adding a target runs `_syncEverything`,
     // which picks every pending asset up then.
     if (!await _hasBackupTarget()) return 0;
-    // Read here rather than trusting [_syncOffHashes], which a [reload]
-    // fills: an import or a scan can reach this method before the first
-    // reload has finished, and "never leaves the device" mustn't depend on
-    // which of the two won. One lookup per batch, not per photo.
-    final syncOff = await _privateSync.disabledHashes();
     var queued = 0;
     for (final record in _newestFirst(records)) {
-      // Enforced here rather than at each call site: a photo reaches this
-      // method from a scan, an import, a retry, a change-check re-upload
-      // and the refill, and "this album never leaves the device" has to
-      // hold on all five.
       final hash = record.passcodeHash;
-      if (hash != null && syncOff.contains(hash)) continue;
       final name = _displayNameFor(record);
       final taken = await syncQueue.enqueue(
         localId: record.localId,
@@ -955,6 +1081,11 @@ class LibraryScreenState extends State<LibraryScreen>
       // their own records for the next pass to find.
       if (!taken) break;
       queued++;
+      // A hidden photo produces exactly one object. A `thumbnails/` copy
+      // is the same picture at 320px in the folder built for cheap
+      // browsing — the private album's contents, legible to anyone who can
+      // read the bucket. Same for a Live Photo's `.mov` half.
+      if (hash != null) continue;
       await syncQueue.enqueue(
         localId: record.localId,
         kind: SyncJobKind.uploadThumbnail,
@@ -991,6 +1122,12 @@ class LibraryScreenState extends State<LibraryScreen>
       case SyncJobKind.checkChanges:
         await _checkOneForLocalChanges(record);
       case SyncJobKind.uploadOriginal:
+        // A hidden photo whose album is closed: the key lives only in
+        // memory, and there is no version of this worth doing without it.
+        if (!_coordinator.canUpload(record)) {
+          _heldUntilUnlocked.add(record.localId);
+          return;
+        }
         final path = await _filePathFor(record);
         if (path == null) {
           _unresolvable.add(record.localId);
@@ -1006,6 +1143,8 @@ class LibraryScreenState extends State<LibraryScreen>
           if (after?.stateOf(DerivativeKind.original).status ==
               UploadStatus.failed) {
             _triedAndFailed.add(record.localId);
+          } else if (after != null) {
+            await _finishHiddenUpload(after);
           }
         } catch (_) {
           // Thrown or recorded, a failure is a failure: remembered either
@@ -1183,6 +1322,10 @@ class LibraryScreenState extends State<LibraryScreen>
     // — see [SyncQueue.enqueue]), so honouring the pause here would make
     // the button do nothing at all and say nothing about why.
     await syncQueue.setPaused(false);
+    // Objects a hide left behind. These never expire and are retried on
+    // every sync: hiding happens offline constantly, and a plain copy left
+    // in a bucket does not stop being a plain copy.
+    unawaited(_drainPendingDeletes());
     _forgetFailures();
     await _enqueueChangeChecks();
     await _backUpRecords(_pendingAndFailed);
@@ -1679,8 +1822,12 @@ class LibraryScreenState extends State<LibraryScreen>
       context,
       assetRecordStore: assetRecordStore,
       custody: _custody,
+      vaultKeys: _vaultKeys,
     );
+    // Whatever was waiting on this album's key can go now.
+    _heldUntilUnlocked.clear();
     await reload();
+    unawaited(_backUpRecords(_pendingAndFailed));
   }
 
   /// Unlike a plain [_push], always syncs on return — regardless of the
@@ -2238,6 +2385,8 @@ class LibraryScreenState extends State<LibraryScreen>
         ],
       ),
     ),
+    SliverToBoxAdapter(child: _SectionHeader(title: l10n.privacyHeading)),
+    const SliverToBoxAdapter(child: _PrivacyNote()),
     SliverToBoxAdapter(child: SizedBox(height: selection == null ? 24 : 140)),
   ];
 
@@ -2439,6 +2588,43 @@ class _PersonCard extends StatelessWidget {
 /// row reads as one thing, but ringed rather than plain and captioned with
 /// the question instead of a name — it is not a person yet, and a card
 /// that looked like one would be claiming the app knows who this is.
+/// Last thing on the page, after everything configurable above it: what the
+/// app does with your photos, said once and in full.
+class _PrivacyNote extends StatelessWidget {
+  const _PrivacyNote();
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      padding: const EdgeInsets.all(16),
+      decoration: const BoxDecoration(
+        color: Color(0xFF2C2C2E),
+        borderRadius: BorderRadius.all(Radius.circular(10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Text(
+            l10n.privacyTitle,
+            style: const TextStyle(fontSize: 15, fontWeight: FontWeight.w600),
+          ),
+          const SizedBox(height: 8),
+          Text(
+            l10n.privacyBody,
+            style: const TextStyle(
+              fontSize: 13,
+              height: 1.4,
+              color: CupertinoColors.systemGrey,
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+}
+
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.title});
 
