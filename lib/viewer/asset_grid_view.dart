@@ -29,6 +29,7 @@ class AssetGridView extends StatefulWidget {
     this.onSelectDragUpdate,
     this.onSelectDragEnd,
     this.selectedIds,
+    this.markedId,
     this.leadingSlivers = const [],
     this.trailingSlivers = const [],
     this.emptySliver,
@@ -50,6 +51,9 @@ class AssetGridView extends StatefulWidget {
   final void Function(Offset globalPosition)? onSelectDragUpdate;
   final VoidCallback? onSelectDragEnd;
   final Set<String>? selectedIds;
+
+  /// The one tile this screen is about — see `AssetTile.marked`.
+  final String? markedId;
 
   /// Slivers above the grid (nav bar, search field) and below it (the
   /// Library's Collections/Utilities sections).
@@ -234,6 +238,7 @@ class AssetGridViewState extends State<AssetGridView> {
                 onSelectDragUpdate: widget.onSelectDragUpdate,
                 onSelectDragEnd: widget.onSelectDragEnd,
                 selectedIds: widget.selectedIds,
+                markedId: widget.markedId,
                 actionsFor: widget.actionsFor,
               ),
             if (widget.onAdd != null && !_layout.isEmpty)

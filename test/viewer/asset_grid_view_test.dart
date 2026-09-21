@@ -231,7 +231,7 @@ void main() {
   });
 
   group('date scrubber', () {
-    testWidgets('introduces itself once, then gets out of the way', (
+    testWidgets('stays out of the way until the grid actually moves', (
       tester,
     ) async {
       await tester.pumpWidget(
@@ -254,12 +254,9 @@ void main() {
           )
           .opacity;
 
-      // Shown unprompted on arrival — a handle that only appears after
-      // you've started thumbing is one nobody discovers…
-      expect(opacity(), 1);
-
-      // …then it goes away on its own.
-      await tester.pumpAndSettle(const Duration(seconds: 4));
+      // Nothing on arrival. It used to show itself once so the handle
+      // would be discovered, but every page here opens on a grid, so
+      // "once" was really "every time".
       expect(opacity(), 0);
 
       await tester.drag(find.byType(CustomScrollView), const Offset(0, 120));

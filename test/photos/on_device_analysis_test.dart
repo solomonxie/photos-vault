@@ -88,7 +88,7 @@ void main() {
     expect((await store.getByLocalId('manual:a'))!.tags, ['Nina']);
   });
 
-  test('a photo with no faces saves nothing', () async {
+  test('a photo with no faces is recorded as looked at, at zero', () async {
     final store = FakeAssetRecordStore();
     final analysis = FakeAiAnalysisStore();
     final record = await seed(store);
@@ -98,7 +98,14 @@ void main() {
     );
 
     expect(await service.analyze(record, '/tmp/a.jpg'), isEmpty);
-    expect(await analysis.listAll(), isEmpty);
+
+    // Not nothing: "no faces here" and "never checked" are the same
+    // absence otherwise, and the analyze queue — which decides what's left
+    // by asking exactly that — would hand this photo back to itself
+    // forever, never reaching the next one.
+    final saved = await analysis.listAll();
+    expect(saved[record.localId]?.peopleCount, 0);
+    expect(await analysis.facesFor(record.localId), isEmpty);
   });
 
   test('no platform channel means no faces, not an error', () async {

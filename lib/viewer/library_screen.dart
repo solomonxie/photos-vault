@@ -23,6 +23,9 @@ import '../photos/manual_add.dart';
 import '../photos/on_device_analysis.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
+import '../photos/face_grouping.dart';
+import '../photos/face_identity.dart';
+import '../photos/unnamed_faces.dart';
 import '../photos/photo_library_change.dart';
 import '../backup/app_snapshot.dart';
 import '../backup/bucket_backup.dart';
@@ -55,8 +58,11 @@ import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'favorites_screen.dart';
 import 'people_screen.dart';
+import 'face_group_screen.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
+import 'backup_queue_screen.dart';
+import 'unnamed_face_card.dart';
 import 'private_album_gate.dart';
 import 'recently_deleted_screen.dart';
 import 'search_picker_sheet.dart';
@@ -201,6 +207,7 @@ class LibraryScreenState extends State<LibraryScreen>
     assetRecordStore: assetRecordStore,
     albumStore: _albumStore,
     personStore: _personStore,
+    aiAnalysisStore: _aiAnalysisStore,
   );
   late final LocalVault _vault =
       widget.vault ??
@@ -269,9 +276,32 @@ class LibraryScreenState extends State<LibraryScreen>
         analysisStore: _aiAnalysisStore,
         onDeviceAnalysis: _onDeviceAnalysis,
         aiVision: widget.aiVisionService ?? AiVisionService(),
+        faceIdentity: _faceIdentity,
+        taggedPeople: _taggedPeopleByAsset,
         resolvePath: _filePathFor,
         displayNameFor: _displayNameFor,
       );
+
+  /// Who is already tagged in each photo. Read fresh rather than from
+  /// [_people]'s cached counts — the backfill it feeds only acts where a
+  /// photo has exactly one name in it, so a stale list would attribute a
+  /// face to the wrong person.
+  Future<Map<String, List<String>>> _taggedPeopleByAsset() async {
+    final byAsset = <String, List<String>>{};
+    for (final person in await _personStore.listAll()) {
+      for (final localId in await _personStore.localIdsIn(person.id)) {
+        byAsset.putIfAbsent(localId, () => []).add(person.id);
+      }
+    }
+    return byAsset;
+  }
+
+  /// Who the faces belong to, across photos. One instance: it holds the
+  /// reference set every screen's suggestions are measured against.
+  late final FaceIdentityService _faceIdentity = FaceIdentityService(
+    analysisStore: _aiAnalysisStore,
+    resolvePath: _filePathFor,
+  );
 
   List<AssetRecord> _all = const [];
   List<Album> _albums = const [];
@@ -597,6 +627,10 @@ class LibraryScreenState extends State<LibraryScreen>
     // business rather than this one's.
     await _libraryScanner.run();
     await _analyzeQueue.startIfDue();
+    // Faces land in the analysis database, and the People row is built
+    // from it at [reload] time — so a pass that found some and said
+    // nothing leaves the row showing yesterday's strangers indefinitely.
+    if (_analyzeQueue.analyzedInLastRun > 0 && mounted) await reload();
     // A handful of photos at a time, and only once nothing else wants the
     // phone — so the Optimize Storage page is usually already answered by
     // the time anybody opens it. On the page it runs flat out instead.
@@ -681,7 +715,13 @@ class LibraryScreenState extends State<LibraryScreen>
       personPhotoCounts[person.id] = localIds.length;
       tagged.addAll(localIds);
     }
-    final unnamedFaces = await _findUnnamedFaces(all, tagged);
+    final unnamed = await findUnnamedFaces(
+      analysisStore: _aiAnalysisStore,
+      records: all,
+      taggedLocalIds: tagged,
+      peopleById: {for (final p in people) p.id: p.name},
+      limit: _unnamedFacesShown,
+    );
     if (!mounted) return;
     setState(() {
       _all = all;
@@ -690,47 +730,25 @@ class LibraryScreenState extends State<LibraryScreen>
       _albumAssets = albumAssets;
       _people = people;
       _personPhotoCounts = personPhotoCounts;
-      _unnamedFaces = unnamedFaces;
+      _unnamedFaces = unnamed.faces;
     });
   }
 
-  /// A face in a photo nobody is tagged in. Per-photo rather than per-face
-  /// identity — iOS won't say whose face it is, so once one person is
-  /// named in a photo the app has no way to tell which of the remaining
-  /// boxes are still strangers, and guessing wrong is worse than stopping.
-  Future<List<UnnamedFace>> _findUnnamedFaces(
-    List<AssetRecord> all,
-    Set<String> tagged,
-  ) async {
-    final Map<String, List<FaceRect>> faces;
-    try {
-      faces = await _aiAnalysisStore.facesByAsset();
-    } catch (_) {
-      // No analysis database yet (a fresh install, a widget test) — the
-      // row just shows the named people.
-      return const [];
-    }
-    if (faces.isEmpty) return const [];
-    final candidates =
-        all
-            .where(
-              (r) =>
-                  !r.isDeleted &&
-                  !r.isHidden &&
-                  r.passcodeHash == null &&
-                  !tagged.contains(r.localId) &&
-                  faces.containsKey(r.localId),
-            )
-            .toList()
-          ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final found = <UnnamedFace>[];
-    for (final record in candidates) {
-      for (final face in faces[record.localId]!) {
-        found.add(UnnamedFace(localId: record.localId, face: face));
-        if (found.length == _unnamedFacesShown) return found;
-      }
-    }
-    return found;
+  /// The card asks "who's this?", so a tap answers it. Opening the photo
+  /// instead was a detour to the same sheet two screens away.
+  Future<void> _nameFace(UnnamedFace face) async {
+    await Navigator.of(context).push<Person>(
+      CupertinoPageRoute(
+        builder: (_) => FaceGroupScreen(
+          seed: face,
+          personStore: _personStore,
+          assetRecordStore: assetRecordStore,
+          grouping: FaceGrouping(analysisStore: _aiAnalysisStore),
+          faceIdentity: _faceIdentity,
+        ),
+      ),
+    );
+    if (mounted) await reload();
   }
 
   List<AssetRecord> get _active =>
@@ -793,6 +811,11 @@ class LibraryScreenState extends State<LibraryScreen>
   /// What the analyze pass still has to get through — see the Analyze
   /// Queue row.
   int get _toAnalyzeCount => _analyzeQueue.remaining.value;
+
+  /// What the bucket is still owed, as rows in the queue rather than
+  /// photos: one photo can be an original, a thumbnail and a `.mov`.
+  int get _toSyncCount =>
+      syncQueue.jobs.value.where((job) => !job.isFinished).length;
 
   /// What the bin will actually show — a record with nothing left of it
   /// anywhere is dropped when the bin opens, and is not counted here.
@@ -885,6 +908,15 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
+  /// Newest photo first, wherever a list of records turns into queued work.
+  ///
+  /// The queue is capped and a library is years deep, so the order this
+  /// list is walked in decides what gets backed up today and what waits for
+  /// a later refill. Last week's photos are the ones with no second copy
+  /// anywhere; 2014's have had a decade of chances.
+  static List<AssetRecord> _newestFirst(List<AssetRecord> records) =>
+      records.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
   /// Queues [records] for backup rather than uploading them here: one job
   /// per derivative per asset, drained by [syncQueue] with real concurrency.
   /// Returns how many assets were queued — not how many landed, which isn't
@@ -904,7 +936,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // which of the two won. One lookup per batch, not per photo.
     final syncOff = await _privateSync.disabledHashes();
     var queued = 0;
-    for (final record in records) {
+    for (final record in _newestFirst(records)) {
       // Enforced here rather than at each call site: a photo reaches this
       // method from a scan, an import, a retry, a change-check re-upload
       // and the refill, and "this album never leaves the device" has to
@@ -916,6 +948,7 @@ class LibraryScreenState extends State<LibraryScreen>
         localId: record.localId,
         kind: SyncJobKind.uploadOriginal,
         displayName: name,
+        assetCreatedAt: record.createdAt,
       );
       // Full or paused. Stop walking the list — on a real camera roll the
       // rest is tens of thousands of records, and they're still pending on
@@ -926,6 +959,7 @@ class LibraryScreenState extends State<LibraryScreen>
         localId: record.localId,
         kind: SyncJobKind.uploadThumbnail,
         displayName: name,
+        assetCreatedAt: record.createdAt,
       );
       // The other half of a Live Photo. A job of its own rather than part
       // of the original's, so it shows in the queue by name and a failure
@@ -935,6 +969,7 @@ class LibraryScreenState extends State<LibraryScreen>
           localId: record.localId,
           kind: SyncJobKind.uploadLivePhoto,
           displayName: name,
+          assetCreatedAt: record.createdAt,
         );
       }
     }
@@ -1074,20 +1109,6 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  /// Queues [records] and stamps [BackupTargetsStore.setLastSyncAt] so the
-  /// sync-frequency due-check has an accurate baseline.
-  Future<int> _retryRecords(List<AssetRecord> records) async {
-    final count = await _backUpRecords(records);
-    try {
-      await _backupTargetsStore.setLastSyncAt(DateTime.now());
-    } catch (_) {
-      // Secure storage unavailable — the next due-check just runs again
-      // sooner than strictly necessary.
-    }
-    await reload();
-    return count;
-  }
-
   /// Whether work nobody asked for may start on its own. "Manual" is a
   /// promise: new photos still *arrive* (the scanner is not gated on
   /// this), they just don't go up the wire until Sync Now or a frequency
@@ -1142,11 +1163,12 @@ class LibraryScreenState extends State<LibraryScreen>
       if (_unresolvable.contains(r.localId)) return false;
       return r.stateOf(DerivativeKind.original).status == UploadStatus.uploaded;
     }).toList();
-    for (final record in uploaded) {
+    for (final record in _newestFirst(uploaded)) {
       await syncQueue.enqueue(
         localId: record.localId,
         kind: SyncJobKind.checkChanges,
         displayName: _displayNameFor(record),
+        assetCreatedAt: record.createdAt,
       );
     }
     return uploaded.length;
@@ -1671,10 +1693,6 @@ class LibraryScreenState extends State<LibraryScreen>
         builder: (_) => SettingsScreen(
           store: _backupTargetsStore,
           assetRecordStore: assetRecordStore,
-          retryRecords: _retryRecords,
-          syncEverything: _syncEverything,
-          syncQueue: syncQueue,
-          openAsset: _openById,
           icloudBackup: _icloudBackup,
         ),
       ),
@@ -1771,6 +1789,7 @@ class LibraryScreenState extends State<LibraryScreen>
       personStore: _personStore,
       assetRecordStore: assetRecordStore,
       aiAnalysisStore: _aiAnalysisStore,
+      faceIdentity: _faceIdentity,
     ),
   );
 
@@ -2069,11 +2088,13 @@ class LibraryScreenState extends State<LibraryScreen>
                       final face = _unnamedFaces[i - _people.length];
                       return SizedBox(
                         width: 100,
-                        child: _UnnamedFaceCard(
+                        child: UnnamedFaceCard(
                           face: face,
                           assetRecordStore: assetRecordStore,
-                          label: l10n.peopleUnnamedFace,
-                          onTap: () => _openById(face.localId),
+                          label: face.hasSuggestion
+                              ? l10n.peopleSuggestedFace(face.suggestedName!)
+                              : l10n.peopleUnnamedFace,
+                          onTap: () => _nameFace(face),
                         ),
                       );
                     }
@@ -2147,9 +2168,24 @@ class LibraryScreenState extends State<LibraryScreen>
             title: l10n.collectionsCloudSettingsRow,
             onTap: _openCloudBackups,
           ),
-          // The sync queue isn't here any more: it lives on Cloud
-          // Settings, beside the buckets it's filling, and having it in
-          // two places made two answers to "is it working?".
+          // Above Analyze, and the same shape as it: two queues, one
+          // list each, side by side. It used to be a block of pills on
+          // Cloud Settings, which made that page answer two questions —
+          // where the buckets are, and whether the upload is working.
+          _row(
+            icon: CupertinoIcons.tray_full,
+            color: CupertinoColors.systemTeal,
+            title: l10n.collectionsBackupQueueRow,
+            count: _toSyncCount == 0 ? null : _toSyncCount,
+            onTap: () => _push(
+              BackupQueueScreen(
+                queue: syncQueue,
+                settingsStore: _backupTargetsStore,
+                syncEverything: _syncEverything,
+                onOpenAsset: _openById,
+              ),
+            ),
+          ),
           _row(
             icon: CupertinoIcons.wand_stars,
             color: CupertinoColors.systemIndigo,
@@ -2403,54 +2439,6 @@ class _PersonCard extends StatelessWidget {
 /// row reads as one thing, but ringed rather than plain and captioned with
 /// the question instead of a name — it is not a person yet, and a card
 /// that looked like one would be claiming the app knows who this is.
-class _UnnamedFaceCard extends StatelessWidget {
-  const _UnnamedFaceCard({
-    required this.face,
-    required this.assetRecordStore,
-    required this.label,
-    required this.onTap,
-  });
-
-  final UnnamedFace face;
-  final AssetRecordStore assetRecordStore;
-  final String label;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) => GestureDetector(
-    onTap: onTap,
-    child: Column(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: CupertinoColors.systemGrey, width: 1.5),
-          ),
-          padding: const EdgeInsets.all(2),
-          child: PersonAvatar(
-            assetRecordStore: assetRecordStore,
-            localId: face.localId,
-            face: face.face,
-            size: 88,
-          ),
-        ),
-        const SizedBox(height: 6),
-        Text(
-          label,
-          maxLines: 1,
-          overflow: TextOverflow.ellipsis,
-          textAlign: TextAlign.center,
-          style: const TextStyle(
-            fontSize: 13,
-            color: CupertinoColors.systemGrey,
-          ),
-        ),
-      ],
-    ),
-  );
-}
-
 class _SectionHeader extends StatelessWidget {
   const _SectionHeader({required this.title});
 

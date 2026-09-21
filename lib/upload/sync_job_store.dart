@@ -32,7 +32,7 @@ class SyncJobStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 1,
+        version: 2,
         onCreate: (db, version) => db.execute('''
           CREATE TABLE $_table (
             id TEXT PRIMARY KEY,
@@ -42,9 +42,21 @@ class SyncJobStore {
             status TEXT NOT NULL,
             error_message TEXT,
             created_at INTEGER NOT NULL,
-            updated_at INTEGER NOT NULL
+            updated_at INTEGER NOT NULL,
+            asset_created_at INTEGER NOT NULL DEFAULT 0
           )
         '''),
+        // Rows queued before the drain went newest-first keep the epoch,
+        // which sorts them behind everything queued since. They were the
+        // oldest work anyway.
+        onUpgrade: (db, from, to) async {
+          if (from < 2) {
+            await db.execute(
+              'ALTER TABLE $_table '
+              'ADD COLUMN asset_created_at INTEGER NOT NULL DEFAULT 0',
+            );
+          }
+        },
       ),
     );
     _db = db;
@@ -68,6 +80,7 @@ class SyncJobStore {
     required String localId,
     required SyncJobKind kind,
     required String displayName,
+    required DateTime assetCreatedAt,
   }) async {
     final db = await _open();
     final existing = await db.query(
@@ -94,6 +107,7 @@ class SyncJobStore {
         status: SyncJobStatus.pending,
         createdAt: job.createdAt,
         updatedAt: DateTime.now(),
+        assetCreatedAt: job.assetCreatedAt,
       );
     }
 
@@ -106,6 +120,7 @@ class SyncJobStore {
       status: SyncJobStatus.pending,
       createdAt: now,
       updatedAt: now,
+      assetCreatedAt: assetCreatedAt,
     );
     await db.insert(_table, _toRow(job));
     return job;
@@ -127,8 +142,14 @@ class SyncJobStore {
     return sqflite.Sqflite.firstIntValue(rows) ?? 0;
   }
 
-  /// Claims the oldest pending job — marked `running` inside the same
-  /// transaction it's read in, so two workers can never take the same one.
+  /// Claims the pending job for the newest photo — marked `running` inside
+  /// the same transaction it's read in, so two workers can never take the
+  /// same one.
+  ///
+  /// Newest-first, not oldest-first: the backlog on a real library is
+  /// years deep, and the picture someone wants safe is the one they just
+  /// took. Ties (same capture date, or rows from before the column
+  /// existed) fall back to queue order.
   Future<SyncJob?> dequeueNextPending() async {
     final db = await _open();
     return db.transaction((txn) async {
@@ -136,7 +157,7 @@ class SyncJobStore {
         _table,
         where: 'status = ?',
         whereArgs: [SyncJobStatus.pending.name],
-        orderBy: 'created_at ASC',
+        orderBy: 'asset_created_at DESC, created_at ASC',
         limit: 1,
       );
       if (rows.isEmpty) return null;
@@ -158,6 +179,7 @@ class SyncJobStore {
         status: SyncJobStatus.running,
         createdAt: job.createdAt,
         updatedAt: DateTime.now(),
+        assetCreatedAt: job.assetCreatedAt,
       );
     });
   }
@@ -188,17 +210,19 @@ class SyncJobStore {
     );
   }
 
-  /// Drops everything still waiting or already failed. Running jobs are
-  /// left alone — they're mid-flight, and the worker marks them itself.
+  /// Empties the queue: waiting, failed, finished and in-flight alike.
+  ///
+  /// Running rows go too. A file mid-upload keeps going — the native
+  /// transfer can't be called back — and the worker's own "done" write
+  /// lands on a row that isn't there any more, which is a no-op. That
+  /// beats the alternative, where Empty Queue leaves rows on screen and
+  /// reads as a button that didn't work.
+  ///
   /// Nothing about the assets changes: whatever was queued just gets
   /// queued again by the next manual or scheduled sync.
   Future<void> clearQueue() async {
     final db = await _open();
-    await db.delete(
-      _table,
-      where: 'status IN (?, ?)',
-      whereArgs: [SyncJobStatus.pending.name, SyncJobStatus.failed.name],
-    );
+    await db.delete(_table);
   }
 
   /// Clears the finished-successfully rows so the list stops growing,
@@ -268,6 +292,7 @@ class SyncJobStore {
     'error_message': job.errorMessage,
     'created_at': job.createdAt.millisecondsSinceEpoch,
     'updated_at': job.updatedAt.millisecondsSinceEpoch,
+    'asset_created_at': job.assetCreatedAt.millisecondsSinceEpoch,
   };
 
   static SyncJob _fromRow(Map<String, Object?> row) => SyncJob(
@@ -279,5 +304,8 @@ class SyncJobStore {
     errorMessage: row['error_message'] as String?,
     createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
     updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
+    assetCreatedAt: DateTime.fromMillisecondsSinceEpoch(
+      row['asset_created_at'] as int? ?? 0,
+    ),
   );
 }

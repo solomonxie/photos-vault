@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart';
@@ -6,7 +7,7 @@ import 'package:image/image.dart' as img;
 
 import 'image_pipeline.dart';
 
-import 'on_device_vision.dart';
+import 'person.dart' show FaceRect;
 
 /// Cuts the detected faces out of a photo so they can be shown and tapped.
 ///
@@ -24,10 +25,39 @@ class FaceCrops {
 
   static const _outputSize = 160;
 
-  /// One square thumbnail per face, in the order Vision found them.
+  /// How much room to leave around a box being *described* rather than
+  /// shown. Much tighter than [padding]: the descriptor is a general image
+  /// feature print, so whatever else is in the crop is in the answer, and a
+  /// generous margin around two people on the same beach describes the
+  /// beach. Not zero — Vision's box cuts the chin and hairline off, and
+  /// those are face, not background.
+  static const descriptorPadding = 0.08;
+
+  /// The box to hand Vision for a descriptor: [face] grown by
+  /// [descriptorPadding], squared off, and kept inside the frame.
+  static FaceRect descriptorRect(FaceRect face) {
+    final side =
+        math.max(face.width, face.height) * (1 + descriptorPadding * 2);
+    final centreX = face.x + face.width / 2;
+    final centreY = face.y + face.height / 2;
+    final box = math.min(side, 1.0);
+    return FaceRect(
+      (centreX - box / 2).clamp(0.0, 1.0 - box),
+      (centreY - box / 2).clamp(0.0, 1.0 - box),
+      box,
+      box,
+    );
+  }
+
+  /// One square thumbnail per face, in the order they were found.
   /// Silently short on anything it can't decode — a missing crop is a face
   /// you can't tag, not an error worth a dialog.
-  static Future<List<Uint8List>> of(String path, List<VisionFace> faces) async {
+  ///
+  /// Takes [FaceRect], the top-left form that gets stored and drawn, rather
+  /// than Vision's bottom-left `VisionFace`: these crops are made both from
+  /// a fresh scan and from boxes read back out of the database, and one of
+  /// the two would otherwise be flipped.
+  static Future<List<Uint8List>> of(String path, List<FaceRect> faces) async {
     if (faces.isEmpty) return const [];
     try {
       final bytes = await File(path).readAsBytes();
@@ -37,14 +67,8 @@ class FaceCrops {
     }
   }
 
-  /// Vision measures from the bottom-left in 0–1; images are indexed from
-  /// the top-left in pixels.
-  static _NormalisedRect _toRect(VisionFace face) => (
-    x: face.x,
-    y: 1 - face.y - face.height,
-    width: face.width,
-    height: face.height,
-  );
+  static _NormalisedRect _toRect(FaceRect face) =>
+      (x: face.x, y: face.y, width: face.width, height: face.height);
 }
 
 typedef _NormalisedRect = ({double x, double y, double width, double height});

@@ -38,7 +38,12 @@ class OnDeviceAnalysisService {
     final faces = (await vision.faces(path))
         .where((f) => f.area >= minFaceArea)
         .toList();
-    if (faces.isEmpty) return faces;
+    // A photo of a beach is still a photo that's been looked at. Written
+    // even at zero, because "no faces here" and "never checked" are the
+    // same absence otherwise — and the analyze queue, which asks exactly
+    // that question to decide what's left, would hand this photo back to
+    // itself forever.
+    //
     // The count is what the People/Events smart collections read. Written
     // on its own so a suggestion waiting to be reviewed on the same photo
     // isn't overwritten by a pass that knows nothing about it.

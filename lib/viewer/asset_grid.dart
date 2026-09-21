@@ -57,6 +57,7 @@ List<Widget> assetGridSlivers({
   /// detail viewer while this is set. `null` (the default) is plain
   /// single-tap browsing, unchanged.
   Set<String>? selectedIds,
+  String? markedId,
 
   /// Long-press behaviour. Given, holding a tile calls this (Photos' "hold
   /// to start selecting") instead of opening the [actionsFor] context menu
@@ -119,6 +120,7 @@ List<Widget> assetGridSlivers({
                           onLongPress: onLongPress,
                           actionsFor: actionsFor,
                           selectedIds: selectedIds,
+                          markedId: markedId,
                           onMissing: onMissing,
                           onSelectDragUpdate: onSelectDragUpdate,
                           onSelectDragEnd: onSelectDragEnd,
@@ -141,6 +143,7 @@ Widget _tileFor(
   required void Function(AssetRecord)? onLongPress,
   required List<TileAction> Function(AssetRecord) actionsFor,
   required Set<String>? selectedIds,
+  required String? markedId,
   required void Function(AssetRecord)? onMissing,
   required void Function(Offset globalPosition)? onSelectDragUpdate,
   required VoidCallback? onSelectDragEnd,
@@ -258,6 +261,7 @@ class AssetTile extends StatelessWidget {
     required this.onTap,
     required this.actions,
     this.selected,
+    this.marked = false,
     this.onLongPress,
     this.onMissing,
     this.onSelectDragUpdate,
@@ -282,6 +286,12 @@ class AssetTile extends StatelessWidget {
   /// `null` outside multi-select mode; `true`/`false` while selecting (see
   /// `assetGridSlivers`' `selectedIds`).
   final bool? selected;
+
+  /// The one tile a screen is *about* — the face you tapped to open a
+  /// group, say. Drawn with a ring so it is findable in a grid of
+  /// near-identical photos, where "the one you came from" is otherwise
+  /// indistinguishable from the forty it gathered.
+  final bool marked;
 
   /// See [PhotoManagerThumbnail.onMissing].
   final VoidCallback? onMissing;
@@ -349,7 +359,11 @@ class AssetTile extends StatelessWidget {
         child: _tile(),
       ),
     );
-    if (onLongPress != null) return tile;
+    // No actions, no menu. A grid can exist where a long press has
+    // nothing to offer — picking faces in or out of a group is one — and
+    // `CupertinoContextMenu` asserts rather than degrading, so every tile
+    // on such a screen would fail to build.
+    if (onLongPress != null || actions.isEmpty) return tile;
     return CupertinoContextMenu(
       actions: [
         for (final action in actions)
@@ -393,6 +407,20 @@ class AssetTile extends StatelessWidget {
               placeholder: _placeholder,
               onMissing: onMissing,
             ),
+            if (marked)
+              Positioned.fill(
+                child: IgnorePointer(
+                  child: DecoratedBox(
+                    decoration: BoxDecoration(
+                      border: Border.all(
+                        color: CupertinoColors.activeBlue,
+                        width: 3,
+                      ),
+                      borderRadius: BorderRadius.circular(4),
+                    ),
+                  ),
+                ),
+              ),
             if (record.localDeleted)
               const Positioned(
                 top: 4,

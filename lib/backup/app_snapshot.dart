@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 
+import '../photos/ai_analysis_store.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../storage/album_store.dart';
@@ -93,19 +94,30 @@ class AppSnapshotIo {
     required this.assetRecordStore,
     required this.albumStore,
     required this.personStore,
+    this.aiAnalysisStore,
   });
 
   final AssetRecordStore assetRecordStore;
   final AlbumStore albumStore;
   final PersonStore personStore;
 
-  /// The three database files behind this app, each checkpointed. What
+  /// Faces, their vectors, and which vendor suggestions were already
+  /// answered. Absent, none of that is backed up — which was the case
+  /// until it was noticed.
+  final AiAnalysisStore? aiAnalysisStore;
+
+  /// The database files behind this app, each checkpointed. What
   /// `LocalVault` copies raw — the one copy that survives a *schema*
   /// problem, which no row-level undo can fix.
+  ///
+  /// The analysis database joined them late and matters more than its
+  /// size suggests: see [AiAnalysisStore.checkpointedFile]. Optional so
+  /// the snapshot still stands alone in tests.
   Future<List<File>> databaseFiles() async => [
     ?await assetRecordStore.checkpointedFile(),
     ?await albumStore.checkpointedFile(),
     ?await personStore.checkpointedFile(),
+    ?await aiAnalysisStore?.checkpointedFile(),
   ];
 
   /// One number for "has anything changed", across all three databases.

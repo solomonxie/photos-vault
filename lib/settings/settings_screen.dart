@@ -11,14 +11,11 @@ import '../backup/icloud_drive.dart';
 import '../backup/local_vault.dart';
 import '../backup/snapshot_file.dart';
 import '../l10n/app_localizations.dart';
+import '../photos/ai_analysis_store.dart';
 import '../photos/person_store.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import '../upload/backup_coordinator.dart';
-import '../upload/sync_job.dart';
-import '../upload/sync_queue.dart';
-import '../viewer/sync_queue_sheet.dart';
 import 'add_backup_screen.dart';
 import 'backup_storage_type.dart';
 import 'backup_targets_store.dart';
@@ -29,18 +26,14 @@ import 'settings_section.dart';
 
 /// "Cloud Settings" — one flat page: the bucket list up top, then the
 /// settings that govern syncing it. Nothing here pushes a sub-page that
-/// only holds controls; per-connection actions live in that row's own `…`
-/// sheet, and the queue opens as a sheet over this page rather than a
-/// destination of its own.
+/// only holds connections: where the copies go, and how to add another.
+/// What the upload is *doing* — the queue, the schedule, Sync Now — is the
+/// Sync Queue's own page, so this one answers one question rather than two.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
     this.store,
     this.assetRecordStore,
-    this.retryRecords,
-    this.syncEverything,
-    this.syncQueue,
-    this.openAsset,
     this.icloudBackup,
     this.bucketBackup,
     this.vault,
@@ -49,23 +42,6 @@ class SettingsScreen extends StatefulWidget {
 
   final BackupTargetsStore? store;
   final AssetRecordStore? assetRecordStore;
-
-  /// Re-attempts exactly the records given, no local-change check.
-  /// Defaults to a plain [BackupCoordinator] run for standalone/test use;
-  /// `LibraryScreen` always passes its own so a retry here shares the same
-  /// in-flight-run bookkeeping.
-  final Future<int> Function(List<AssetRecord> records)? retryRecords;
-
-  /// Backs "Sync Now" — checks every already-uploaded asset for a local
-  /// edit first, then backs up everything pending/failed. Defaults to
-  /// [retryRecords] over pending/failed only (no change-detection) for
-  /// standalone/test use.
-  final Future<int> Function()? syncEverything;
-
-  /// The live sync queue, for the status line and its sheet. Optional so
-  /// the screen still stands alone in tests; without one the status line
-  /// just reads as idle.
-  final SyncQueue? syncQueue;
 
   /// The iCloud copy of everything that isn't a photo. Optional so the
   /// screen still stands alone in tests, which have no platform channel to
@@ -85,11 +61,6 @@ class SettingsScreen extends StatefulWidget {
   /// stand-in picker rather than opening the system one.
   final SnapshotFile? snapshotFile;
 
-  /// Opens one asset in the photo viewer — what tapping a queue row does.
-  /// Owned by `LibraryScreen`, which is where the viewer and the records
-  /// live. Absent, queue rows aren't tappable.
-  final Future<void> Function(String localId)? openAsset;
-
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
 }
@@ -99,29 +70,6 @@ class _SettingsScreenState extends State<SettingsScreen>
   late final BackupTargetsStore _store = widget.store ?? BackupTargetsStore();
   late final AssetRecordStore _assetRecordStore =
       widget.assetRecordStore ?? AssetRecordStore();
-  late final Future<int> Function(List<AssetRecord> records) _retryRecords =
-      widget.retryRecords ??
-      (records) =>
-          BackupCoordinator(
-            targetsStore: _store,
-            recordStore: _assetRecordStore,
-          ).backUpBatch(
-            records: records,
-            kind: DerivativeKind.original,
-            resolvePath: (r) async => r.sourcePath,
-          );
-  late final Future<int> Function() _syncEverything =
-      widget.syncEverything ??
-      () async {
-        final all = await _assetRecordStore.listAll();
-        final due = all.where((r) {
-          if (r.isDeleted) return false;
-          final status = r.stateOf(DerivativeKind.original).status;
-          return status == UploadStatus.pending ||
-              status == UploadStatus.failed;
-        }).toList();
-        return _retryRecords(due);
-      };
 
   /// One reader of the three stores, shared by every destination on this
   /// page. They each used to build their own, which meant three sets of
@@ -130,6 +78,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     assetRecordStore: _assetRecordStore,
     albumStore: AlbumStore(),
     personStore: PersonStore(),
+    aiAnalysisStore: AiAnalysisStore(),
   );
 
   late final ICloudBackup _icloudBackup =
@@ -169,10 +118,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   List<S3BackupTarget>? _targets;
   List<AssetRecord> _records = const [];
-  BackupFormat _format = BackupFormat.original;
-  SyncFrequency _frequency = SyncFrequency.manual;
-  DateTime? _lastSyncAt;
-  bool _syncing = false;
+  BackupOrderStrategy _orderStrategy = BackupOrderStrategy.fileByFile;
 
   @override
   void initState() {
@@ -267,17 +213,17 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   Future<void> _reload() async {
     List<S3BackupTarget> targets = const [];
-    var format = BackupFormat.original;
-    var frequency = SyncFrequency.manual;
-    DateTime? lastSyncAt;
     try {
       targets = await _store.loadAll();
-      format = await _store.getBackupFormat();
-      frequency = await _store.getSyncFrequency();
-      lastSyncAt = await _store.getLastSyncAt();
     } catch (_) {
       // Secure storage unavailable/unreadable — show defaults rather than
       // spinning forever.
+    }
+    var order = BackupOrderStrategy.fileByFile;
+    try {
+      order = await _store.getOrderStrategy();
+    } catch (_) {
+      // Same secure storage as the targets — fall back to the default.
     }
     List<AssetRecord> records = const [];
     try {
@@ -290,9 +236,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     setState(() {
       _targets = targets;
       _records = records;
-      _format = format;
-      _frequency = frequency;
-      _lastSyncAt = lastSyncAt;
+      _orderStrategy = order;
     });
   }
 
@@ -330,134 +274,59 @@ class _SettingsScreenState extends State<SettingsScreen>
     await _reload();
   }
 
+  String _orderLabel(AppLocalizations l10n, BackupOrderStrategy s) =>
+      switch (s) {
+        BackupOrderStrategy.fileByFile => l10n.settingsBucketOrderFileByFile,
+        BackupOrderStrategy.bucketByBucket =>
+          l10n.settingsBucketOrderBucketByBucket,
+      };
+
+  /// Only ever offered with a second bucket on the page: with one, both
+  /// answers are the same upload in the same order, and the menu would be
+  /// asking a question that has no consequence.
+  ///
+  /// Same drop-down as the queue's own settings, for the same reason —
+  /// two choices, each needing a sentence, is a sheet's worth of content
+  /// rather than a pair of radio rows standing on this page.
+  Future<void> _pickOrderStrategy() async {
+    final l10n = AppLocalizations.of(context)!;
+    final picked = await showCupertinoModalPopup<BackupOrderStrategy>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: Text(l10n.settingsBucketOrderHeading),
+        // Leads with what doesn't change: nobody picking an order should
+        // come away thinking one of these drops a copy.
+        message: Text(
+          '${l10n.settingsBucketOrderHint}\n\n'
+          '${l10n.settingsBucketOrderFileByFile}: '
+          '${l10n.settingsBucketOrderFileByFileDescription}\n\n'
+          '${l10n.settingsBucketOrderBucketByBucket}: '
+          '${l10n.settingsBucketOrderBucketByBucketDescription}',
+        ),
+        actions: [
+          for (final s in BackupOrderStrategy.values)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(sheetContext).pop(s),
+              child: Text(
+                s == _orderStrategy
+                    ? '${_orderLabel(l10n, s)}  ✓'
+                    : _orderLabel(l10n, s),
+              ),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (picked == null) return;
+    setState(() => _orderStrategy = picked);
+    await _store.setOrderStrategy(picked);
+  }
+
   String _targetPath(S3BackupTarget target) =>
       '${bucketUriScheme(target.provider)}://${target.bucket}/${target.prefix}';
-
-  // ------------------------------------------------------------------- sync
-
-  String _frequencyLabel(AppLocalizations l10n, SyncFrequency f) => switch (f) {
-    SyncFrequency.manual => l10n.settingsSyncFrequencyManual,
-    SyncFrequency.every15Minutes => l10n.settingsSyncFrequencyEvery15Minutes,
-    SyncFrequency.everyHour => l10n.settingsSyncFrequencyEveryHour,
-    SyncFrequency.every6Hours => l10n.settingsSyncFrequencyEvery6Hours,
-    SyncFrequency.daily => l10n.settingsSyncFrequencyDaily,
-  };
-
-  Future<void> _pickFrequency() async {
-    final l10n = AppLocalizations.of(context)!;
-    final picked = await showCupertinoModalPopup<SyncFrequency>(
-      context: context,
-      builder: (sheetContext) => CupertinoActionSheet(
-        title: Text(l10n.settingsSyncFrequencyHeading),
-        message: Text(l10n.settingsSyncFrequencyHint),
-        actions: [
-          for (final f in SyncFrequency.values)
-            CupertinoActionSheetAction(
-              onPressed: () => Navigator.of(sheetContext).pop(f),
-              child: Text(
-                f == _frequency
-                    ? '${_frequencyLabel(l10n, f)}  ✓'
-                    : _frequencyLabel(l10n, f),
-              ),
-            ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(sheetContext).pop(),
-          child: Text(l10n.actionCancel),
-        ),
-      ),
-    );
-    if (picked == null) return;
-    setState(() => _frequency = picked);
-    await _store.setSyncFrequency(picked);
-  }
-
-  Future<void> _syncNow() async {
-    if (_syncing) return;
-    setState(() => _syncing = true);
-    try {
-      await _syncEverything();
-      await _store.setLastSyncAt(DateTime.now());
-    } finally {
-      if (mounted) setState(() => _syncing = false);
-    }
-    await _reload();
-  }
-
-  /// How many uploads run at once, as a stepper rather than a menu: it's a
-  /// number you nudge and watch, not a value you pick from a list.
-  Widget _pacePill(AppLocalizations l10n) {
-    final queue = widget.syncQueue!;
-    return ValueListenableBuilder<int>(
-      valueListenable: queue.concurrency,
-      builder: (context, concurrency, _) => SettingsStepper(
-        label: l10n.backupQueueSpeed(concurrency),
-        decreaseSemanticLabel: l10n.backupQueueSlowerShort,
-        increaseSemanticLabel: l10n.backupQueueFasterShort,
-        onDecrease: concurrency <= 1
-            ? null
-            : () => queue.setConcurrency(concurrency - 1),
-        onIncrease: () => queue.setConcurrency(concurrency + 1),
-      ),
-    );
-  }
-
-  String _formatLabel(AppLocalizations l10n, BackupFormat f) => switch (f) {
-    BackupFormat.original => l10n.settingsBackupFormatOriginal,
-    BackupFormat.optimized => l10n.settingsBackupFormatOptimized,
-  };
-
-  /// The same drop-down the sync frequency uses, for the same reason: two
-  /// choices and a sentence about each is a sheet's worth of content, not
-  /// half a page of permanently-visible radio rows under a setting that
-  /// gets changed once.
-  Future<void> _pickFormat() async {
-    final l10n = AppLocalizations.of(context)!;
-    final picked = await showCupertinoModalPopup<BackupFormat>(
-      context: context,
-      builder: (sheetContext) => CupertinoActionSheet(
-        title: Text(l10n.settingsBackupFormatHeading),
-        // What each one costs you, where the choice is actually made.
-        message: Text(
-          '${l10n.settingsBackupFormatOriginal}: '
-          '${l10n.settingsBackupFormatOriginalDescription}\n\n'
-          '${l10n.settingsBackupFormatOptimized}: '
-          '${l10n.settingsBackupFormatOptimizedDescription}\n\n'
-          '${l10n.settingsBackupFormatVideoNote}\n'
-          '${l10n.settingsBackupFormatFolderNote}',
-        ),
-        actions: [
-          for (final f in BackupFormat.values)
-            CupertinoActionSheetAction(
-              onPressed: () => Navigator.of(sheetContext).pop(f),
-              child: Text(
-                f == _format
-                    ? '${_formatLabel(l10n, f)}  ✓'
-                    : _formatLabel(l10n, f),
-              ),
-            ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(sheetContext).pop(),
-          child: Text(l10n.actionCancel),
-        ),
-      ),
-    );
-    if (picked == null) return;
-    await _setFormat(picked);
-  }
-
-  Future<void> _setFormat(BackupFormat value) async {
-    setState(() => _format = value);
-    await _store.setBackupFormat(value);
-  }
-
-  Future<void> _openQueue() async {
-    final queue = widget.syncQueue;
-    if (queue == null) return;
-    await showSyncQueueSheet(context, queue, onOpenAsset: widget.openAsset);
-    await _reload();
-  }
 
   // ------------------------------------------------------------------ stats
 
@@ -763,60 +632,41 @@ class _SettingsScreenState extends State<SettingsScreen>
               ),
             ),
           ],
-        if (targets.isNotEmpty) const SizedBox(height: 14),
-        _syncControls(l10n, targets),
+        if (targets.isNotEmpty) _orderControl(l10n, targets.length > 1),
       ],
     );
   }
 
-  /// Everything you do *to* the buckets above, in one block of pills under
-  /// them: the verb first, then the standing arrangement — how often, how
-  /// hard, what gets uploaded, and what's still owed.
-  Widget _syncControls(AppLocalizations l10n, List<S3BackupTarget> targets) {
-    final lastSynced = _lastSyncAt == null
-        ? l10n.settingsLastSyncedNever
-        : l10n.settingsLastSyncedAt(
-            DateFormat.MMMd().add_jm().format(_lastSyncAt!),
-          );
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: settingsPagePadding),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(lastSynced, style: settingsFooterStyle),
-          const SizedBox(height: 8),
-          Wrap(
-            spacing: 8,
-            runSpacing: 8,
-            children: [
-              SettingsPillButton(
-                icon: CupertinoIcons.arrow_2_circlepath,
-                label: _syncing
-                    ? l10n.settingsSyncingMessage
-                    : l10n.settingsSyncNowButton,
-                // Never a silent no-op: with nothing configured there is
-                // nowhere to sync to, so the control stays visible but
-                // dead.
-                onPressed: targets.isEmpty || _syncing ? null : _syncNow,
-              ),
-              SettingsPillButton(
-                icon: CupertinoIcons.clock,
-                label: _frequencyLabel(l10n, _frequency),
-                onPressed: _pickFrequency,
-              ),
-              if (widget.syncQueue != null) _queuePill(l10n),
-              SettingsPillButton(
-                icon: CupertinoIcons.photo,
-                label: _formatLabel(l10n, _format),
-                onPressed: _pickFormat,
-              ),
-              if (widget.syncQueue != null) _pacePill(l10n),
-            ],
+  /// The one thing about the list that isn't a single connection: which
+  /// way it's worked through. It sits under the buckets it's talking
+  /// about rather than with the queue's pills, because it's a property of
+  /// having more than one bucket.
+  ///
+  /// With one bucket both orders are the same upload in the same order, so
+  /// the pill is dimmed rather than hidden: a setting nobody can find
+  /// until they've already built the situation it governs is a setting
+  /// nobody knows to look for. What it can't do is offer a live choice
+  /// that changes nothing — hence the line saying when it starts to count.
+  Widget _orderControl(AppLocalizations l10n, bool enabled) => Padding(
+    padding: const EdgeInsets.fromLTRB(settingsPagePadding, 12, 12, 0),
+    child: Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        SettingsPillButton(
+          icon: CupertinoIcons.arrow_2_squarepath,
+          label: _orderLabel(l10n, _orderStrategy),
+          onPressed: enabled ? _pickOrderStrategy : null,
+        ),
+        if (!enabled) ...[
+          const SizedBox(height: 6),
+          Text(
+            l10n.settingsBucketOrderOneBucketNote,
+            style: settingsFooterStyle,
           ),
         ],
-      ),
-    );
-  }
+      ],
+    ),
+  );
 
   Widget _cloudFooter(AppLocalizations l10n, List<S3BackupTarget> targets) {
     return SettingsFooterLine(
@@ -825,34 +675,6 @@ class _SettingsScreenState extends State<SettingsScreen>
         _backedUpCount,
         _trackedCount,
       ),
-      busy: _syncing,
-      busyText: l10n.settingsSyncingMessage,
-    );
-  }
-
-  /// The queue as a pill among the others, carrying its own count. What
-  /// you do *to* the list — pause it, tidy it, empty it — is in the sheet
-  /// it opens, beside the list those actions act on.
-  Widget _queuePill(AppLocalizations l10n) {
-    final queue = widget.syncQueue!;
-    return ValueListenableBuilder<List<SyncJob>>(
-      valueListenable: queue.jobs,
-      builder: (context, jobs, _) {
-        final pending = jobs.where((job) => !job.isFinished).length;
-        return ValueListenableBuilder<bool>(
-          valueListenable: queue.paused,
-          builder: (context, paused, _) => SettingsPillButton(
-            // Paused is a state you must be able to see without opening
-            // anything — a stopped queue that looks exactly like a running
-            // one is how uploads go missing for a week.
-            icon: paused ? CupertinoIcons.pause_fill : CupertinoIcons.tray_full,
-            label: paused
-                ? l10n.backupQueuePausedNote
-                : l10n.settingsSyncQueueButton(pending),
-            onPressed: _openQueue,
-          ),
-        );
-      },
     );
   }
 
