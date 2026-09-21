@@ -1370,6 +1370,72 @@ void main() {
       reason: 'a row of its own under the heading, not inside it',
     );
   });
+
+  testWidgets('a photo with coordinates offers a pin; one without does not', (
+    tester,
+  ) async {
+    final store = FakeAssetRecordStore();
+    final tagged = await store.upsert(
+      localId: 'gps',
+      contentHash: 'gps',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/gps.jpg',
+      latitude: 35.0116,
+      longitude: 135.7681,
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [tagged],
+          initialIndex: 0,
+          assetRecordStore: store,
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(DetailScreen), const Offset(0, -600));
+    await tester.pumpAndSettle();
+
+    expect(find.byIcon(CupertinoIcons.map_pin_ellipse), findsOneWidget);
+  });
+
+  testWidgets('no coordinates, no pin — a typed place name is not a map', (
+    tester,
+  ) async {
+    final store = FakeAssetRecordStore();
+    final untagged = await store.upsert(
+      localId: 'plain',
+      contentHash: 'plain',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/plain.jpg',
+    );
+    await store.setLocation('plain', 'Kyoto');
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [untagged],
+          initialIndex: 0,
+          assetRecordStore: store,
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(DetailScreen), const Offset(0, -600));
+    await tester.pumpAndSettle();
+
+    // A pin that opens the wrong street is worse than no pin.
+    expect(find.byIcon(CupertinoIcons.map_pin_ellipse), findsNothing);
+  });
 }
 
 /// A drag delivered in small steps from the middle of the page, so the

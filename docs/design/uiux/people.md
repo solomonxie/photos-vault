@@ -9,12 +9,47 @@
  └─────────────────────────────────────────────────┘
  ◯  Mei                                      61  ›
  ◯  Sam                                      12  ›
+ FACES TO NAME
+ ◯  Nina?                                   [✓] ›  ← ✓ accepts, row opens
+ ◯  Nina?                                   [✓] ›    the picker
+ ◯  Who's this?                                  ›  ← no guess
  ─────────────────────────────────────────────────
  ✨ Find People with AI Analysis                  ›   → smart collection
  empty        No people yet. Tap + to add someone.
  no matches   No people match your search.
  ＋ ⇒ alert: New Person · [ name ] · ( Cancel ) ( Add )
 ```
+
+Rows, not the home page's horizontal strip — this is the page you open to
+work through them, and a sideways scroll inside a vertical one hides most
+of its contents behind a gesture nobody makes here. Hidden while searching.
+
+```
+ accept ↓                       row leaves, count drops
+ ⌐ Added to Nina   ( Undo ) ¬   ← 5s toast, because it was one tap
+```
+
+## Faces the app has a guess about
+
+A face gets a name attached once somebody has been named a few times. The
+app never links it — `Nina?`, and a tap confirms.
+
+```
+ home People row      ◯ Nina?      tap ⇒ picker, guess pinned at the top
+ People page          ◯ Nina? [✓]  ✓ accepts in place
+ detail face row      ◯  Nina?     tap ⇒ picker
+ no guess             Who's this?  unchanged, and the common case
+```
+
+✗ tapping a suggested card accepts it outright
+  one mis-tap in a scrolling strip tags the wrong person, and undoing it
+  means finding the photo again — so only the *row*, which isn't scrolling
+  sideways and has a visible ✓, accepts on one tap
+
+Silence is a real answer. Nothing is suggested when nobody is named yet,
+when the nearest person isn't near enough, or when two people are nearly
+equally close — a coin flip presented as an answer is worse than the
+question. See `../face-recognition/DESIGN.md`.
 
 ## Person page  `lib/viewer/person_page_screen.dart`
 

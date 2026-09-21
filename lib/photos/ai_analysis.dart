@@ -15,6 +15,11 @@ class AiPhotoAnalysis {
   final String localId;
   final int peopleCount;
 
+  /// A row left behind by a rescan: the paid half is still in it, but the
+  /// photo is owed another look for faces. Negative because no scan can
+  /// produce it — see `AiAnalysisStore.forgetFaces`.
+  bool get needsLookingAt => peopleCount < 0;
+
   /// Empty when the model couldn't tell — grouped as "Uncategorized".
   final String eventLabel;
   final DateTime analyzedAt;

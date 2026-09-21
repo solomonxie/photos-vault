@@ -10,7 +10,11 @@ import '../storage/asset_record_store.dart';
 import 'ai_analysis.dart';
 import 'ai_analysis_store.dart';
 import 'ai_vision_service.dart';
+import 'face_identity.dart';
+import 'face_matcher.dart' show ConfirmedFace;
 import 'on_device_analysis.dart';
+import 'on_device_vision.dart' show FaceDescriptor;
+import 'person.dart' show FaceRect;
 
 /// What one unit of work in the analyze pass actually does.
 ///
@@ -25,6 +29,18 @@ enum AnalyzeStep {
   /// Ask the configured vendor for tags, an event label and a caption.
   /// Costs one call per photo, which is why it is never on by default.
   suggest,
+
+  /// Remember what an already-named person looks like, from a photo that
+  /// can only be about them. Catches up a library where people were named
+  /// long before the app could recognise anybody — without it, every
+  /// person already in the list contributes nothing and nothing is ever
+  /// suggested.
+  learnFaces,
+
+  /// Work out who the faces in a photo might be, from the faces already
+  /// named. Free and offline, like [findFaces] — and useless until
+  /// somebody has been named once, which is why it runs after it.
+  matchFaces,
 }
 
 enum AnalyzeJobStatus { pending, running, done, failed }
@@ -89,6 +105,8 @@ class AnalyzeQueue {
     required this.onDeviceAnalysis,
     required this.resolvePath,
     required this.displayNameFor,
+    this.faceIdentity,
+    this.taggedPeople,
     this.aiVision,
     Future<bool> Function()? hasAiKey,
     this.rest = const Duration(milliseconds: 400),
@@ -110,6 +128,14 @@ class AnalyzeQueue {
 
   /// Absent, the paid step simply isn't offered.
   final AiVisionService? aiVision;
+
+  /// Puts names to faces across photos. Absent, faces are still found —
+  /// they just stay anonymous, which is where this app started.
+  final FaceIdentityService? faceIdentity;
+
+  /// Who is already tagged in each photo, `localId` → person ids. Feeds
+  /// [AnalyzeStep.learnFaces]. Absent, the backfill simply doesn't run.
+  final Future<Map<String, List<String>>> Function()? taggedPeople;
 
   /// Whether there's a key to spend. A switch that can be turned on with
   /// nothing behind it just queues a hundred jobs that all fail the same
@@ -205,7 +231,10 @@ class AnalyzeQueue {
     await load();
     paused.value = value;
     await _write(pausedKey, value ? 'true' : 'false');
-    if (!value) unawaited(start());
+    if (!value) {
+      _listCleared = false;
+      unawaited(start());
+    }
   }
 
   Future<void> setPace(int value) async {
@@ -235,12 +264,22 @@ class AnalyzeQueue {
     }
   }
 
+  /// Set by [clear], lifted by resuming. Holds the *list* empty; the
+  /// count is left alone, because how much work is outstanding is a fact
+  /// about the library and emptying a list on screen doesn't change it.
+  bool _listCleared = false;
+
   /// Rebuilds the list from what's actually outstanding. Cheap enough to
   /// call whenever something might have changed — it's three queries and a
   /// filter, not a pass over the photos themselves.
   Future<void> refresh() async {
     await load();
     final outstanding = await _outstanding();
+    remaining.value = outstanding.length;
+    if (_listCleared) {
+      jobs.value = const [];
+      return;
+    }
     final ids = outstanding.map((job) => job.id).toSet();
     jobs.value = [
       ...outstanding.take(capacity),
@@ -250,7 +289,47 @@ class AnalyzeQueue {
           .where((job) => job.isFinished && !ids.contains(job.id))
           .take(_finishedShown),
     ];
-    remaining.value = outstanding.length;
+  }
+
+  /// Throws away everything the free pass has ever worked out — the faces
+  /// it found and the names it guessed — so the next run walks the whole
+  /// library again, newest first.
+  ///
+  /// Not what Empty Queue does. That drops a list; this drops the answers
+  /// the list is derived from, which is the only thing that makes an
+  /// already-looked-at photo worth looking at again.
+  ///
+  /// The paid half survives: tags and captions a vendor was billed for,
+  /// and suggestions already dismissed. Confirmed faces survive too —
+  /// those are the user's answers, not the app's.
+  Future<void> rescanAll() async {
+    await load();
+    try {
+      await analysisStore.forgetFaces();
+    } catch (_) {
+      // No analysis database — nothing was worked out to throw away.
+    }
+    _confirmed = null;
+    _listCleared = false;
+    await refresh();
+    unawaited(start());
+  }
+
+  /// Empties the list and stops, leaving it empty until somebody hits
+  /// Resume — which is when it's built again, from scratch and in whatever
+  /// the current order is.
+  ///
+  /// Pausing is the point, not a side effect. The outstanding half of this
+  /// list is derived from the library, so a clear that didn't stop would
+  /// refill in the same frame and look like a button that does nothing.
+  ///
+  /// Nothing analyzed is lost — a photo already looked at doesn't come
+  /// back — and [remaining] still says how much there is to do, because
+  /// emptying a list on screen doesn't change the size of the job.
+  Future<void> clear() async {
+    _listCleared = true;
+    await setPaused(true);
+    jobs.value = const [];
   }
 
   Future<List<AnalyzeJob>> _outstanding() async {
@@ -262,15 +341,72 @@ class AnalyzeQueue {
     } catch (_) {
       return const [];
     }
+    Map<String, List<FaceRect>> faces = const {};
+    Set<String> matched = const {};
+    Set<String> learned = const {};
+    Map<String, List<String>> tagged = const {};
+    if (faceIdentity != null) {
+      try {
+        faces = await analysisStore.facesByAsset();
+        matched = await analysisStore.matchedAssets()
+          ..removeAll(
+            // Described in a space this build no longer speaks. Worth
+            // another look, or they sit there being incomparable.
+            await analysisStore.staleDescriptorAssets(
+              FaceDescriptor.livePipelines,
+            ),
+          );
+        learned = await analysisStore.assetsWithDescriptors();
+        tagged = await taggedPeople?.call() ?? const {};
+      } catch (_) {
+        // No analysis database — nothing to match against either.
+      }
+    }
+    // One photo at a time, all of its steps together, newest first —
+    // rather than the whole library's faces, then the whole library's
+    // matching. Three library-wide passes meant the second never started
+    // until the first had finished: on a real camera roll, thousands of
+    // photos were scanned for faces while not one of them was described,
+    // so "who else looks like this?" had nothing to compare and every
+    // face came back alone.
+    //
+    // The cost is that an early guess is made against fewer confirmed
+    // faces than a late one. That is what naming somebody re-opening
+    // every unanswered guess is for.
     return [
-      for (final record in records)
-        if (!record.isVideo && !analyzed.containsKey(record.localId))
+      for (final record in records) ...[
+        if (!record.isVideo &&
+            (analyzed[record.localId]?.needsLookingAt ?? true))
           AnalyzeJob(
             id: 'faces:${record.localId}',
             localId: record.localId,
             step: AnalyzeStep.findFaces,
             displayName: displayNameFor(record),
           ),
+        // One face, one person, or nothing. iOS won't say whose face is
+        // whose, so a group shot with three faces and one name in it
+        // can't say which of the three is theirs — and a reference set
+        // built on a guess makes every later guess worse.
+        if (faces[record.localId]?.length == 1 &&
+            tagged[record.localId]?.length == 1 &&
+            !learned.contains(record.localId))
+          AnalyzeJob(
+            id: 'learn:${record.localId}',
+            localId: record.localId,
+            step: AnalyzeStep.learnFaces,
+            displayName: displayNameFor(record),
+          ),
+        if (faces.containsKey(record.localId) &&
+            !matched.contains(record.localId))
+          AnalyzeJob(
+            id: 'match:${record.localId}',
+            localId: record.localId,
+            step: AnalyzeStep.matchFaces,
+            displayName: displayNameFor(record),
+          ),
+      ],
+      // The paid half stays at the end, whatever else is outstanding: it
+      // is the only part of this that arrives as a bill.
       if (suggest.value && canSuggest.value)
         for (final record in records)
           if (_wantsSuggestion(analyzed[record.localId]))
@@ -290,6 +426,11 @@ class AnalyzeQueue {
   bool _wantsSuggestion(AiPhotoAnalysis? analysis) =>
       analysis != null && !analysis.hasSuggestions && !analysis.reviewed;
 
+  /// Newest photo first. The backlog on a fresh install is the whole
+  /// camera roll and this pass takes all week by design, so the order
+  /// decides what gets faces and captions today: the photos from this
+  /// month, which are the ones anybody is going to open. The rest is
+  /// enqueued behind them and gets there eventually.
   Future<List<AssetRecord>> _activeRecords() async {
     final all = await assetRecordStore.listAll();
     return all
@@ -300,7 +441,8 @@ class AnalyzeQueue {
               r.passcodeHash == null &&
               !r.localDeleted,
         )
-        .toList();
+        .toList()
+      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 
   // ---------------------------------------------------------------- running
@@ -333,6 +475,12 @@ class AnalyzeQueue {
     return last == null || DateTime.now().difference(last) >= interval;
   }
 
+  /// Photos actually looked at by the pass that just finished. Lets a
+  /// caller tell "faces were found, the People row is out of date" from
+  /// "there was nothing to do" — without it, a pass can fill the database
+  /// with faces that nothing on screen ever reads.
+  int analyzedInLastRun = 0;
+
   Future<void>? _drain;
 
   Future<void> _start() async {
@@ -351,18 +499,42 @@ class AnalyzeQueue {
 
   Future<void> _run() async {
     running.value = true;
+    analyzedInLastRun = 0;
+    _confirmed = null;
     try {
       await refresh();
+      // What this run has already had a go at.
+      //
+      // The list is *derived* — [refresh] rebuilds it from what's still
+      // outstanding — so a job that didn't clear comes straight back as
+      // pending: a photo whose file couldn't be resolved, one that threw,
+      // one Vision found nothing in. Without this the loop picks the same
+      // row again on the next pass, and again, and never reaches the
+      // second photo. Newest-first made it obvious (it's always the same
+      // familiar picture), but it would spin on the oldest just as hard.
+      //
+      // Per run, not persisted: the next run should try them again, and by
+      // then the iCloud download may have finished.
+      final attempted = <String>{};
       while (!paused.value) {
         final batch = jobs.value
-            .where((job) => job.status == AnalyzeJobStatus.pending)
+            .where(
+              (job) =>
+                  job.status == AnalyzeJobStatus.pending &&
+                  !attempted.contains(job.id),
+            )
             .take(pace.value)
             .toList();
         if (batch.isEmpty) break;
+        attempted.addAll(batch.map((job) => job.id));
         _mark(batch, AnalyzeJobStatus.running);
         await Future.wait(batch.map(_runOne));
+        // Out before the refresh, not after: pausing mid-batch and then
+        // rebuilding the list would put back the rows that Empty Queue
+        // has just taken off the screen.
+        if (paused.value) break;
         // A breath between batches. See [rest].
-        if (!paused.value) await Future<void>.delayed(rest);
+        await Future<void>.delayed(rest);
         await refresh();
       }
       _lastRunAt = DateTime.now();
@@ -387,7 +559,12 @@ class AnalyzeQueue {
           await _findFaces(job);
         case AnalyzeStep.suggest:
           await _suggestFor(job);
+        case AnalyzeStep.learnFaces:
+          await _learnFaces(job);
+        case AnalyzeStep.matchFaces:
+          await _matchFaces(job);
       }
+      analyzedInLastRun++;
       _mark([job], AnalyzeJobStatus.done);
     } catch (e) {
       jobs.value = [
@@ -408,6 +585,45 @@ class AnalyzeQueue {
     // is still exporting. Left for a later pass rather than failed.
     if (path == null) return;
     await onDeviceAnalysis.analyze(record, path);
+  }
+
+  /// The reference set, read once per run rather than per photo — it only
+  /// changes when somebody is named, and that restarts the pass anyway.
+  List<ConfirmedFace>? _confirmed;
+
+  Future<void> _learnFaces(AnalyzeJob job) async {
+    final identity = faceIdentity;
+    if (identity == null) return;
+    final record = await assetRecordStore.getByLocalId(job.localId!);
+    if (record == null) return;
+    final faces = await analysisStore.facesFor(record.localId);
+    final people = (await taggedPeople?.call())?[record.localId];
+    // Re-checked rather than trusted from the list: it was built before
+    // this batch, and somebody may have been tagged since.
+    if (faces.length != 1 || people?.length != 1) return;
+    await identity.remember(
+      record: record,
+      face: faces.single,
+      personId: people!.single,
+    );
+    // The reference set just grew, so the guesses made without it are
+    // worth making again.
+    _confirmed = null;
+  }
+
+  Future<void> _matchFaces(AnalyzeJob job) async {
+    final identity = faceIdentity;
+    if (identity == null) return;
+    final record = await assetRecordStore.getByLocalId(job.localId!);
+    if (record == null) return;
+    final faces = await analysisStore.facesFor(record.localId);
+    if (faces.isEmpty) return;
+    final confirmed = _confirmed ??= await analysisStore.confirmedFaces();
+    await identity.suggestFor(
+      record: record,
+      faces: faces,
+      confirmed: confirmed,
+    );
   }
 
   Future<void> _suggestFor(AnalyzeJob job) async {

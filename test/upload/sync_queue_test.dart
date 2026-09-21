@@ -1,4 +1,7 @@
 import 'dart:async';
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/upload/sync_job.dart';
@@ -29,11 +32,13 @@ void main() {
         localId: 'a',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
       final second = await store.enqueue(
         localId: 'a',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
 
       expect(second.id, first.id);
@@ -47,16 +52,19 @@ void main() {
         localId: 'a',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
       await store.enqueue(
         localId: 'a',
         kind: SyncJobKind.uploadThumbnail,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
       await store.enqueue(
         localId: 'a',
         kind: SyncJobKind.checkChanges,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
 
       expect(await store.all(), hasLength(3));
@@ -68,6 +76,7 @@ void main() {
         localId: 'a',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
       await store.markDone(first.id);
 
@@ -75,10 +84,109 @@ void main() {
         localId: 'a',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
 
       expect(second.id, isNot(first.id));
       expect(await store.all(), hasLength(2));
+    });
+
+    test(
+      'dequeue takes the newest photo first, not the first queued',
+      () async {
+        final store = newStore();
+        for (final year in [2014, 2026, 2020]) {
+          await store.enqueue(
+            localId: '$year',
+            kind: SyncJobKind.uploadOriginal,
+            displayName: '$year.jpg',
+            assetCreatedAt: DateTime(year),
+          );
+        }
+
+        final order = <String>[];
+        for (var i = 0; i < 3; i++) {
+          order.add((await store.dequeueNextPending())!.localId);
+        }
+
+        expect(order, ['2026', '2020', '2014']);
+      },
+    );
+
+    test('a photo queued mid-drain goes ahead of the backlog', () async {
+      final store = newStore();
+      for (var i = 0; i < 3; i++) {
+        await store.enqueue(
+          localId: 'old$i',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: 'old$i.jpg',
+          assetCreatedAt: DateTime(2014, 1, i + 1),
+        );
+      }
+      await store.dequeueNextPending();
+
+      await store.enqueue(
+        localId: 'just-taken',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'new.jpg',
+        assetCreatedAt: DateTime(2026, 9, 19),
+      );
+
+      expect((await store.dequeueNextPending())!.localId, 'just-taken');
+    });
+
+    test('a queue written by the previous version still opens', () async {
+      final dir = await Directory.systemTemp.createTemp('sync_jobs');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = p.join(dir.path, 'sync_jobs.db');
+      // Verbatim v1: no asset_created_at, one row already waiting.
+      final old = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 1,
+          onCreate: (db, _) => db.execute('''
+            CREATE TABLE sync_job (
+              id TEXT PRIMARY KEY,
+              local_id TEXT NOT NULL,
+              kind TEXT NOT NULL,
+              display_name TEXT NOT NULL,
+              status TEXT NOT NULL,
+              error_message TEXT,
+              created_at INTEGER NOT NULL,
+              updated_at INTEGER NOT NULL
+            )
+          '''),
+        ),
+      );
+      await old.insert('sync_job', {
+        'id': 'carried-over',
+        'local_id': 'a',
+        'kind': SyncJobKind.uploadOriginal.name,
+        'display_name': 'a.jpg',
+        'status': SyncJobStatus.pending.name,
+        'created_at': 0,
+        'updated_at': 0,
+      });
+      await old.close();
+
+      final store = SyncJobStore(
+        databaseFactory: databaseFactoryFfi,
+        path: path,
+      );
+      addTearDown(store.close);
+      await store.enqueue(
+        localId: 'b',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'b.jpg',
+        assetCreatedAt: DateTime(2026),
+      );
+
+      // The row from before has no date, so it goes behind the one that
+      // does rather than being lost or jumping the queue.
+      final first = await store.dequeueNextPending();
+      final second = await store.dequeueNextPending();
+      expect(first!.localId, 'b');
+      expect(second!.id, 'carried-over');
     });
 
     test('dequeue claims a job so a second worker cannot take it', () async {
@@ -87,6 +195,7 @@ void main() {
         localId: 'a',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
 
       final claimed = await store.dequeueNextPending();
@@ -98,32 +207,44 @@ void main() {
     });
 
     test(
-      'clearQueue drops waiting and failed, keeps finished and running',
+      'clearQueue empties the lot — waiting, failed, done and running',
       () async {
         final store = newStore();
         final waiting = await store.enqueue(
           localId: 'a',
           kind: SyncJobKind.uploadOriginal,
           displayName: 'a.jpg',
+          assetCreatedAt: DateTime(2024),
         );
         final failed = await store.enqueue(
           localId: 'b',
           kind: SyncJobKind.uploadOriginal,
           displayName: 'b.jpg',
+          assetCreatedAt: DateTime(2024),
         );
         await store.markFailed(failed.id, 'nope');
         final done = await store.enqueue(
           localId: 'c',
           kind: SyncJobKind.uploadOriginal,
           displayName: 'c.jpg',
+          assetCreatedAt: DateTime(2024),
         );
         await store.markDone(done.id);
+        await store.enqueue(
+          localId: 'd',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: 'd.jpg',
+          assetCreatedAt: DateTime(2024),
+        );
+        final running = await store.dequeueNextPending();
 
         await store.clearQueue();
 
-        final ids = (await store.all()).map((j) => j.id).toList();
-        expect(ids, [done.id]);
-        expect(ids, isNot(contains(waiting.id)));
+        // Empty means empty. The in-flight file keeps uploading — a native
+        // transfer can't be called back — but its row is gone, and the
+        // worker's "done" write lands on nothing.
+        expect(await store.all(), isEmpty);
+        expect([waiting.id, running!.id], isNotEmpty);
       },
     );
 
@@ -133,11 +254,13 @@ void main() {
         localId: 'a',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
       final done = await store.enqueue(
         localId: 'b',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'b.jpg',
+        assetCreatedAt: DateTime(2024),
       );
       await store.markDone(done.id);
 
@@ -154,6 +277,7 @@ void main() {
           localId: 'a',
           kind: SyncJobKind.uploadOriginal,
           displayName: 'a.jpg',
+          assetCreatedAt: DateTime(2024),
         );
         await store.dequeueNextPending();
 
@@ -186,6 +310,7 @@ void main() {
           localId: name,
           kind: SyncJobKind.uploadOriginal,
           displayName: name,
+          assetCreatedAt: DateTime(2024),
         );
       }
 
@@ -214,6 +339,7 @@ void main() {
           localId: '$i',
           kind: SyncJobKind.uploadOriginal,
           displayName: '$i.jpg',
+          assetCreatedAt: DateTime(2024),
         );
       }
 
@@ -236,11 +362,13 @@ void main() {
         localId: 'a',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'bad.jpg',
+        assetCreatedAt: DateTime(2024),
       );
       await queue.enqueue(
         localId: 'b',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'good.jpg',
+        assetCreatedAt: DateTime(2024),
       );
 
       await queue.start();
@@ -264,6 +392,7 @@ void main() {
         localId: 'a',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
       await queue.setPaused(true);
 
@@ -285,6 +414,7 @@ void main() {
             localId: job.localId,
             kind: SyncJobKind.uploadOriginal,
             displayName: job.displayName,
+            assetCreatedAt: DateTime(2024),
           );
         }
       });
@@ -292,6 +422,7 @@ void main() {
         localId: 'a',
         kind: SyncJobKind.checkChanges,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
 
       await queue.start();
@@ -318,6 +449,7 @@ void main() {
         localId: 'a',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
 
       expect(taken, isFalse);
@@ -332,6 +464,7 @@ void main() {
         localId: 'a',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
       await queue.setPaused(false);
 
@@ -340,6 +473,7 @@ void main() {
           localId: 'a',
           kind: SyncJobKind.uploadOriginal,
           displayName: 'a.jpg',
+          assetCreatedAt: DateTime(2024),
         ),
         isTrue,
       );
@@ -355,6 +489,7 @@ void main() {
             localId: 'a$i',
             kind: SyncJobKind.uploadOriginal,
             displayName: 'a$i.jpg',
+            assetCreatedAt: DateTime(2024),
           ),
           isTrue,
         );
@@ -365,6 +500,7 @@ void main() {
           localId: 'one-too-many',
           kind: SyncJobKind.uploadOriginal,
           displayName: 'x.jpg',
+          assetCreatedAt: DateTime(2024),
         ),
         isFalse,
       );
@@ -379,6 +515,7 @@ void main() {
           localId: 'a$i',
           kind: SyncJobKind.uploadOriginal,
           displayName: 'a$i.jpg',
+          assetCreatedAt: DateTime(2024),
         );
       }
       final jobs = await store.all();
@@ -394,6 +531,7 @@ void main() {
           localId: 'after-a-done-one',
           kind: SyncJobKind.uploadOriginal,
           displayName: 'x.jpg',
+          assetCreatedAt: DateTime(2024),
         ),
         isTrue,
       );
@@ -402,6 +540,7 @@ void main() {
           localId: 'and-another',
           kind: SyncJobKind.uploadOriginal,
           displayName: 'y.jpg',
+          assetCreatedAt: DateTime(2024),
         ),
         isTrue,
       );
@@ -415,6 +554,7 @@ void main() {
         localId: 'a',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
       await store.markFailed(first.id, 'offline');
 
@@ -422,6 +562,7 @@ void main() {
         localId: 'a',
         kind: SyncJobKind.uploadOriginal,
         displayName: 'a.jpg',
+        assetCreatedAt: DateTime(2024),
       );
 
       expect(second.id, first.id, reason: 'the same row, not a second one');
@@ -441,6 +582,7 @@ void main() {
           localId: 'a$i',
           kind: SyncJobKind.uploadOriginal,
           displayName: 'a$i.jpg',
+          assetCreatedAt: DateTime(2024),
         );
       }
       await queue.start();
@@ -452,6 +594,7 @@ void main() {
           localId: 'a$i',
           kind: SyncJobKind.uploadOriginal,
           displayName: 'a$i.jpg',
+          assetCreatedAt: DateTime(2024),
         );
       }
 

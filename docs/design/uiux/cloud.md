@@ -28,17 +28,63 @@ own sheet, and the queue opens over this page.
  ┌───┐ my-photos                                           ›
  │ ☁ │ s3://my-photos/photos-vault/
  └───┘ ca-central-1
- Last synced Sep 17, 12:04 PM                  ← 12 muted, above the block
- [ ⟳ Sync Now ]  [ 🕐 Manual ▾ ]  [ 📥 Queue (12) ]  ← reads "Paused"
- [ ▣ Original ▾ ]  [ − 2 at a time + ]                 when paused
- 1 bucket · 184 of 210 photos backed up        ← footer line, tappable
+ ┌───┐ cold-storage                                        ›
+ │ ☁ │ cos://cold-storage-1250000000/vault/
+ └───┘ ap-guangzhou
+ [ ⇄ Photo by Photo ]        ← live once there's a second bucket
+ 2 buckets · 184 of 210 photos backed up       ← footer line, tappable
  ⟳ Syncing…                                    ← rides on the same line
 ```
 
 Pills, not bare accent words, for the things you come here to press. A pill
-says where to put your thumb — and one block of them under the list reads as
-a toolbar for it, where a column of one-control rows read as a pile. Speed
-keeps the pill shape with a stepper inside: it's a dial, not a list.
+says where to put your thumb. Everything about the *upload* — Sync Now, the
+schedule, format, speed, the queue — is the Backup Queue's page (`queue.md`);
+what stays here is the list of connections and the one setting that is a
+property of the list itself.
+
+## Filling more than one bucket
+
+```
+ [ ⇄ Photo by Photo ]
+ ┌────────────────────────────────────────────────┐
+ │ Bucket Order                                   │
+ │ Every photo ends up in every bucket either     │
+ │ way — this only changes the order they're      │
+ │ filled in.                                     │
+ │ Photo by Photo: each photo goes to every       │
+ │ bucket before the next photo starts — every    │
+ │ bucket stays equally up to date.               │
+ │ Bucket by Bucket: one bucket gets the whole    │
+ │ library before the next one starts — the first │
+ │ complete copy exists sooner.                   │
+ │ ✓ Photo by Photo      Bucket by Bucket         │
+ │ ( Cancel )                                     │
+ └────────────────────────────────────────────────┘
+```
+
+The message leads with what *doesn't* change. "Order" beside a list of
+buckets reads like splitting the library between them, and a user who picks
+one believing that has lost every copy but one. Neither option drops a
+copy; both are the same uploads, resequenced.
+
+With one bucket it is **dimmed, not hidden**, and carries the line that says
+when it starts to count:
+
+```
+ ┌───┐ my-photos                                           ›
+ │ ☁ │ s3://my-photos/photos-vault/
+ └───┘ ca-central-1
+ [ ⇄ Photo by Photo ]·       ← dimmed
+ Matters once you add a second bucket.
+ 1 bucket · 184 of 210 photos backed up
+```
+
+Hiding it entirely made it findable only *after* the user had built the
+situation it governs — which is the moment they'd have to go looking for a
+setting they'd never seen. Dimmed, it's part of what a second bucket means,
+read before it's needed. What it must not be is live: with one bucket both
+answers are the same upload in the same order, and a choice that changes
+nothing is worse than no choice at all.
 
 ## Three tiers, two switches
 
@@ -115,25 +161,6 @@ having taken the copy.
 
  Your Cloud Bucket                                      ·  ○─
  Add a bucket below first
-```
-
-## The menus behind the pills
-
-```
- 🕐 Manual ▾                       ▣ Original ▾
- ┌─────────────────────────────┐   ┌──────────────────────────────────┐
- │ Sync Frequency              │   │ Backup Format                    │
- │ Runs only while the app is  │   │ Original: Full quality, byte-    │
- │ open — there's no           │   │ identical to your device —       │
- │ background-sync permission  │   │ larger uploads and more storage. │
- │ yet.                        │   │ Optimized (WebP): Re-encodes to  │
- │ ✓ Manual Only               │   │ cut upload and storage size, at  │
- │   Every 15 Minutes          │   │ a small, usually unnoticeable    │
- │   Every Hour                │   │ quality loss.                    │
- │   Every 6 Hours             │   │ Videos always back up at original│
- │   Daily                     │   │ quality…                         │
- │ ( Cancel )                  │   │ ✓ Original    Optimized (WebP)   │
- └─────────────────────────────┘   └──────────────────────────────────┘
 ```
 
 ## Empty

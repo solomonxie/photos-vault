@@ -62,7 +62,13 @@ class SyncQueue {
     }
   }
 
+  /// Loads the persisted settings first. A screen that opens on the queue
+  /// calls this and nothing else, and without it `paused`/`concurrency`
+  /// render as their constructor defaults — a stopped queue drawn with a
+  /// Pause button and a running look, which is how uploads go missing for
+  /// a week.
   Future<void> refresh() async {
+    await _loadSettings();
     try {
       jobs.value = await store.all();
     } catch (_) {
@@ -95,13 +101,19 @@ class SyncQueue {
     required String localId,
     required SyncJobKind kind,
     required String displayName,
+    required DateTime assetCreatedAt,
   }) async {
     await _loadSettings();
     // Paused means paused: a queue that keeps growing while stopped is
     // just a delayed surprise.
     if (paused.value) return false;
     if (await unfinishedCount() >= capacity) return false;
-    await store.enqueue(localId: localId, kind: kind, displayName: displayName);
+    await store.enqueue(
+      localId: localId,
+      kind: kind,
+      displayName: displayName,
+      assetCreatedAt: assetCreatedAt,
+    );
     await refresh();
     return true;
   }
@@ -177,6 +189,10 @@ class SyncQueue {
   /// Jobs run in batches of [concurrency] rather than as a continuously
   /// topped-up pool: a slow file holds up its batch, but the bound is
   /// obvious and there's no bookkeeping to get wrong.
+  ///
+  /// Each batch is claimed newest-photo-first (see
+  /// [SyncJobStore.dequeueNextPending]), so a photo taken while a years-deep
+  /// backlog is draining goes up in the next batch rather than behind it.
   Future<void> _runDrain() async {
     draining.value = true;
     processedInLastDrain = 0;

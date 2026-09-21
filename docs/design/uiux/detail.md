@@ -22,7 +22,9 @@ scroller.
  Sat · Sep 12, 2026 · 4:13 PM                    ← tap = Date & Time editor
  IMG_4934.HEIC
  ╭───────────────────────────────────────────╮
- │ Location                      No Location │  tap → place picker
+ │ Location             Kyoto          ⌖ │  tap → place picker
+ │                                          │  ⌖ → [Google Maps] at the
+ │                                          │      photo's own lat/lon
  ├───────────────────────────────────────────┤
  │ Event                            No Event │
  ├───────────────────────────────────────────┤
@@ -140,6 +142,29 @@ Two shapes, because two different questions:
                        [ Delete Permanently ]!
 ```
 
+
+## Faces
+
+```
+ People                                           ⊕
+ ( ◯ Mei ⊗ )
+ ⊡ Find Faces        Tap a face to say who it is.
+ ( ◯ )   ( ◯ )   ( ◯ )
+ Nina?    Sam?                  ← only where there is a guess; a row of "?"
+                                  under every face says what the row says
+```
+
+Faces show the moment the photo opens, cut from boxes the analyze pass
+already stored — no second look at the photo, no Vision call.
+
+Hidden once somebody here is named: iOS won't say whose face is whose, so
+the app can't tell which box is the person already tagged, and offering
+them all again invites tagging one face twice under two names. `Find Faces`
+still works there.
+
+A name under a face is a guess, never a link — see
+`../face-recognition/DESIGN.md`. Naming one here teaches it, same as
+anywhere else.
 
 ## Suggestions are answered here, not in an inbox
 

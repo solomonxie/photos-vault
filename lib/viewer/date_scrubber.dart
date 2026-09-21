@@ -12,6 +12,12 @@ import 'photo_grid_layout.dart';
 ///
 /// Idle it isn't there at all: it fades in the moment the list moves and
 /// back out [_hideDelay] after it stops, so a still page stays clean.
+///
+/// It used to introduce itself once when a page opened, on the grounds
+/// that a handle only appearing after you've started thumbing is a handle
+/// nobody discovers. Dropped: every page in the app opens with a grid, so
+/// "once" was really "every time", and a control that announces itself on
+/// arrival is the thing it was drawn to avoid.
 class DateScrubber extends StatefulWidget {
   const DateScrubber({
     super.key,
@@ -44,11 +50,20 @@ class DateScrubber extends StatefulWidget {
 }
 
 class _DateScrubberState extends State<DateScrubber> {
-  static const _hideDelay = Duration(milliseconds: 550);
+  static const _hideDelay = Duration(seconds: 3);
+
+  /// How much longer the handle answers a finger after it has faded.
+  ///
+  /// Fading and becoming untouchable used to be the same moment, so
+  /// reaching for a handle you could still see half of caught nothing —
+  /// and once it was gone there was no way to bring it back except
+  /// scrolling, which is the thing you wanted the handle for. It stays
+  /// grabbable through the fade and a moment beyond; it only ever claims
+  /// vertical drags on a narrow strip, so nothing else loses a touch.
+  static const _grabGrace = Duration(milliseconds: 1400);
 
   /// The first showing lingers — nobody has scrolled yet, so this is the
   /// one chance to be noticed at all.
-  static const _firstShowDelay = Duration(milliseconds: 2600);
 
   /// Quick enough to be out of the way the moment you stop, slow enough not
   /// to blink mid-flick.
@@ -73,9 +88,13 @@ class _DateScrubberState extends State<DateScrubber> {
   static const _trackBottomFraction = 0.5;
 
   bool _visible = false;
+
+  /// Whether a finger landing on the thumb still does something. Outlives
+  /// [_visible] by [_grabGrace] — see there.
+  bool _grabbable = false;
   bool _dragging = false;
-  bool _introduced = false;
   Timer? _hideTimer;
+  Timer? _grabTimer;
 
   /// Scroll offset the current drag started from, plus the pointer's
   /// position within the track when it did — dragging is relative to the
@@ -101,32 +120,47 @@ class _DateScrubberState extends State<DateScrubber> {
   @override
   void dispose() {
     _hideTimer?.cancel();
+    _grabTimer?.cancel();
     widget.controller.removeListener(_onScroll);
     super.dispose();
   }
 
+  /// Where the list was the last time this fired. Null until the first
+  /// callback, which is the one the framework sends while laying out —
+  /// not a scroll, and treating it as one put the handle on screen the
+  /// moment any page opened.
+  double? _lastPixels;
+
+  /// Whether a frame has been laid out since this was built — see [build].
+  bool _measured = false;
+
   void _onScroll() {
-    if (!_visible && mounted) setState(() => _visible = true);
+    if (!mounted) return;
+    final pixels = widget.controller.hasClients
+        ? widget.controller.position.pixels
+        : null;
+    final moved = _lastPixels != null && pixels != _lastPixels;
+    _lastPixels = pixels;
+    if (!moved) return;
+    if (!_visible || !_grabbable) {
+      setState(() {
+        _visible = true;
+        _grabbable = true;
+      });
+    }
     _scheduleHide();
   }
 
   void _scheduleHide([Duration delay = _hideDelay]) {
     _hideTimer?.cancel();
+    _grabTimer?.cancel();
     _hideTimer = Timer(delay, () {
       if (_dragging || !mounted) return;
       setState(() => _visible = false);
     });
-  }
-
-  /// Show it once, unprompted, as soon as there's enough library to scrub —
-  /// a handle that only ever appears *after* you've started thumbing is a
-  /// handle nobody discovers.
-  void _introduce() {
-    _introduced = true;
-    WidgetsBinding.instance.addPostFrameCallback((_) {
-      if (!mounted) return;
-      setState(() => _visible = true);
-      _scheduleHide(_firstShowDelay);
+    _grabTimer = Timer(delay + _grabGrace, () {
+      if (_dragging || !mounted) return;
+      setState(() => _grabbable = false);
     });
   }
 
@@ -161,6 +195,7 @@ class _DateScrubberState extends State<DateScrubber> {
     setState(() {
       _dragging = true;
       _visible = true;
+      _grabbable = true;
       _dragStartOffset = position.pixels;
       _dragStartY = details.localPosition.dy;
     });
@@ -194,8 +229,17 @@ class _DateScrubberState extends State<DateScrubber> {
 
   @override
   Widget build(BuildContext context) {
+    // `_enabled` reads the scroll position, which doesn't exist on the
+    // first build — so the first answer is always "no". One rebuild after
+    // layout is what lets it say yes. (The old self-introduction did this
+    // as a side effect of showing itself; taking that out took this with
+    // it, and the handle stopped appearing at all.)
+    if (!_measured) {
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted) setState(() => _measured = true);
+      });
+    }
     if (!_enabled) return const SizedBox.shrink();
-    if (!_introduced) _introduce();
     return Padding(
       padding: widget.insets,
       child: LayoutBuilder(
@@ -231,7 +275,7 @@ class _DateScrubberState extends State<DateScrubber> {
       opacity: _visible || _dragging ? 1 : 0,
       duration: _fadeDuration,
       child: IgnorePointer(
-        ignoring: !_visible && !_dragging,
+        ignoring: !_grabbable && !_dragging,
         child: Stack(
           children: [
             Positioned(

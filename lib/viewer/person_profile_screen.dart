@@ -3,6 +3,7 @@ import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
+import '../photos/face_identity.dart';
 import '../photos/person_store.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/passcode_hash.dart';
@@ -605,6 +606,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     );
     if (confirmed != true || !mounted) return;
     await widget.personStore.remove(_person.id);
+    await forgetPersonFaces(_person.id);
     if (!mounted) return;
     // Just this screen. The person page beneath re-reads the person when
     // this one returns and pops itself when it's gone — popping it from
