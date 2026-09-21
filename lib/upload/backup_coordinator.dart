@@ -9,6 +9,8 @@ import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../vault/carrier_upload.dart';
+import '../vault/keys.dart';
 import 'backup_cancel_token.dart';
 import 's3_object_delete.dart' as s3_object_delete;
 import 's3_uploader.dart';
@@ -36,6 +38,9 @@ class BackupCoordinator {
   BackupCoordinator({
     required this.targetsStore,
     required this.recordStore,
+    this.carriers,
+    this.vaultKeys,
+    Future<List<DecoyCandidate>> Function()? decoyCandidates,
     S3Uploader? s3Uploader,
     Future<String> Function(String path)? hashFile,
     Future<bool> Function({
@@ -45,6 +50,7 @@ class BackupCoordinator {
     deleteObject,
   }) : _s3Uploader = s3Uploader ?? S3Uploader(),
        _hashFile = hashFile ?? file_hash.hashFile,
+       _decoyCandidates = decoyCandidates ?? (() async => const []),
        _deleteObject = deleteObject ?? _defaultDeleteObject;
 
   static Future<bool> _defaultDeleteObject({
@@ -55,6 +61,15 @@ class BackupCoordinator {
   final BackupTargetsStore targetsStore;
   final AssetRecordStore recordStore;
   final S3Uploader _s3Uploader;
+
+  /// Present once the private album has been set up. Absent in tests and
+  /// on an install that has never opened Hidden, where no hidden record can
+  /// exist either.
+  final CarrierBuilder? carriers;
+  final VaultKeys? vaultKeys;
+
+  /// The ordinary library, as things a carrier could pretend to be.
+  late final Future<List<DecoyCandidate>> Function() _decoyCandidates;
 
   /// Overridable for tests so they never touch the real filesystem just to
   /// exercise the change-detection bookkeeping.
@@ -107,6 +122,8 @@ class BackupCoordinator {
     required String filePath,
     required BackupFormat format,
   }) async {
+    final carrier = await _carrierPath(record: record, filePath: filePath);
+    if (carrier != null) return carrier;
     // A Live Photo's `.mov` is never re-encoded. It isn't a still, and the
     // QuickTime metadata that pairs it to the photo — the content
     // identifier, the still-image-time marker — doesn't survive a trip
@@ -126,6 +143,39 @@ class BackupCoordinator {
     } catch (_) {
       return filePath;
     }
+  }
+
+  /// A hidden photo goes up as a carrier: an ordinary-looking picture with
+  /// this one encrypted inside it. Null for everything else, and for a
+  /// hidden photo whose album is not open — see [canUpload], which holds
+  /// the job rather than letting it go up in the clear.
+  Future<String?> _carrierPath({
+    required AssetRecord record,
+    required String filePath,
+  }) async {
+    final hash = record.passcodeHash;
+    final builder = carriers;
+    if (hash == null || builder == null) return null;
+    final keys = vaultKeys?.ringKeysFor(hash);
+    if (keys == null) return null;
+    final built = await builder.build(
+      record: record,
+      filePath: filePath,
+      keys: keys,
+      candidates: await _decoyCandidates(),
+    );
+    return built?.path;
+  }
+
+  /// Whether this record may leave the device at all right now. A hidden
+  /// photo may not while its album is locked: the key exists only in
+  /// memory, and sending the photo up unencrypted "for now" is the one
+  /// outcome the private album must never produce.
+  bool canUpload(AssetRecord record) {
+    final hash = record.passcodeHash;
+    if (hash == null) return true;
+    if (carriers == null || vaultKeys == null) return false;
+    return vaultKeys!.ringKeysFor(hash) != null;
   }
 
   Future<void> _cleanupIfTemp(String uploadPath, String originalPath) async {
@@ -153,6 +203,10 @@ class BackupCoordinator {
     required String filePath,
     List<S3BackupTarget>? targets,
   }) async {
+    // Left `pending`, deliberately: the queue will offer it again once the
+    // album is open, and a `failed` here would read as something the user
+    // has to fix.
+    if (!canUpload(record)) return 0;
     await recordStore.updateDerivative(
       record.localId,
       kind,

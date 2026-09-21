@@ -18,4 +18,5 @@ Subfolders:
 - [`upload/`](upload/README.md) — fan-out upload of derivatives to S3
 - [`backup/`](backup/README.md) — app-data snapshot: local, iCloud Drive, bucket
 - [`settings/`](settings/README.md) — S3 backup target config + secure storage
+- [`vault/`](vault/README.md) — hidden photos as encrypted carriers in the bucket
 - [`l10n/`](l10n/README.md) — ARB strings + generated localization bindings

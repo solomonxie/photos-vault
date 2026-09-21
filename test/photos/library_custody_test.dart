@@ -21,9 +21,15 @@ class _FakeLibrary implements PhotoLibraryService {
   Future<File?> fileFor(AssetRecord record) async => original;
 
   @override
-  Future<bool> deleteFromLibrary(AssetRecord record) async {
+  Future<bool> deleteFromLibrary(AssetRecord record) async =>
+      (await deleteManyFromLibrary([record])).contains(record.localId);
+
+  /// One call per group, which is one OS prompt per group — [deleteRequests]
+  /// counting *calls* rather than photos is the point of the test.
+  @override
+  Future<Set<String>> deleteManyFromLibrary(List<AssetRecord> records) async {
     deleteRequests++;
-    return allowDelete;
+    return allowDelete ? {for (final r in records) r.localId} : <String>{};
   }
 
   @override

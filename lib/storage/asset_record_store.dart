@@ -416,7 +416,9 @@ class AssetRecordStore {
     );
   }
 
-  Future<void> setThumbnailPath(String localId, String value) async {
+  /// Null clears it — what a hidden record wants, since it keeps no
+  /// picture of itself on this device.
+  Future<void> setThumbnailPath(String localId, String? value) async {
     final db = await _open();
     await db.update(
       _table,

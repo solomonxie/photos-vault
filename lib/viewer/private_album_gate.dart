@@ -2,9 +2,13 @@ import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/library_custody.dart';
+import '../settings/backup_targets_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/passcode_hash.dart';
+import '../vault/keys.dart';
+import '../vault/passphrase_sheet.dart';
+import '../upload/pending_deletes.dart';
 import 'private_album_screen.dart';
 
 /// The Utilities "Hidden" row's passcode popup: a 4-digit numeric keypad
@@ -231,15 +235,32 @@ Future<void> openPrivateAlbums(
   BuildContext context, {
   required AssetRecordStore assetRecordStore,
   LibraryCustody? custody,
+  VaultKeys? vaultKeys,
 }) async {
+  final keys = vaultKeys ?? VaultKeys();
+  // Set up at the moment it first matters, rather than behind a switch in
+  // Settings. A switch reading "Hidden - ON" answers, to anyone holding the
+  // phone, the one question this whole thing exists not to answer.
+  if ((await keys.entries()).isEmpty) {
+    if (!context.mounted) return;
+    if (await showVaultSetupSheet(context, keys: keys) == null) return;
+  }
+  if (!context.mounted) return;
   final passcode = await showPrivateAlbumPasscodeSheet(context);
-  if (passcode == null || !context.mounted) return;
+  if (passcode == null) return;
+  // Fills the key ring for this session, so the upload path can find this
+  // album's key by the hash the records carry without ever holding the
+  // digits itself. Dropped when the app dies.
+  final album = await keys.unlockAlbum(passcode);
+  if (!context.mounted) return;
   await Navigator.of(context).push(
     CupertinoPageRoute(
       builder: (_) => PrivateAlbumScreen(
         passcodeHash: hashPasscode(passcode),
         assetRecordStore: assetRecordStore,
         custody: custody,
+        albumKeys: album,
+        vaultKeys: keys,
       ),
     ),
   );
@@ -247,6 +268,34 @@ Future<void> openPrivateAlbums(
 
 /// Hides [records]: tags each with a passcode hash — no separate album to
 /// create first, the group sharing a hash *is* the album — and takes them
+/// Queues every object this record already has in every bucket for
+/// deletion, and forgets that they were ever uploaded, so the next sync
+/// treats the photo as new. The deletion itself is durable rather than
+/// attempted here: hiding happens offline all the time, and a delete that
+/// quietly failed would leave a plain copy in the bucket forever.
+Future<void> _retractFromBuckets({
+  required AssetRecord record,
+  required AssetRecordStore store,
+  required PendingDeletes deletes,
+  required BackupTargetsStore targetsStore,
+}) async {
+  final targets = await targetsStore.loadAll();
+  final tasks = <PendingDelete>[];
+  for (final kind in DerivativeKind.values) {
+    final key = record.stateOf(kind).destinationKey;
+    if (key == null) continue;
+    for (final target in targets) {
+      tasks.add(PendingDelete(objectKey: key, targetId: target.id));
+    }
+    await store.updateDerivative(
+      record.localId,
+      kind,
+      const DerivativeState(status: UploadStatus.pending),
+    );
+  }
+  if (tasks.isNotEmpty) await deletes.add(tasks);
+}
+
 /// out of the OS photo library, which is the half that makes "hidden" mean
 /// anything. Returns `false` (no-op) if the passcode popup was cancelled.
 ///
@@ -265,31 +314,13 @@ Future<bool> hideIntoPrivateAlbum(
   required List<AssetRecord> records,
   String? passcodeHash,
   LibraryCustody? custody,
+  PendingDeletes? pendingDeletes,
+  BackupTargetsStore? targetsStore,
 }) async {
   final l10n = AppLocalizations.of(context)!;
-  // Asked every time, before anything moves. Hiding deletes the originals
-  // out of Photos — a destructive, one-way step that this app is the only
-  // holder of afterwards — and a step like that is confirmed at the point
-  // of action, not explained in a note beside a keypad.
-  final confirmed = await showCupertinoDialog<bool>(
-    context: context,
-    builder: (context) => CupertinoAlertDialog(
-      title: Text(l10n.libraryHideConfirmTitle(records.length)),
-      content: Text(l10n.libraryHideConfirmBody),
-      actions: [
-        CupertinoDialogAction(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: Text(l10n.actionCancel),
-        ),
-        CupertinoDialogAction(
-          isDestructiveAction: true,
-          onPressed: () => Navigator.of(context).pop(true),
-          child: Text(l10n.libraryHideConfirmAction),
-        ),
-      ],
-    ),
-  );
-  if (confirmed != true || !context.mounted) return false;
+  // No confirmation of our own. The OS puts one up for the delete a moment
+  // later — listing exactly what is about to go — and two dialogs in a row
+  // asking the same question is how people learn to tap through both.
   var hash = passcodeHash;
   if (hash == null) {
     final passcode = await showPrivateAlbumPasscodeSheet(context);
@@ -297,11 +328,15 @@ Future<bool> hideIntoPrivateAlbum(
     hash = hashPasscode(passcode);
   }
   final keeper = custody ?? LibraryCustody(store: assetRecordStore);
+  for (final record in records) {
+    await assetRecordStore.setPasscodeHash(record.localId, hash);
+  }
+  final results = await keeper.takeOutMany(records);
+
   var stillInLibrary = 0;
   var failed = 0;
   for (final record in records) {
-    await assetRecordStore.setPasscodeHash(record.localId, hash);
-    switch (await keeper.takeOut(record)) {
+    switch (results[record.localId] ?? CustodyResult.failed) {
       case CustodyResult.failed:
         // Nothing was copied out, so nothing should have been hidden
         // either — a hidden photo this app doesn't hold is a photo nobody
@@ -313,7 +348,17 @@ Future<bool> hideIntoPrivateAlbum(
       case CustodyResult.taken || CustodyResult.returned:
         break;
     }
+    // Whatever is already in the bucket was uploaded in the clear, under
+    // this photo's own name. Hiding has to take it back out, or the
+    // private album's copy sits beside a plain one that predates it.
+    await _retractFromBuckets(
+      record: record,
+      store: assetRecordStore,
+      deletes: pendingDeletes ?? PendingDeletes(store: assetRecordStore),
+      targetsStore: targetsStore ?? BackupTargetsStore(),
+    );
   }
+
   if (context.mounted && (failed > 0 || stillInLibrary > 0)) {
     await showCupertinoDialog<void>(
       context: context,

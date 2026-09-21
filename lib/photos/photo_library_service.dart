@@ -357,6 +357,20 @@ class PhotoLibraryService {
   /// Resolves a `photoManager` record back to its [AssetEntity], or null if
   /// it's been deleted from the library since, or [record] isn't
   /// `photoManager`-sourced.
+  /// How long a video runs, off the library entry. A video carrier's decoy
+  /// is held for exactly this long: 200 MB over three minutes is an
+  /// ordinary capture, the same bytes over two seconds is nothing anyone
+  /// ever shot.
+  Future<Duration?> durationOf(AssetRecord record) async {
+    try {
+      final entity = await entityFor(record);
+      final seconds = entity?.duration ?? 0;
+      return seconds <= 0 ? null : Duration(seconds: seconds);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<AssetEntity?> entityFor(AssetRecord record) {
     final id = libraryIdOf(record);
     if (id == null) return Future.value(null);

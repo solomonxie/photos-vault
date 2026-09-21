@@ -88,7 +88,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
   }
 
   @override
-  Future<void> setThumbnailPath(String localId, String value) async {
+  Future<void> setThumbnailPath(String localId, String? value) async {
     final existing = _records[localId];
     if (existing == null) return;
     _records[localId] = existing.withThumbnailPath(value);
