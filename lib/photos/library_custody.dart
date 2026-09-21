@@ -69,45 +69,78 @@ class LibraryCustody {
   ///
   /// A photo this app already holds (imported by hand, or already taken
   /// out) is [CustodyResult.taken] with nothing to do.
-  Future<CustodyResult> takeOut(AssetRecord record) async {
-    if (record.sourceType != AssetSourceType.photoManager ||
-        PhotoLibraryService.libraryIdOf(record) == null) {
-      return CustodyResult.taken;
+  Future<CustodyResult> takeOut(AssetRecord record) async =>
+      (await takeOutMany([record]))[record.localId] ?? CustodyResult.failed;
+
+  /// The same, for a group, in **one** OS prompt.
+  ///
+  /// Every copy is made and verified first, then a single
+  /// [PhotoLibraryService.deleteManyFromLibrary] takes the lot. Hiding
+  /// twenty photos one at a time is twenty system confirmations, which
+  /// nobody reads by the third — and a confirmation nobody reads is not a
+  /// confirmation. It is also the only prompt in this flow: the photos are
+  /// already selected, so asking again first would be asking a question
+  /// already answered.
+  Future<Map<String, CustodyResult>> takeOutMany(
+    List<AssetRecord> records,
+  ) async {
+    final results = <String, CustodyResult>{};
+    final copied = <AssetRecord>[];
+
+    for (final record in records) {
+      if (record.sourceType != AssetSourceType.photoManager ||
+          PhotoLibraryService.libraryIdOf(record) == null) {
+        // Already ours: imported by hand, or taken out before.
+        results[record.localId] = CustodyResult.taken;
+        continue;
+      }
+      if (await _copyOut(record)) {
+        copied.add(record);
+      } else {
+        results[record.localId] = CustodyResult.failed;
+      }
     }
+    if (copied.isEmpty) return results;
+
+    final gone = await _library.deleteManyFromLibrary(copied);
+    for (final record in copied) {
+      if (gone.contains(record.localId)) {
+        await store.setLibraryId(record.localId, null);
+        results[record.localId] = CustodyResult.taken;
+      } else {
+        // Declined at the prompt, or past the batch cap. The copy stays —
+        // it is what the hidden album draws from, and it makes a second
+        // attempt cost nothing.
+        results[record.localId] = CustodyResult.takenButStillInLibrary;
+      }
+    }
+    return results;
+  }
+
+  /// Copies [record]'s original into this app's own storage and points the
+  /// record at it. A photo is only ever deleted from Photos once there is
+  /// another copy of it on disk, so this always happens first.
+  Future<bool> _copyOut(AssetRecord record) async {
     final File source;
     try {
       final resolved = await _library.fileFor(record);
-      if (resolved == null || !await resolved.exists()) {
-        return CustodyResult.failed;
-      }
+      if (resolved == null || !await resolved.exists()) return false;
       source = resolved;
     } catch (_) {
       // An iCloud original that wouldn't come down, or no plugin at all.
-      return CustodyResult.failed;
+      return false;
     }
 
-    final String copyPath;
     try {
       final dir = await _directory();
       final copy = File(p.join(dir.path, _fileNameFor(record, source)));
       await source.copy(copy.path);
-      if (!await copy.exists() || await copy.length() == 0) {
-        return CustodyResult.failed;
-      }
-      copyPath = copy.path;
+      if (!await copy.exists() || await copy.length() == 0) return false;
+      await store.setSourcePath(record.localId, copy.path);
+      return true;
     } catch (_) {
-      return CustodyResult.failed;
+      return false;
     }
-    await store.setSourcePath(record.localId, copyPath);
-
-    if (!await _library.deleteFromLibrary(record)) {
-      // Declined at the OS prompt, or it wasn't ours to delete. The copy
-      // stays — it's what the hidden album will draw from, and it's what
-      // makes a second attempt cost nothing.
-      return CustodyResult.takenButStillInLibrary;
-    }
-    await store.setLibraryId(record.localId, null);
-    return CustodyResult.taken;
   }
 
   /// Hands [record] back to the photo library, and re-points the record at

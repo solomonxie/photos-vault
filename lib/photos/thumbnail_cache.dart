@@ -67,6 +67,11 @@ class ThumbnailCache {
     }
   }
 
+  /// The OS's own poster frame for [record], without writing anything to
+  /// disk — what a hidden video's carrier uses for its thumbnail payload.
+  Future<Uint8List?> libraryThumbnail(AssetRecord record) =>
+      _libraryThumbnail(record);
+
   Future<Directory> _thumbnailDirectory() async {
     final dir = Directory(p.join((await _directory()).path, _dirName));
     if (!await dir.exists()) await dir.create(recursive: true);
@@ -91,6 +96,15 @@ class ThumbnailCache {
   /// Also persists the path onto the record, so a later local delete can
   /// find it without the original still being around.
   Future<String?> ensureFor(AssetRecord record, [String? originalPath]) async {
+    // A hidden photo never leaves a picture of itself in the container.
+    // This directory is under application support, which iOS puts in the
+    // device backup, so a thumbnail here would ride into the owner's own
+    // iCloud backup as well as sitting in a browsable contact sheet. The
+    // private album draws from `lib/vault/cache.dart` instead, encrypted.
+    if (record.passcodeHash != null) {
+      await remove(record);
+      return null;
+    }
     try {
       final existing = record.thumbnailPath;
       if (existing != null && await File(existing).exists()) return existing;
@@ -134,5 +148,6 @@ class ThumbnailCache {
     } catch (_) {
       // Already gone — nothing to reclaim.
     }
+    await store.setThumbnailPath(record.localId, null);
   }
 }

@@ -219,7 +219,7 @@ class AssetRecord {
     bool? isHidden,
     DateTime? Function()? deletedAt,
     String? sourcePath,
-    String? thumbnailPath,
+    String? Function()? thumbnailPath,
     bool? localDeleted,
     DateTime? updatedAt,
     DateTime? createdAt,
@@ -241,7 +241,7 @@ class AssetRecord {
     updatedAt: updatedAt ?? DateTime.now(),
     sourceType: sourceType,
     sourcePath: sourcePath ?? this.sourcePath,
-    thumbnailPath: thumbnailPath ?? this.thumbnailPath,
+    thumbnailPath: thumbnailPath != null ? thumbnailPath() : this.thumbnailPath,
     localDeleted: localDeleted ?? this.localDeleted,
     isVideo: isVideo,
     isGif: isGif,
@@ -289,8 +289,9 @@ class AssetRecord {
   AssetRecord withSourcePath(String value, DateTime updatedAt) =>
       _copyWith(sourcePath: value, updatedAt: updatedAt);
 
-  AssetRecord withThumbnailPath(String value) =>
-      _copyWith(thumbnailPath: value);
+  /// Null clears it — a hidden record keeps no picture of itself here.
+  AssetRecord withThumbnailPath(String? value) =>
+      _copyWith(thumbnailPath: () => value);
 
   AssetRecord withLocalDeleted(bool value) => _copyWith(localDeleted: value);
 

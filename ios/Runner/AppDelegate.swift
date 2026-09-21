@@ -22,5 +22,10 @@ import UIKit
     ) {
       ICloudDriveChannel.register(with: registrar)
     }
+    if let registrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "StillVideoChannel"
+    ) {
+      StillVideoChannel.register(with: registrar)
+    }
   }
 }
