@@ -30,7 +30,8 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
    └─ Utilities
         Cloud Settings ──▶ SettingsScreen ──▶ BucketBrowser ─▶ (deeper)
         │                        └─▶ [AddS3Backup]   └─▶ ObjectPreview
-        Sync queue ──▶ [SyncQueueSheet]
+        Backup Queue ──▶ BackupQueueScreen
+        Analyze Queue ──▶ AnalyzeQueueScreen
         AI Settings ──▶ AiSettingsScreen ──▶ [AddKey sheet]
         Hidden ──▶ [PrivateAlbumGate] ──▶ PrivateAlbumScreen
         Recently Deleted ──▶ RecentlyDeletedScreen

@@ -3,11 +3,15 @@ import 'package:flutter/cupertino.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/library_metadata.dart';
 import '../photos/person.dart';
+import '../photos/ai_analysis_store.dart';
+import '../photos/face_grouping.dart';
+import '../photos/face_identity.dart';
 import '../photos/person_store.dart';
 import '../photos/asset_removal.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
+import 'face_group_screen.dart';
 import 'asset_grid_view.dart';
 import 'asset_picker_screen.dart';
 import 'delete_confirmation.dart';
@@ -28,11 +32,16 @@ class PersonPageScreen extends StatefulWidget {
     required this.person,
     required this.personStore,
     required this.assetRecordStore,
+    this.aiAnalysisStore,
   });
 
   final Person person;
   final PersonStore personStore;
   final AssetRecordStore assetRecordStore;
+
+  /// Where a confirmed face is looked up when picking a profile photo.
+  /// Absent, one is opened on demand — see [faceOfPersonIn].
+  final AiAnalysisStore? aiAnalysisStore;
 
   @override
   State<PersonPageScreen> createState() => _PersonPageScreenState();
@@ -108,14 +117,47 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
   /// Their picture, cropped to nothing in particular: a photo picked whole
   /// carries no face box, so any one left over from a face tapped in a
   /// different photo has to go with it.
+  /// Their face in that photo, not the whole photo. It used to write
+  /// `avatarFace: null` outright, so picking a picture of two people on a
+  /// beach made the beach their portrait.
   Future<void> _setProfilePhoto(AssetRecord record) async {
-    final updated = _person.copyWith(
-      avatarLocalId: record.localId,
-      avatarFace: () => null,
+    final face = await faceOfPersonIn(
+      record.localId,
+      _person.id,
+      analysisStore: widget.aiAnalysisStore,
     );
-    await widget.personStore.update(updated);
-    if (!mounted) return;
-    setState(() => _person = updated);
+    await widget.personStore.update(
+      _person.copyWith(avatarLocalId: record.localId, avatarFace: () => face),
+    );
+    // Read back rather than trusting the copy in hand: if the write
+    // didn't land, the header should show that instead of the value we
+    // hoped for.
+    final saved = await widget.personStore.getById(_person.id);
+    if (!mounted || saved == null) return;
+    setState(() => _person = saved);
+  }
+
+  /// Search every photo you haven't named against every face confirmed as
+  /// theirs. One tagged face finds photos like that one; forty find
+  /// photos like any of them, which is what makes tagging compound rather
+  /// than plateau.
+  Future<void> _findMore() async {
+    final analysisStore = widget.aiAnalysisStore ?? AiAnalysisStore();
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => FaceGroupScreen(
+          existing: _person,
+          personStore: widget.personStore,
+          assetRecordStore: widget.assetRecordStore,
+          grouping: FaceGrouping(analysisStore: analysisStore),
+          faceIdentity: FaceIdentityService(
+            analysisStore: analysisStore,
+            resolvePath: (r) async => r.sourcePath,
+          ),
+        ),
+      ),
+    );
+    await _reload();
   }
 
   Future<void> _removeFromPerson(AssetRecord record) async {
@@ -226,6 +268,23 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                           ),
                         ],
                       ),
+                    ),
+                  ),
+                  const SizedBox(height: 4),
+                  CupertinoButton(
+                    padding: EdgeInsets.zero,
+                    minimumSize: Size.zero,
+                    onPressed: _findMore,
+                    child: Row(
+                      mainAxisSize: MainAxisSize.min,
+                      children: [
+                        const Icon(CupertinoIcons.search, size: 15),
+                        const SizedBox(width: 5),
+                        Text(
+                          l10n.personPageFindMore,
+                          style: const TextStyle(fontSize: 14),
+                        ),
+                      ],
                     ),
                   ),
                 ],

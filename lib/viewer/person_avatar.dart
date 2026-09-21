@@ -71,7 +71,12 @@ class PersonAvatar extends StatelessWidget {
                   // and stands in for good if it never does — a grey glyph
                   // there reads as "no picture", which is the one thing
                   // this person definitely isn't.
-                  return _FaceCrop(record: record, face: rect, whole: whole);
+                  return _FaceCrop(
+                    record: record,
+                    face: rect,
+                    size: size,
+                    whole: whole,
+                  );
                 },
               ),
       ),
@@ -96,23 +101,43 @@ class PersonAvatar extends StatelessWidget {
 /// leaves the face wherever it sat in the frame. Centre-frame — one person,
 /// a portrait — that looks right by accident; anyone standing off to the
 /// side of a group shot ends up half out of the circle, or missed entirely.
+/// How wide to decode the *photo* so the *face* in it lands sharp.
+///
+/// A flat cap was the bug this replaces: 1024px of a whole frame is only a
+/// hundred pixels of a face filling a tenth of it, blown up into a circle
+/// three hundred device-pixels across. The face's share of the frame is
+/// exactly what the scale has to account for — the smaller it is, the more
+/// of the photo has to be decoded to keep it sharp.
+///
+/// Bounded at both ends: a full 12-megapixel decode per avatar is memory
+/// spent on detail nobody can see, and a face filling the frame needs no
+/// help at all.
+///
+/// Top-level so the arithmetic can be tested without a decoder, an image
+/// or a screen.
+int decodeWidthForFace(FaceRect face, double size, double pixelRatio) {
+  final wanted = size * pixelRatio;
+  final share = face.width <= 0 ? 1.0 : face.width;
+  return (wanted / share).round().clamp(512, 3072);
+}
+
 class _FaceCrop extends StatefulWidget {
   const _FaceCrop({
     required this.record,
     required this.face,
+    required this.size,
     required this.whole,
   });
 
   final AssetRecord record;
   final FaceRect face;
 
+  /// How big the circle is drawn, in points — half of what decides how
+  /// much of the photo is worth decoding. See [decodeWidthForFace].
+  final double size;
+
   /// The same photo, uncropped — shown until the crop is ready.
   final Widget Function() whole;
-
-  /// Decoded no wider than this: the circle is under 100pt across and shows
-  /// a fraction of the frame, so a full 12-megapixel decode per avatar is
-  /// memory spent on detail nobody can see.
-  static const _decodeWidth = 1024;
 
   @override
   State<_FaceCrop> createState() => _FaceCropState();
@@ -164,7 +189,11 @@ class _FaceCropState extends State<_FaceCrop> {
     if (_attempt >= _providers.length) return;
     final provider = ResizeImage(
       _providers[_attempt],
-      width: _FaceCrop._decodeWidth,
+      width: decodeWidthForFace(
+        widget.face,
+        widget.size,
+        MediaQuery.maybeDevicePixelRatioOf(context) ?? 3,
+      ),
       allowUpscaling: false,
     );
     final stream = provider.resolve(ImageConfiguration.empty);

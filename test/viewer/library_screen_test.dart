@@ -704,10 +704,10 @@ void main() {
       expect(find.text('Favorites'), findsOneWidget);
       expect(find.text('Hidden'), findsOneWidget);
       expect(find.text('Recently Deleted'), findsOneWidget);
-      // The analyze pass is the one queue that lives here. The sync queue
-      // moved to Cloud Settings, beside the buckets it fills.
+      // Both queues live here, as siblings: Sync above Analyze. Cloud
+      // Settings is the connections, not what the upload is doing.
+      expect(find.text('Backup Queue'), findsOneWidget);
       expect(find.text('Analyze Queue'), findsOneWidget);
-      expect(find.text('Sync Queue'), findsNothing);
       expect(find.text('Cloud Settings'), findsOneWidget);
 
       await tester.tap(find.text('Favorites'));

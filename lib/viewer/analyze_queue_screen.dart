@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/analyze_queue.dart';
+import '../photos/on_device_vision.dart';
 import '../settings/backup_targets_store.dart' show SyncFrequency;
 import '../settings/settings_section.dart';
 
@@ -27,15 +28,28 @@ class AnalyzeQueueScreen extends StatefulWidget {
 }
 
 class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
+  /// Null until asked. Says which of the two things is actually matching
+  /// faces — a working fallback looks exactly like a working model until
+  /// the answers are poor and nobody can say which produced them.
+  Object? _faceModel;
+
   @override
   void initState() {
     super.initState();
     widget.queue.refresh();
+    _loadFaceModel();
+  }
+
+  Future<void> _loadFaceModel() async {
+    final status = await OnDeviceVisionService().faceModelStatus;
+    if (mounted) setState(() => _faceModel = status);
   }
 
   String _stepLabel(AppLocalizations l10n, AnalyzeStep step) => switch (step) {
     AnalyzeStep.findFaces => l10n.analyzeQueueStepFaces,
     AnalyzeStep.suggest => l10n.analyzeQueueStepSuggest,
+    AnalyzeStep.learnFaces => l10n.analyzeQueueStepLearnFaces,
+    AnalyzeStep.matchFaces => l10n.analyzeQueueStepMatchFaces,
   };
 
   String _frequencyLabel(AppLocalizations l10n, SyncFrequency f) => switch (f) {
@@ -45,6 +59,40 @@ class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
     SyncFrequency.every6Hours => l10n.settingsSyncFrequencyEvery6Hours,
     SyncFrequency.daily => l10n.settingsSyncFrequencyDaily,
   };
+
+  /// "Analyze Now" means now: a paused queue would otherwise make the
+  /// button do nothing and say nothing about why, same as Sync Now on the
+  /// backup queue.
+  Future<void> _runNow() async {
+    await widget.queue.setPaused(false);
+    await widget.queue.start();
+  }
+
+  /// Asked first, because it throws away work — not destructively (the
+  /// names stay, nothing is re-billed), but it is minutes of the phone's
+  /// time and the button is next to one that only clears a list.
+  Future<void> _confirmRescan() async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(l10n.analyzeQueueRescanConfirmTitle),
+        content: Text(l10n.analyzeQueueRescanConfirmBody),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.analyzeQueueRescanButton),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await widget.queue.rescanAll();
+  }
 
   Future<void> _pickFrequency() async {
     final l10n = AppLocalizations.of(context)!;
@@ -98,6 +146,8 @@ class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
                 heading: l10n.analyzeQueueRemaining(remaining),
                 children: [
                   _controls(l10n),
+                  const SettingsHairline(),
+                  _faceModelRow(l10n),
                   const SettingsHairline(),
                   _paidRow(l10n),
                 ],
@@ -155,45 +205,94 @@ class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
   Widget _controls(AppLocalizations l10n) {
     return Padding(
       padding: const EdgeInsets.fromLTRB(settingsPagePadding, 4, 12, 12),
-      child: ValueListenableBuilder<bool>(
-        valueListenable: widget.queue.paused,
-        builder: (context, paused, _) => Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            SettingsPillButton(
-              icon: paused
-                  ? CupertinoIcons.play_fill
-                  : CupertinoIcons.pause_fill,
-              label: paused
-                  ? l10n.backupQueueResumeAction
-                  : l10n.backupQueuePauseAction,
-              onPressed: () => widget.queue.setPaused(!paused),
+      // Whether it is *running* is the only state these controls turn on;
+      // `paused` is how that state is persisted, not what it looks like.
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          // One control, not two. Running and stopped are the same
+          // question asked from opposite sides, and a separate Pause
+          // beside a separate Analyze Now meant one of them was always
+          // the wrong thing to press.
+          //
+          // The pass is Manual by default, and Manual means it never
+          // starts itself — so without this there is no way to start it
+          // at all, and the queue just shows a number that never moves.
+          ValueListenableBuilder<bool>(
+            valueListenable: widget.queue.running,
+            builder: (context, running, _) => SettingsPillButton(
+              icon: running
+                  ? CupertinoIcons.pause_fill
+                  : CupertinoIcons.play_fill,
+              label: running
+                  ? l10n.backupQueuePauseAction
+                  : l10n.analyzeQueueRunNowButton,
+              onPressed: running ? () => widget.queue.setPaused(true) : _runNow,
             ),
-            ValueListenableBuilder<SyncFrequency>(
-              valueListenable: widget.queue.frequency,
-              builder: (context, frequency, _) => SettingsPillButton(
-                icon: CupertinoIcons.clock,
-                label: _frequencyLabel(l10n, frequency),
-                onPressed: _pickFrequency,
-              ),
+          ),
+          SettingsPillButton(
+            icon: CupertinoIcons.arrow_2_circlepath,
+            label: l10n.analyzeQueueRescanButton,
+            onPressed: _confirmRescan,
+          ),
+          ValueListenableBuilder<SyncFrequency>(
+            valueListenable: widget.queue.frequency,
+            builder: (context, frequency, _) => SettingsPillButton(
+              icon: CupertinoIcons.clock,
+              label: _frequencyLabel(l10n, frequency),
+              onPressed: _pickFrequency,
             ),
-            ValueListenableBuilder<int>(
-              valueListenable: widget.queue.pace,
-              builder: (context, pace, _) => SettingsStepper(
-                label: l10n.backupQueueSpeed(pace),
-                decreaseSemanticLabel: l10n.backupQueueSlowerShort,
-                increaseSemanticLabel: l10n.backupQueueFasterShort,
-                onDecrease: pace <= 1
-                    ? null
-                    : () => widget.queue.setPace(pace - 1),
-                onIncrease: pace >= 4
-                    ? null
-                    : () => widget.queue.setPace(pace + 1),
-              ),
+          ),
+          SettingsPillButton(
+            icon: CupertinoIcons.clear_circled,
+            label: l10n.backupQueueClearButton,
+            onPressed: widget.queue.clear,
+          ),
+          ValueListenableBuilder<int>(
+            valueListenable: widget.queue.pace,
+            builder: (context, pace, _) => SettingsStepper(
+              label: l10n.backupQueueSpeed(pace),
+              decreaseSemanticLabel: l10n.backupQueueSlowerShort,
+              increaseSemanticLabel: l10n.backupQueueFasterShort,
+              onDecrease: pace <= 1
+                  ? null
+                  : () => widget.queue.setPace(pace - 1),
+              onIncrease: pace >= 4
+                  ? null
+                  : () => widget.queue.setPace(pace + 1),
             ),
-          ],
-        ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _faceModelRow(AppLocalizations l10n) {
+    final status = _faceModel;
+    if (status == null) return const SizedBox.shrink();
+    final on = status == true;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(settingsPagePadding, 10, 12, 10),
+      child: Row(
+        children: [
+          Icon(
+            on
+                ? CupertinoIcons.checkmark_seal_fill
+                : CupertinoIcons.exclamationmark_triangle_fill,
+            size: 18,
+            color: on
+                ? CupertinoColors.systemGreen
+                : CupertinoColors.systemOrange,
+          ),
+          const SizedBox(width: 8),
+          Expanded(
+            child: Text(
+              on ? l10n.analyzeQueueFaceModelOn : l10n.analyzeQueueFaceModelOff,
+              style: settingsRowSubtitleStyle,
+            ),
+          ),
+        ],
       ),
     );
   }

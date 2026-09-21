@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
+import 'package:url_launcher/url_launcher.dart';
 import 'package:flutter/gestures.dart' show VelocityTracker;
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
@@ -24,8 +25,8 @@ import '../photos/ai_analysis.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/ai_vision_service.dart';
 import '../photos/face_crops.dart';
+import '../photos/face_identity.dart';
 import '../photos/on_device_analysis.dart';
-import '../photos/on_device_vision.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
 import '../photos/suggestion_review.dart';
@@ -1570,10 +1571,17 @@ class _InfoPanelState extends State<_InfoPanel> {
   void initState() {
     super.initState();
     _load();
-    _loadPeople();
+    _loadPeopleThenFaces();
     _loadAlbums();
     _loadSuggestion();
     _fillLocationFromMetadata();
+  }
+
+  /// Faces come after the people: whether to show them at all depends on
+  /// whether anyone here is already named (see [_loadFoundFaces]).
+  Future<void> _loadPeopleThenFaces() async {
+    await _loadPeople();
+    await _loadFoundFaces();
   }
 
   @override
@@ -1581,10 +1589,18 @@ class _InfoPanelState extends State<_InfoPanel> {
     super.didUpdateWidget(oldWidget);
     // `resolvedPath` starts null for `photoManager` records and arrives
     // once `_MediaPage` finishes resolving it — reload when that happens.
-    if (oldWidget.resolvedPath != widget.resolvedPath) _load();
+    if (oldWidget.resolvedPath != widget.resolvedPath) {
+      _load();
+      // The path arrives after the panel is built for a camera-roll photo,
+      // and there is nothing to cut a face out of until it does.
+      _loadFoundFaces();
+    }
     if (oldWidget.record.localId != widget.record.localId) {
       _description.text = widget.record.description;
-      _loadPeople();
+      _faces = const [];
+      _faceRects = const [];
+      _faceGuesses = const [];
+      _loadPeopleThenFaces();
       _loadAlbums();
       _loadSuggestion();
       _fillLocationFromMetadata();
@@ -1674,15 +1690,21 @@ class _InfoPanelState extends State<_InfoPanel> {
     setState(() => _suggestion = null);
   }
 
-  /// Face thumbnails from the last Auto Suggest, waiting to be named. Not
-  /// persisted: a face nobody has put a name to isn't worth storing, and
-  /// re-finding them costs one Vision call.
+  /// Face thumbnails waiting to be named. The crops themselves aren't
+  /// stored — cutting them again costs one decode — but the boxes are, so
+  /// a photo the analyze pass has already been over shows its faces the
+  /// moment it opens, without looking again.
   List<Uint8List> _faces = const [];
 
   /// Where each of [_faces] sits in the photo, same order — what makes the
   /// tapped face become *that* person's picture rather than the whole
   /// group shot.
-  List<VisionFace> _faceRects = const [];
+  List<FaceRect> _faceRects = const [];
+
+  /// Who each of [_faces] might be, same order — `null` where the app has
+  /// no opinion, which is most of them until somebody has been named a few
+  /// times.
+  List<String?> _faceGuesses = const [];
   bool _suggesting = false;
   String? _suggestNote;
 
@@ -1691,6 +1713,14 @@ class _InfoPanelState extends State<_InfoPanel> {
       OnDeviceAnalysisService(analysisStore: AiAnalysisStore());
   late final AiVisionService _aiVision =
       widget.aiVisionService ?? AiVisionService();
+
+  /// Remembers a face once it's named, and reads back what the analyze
+  /// pass guessed. Resolves to the file already open on screen — this
+  /// screen never has to go looking for a path.
+  late final FaceIdentityService _faceIdentity = FaceIdentityService(
+    analysisStore: _onDeviceAnalysis.analysisStore,
+    resolvePath: (_) async => widget.resolvedPath,
+  );
 
   /// Looks at this one photo, now, because that's when the user asked. No
   /// sweep over the library: analysis is only worth its battery on the
@@ -1704,15 +1734,76 @@ class _InfoPanelState extends State<_InfoPanel> {
       _suggesting = true;
       _suggestNote = null;
     });
-    final faces = await _onDeviceAnalysis.analyze(widget.record, path);
+    final found = await _onDeviceAnalysis.analyze(widget.record, path);
+    final faces = found.map((f) => f.toPersonFace()).toList();
     final crops = await FaceCrops.of(path, faces);
     if (!mounted) return;
     setState(() {
       _suggesting = false;
       _faces = crops;
       _faceRects = faces.take(crops.length).toList();
+      _faceGuesses = List.filled(crops.length, null);
       _suggestNote = crops.isEmpty ? l10n.detailSuggestNothing : null;
     });
+    await _loadGuesses();
+  }
+
+  /// Puts names to whatever the analyze pass guessed about these faces.
+  /// Reads only — the guessing itself is the queue's job, on its own pace.
+  Future<void> _loadGuesses() async {
+    if (_faceRects.isEmpty) return;
+    try {
+      final byFace = await _onDeviceAnalysis.analysisStore.suggestionsFor(
+        widget.record.localId,
+      );
+      if (byFace.isEmpty || !mounted) return;
+      final names = {
+        for (final person in await widget.personStore.listAll())
+          person.id: person.name,
+      };
+      if (!mounted) return;
+      setState(() {
+        _faceGuesses = [
+          for (final rect in _faceRects) names[byFace[rect.encode()]],
+        ];
+      });
+    } catch (_) {
+      // No analysis database, or no people — the faces just stay
+      // questions, which is what they were.
+    }
+  }
+
+  /// Shows what the analyze pass already found here, rather than making
+  /// the user ask for a scan that has already happened. Reads the stored
+  /// boxes and cuts the crops — no Vision call, no cost.
+  ///
+  /// Skipped once somebody in this photo has a name: iOS won't say whose
+  /// face is whose, so the app can't tell which of the boxes is the person
+  /// already tagged, and offering them all again is an invitation to tag
+  /// the same face twice under two names. Find Faces is still there for
+  /// anyone who wants to go through them anyway.
+  Future<void> _loadFoundFaces() async {
+    final path = widget.resolvedPath;
+    if (path == null || _faces.isNotEmpty || _people.isNotEmpty) return;
+    final List<FaceRect> stored;
+    try {
+      stored = await _onDeviceAnalysis.analysisStore.facesFor(
+        widget.record.localId,
+      );
+    } catch (_) {
+      // No analysis database (a widget test, a fresh install) — the button
+      // is the fallback, same as for a photo never scanned.
+      return;
+    }
+    if (stored.isEmpty || !mounted) return;
+    final crops = await FaceCrops.of(path, stored);
+    if (crops.isEmpty || !mounted) return;
+    setState(() {
+      _faces = crops;
+      _faceRects = stored.take(crops.length).toList();
+      _faceGuesses = List.filled(crops.length, null);
+    });
+    await _loadGuesses();
   }
 
   Future<void> _suggestWithAi() async {
@@ -1770,16 +1861,26 @@ class _InfoPanelState extends State<_InfoPanel> {
         await widget.personStore.update(
           latest.copyWith(
             avatarLocalId: widget.record.localId,
-            avatarFace: () => _faceRects[index].toPersonFace(),
+            avatarFace: () => _faceRects[index],
           ),
         );
       }
+      // This screen names faces through its own picker rather than the
+      // shared `nameFace`, so the teaching has to happen here too — or the
+      // one surface where you're actually looking at the photo would be
+      // the one that never learns from it.
+      await _faceIdentity.remember(
+        record: widget.record,
+        face: _faceRects[index],
+        personId: person.id,
+      );
     }
     if (!mounted) return;
     // Named, so it stops being an open question.
     setState(() {
       _faces = [..._faces]..removeAt(index);
       _faceRects = [..._faceRects]..removeAt(index);
+      _faceGuesses = [..._faceGuesses]..removeAt(index);
     });
     await _loadPeople();
   }
@@ -1877,6 +1978,30 @@ class _InfoPanelState extends State<_InfoPanel> {
   /// Same "search existing, or type to create" drop-down used for education/
   /// job titles and relationship organizations — fuzzy-matches locations
   /// already used on other photos, no separate "create" affordance needed.
+  /// Opens where the photo was taken, on the map, from its own GPS tag —
+  /// not from the place name, which is a label someone may have typed.
+  ///
+  /// A `geo:` URL would let the phone pick its own map app, which sounds
+  /// better and isn't: iOS has no handler for it, so it silently fails.
+  /// The https form opens Google Maps where it's installed and the
+  /// browser where it isn't, which is a working answer either way.
+  Future<void> _openOnMap() async {
+    final record = widget.record;
+    final latitude = record.latitude;
+    final longitude = record.longitude;
+    if (latitude == null || longitude == null) return;
+    final url = Uri.parse(
+      'https://www.google.com/maps/search/?api=1'
+      '&query=$latitude,$longitude',
+    );
+    try {
+      await launchUrl(url, mode: LaunchMode.externalApplication);
+    } catch (_) {
+      // No browser, no map, no handler. Nothing was lost — the
+      // coordinates are still on the row above.
+    }
+  }
+
   Future<void> _editLocation() async {
     final l10n = AppLocalizations.of(context)!;
     final options = await widget.assetRecordStore.allLocations();
@@ -2124,6 +2249,22 @@ class _InfoPanelState extends State<_InfoPanel> {
                 additionalInfo: Text(
                   record.location ?? l10n.detailInfoNoLocation,
                 ),
+                // Only where the photo actually carries coordinates. A
+                // place *name* can be typed in by hand and means nothing
+                // to a map; a pin that opens the wrong street is worse
+                // than no pin.
+                trailing: record.latitude == null || record.longitude == null
+                    ? null
+                    : CupertinoButton(
+                        padding: const EdgeInsets.symmetric(horizontal: 6),
+                        minimumSize: const Size(44, 44),
+                        onPressed: _openOnMap,
+                        child: const Icon(
+                          CupertinoIcons.map_pin_ellipse,
+                          size: 20,
+                          color: CupertinoColors.activeBlue,
+                        ),
+                      ),
                 onTap: _editLocation,
               ),
               CupertinoListTile(
@@ -2288,20 +2429,44 @@ class _InfoPanelState extends State<_InfoPanel> {
               ),
             ),
             SizedBox(
-              height: 64,
+              // 60 for the crop, the rest for a name under it when there
+              // is one — reserved either way, so a guess arriving doesn't
+              // shunt the section below it.
+              height: 80,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
                 itemCount: _faces.length,
                 separatorBuilder: (context, i) => const SizedBox(width: 10),
                 itemBuilder: (context, i) => GestureDetector(
                   onTap: () => _nameFace(i),
-                  child: ClipOval(
-                    child: Image.memory(
-                      _faces[i],
-                      width: 60,
-                      height: 60,
-                      fit: BoxFit.cover,
-                    ),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      ClipOval(
+                        child: Image.memory(
+                          _faces[i],
+                          width: 60,
+                          height: 60,
+                          fit: BoxFit.cover,
+                        ),
+                      ),
+                      // Only where there's a guess. A row of "?" under
+                      // every face is noise saying what the row already
+                      // says.
+                      if (_faceGuesses.length > i && _faceGuesses[i] != null)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 3),
+                          child: Text(
+                            l10n.peopleSuggestedFace(_faceGuesses[i]!),
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 11,
+                              color: CupertinoColors.systemGrey,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),

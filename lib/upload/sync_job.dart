@@ -37,6 +37,7 @@ class SyncJob {
     required this.status,
     required this.createdAt,
     required this.updatedAt,
+    required this.assetCreatedAt,
     this.errorMessage,
   });
 
@@ -52,6 +53,13 @@ class SyncJob {
   final String? errorMessage;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  /// When the photo was taken — not when the job was made. The queue runs
+  /// newest-first, so this is what orders it: the picture from ten minutes
+  /// ago goes up before the one from 2014, whichever was queued first. A
+  /// job carried over from before this was recorded has the epoch here and
+  /// sorts last, behind everything with a real date.
+  final DateTime assetCreatedAt;
 
   bool get isFinished =>
       status == SyncJobStatus.done || status == SyncJobStatus.failed;

@@ -37,10 +37,31 @@ class FaceRect {
 /// put a name to. Not a [Person] and deliberately not stored as one —
 /// there is nothing to remember about it beyond "here, look at this".
 class UnnamedFace {
-  const UnnamedFace({required this.localId, required this.face});
+  const UnnamedFace({
+    required this.localId,
+    required this.face,
+    this.suggestedPersonId,
+    this.suggestedName,
+    this.alike = 1,
+  });
 
   final String localId;
   final FaceRect face;
+
+  /// Who the app thinks this is, if it has an opinion. A guess, offered —
+  /// never a link made. Null is the normal case and a fine answer.
+  final String? suggestedPersonId;
+  final String? suggestedName;
+
+  /// How many faces this one stands for, itself included.
+  ///
+  /// The list shows one circle per *person*, not per face — three photos
+  /// of the same stranger asked "who's this?" three times, which is three
+  /// answers for one question. This is the size of the pile behind the
+  /// one on top.
+  final int alike;
+
+  bool get hasSuggestion => suggestedName != null;
 }
 
 /// How two [Person]s relate — drives both the profile's relationship list

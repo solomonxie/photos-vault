@@ -19,6 +19,7 @@ class FakeSyncJobStore implements SyncJobStore {
     required String localId,
     required SyncJobKind kind,
     required String displayName,
+    required DateTime assetCreatedAt,
   }) async {
     final outstanding = _jobs.where(
       (j) => j.localId == localId && j.kind == kind && !j.isFinished,
@@ -33,6 +34,7 @@ class FakeSyncJobStore implements SyncJobStore {
       status: SyncJobStatus.pending,
       createdAt: now,
       updatedAt: now,
+      assetCreatedAt: assetCreatedAt,
     );
     _jobs.add(job);
     return job;
@@ -45,9 +47,18 @@ class FakeSyncJobStore implements SyncJobStore {
   Future<int> countWhere(Iterable<SyncJobStatus> statuses) async =>
       _jobs.where((j) => statuses.contains(j.status)).length;
 
+  /// Newest photo first, like the real store's `ORDER BY
+  /// asset_created_at DESC`.
   @override
   Future<SyncJob?> dequeueNextPending() async {
-    final index = _jobs.indexWhere((j) => j.status == SyncJobStatus.pending);
+    var index = -1;
+    for (var i = 0; i < _jobs.length; i++) {
+      if (_jobs[i].status != SyncJobStatus.pending) continue;
+      if (index < 0 ||
+          _jobs[i].assetCreatedAt.isAfter(_jobs[index].assetCreatedAt)) {
+        index = i;
+      }
+    }
     if (index < 0) return null;
     final claimed = _copy(_jobs[index], SyncJobStatus.running);
     _jobs[index] = claimed;
@@ -65,10 +76,7 @@ class FakeSyncJobStore implements SyncJobStore {
   Future<void> retry(String id) async => _setStatus(id, SyncJobStatus.pending);
 
   @override
-  Future<void> clearQueue() async => _jobs.removeWhere(
-    (j) =>
-        j.status == SyncJobStatus.pending || j.status == SyncJobStatus.failed,
-  );
+  Future<void> clearQueue() async => _jobs.clear();
 
   @override
   Future<void> clearSynced() async =>
@@ -113,5 +121,6 @@ class FakeSyncJobStore implements SyncJobStore {
         errorMessage: error,
         createdAt: job.createdAt,
         updatedAt: DateTime.now(),
+        assetCreatedAt: job.assetCreatedAt,
       );
 }

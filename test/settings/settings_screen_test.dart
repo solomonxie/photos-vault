@@ -7,9 +7,6 @@ import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/bucket_browser_screen.dart';
 import 'package:photos_vault/settings/settings_screen.dart';
 import 'package:photos_vault/storage/asset_record.dart';
-import 'package:photos_vault/upload/sync_job.dart';
-import 'package:photos_vault/upload/sync_queue.dart';
-import 'package:photos_vault/viewer/sync_queue_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -19,7 +16,6 @@ import '../support/fake_asset_record_store.dart';
 import '../support/fake_local_vault.dart';
 import '../support/fake_person_store.dart';
 import '../support/fake_snapshot_file.dart';
-import '../support/fake_sync_job_store.dart';
 import 'fake_secure_store.dart';
 
 Widget _wrap(Widget child) {
@@ -302,91 +298,6 @@ void main() {
     expect(find.text('my-bucket'), findsOneWidget);
   });
 
-  testWidgets('the queue is a pill of its own that opens a sheet, not a page', (
-    tester,
-  ) async {
-    await _useTallSurface(tester);
-    final store = await _storeWithBucket();
-    final recordStore = FakeAssetRecordStore();
-    await recordStore.upsert(localId: 'a', contentHash: 'a', platform: 'ios');
-    final b = await recordStore.upsert(
-      localId: 'b',
-      contentHash: 'b',
-      platform: 'ios',
-    );
-    await recordStore.updateDerivative(
-      b.localId,
-      DerivativeKind.original,
-      const DerivativeState(
-        status: UploadStatus.uploaded,
-        destinationKey: 'originals/b.jpg',
-      ),
-    );
-
-    final queue = SyncQueue(
-      store: FakeSyncJobStore(),
-      settings: store,
-      process: (_) async {},
-    );
-    await queue.store.enqueue(
-      localId: 'a',
-      kind: SyncJobKind.uploadOriginal,
-      displayName: 'a.jpg',
-    );
-    await queue.refresh();
-
-    await tester.pumpWidget(
-      _wrap(
-        SettingsScreen(
-          store: store,
-          assetRecordStore: recordStore,
-          syncQueue: queue,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    // Counts outstanding *jobs* — one photo can be several units of work.
-    expect(find.text('Queue (1)'), findsOneWidget);
-    // The pace is the stepper's business, not a second copy here.
-    expect(find.text('2 at a time'), findsOneWidget);
-
-    // A control among the others, not a line of footer text: "is anything
-    // happening?" is the most-asked question on this page.
-    await tester.tap(find.text('Queue (1)'));
-    await tester.pumpAndSettle();
-
-    expect(find.byType(SyncQueueSheet), findsOneWidget);
-  });
-
-  testWidgets('the speed stepper steps the queue concurrency', (tester) async {
-    await _useTallSurface(tester);
-    final store = await _storeWithBucket();
-    final queue = SyncQueue(
-      store: FakeSyncJobStore(),
-      settings: store,
-      process: (_) async {},
-    );
-    await queue.refresh();
-
-    await tester.pumpWidget(
-      _wrap(
-        SettingsScreen(
-          store: store,
-          assetRecordStore: FakeAssetRecordStore(),
-          syncQueue: queue,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.byIcon(CupertinoIcons.plus));
-    await tester.pumpAndSettle();
-
-    expect(queue.concurrency.value, 3);
-    expect(find.text('3 at a time'), findsOneWidget);
-  });
-
   testWidgets('stats ride on one footer line under the bucket list', (
     tester,
   ) async {
@@ -416,75 +327,61 @@ void main() {
     expect(find.text('1 bucket · 1 of 2 photos backed up'), findsOneWidget);
   });
 
-  testWidgets('the schedule is a pill of its value, and Sync Now is dead '
-      'with no bucket', (tester) async {
-    await _useTallSurface(tester);
-    final store = BackupTargetsStore(store: FakeSecureStore());
-
-    await tester.pumpWidget(
-      _wrap(
-        SettingsScreen(store: store, assetRecordStore: FakeAssetRecordStore()),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    expect(find.text('Manual Only'), findsOneWidget);
-    expect(find.text('Never synced'), findsOneWidget);
-
-    // Present but disabled rather than missing — a manual action must never
-    // be a silent no-op.
-    final syncNow = tester.widget<CupertinoButton>(
-      find.ancestor(
-        of: find.text('Sync Now'),
-        matching: find.byType(CupertinoButton),
-      ),
-    );
-    expect(syncNow.onPressed, isNull);
-  });
-
-  testWidgets('picking a sync frequency persists it', (tester) async {
+  testWidgets('one bucket shows the order, dimmed, and says when it counts', (
+    tester,
+  ) async {
     await _useTallSurface(tester);
     final store = await _storeWithBucket();
 
-    await tester.pumpWidget(
-      _wrap(
-        SettingsScreen(store: store, assetRecordStore: FakeAssetRecordStore()),
-      ),
-    );
+    await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Manual Only'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Every Hour'));
+    // Visible so it can be found before the second bucket exists — but
+    // not a live choice between two identical outcomes.
+    expect(find.text('Photo by Photo'), findsOneWidget);
+    expect(find.text('Matters once you add a second bucket.'), findsOneWidget);
+
+    await tester.tap(find.text('Photo by Photo'));
     await tester.pumpAndSettle();
 
-    expect(await store.getSyncFrequency(), SyncFrequency.everyHour);
+    expect(find.text('Bucket by Bucket'), findsNothing);
   });
 
-  testWidgets('the backup format is one row, and what each costs is in the '
-      'sheet where it is chosen', (tester) async {
+  testWidgets('a second bucket brings the order menu, and it sticks', (
+    tester,
+  ) async {
     await _useTallSurface(tester);
     final store = await _storeWithBucket();
-
-    await tester.pumpWidget(
-      _wrap(
-        SettingsScreen(store: store, assetRecordStore: FakeAssetRecordStore()),
-      ),
+    await store.add(
+      accessKeyId: 'a',
+      secretAccessKey: 'b',
+      region: 'us-east-1',
+      bucket: 'other-bucket',
+      prefix: 'p/',
     );
+
+    await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
     await tester.pumpAndSettle();
 
-    // The page carries the current answer, not both answers and their
-    // reasons laid out permanently.
-    expect(find.textContaining('Full quality, byte-identical'), findsNothing);
-    await tester.tap(find.text('Original'));
+    // The pill carries the current value, like the queue's own settings,
+    // and the one-bucket note is gone with the reason for it.
+    expect(find.text('Photo by Photo'), findsOneWidget);
+    expect(find.text('Matters once you add a second bucket.'), findsNothing);
+
+    await tester.tap(find.text('Photo by Photo'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Full quality, byte-identical'), findsOneWidget);
-    expect(find.textContaining('Re-encodes photos as WebP'), findsOneWidget);
-    await tester.tap(find.text('Optimized (WebP)'));
+    // Leads with the part that doesn't change: both orders still put
+    // every photo in every bucket.
+    expect(
+      find.textContaining('ends up in every bucket either way'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Bucket by Bucket'));
     await tester.pumpAndSettle();
 
-    expect(await store.getBackupFormat(), BackupFormat.optimized);
-    expect(find.text('Optimized (WebP)'), findsOneWidget);
+    expect(find.text('Bucket by Bucket'), findsOneWidget);
+    expect(await store.getOrderStrategy(), BackupOrderStrategy.bucketByBucket);
   });
 }
