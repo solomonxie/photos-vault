@@ -132,12 +132,14 @@ void main() {
     final record = await tracked(store);
     final library = _FakeLibrary(original: await originalFile('IMG_3.jpg'));
     var saved = 0;
+    DateTime? savedWithDate;
     final custody = LibraryCustody(
       store: store,
       library: library,
       directory: () async => dir,
-      saveToLibrary: (file, {required isVideo}) async {
+      saveToLibrary: (file, {required isVideo, required createdAt}) async {
         saved++;
+        savedWithDate = createdAt;
         // PhotoKit cannot undelete: what comes back is a new asset.
         return AssetEntity(id: 'PH2', typeInt: 1, width: 1, height: 1);
       },
@@ -148,6 +150,10 @@ void main() {
     expect(await custody.putBack(hidden), CustodyResult.returned);
 
     expect(saved, 1);
+    // PhotoKit stamps a new asset with the moment it was made, so the date
+    // has to be handed over and written back — otherwise a photo hidden in
+    // 2019 returns dated today, at the bottom of the camera roll.
+    expect(savedWithDate, hidden.createdAt);
     final after = (await store.getByLocalId(record.localId))!;
     expect(after.libraryId, 'PH2');
     expect(
@@ -174,7 +180,7 @@ void main() {
       store: store,
       library: _FakeLibrary(),
       directory: () async => dir,
-      saveToLibrary: (file, {required isVideo}) async {
+      saveToLibrary: (file, {required isVideo, required createdAt}) async {
         saved++;
         return null;
       },

@@ -31,6 +31,7 @@ import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
 import '../photos/suggestion_review.dart';
 import '../settings/backup_targets_store.dart';
+import '../settings/bucket_location.dart';
 import 'asset_grid.dart';
 import '../storage/album.dart';
 import '../storage/album_store.dart';
@@ -56,6 +57,11 @@ const _screenBackground = Color(0xFF1C1C1E);
 /// touches still images; videos share their original file as-is (no
 /// bundled transcoder).
 enum _ExportFormat { jpg, png, webp }
+
+/// What the share sheet offers. The last two only once the photo has an
+/// object in a bucket — sharing is "where else can this go", and by then
+/// it is already somewhere else.
+enum _ShareChoice { original, exportAs, showInBucket, openInBrowser }
 
 enum _EditChoice { crop, rotate, aiTouchUp }
 
@@ -302,30 +308,54 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
-  /// "Share Original" (as-is, any media type) or — stills only —
-  /// "Export As…" to re-encode into a different image format first.
+  /// "Share Original" (as-is, any media type), "Export As…" (stills only,
+  /// re-encoded into another format), and — once the photo has landed in a
+  /// bucket — the two ways to the object it landed as.
+  ///
+  /// The bucket options don't need the local file, which is the point: a
+  /// photo whose bytes are gone from this phone is exactly when somebody
+  /// wants to know where the copy is.
   Future<void> _showShareSheet() async {
     final l10n = AppLocalizations.of(context)!;
     final record = _records[_index];
+    final original = record.stateOf(DerivativeKind.original);
+    final objectKey = original.status == UploadStatus.uploaded
+        ? original.destinationKey
+        : null;
     final path = await _resolvePath(record);
     if (!mounted) return;
-    if (path == null) {
+    if (path == null && objectKey == null) {
       _showMessage(l10n.detailFileUnavailable);
       return;
     }
-    final choice = await showCupertinoModalPopup<bool>(
+    final choice = await showCupertinoModalPopup<_ShareChoice>(
       context: context,
       builder: (context) => CupertinoActionSheet(
         actions: [
-          CupertinoActionSheetAction(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(l10n.detailShareOriginalOption),
-          ),
-          if (!record.countsAsVideo)
+          if (path != null) ...[
             CupertinoActionSheetAction(
-              onPressed: () => Navigator.of(context).pop(true),
-              child: Text(l10n.detailExportAsOption),
+              onPressed: () => Navigator.of(context).pop(_ShareChoice.original),
+              child: Text(l10n.detailShareOriginalOption),
             ),
+            if (!record.countsAsVideo)
+              CupertinoActionSheetAction(
+                onPressed: () =>
+                    Navigator.of(context).pop(_ShareChoice.exportAs),
+                child: Text(l10n.detailExportAsOption),
+              ),
+          ],
+          if (objectKey != null) ...[
+            CupertinoActionSheetAction(
+              onPressed: () =>
+                  Navigator.of(context).pop(_ShareChoice.showInBucket),
+              child: Text(l10n.bucketShowInBucket),
+            ),
+            CupertinoActionSheetAction(
+              onPressed: () =>
+                  Navigator.of(context).pop(_ShareChoice.openInBrowser),
+              child: Text(l10n.bucketOpenInBrowser),
+            ),
+          ],
         ],
         cancelButton: CupertinoActionSheetAction(
           onPressed: () => Navigator.of(context).pop(),
@@ -334,11 +364,16 @@ class _DetailScreenState extends State<DetailScreen> {
       ),
     );
     if (choice == null || !mounted) return;
-    if (choice == false) {
-      await SharePlus.instance.share(ShareParams(files: [XFile(path)]));
-      return;
+    switch (choice) {
+      case _ShareChoice.original:
+        await SharePlus.instance.share(ShareParams(files: [XFile(path!)]));
+      case _ShareChoice.exportAs:
+        await _exportAndShare(path!);
+      case _ShareChoice.showInBucket:
+        await showObjectInBucketBrowser(context, objectKey: objectKey!);
+      case _ShareChoice.openInBrowser:
+        await openObjectInSystemBrowser(context, objectKey: objectKey!);
     }
-    await _exportAndShare(path);
   }
 
   Future<void> _exportAndShare(String path) async {
@@ -927,6 +962,17 @@ class _MediaPageState extends State<_MediaPage>
         _pullOrigin = null;
         return;
       }
+      // End the scroll view's own drag rather than yanking the physics out
+      // from under it. Swapping to [NeverScrollableScrollPhysics] replaces
+      // the position mid-gesture, so the drag it had started never ends
+      // and never says so — and whoever is listening for the end of a
+      // scroll (the app-wide `ScrollStopGuard`) waits for a notification
+      // that is never coming. `jumpTo` where it already is stops the
+      // activity and posts the end.
+      final position = widget.scrollController.hasClients
+          ? widget.scrollController.position
+          : null;
+      position?.jumpTo(position.pixels);
       setState(() => _dragging = true);
     }
     // The distance it took to claim the drag comes back off, so the photo
@@ -944,9 +990,12 @@ class _MediaPageState extends State<_MediaPage>
     final flicked =
         velocity.dy > _dismissFlickVelocity && pulled > _dismissFlickDistance;
     if (pulled >= _dismissPullDistance || flicked) {
-      // Left where the finger put it: the route's own fade carries it out
-      // from there, rather than snapping back to the middle first.
+      // Carried on in the direction it was thrown while the route fades,
+      // rather than hanging where the finger left it. A photo that stops
+      // dead and then dissolves reads as the app thinking about it; one
+      // that keeps going reads as gone the moment it was let go of.
       _dismissed = true;
+      _carryOn(velocity.dy);
       Navigator.of(context).pop();
       return;
     }
@@ -958,7 +1007,21 @@ class _MediaPageState extends State<_MediaPage>
     widget.onPull(_progressOf(value));
   }
 
+  /// The last of the gesture, run out over the route's own fade: down by
+  /// a little, or by a lot if it was flicked.
+  void _carryOn(double velocity) {
+    _settle.duration = const Duration(milliseconds: 140);
+    _settleTween = Tween<Offset>(
+      begin: _drag.value,
+      end: _drag.value + Offset(0, (velocity * 0.12).clamp(40.0, 180.0)),
+    ).animate(CurvedAnimation(parent: _settle, curve: Curves.easeOutCubic));
+    _settle
+      ..value = 0
+      ..forward();
+  }
+
   void _springBack() {
+    _settle.duration = const Duration(milliseconds: 240);
     _settleTween = Tween<Offset>(
       begin: _drag.value,
       end: Offset.zero,
@@ -975,6 +1038,10 @@ class _MediaPageState extends State<_MediaPage>
 
   void _onSettleStatus(AnimationStatus status) {
     if (status != AnimationStatus.completed) return;
+    // A photo on its way out has nothing to put back: the page is going
+    // with the route, and rebuilding it to un-drag it only puts the
+    // stand-in back under a photo that is already fading.
+    if (_dismissed) return;
     _settleTween = null;
     if (mounted) setState(() => _dragging = false);
     widget.onPull(null);
@@ -1090,6 +1157,11 @@ class _MediaPageState extends State<_MediaPage>
   /// The cached thumbnail, plus the offer to pull the full-resolution copy
   /// back down from the bucket — what a cloud-only asset shows instead of
   /// its (deleted) original.
+  ///
+  /// With no thumbnail to draw either, it says what is actually true — the
+  /// bucket still has it — rather than "no longer available", which is the
+  /// one thing this state is not, and read as a contradiction next to a
+  /// Download button and a row saying Backed Up.
   Widget _cloudOnly(AppLocalizations l10n) {
     final thumbnail = widget.record.thumbnailPath;
     return Stack(
@@ -1101,11 +1173,11 @@ class _MediaPageState extends State<_MediaPage>
               File(thumbnail),
               fit: BoxFit.contain,
               errorBuilder: (context, error, stackTrace) =>
-                  _MissingFileNote(message: l10n.detailFileUnavailable),
+                  _MissingFileNote(message: l10n.detailCloudOnlyNote),
             ),
           )
         else
-          _MissingFileNote(message: l10n.detailFileUnavailable),
+          _MissingFileNote(message: l10n.detailCloudOnlyNote),
         Positioned(
           left: 0,
           right: 0,
@@ -1154,6 +1226,11 @@ class _MediaPageState extends State<_MediaPage>
   /// thumbnail behind those is a thumbnail showing through them.
   Widget? _standIn() {
     if (widget.record.isVideo || _localDeleted || _error != null) return null;
+    // Not while the photo is being dragged: by then the real one has
+    // certainly painted, and a second full-screen image under it is one
+    // more screen of pixels for the GPU to sample on every frame of a
+    // gesture that has to keep up with a finger.
+    if (_dragging) return null;
     return Center(
       child: assetImage(
         widget.record,
@@ -1321,7 +1398,11 @@ class _MediaPageState extends State<_MediaPage>
                 offset: drag,
                 child: Transform.scale(
                   scale: 1 - 0.3 * _progressOf(drag),
-                  child: child,
+                  // Inside the transform on purpose: the page is painted
+                  // once into its own layer and the drag then moves and
+                  // scales that layer, rather than repainting a
+                  // full-screen photo sixty times a second.
+                  child: RepaintBoundary(child: child),
                 ),
               ),
         child: LayoutBuilder(
@@ -1432,6 +1513,11 @@ class _ZoomableImageState extends State<_ZoomableImage>
 
   bool get _isZoomed => _transformation.value.getMaxScaleOnAxis() > 1.01;
 
+  static int _decodeWidth(BuildContext context) =>
+      (MediaQuery.sizeOf(context).width *
+              MediaQuery.devicePixelRatioOf(context))
+          .round();
+
   @override
   void initState() {
     super.initState();
@@ -1493,6 +1579,13 @@ class _ZoomableImageState extends State<_ZoomableImage>
               Image.file(
                 widget.file,
                 fit: BoxFit.contain,
+                // Decoded to the screen, not to the sensor. A 12 MP photo
+                // is a 48 MB texture; drawn into a 1170-pixel-wide phone
+                // it is the same picture at an eighth of the cost, and
+                // the GPU re-samples it on every frame of a drag. Full
+                // resolution comes back the moment it is zoomed into,
+                // which is the only time the extra pixels exist.
+                cacheWidth: _isZoomed ? null : _decodeWidth(context),
                 errorBuilder: widget.errorBuilder,
                 // Already decoded (a photo swiped back to) paints at once;
                 // anything else comes up over the stand-in rather than

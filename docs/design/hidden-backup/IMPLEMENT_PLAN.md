@@ -109,6 +109,10 @@ the same thing. See "Still to prove" at the end.
       LRU inside each, whole cache dropped when the passphrase is forgotten.
 - [x] Full photo on demand; unhide writes it back into Photos, deletes the
       carrier, removes the index entry.
+- [ ] **Unhiding from the bucket must set the creation date**, the same way
+      `LibraryCustody` now does for a local put-back: PhotoKit stamps what
+      it creates with *now*, so a photo hidden in 2019 comes back dated
+      today. The date is in the index entry (`takenAt`).
 - [x] Videos: MP4 carriers per DESIGN, or keep local if that lands later.
 - [x] Tests: hide → upload → row gone → restore; a locked album uploads
       nothing; the local original survives until the carrier is confirmed;

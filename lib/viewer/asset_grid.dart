@@ -211,6 +211,11 @@ Widget assetImage(
     return Image.file(
       File(path),
       fit: fit,
+      // Decoded to the size it is drawn at, not the size it was shot at.
+      // Without this a grid of manually-added photos decodes a dozen
+      // 12 MP originals into full-resolution bitmaps — tens of megabytes
+      // each, held by the image cache, for a 95-point square.
+      cacheWidth: thumbnailSize,
       errorBuilder: (context, error, stackTrace) => cached(),
     );
   }
@@ -605,9 +610,14 @@ Future<Uint8List?> photoManagerThumbnailBytes(
   int? size,
   bool fitted = false,
 }) async {
+  // Asked for and found missing once already. Without this, every rebuild
+  // of a tile whose photo is gone is two platform round trips that can
+  // only fail, and a library with a screenful of them stutters on every
+  // scroll.
+  if (_knownMissing.contains(assetId)) return null;
   final key = _thumbnailKey(assetId, size, fitted);
-  final cached = _thumbnailBytes[key];
-  if (cached != null) return cached;
+  final cached = _thumbnailBytes.remove(key);
+  if (cached != null) return _thumbnailBytes[key] = cached;
   try {
     final entity = await AssetEntity.fromId(assetId);
     final bytes = size == null
@@ -616,7 +626,7 @@ Future<Uint8List?> photoManagerThumbnailBytes(
             _thumbnailOption(size, fitted: fitted),
           );
     if (bytes != null) {
-      _thumbnailBytes[key] = bytes;
+      _remember(key, bytes);
       if (fitted) _rememberFitted(assetId, size!, bytes);
     }
     return bytes;
@@ -663,13 +673,20 @@ String _thumbnailKey(String assetId, int? size, bool fitted) {
 /// second is worth acting on, and only the entity itself can tell them
 /// apart.
 Future<bool> photoManagerAssetMissing(String assetId) async {
+  if (_knownMissing.contains(assetId)) return true;
   try {
-    return await AssetEntity.fromId(assetId) == null;
+    if (await AssetEntity.fromId(assetId) != null) return false;
+    _knownMissing.add(assetId);
+    return true;
   } catch (_) {
     // Couldn't ask — no plugin, no permission. Assume it's still there.
     return false;
   }
 }
+
+/// Assets the library has already said it doesn't have. Only ever grows
+/// by one entry per deleted photo, and is dropped whole by
+/// [clearThumbnailCaches] — which a re-scan is what would put one back.
 
 /// What's already in memory for [assetId], preferring the size asked for
 /// but taking any other over nothing: the grid has usually just drawn this
@@ -688,7 +705,38 @@ Uint8List? cachedThumbnailBytes(
   return _thumbnailBytes[assetId];
 }
 
+final _knownMissing = <String>{};
+
+/// The OS's thumbnail bytes for this session, most recently used last.
+///
+/// Capped, and that is the whole point: unbounded, this grew by one JPEG
+/// per tile ever scrolled past — hundreds of megabytes down a real
+/// library, which iOS answers by squeezing the app until it stalls.
+///
+/// Generous, for the opposite reason: an evicted tile has to go back to
+/// PhotoKit when it scrolls into view again, which is a blank square and
+/// a round trip. At roughly 20 KB a tile this is ~40 MB and a hundred
+/// screenfuls, so ordinary scrolling back and forth never re-fetches and
+/// only a long sweep through the library drops anything.
+const _thumbnailCacheEntries = 2000;
 final _thumbnailBytes = <String, Uint8List>{};
+
+void _remember(String key, Uint8List bytes) {
+  _thumbnailBytes.remove(key);
+  _thumbnailBytes[key] = bytes;
+  while (_thumbnailBytes.length > _thumbnailCacheEntries) {
+    _thumbnailBytes.remove(_thumbnailBytes.keys.first);
+  }
+}
+
+/// Everything held in memory for thumbnails, dropped. Called when iOS says
+/// it is short of memory — the alternative to handing some back is being
+/// killed, and every one of these is re-fetchable from the library.
+void clearThumbnailCaches() {
+  _thumbnailBytes.clear();
+  _fittedThumbnails.clear();
+  _knownMissing.clear();
+}
 
 /// The largest aspect-fit thumbnail seen for an asset, whatever size asked
 /// for it. The grid draws one of these per tile, which is what lets the
@@ -696,10 +744,21 @@ final _thumbnailBytes = <String, Uint8List>{};
 /// rectangle while a bigger one renders.
 final _fittedThumbnails = <String, ({int size, Uint8List bytes})>{};
 
+/// A full-screen stand-in is megapixels, not kilobytes — a handful of
+/// them is already more memory than every grid tile on screen. Enough to
+/// cover a swipe either way through the viewer, and no more.
+const _fittedCacheEntries = 12;
+
 void _rememberFitted(String assetId, int size, Uint8List bytes) {
-  final held = _fittedThumbnails[assetId];
-  if (held != null && held.size >= size) return;
+  final held = _fittedThumbnails.remove(assetId);
+  if (held != null && held.size >= size) {
+    _fittedThumbnails[assetId] = held;
+    return;
+  }
   _fittedThumbnails[assetId] = (size: size, bytes: bytes);
+  while (_fittedThumbnails.length > _fittedCacheEntries) {
+    _fittedThumbnails.remove(_fittedThumbnails.keys.first);
+  }
 }
 
 class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {

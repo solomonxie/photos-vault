@@ -41,7 +41,11 @@ class LibraryCustody {
     required this.store,
     PhotoLibraryService? library,
     Future<Directory> Function()? directory,
-    Future<AssetEntity?> Function(File file, {required bool isVideo})?
+    Future<AssetEntity?> Function(
+      File file, {
+      required bool isVideo,
+      required DateTime createdAt,
+    })?
     saveToLibrary,
   }) : _library = library ?? PhotoLibraryService(store: store),
        _directory = directory ?? getApplicationSupportDirectory,
@@ -50,17 +54,41 @@ class LibraryCustody {
   final AssetRecordStore store;
   final PhotoLibraryService _library;
   final Future<Directory> Function() _directory;
-  final Future<AssetEntity?> Function(File file, {required bool isVideo})
+  final Future<AssetEntity?> Function(
+    File file, {
+    required bool isVideo,
+    required DateTime createdAt,
+  })
   _saveToLibrary;
 
+  /// Hands the file to Photos **with its original date**.
+  ///
+  /// PhotoKit stamps whatever it creates with the moment it was created, so
+  /// a photo hidden in 2019 and recovered today comes back dated today, at
+  /// the bottom of the camera roll rather than the day it was taken.
+  ///
+  /// The date goes in at creation — one `performChanges`, set on the same
+  /// `PHAssetCreationRequest` that adds the file — rather than being
+  /// patched on afterwards. A second call would be a second thing that can
+  /// fail, and the failure would be invisible: the photo is back, just
+  /// wearing the wrong day.
   static Future<AssetEntity?> _defaultSaveToLibrary(
     File file, {
     required bool isVideo,
-  }) {
+    required DateTime createdAt,
+  }) async {
     final name = p.basename(file.path);
     return isVideo
-        ? PhotoManager.editor.saveVideo(file, title: name)
-        : PhotoManager.editor.saveImageWithPath(file.path, title: name);
+        ? PhotoManager.editor.saveVideo(
+            file,
+            title: name,
+            creationDate: createdAt,
+          )
+        : PhotoManager.editor.saveImageWithPath(
+            file.path,
+            title: name,
+            creationDate: createdAt,
+          );
   }
 
   /// Takes [record] out of the photo library and into this app's own
@@ -169,7 +197,13 @@ class LibraryCustody {
     final file = File(path);
     if (!await file.exists()) return CustodyResult.failed;
     try {
-      final saved = await _saveToLibrary(file, isVideo: record.isVideo);
+      final saved = await _saveToLibrary(
+        file,
+        isVideo: record.isVideo,
+        // This app's own date, which survived the round trip: the record
+        // kept it while the photo was out of Photos.
+        createdAt: record.createdAt,
+      );
       if (saved == null) return CustodyResult.failed;
       await store.setLibraryId(record.localId, saved.id);
       return CustodyResult.returned;

@@ -56,6 +56,7 @@
   },
   "detailFileUnavailable": "This file is no longer available.",
   "detailRestoreOriginal": "Download Full Resolution",
+  "detailCloudOnlyNote": "Only the copy in your bucket is left.",
   "detailRestoringOriginal": "Downloading…",
   "detailDoneButton": "Done",
   "detailEditButton": "Edit",
@@ -595,6 +596,9 @@
   "bucketBrowserLoadMore": "Load More",
   "bucketPreviewUnsupported": "Can't preview this file type.",
   "bucketPreviewOpenExternally": "Open Externally",
+  "bucketShowInBucket": "Show in Bucket",
+  "bucketOpenInBrowser": "Open in Browser",
+  "bucketObjectUnreachable": "No bucket this phone can reach has this photo's object.",
   "collectionsStorageRow": "Optimize Storage",
   "@collectionsStorageRow": {
     "description": "Utilities row and page title for the storage clean-up page"
