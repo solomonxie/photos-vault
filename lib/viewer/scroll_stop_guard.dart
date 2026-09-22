@@ -29,9 +29,15 @@ class _ScrollStopGuardState extends State<ScrollStopGuard> {
   final _inFlight = ValueNotifier(false);
 
   /// A list that stops notifying without ever ending — one disposed
-  /// mid-fling — would otherwise leave the app untappable. Any silence
+  /// mid-gesture, which is what a photo dragged off the screen does to the
+  /// page under it — would otherwise leave the app untappable. Any silence
   /// this long means the motion is over, whatever the notifications said.
-  static const _staleAfter = Duration(seconds: 3);
+  ///
+  /// Short, because this is a dead zone: taps land on nothing until it
+  /// expires. A list that is actually moving notifies every frame, so a
+  /// third of a second of silence is not a pause in a fling — it is a
+  /// scroll view that has gone away.
+  static const _staleAfter = Duration(milliseconds: 350);
   Timer? _watchdog;
 
   @override

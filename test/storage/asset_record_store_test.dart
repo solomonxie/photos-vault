@@ -1,3 +1,6 @@
+import 'dart:io';
+
+import 'package:path/path.dart' as p;
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -474,5 +477,70 @@ void main() {
     await store.setTags('asset-2', ['hiking', 'family']);
 
     expect(await store.allTags(), {'sunset', 'hiking', 'family'});
+  });
+
+  test('a reload with nothing changed hands back the same list', () async {
+    final store = newStore();
+    await store.upsert(localId: 'photo:1', contentHash: 'a', platform: 'ios');
+
+    final first = await store.listAll();
+    expect(identical(await store.listAll(), first), isTrue);
+
+    await store.setFavorite('photo:1', true);
+    final second = await store.listAll();
+    expect(identical(second, first), isFalse);
+    expect(second.single.isFavorite, isTrue);
+
+    await store.upsert(localId: 'photo:2', contentHash: 'b', platform: 'ios');
+    expect((await store.listAll()).length, 2);
+
+    await store.remove('photo:1');
+    final third = await store.listAll();
+    expect(third.map((r) => r.localId), ['photo:2']);
+    expect(identical(await store.listAll(), third), isTrue);
+  });
+
+  test('paths from a previous app container are pointed at this one', () async {
+    final root = await Directory.systemTemp.createTemp('support_');
+    addTearDown(() => root.delete(recursive: true));
+    await Directory(p.join(root.path, 'thumbnails')).create();
+    await File(p.join(root.path, 'party.gif')).writeAsString('x');
+    await File(p.join(root.path, 'thumbnails', 'party.jpg')).writeAsString('x');
+
+    final dbPath = p.join(root.path, 'records.db');
+    const old =
+        '/var/mobile/Containers/Data/Application/OLD-UUID'
+        '/Library/Application Support';
+
+    final before = AssetRecordStore(
+      databaseFactory: databaseFactoryFfi,
+      path: dbPath,
+      appSupportDirectory: () async => root,
+    );
+    await before.upsert(
+      localId: 'manual:g',
+      contentHash: 'g',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '$old/party.gif',
+    );
+    await before.setThumbnailPath('manual:g', '$old/thumbnails/party.jpg');
+    await before.close();
+
+    // A second open is a relaunch: the container moved under it.
+    final after = AssetRecordStore(
+      databaseFactory: databaseFactoryFfi,
+      path: dbPath,
+      appSupportDirectory: () async => root,
+    );
+    addTearDown(after.close);
+
+    final healed = (await after.listAll()).single;
+    expect(healed.sourcePath, p.join(root.path, 'party.gif'));
+    expect(
+      healed.thumbnailPath,
+      p.join(root.path, 'thumbnails', 'party.jpg'),
+      reason: 'a cached thumbnail keeps its subdirectory',
+    );
   });
 }

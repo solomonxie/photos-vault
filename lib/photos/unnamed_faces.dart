@@ -1,3 +1,5 @@
+import 'dart:isolate';
+
 import '../storage/asset_record.dart';
 import 'ai_analysis_store.dart';
 import 'face_grouping.dart';
@@ -89,14 +91,41 @@ Future<UnnamedFaces> findUnnamedFaces({
     described = const {};
   }
 
-  // Greedy: take the newest face nobody has folded away, pull in
-  // everything that looks like it, show one circle for the lot.
+  // Off the UI isolate once there is enough of it to matter: the fold
+  // below is every seed against every other face, each comparison a
+  // 128-number distance. A few thousand unnamed faces is seconds of solid
+  // computation, and it runs from the library's own reload — which is
+  // what returning from a photo does. (CLAUDE.md: nothing proportional to
+  // library size on the main isolate.)
   //
-  // Every seed is worked through rather than stopping at [limit], because
-  // the list is ordered by how big each pile is and the biggest one is
-  // not usually among the newest twenty faces. [scanLimit] is what keeps
-  // that from being a pass over a camera roll's worth of faces every time
-  // the page draws — beyond it, the oldest faces simply aren't folded in.
+  // Below the threshold it stays here: spawning an isolate and copying
+  // the descriptors into it costs more than folding a handful of faces.
+  final groups = flat.length > _isolateThreshold
+      ? await Isolate.run(() => _fold(flat, described, scanLimit))
+      : _fold(flat, described, scanLimit);
+
+  groups.sort((a, b) => b.alike.compareTo(a.alike));
+  return (faces: groups.take(limit).toList(), found: flat.length);
+}
+
+/// The greedy grouping itself, pure and isolate-safe: take the newest face
+/// nobody has folded away, pull in everything that looks like it, show one
+/// circle for the lot.
+///
+/// Every seed is worked through rather than stopping at the display limit,
+/// because the list is ordered by how big each pile is and the biggest one
+/// is not usually among the newest twenty faces. [scanLimit] is what keeps
+/// that from being a pass over a camera roll's worth of faces every time
+/// the page draws — beyond it, the oldest faces simply aren't folded in.
+/// How many faces are worth an isolate — a few hundred fold in a frame or
+/// two, and the copy across is the same order as the work saved.
+const _isolateThreshold = 150;
+
+List<UnnamedFace> _fold(
+  List<UnnamedFace> flat,
+  Map<String, FaceDescriptor> described,
+  int scanLimit,
+) {
   final taken = <String>{};
   final groups = <UnnamedFace>[];
   for (final seed in flat.take(scanLimit)) {
@@ -137,6 +166,5 @@ Future<UnnamedFaces> findUnnamedFaces({
   }
   // Biggest pile first: naming the face that appears in forty photos is
   // forty photos sorted, and naming the one that appears once is one.
-  groups.sort((a, b) => b.alike.compareTo(a.alike));
-  return (faces: groups.take(limit).toList(), found: flat.length);
+  return groups;
 }

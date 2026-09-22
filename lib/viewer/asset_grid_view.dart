@@ -83,6 +83,10 @@ class AssetGridViewState extends State<AssetGridView> {
 
   PhotoGridLayout _layout = PhotoGridLayout.of(records: const [], width: 0);
 
+  /// What [_layout] was built from — see [_build].
+  List<AssetRecord>? _laidOut;
+  double? _laidOutWidth;
+
   /// The first non-empty grid to be laid out anchors itself at the newest
   /// photo; after that the user's scroll position is theirs to keep.
   bool _anchored = false;
@@ -203,18 +207,26 @@ class AssetGridViewState extends State<AssetGridView> {
   }
 
   Widget _build(BuildContext context, double width) {
-    // Re-anchor when photos arrive *while the view is still resting on the
-    // anchor* — the camera-roll scan lands after the first paint, and
-    // nobody sitting on "the newest photo" means the one from before the
-    // scan. Anywhere else on the page is the user's position to keep.
-    final wasResting = !_anchored || isAtNewest;
-    final grew = _layout.records.length != widget.records.length;
-    final pinned = wasResting ? null : _viewportPin();
-    _layout = PhotoGridLayout.of(records: widget.records, width: width);
-    if (wasResting && grew) {
-      _anchorAfterLayout();
-    } else if (pinned != null && grew) {
-      _restore(pinned);
+    // Laying the grid out walks every record and allocates a section per
+    // day, so it happens when the list or the width actually changes —
+    // not on every rebuild the screen above happens to do. Identity, not
+    // equality: the screens here hand down a list they computed once.
+    if (!identical(_laidOut, widget.records) || _laidOutWidth != width) {
+      // Re-anchor when photos arrive *while the view is still resting on
+      // the anchor* — the camera-roll scan lands after the first paint,
+      // and nobody sitting on "the newest photo" means the one from before
+      // the scan. Anywhere else on the page is the user's position to keep.
+      final wasResting = !_anchored || isAtNewest;
+      final grew = _layout.records.length != widget.records.length;
+      final pinned = wasResting ? null : _viewportPin();
+      _layout = PhotoGridLayout.of(records: widget.records, width: width);
+      _laidOut = widget.records;
+      _laidOutWidth = width;
+      if (wasResting && grew) {
+        _anchorAfterLayout();
+      } else if (pinned != null && grew) {
+        _restore(pinned);
+      }
     }
 
     final empty = widget.emptySliver;

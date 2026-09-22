@@ -145,8 +145,80 @@ class AssetRecordStore {
     // After the migrations, never inside them: a trigger has to describe
     // the schema the app just finished upgrading to.
     await installChangeLog(db, const [_table]);
+    await _rehomePaths(db);
     _db = db;
     return db;
+  }
+
+  /// Paths into a *previous* app container, pointed at the current one.
+  ///
+  /// iOS gives the container a new UUID whenever the app is reinstalled
+  /// (and a bundle-ID change does the same), so every absolute path this
+  /// app has ever stored — originals it owns, cached thumbnails — dies at
+  /// that moment while the files themselves move across intact. A record
+  /// with a dead path reads as "this file is no longer available" and a
+  /// cloud-only tile draws as a grey square, with the bytes sitting right
+  /// there under the new UUID.
+  ///
+  /// Once per launch, and filtered in SQL to the rows that are actually
+  /// stale — on an ordinary launch that is none of them, and the pass
+  /// costs one indexed query. It used to be a `File.existsSync()` per
+  /// record inside every `listAll()`: a library's worth of blocking
+  /// syscalls on the UI isolate every time the grid reloaded, which is
+  /// the thing CLAUDE.md's rule about sync I/O exists to forbid.
+  Future<void> _rehomePaths(Database db) async {
+    final Directory root;
+    try {
+      root = _appSupport ??= await _appSupportDirectory();
+    } catch (_) {
+      // No platform to ask (a pure-Dart test) — paths stay as they are.
+      return;
+    }
+    final under = '${root.path}%';
+    final rows = await db.query(
+      _table,
+      columns: ['local_id', 'source_path', 'thumbnail_path'],
+      where:
+          '(source_path IS NOT NULL AND source_path NOT LIKE ?) OR '
+          '(thumbnail_path IS NOT NULL AND thumbnail_path NOT LIKE ?)',
+      whereArgs: [under, under],
+    );
+    for (final row in rows) {
+      final values = <String, Object?>{};
+      final source = await _rehomed(row['source_path'] as String?, root.path);
+      if (source != null) values['source_path'] = source;
+      final thumbnail = await _rehomed(
+        row['thumbnail_path'] as String?,
+        root.path,
+      );
+      if (thumbnail != null) values['thumbnail_path'] = thumbnail;
+      if (values.isEmpty) continue;
+      values['updated_at'] = DateTime.now().millisecondsSinceEpoch;
+      await db.update(
+        _table,
+        values,
+        where: 'local_id = ?',
+        whereArgs: [row['local_id']],
+      );
+    }
+  }
+
+  /// [path] as it would be under the current container, or null if it
+  /// already is, isn't from one, or nothing is there to point at.
+  ///
+  /// The tail after `Application Support/` is kept, so a file in a
+  /// subdirectory (`thumbnails/`) lands back in the same one rather than
+  /// loose at the top.
+  static Future<String?> _rehomed(String? path, String root) async {
+    if (path == null || p.isWithin(root, path)) return null;
+    const marker = '/Application Support/';
+    final at = path.lastIndexOf(marker);
+    final moved = p.join(
+      root,
+      at == -1 ? p.basename(path) : path.substring(at + marker.length),
+    );
+    if (moved == path || !await File(moved).exists()) return null;
+    return moved;
   }
 
   static const _createTableSql =
@@ -226,6 +298,7 @@ class AssetRecordStore {
   Future<void> close() async {
     await _db?.close();
     _db = null;
+    _dropCache();
   }
 
   /// This store's database file, with the write-ahead log folded back in
@@ -353,20 +426,19 @@ class AssetRecordStore {
   /// across installs, which is exactly the case this exists for.
   Future<AssetRecord> _healed(AssetRecord record) async {
     final path = record.sourcePath;
-    if (path == null || File(path).existsSync()) return record;
-    // Looked up once and kept: healing runs per row, and asking the
-    // platform for the same directory a thousand times during one library
-    // read is a thousand channel round-trips for one answer. Failure means
-    // no platform to ask (a pure-Dart test) — the record is handed back as
-    // it is rather than taking the whole read down with it.
+    if (path == null || await File(path).exists()) return record;
+    // Looked up once and kept: asking the platform for the same directory
+    // again per record is a channel round-trip for an answer that cannot
+    // change. Failure means no platform to ask (a pure-Dart test) — the
+    // record is handed back as it is rather than taking the read down.
     Directory dir;
     try {
       dir = _appSupport ??= await _appSupportDirectory();
     } catch (_) {
       return record;
     }
-    final healedPath = p.join(dir.path, p.basename(path));
-    if (healedPath == path || !File(healedPath).existsSync()) return record;
+    final healedPath = await _rehomed(path, dir.path);
+    if (healedPath == null) return record;
 
     final now = DateTime.now();
     final db = await _open();
@@ -703,7 +775,7 @@ class AssetRecordStore {
       whereArgs: [hash],
       orderBy: 'created_at ASC',
     );
-    return Future.wait(rows.map(_fromRow).map(_healed));
+    return rows.map(_fromRow).toList();
   }
 
   Future<void> setHidden(String localId, bool value) async {
@@ -744,10 +816,83 @@ class AssetRecordStore {
     );
   }
 
+  /// Every record, oldest first.
+  ///
+  /// Incremental, because the library screen reloads on every camera-roll
+  /// page, every change iOS reports and every background round, and a
+  /// full read is not cheap: twenty thousand rows of thirty columns come
+  /// back over the platform channel as twenty thousand maps, which is a
+  /// third of a second of the UI isolate on a phone. Every write here
+  /// bumps `updated_at` and deletes go through [remove], so after the
+  /// first read only the rows that moved are fetched.
+  ///
+  /// **Nothing changed means the same list instance back.** Callers lean
+  /// on that: `identical` is how the library screen skips recomputing
+  /// what it derives from this, and how the grid skips re-laying itself
+  /// out. Treat the result as read-only.
+  ///
+  /// No per-record path repair either — that is [_rehomePaths], once per
+  /// launch, for the same reason.
   Future<List<AssetRecord>> listAll() async {
     final db = await _open();
-    final rows = await db.query(_table, orderBy: 'created_at ASC');
-    return Future.wait(rows.map(_fromRow).map(_healed));
+    final cached = _cached;
+    if (cached == null) {
+      final rows = await db.query(_table, orderBy: 'created_at ASC');
+      _cached = {for (final row in rows) row['local_id'] as String: row};
+      _cachedThrough = _highWaterOf(rows, 0);
+      return _sorted = List.unmodifiable(rows.map(_fromRow));
+    }
+    // `>=` rather than `>`: two writes can land in the same millisecond,
+    // and re-reading the one row on the mark is cheaper than a lost edit.
+    final rows = await db.query(
+      _table,
+      where: 'updated_at >= ?',
+      whereArgs: [_cachedThrough],
+    );
+    final moved = rows.where((row) => !_sameRow(cached[row['local_id']], row));
+    if (moved.isEmpty) return _sorted!;
+    for (final row in moved) {
+      cached[row['local_id'] as String] = row;
+    }
+    _cachedThrough = _highWaterOf(rows, _cachedThrough);
+    return _rebuildSorted();
+  }
+
+  /// Rows as last read, by `local_id` — kept as rows rather than records
+  /// so an unchanged one is recognised without rebuilding it.
+  Map<String, Map<String, Object?>>? _cached;
+  List<AssetRecord>? _sorted;
+  int _cachedThrough = 0;
+
+  static int _highWaterOf(List<Map<String, Object?>> rows, int start) {
+    var high = start;
+    for (final row in rows) {
+      final at = row['updated_at'] as int? ?? 0;
+      if (at > high) high = at;
+    }
+    return high;
+  }
+
+  static bool _sameRow(Map<String, Object?>? held, Map<String, Object?> row) {
+    if (held == null) return false;
+    for (final entry in row.entries) {
+      if (held[entry.key] != entry.value) return false;
+    }
+    return true;
+  }
+
+  List<AssetRecord> _rebuildSorted() {
+    final records = _cached!.values.map(_fromRow).toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return _sorted = List.unmodifiable(records);
+  }
+
+  /// Whatever the cache holds is now a guess — the next [listAll] reads
+  /// the library again from scratch.
+  void _dropCache() {
+    _cached = null;
+    _sorted = null;
+    _cachedThrough = 0;
   }
 
   /// Permanently deletes — used for real deletion from "Recently Deleted",
@@ -756,6 +901,9 @@ class AssetRecordStore {
   Future<void> remove(String localId) async {
     final db = await _open();
     await db.delete(_table, where: 'local_id = ?', whereArgs: [localId]);
+    // A delete leaves no row to notice, so it is the one change [listAll]
+    // cannot catch up on by itself.
+    if (_cached?.remove(localId) != null) _rebuildSorted();
   }
 
   static String _columnPrefix(DerivativeKind kind) => switch (kind) {
@@ -765,28 +913,48 @@ class AssetRecordStore {
     DerivativeKind.livePhoto => 'live',
   };
 
+  /// `Enum.values.byName` walks the values and builds a map of them on
+  /// every call, and this runs five times per row — twenty thousand rows
+  /// in, that alone is a visible part of reading the library.
+  static const _uploadStatuses = {
+    'pending': UploadStatus.pending,
+    'uploading': UploadStatus.uploading,
+    'uploaded': UploadStatus.uploaded,
+    'failed': UploadStatus.failed,
+  };
+
+  static const _sourceTypes = {
+    'photoManager': AssetSourceType.photoManager,
+    'manualFile': AssetSourceType.manualFile,
+  };
+
   static AssetRecord _fromRow(Map<String, Object?> row) {
     DerivativeState stateFor(DerivativeKind kind) {
       final column = _columnPrefix(kind);
-      final status = UploadStatus.values.byName(
-        row['${column}_status'] as String,
-      );
       return DerivativeState(
-        status: status,
+        status:
+            _uploadStatuses[row['${column}_status'] as String] ??
+            UploadStatus.pending,
         destinationKey: row['${column}_key'] as String?,
         backedUpHash: row['${column}_hash'] as String?,
       );
     }
 
     final deletedAtMillis = row['deleted_at'] as int?;
-    final tagsJson =
-        jsonDecode(row['tags'] as String? ?? '[]') as List<dynamic>;
+    // Almost every photo has no tags, and parsing "[]" twenty thousand
+    // times to learn that is work for nothing.
+    final tagsText = row['tags'] as String? ?? '[]';
+    final tags = tagsText == '[]'
+        ? const <String>[]
+        : (jsonDecode(tagsText) as List<dynamic>).cast<String>();
 
     return AssetRecord(
       localId: row['local_id'] as String,
       contentHash: row['content_hash'] as String,
       platform: row['platform'] as String,
-      sourceType: AssetSourceType.values.byName(row['source_type'] as String),
+      sourceType:
+          _sourceTypes[row['source_type'] as String] ??
+          AssetSourceType.photoManager,
       sourcePath: row['source_path'] as String?,
       thumbnailPath: row['thumbnail_path'] as String?,
       localDeleted: (row['local_deleted'] as int? ?? 0) != 0,
@@ -804,7 +972,7 @@ class AssetRecordStore {
           ? null
           : DateTime.fromMillisecondsSinceEpoch(deletedAtMillis),
       description: row['description'] as String? ?? '',
-      tags: tagsJson.cast<String>(),
+      tags: tags,
       location: row['location'] as String?,
       event: row['event'] as String?,
       passcodeHash: row['passcode_hash'] as String?,

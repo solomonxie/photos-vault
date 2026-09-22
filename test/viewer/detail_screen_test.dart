@@ -132,6 +132,15 @@ Future<void> _tapInPanel(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
+/// Grid and stand-in images are decoded at the size they're drawn, which
+/// wraps the provider in a [ResizeImage] — the file underneath is what
+/// these tests are about either way.
+File _fileOf(ImageProvider provider) => switch (provider) {
+  ResizeImage(imageProvider: final inner) => _fileOf(inner),
+  FileImage(file: final file) => file,
+  _ => throw ArgumentError('not a file image: $provider'),
+};
+
 void main() {
   testWidgets('tapping the heart toggles favorite and calls back', (
     tester,
@@ -979,6 +988,47 @@ void main() {
     expect(find.text('Export As…'), findsNothing);
   });
 
+  testWidgets('the share sheet offers the bucket once a photo is up there', (
+    tester,
+  ) async {
+    final loose = _record(localId: 'a');
+    final backedUp = _record(localId: 'b').withDerivative(
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'originals/b.jpg',
+      ),
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [loose, backedUp],
+          initialIndex: 0,
+          assetRecordStore: FakeAssetRecordStore(),
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.byIcon(CupertinoIcons.share));
+    await tester.pumpAndSettle();
+    expect(find.text('Show in Bucket'), findsNothing);
+    expect(find.text('Open in Browser'), findsNothing);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+
+    await tester.drag(find.byType(PageView), const Offset(-800, 0));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byIcon(CupertinoIcons.share));
+    await tester.pumpAndSettle();
+    expect(find.text('Show in Bucket'), findsOneWidget);
+    expect(find.text('Open in Browser'), findsOneWidget);
+  });
+
   testWidgets('Edit opens the crop/rotate/AI touch-up menu', (tester) async {
     final record = _record(localId: 'a');
 
@@ -1045,7 +1095,7 @@ void main() {
         expect(find.text('Download Full Resolution'), findsOneWidget);
         // Drawn from the cached thumbnail, not the deleted original.
         final image = tester.widget<Image>(find.byType(Image).first);
-        expect((image.image as FileImage).file.path, '/tmp/gone-thumb.jpg');
+        expect(_fileOf(image.image).path, '/tmp/gone-thumb.jpg');
       },
     );
 
@@ -1062,7 +1112,7 @@ void main() {
 
       expect(find.text('Download Full Resolution'), findsNothing);
       final image = tester.widget<Image>(find.byType(Image).first);
-      expect((image.image as FileImage).file.path, '/tmp/restored.jpg');
+      expect(_fileOf(image.image).path, '/tmp/restored.jpg');
     });
 
     testWidgets('a failed download leaves the offer up to try again', (

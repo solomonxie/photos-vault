@@ -27,8 +27,13 @@ class ZoomPageRoute<T> extends PageRoute<T> {
   @override
   Duration get transitionDuration => const Duration(milliseconds: 260);
 
+  /// Shorter than the opening, because the two are not the same event.
+  /// Opening is worth watching — the photo grows out of the grid. Closing
+  /// is a photo already thrown away: whatever time the animation takes is
+  /// time the grid isn't back yet, and the tail of a cubic fade is a ghost
+  /// of a photo nobody is looking at any more.
   @override
-  Duration get reverseTransitionDuration => const Duration(milliseconds: 220);
+  Duration get reverseTransitionDuration => const Duration(milliseconds: 140);
 
   @override
   Widget buildPage(
