@@ -51,6 +51,11 @@ BucketBrowserScreen(target, prefix: target.prefix)    bucket_browser_screen.dart
   ▼
 folders ──► tap ──► push BucketBrowserScreen(prefix: folder)  (drill down)
 objects ──► shown with size; "Load More" pages via nextToken
+
+Any photo's share sheet (library or hidden)           bucket_location.dart
+  │ targetHolding(objectKey) — one-byte ranged GET per target
+  ├─ Show in Bucket    ──► BucketBrowserScreen(prefix: the object's folder)
+  └─ Open in Browser   ──► presigned GET (1 h) ──► the phone's own browser
 ```
 
 Both `backup_targets_store.dart` and `s3_target_drafts_store.dart` sit on the

@@ -321,6 +321,19 @@ class LibraryScreenState extends State<LibraryScreen>
   );
 
   List<AssetRecord> _all = const [];
+
+  /// Everything derived from [_all], computed once per [reload] instead of
+  /// per build. Each one is a pass over the whole library — several of
+  /// them sort it — and `build` reads six: as getters, that was six passes
+  /// over tens of thousands of records every time anything called
+  /// `setState`, which is the jank CLAUDE.md's "no per-build work
+  /// proportional to library size" rule exists to prevent.
+  List<AssetRecord> _active = const [];
+  List<AssetRecord> _videos = const [];
+  List<AssetRecord> _favorites = const [];
+  Map<String, List<AssetRecord>> _places = const {};
+  Map<String, List<AssetRecord>> _events = const {};
+  int _deletedCount = 0;
   List<Album> _albums = const [];
   Map<String, List<AssetRecord>> _albumAssets = const {};
   List<Person> _people = const [];
@@ -357,6 +370,16 @@ class LibraryScreenState extends State<LibraryScreen>
   /// A camera-roll scan walks the whole library, so the resume hook must
   /// not start a second one on top of the one still running.
   bool _syncingLibrary = false;
+
+  /// iOS is short of memory and asking for some back. Thumbnails are the
+  /// obvious thing to hand over: every byte of them can be fetched from
+  /// the library again, and the alternative to answering is being killed
+  /// — which is what "the app froze and vanished" usually is.
+  @override
+  void didHaveMemoryPressure() {
+    clearThumbnailCaches();
+    PaintingBinding.instance.imageCache.clear();
+  }
 
   /// Photos is where a photo is *taken*, hearted and deleted — this app is
   /// a second window onto the same library, so every return to it has to
@@ -647,7 +670,9 @@ class LibraryScreenState extends State<LibraryScreen>
     // Faces land in the analysis database, and the People row is built
     // from it at [reload] time — so a pass that found some and said
     // nothing leaves the row showing yesterday's strangers indefinitely.
-    if (_analyzeQueue.analyzedInLastRun > 0 && mounted) await reload();
+    if (_analyzeQueue.analyzedInLastRun > 0 && mounted) {
+      await reload(faces: true);
+    }
     // A handful of photos at a time, and only once nothing else wants the
     // phone — so the Optimize Storage page is usually already answered by
     // the time anybody opens it. On the page it runs flat out instead.
@@ -707,40 +732,100 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  Future<void> reload() async {
+  bool _findingFaces = false;
+
+  /// Same people, same names, same order — the only things this screen
+  /// draws them by.
+  static bool _samePeople(List<Person> a, List<Person> b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i].id != b[i].id || a[i].name != b[i].name) return false;
+    }
+    return true;
+  }
+
+  /// [faces] forces the strangers row to be worked out again — for a
+  /// caller that knows the analysis database moved under it.
+  Future<void> reload({bool faces = false}) async {
     final all = await assetRecordStore.listAll();
+    // The same list instance back means the library itself hasn't moved
+    // (see [AssetRecordStore.listAll]) — so everything derived from it is
+    // still good, down to the grid's own layout, which memoises on the
+    // identity of the list it was given.
+    final libraryChanged = !identical(all, _all);
+    final active = libraryChanged ? _activeOf(all) : _active;
+
     final albums = await _albumStore.listAll();
-    final albumAssets = <String, List<AssetRecord>>{};
+    // One pass over the library for all albums together. Per album it was
+    // a full pass each, so twenty albums meant twenty walks of everything
+    // every time anything reloaded.
+    final albumsOf = <String, List<String>>{};
     for (final album in albums) {
-      final memberIds = (await _albumStore.localIdsIn(album.id)).toSet();
-      albumAssets[album.id] = all
-          .where(
-            (r) =>
-                !r.isDeleted &&
-                !r.isHidden &&
-                r.passcodeHash == null &&
-                memberIds.contains(r.localId),
-          )
-          .toList();
+      for (final localId in await _albumStore.localIdsIn(album.id)) {
+        albumsOf.putIfAbsent(localId, () => []).add(album.id);
+      }
+    }
+    final albumAssets = {for (final album in albums) album.id: <AssetRecord>[]};
+    for (final record in active) {
+      for (final albumId in albumsOf[record.localId] ?? const <String>[]) {
+        albumAssets[albumId]?.add(record);
+      }
     }
     final people = await _personStore.listAll();
-    final personPhotoCounts = <String, int>{};
-    final tagged = <String>{};
-    for (final person in people) {
-      final localIds = await _personStore.localIdsIn(person.id);
-      personPhotoCounts[person.id] = localIds.length;
-      tagged.addAll(localIds);
+    final peopleChanged = !_samePeople(people, _people);
+    // People and the strangers among them only move when the library or
+    // the people do — and finding the strangers is the most expensive
+    // thing on this screen, so it does not run because a background round
+    // ticked. [faces] is for what changed somewhere this can't see: a
+    // photo analysed, a face named.
+    var personPhotoCounts = _personPhotoCounts;
+    var unnamed = (faces: _unnamedFaces, found: 0);
+    if (libraryChanged || peopleChanged || faces) {
+      final counts = <String, int>{};
+      final tagged = <String>{};
+      for (final person in people) {
+        final localIds = await _personStore.localIdsIn(person.id);
+        counts[person.id] = localIds.length;
+        tagged.addAll(localIds);
+      }
+      personPhotoCounts = counts;
+      // One at a time. A camera-roll scan reloads once a second, and each
+      // round would otherwise start another pass over every face in the
+      // library on top of the one still running.
+      if (!_findingFaces) {
+        _findingFaces = true;
+        try {
+          unnamed = await findUnnamedFaces(
+            analysisStore: _aiAnalysisStore,
+            records: all,
+            taggedLocalIds: tagged,
+            peopleById: {for (final p in people) p.id: p.name},
+            limit: _unnamedFacesShown,
+          );
+        } finally {
+          _findingFaces = false;
+        }
+      }
     }
-    final unnamed = await findUnnamedFaces(
-      analysisStore: _aiAnalysisStore,
-      records: all,
-      taggedLocalIds: tagged,
-      peopleById: {for (final p in people) p.id: p.name},
-      limit: _unnamedFacesShown,
-    );
     if (!mounted) return;
     setState(() {
-      _all = all;
+      if (libraryChanged) {
+        _all = all;
+        _active = active;
+        _videos = [
+          for (final record in active)
+            if (record.countsAsVideo) record,
+        ];
+        _favorites = [
+          for (final record in active)
+            if (record.isFavorite) record,
+        ];
+        _places = _groupedBy(active, (r) => r.location);
+        _events = _groupedBy(active, (r) => r.event, byRecency: true);
+        _deletedCount = all
+            .where((r) => r.isDeleted && !r.hasNothingLeft)
+            .length;
+      }
       _albums = albums;
       _albumAssets = albumAssets;
       _people = people;
@@ -763,26 +848,29 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       ),
     );
-    if (mounted) await reload();
+    if (mounted) await reload(faces: true);
   }
 
-  List<AssetRecord> get _active =>
-      _all
+  static List<AssetRecord> _activeOf(List<AssetRecord> all) =>
+      all
           .where((r) => !r.isDeleted && !r.isHidden && r.passcodeHash == null)
           .toList()
         // Oldest first, newest at the bottom — Photos' order, and what
         // lets the page open on the latest photo (see [AssetGridView]).
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
-  List<AssetRecord> get _filtered => _query.isEmpty
-      ? _active
-      : _active
-            .where(
-              (r) => (r.sourcePath ?? r.localId).toLowerCase().contains(
-                _query.toLowerCase(),
-              ),
-            )
-            .toList();
+  /// The one derived list that can't be precomputed — it depends on what
+  /// is typed. Free while nothing is (the common case), and a single
+  /// unsorted pass while something is.
+  List<AssetRecord> get _filtered {
+    if (_query.isEmpty) return _active;
+    final needle = _query.toLowerCase();
+    return _active
+        .where(
+          (r) => (r.sourcePath ?? r.localId).toLowerCase().contains(needle),
+        )
+        .toList();
+  }
 
   /// Places and Events are both "group the library by one free-text field
   /// the user filled in" — biggest group first, so the row leads with what
@@ -793,12 +881,13 @@ class LibraryScreenState extends State<LibraryScreen>
   /// [byRecency] ranks by the newest photo in each group instead, which is
   /// what an event wants: "Nina's Wedding" is interesting for a month and
   /// then it isn't, however many photos it holds.
-  Map<String, List<AssetRecord>> _groupedBy(
+  static Map<String, List<AssetRecord>> _groupedBy(
+    List<AssetRecord> records,
     String? Function(AssetRecord) of, {
     bool byRecency = false,
   }) {
     final groups = <String, List<AssetRecord>>{};
-    for (final record in _active) {
+    for (final record in records) {
       final key = of(record);
       if (key == null || key.isEmpty) continue;
       groups.putIfAbsent(key, () => []).add(record);
@@ -831,11 +920,6 @@ class LibraryScreenState extends State<LibraryScreen>
   /// photos: one photo can be an original, a thumbnail and a `.mov`.
   int get _toSyncCount =>
       syncQueue.jobs.value.where((job) => !job.isFinished).length;
-
-  /// What the bin will actually show — a record with nothing left of it
-  /// anywhere is dropped when the bin opens, and is not counted here.
-  int get _deletedCount =>
-      _all.where((r) => r.isDeleted && !r.hasNothingLeft).length;
 
   /// What the automatic refill is allowed to pick up: everything owed,
   /// minus what has already been tried and didn't work.
@@ -1847,17 +1931,12 @@ class LibraryScreenState extends State<LibraryScreen>
     await _syncEverything();
   }
 
-  /// Every video in the library, as an album. Not a row in the album table:
-  /// there's nothing to add to it or remove from it, and a membership list
-  /// would only be a second, staler answer to a question the library can
-  /// already answer.
-  /// GIFs among them: they move, so the Videos album is where somebody
-  /// goes looking for one. See [AssetRecord.countsAsVideo].
-  List<AssetRecord> get _videos =>
-      _active.where((r) => r.countsAsVideo).toList();
-
-  List<AssetRecord> get _favorites =>
-      _active.where((r) => r.isFavorite).toList();
+  /// Every video in the library, as an album ([_videos]). Not a row in the
+  /// album table: there's nothing to add to it or remove from it, and a
+  /// membership list would only be a second, staler answer to a question
+  /// the library can already answer. GIFs count — they move, so the Videos
+  /// album is where somebody goes looking for one. See
+  /// [AssetRecord.countsAsVideo].
 
   /// A card for a grouping the library makes itself. No row of its own in
   /// the database: there's nothing to add to it or remove from it, and a
@@ -2264,7 +2343,7 @@ class LibraryScreenState extends State<LibraryScreen>
       ),
       SliverToBoxAdapter(
         child: _GroupList(
-          groups: _groupedBy((r) => r.location),
+          groups: _places,
           emptyNote: l10n.collectionsPlacesEmpty,
           icon: CupertinoIcons.map_pin_ellipse,
           color: CupertinoColors.systemTeal,
@@ -2286,7 +2365,7 @@ class LibraryScreenState extends State<LibraryScreen>
       ),
       SliverToBoxAdapter(
         child: _GroupList(
-          groups: _groupedBy((r) => r.event, byRecency: true),
+          groups: _events,
           emptyNote: l10n.collectionsEventsEmpty,
           icon: CupertinoIcons.calendar,
           color: CupertinoColors.systemOrange,

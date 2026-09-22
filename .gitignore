@@ -42,3 +42,6 @@ venv/
 # Python
 __pycache__/
 *.pyc
+
+# Local signing (Apple Developer Team ID) — never committed
+ios/Flutter/Signing.xcconfig
