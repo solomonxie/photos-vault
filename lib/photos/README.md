@@ -37,8 +37,9 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
   notification into the asset ids that were created/updated/deleted, which
   `photo_library_service.dart`'s `applyChange` then touches *only those*.
   This is how the app keeps up with Photos while it's open: cost
-  proportional to what changed, never to library size. The full `syncAll`
-  scan is the backstop for changes made while the app wasn't listening.
+  proportional to what changed, never to library size. `syncRecent` (open
+  and resume, newest pages only) then the full `syncAll` scan are the
+  backstops for changes made while the app wasn't listening.
 - `photo_location.dart` — reverse-geocodes a photo's own GPS tag into a
   place name, so Places fills itself in. Run on view, one photo at a time:
   the OS geocoder is rate-limited per app, and it only ever fills an *empty*
@@ -54,7 +55,19 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
   that half was tried against a real library and dropped, because the
   labels were wrong often enough that checking them cost more than typing
   the right tag. Tagging is `ai_vision_service.dart`'s job now.
-- `thumbnail_cache.dart` — app-owned thumbnails. Stills are decoded here;
+- `thumbnail_cache.dart` — app-owned thumbnails, `thumbnailOption` (always
+  *fitted* on iOS: PhotoKit centre-crops to a square by default, and a
+  square shown full-screen is a different photo from the one that was
+  taken — it only ever looked right because the grid draws squares), and
+  `needingThumbnails`,
+  which is what the library's background pass tops up each round. A
+  thumbnail can only be made while there is still a local original, so
+  "every photo has one" has to be somebody's standing job rather than a
+  side effect of the upload queue — a photo whose `uploadThumbnail` job a
+  full queue turned away used to go cloud-only as a grey triangle, because
+  by then there was nothing left to make one from. The last resort, for
+  photos already in that state, is `../upload/original_restore.dart`'s
+  `restoreThumbnail`. Stills are decoded here;
   videos (and anything `image` can't read) fall back to the photo
   library's own poster frame, which is what lets a video go cloud-only
   and still draw in the grid.
@@ -64,8 +77,13 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
 - `library_scanner.dart` — the camera-roll re-read, on its own and out of
   sight. Not a row in the analyze queue and not configurable: nobody chose
   it and nobody pays for it, and a pause switch able to stop new photos
-  arriving is one that breaks the app. One pass at a time, at most one
-  every five minutes, forced on coming back from Photos.
+  arriving is one that breaks the app. Two lanes: `runRecent()` reads the
+  newest couple of pages on every open and every resume, ungated and never
+  waiting on anything; `run()` is the full backstop pass, one at a time, at
+  most one every five minutes, forced on coming back from Photos. The head
+  lane exists because a full pass is minutes long on a real library and
+  reconciles deletions only at the end — so what changed in Photos a minute
+  ago would otherwise wait out a whole re-read of the decade.
 - `asset_removal.dart` — the two ways a photo or video can go (cloud-only,
   or into Recently Deleted) and which of them a given asset is eligible
   for. One place, because that eligibility is a property of the photo, and

@@ -13,6 +13,7 @@ import 'package:photos_vault/upload/backup_coordinator.dart';
 import 'package:photos_vault/upload/s3_uploader.dart';
 import 'package:photos_vault/viewer/album_screen.dart';
 import 'package:photos_vault/viewer/asset_grid.dart';
+import 'package:photos_vault/viewer/built_in_album.dart';
 import 'package:photos_vault/viewer/detail_screen.dart';
 import 'package:photos_vault/viewer/library_screen.dart';
 import 'package:photos_vault/viewer/search_picker_sheet.dart';
@@ -661,6 +662,91 @@ void main() {
     },
   );
 
+  group('the two built-in album cards', () {
+    // Scoped: the grid tile under these cards draws a heart of its own on
+    // a favourite, which is not the card's cover.
+    Finder coverIcon(IconData icon) => find.descendant(
+      of: find.byType(BuiltInAlbumCoverArt),
+      matching: find.byIcon(icon),
+    );
+
+    Future<void> pumpCollections(
+      WidgetTester tester,
+      FakeAssetRecordStore recordStore,
+    ) async {
+      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+      // Tall enough that the Albums row is built without a scroll — see
+      // the Albums section test.
+      await tester.binding.setSurfaceSize(const Size(400, 2000));
+      addTearDown(() => tester.binding.setSurfaceSize(null));
+      await tester.pumpWidget(
+        _wrap(
+          LibraryScreen(
+            assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
+            albumStore: FakeAlbumStore(),
+            personStore: FakePersonStore(),
+            backupTargetsStore: targetsStore,
+            backupCoordinator: BackupCoordinator(
+              targetsStore: targetsStore,
+              recordStore: recordStore,
+              s3Uploader: _UnusedS3Uploader(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    Future<FakeAssetRecordStore> oneFavouriteVideo() async {
+      final recordStore = FakeAssetRecordStore();
+      await recordStore.upsert(
+        localId: 'manual:clip',
+        contentHash: 'clip',
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/clip.mp4',
+        isVideo: true,
+      );
+      await recordStore.setThumbnailPath('manual:clip', '/tmp/clip-thumb.jpg');
+      await recordStore.setFavorite('manual:clip', true);
+      return recordStore;
+    }
+
+    testWidgets('wear their colour, not the newest photo in them', (
+      tester,
+    ) async {
+      await pumpCollections(tester, await oneFavouriteVideo());
+
+      expect(
+        find.byType(BuiltInAlbumCoverArt),
+        findsNWidgets(2),
+        reason: 'both cards coloured, neither of them the clip itself',
+      );
+      expect(coverIcon(CupertinoIcons.heart_fill), findsOneWidget);
+      expect(coverIcon(CupertinoIcons.play_fill), findsOneWidget);
+    });
+
+    testWidgets('and a chosen cover wins over the colour', (tester) async {
+      final recordStore = await oneFavouriteVideo();
+      await setBuiltInAlbumCover(
+        recordStore,
+        BuiltInAlbum.videos,
+        'manual:clip',
+      );
+      await pumpCollections(tester, recordStore);
+
+      expect(
+        find.byType(BuiltInAlbumCoverArt),
+        findsOneWidget,
+        reason: 'Favourites still coloured; Videos shows the chosen photo',
+      );
+      expect(coverIcon(CupertinoIcons.play_fill), findsNothing);
+      expect(coverIcon(CupertinoIcons.heart_fill), findsOneWidget);
+    });
+  });
+
   testWidgets(
     'shows Utilities rows with real counts and navigates to each screen',
     (tester) async {
@@ -1263,7 +1349,10 @@ void main() {
         ),
       );
       await _settleScan(tester);
-      expect(scans, 1);
+      // Opening reads the newest pages on the head lane and then the whole
+      // roll on the backstop, so more than one listing here is the point.
+      expect(scans, greaterThan(0));
+      final atLaunch = scans;
       expect(
         (await recordStore.getByLocalId('photo:roll1'))!.isFavorite,
         isTrue,
@@ -1277,7 +1366,7 @@ void main() {
       await _sendLifecycle(tester, AppLifecycleState.resumed);
       await _settleScan(tester);
 
-      expect(scans, greaterThan(1));
+      expect(scans, greaterThan(atLaunch));
       expect(
         (await recordStore.getByLocalId('photo:roll1'))!.isFavorite,
         isFalse,

@@ -10,6 +10,62 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'image_pipeline.dart';
 
+/// What to ask PhotoKit for. [fitted] keeps the photo's own shape, at the
+/// cost of a thumbnail that isn't square; without it the OS centre-crops
+/// to a square and the sides are simply gone.
+///
+/// Shared with `../viewer/asset_grid.dart`, which draws the live library
+/// thumbnail the same way the cache stores it — a tile that re-frames the
+/// moment the cached copy takes over is the flash that rule exists to
+/// prevent.
+ThumbnailOption thumbnailOption(int size, {required bool fitted}) {
+  // The fitted options are PhotoKit's; everywhere else takes the plain
+  // request and the crop that comes with it.
+  if (!fitted || !(Platform.isIOS || Platform.isMacOS)) {
+    return ThumbnailOption(size: ThumbnailSize.square(size));
+  }
+  return ThumbnailOption.ios(
+    size: ThumbnailSize.square(size),
+    resizeContentMode: ResizeContentMode.fit,
+    deliveryMode: DeliveryMode.highQualityFormat,
+    resizeMode: ResizeMode.exact,
+  );
+}
+
+/// Photos with no cached thumbnail, newest first and capped at [limit] —
+/// what the library's background pass tops up each round.
+///
+/// A thumbnail is made from a local original, so the only moment it can be
+/// made is while there still is one. Miss that and the photo goes
+/// cloud-only as a grey triangle: the original is gone from Photos, the
+/// bucket has the full-resolution copy, and this app has no picture of it
+/// to draw. So anything still holding its original and missing a thumbnail
+/// is owed one.
+///
+/// Skipped: hidden photos (theirs lives encrypted in `../vault/cache.dart`,
+/// and [ThumbnailCache.ensureFor] deletes any plaintext copy it finds),
+/// binned ones, ones already cloud-only (too late — there is nothing left
+/// to make it from), and whatever [skip] names, which is the caller's list
+/// of files it couldn't resolve this session.
+List<AssetRecord> needingThumbnails(
+  List<AssetRecord> oldestFirst, {
+  Set<String> skip = const {},
+  int limit = 8,
+}) {
+  final owed = <AssetRecord>[];
+  // Newest first: the photos worth protecting soonest are the ones most
+  // likely to be deleted next.
+  for (final record in oldestFirst.reversed) {
+    if (owed.length >= limit) break;
+    if (record.thumbnailPath != null) continue;
+    if (record.passcodeHash != null) continue;
+    if (record.isDeleted || record.localDeleted) continue;
+    if (skip.contains(record.localId)) continue;
+    owed.add(record);
+  }
+  return owed;
+}
+
 /// App-owned thumbnails, one per photo, kept in their own directory under
 /// application support.
 ///
@@ -37,7 +93,10 @@ class ThumbnailCache {
   /// they never reach a real photo library.
   final Future<Uint8List?> Function(AssetRecord record) _libraryThumbnail;
 
-  static const _dirName = 'thumbnails';
+  /// Where cached thumbnails live under application support. Public
+  /// because a thumbnail can also arrive from the bucket rather than from
+  /// a local original — see `../upload/original_restore.dart`.
+  static const dirName = 'thumbnails';
 
   /// Off the calling isolate — decode+resize of a full-size photo is heavy
   /// enough to jank a frame otherwise.
@@ -56,10 +115,13 @@ class ThumbnailCache {
     try {
       final entity = await AssetEntity.fromId(id);
       return await entity?.thumbnailDataWithOption(
-        const ThumbnailOption(
-          size: ThumbnailSize.square(thumbnailMaxEdge),
-          quality: 80,
-        ),
+        // Fitted, not the square PhotoKit hands back by default. This is
+        // the picture a cloud-only photo *is* once its original is gone,
+        // and a centre-cropped square shown full-screen is a different
+        // photo from the one that was taken — the sides cut off and the
+        // shape wrong. It only ever looked right because the grid draws
+        // squares.
+        thumbnailOption(thumbnailMaxEdge, fitted: true),
       );
     } catch (_) {
       // No plugin, or gone from the library since.
@@ -73,7 +135,7 @@ class ThumbnailCache {
       _libraryThumbnail(record);
 
   Future<Directory> _thumbnailDirectory() async {
-    final dir = Directory(p.join((await _directory()).path, _dirName));
+    final dir = Directory(p.join((await _directory()).path, dirName));
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
   }

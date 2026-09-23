@@ -103,6 +103,7 @@
   "albumsNewTitle": "新建相册",
   "albumsNewNamePlaceholder": "相册名称",
   "albumUseAsCover": "设为相册封面",
+  "albumUseDefaultCover": "使用颜色封面",
   "albumAddPhotos": "添加照片",
   "albumDescriptionPlaceholder": "为这个相册写点说明",
   "albumTagsHeading": "标签",

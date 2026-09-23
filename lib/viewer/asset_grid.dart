@@ -7,6 +7,7 @@ import 'package:intl/intl.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/thumbnail_cache.dart';
 import '../photos/photo_library_service.dart';
 import '../storage/asset_record.dart';
 import 'photo_grid_layout.dart';
@@ -426,17 +427,7 @@ class AssetTile extends StatelessWidget {
                   ),
                 ),
               ),
-            if (record.localDeleted)
-              const Positioned(
-                top: 4,
-                left: 4,
-                child: Icon(
-                  CupertinoIcons.cloud_fill,
-                  size: 14,
-                  color: CupertinoColors.white,
-                ),
-              )
-            else if (record.isGif)
+            if (record.isGif)
               const Positioned(
                 top: 4,
                 left: 4,
@@ -503,9 +494,20 @@ class AssetTile extends StatelessWidget {
   }
 }
 
-/// Marks only not-yet-backed-up tiles — a light dotted ring, bottom-right —
-/// synced tiles get no badge at all, so a fully backed-up library reads as
-/// clean instead of every tile carrying a green checkmark.
+/// The tile's bottom-right badge, which is where "where does this photo
+/// actually live?" is answered.
+///
+/// Two states, and they can't both be true: a filled cloud for a photo
+/// that is only in the bucket now, and a light dotted ring for one not
+/// backed up yet. A photo in both places gets nothing at all, so a library
+/// that is fully synced and fully on the device reads as clean instead of
+/// every tile carrying a checkmark.
+///
+/// The cloud took this corner rather than the top-left one it used to
+/// share with GIF and Live Photo: those say what *kind* of thing the photo
+/// is, and a cloud-only Live Photo was losing its marker to the chain. It
+/// also can't collide with the ring — cloud-only means the original is up
+/// there, so the ring would never draw for one.
 class StatusDot extends StatelessWidget {
   const StatusDot({super.key, required this.record});
 
@@ -513,6 +515,16 @@ class StatusDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
+    if (record.localDeleted) {
+      return const Icon(
+        CupertinoIcons.cloud_fill,
+        size: 14,
+        color: CupertinoColors.white,
+        // White on a white photo is nothing at all, and this is the badge
+        // somebody scans a grid for.
+        shadows: [Shadow(color: Color(0x99000000), blurRadius: 3)],
+      );
+    }
     final status = record.stateOf(DerivativeKind.original).status;
     if (status == UploadStatus.uploaded) return const SizedBox.shrink();
     return const SizedBox(
@@ -623,7 +635,7 @@ Future<Uint8List?> photoManagerThumbnailBytes(
     final bytes = size == null
         ? await entity?.thumbnailData
         : await entity?.thumbnailDataWithOption(
-            _thumbnailOption(size, fitted: fitted),
+            thumbnailOption(size, fitted: fitted),
           );
     if (bytes != null) {
       _remember(key, bytes);
@@ -648,20 +660,6 @@ Future<Uint8List?> photoManagerThumbnailBytes(
 /// first callback and ignores the second. So every request here, at any
 /// size, was quietly being served the degraded one. `highQualityFormat`
 /// calls back once, with the image that was actually asked for.
-ThumbnailOption _thumbnailOption(int size, {required bool fitted}) {
-  // The fitted options are PhotoKit's; everywhere else takes the plain
-  // request and the crop that comes with it.
-  if (!fitted || !(Platform.isIOS || Platform.isMacOS)) {
-    return ThumbnailOption(size: ThumbnailSize.square(size));
-  }
-  return ThumbnailOption.ios(
-    size: ThumbnailSize.square(size),
-    resizeContentMode: ResizeContentMode.fit,
-    deliveryMode: DeliveryMode.highQualityFormat,
-    resizeMode: ResizeMode.exact,
-  );
-}
-
 String _thumbnailKey(String assetId, int? size, bool fitted) {
   if (size == null) return assetId;
   return fitted ? '$assetId@${size}f' : '$assetId@$size';

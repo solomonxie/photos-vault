@@ -71,6 +71,25 @@ offers. `asset_picker_screen.dart`'s multi-select grid is the shared
 "pick from the full library" flow behind Private Albums' Move/Copy and
 People's "Add Photos".
 
+`asset_grid.dart`'s `StatusDot` is the tile's bottom-right badge and the
+answer to "where does this photo actually live?" — a filled cloud when
+only the bucket has it, a dotted ring when the bucket doesn't have it yet,
+nothing when both do. The top-left corner says what *kind* of thing it is
+(GIF, Live Photo) and the top-right that it's a video, which is why the
+cloud moved out of that chain: a cloud-only Live Photo was losing its own
+marker to it.
+
+`built_in_album.dart` holds the two cards the library makes itself,
+Favourites and Videos: no row in the album table, and a gradient + glyph
+cover rather than the newest photo in them. An album somebody made is
+*about* its contents; these two are about a property, and the newest video
+in the library says nothing about "Videos" that the label doesn't. It also
+stops the pair re-skinning themselves every time a photo is taken. A photo
+can still be chosen for either — hold one on the Favourites or Videos grid
+and "Use as Album Cover"; the same action on the photo that already *is*
+the cover puts the colour back. The choice is filed in app state, since
+these two have no album row to hang a `coverLocalId` on.
+
 Every pick-a-value field (location, event, tag, school, person) goes through
 `search_picker_sheet.dart` — a drop-down sheet over the current page, not a
 push. `person_picker_sheet.dart` is the same sheet with "New Person…" wired
