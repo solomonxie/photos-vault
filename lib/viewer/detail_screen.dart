@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
 
@@ -97,6 +98,7 @@ class DetailScreen extends StatefulWidget {
     this.resolveLivePhotoVideo,
     this.resolvePlaceName,
     this.restoreOriginal,
+    this.restoreThumbnail,
     this.onDeviceAnalysis,
     this.aiVisionService,
   });
@@ -141,6 +143,10 @@ class DetailScreen extends StatefulWidget {
   /// Defaults to a real [OriginalRestore]; overridable so widget tests never
   /// make a network call.
   final Future<String?> Function(AssetRecord record)? restoreOriginal;
+
+  /// Re-downloads just the cached thumbnail — see
+  /// [OriginalRestore.restoreThumbnail]. Same defaulting, same reason.
+  final Future<String?> Function(AssetRecord record)? restoreThumbnail;
 
   /// Backs "Auto Suggest" / "AI Suggest" in the info panel. Both build
   /// themselves on first use, so a test that doesn't tap them never
@@ -675,6 +681,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   motionPlayback: _motionPlayback,
                   resolvePlaceName: widget.resolvePlaceName,
                   restoreOriginal: widget.restoreOriginal,
+                  restoreThumbnail: widget.restoreThumbnail,
                   onDeviceAnalysis: widget.onDeviceAnalysis,
                   aiVisionService: widget.aiVisionService,
                   assetRecordStore: widget.assetRecordStore,
@@ -783,6 +790,7 @@ class _MediaPage extends StatefulWidget {
     this.resolveLiveVideo,
     this.resolvePlaceName,
     this.restoreOriginal,
+    this.restoreThumbnail,
   });
 
   final AssetRecord record;
@@ -802,6 +810,11 @@ class _MediaPage extends StatefulWidget {
   /// and returns its new local path. Defaults to a real [OriginalRestore];
   /// overridable for tests so they never make a network call.
   final Future<String?> Function(AssetRecord record)? restoreOriginal;
+
+  /// Re-downloads just the small `thumbnails/` object — see
+  /// [OriginalRestore.restoreThumbnail]. Same defaulting and the same
+  /// reason for being injectable.
+  final Future<String?> Function(AssetRecord record)? restoreThumbnail;
 
   /// Owned by `_DetailScreenState` — the info-circle button in the bottom
   /// bar drives it directly, so this page's `CustomScrollView` just needs
@@ -1063,6 +1076,11 @@ class _MediaPageState extends State<_MediaPage>
   late bool _localDeleted = widget.record.localDeleted;
   bool _restoring = false;
 
+  /// A thumbnail fetched back out of the bucket, and whether that has been
+  /// tried — see [_fetchThumbnail].
+  String? _thumbnailPath;
+  bool _fetchedThumbnail = false;
+
   @override
   void initState() {
     super.initState();
@@ -1123,6 +1141,32 @@ class _MediaPageState extends State<_MediaPage>
     super.dispose();
   }
 
+  /// The bucket's thumbnail object, pulled down once for a cloud-only
+  /// photo that has no local picture of itself left.
+  ///
+  /// Once per page, whatever the answer: a photo small enough that its
+  /// thumbnail upload was skipped has nothing up there to fetch, and
+  /// re-asking on every rebuild would be a request per frame.
+  Future<void> _fetchThumbnail() async {
+    if (_fetchedThumbnail) return;
+    _fetchedThumbnail = true;
+    final restore =
+        widget.restoreThumbnail ??
+        (record) => OriginalRestore(
+          targetsStore: BackupTargetsStore(),
+          recordStore: widget.assetRecordStore,
+        ).restoreThumbnail(record);
+    String? path;
+    try {
+      path = await restore(widget.record);
+    } catch (_) {
+      path = null;
+    }
+    if (path == null || !mounted) return;
+    setState(() => _thumbnailPath = path);
+    widget.onRecordChanged(widget.record.withThumbnailPath(path));
+  }
+
   Future<void> _restoreOriginal() async {
     final restore =
         widget.restoreOriginal ??
@@ -1158,41 +1202,39 @@ class _MediaPageState extends State<_MediaPage>
   /// back down from the bucket — what a cloud-only asset shows instead of
   /// its (deleted) original.
   ///
-  /// With no thumbnail to draw either, it says what is actually true — the
-  /// bucket still has it — rather than "no longer available", which is the
-  /// one thing this state is not, and read as a contradiction next to a
-  /// Download button and a row saying Backed Up.
+  /// With no thumbnail to draw either, the bucket's own `thumbnails/` copy
+  /// is fetched once (see [_fetchThumbnail]) — it is a few kilobytes, and
+  /// the alternative is a grey triangle where a picture should be. Only
+  /// when even that comes back with nothing does it say what is actually
+  /// true — the bucket still has it — rather than "no longer available",
+  /// which is the one thing this state is not, and read as a contradiction
+  /// next to a Download button and a row saying Backed Up.
   Widget _cloudOnly(AppLocalizations l10n) {
-    final thumbnail = widget.record.thumbnailPath;
+    final thumbnail = _thumbnailPath ?? widget.record.thumbnailPath;
+    if (thumbnail == null) unawaited(_fetchThumbnail());
     return Stack(
       fit: StackFit.expand,
       children: [
         if (thumbnail != null)
-          Center(
-            child: Image.file(
-              File(thumbnail),
-              fit: BoxFit.contain,
-              errorBuilder: (context, error, stackTrace) =>
-                  _MissingFileNote(message: l10n.detailCloudOnlyNote),
-            ),
+          // Not wrapped in a `Center`: that hands the image loose
+          // constraints, so it draws at the thumbnail's own 320px in the
+          // middle of the screen and `contain` has nothing to fit. As the
+          // stack's own child it gets tight ones and fills the screen —
+          // blurry, but a blurry photo you can see beats a sharp stamp of
+          // one you can't.
+          Image.file(
+            File(thumbnail),
+            fit: BoxFit.contain,
+            // A 4x upscale through the default bilinear filter is visibly
+            // blocky; this costs one static image, not a scrolling grid.
+            filterQuality: FilterQuality.medium,
+            errorBuilder: (context, error, stackTrace) {
+              unawaited(_fetchThumbnail());
+              return _MissingFileNote(message: l10n.detailCloudOnlyNote);
+            },
           )
         else
           _MissingFileNote(message: l10n.detailCloudOnlyNote),
-        Positioned(
-          left: 0,
-          right: 0,
-          bottom: 24,
-          child: Center(
-            child: CupertinoButton.filled(
-              onPressed: _restoring ? null : _restoreOriginal,
-              child: Text(
-                _restoring
-                    ? l10n.detailRestoringOriginal
-                    : l10n.detailRestoreOriginal,
-              ),
-            ),
-          ),
-        ),
       ],
     );
   }
@@ -1205,12 +1247,15 @@ class _MediaPageState extends State<_MediaPage>
   /// of them, so a cross-fade between a photo and itself reads as a flash
   /// in the middle of it. The stand-in simply stays put and the real photo
   /// arrives on top of it.
-  Widget _media(AppLocalizations l10n) {
-    final standIn = _standIn();
-    final content = _mediaContent(l10n);
-    if (standIn == null) return content;
-    return Stack(fit: StackFit.expand, children: [standIn, content]);
-  }
+  /// Always the same two-child stack, even when there is no stand-in to
+  /// draw. Collapsing to the content alone changes the tree's shape, and
+  /// the `InteractiveViewer` underneath is then rebuilt from scratch
+  /// rather than matched — which threw away the zoom at the exact moment
+  /// the stand-in went, i.e. on zooming in.
+  Widget _media(AppLocalizations l10n) => Stack(
+    fit: StackFit.expand,
+    children: [_standIn() ?? const SizedBox.shrink(), _mediaContent(l10n)],
+  );
 
   /// The same picture the grid was just showing, screen-sized and
   /// *contained* — drawn cover, the stand-in is cropped differently from
@@ -1231,6 +1276,13 @@ class _MediaPageState extends State<_MediaPage>
     // more screen of pixels for the GPU to sample on every frame of a
     // gesture that has to keep up with a finger.
     if (_dragging) return null;
+    // Nor once it has been zoomed. The stand-in doesn't zoom or pan with
+    // the photo — it is a separate widget outside the InteractiveViewer —
+    // so panning a zoomed photo slid the real one off its stand-in and
+    // showed both at once, one letterboxed behind the other. The same
+    // "it has certainly painted by now" applies: nobody zooms a photo
+    // that isn't up yet.
+    if (_zoomed) return null;
     return Center(
       child: assetImage(
         widget.record,
@@ -1421,6 +1473,9 @@ class _MediaPageState extends State<_MediaPage>
               SliverToBoxAdapter(
                 child: _InfoPanel(
                   record: widget.record,
+                  cloudOnly: _localDeleted,
+                  restoring: _restoring,
+                  onRestoreOriginal: _restoreOriginal,
                   onDeviceAnalysis: widget.onDeviceAnalysis,
                   aiVisionService: widget.aiVisionService,
                   resolvePlaceName: widget.resolvePlaceName,
@@ -1613,6 +1668,9 @@ class _ZoomableImageState extends State<_ZoomableImage>
 class _InfoPanel extends StatefulWidget {
   const _InfoPanel({
     required this.record,
+    required this.cloudOnly,
+    required this.restoring,
+    required this.onRestoreOriginal,
     required this.onDeviceAnalysis,
     required this.aiVisionService,
     required this.resolvePlaceName,
@@ -1625,6 +1683,13 @@ class _InfoPanel extends StatefulWidget {
   });
 
   final AssetRecord record;
+
+  /// Whether the original is gone and only the bucket has it. Read from
+  /// `_MediaPage` rather than [record] because a restore that has just
+  /// landed hasn't reached the record yet.
+  final bool cloudOnly;
+  final bool restoring;
+  final VoidCallback onRestoreOriginal;
 
   /// Same value `_MediaPage` resolved and rendered — `photoManager` records
   /// have no `record.sourcePath` of their own.
@@ -2329,6 +2394,43 @@ class _InfoPanelState extends State<_InfoPanel> {
             ),
           ),
           const SizedBox(height: 16),
+          // A cloud-only photo's one real action, and the first thing in
+          // the panel because it is the answer to the note on the picture
+          // above it. It used to float over the photo itself, which put a
+          // blue pill across the bottom third of every cloud-only
+          // photo — over the picture it was offering to improve.
+          if (widget.cloudOnly)
+            CupertinoListSection.insetGrouped(
+              margin: const EdgeInsets.only(bottom: 16),
+              backgroundColor: _screenBackground,
+              decoration: const BoxDecoration(
+                color: Color(0xFF2C2C2E),
+                borderRadius: BorderRadius.all(Radius.circular(10)),
+              ),
+              children: [
+                CupertinoListTile(
+                  onTap: widget.restoring ? null : widget.onRestoreOriginal,
+                  leading: const Icon(
+                    CupertinoIcons.cloud_download,
+                    color: CupertinoColors.activeBlue,
+                  ),
+                  title: Text(
+                    widget.restoring
+                        ? l10n.detailRestoringOriginal
+                        : l10n.detailRestoreOriginal,
+                    style: TextStyle(
+                      color: widget.restoring
+                          ? CupertinoColors.systemGrey
+                          : CupertinoColors.activeBlue,
+                    ),
+                  ),
+                  subtitle: Text(l10n.detailCloudOnlyNote),
+                  trailing: widget.restoring
+                      ? const CupertinoActivityIndicator()
+                      : const CupertinoListTileChevron(),
+                ),
+              ],
+            ),
           CupertinoListSection.insetGrouped(
             margin: EdgeInsets.zero,
             backgroundColor: _screenBackground,

@@ -9,7 +9,85 @@ import 'package:http/http.dart' as http;
 import '../settings/fake_secure_store.dart';
 import '../support/fake_asset_record_store.dart';
 
+Future<BackupTargetsStore> _oneTarget() async {
+  final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+  await targetsStore.add(
+    accessKeyId: 'a',
+    secretAccessKey: 'b',
+    region: 'us-east-1',
+    bucket: 'bucket',
+    prefix: '',
+  );
+  return targetsStore;
+}
+
 void main() {
+  test('a cloud-only photo with no thumbnail left fetches one', () async {
+    final store = FakeAssetRecordStore();
+    await store.upsert(
+      localId: 'photo:bare',
+      contentHash: 'b',
+      platform: 'ios',
+    );
+    await store.updateDerivative(
+      'photo:bare',
+      DerivativeKind.thumbnail,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'thumbnails/photo_bare.jpg',
+      ),
+    );
+    await store.setLocalDeleted('photo:bare', true);
+    final record = (await store.getByLocalId('photo:bare'))!;
+
+    final tempDir = Directory.systemTemp.createTempSync('pv_thumb_');
+    addTearDown(() => tempDir.deleteSync(recursive: true));
+    final fetched = <String>[];
+
+    final path = await OriginalRestore(
+      targetsStore: await _oneTarget(),
+      recordStore: store,
+      directory: () async => tempDir,
+      get: (url) async {
+        fetched.add(url.path);
+        return http.Response.bytes([1, 2, 3], 200);
+      },
+    ).restoreThumbnail(record);
+
+    expect(fetched.single, contains('thumbnails/photo_bare.jpg'));
+    expect(path, isNotNull);
+    expect(File(path!).readAsBytesSync(), [1, 2, 3]);
+    expect(
+      (await store.getByLocalId('photo:bare'))!.thumbnailPath,
+      path,
+      reason: 'the record has to point at it, or the next open re-fetches',
+    );
+    expect(
+      (await store.getByLocalId('photo:bare'))!.localDeleted,
+      isTrue,
+      reason: 'a thumbnail is not the original coming back',
+    );
+  });
+
+  test('and says so when the bucket has no thumbnail either', () async {
+    final store = FakeAssetRecordStore();
+    await store.upsert(
+      localId: 'photo:small',
+      contentHash: 's',
+      platform: 'ios',
+    );
+    final record = (await store.getByLocalId('photo:small'))!;
+
+    final path = await OriginalRestore(
+      targetsStore: await _oneTarget(),
+      recordStore: store,
+      directory: () async => Directory.systemTemp,
+      get: (_) async => fail('nothing to ask for'),
+    ).restoreThumbnail(record);
+
+    expect(path, isNull);
+  });
+
   test('a Live Photo comes back with its motion, not as a still', () async {
     final store = FakeAssetRecordStore();
     await store.upsert(

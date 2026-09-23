@@ -148,41 +148,105 @@ class PhotoLibraryService {
     for (var page = 0; ; page++) {
       final entities = await _listAssetPage(page, _pageSize);
       if (entities.isEmpty) break;
-      final pageAdded = <AssetRecord>[];
-      var pageUpdated = 0;
-      for (final entity in entities) {
-        final localId = localIdFor(entity);
-        final existing = await store.getByLibraryId(entity.id);
-        seen.add(existing?.localId ?? localId);
-        if (existing != null) {
-          if (existing.isFavorite != entity.isFavorite) {
-            await store.setFavorite(existing.localId, entity.isFavorite);
-            pageUpdated++;
-          }
-          // Back from the OS's own Recently Deleted, or restored some other
-          // way: it has a local original again.
-          if (existing.localDeleted && existing.sourcePath == null) {
-            await store.setLocalDeleted(existing.localId, false);
-            if (existing.isDeleted) await store.restore(existing.localId);
-            pageUpdated++;
-          }
-          // Photos tracked before this app started keeping coordinates and
-          // pixel sizes: the entity is right here, so the backfill is the
-          // scan itself rather than a separate pass over the library.
-          if (await _fillLibraryMetadata(existing, entity)) pageUpdated++;
-          continue;
-        }
-        pageAdded.add(await _insert(entity, localId));
-      }
-      added.addAll(pageAdded);
-      updated += pageUpdated;
-      onPage?.call(
-        PhotoLibrarySyncResult(added: pageAdded, updated: pageUpdated),
-      );
+      final result = await _applyPage(entities, seen);
+      added.addAll(result.added);
+      updated += result.updated;
+      onPage?.call(result);
       if (entities.length < _pageSize) break;
     }
 
     if (reconcileDeletions) updated += await _reconcileDeletions(seen);
+    return PhotoLibrarySyncResult(added: added, updated: updated);
+  }
+
+  /// The newest [pages] pages of the camera roll and nothing else — what
+  /// the app runs every time it opens or comes back to the foreground.
+  ///
+  /// [syncAll] is correct and slow: a pass over a decade of photos is a
+  /// database lookup per asset, and while it is working through 2014 the
+  /// photos taken — and deleted — this morning are the ones on screen.
+  /// This is the same work over the near end of the library, bounded, so
+  /// coming back from Photos shows what just changed there in a moment
+  /// rather than at the end of a full re-read.
+  ///
+  /// [reconcileDeletions] is bounded the same way: a record newer than the
+  /// oldest asset this pass saw, which the pass did *not* see, is gone from
+  /// the library. Older records are the full scan's business, because this
+  /// pass has no opinion about them. Same access rule as [syncAll] — full
+  /// access only, or everything outside the selection looks deleted.
+  Future<PhotoLibrarySyncResult> syncRecent({
+    int pages = 2,
+    bool reconcileDeletions = false,
+  }) async {
+    final added = <AssetRecord>[];
+    final seen = <String>{};
+    var updated = 0;
+    DateTime? oldest;
+    var wholeLibrary = false;
+
+    for (var page = 0; page < pages; page++) {
+      final entities = await _listAssetPage(page, _pageSize);
+      if (entities.isEmpty) {
+        wholeLibrary = true;
+        break;
+      }
+      final result = await _applyPage(entities, seen);
+      added.addAll(result.added);
+      updated += result.updated;
+      for (final entity in entities) {
+        final at = entity.createDateTime;
+        if (oldest == null || at.isBefore(oldest)) oldest = at;
+      }
+      if (entities.length < _pageSize) {
+        wholeLibrary = true;
+        break;
+      }
+    }
+
+    if (reconcileDeletions) {
+      updated += await _reconcileDeletions(
+        seen,
+        // A library small enough to fit in the window was read in full, so
+        // there is no near end to limit the check to.
+        newerThan: wholeLibrary ? null : oldest,
+      );
+    }
+    return PhotoLibrarySyncResult(added: added, updated: updated);
+  }
+
+  /// One page of listed entities into the store. [seen] collects the
+  /// `localId` of everything the page accounted for, which is what
+  /// [_reconcileDeletions] measures absence against.
+  Future<PhotoLibrarySyncResult> _applyPage(
+    List<AssetEntity> entities,
+    Set<String> seen,
+  ) async {
+    final added = <AssetRecord>[];
+    var updated = 0;
+    for (final entity in entities) {
+      final localId = localIdFor(entity);
+      final existing = await store.getByLibraryId(entity.id);
+      seen.add(existing?.localId ?? localId);
+      if (existing != null) {
+        if (existing.isFavorite != entity.isFavorite) {
+          await store.setFavorite(existing.localId, entity.isFavorite);
+          updated++;
+        }
+        // Back from the OS's own Recently Deleted, or restored some other
+        // way: it has a local original again.
+        if (existing.localDeleted && existing.sourcePath == null) {
+          await store.setLocalDeleted(existing.localId, false);
+          if (existing.isDeleted) await store.restore(existing.localId);
+          updated++;
+        }
+        // Photos tracked before this app started keeping coordinates and
+        // pixel sizes: the entity is right here, so the backfill is the
+        // scan itself rather than a separate pass over the library.
+        if (await _fillLibraryMetadata(existing, entity)) updated++;
+        continue;
+      }
+      added.add(await _insert(entity, localId));
+    }
     return PhotoLibrarySyncResult(added: added, updated: updated);
   }
 
@@ -251,17 +315,45 @@ class PhotoLibraryService {
   ///    Deleted. Nothing about it survives anywhere, so leaving it in the
   ///    main grid would claim it's still yours; binning it keeps the record
   ///    (and its metadata) recoverable without pretending.
-  Future<int> _reconcileDeletions(Set<String> seen) async {
+  ///
+  /// [newerThan] bounds the check to records created after that moment —
+  /// how [syncRecent] limits itself to the part of the library it actually
+  /// read. Null checks everything, which only a pass over the whole roll
+  /// may ask for.
+  Future<int> _reconcileDeletions(
+    Set<String> seen, {
+    DateTime? newerThan,
+  }) async {
     var changed = 0;
     for (final record in await store.listAll()) {
       if (record.sourceType != AssetSourceType.photoManager) continue;
       if (seen.contains(record.localId)) continue;
+      if (newerThan != null && !record.createdAt.isAfter(newerThan)) continue;
       // A hidden photo is out of the library on purpose — this app took it
       // out itself, and holds the only copy. Nothing to reconcile.
       if (record.libraryId == null && record.sourcePath != null) continue;
+      // Absent from the listing isn't the same as gone. Pages shift under a
+      // scan as photos arrive and leave, so a photo can fall through the
+      // gap between two of them and be perfectly fine — ask about this one
+      // before writing it off, which costs a metadata lookup and only for
+      // the handful the listing didn't account for.
+      final libraryId = record.libraryId;
+      if (libraryId != null && await _stillInLibrary(libraryId)) continue;
       if (await _markGone(record)) changed++;
     }
     return changed;
+  }
+
+  /// Whether the library still has this asset. A lookup that *fails* —
+  /// no channel, permission pulled mid-pass — is not an answer, and the
+  /// listing's verdict stands rather than the check quietly cancelling
+  /// reconciliation altogether.
+  Future<bool> _stillInLibrary(String libraryId) async {
+    try {
+      return await _loadEntity(libraryId) != null;
+    } catch (_) {
+      return false;
+    }
   }
 
   Future<AssetRecord> _insert(AssetEntity entity, String localId) async {

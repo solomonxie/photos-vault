@@ -122,6 +122,7 @@
   "albumsNewTitle": "New Album",
   "albumsNewNamePlaceholder": "Album name",
   "albumUseAsCover": "Use as Album Cover",
+  "albumUseDefaultCover": "Use Colour Cover",
   "albumAddPhotos": "Add Photos",
   "albumDescriptionPlaceholder": "Add a note about this album",
   "albumTagsHeading": "Tags",

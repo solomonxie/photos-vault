@@ -13,12 +13,16 @@ import 'package:flutter/foundation.dart';
 class LibraryScanner {
   LibraryScanner({
     required this.scan,
+    this.scanRecent,
     this.interval = const Duration(minutes: 5),
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
   /// The pass itself, owned by whoever redraws as its pages arrive.
   final Future<void> Function() scan;
+
+  /// The newest photos only — see [runRecent].
+  final Future<void> Function()? scanRecent;
 
   /// How long a re-read stays good for. Without it, coming back to the
   /// library screen twice in a second would read Photos twice.
@@ -33,6 +37,39 @@ class LibraryScanner {
 
   DateTime? _lastAt;
   Future<void>? _inFlight;
+  Future<void>? _recentInFlight;
+
+  /// The near end of the library, every time the app opens or comes back,
+  /// with no interval and no waiting on [run].
+  ///
+  /// A full pass is minutes long on a real library, and it holds the lane:
+  /// [run] joins the one already going rather than starting a second. That
+  /// is right for the backstop and wrong for the reason anybody reopens the
+  /// app — they just took a photo, or just deleted one, and a scan halfway
+  /// through 2014 will not reach either for a while. This lane is short,
+  /// bounded and always allowed to run, so the newest photos are current
+  /// before the rest of the library has been looked at.
+  Future<void> runRecent() async {
+    final scan = scanRecent;
+    if (scan == null) return;
+    final inFlight = _recentInFlight;
+    if (inFlight != null) return inFlight;
+    final future = _guarded(scan);
+    _recentInFlight = future;
+    try {
+      await future;
+    } finally {
+      _recentInFlight = null;
+    }
+  }
+
+  /// Photos unavailable, permission withdrawn mid-pass — swallowed so the
+  /// next round tries again.
+  static Future<void> _guarded(Future<void> Function() scan) async {
+    try {
+      await scan();
+    } catch (_) {}
+  }
 
   /// [force] ignores [interval] — what coming back from Photos means,
   /// where the whole point is that something may have changed over there.
