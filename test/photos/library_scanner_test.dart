@@ -51,6 +51,56 @@ void main() {
     expect(scans, 1);
   });
 
+  test('the newest photos are read while a full pass is still going', () async {
+    var full = 0;
+    var recent = 0;
+    final gate = Completer<void>();
+    final scanner = LibraryScanner(
+      scan: () async {
+        full++;
+        await gate.future;
+      },
+      scanRecent: () async => recent++,
+    );
+
+    final pass = scanner.run();
+    await scanner.runRecent();
+    await scanner.runRecent();
+
+    expect(recent, 2, reason: 'no interval on the head lane');
+    expect(full, 1, reason: 'and it never waits on the full pass');
+    gate.complete();
+    await pass;
+  });
+
+  test('a second head pass joins the one already running', () async {
+    var recent = 0;
+    final gate = Completer<void>();
+    final scanner = LibraryScanner(
+      scan: () async {},
+      scanRecent: () async {
+        recent++;
+        await gate.future;
+      },
+    );
+
+    final first = scanner.runRecent();
+    final second = scanner.runRecent();
+    gate.complete();
+    await Future.wait([first, second]);
+
+    expect(recent, 1);
+  });
+
+  test('a head pass that throws is swallowed, not rethrown', () async {
+    final scanner = LibraryScanner(
+      scan: () async {},
+      scanRecent: () async => throw StateError('no photo library'),
+    );
+
+    await expectLater(scanner.runRecent(), completes);
+  });
+
   test(
     'a failed pass is retried rather than waiting out the interval',
     () async {

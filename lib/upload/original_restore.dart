@@ -4,6 +4,7 @@ import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import '../photos/thumbnail_cache.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
@@ -58,6 +59,39 @@ class OriginalRestore {
         // prevent. Best-effort: a failure here still leaves a usable
         // photo, so it must not lose the restore that already worked.
         await _restoreLiveHalf(record, target, dir);
+        return file.path;
+      } catch (_) {
+        // Wrong target, expired credentials, network — try the next one.
+      }
+    }
+    return null;
+  }
+
+  /// Pulls just the small `thumbnails/` object down, for a photo that went
+  /// cloud-only with no cached picture of itself left on the device.
+  ///
+  /// The last resort, and a real one: a thumbnail is made from a local
+  /// original, and by the time this is wanted there isn't one. Returns the
+  /// cached path, or null if the bucket hasn't got a thumbnail either —
+  /// which is the case for a photo small enough that the upload was
+  /// skipped as not worth a second near-identical object.
+  Future<String?> restoreThumbnail(AssetRecord record) async {
+    final key = record.stateOf(DerivativeKind.thumbnail).destinationKey;
+    if (key == null) return null;
+
+    for (final target in await targetsStore.loadAll()) {
+      try {
+        final url = await presignGetUrl(target: target, key: key);
+        final response = await _get(url);
+        if (response.statusCode != 200) continue;
+
+        final dir = Directory(
+          p.join((await _directory()).path, ThumbnailCache.dirName),
+        );
+        if (!await dir.exists()) await dir.create(recursive: true);
+        final file = File(p.join(dir.path, p.basename(key)));
+        await file.writeAsBytes(response.bodyBytes);
+        await recordStore.setThumbnailPath(record.localId, file.path);
         return file.path;
       } catch (_) {
         // Wrong target, expired credentials, network — try the next one.

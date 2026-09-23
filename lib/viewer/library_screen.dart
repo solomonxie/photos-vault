@@ -56,6 +56,7 @@ import '../upload/sync_job_store.dart';
 import '../upload/sync_queue.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
+import 'built_in_album.dart';
 import 'analyze_queue_screen.dart';
 import 'asset_grid_view.dart';
 import 'asset_group_screen.dart';
@@ -280,6 +281,7 @@ class LibraryScreenState extends State<LibraryScreen>
   /// stopped noticing would quietly stop showing new photos.
   late final LibraryScanner _libraryScanner = LibraryScanner(
     scan: _syncPhotoLibrary,
+    scanRecent: _syncRecentPhotos,
   );
 
   /// The other queue: looking at the photos the scanner found.
@@ -371,6 +373,11 @@ class LibraryScreenState extends State<LibraryScreen>
   /// not start a second one on top of the one still running.
   bool _syncingLibrary = false;
 
+  /// The head pass has its own guard rather than sharing [_syncingLibrary]:
+  /// the whole point of it is that it runs while a full pass is still
+  /// walking the library.
+  bool _syncingRecent = false;
+
   /// iOS is short of memory and asking for some back. Thumbnails are the
   /// obvious thing to hand over: every byte of them can be fetched from
   /// the library again, and the alternative to answering is being killed
@@ -404,7 +411,11 @@ class LibraryScreenState extends State<LibraryScreen>
     }
     if (state != AppLifecycleState.resumed || !mounted) return;
     // Coming back from Photos is the whole reason for the forced pass:
-    // something may have changed over there while we weren't looking.
+    // something may have changed over there while we weren't looking. The
+    // newest photos first and on their own lane — what changed over there
+    // is almost always at that end, and a full pass already walking
+    // through 2014 would otherwise take minutes to reach it.
+    unawaited(_libraryScanner.runRecent());
     unawaited(_libraryScanner.run(force: true));
     unawaited(_analyzeQueue.startIfDue());
     unawaited(_runScheduledSyncIfDue());
@@ -550,6 +561,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // triggers for backup) can be slow, and must never block showing the
     // manually-added assets already on hand. Re-`reload()`s itself once
     // done.
+    unawaited(_libraryScanner.runRecent());
     unawaited(_libraryScanner.run(force: true));
     unawaited(_analyzeQueue.startIfDue());
     // Independent of camera-roll access: retries whatever's already
@@ -570,6 +582,43 @@ class LibraryScreenState extends State<LibraryScreen>
     } catch (_) {
       // No container, no channel, no bucket, nothing in any of them — an
       // empty library is the same empty library it would have been.
+    }
+  }
+
+  /// The near end of the camera roll, on every open and every return to
+  /// the app, ahead of and independent of the full pass.
+  ///
+  /// The full scan is a database lookup per asset and minutes long on a
+  /// real library, and until it finishes it reconciles nothing — so a photo
+  /// deleted over in Photos this morning could sit in this app's grid for
+  /// the length of a whole re-read, and a photo just taken could sit
+  /// outside it. Both of those happen at the newest end, which is a couple
+  /// of pages: read them, apply them, and account for anything newer than
+  /// the oldest one that the library no longer has.
+  Future<void> _syncRecentPhotos() async {
+    if (_syncingRecent) return;
+    _syncingRecent = true;
+    try {
+      final access = await _photoLibraryService.requestAccess();
+      if (access == PhotoLibraryAccess.denied) return;
+      final result = await _photoLibraryService.syncRecent(
+        // Same rule as the full pass: under "Selected Photos" the listing
+        // is a handful of assets and everything else would look deleted.
+        reconcileDeletions: access == PhotoLibraryAccess.granted,
+      );
+      // An asset restored from Photos' own trash gets another chance at
+      // resolving, the same as after a full pass.
+      if (result.added.isNotEmpty) _unresolvable.clear();
+      if (result.isEmpty || !mounted) return;
+      if (result.added.isNotEmpty && await _autoSyncAllowed()) {
+        await _backUpRecords(result.added);
+      }
+      await reload();
+    } catch (_) {
+      // No platform channel, or the permission flow failed — the full pass
+      // covers the same ground, just not as promptly.
+    } finally {
+      _syncingRecent = false;
     }
   }
 
@@ -673,6 +722,8 @@ class LibraryScreenState extends State<LibraryScreen>
     if (_analyzeQueue.analyzedInLastRun > 0 && mounted) {
       await reload(faces: true);
     }
+    // Before the original can vanish — see [_cacheMissingThumbnails].
+    await _cacheMissingThumbnails();
     // A handful of photos at a time, and only once nothing else wants the
     // phone — so the Optimize Storage page is usually already answered by
     // the time anybody opens it. On the page it runs flat out instead.
@@ -680,6 +731,44 @@ class LibraryScreenState extends State<LibraryScreen>
       await _storageAdvisor.sweep();
     } catch (_) {
       // No photo library to measure against — nothing owed here.
+    }
+  }
+
+  /// Gives a cached thumbnail to photos that haven't got one — see
+  /// [needingThumbnails] for which those are and why they matter.
+  ///
+  /// The cache used to be a side effect of the `uploadThumbnail` job and
+  /// nothing else, so a photo whose job never ran — turned away by a full
+  /// queue, or its file unreadable that once — simply never had a picture
+  /// of itself on disk, and nothing ever asked again. A thumbnail has to
+  /// be there before it is needed, which makes it the library's business
+  /// rather than the upload queue's.
+  Future<void> _cacheMissingThumbnails() async {
+    final owed = needingThumbnails(_all, skip: _unresolvable);
+    if (owed.isEmpty) return;
+    for (final record in owed) {
+      if (!mounted) return;
+      await _cacheThumbnail(record);
+    }
+    if (mounted) await reload();
+  }
+
+  Future<void> _cacheThumbnail(AssetRecord record) async {
+    try {
+      // A video's poster frame comes from the library itself — exporting
+      // the whole movie to make a picture of it would be absurd.
+      if (record.isVideo) {
+        await _thumbnailCache.ensureFor(record);
+        return;
+      }
+      final path = await _filePathFor(record);
+      if (path == null) {
+        _unresolvable.add(record.localId);
+        return;
+      }
+      await _thumbnailCache.ensureFor(record, path);
+    } catch (_) {
+      // Unreadable, or gone since — the next round tries again.
     }
   }
 
@@ -771,6 +860,7 @@ class LibraryScreenState extends State<LibraryScreen>
         albumAssets[albumId]?.add(record);
       }
     }
+    final builtInCovers = await _loadBuiltInCovers();
     final people = await _personStore.listAll();
     final peopleChanged = !_samePeople(people, _people);
     // People and the strangers among them only move when the library or
@@ -828,6 +918,7 @@ class LibraryScreenState extends State<LibraryScreen>
       }
       _albums = albums;
       _albumAssets = albumAssets;
+      _builtInCovers = builtInCovers;
       _people = people;
       _personPhotoCounts = personPhotoCounts;
       _unnamedFaces = unnamed.faces;
@@ -1151,9 +1242,33 @@ class LibraryScreenState extends State<LibraryScreen>
     // which picks every pending asset up then.
     if (!await _hasBackupTarget()) return 0;
     var queued = 0;
+    var enqueuedAny = false;
     for (final record in _newestFirst(records)) {
       final hash = record.passcodeHash;
       final name = _displayNameFor(record);
+      // The thumbnail goes in *first*, and not for the bucket's sake:
+      // `uploadThumbnail` is also what puts the picture this app draws
+      // once the original is gone onto disk. Queued second, a full queue
+      // turned it away and nothing ever asked again — a record whose
+      // original is up is fully backed up, so the refill never looks at it
+      // twice, and the photo went cloud-only as a blank card. Queued
+      // first, the job a full queue turns away is the *original*, which is
+      // still pending and comes back on the next pass.
+      //
+      // A hidden photo produces exactly one object. A `thumbnails/` copy
+      // is the same picture at 320px in the folder built for cheap
+      // browsing — the private album's contents, legible to anyone who can
+      // read the bucket. Same for a Live Photo's `.mov` half.
+      if (hash == null) {
+        final tookThumbnail = await syncQueue.enqueue(
+          localId: record.localId,
+          kind: SyncJobKind.uploadThumbnail,
+          displayName: name,
+          assetCreatedAt: record.createdAt,
+        );
+        if (!tookThumbnail) break;
+        enqueuedAny = true;
+      }
       final taken = await syncQueue.enqueue(
         localId: record.localId,
         kind: SyncJobKind.uploadOriginal,
@@ -1164,22 +1279,12 @@ class LibraryScreenState extends State<LibraryScreen>
       // rest is tens of thousands of records, and they're still pending on
       // their own records for the next pass to find.
       if (!taken) break;
+      enqueuedAny = true;
       queued++;
-      // A hidden photo produces exactly one object. A `thumbnails/` copy
-      // is the same picture at 320px in the folder built for cheap
-      // browsing — the private album's contents, legible to anyone who can
-      // read the bucket. Same for a Live Photo's `.mov` half.
-      if (hash != null) continue;
-      await syncQueue.enqueue(
-        localId: record.localId,
-        kind: SyncJobKind.uploadThumbnail,
-        displayName: name,
-        assetCreatedAt: record.createdAt,
-      );
       // The other half of a Live Photo. A job of its own rather than part
       // of the original's, so it shows in the queue by name and a failure
       // to fetch the `.mov` doesn't take the still down with it.
-      if (record.isLivePhoto) {
+      if (hash == null && record.isLivePhoto) {
         await syncQueue.enqueue(
           localId: record.localId,
           kind: SyncJobKind.uploadLivePhoto,
@@ -1190,7 +1295,7 @@ class LibraryScreenState extends State<LibraryScreen>
     }
     // Only when there's something to drain: starting an empty drain would
     // flip `draining` and bring `_onDrainingChanged` straight back here.
-    if (queued > 0) unawaited(syncQueue.start());
+    if (enqueuedAny) unawaited(syncQueue.start());
     return queued;
   }
 
@@ -1942,15 +2047,41 @@ class LibraryScreenState extends State<LibraryScreen>
   /// the database: there's nothing to add to it or remove from it, and a
   /// stored membership list would only be a second, staler answer to a
   /// question the library can already answer.
-  Album _builtInAlbum(String id, String name) =>
-      Album(id: id, name: name, createdAt: DateTime.now());
+  Album _builtInAlbum(BuiltInAlbum builtIn, String name) => Album(
+    id: builtIn.id,
+    name: name,
+    createdAt: DateTime.now(),
+    coverLocalId: _builtInCovers[builtIn],
+  );
 
-  static const _videosAlbumId = 'builtin:videos';
-  static const _favoritesAlbumId = 'builtin:favorites';
+  /// A photo chosen for one of the two built-in cards, if the user has
+  /// picked one. Read once per [reload] rather than per build — see
+  /// CLAUDE.md on per-build work.
+  Map<BuiltInAlbum, String?> _builtInCovers = const {};
+
+  Future<Map<BuiltInAlbum, String?>> _loadBuiltInCovers() async {
+    try {
+      return {
+        for (final album in BuiltInAlbum.values)
+          album: await builtInAlbumCover(assetRecordStore, album),
+      };
+    } catch (_) {
+      // No app-state table yet — the coloured default is the right answer
+      // anyway.
+      return const {};
+    }
+  }
 
   void _openVideos() {
     final l10n = AppLocalizations.of(context)!;
-    _openGroup(l10n.albumsVideosName, _videos);
+    _push(
+      AssetGroupScreen(
+        title: l10n.albumsVideosName,
+        records: _videos,
+        assetRecordStore: assetRecordStore,
+        coverFor: BuiltInAlbum.videos,
+      ),
+    );
   }
 
   Future<void> _createAlbum() async {
@@ -2260,16 +2391,21 @@ class LibraryScreenState extends State<LibraryScreen>
               child: switch (i) {
                 0 => _AlbumCard(
                   album: _builtInAlbum(
-                    _favoritesAlbumId,
+                    BuiltInAlbum.favorites,
                     l10n.collectionsFavoritesRow,
                   ),
+                  builtIn: BuiltInAlbum.favorites,
                   records: _favorites,
                   onTap: () => _push(
                     FavoritesScreen(assetRecordStore: assetRecordStore),
                   ),
                 ),
                 1 => _AlbumCard(
-                  album: _builtInAlbum(_videosAlbumId, l10n.albumsVideosName),
+                  album: _builtInAlbum(
+                    BuiltInAlbum.videos,
+                    l10n.albumsVideosName,
+                  ),
+                  builtIn: BuiltInAlbum.videos,
                   records: _videos,
                   onTap: _openVideos,
                 ),
@@ -2513,12 +2649,17 @@ class _AlbumCard extends StatelessWidget {
     required this.album,
     required this.records,
     required this.onTap,
+    this.builtIn,
     this.onDelete,
   });
 
   final Album album;
   final List<AssetRecord> records;
   final VoidCallback onTap;
+
+  /// Set for the two the library makes itself, which draw a coloured cover
+  /// rather than their newest photo — see [BuiltInAlbum].
+  final BuiltInAlbum? builtIn;
 
   /// Absent for the built-in Videos album — there's nothing there to
   /// delete, and a greyed-out Delete would only invite the attempt.
@@ -2554,6 +2695,10 @@ class _AlbumCard extends StatelessWidget {
   /// card used to draw a grey icon unless the cover happened to be a
   /// manually-added file, so an album of camera-roll photos (which is most
   /// of them) looked empty.
+  ///
+  /// Except for the two built-in ones, which fall back to their colour
+  /// rather than to a photo — the newest video in the library is not a
+  /// picture of "Videos".
   AssetRecord? get _cover {
     if (records.isEmpty) return null;
     final chosen = album.coverLocalId;
@@ -2562,7 +2707,7 @@ class _AlbumCard extends StatelessWidget {
         if (record.localId == chosen) return record;
       }
     }
-    return records.last;
+    return builtIn != null ? null : records.last;
   }
 
   @override
@@ -2580,10 +2725,12 @@ class _AlbumCard extends StatelessWidget {
             child: ClipRRect(
               borderRadius: BorderRadius.circular(10),
               child: cover == null
-                  ? const ColoredBox(
-                      color: CupertinoColors.systemGrey5,
-                      child: Icon(CupertinoIcons.photo_on_rectangle),
-                    )
+                  ? (builtIn != null
+                        ? BuiltInAlbumCoverArt(builtIn!)
+                        : const ColoredBox(
+                            color: CupertinoColors.systemGrey5,
+                            child: Icon(CupertinoIcons.photo_on_rectangle),
+                          ))
                   // Drawn the way a grid tile is, which is what makes a
                   // camera-roll photo — or a video's poster frame — show
                   // up here at all.

@@ -146,8 +146,47 @@ class AssetRecordStore {
     // the schema the app just finished upgrading to.
     await installChangeLog(db, const [_table]);
     await _rehomePaths(db);
+    await _dropSquareThumbnails(db);
     _db = db;
     return db;
+  }
+
+  static const _fittedThumbnailsKey = 'thumbnails_fitted_v1';
+
+  /// Forgets thumbnails cached back when the app asked PhotoKit for a
+  /// square one, so the background pass makes them again at the photo's
+  /// own shape (`ThumbnailCache`'s `thumbnailOption`).
+  ///
+  /// Only where the original is still here to re-make from — a cloud-only
+  /// photo's cached thumbnail is the only picture of it left, and a
+  /// wrongly-cropped picture beats none. Hidden photos keep theirs too;
+  /// they are encrypted elsewhere and this column is already null for
+  /// them.
+  ///
+  /// Once ever, on the launch after the upgrade, and a no-op on every
+  /// launch after that.
+  Future<void> _dropSquareThumbnails(Database db) async {
+    final done = await db.query(
+      _appStateTable,
+      where: 'key = ?',
+      whereArgs: [_fittedThumbnailsKey],
+      limit: 1,
+    );
+    if (done.isNotEmpty) return;
+    await db.update(
+      _table,
+      {
+        'thumbnail_path': null,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where:
+          'thumbnail_path IS NOT NULL AND local_deleted = 0 AND '
+          'deleted_at IS NULL AND passcode_hash IS NULL',
+    );
+    await db.insert(_appStateTable, {
+      'key': _fittedThumbnailsKey,
+      'value': '1',
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
   /// Paths into a *previous* app container, pointed at the current one.

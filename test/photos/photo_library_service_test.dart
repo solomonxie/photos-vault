@@ -383,6 +383,125 @@ void main() {
     });
   });
 
+  group('syncRecent — the head pass', () {
+    test('reads only the newest pages, not the whole roll', () async {
+      final store = FakeAssetRecordStore();
+      final requested = <int>[];
+      final service = PhotoLibraryService(
+        store: store,
+        listAssetPage: (page, size) async {
+          requested.add(page);
+          return [
+            for (var i = 0; i < size; i++)
+              _entity('p$page-$i', createSecond: 100000 - page * size - i),
+          ];
+        },
+      );
+
+      final result = await service.syncRecent(pages: 2);
+
+      expect(requested, [0, 1]);
+      expect(result.added, hasLength(400));
+    });
+
+    test('a photo deleted in Photos is accounted for straight away', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [
+        _entity('new', createSecond: 200),
+        _entity('old', createSecond: 100),
+      ];
+      final service = PhotoLibraryService(
+        store: store,
+        listAssetPage: pagedBy(() => listing),
+        loadEntity: (id) async => listing.where((e) => e.id == id).firstOrNull,
+      );
+      await service.syncRecent();
+      await store.updateDerivative(
+        'photo:new',
+        DerivativeKind.original,
+        const DerivativeState(status: UploadStatus.uploaded),
+      );
+
+      listing = [_entity('old', createSecond: 100)];
+      final result = await service.syncRecent(reconcileDeletions: true);
+
+      expect((await store.getByLocalId('photo:new'))!.localDeleted, isTrue);
+      expect(result.updated, 1);
+    });
+
+    test(
+      'and says nothing about the part of the library it did not read',
+      () async {
+        final store = FakeAssetRecordStore();
+        // Two full pages, so the pass reads page 0 only and everything on
+        // page 1 is older than the window it can speak for.
+        final all = [
+          for (var i = 0; i < 400; i++) _entity('a$i', createSecond: 400 - i),
+        ];
+        var listing = all;
+        final service = PhotoLibraryService(
+          store: store,
+          listAssetPage: (page, size) async =>
+              listing.skip(page * size).take(size).toList(),
+          loadEntity: (id) async =>
+              listing.where((e) => e.id == id).firstOrNull,
+        );
+        await service.syncAll();
+
+        // The oldest photo in the library goes; the head pass never saw it
+        // and must not guess.
+        listing = all.take(399).toList();
+        await service.syncRecent(pages: 1, reconcileDeletions: true);
+        expect(await store.getByLocalId('photo:a399'), isNotNull);
+
+        await service.syncAll(reconcileDeletions: true);
+        expect(await store.getByLocalId('photo:a399'), isNull);
+      },
+    );
+
+    test('a library smaller than the window is reconciled in full', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [_entity('a1', createSecond: 100)];
+      final service = PhotoLibraryService(
+        store: store,
+        listAssetPage: pagedBy(() => listing),
+        loadEntity: (id) async => listing.where((e) => e.id == id).firstOrNull,
+      );
+      await service.syncRecent();
+
+      listing = [];
+      await service.syncRecent(reconcileDeletions: true);
+
+      expect(await store.getByLocalId('photo:a1'), isNull);
+    });
+
+    test(
+      'a record the listing missed but the library still has is left alone',
+      () async {
+        final store = FakeAssetRecordStore();
+        var listing = [
+          _entity('a1', createSecond: 200),
+          _entity('a2', createSecond: 100),
+        ];
+        final library = {for (final e in listing) e.id: e};
+        final service = PhotoLibraryService(
+          store: store,
+          listAssetPage: pagedBy(() => listing),
+          loadEntity: (id) async => library[id],
+        );
+        await service.syncRecent();
+
+        // Pages shift under a scan as photos arrive and leave: a2 falls
+        // through the gap while still being perfectly present.
+        listing = [_entity('a1', createSecond: 200)];
+        final result = await service.syncRecent(reconcileDeletions: true);
+
+        expect((await store.getByLocalId('photo:a2'))!.isDeleted, isFalse);
+        expect(result.updated, 0);
+      },
+    );
+  });
+
   group('applyChange — the notification path', () {
     PhotoLibraryService serviceOver(
       FakeAssetRecordStore store,

@@ -602,6 +602,47 @@ void main() {
     expect(scale(), closeTo(1, 0.01));
   });
 
+  testWidgets('zooming drops the stand-in, so a pan shows one photo not two', (
+    tester,
+  ) async {
+    final tempFile = File(
+      '${Directory.systemTemp.path}/detail_screen_test_standin.png',
+    )..writeAsBytesSync(_tinyPngBytes);
+    addTearDown(() => tempFile.deleteSync());
+    final record = _record(localId: 'zoom')
+        .withSourcePath(tempFile.path, DateTime(2026, 1, 1));
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [record],
+          initialIndex: 0,
+          assetRecordStore: FakeAssetRecordStore(),
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    // The stand-in sits *under* the real photo until it has painted, so
+    // before any zoom there are two copies of the same picture on screen.
+    expect(find.byType(Image), findsNWidgets(2));
+
+    final viewer = find.byType(InteractiveViewer);
+    final center = tester.getCenter(viewer);
+    await tester.tapAt(center);
+    await tester.pump(kDoubleTapMinTime);
+    await tester.tapAt(center);
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 250));
+
+    // The stand-in doesn't zoom or pan with the photo, so panning a zoomed
+    // one used to slide the real photo off it and show both at once.
+    expect(find.byType(Image), findsOneWidget);
+  });
+
   testWidgets('editing the date/time via the header persists it', (
     tester,
   ) async {
@@ -1073,18 +1114,22 @@ void main() {
       },
     );
 
-    Widget screen({required Future<String?> Function(AssetRecord) restore}) =>
-        _wrap(
-          DetailScreen(
-            records: [cloudOnly()],
-            initialIndex: 0,
-            assetRecordStore: FakeAssetRecordStore(),
-            personStore: FakePersonStore(),
-            onDelete: (_) async => true,
-            onToggleFavorite: (_) async {},
-            restoreOriginal: restore,
-          ),
-        );
+    Widget screen({
+      required Future<String?> Function(AssetRecord) restore,
+      AssetRecord? record,
+      Future<String?> Function(AssetRecord)? restoreThumbnail,
+    }) => _wrap(
+      DetailScreen(
+        records: [record ?? cloudOnly()],
+        initialIndex: 0,
+        assetRecordStore: FakeAssetRecordStore(),
+        personStore: FakePersonStore(),
+        onDelete: (_) async => true,
+        onToggleFavorite: (_) async {},
+        restoreOriginal: restore,
+        restoreThumbnail: restoreThumbnail ?? (_) async => null,
+      ),
+    );
 
     testWidgets(
       'offers to download the full resolution instead of the missing original',
@@ -1092,12 +1137,34 @@ void main() {
         await tester.pumpWidget(screen(restore: (_) async => null));
         await tester.pump();
 
-        expect(find.text('Download Full Resolution'), findsOneWidget);
         // Drawn from the cached thumbnail, not the deleted original.
         final image = tester.widget<Image>(find.byType(Image).first);
         expect(_fileOf(image.image).path, '/tmp/gone-thumb.jpg');
+        expect(
+          find.text('Download Full Resolution'),
+          findsNothing,
+          reason: 'not a pill across the photo it is offering to improve',
+        );
+
+        // It lives in the info panel now.
+        await _scrollToInfoPanel(tester);
+        expect(find.text('Download Full Resolution'), findsOneWidget);
       },
     );
+
+    testWidgets('the thumbnail fills the screen rather than sitting in it', (
+      tester,
+    ) async {
+      await tester.pumpWidget(screen(restore: (_) async => null));
+      await tester.pump();
+
+      // A `Center` around it would hand it loose constraints, so a 320px
+      // thumbnail would draw as a 320px stamp in the middle of the screen.
+      final size = tester.getSize(find.byType(Image).first);
+      final page = tester.getSize(find.byType(DetailScreen));
+      expect(size.width, page.width);
+      expect(size.height, greaterThan(page.height / 2));
+    });
 
     testWidgets('a successful download swaps in the restored original', (
       tester,
@@ -1106,13 +1173,73 @@ void main() {
         screen(restore: (_) async => '/tmp/restored.jpg'),
       );
       await tester.pump();
+      await _scrollToInfoPanel(tester);
 
       await tester.tap(find.text('Download Full Resolution'));
       await tester.pumpAndSettle();
 
       expect(find.text('Download Full Resolution'), findsNothing);
+      // Back up to the photo, which the info panel was covering.
+      await tester.drag(find.byType(CustomScrollView), const Offset(0, 1000));
+      await tester.pumpAndSettle();
       final image = tester.widget<Image>(find.byType(Image).first);
       expect(_fileOf(image.image).path, '/tmp/restored.jpg');
+    });
+
+    testWidgets(
+      'with no thumbnail left, one is pulled back out of the bucket',
+      (tester) async {
+        var asked = 0;
+        await tester.pumpWidget(
+          screen(
+            restore: (_) async => null,
+            record: cloudOnly().withThumbnailPath(null),
+            restoreThumbnail: (_) async {
+              asked++;
+              return '/tmp/from-bucket.jpg';
+            },
+          ),
+        );
+        await tester.pumpAndSettle();
+
+        expect(asked, 1);
+        final image = tester.widget<Image>(find.byType(Image).first);
+        expect(_fileOf(image.image).path, '/tmp/from-bucket.jpg');
+        await _scrollToInfoPanel(tester);
+        expect(
+          find.text('Download Full Resolution'),
+          findsOneWidget,
+          reason: 'a thumbnail is not the original coming back',
+        );
+      },
+    );
+
+    testWidgets('and the bucket is only asked once, however it answers', (
+      tester,
+    ) async {
+      var asked = 0;
+      await tester.pumpWidget(
+        screen(
+          restore: (_) async => null,
+          record: cloudOnly().withThumbnailPath(null),
+          restoreThumbnail: (_) async {
+            asked++;
+            return null;
+          },
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.pump();
+
+      expect(
+        asked,
+        1,
+        reason: 'a request per rebuild would be a request per frame',
+      );
+      expect(
+        find.text('Only the copy in your bucket is left.'),
+        findsOneWidget,
+      );
     });
 
     testWidgets('a failed download leaves the offer up to try again', (
@@ -1122,6 +1249,7 @@ void main() {
         screen(restore: (_) async => throw Exception('offline')),
       );
       await tester.pump();
+      await _scrollToInfoPanel(tester);
 
       await tester.tap(find.text('Download Full Resolution'));
       await tester.pumpAndSettle();

@@ -6,6 +6,7 @@ import '../photos/asset_removal.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
+import 'built_in_album.dart';
 import 'asset_grid_view.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
@@ -27,6 +28,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   void initState() {
     super.initState();
     _reload();
+    _loadCover();
   }
 
   Future<void> _reload() async {
@@ -58,6 +60,26 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     );
     await _reload();
     return outcome.leftTheList;
+  }
+
+  /// What the Favourites card draws — see [BuiltInAlbum].
+  String? _cover;
+
+  Future<void> _loadCover() async {
+    final chosen = await builtInAlbumCover(
+      widget.assetRecordStore,
+      BuiltInAlbum.favorites,
+    );
+    if (mounted) setState(() => _cover = chosen);
+  }
+
+  Future<void> _setCover(String? localId) async {
+    await setBuiltInAlbumCover(
+      widget.assetRecordStore,
+      BuiltInAlbum.favorites,
+      localId,
+    );
+    if (mounted) setState(() => _cover = localId);
   }
 
   void _open(AssetRecord record) {
@@ -97,6 +119,13 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                     icon: CupertinoIcons.heart_slash,
                     label: l10n.libraryUnfavorite,
                     onPressed: () => _unfavorite(r),
+                  ),
+                  ...coverActions(
+                    l10n,
+                    enabled: true,
+                    isCover: _cover == r.localId,
+                    onUse: () => _setCover(r.localId),
+                    onDefault: () => _setCover(null),
                   ),
                   TileAction(
                     icon: CupertinoIcons.delete,

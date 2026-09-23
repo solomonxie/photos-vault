@@ -170,4 +170,64 @@ void main() {
 
     expect(File(path!).existsSync(), isFalse);
   });
+
+  group('needingThumbnails — what the background pass tops up', () {
+    AssetRecord record(
+      String id, {
+      String? thumbnailPath,
+      bool localDeleted = false,
+      DateTime? deletedAt,
+      String? passcodeHash,
+      int day = 1,
+    }) => AssetRecord(
+      localId: id,
+      contentHash: id,
+      platform: 'ios',
+      createdAt: DateTime(2026, 1, day),
+      updatedAt: DateTime(2026, 1, day),
+      sourcePath: '/tmp/$id.jpg',
+      thumbnailPath: thumbnailPath,
+      localDeleted: localDeleted,
+      deletedAt: deletedAt,
+      passcodeHash: passcodeHash,
+    );
+
+    test('a photo still holding its original and missing a thumbnail', () {
+      final owed = needingThumbnails([record('a')]);
+      expect(owed.map((r) => r.localId), ['a']);
+    });
+
+    test('newest first — the ones most likely to be deleted next', () {
+      final owed = needingThumbnails([
+        for (var day = 1; day <= 5; day++) record('d$day', day: day),
+      ], limit: 2);
+      expect(owed.map((r) => r.localId), ['d5', 'd4']);
+    });
+
+    test('never one that already has a thumbnail', () {
+      expect(
+        needingThumbnails([record('a', thumbnailPath: '/tmp/a-thumb.jpg')]),
+        isEmpty,
+      );
+    });
+
+    test('never a hidden one — its thumbnail lives encrypted', () {
+      expect(needingThumbnails([record('a', passcodeHash: 'h')]), isEmpty);
+    });
+
+    test('never a binned one, or one already cloud-only', () {
+      expect(
+        needingThumbnails([
+          record('binned', deletedAt: DateTime(2026, 2, 1)),
+          record('gone', localDeleted: true),
+        ]),
+        isEmpty,
+        reason: 'cloud-only is exactly too late — no original to make it from',
+      );
+    });
+
+    test('never one whose file could not be resolved this session', () {
+      expect(needingThumbnails([record('a')], skip: {'a'}), isEmpty);
+    });
+  });
 }
