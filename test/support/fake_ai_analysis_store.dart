@@ -218,6 +218,14 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
       _suggestions.remove(localId);
 
   @override
+  Future<void> clearAll() async {
+    _analyses.clear();
+    _faces.clear();
+    _descriptors.clear();
+    _suggestions.clear();
+  }
+
+  @override
   Future<void> clearAllSuggestions() async => _suggestions.clear();
 
   @override

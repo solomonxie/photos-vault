@@ -106,6 +106,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   bool _exporting = false;
   bool _restoring = false;
+  bool _removingAppData = false;
 
   ICloudState _icloudState = ICloudState.unsupported;
   bool _icloudEnabled = false;
@@ -714,7 +715,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       child: CupertinoButton(
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         minimumSize: Size.zero,
-        onPressed: _confirmRemoveAppData,
+        onPressed: _removingAppData ? null : _confirmRemoveAppData,
         child: Text(
           l10n.settingsRemoveAllAppDataButton,
           style: const TextStyle(color: CupertinoColors.systemRed),
@@ -725,23 +726,40 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   Future<void> _confirmRemoveAppData() async {
     final l10n = AppLocalizations.of(context)!;
-    await showCupertinoDialog<void>(
+    final confirmed = await showCupertinoDialog<bool>(
       context: context,
       builder: (dialogContext) => CupertinoAlertDialog(
         title: Text(l10n.settingsRemoveAllAppDataTitle),
         content: Text(l10n.settingsRemoveAllAppDataBody),
         actions: [
           CupertinoDialogAction(
-            onPressed: () => Navigator.of(dialogContext).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(false),
             child: Text(l10n.actionCancel),
           ),
           CupertinoDialogAction(
             isDestructiveAction: true,
-            onPressed: () => Navigator.of(dialogContext).pop(),
+            onPressed: () => Navigator.of(dialogContext).pop(true),
             child: Text(l10n.settingsRemoveAllAppDataConfirm),
           ),
         ],
       ),
     );
+    if (confirmed != true || !mounted) return;
+    setState(() => _removingAppData = true);
+    try {
+      // These are deliberately archival copies rather than the daily name:
+      // deleting the library makes the next daily backup empty.
+      await Future.wait([
+        _vault.guard('remove-app-data'),
+        _icloudBackup.backUpBeforeRemoval(),
+        _bucketBackup.backUpBeforeRemoval(),
+      ]);
+      await _snapshots.clearAll();
+      await _reload();
+      await _reloadICloud();
+      await _reloadBucketData();
+    } finally {
+      if (mounted) setState(() => _removingAppData = false);
+    }
   }
 }

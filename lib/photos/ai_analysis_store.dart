@@ -470,6 +470,15 @@ class AiAnalysisStore {
     _db = null;
   }
 
+  Future<void> clearAll() async {
+    final db = await _open();
+    final batch = db.batch()
+      ..delete(_suggestionTable)
+      ..delete(_descriptorTable)
+      ..delete(_table);
+    await batch.commit(noResult: true);
+  }
+
   Future<void> save(AiPhotoAnalysis analysis) async {
     final db = await _open();
     await db.insert(_table, {

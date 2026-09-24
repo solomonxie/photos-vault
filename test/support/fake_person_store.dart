@@ -199,5 +199,14 @@ class FakePersonStore implements PersonStore {
   Future<int> changeMark() async => 0;
 
   @override
+  Future<void> clearAll() async {
+    _people.clear();
+    _members.clear();
+    _relationships.clear();
+    _locations.clear();
+    _history.clear();
+  }
+
+  @override
   Future<List<Map<String, Object?>>> changeLogRows() async => const [];
 }

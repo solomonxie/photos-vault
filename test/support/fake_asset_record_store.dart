@@ -298,5 +298,8 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<int> changeMark() async => mark;
 
   @override
+  Future<void> clearAll() async => _records.clear();
+
+  @override
   Future<List<Map<String, Object?>>> changeLogRows() async => const [];
 }
