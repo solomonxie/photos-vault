@@ -434,6 +434,14 @@ class _DetailScreenState extends State<DetailScreen> {
   /// stays as it is.
   Future<void> _showEditMenu() async {
     final l10n = AppLocalizations.of(context)!;
+    // An edit here only ever writes a *new* library item, so a locked
+    // photo could not be harmed by one. It is still refused: "locked"
+    // that lets you open the editor and then quietly files the result
+    // somewhere else is a lock that has to be explained every time.
+    if (_records[_index].isLocked) {
+      _showMessage(l10n.lockBlockedEdit);
+      return;
+    }
     if (_records[_index].countsAsVideo) {
       _showMessage(l10n.detailEditVideoUnsupported);
       return;

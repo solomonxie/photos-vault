@@ -54,6 +54,10 @@ class OriginalRestore {
         await file.writeAsBytes(response.bodyBytes);
         await recordStore.setSourcePath(record.localId, file.path);
         await recordStore.setLocalDeleted(record.localId, false);
+        // Whatever the device had before — nothing, or a shrunken copy —
+        // what it has now came out of the bucket, which only ever held the
+        // original.
+        await recordStore.setLocalOptimized(record.localId, false);
         // The moving half comes with it, or the photo comes back as a
         // still — which is the thing backing it up was supposed to
         // prevent. Best-effort: a failure here still leaves a usable

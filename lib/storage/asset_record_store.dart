@@ -46,7 +46,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 14,
+        version: 15,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createPlaceNameTableSql);
@@ -130,6 +130,16 @@ class AssetRecordStore {
             await db.execute(
               "UPDATE $_table SET library_id = substr(local_id, 7) "
               "WHERE source_type = 'photoManager' AND local_id LIKE 'photo:%'",
+            );
+          }
+          if (oldVersion < 15) {
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN is_locked INTEGER NOT NULL '
+              'DEFAULT 0',
+            );
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN local_optimized INTEGER NOT '
+              'NULL DEFAULT 0',
             );
           }
           if (oldVersion < 10) {
@@ -287,6 +297,8 @@ class AssetRecordStore {
       live_hash TEXT,
       is_favorite INTEGER NOT NULL DEFAULT 0,
       is_hidden INTEGER NOT NULL DEFAULT 0,
+      is_locked INTEGER NOT NULL DEFAULT 0,
+      local_optimized INTEGER NOT NULL DEFAULT 0,
       deleted_at INTEGER,
       description TEXT NOT NULL DEFAULT '',
       tags TEXT NOT NULL DEFAULT '[]',
@@ -573,6 +585,32 @@ class AssetRecordStore {
       _table,
       {
         'is_favorite': value ? 1 : 0,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  Future<void> setLocked(String localId, bool value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {
+        'is_locked': value ? 1 : 0,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  Future<void> setLocalOptimized(String localId, bool value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {
+        'local_optimized': value ? 1 : 0,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
       where: 'local_id = ?',
@@ -1015,6 +1053,8 @@ class AssetRecordStore {
         for (final kind in DerivativeKind.values) kind: stateFor(kind),
       },
       isFavorite: (row['is_favorite'] as int? ?? 0) != 0,
+      isLocked: (row['is_locked'] as int? ?? 0) != 0,
+      localOptimized: (row['local_optimized'] as int? ?? 0) != 0,
       isHidden: (row['is_hidden'] as int? ?? 0) != 0,
       deletedAt: deletedAtMillis == null
           ? null

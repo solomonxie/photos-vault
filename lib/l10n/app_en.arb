@@ -986,5 +986,21 @@
   "privateAlbumHowTitle": "HOW THIS WORKS",
   "privateAlbumHowBullets": "Every code opens an album. A code nobody has used opens an empty one, so nothing on this phone says whether anything is hidden.\nHiding takes the photo out of Photos. This app becomes the only holder of it.\nWhat goes to your bucket looks like an ordinary photo — a different picture from your own library, with yours encrypted inside it.\nThe decoy is picked to weigh about what your photo weighs, so it doesn't stand out in a list.\nThe decoy never wears your photo's date, and nothing records which picture is wearing which.\nYour passphrase and your four digits together make the key. Neither is stored anywhere, on this phone or in the bucket.\nNothing about a hidden photo stays here: no file, no thumbnail, no database row. That is why this album needs a connection.\nThumbnails come down 64 KB at a time, so a grid costs a fraction of what the photos do.\nNothing is ever deleted from your bucket unless you ask for it.\nAnyone who reads this app's source can spot a carrier and count them. They still cannot open one.",
   "actionMore": "More",
-  "actionLess": "Less"
+  "actionLess": "Less",
+  "libraryLock": "Lock",
+  "libraryUnlock": "Unlock",
+  "lockLockedBadge": "Locked",
+  "lockBlockedDelete": "This photo is locked. Unlock it to delete it.",
+  "lockBlockedEdit": "This photo is locked. Unlock it to edit it.",
+  "lockRestoringOriginal": "Putting the original back…",
+  "lockRestoreFailed": "The full-quality copy is in your bucket and couldn't be fetched, so this photo isn't locked. Try again when you're back online.",
+  "lockNoOriginal": "There's no full-quality copy left to keep — this one was shrunk and nothing has a backup of the original.",
+  "storageResultLocked": "{count, plural, one{1 is locked and was left alone.} other{{count} are locked and were left alone.}}",
+  "@storageResultLocked": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }
