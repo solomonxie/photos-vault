@@ -15,6 +15,19 @@ Plan: `docs/design/IMPLEMENTATION_PLAN.md`
 
 Or, if you already have Flutter installed system-wide: `flutter run`.
 
+## Publishing
+
+Everything the App Store submission needs, field by field:
+[`docs/release/listing.md`](docs/release/listing.md).
+
+```
+make release
+```
+
+Formats, analyses, tests, archives an obfuscated Release build and uploads it
+to App Store Connect — no Xcode, no Product ▸ Archive ▸ Distribute. `make`
+on its own lists the rest.
+
 ## Private albums have no wrong passcode
 
 Utilities → Hidden asks for four digits, and **every** code is valid. The
