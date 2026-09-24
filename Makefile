@@ -8,7 +8,7 @@
 FLUTTER := $(shell [ -x .tools/flutter/bin/flutter ] && echo .tools/flutter/bin/flutter || echo flutter)
 DART    := $(shell [ -x .tools/flutter/bin/dart ] && echo .tools/flutter/bin/dart || echo dart)
 
-# The paired iPhone, unless you name one: make install DEVICE=00008110-…
+# The paired iPhone, unless you name one: make install DEVICE=<udid>
 DEVICE ?= $(shell xcrun devicectl list devices 2>/dev/null | awk '/physical/ { for (i = 1; i <= NF; i++) if ($$i ~ /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}$$/) { print $$i; exit } }')
 
 APP     := build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app
