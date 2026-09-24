@@ -369,6 +369,10 @@
       }
     }
   },
+  "settingsRemoveAllAppDataButton": "Remove All App Data",
+  "settingsRemoveAllAppDataTitle": "Remove all app data?",
+  "settingsRemoveAllAppDataBody": "This cannot be undone. You will first be prompted to export your app data to a local folder before everything is deleted.",
+  "settingsRemoveAllAppDataConfirm": "Remove All Data",
   "settingsICloudNotEntitled": "This build of the app isn't signed for iCloud",
   "settingsICloudDriveOff": "iCloud Drive is off on this device",
   "settingsICloudDriveOffFix": "Settings → your name → iCloud → Drive → turn on",
