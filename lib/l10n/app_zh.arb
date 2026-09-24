@@ -613,5 +613,21 @@
   "privateAlbumHowTitle": "工作方式",
   "privateAlbumHowBullets": "任何密码都能打开一个相册。没用过的密码打开的是空相册，所以本机不会透露到底有没有隐藏内容。\n隐藏会把照片移出「照片」App，从此只有本应用还留着它。\n上传到存储桶的看上去就是一张普通照片——来自你自己图库的另一张，你的那张加密藏在它里面。\n诱饵图片按体积接近原图来挑，所以在列表里不显眼。\n诱饵图片从不带你那张的拍摄日期，也没有任何地方记录哪张穿了哪张的皮。\n密语加上四位密码才组成密钥。两者都不会被存下来——本机没有，存储桶里也没有。\n隐藏照片在本机不留任何痕迹：没有文件、没有缩略图、也没有数据库记录。这也是此相册需要联网的原因。\n缩略图每次只拉 64 KB，所以浏览网格的流量远小于原图。\n除非你主动要求，否则不会从存储桶删除任何东西。\n看过本应用源码的人能认出这些伪装文件、数出有多少张，但仍然打不开其中任何一张。",
   "actionMore": "展开",
-  "actionLess": "收起"
+  "actionLess": "收起",
+  "libraryLock": "锁定",
+  "libraryUnlock": "解锁",
+  "lockLockedBadge": "已锁定",
+  "lockBlockedDelete": "这张照片已锁定。要删除请先解锁。",
+  "lockBlockedEdit": "这张照片已锁定。要编辑请先解锁。",
+  "lockRestoringOriginal": "正在取回原图…",
+  "lockRestoreFailed": "原图在你的存储桶里，这次没能取回来，所以没有锁定。等联网后再试。",
+  "lockNoOriginal": "已经没有原图可留了——这张被压缩过，而且没有任何备份保存着原件。",
+  "storageResultLocked": "{count, plural, one{1 张已锁定，未作改动。} other{{count} 张已锁定，未作改动。}}",
+  "@storageResultLocked": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }

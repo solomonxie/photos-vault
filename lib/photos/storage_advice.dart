@@ -183,6 +183,11 @@ bool worthMeasuring(AssetRecord record) =>
     !record.isDeleted &&
     !record.localDeleted &&
     !record.isHidden &&
+    // A locked photo is being kept as it is, which is the opposite of
+    // every fix this screen offers. Excluded here rather than at each fix,
+    // so it never appears in the list, the total, or "free up to …" —
+    // offering space that cannot be freed is worse than not offering it.
+    !record.isLocked &&
     record.passcodeHash == null;
 
 /// What one asset's local copy actually is, as opposed to what the record

@@ -126,6 +126,10 @@ class StorageOptimizer {
       }
 
       await store.setSourcePath(item.record.localId, target.path);
+      // What is on the device is no longer the original. The lock reads
+      // this to know it has to fetch the original back before it can
+      // promise the photo is kept as it is.
+      await store.setLocalOptimized(item.record.localId, true);
       await store.setLibraryMetadata(
         item.record.localId,
         width: width,
