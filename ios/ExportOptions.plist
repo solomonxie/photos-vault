@@ -1,0 +1,23 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+	<key>method</key>
+	<string>app-store-connect</string>
+	<key>destination</key>
+	<string>upload</string>
+	<key>signingStyle</key>
+	<string>automatic</string>
+	<!-- The iCloud container the entitlements name only exists in Production
+	     once the app ships; a Development export would point the shipped
+	     build at a container App Review can't see. -->
+	<key>iCloudContainerEnvironment</key>
+	<string>Production</string>
+	<key>uploadSymbols</key>
+	<true/>
+	<!-- The build number comes from --build-number on the command line;
+	     letting Xcode manage it would overwrite the timestamp. -->
+	<key>manageAppVersionAndBuildNumber</key>
+	<false/>
+</dict>
+</plist>
