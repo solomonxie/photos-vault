@@ -33,6 +33,19 @@ String dailyArchiveName(DateTime at) =>
     '${at.month.toString().padLeft(2, '0')}'
     '${at.day.toString().padLeft(2, '0')}.zip';
 
+/// A final copy made immediately before the user removes their app data.
+///
+/// The leading sentinel makes it sort after daily archives, so a later
+/// empty daily backup cannot become the copy restored on a fresh install.
+String removalArchiveName(DateTime at) =>
+    '99999999-before-removal-'
+    '${at.year.toString().padLeft(4, '0')}'
+    '${at.month.toString().padLeft(2, '0')}'
+    '${at.day.toString().padLeft(2, '0')}-'
+    '${at.hour.toString().padLeft(2, '0')}'
+    '${at.minute.toString().padLeft(2, '0')}'
+    '${at.second.toString().padLeft(2, '0')}.zip';
+
 /// `202609.zip` — what builds before daily copies wrote. Still read, still
 /// counted when pruning, never written.
 String monthlyArchiveName(DateTime at) =>
@@ -50,7 +63,9 @@ bool isMonthlyArchiveName(String name) =>
 /// Both sort correctly against each other: `202609` orders before every
 /// `202609xx`, so a mixed folder still answers "the newest" by name.
 bool isSnapshotArchiveName(String name) =>
-    isDailyArchiveName(name) || isMonthlyArchiveName(name);
+    isDailyArchiveName(name) ||
+    isMonthlyArchiveName(name) ||
+    RegExp(r'^99999999-before-removal-\d{8}-\d{6}\.zip$').hasMatch(name);
 
 Uint8List zipSnapshot(AppSnapshot snapshot, {Map<String, Object?>? changeLog}) {
   final archive = Archive()
