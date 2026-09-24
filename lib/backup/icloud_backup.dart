@@ -90,6 +90,19 @@ class ICloudBackup {
     return true;
   }
 
+  /// A final archive that is intentionally never replaced by the normal
+  /// daily snapshot after the library has been emptied.
+  Future<bool> backUpBeforeRemoval() async {
+    if (await drive.status() != ICloudState.available) return false;
+    return await drive.writeBytes(
+      removalArchiveName(DateTime.now()),
+      zipSnapshot(
+        await snapshots.export(),
+        changeLog: await snapshots.changeLog(),
+      ),
+    );
+  }
+
   /// Backs up only if switched on, and only when it's owed — what every
   /// "something changed" caller wants, so none of them has to remember to
   /// check either thing. See [BackupSchedule].

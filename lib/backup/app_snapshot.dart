@@ -179,6 +179,17 @@ class AppSnapshotIo {
     return restored;
   }
 
+  /// Clears the data represented by an app-data snapshot. Credentials and
+  /// backup destinations deliberately live outside this boundary.
+  Future<void> clearAll() async {
+    await Future.wait([
+      assetRecordStore.clearAll(),
+      albumStore.clearAll(),
+      personStore.clearAll(),
+      if (aiAnalysisStore != null) aiAnalysisStore!.clearAll(),
+    ]);
+  }
+
   // ----------------------------------------------------------------- assets
 
   static Map<String, Object?> _assetRow(AssetRecord record) => {

@@ -78,10 +78,14 @@ Future<BackupTargetsStore> _storeWithBucket({String prefix = 'p/'}) async {
 }
 
 void main() {
-  testWidgets('removing app data warns about the export prompt', (tester) async {
+  testWidgets('removing app data warns about the export prompt', (
+    tester,
+  ) async {
     await _useTallSurface(tester);
     await tester.pumpWidget(
-      _wrap(SettingsScreen(store: BackupTargetsStore(store: FakeSecureStore()))),
+      _wrap(
+        SettingsScreen(store: BackupTargetsStore(store: FakeSecureStore())),
+      ),
     );
     await tester.pumpAndSettle();
 

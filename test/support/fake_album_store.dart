@@ -72,5 +72,12 @@ class FakeAlbumStore implements AlbumStore {
   Future<int> changeMark() async => 0;
 
   @override
+  @override
+  Future<void> clearAll() async {
+    _albums.clear();
+    _members.clear();
+  }
+
+  @override
   Future<List<Map<String, Object?>>> changeLogRows() async => const [];
 }

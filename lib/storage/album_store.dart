@@ -85,6 +85,14 @@ class AlbumStore {
     _db = null;
   }
 
+  Future<void> clearAll() async {
+    final db = await _open();
+    final batch = db.batch()
+      ..delete(_memberTable)
+      ..delete(_albumTable);
+    await batch.commit(noResult: true);
+  }
+
   /// This store's database file, with the write-ahead log folded back in
   /// first — a copy taken without the checkpoint is missing the newest
   /// writes, which are still sitting in the `-wal` sidecar.

@@ -141,6 +141,32 @@ class BucketBackup {
     return wrote;
   }
 
+  /// A final archive that remains newer than any ordinary daily snapshot,
+  /// including one written after the library has been emptied.
+  Future<bool> backUpBeforeRemoval() async {
+    final targets = await targetsStore.loadAll();
+    if (targets.isEmpty) return false;
+    final body = zipSnapshot(
+      await snapshots.export(),
+      changeLog: await snapshots.changeLog(),
+    );
+    final name = removalArchiveName(DateTime.now());
+    var wrote = false;
+    for (final target in targets) {
+      try {
+        final url = await presignPutUrl(
+          target: target,
+          key: keyFor(target, name),
+        );
+        final response = await _put(url, body: body);
+        wrote = wrote || response.statusCode == 200;
+      } catch (_) {
+        // The remaining destinations may still preserve the final copy.
+      }
+    }
+    return wrote;
+  }
+
   Future<void> backUpIfEnabled() async {
     if (!await isEnabled()) return;
     if (!await schedule.isDue()) return;
