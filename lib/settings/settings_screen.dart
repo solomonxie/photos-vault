@@ -359,6 +359,7 @@ class _SettingsScreenState extends State<SettingsScreen>
                   _appDataSection(l10n, targets),
                   const SettingsSectionDivider(),
                   _cloudSection(l10n, targets),
+                  _removeAppDataButton(l10n),
                 ],
               ),
             ),
@@ -701,6 +702,43 @@ class _SettingsScreenState extends State<SettingsScreen>
               label: l10n.settingsAddButton,
               onPressed: _addBackup,
             ),
+          ),
+        ],
+      ),
+    );
+  }
+
+  Widget _removeAppDataButton(AppLocalizations l10n) => Padding(
+    padding: const EdgeInsets.only(top: 20, bottom: 8),
+    child: Center(
+      child: CupertinoButton(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+        minimumSize: Size.zero,
+        onPressed: _confirmRemoveAppData,
+        child: Text(
+          l10n.settingsRemoveAllAppDataButton,
+          style: const TextStyle(color: CupertinoColors.systemRed),
+        ),
+      ),
+    ),
+  );
+
+  Future<void> _confirmRemoveAppData() async {
+    final l10n = AppLocalizations.of(context)!;
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(l10n.settingsRemoveAllAppDataTitle),
+        content: Text(l10n.settingsRemoveAllAppDataBody),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.settingsRemoveAllAppDataConfirm),
           ),
         ],
       ),
