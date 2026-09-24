@@ -1106,6 +1106,32 @@ void main() {
     expect(find.text('AI Touch Up'), findsOneWidget);
   });
 
+  testWidgets('a locked photo says why instead of opening the editor', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [_record(localId: 'locked').withLocked(true)],
+          initialIndex: 0,
+          assetRecordStore: FakeAssetRecordStore(),
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    await tester.tap(find.text('Edit'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('This photo is locked. Unlock it to edit it.'), findsOne);
+    expect(find.text('Crop'), findsNothing);
+    expect(find.text('Rotate'), findsNothing);
+    expect(find.text('AI Touch Up'), findsNothing);
+  });
+
   group('cloud-only', () {
     AssetRecord cloudOnly() => AssetRecord(
       localId: 'manual:gone',

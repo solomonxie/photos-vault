@@ -71,6 +71,8 @@ class AssetRecord {
     this.derivatives = const {},
     this.isFavorite = false,
     this.isHidden = false,
+    this.isLocked = false,
+    this.localOptimized = false,
     this.deletedAt,
     this.description = '',
     this.tags = const [],
@@ -146,6 +148,19 @@ class AssetRecord {
   final bool isFavorite;
   final bool isHidden;
 
+  /// Kept as it is, on purpose. A locked photo cannot be deleted, cannot be
+  /// optimised out of its full quality, and cannot be opened in the editor
+  /// — the three things in this app that change or remove what is on the
+  /// device. Everything that only *describes* it (tags, people, albums,
+  /// favourite, hiding) still works: the lock is about the pixels.
+  final bool isLocked;
+
+  /// The copy on this device is a shrunken or re-encoded one — Optimize
+  /// Storage rewrote it in place and the bucket kept the original. Matters
+  /// to the lock, which has to put the original back before it can promise
+  /// the photo is being kept as it is.
+  final bool localOptimized;
+
   /// Set when soft-deleted (Photos' "Recently Deleted") — `remove()` in the
   /// store is the separate, permanent delete.
   final DateTime? deletedAt;
@@ -217,6 +232,8 @@ class AssetRecord {
     Map<DerivativeKind, DerivativeState>? derivatives,
     bool? isFavorite,
     bool? isHidden,
+    bool? isLocked,
+    bool? localOptimized,
     DateTime? Function()? deletedAt,
     String? sourcePath,
     String? Function()? thumbnailPath,
@@ -249,6 +266,8 @@ class AssetRecord {
     derivatives: derivatives ?? this.derivatives,
     isFavorite: isFavorite ?? this.isFavorite,
     isHidden: isHidden ?? this.isHidden,
+    isLocked: isLocked ?? this.isLocked,
+    localOptimized: localOptimized ?? this.localOptimized,
     deletedAt: deletedAt != null ? deletedAt() : this.deletedAt,
     description: description ?? this.description,
     tags: tags ?? this.tags,
@@ -268,6 +287,11 @@ class AssetRecord {
   AssetRecord withFavorite(bool value) => _copyWith(isFavorite: value);
 
   AssetRecord withHidden(bool value) => _copyWith(isHidden: value);
+
+  AssetRecord withLocked(bool value) => _copyWith(isLocked: value);
+
+  AssetRecord withLocalOptimized(bool value) =>
+      _copyWith(localOptimized: value);
 
   AssetRecord withDeletedAt(DateTime? value) =>
       _copyWith(deletedAt: () => value);

@@ -109,6 +109,20 @@ class FakeAssetRecordStore implements AssetRecordStore {
   }
 
   @override
+  Future<void> setLocked(String localId, bool value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withLocked(value);
+  }
+
+  @override
+  Future<void> setLocalOptimized(String localId, bool value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withLocalOptimized(value);
+  }
+
+  @override
   Future<void> setHidden(String localId, bool value) async {
     final existing = _records[localId];
     if (existing == null) return;

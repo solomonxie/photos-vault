@@ -39,6 +39,7 @@ import '../photos/storage_optimizer.dart';
 import '../photos/thumbnail_cache.dart';
 import '../settings/ai_settings_screen.dart';
 import '../settings/backup_targets_store.dart';
+import '../upload/original_restore.dart';
 import '../settings/settings_screen.dart';
 import '../storage/album.dart';
 import '../storage/album_store.dart';
@@ -105,10 +106,16 @@ class LibraryScreen extends StatefulWidget {
     this.onDeviceAnalysis,
     this.aiVisionService,
     this.analyzeQueue,
+    this.restoreOriginal,
   });
 
   final AssetRecordStore? assetRecordStore;
   final BackupTargetsStore? backupTargetsStore;
+
+  /// Pulls a photo's full-quality copy back out of a bucket. Only the lock
+  /// uses it from here — the detail screen has its own. Overridable so
+  /// tests never reach for a real bucket.
+  final Future<String?> Function(AssetRecord record)? restoreOriginal;
   final AlbumStore? albumStore;
 
   /// Overridable for tests so People never opens the real `sqflite` factory.
@@ -1647,6 +1654,12 @@ class LibraryScreenState extends State<LibraryScreen>
   /// the detail viewer stays open on it rather than popping.
   Future<bool> _softDelete(AssetRecord record) async {
     final l10n = AppLocalizations.of(context)!;
+    // The lock's first promise. Checked here rather than only on the tile,
+    // because this is also what the detail screen's Delete calls.
+    if (record.isLocked) {
+      _showResult(l10n.lockBlockedDelete);
+      return false;
+    }
     setState(() => _busy = true);
     final DeleteOutcome outcome;
     try {
@@ -1695,12 +1708,58 @@ class LibraryScreenState extends State<LibraryScreen>
       onPressed: () => _hide(record),
     ),
     TileAction(
+      icon: record.isLocked ? CupertinoIcons.lock_open : CupertinoIcons.lock,
+      label: record.isLocked ? l10n.libraryUnlock : l10n.libraryLock,
+      onPressed: () => _toggleLock(record),
+    ),
+    // Offered even on a locked photo, and it says why rather than going
+    // missing: a Delete that quietly isn't there reads as a bug, and the
+    // lock is worth explaining at the moment it stops something.
+    TileAction(
       icon: CupertinoIcons.delete,
       label: l10n.libraryDeleteTooltip,
       isDestructive: true,
       onPressed: () => _softDelete(record),
     ),
   ];
+
+  /// Locking is a promise that this photo is being kept as it is, so it
+  /// cannot be made over a copy that has already been shrunk or thrown
+  /// away — the original comes back from the bucket first, and if it
+  /// can't, nothing is locked and the reason is shown. Unlocking is free.
+  Future<void> _toggleLock(AssetRecord record) async {
+    final l10n = AppLocalizations.of(context)!;
+    if (record.isLocked) {
+      await assetRecordStore.setLocked(record.localId, false);
+      await reload();
+      return;
+    }
+    if (record.localDeleted || record.localOptimized) {
+      if (record.stateOf(DerivativeKind.original).destinationKey == null) {
+        _showResult(l10n.lockNoOriginal);
+        return;
+      }
+      setState(() => _busy = true);
+      String? restored;
+      try {
+        restored =
+            await (widget.restoreOriginal ??
+                    (r) => OriginalRestore(
+                      targetsStore: BackupTargetsStore(),
+                      recordStore: assetRecordStore,
+                    ).restore(r))
+                .call(record);
+      } finally {
+        if (mounted) setState(() => _busy = false);
+      }
+      if (restored == null) {
+        if (mounted) _showResult(l10n.lockRestoreFailed);
+        return;
+      }
+    }
+    await assetRecordStore.setLocked(record.localId, true);
+    await reload();
+  }
 
   /// Opens whatever the queue names, from the queue — the row says
   /// "IMG_4934.jpg is failing" and the obvious next question is which photo
