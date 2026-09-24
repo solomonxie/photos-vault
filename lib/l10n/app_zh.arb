@@ -257,6 +257,10 @@
       }
     }
   },
+  "settingsRemoveAllAppDataButton": "移除所有应用数据",
+  "settingsRemoveAllAppDataTitle": "移除所有应用数据？",
+  "settingsRemoveAllAppDataBody": "此操作无法撤销。删除所有内容前，系统会先提示你将应用数据导出到本地文件夹。",
+  "settingsRemoveAllAppDataConfirm": "移除所有数据",
   "settingsICloudNotEntitled": "此版本未签署 iCloud 权限",
   "settingsICloudDriveOff": "此设备未开启 iCloud 云盘",
   "settingsICloudDriveOffFix": "设置 → 你的姓名 → iCloud → 云盘 → 打开",

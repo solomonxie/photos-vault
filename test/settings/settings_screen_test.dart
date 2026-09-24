@@ -78,6 +78,23 @@ Future<BackupTargetsStore> _storeWithBucket({String prefix = 'p/'}) async {
 }
 
 void main() {
+  testWidgets('removing app data warns about the export prompt', (tester) async {
+    await _useTallSurface(tester);
+    await tester.pumpWidget(
+      _wrap(SettingsScreen(store: BackupTargetsStore(store: FakeSecureStore()))),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Remove All App Data'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Remove all app data?'), findsOneWidget);
+    expect(
+      find.textContaining('prompted to export your app data to a local folder'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('restoring a file says what it will do before it does it', (
     tester,
   ) async {
