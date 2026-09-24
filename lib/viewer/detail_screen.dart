@@ -196,6 +196,15 @@ class _DetailScreenState extends State<DetailScreen> {
   /// and the backdrop listen.
   final ValueNotifier<double?> _pull = ValueNotifier(null);
 
+  /// The backdrop, warmed on touch rather than on drag — see
+  /// `_MediaPageState._onPointerDown`. A pull in progress owns it: letting
+  /// a finger lift put it back mid-drag would cover the grid again halfway
+  /// through dragging the photo off it.
+  void _onPullMayStart(bool possible) {
+    if (_pulling && !possible) return;
+    _setBackdropVisible(possible);
+  }
+
   void _onPull(double? progress) {
     _pull.value = progress;
     final pulling = progress != null;
@@ -674,6 +683,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 itemBuilder: (context, i) => _MediaPage(
                   record: _records[i],
                   onPull: _onPull,
+                  onPullMayStart: _onPullMayStart,
 
                   albumStore: widget.albumStore,
                   resolveFile: widget.resolvePhotoManagerFile,
@@ -782,6 +792,7 @@ class _MediaPage extends StatefulWidget {
     required this.scrollController,
     required this.albumStore,
     required this.onPull,
+    required this.onPullMayStart,
     required this.onZoomChanged,
     required this.motionPlayback,
     this.onDeviceAnalysis,
@@ -825,6 +836,12 @@ class _MediaPage extends StatefulWidget {
   /// isn't being pulled. The pager stands down while it is, and the chrome
   /// fades out of the way of what's being dragged.
   final ValueChanged<double?> onPull;
+
+  /// A pull is now possible, or is no longer possible — which is the cue to
+  /// uncover what is behind the photo, ahead of anyone dragging it. Separate
+  /// from [onPull] because it fires on a touch that may still turn out to be
+  /// a tap, and nothing about the photo itself moves for it.
+  final ValueChanged<bool> onPullMayStart;
 
   /// Tells the pager this page is zoomed, so it stops taking the drags that
   /// are meant to move the photo around.
@@ -946,6 +963,14 @@ class _MediaPageState extends State<_MediaPage>
     _settle.stop();
     _pullOrigin = event.position;
     _velocity = VelocityTracker.withKind(event.kind);
+    // Ask for the grid behind now, while the finger is still deciding what
+    // this gesture is. Uncovering the route below is a first paint of the
+    // whole library grid, and doing it at the moment the drag is claimed
+    // put that paint in the first frame of the pull — the one frame the
+    // gesture is judged on. Asked for here it lands during the touch, with
+    // nothing moving yet. Put back in [_onPointerDone] if this turns out
+    // to have been a tap or a swipe.
+    widget.onPullMayStart(true);
   }
 
   void _onPointerMove(PointerMoveEvent event) {
@@ -996,6 +1021,8 @@ class _MediaPageState extends State<_MediaPage>
   void _onPointerDone(PointerEvent event) {
     if (_pointers > 0) _pointers--;
     _pullOrigin = null;
+    // Only the pull itself keeps the grid behind visible past this point.
+    if (!_dragging) widget.onPullMayStart(false);
     final velocity = _velocity?.getVelocity().pixelsPerSecond ?? Offset.zero;
     _velocity = null;
     if (!_dragging || _dismissed) return;
@@ -1618,6 +1645,51 @@ class _ZoomableImageState extends State<_ZoomableImage>
     _animController.forward(from: 0);
   }
 
+  /// The photo, screen-sized, with the full-resolution copy laid *over* it
+  /// once it is zoomed into — never in place of it.
+  ///
+  /// Swapping one `Image`'s `cacheWidth` was the obvious way to do this and
+  /// is the flash on the first double-tap: a different `cacheWidth` is a
+  /// different image key, so the decoded picture is thrown away, the new
+  /// decode starts from disk, and the `frameBuilder` has nothing to draw in
+  /// between — several frames of black, right in the middle of the zoom.
+  /// Two images means the screen-sized one is still there to be looked at
+  /// while the sharp one decodes, and the sharpening is all you see.
+  Widget _still(BuildContext context) {
+    final screenSized = _file(width: _decodeWidth(context));
+    if (!_isZoomed) return screenSized;
+    return Stack(
+      fit: StackFit.passthrough,
+      children: [
+        screenSized,
+        Positioned.fill(child: _file(width: null)),
+      ],
+    );
+  }
+
+  /// [width] null is the sensor's own resolution. Otherwise decoded to the
+  /// screen: a 12 MP photo is a 48 MB texture, and drawn into a
+  /// 1170-pixel-wide phone it is the same picture at an eighth of the cost.
+  /// The big one exists only while zoomed, and goes when the zoom does.
+  Widget _file({required int? width}) => Image.file(
+    widget.file,
+    fit: BoxFit.contain,
+    cacheWidth: width,
+    errorBuilder: widget.errorBuilder,
+    // Already decoded (a photo swiped back to) paints at once; anything
+    // else comes up over what is behind it rather than appearing between
+    // two frames.
+    frameBuilder: (context, child, frame, wasSynchronouslyLoaded) =>
+        wasSynchronouslyLoaded
+        ? child
+        : AnimatedOpacity(
+            opacity: frame == null ? 0 : 1,
+            duration: const Duration(milliseconds: 160),
+            curve: Curves.easeOut,
+            child: child,
+          ),
+  );
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -1628,34 +1700,7 @@ class _ZoomableImageState extends State<_ZoomableImage>
         minScale: 1,
         maxScale: _zoomedScale,
         panEnabled: _isZoomed,
-        child: Center(
-          child:
-              widget.child ??
-              Image.file(
-                widget.file,
-                fit: BoxFit.contain,
-                // Decoded to the screen, not to the sensor. A 12 MP photo
-                // is a 48 MB texture; drawn into a 1170-pixel-wide phone
-                // it is the same picture at an eighth of the cost, and
-                // the GPU re-samples it on every frame of a drag. Full
-                // resolution comes back the moment it is zoomed into,
-                // which is the only time the extra pixels exist.
-                cacheWidth: _isZoomed ? null : _decodeWidth(context),
-                errorBuilder: widget.errorBuilder,
-                // Already decoded (a photo swiped back to) paints at once;
-                // anything else comes up over the stand-in rather than
-                // appearing between two frames.
-                frameBuilder: (context, child, frame, wasSynchronouslyLoaded) =>
-                    wasSynchronouslyLoaded
-                    ? child
-                    : AnimatedOpacity(
-                        opacity: frame == null ? 0 : 1,
-                        duration: const Duration(milliseconds: 160),
-                        curve: Curves.easeOut,
-                        child: child,
-                      ),
-              ),
-        ),
+        child: Center(child: widget.child ?? _still(context)),
       ),
     );
   }
