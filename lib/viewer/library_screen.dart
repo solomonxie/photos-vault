@@ -324,6 +324,11 @@ class LibraryScreenState extends State<LibraryScreen>
 
   List<AssetRecord> _all = const [];
 
+  /// Whether [reload] has finished once. Distinguishes a library that is
+  /// empty from one that hasn't been read yet — see the grid's
+  /// `emptySliver`.
+  bool _loaded = false;
+
   /// Everything derived from [_all], computed once per [reload] instead of
   /// per build. Each one is a pass over the whole library — several of
   /// them sort it — and `build` reads six: as getters, that was six passes
@@ -546,12 +551,18 @@ class LibraryScreenState extends State<LibraryScreen>
   /// it shipped 208 KB of someone else's pictures to every user to
   /// demonstrate a photo app that already had the user's photos.
   Future<void> _init() async {
-    // Before anything else writes, and before the camera-roll scan starts
-    // inserting records the snapshot also has: a fresh install pulls its
-    // own work back from iCloud, once, without asking. There's nothing to
-    // overwrite and no context yet for a "restore from backup?" question.
-    await _restoreAppData();
+    // The database first, because it is a local read and it is what the
+    // grid draws. Restoring used to come first and it asks iCloud whether
+    // this is a fresh install — a platform channel and, on a cold start,
+    // a network round trip — so every launch spent that long showing "No
+    // Photos Yet" over a library that was on disk the whole time.
     await reload();
+    // A fresh install pulls its own work back from iCloud, once, without
+    // asking: there's nothing to overwrite and no context yet for a
+    // "restore from backup?" question. Safe behind the reload above — it
+    // reads the database itself to decide whether the install is fresh,
+    // and a read changed nothing.
+    unawaited(_restoreAppDataThenReload());
     // Picks up whatever a previous run left queued — including jobs left
     // `running` by a kill mid-sync. Whether it then *drains* is the sync
     // frequency's call: on "Manual" the jobs stay visible and nothing goes
@@ -569,6 +580,11 @@ class LibraryScreenState extends State<LibraryScreen>
     // other natural "app came to the foreground" moment, alongside
     // returning to this screen from Cloud Backups (see `_openCloudBackups`).
     unawaited(_runScheduledSyncIfDue());
+  }
+
+  Future<void> _restoreAppDataThenReload() async {
+    await _restoreAppData();
+    if (mounted) await reload();
   }
 
   /// Whichever destination still has the snapshot. iCloud first because
@@ -899,6 +915,7 @@ class LibraryScreenState extends State<LibraryScreen>
     }
     if (!mounted) return;
     setState(() {
+      _loaded = true;
       if (libraryChanged) {
         _all = all;
         _active = active;
@@ -2198,7 +2215,11 @@ class LibraryScreenState extends State<LibraryScreen>
                   onSelectDragEnd: _onSelectDragEnd,
                   selectedIds: selection,
                   actionsFor: (r) => _actionsFor(l10n, r),
-                  emptySliver: _all.isEmpty
+                  // Only once the database has actually been read. An
+                  // empty `_all` is also what "hasn't loaded yet" looks
+                  // like, and offering "No Photos Yet — Add Files" for a
+                  // moment on every launch says the library is gone.
+                  emptySliver: _loaded && _all.isEmpty
                       ? SliverToBoxAdapter(
                           child: _EmptyState(busy: _busy, onAddFiles: addFiles),
                         )

@@ -602,7 +602,7 @@ void main() {
     expect(scale(), closeTo(1, 0.01));
   });
 
-  testWidgets('zooming drops the stand-in, so a pan shows one photo not two', (
+  testWidgets('zooming leaves nothing outside the viewer to pan off', (
     tester,
   ) async {
     final tempFile = File(
@@ -638,9 +638,20 @@ void main() {
     await tester.pump();
     await tester.pump(const Duration(milliseconds: 250));
 
-    // The stand-in doesn't zoom or pan with the photo, so panning a zoomed
-    // one used to slide the real photo off it and show both at once.
-    expect(find.byType(Image), findsOneWidget);
+    // Inside the viewer, two: the screen-sized photo and the
+    // full-resolution copy laid exactly over it once zoomed. They share
+    // one transform, so a pan moves both and they stay registered — which
+    // is the whole reason the sharp copy goes here rather than replacing
+    // the other one (swapping `cacheWidth` on a single Image threw the
+    // decoded picture away and flashed black mid-zoom).
+    final insideViewer = find.descendant(
+      of: find.byType(InteractiveViewer),
+      matching: find.byType(Image),
+    );
+    expect(insideViewer, findsNWidgets(2));
+    // And two in the whole tree, so none outside it. The stand-in is what
+    // used to be out there, and it is the copy that doesn't pan.
+    expect(find.byType(Image), findsNWidgets(2));
   });
 
   testWidgets('editing the date/time via the header persists it', (
