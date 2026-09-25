@@ -527,7 +527,7 @@
   "personHistoryPresentLabel": "至今",
   "personHistorySpecificDateOption": "结束日期",
   "personHistoryNotesLabel": "备注",
-  "customFieldsHeader": "自定义字段",
+  "customFieldsHeader": "更多详情",
   "customFieldsLabelPlaceholder": "字段名",
   "customFieldsValuePlaceholder": "值",
   "personHistoryDeleteButton": "删除该记录",

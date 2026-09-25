@@ -1,6 +1,7 @@
 import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/storage/passcode_hash.dart';
+import 'package:photos_vault/viewer/custom_fields_editor.dart';
 import 'package:photos_vault/viewer/person_profile_screen.dart';
 import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:flutter/cupertino.dart';
@@ -103,9 +104,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // add_circled buttons appear in order: Education, Job, Relationships,
-      // Places Lived, Custom Fields — Education's is first.
-      await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
+      await tester.tap(find.byKey(profileSectionAddKey('Education')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byKey(searchPickerFieldKey), 'UC Berkeley');
       await tester.pump();
@@ -153,7 +152,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(CupertinoIcons.add_circled).first);
+      await tester.tap(find.byKey(profileSectionAddKey('Education')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('MIT'));
       await tester.pumpAndSettle();
@@ -247,9 +246,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // add_circled buttons: Education, Job, Relationships, Places Lived,
-    // Custom Fields — Relationships' is the third.
-    await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
+    // Relationships sits below More details now, off the bottom of the
+    // screen — a tap without this lands on nothing and passes quietly.
+    final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
+    await tester.ensureVisible(addRelationship);
+    await tester.pumpAndSettle();
+    await tester.tap(addRelationship);
     await tester.pumpAndSettle();
     expect(find.text('Daniel'), findsOneWidget);
     await tester.tap(find.text('Daniel'));
@@ -281,7 +283,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
+    // Relationships sits below More details now, off the bottom of the
+    // screen — a tap without this lands on nothing and passes quietly.
+    final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
+    await tester.ensureVisible(addRelationship);
+    await tester.pumpAndSettle();
+    await tester.tap(addRelationship);
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(searchPickerFieldKey), 'Ada');
     await tester.pumpAndSettle();
@@ -319,7 +326,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
+    // Relationships sits below More details now, off the bottom of the
+    // screen — a tap without this lands on nothing and passes quietly.
+    final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
+    await tester.ensureVisible(addRelationship);
+    await tester.pumpAndSettle();
+    await tester.tap(addRelationship);
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(searchPickerFieldKey), 'Grandma Lily');
     await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -354,7 +366,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
+    // Relationships sits below More details now, off the bottom of the
+    // screen — a tap without this lands on nothing and passes quietly.
+    final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
+    await tester.ensureVisible(addRelationship);
+    await tester.pumpAndSettle();
+    await tester.tap(addRelationship);
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(searchPickerFieldKey), 'daniel');
     await tester.testTextInput.receiveAction(TextInputAction.done);
@@ -384,7 +401,12 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.byIcon(CupertinoIcons.add_circled).at(2));
+      // Relationships sits below More details now, off the bottom of the
+      // screen — a tap without this lands on nothing and passes quietly.
+      final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
+      await tester.ensureVisible(addRelationship);
+      await tester.pumpAndSettle();
+      await tester.tap(addRelationship);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Daniel'));
       await tester.pumpAndSettle();
@@ -685,61 +707,62 @@ void main() {
     expect(locations.single.place, 'Beijing');
   });
 
-  testWidgets(
-    'Custom Fields sits after Places Lived and persists a new field',
-    (tester) async {
-      final personStore = FakePersonStore();
-      final mia = await personStore.create(name: 'Mia');
-      await personStore.addLocation(
-        PersonLocation(
-          id: 'loc-1',
-          personId: mia.id,
-          kind: LocationKind.origin,
-          place: 'Shanghai',
-          since: DateTime(1995),
+  testWidgets('More details sits after Places Lived, Relationships after it', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.addLocation(
+      PersonLocation(
+        id: 'loc-1',
+        personId: mia.id,
+        kind: LocationKind.origin,
+        place: 'Shanghai',
+        since: DateTime(1995),
+      ),
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
         ),
-      );
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      await tester.pumpWidget(
-        _wrap(
-          PersonProfileScreen(
-            person: mia,
-            personStore: personStore,
-            assetRecordStore: FakeAssetRecordStore(),
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
+    final placesLivedTop = tester
+        .getTopLeft(find.text('Places Lived', skipOffstage: false))
+        .dy;
+    final moreDetailsTop = tester
+        .getTopLeft(find.text('More details', skipOffstage: false))
+        .dy;
+    final relationshipsTop = tester
+        .getTopLeft(find.text('Relationships', skipOffstage: false))
+        .dy;
+    expect(moreDetailsTop, greaterThan(placesLivedTop));
+    expect(relationshipsTop, greaterThan(moreDetailsTop));
 
-      final placesLivedTop = tester
-          .getTopLeft(find.text('Places Lived', skipOffstage: false))
-          .dy;
-      final customFieldsTop = tester
-          .getTopLeft(find.text('Custom Fields', skipOffstage: false))
-          .dy;
-      expect(customFieldsTop, greaterThan(placesLivedTop));
+    final addButton = find.byKey(customFieldsAddKey);
+    await tester.ensureVisible(addButton);
+    await tester.pumpAndSettle();
+    await tester.tap(addButton);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(CupertinoTextField, 'Field'),
+      'Nickname',
+    );
+    await tester.pump();
+    await tester.enterText(
+      find.widgetWithText(CupertinoTextField, 'Value'),
+      'Mimi',
+    );
+    await tester.pump();
 
-      // add_circled buttons: Education, Job, Relationships, Places Lived,
-      // Custom Fields — Custom Fields' is last.
-      final addButton = find.byIcon(CupertinoIcons.add_circled).last;
-      await tester.ensureVisible(addButton);
-      await tester.pumpAndSettle();
-      await tester.tap(addButton);
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.widgetWithText(CupertinoTextField, 'Field'),
-        'Nickname',
-      );
-      await tester.pump();
-      await tester.enterText(
-        find.widgetWithText(CupertinoTextField, 'Value'),
-        'Mimi',
-      );
-      await tester.pump();
-
-      final saved = await personStore.detailFor(mia.id);
-      expect(saved.customFields.single.label, 'Nickname');
-      expect(saved.customFields.single.value, 'Mimi');
-    },
-  );
+    final saved = await personStore.detailFor(mia.id);
+    expect(saved.customFields.single.label, 'Nickname');
+    expect(saved.customFields.single.value, 'Mimi');
+  });
 }

@@ -20,13 +20,23 @@ import 'person_page_screen.dart';
 import 'person_picker_sheet.dart';
 import 'search_picker_sheet.dart';
 
-/// The full editable profile behind a person page's name chevron: Name/About,
-/// Education and Job as their own pick-or-type sections, an optional
-/// passcode+hint lock over those sections (photos and identity stay visible
-/// either way — see DESIGN.md's risk note), Relationships (family/relatives
-/// lives here, as typed links, not a free-text field) with a link to the net
-/// graph, and Places Lived (always last). See IMPLEMENTATION_PLAN.md
-/// T7.3-T7.7.
+/// The full editable profile behind a person page's name chevron.
+///
+/// Name and About, then Education and Job as their own pick-or-type
+/// sections, Places Lived, More details, and Relationships last (where
+/// family and relatives live, as typed links rather than a free-text field)
+/// with the link to the net graph beside them.
+///
+/// Everything below the name belongs to a passcode rather than to the
+/// person — four digits on the keypad in the nav bar switch which set is on
+/// screen, and digits nobody has used show an empty one. Identity and photos
+/// are visible either way. See `person_detail.dart` and
+/// IMPLEMENTATION_PLAN.md T7.3-T7.7.
+/// A section's own "+", findable by name rather than by counting — the
+/// sections have been reordered twice now, and every positional lookup
+/// silently pointed at the wrong one both times.
+Key profileSectionAddKey(String title) => ValueKey('section-add:$title');
+
 class PersonProfileScreen extends StatefulWidget {
   const PersonProfileScreen({
     super.key,
@@ -766,6 +776,40 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
               _historySection(_jobs, l10n.personProfileJobLabel),
               const SizedBox(height: 20),
               _sectionHeader(
+                l10n.personProfileLocationHeader,
+                onAdd: () => _editLocation(),
+              ),
+              if (_locations.isNotEmpty)
+                CupertinoListSection.insetGrouped(
+                  margin: const EdgeInsets.symmetric(horizontal: 16),
+                  backgroundColor: _cardBackground,
+                  decoration: _cardDecoration,
+                  children: [
+                    for (var i = 0; i < _sortedLocations.length; i++)
+                      CupertinoListTile(
+                        title: Text(_sortedLocations[i].place),
+                        subtitle: Text(_locationRangeLabel(l10n, i)),
+                        trailing: CupertinoButton(
+                          padding: EdgeInsets.zero,
+                          onPressed: () => _removeLocation(_sortedLocations[i]),
+                          child: const Icon(
+                            CupertinoIcons.xmark_circle,
+                            color: CupertinoColors.systemGrey,
+                          ),
+                        ),
+                        onTap: () =>
+                            _editLocation(existing: _sortedLocations[i]),
+                      ),
+                  ],
+                ),
+              const SizedBox(height: 20),
+              CustomFieldsEditor(
+                initialFields: _detail.customFields,
+                onChanged: (fields) =>
+                    _persistDetail(_detail.copyWith(customFields: fields)),
+              ),
+              const SizedBox(height: 20),
+              _sectionHeader(
                 l10n.personProfileRelationshipsHeader,
                 onAdd: () => _addOrEditRelationship(),
               ),
@@ -851,39 +895,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                 child: Text(l10n.personProfileViewGraph),
               ),
               const SizedBox(height: 20),
-              _sectionHeader(
-                l10n.personProfileLocationHeader,
-                onAdd: () => _editLocation(),
-              ),
-              if (_locations.isNotEmpty)
-                CupertinoListSection.insetGrouped(
-                  margin: const EdgeInsets.symmetric(horizontal: 16),
-                  backgroundColor: _cardBackground,
-                  decoration: _cardDecoration,
-                  children: [
-                    for (var i = 0; i < _sortedLocations.length; i++)
-                      CupertinoListTile(
-                        title: Text(_sortedLocations[i].place),
-                        subtitle: Text(_locationRangeLabel(l10n, i)),
-                        trailing: CupertinoButton(
-                          padding: EdgeInsets.zero,
-                          onPressed: () => _removeLocation(_sortedLocations[i]),
-                          child: const Icon(
-                            CupertinoIcons.xmark_circle,
-                            color: CupertinoColors.systemGrey,
-                          ),
-                        ),
-                        onTap: () =>
-                            _editLocation(existing: _sortedLocations[i]),
-                      ),
-                  ],
-                ),
-              const SizedBox(height: 20),
-              CustomFieldsEditor(
-                initialFields: _detail.customFields,
-                onChanged: (fields) =>
-                    _persistDetail(_detail.copyWith(customFields: fields)),
-              ),
               const SizedBox(height: 32),
               Center(
                 child: CupertinoButton(
@@ -968,6 +979,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
         ),
         if (onAdd != null)
           CupertinoButton(
+            key: profileSectionAddKey(title),
             padding: EdgeInsets.zero,
             onPressed: onAdd,
             child: const Icon(CupertinoIcons.add_circled),
