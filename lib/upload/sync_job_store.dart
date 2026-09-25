@@ -10,9 +10,8 @@ import 'sync_job.dart';
 /// table in `asset_record`'s: jobs are throwaway operational state with
 /// their own lifecycle, and nothing needs a transaction spanning both.
 class SyncJobStore {
-  SyncJobStore({DatabaseFactory? databaseFactory, String? path, Uuid? uuid})
+  SyncJobStore({DatabaseFactory? databaseFactory, this._path, Uuid? uuid})
     : _databaseFactory = databaseFactory ?? sqflite.databaseFactory,
-      _path = path,
       _uuid = uuid ?? const Uuid();
 
   final DatabaseFactory _databaseFactory;

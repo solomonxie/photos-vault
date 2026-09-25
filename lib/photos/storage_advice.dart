@@ -244,12 +244,10 @@ class StorageScan {
 class StorageAdvisor {
   StorageAdvisor({
     required this.store,
-    PhotoLibraryService? library,
-    Future<AssetMeasure?> Function(AssetRecord record)? measure,
+    this._library,
+    this._measure,
     DateTime Function()? now,
-  }) : _library = library,
-       _measure = measure,
-       _now = now ?? DateTime.now;
+  }) : _now = now ?? DateTime.now;
 
   final AssetRecordStore store;
   final PhotoLibraryService? _library;

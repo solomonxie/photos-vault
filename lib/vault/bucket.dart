@@ -86,8 +86,9 @@ class VaultBucket {
   Future<({List<IndexEntry> entries, List<PassphraseEntry> passphrases})>
   readAlbum(AlbumKeys keys) async {
     final index = await loadIndex();
-    if (index == null)
+    if (index == null) {
       return (entries: <IndexEntry>[], passphrases: <PassphraseEntry>[]);
+    }
     return (
       entries: readSection(cipher: _cipher, keys: keys, index: index),
       passphrases: passphrasesIn(index),
