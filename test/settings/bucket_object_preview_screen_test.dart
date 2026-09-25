@@ -52,7 +52,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text("Can't preview this file type."), findsOneWidget);
-      expect(find.text('Open Externally'), findsOneWidget);
+      expect(find.text('Open in Another App'), findsOneWidget);
     },
   );
 

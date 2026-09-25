@@ -445,7 +445,7 @@ void main() {
     await tester.pumpAndSettle();
     await _scrollToInfoPanel(tester);
 
-    await _tapInPanel(tester, find.text('No thanks'));
+    await _tapInPanel(tester, find.text('Dismiss'));
 
     expect((await records.getByLocalId('a'))!.tags, isEmpty);
     expect(find.text('Suggested'), findsNothing);
@@ -1274,7 +1274,7 @@ void main() {
         reason: 'a request per rebuild would be a request per frame',
       );
       expect(
-        find.text('Only the copy in your bucket is left.'),
+        find.text('Only the backed-up copy in your bucket remains.'),
         findsOneWidget,
       );
     });
