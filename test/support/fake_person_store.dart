@@ -114,6 +114,8 @@ class FakePersonStore implements PersonStore {
     String relatedPersonId,
     RelationshipType type, {
     String? organization,
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
   }) async {
     final inverse = switch (type) {
       RelationshipType.parent => RelationshipType.child,
@@ -143,22 +145,31 @@ class FakePersonStore implements PersonStore {
   @override
   Future<void> removeRelationship(
     String personId,
-    String relatedPersonId,
-  ) async {
+    String relatedPersonId, {
+    String passcodeHash = openNamespace,
+  }) async {
     _relationships[personId]?.remove(relatedPersonId);
     _relationships[relatedPersonId]?.remove(personId);
   }
 
   @override
-  Future<List<PersonRelationship>> relationshipsFor(String personId) async =>
-      _relationships[personId]?.values.toList() ?? const [];
+  Future<List<PersonRelationship>> relationshipsFor(
+    String personId, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async => _relationships[personId]?.values.toList() ?? const [];
 
   @override
-  Future<List<PersonRelationship>> allRelationships() async =>
-      _relationships.values.expand((m) => m.values).toList();
+  Future<List<PersonRelationship>> allRelationships({
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async => _relationships.values.expand((m) => m.values).toList();
 
   @override
-  Future<Set<String>> allOrganizations() async => _relationships.values
+  Future<Set<String>> allOrganizations({
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async => _relationships.values
       .expand((m) => m.values)
       .map((r) => r.organization)
       .whereType<String>()
@@ -166,7 +177,11 @@ class FakePersonStore implements PersonStore {
       .toSet();
 
   @override
-  Future<void> addLocation(PersonLocation location) async {
+  Future<void> addLocation(
+    PersonLocation location, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
     final list = _locations.putIfAbsent(location.personId, () => []);
     list.removeWhere((l) => l.id == location.id);
     list.add(location);
@@ -180,12 +195,18 @@ class FakePersonStore implements PersonStore {
   }
 
   @override
-  Future<List<PersonLocation>> locationsFor(String personId) async =>
-      _locations[personId] ?? const [];
+  Future<List<PersonLocation>> locationsFor(
+    String personId, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async => _locations[personId] ?? const [];
 
   @override
-  Future<void> addHistoryEntry(PersonHistoryEntry entry) async =>
-      _history[entry.id] = entry;
+  Future<void> addHistoryEntry(
+    PersonHistoryEntry entry, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async => _history[entry.id] = entry;
 
   @override
   Future<void> removeHistoryEntry(String id) async => _history.remove(id);
@@ -193,8 +214,10 @@ class FakePersonStore implements PersonStore {
   @override
   Future<List<PersonHistoryEntry>> historyFor(
     String personId,
-    HistoryCategory category,
-  ) async =>
+    HistoryCategory category, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async =>
       _history.values
           .where((e) => e.personId == personId && e.category == category)
           .toList()
@@ -205,11 +228,14 @@ class FakePersonStore implements PersonStore {
         );
 
   @override
-  Future<Set<String>> allHistoryTitles(HistoryCategory category) async =>
-      _history.values
-          .where((e) => e.category == category && e.title.isNotEmpty)
-          .map((e) => e.title)
-          .toSet();
+  Future<Set<String>> allHistoryTitles(
+    HistoryCategory category, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async => _history.values
+      .where((e) => e.category == category && e.title.isNotEmpty)
+      .map((e) => e.title)
+      .toSet();
 
   @override
   String newId() => 'fake-person-${_nextId++}';

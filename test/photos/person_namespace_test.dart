@@ -1,6 +1,7 @@
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/photos/person_detail.dart';
 import 'package:photos_vault/photos/person_store.dart';
 import 'package:photos_vault/storage/passcode_hash.dart';
@@ -142,6 +143,152 @@ void main() {
     final dump = rows.map((r) => '${r['after']}').join();
 
     expect(dump, isNot(contains('a secret worth keeping')));
+  });
+
+  test('relationships, schooling and places each stay in their set', () async {
+    final store = newStore();
+    final mia = await store.create(name: 'Mia');
+    final dan = await store.create(name: 'Daniel');
+    final work = hashPasscode('1111');
+    final keys = _keysFor('1111');
+
+    await store.addRelationship(mia.id, dan.id, RelationshipType.friend);
+    await store.addRelationship(
+      mia.id,
+      dan.id,
+      RelationshipType.colleague,
+      organization: 'Acme',
+      passcodeHash: work,
+      keys: keys,
+    );
+    await store.addLocation(
+      PersonLocation(
+        id: store.newId(),
+        personId: mia.id,
+        kind: LocationKind.origin,
+        place: 'Kyoto',
+        since: DateTime(2019),
+      ),
+      passcodeHash: work,
+      keys: keys,
+    );
+    await store.addHistoryEntry(
+      PersonHistoryEntry(
+        id: store.newId(),
+        personId: mia.id,
+        category: HistoryCategory.job,
+        title: 'Acme',
+      ),
+      passcodeHash: work,
+      keys: keys,
+    );
+
+    // The open set sees only what was written to it.
+    expect(
+      (await store.relationshipsFor(mia.id)).single.type,
+      RelationshipType.friend,
+    );
+    expect(await store.locationsFor(mia.id), isEmpty);
+    expect(await store.historyFor(mia.id, HistoryCategory.job), isEmpty);
+    expect(await store.allOrganizations(), isEmpty);
+
+    // The passcode sees only its own.
+    final inWork = await store.relationshipsFor(
+      mia.id,
+      passcodeHash: work,
+      keys: keys,
+    );
+    expect(inWork.single.type, RelationshipType.colleague);
+    expect(inWork.single.organization, 'Acme');
+    expect(
+      (await store.locationsFor(
+        mia.id,
+        passcodeHash: work,
+        keys: keys,
+      )).single.place,
+      'Kyoto',
+    );
+    expect(
+      (await store.historyFor(
+        mia.id,
+        HistoryCategory.job,
+        passcodeHash: work,
+        keys: keys,
+      )).single.title,
+      'Acme',
+    );
+    expect(await store.allOrganizations(passcodeHash: work, keys: keys), {
+      'Acme',
+    });
+  });
+
+  test('a mirrored relationship lands in the same set on both sides', () async {
+    final store = newStore();
+    final mia = await store.create(name: 'Mia');
+    final dan = await store.create(name: 'Daniel');
+    final work = hashPasscode('1111');
+    final keys = _keysFor('1111');
+
+    await store.addRelationship(
+      mia.id,
+      dan.id,
+      RelationshipType.parent,
+      passcodeHash: work,
+      keys: keys,
+    );
+
+    // Daniel's page shows it only when the same digits are typed there.
+    expect(await store.relationshipsFor(dan.id), isEmpty);
+    expect(
+      (await store.relationshipsFor(
+        dan.id,
+        passcodeHash: work,
+        keys: keys,
+      )).single.type,
+      RelationshipType.child,
+    );
+  });
+
+  test('none of it is readable from the rows themselves', () async {
+    final store = newStore();
+    final mia = await store.create(name: 'Mia');
+    final work = hashPasscode('1111');
+    final keys = _keysFor('1111');
+
+    await store.addHistoryEntry(
+      PersonHistoryEntry(
+        id: store.newId(),
+        personId: mia.id,
+        category: HistoryCategory.job,
+        title: 'Cold War Naval Intelligence',
+        notes: 'do not put this in a backup',
+      ),
+      passcodeHash: work,
+      keys: keys,
+    );
+    await store.addLocation(
+      PersonLocation(
+        id: store.newId(),
+        personId: mia.id,
+        kind: LocationKind.origin,
+        place: 'Vladivostok',
+        since: DateTime(2019),
+      ),
+      passcodeHash: work,
+      keys: keys,
+    );
+
+    final dump = (await store.changeLogRows())
+        .map((r) => '${r['before']}${r['after']}')
+        .join();
+
+    for (final secret in const [
+      'Cold War Naval Intelligence',
+      'do not put this in a backup',
+      'Vladivostok',
+    ]) {
+      expect(dump, isNot(contains(secret)), reason: secret);
+    }
   });
 
   test('saving under a passcode with no keys writes nothing', () async {
