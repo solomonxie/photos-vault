@@ -163,8 +163,9 @@ void main() {
     Future<StateSetter> pumpGrowable(
       WidgetTester tester,
       GlobalKey<AssetGridViewState> key,
-      List<AssetRecord> Function() records,
-    ) async {
+      List<AssetRecord> Function() records, {
+      List<Widget> trailing = const [],
+    }) async {
       late StateSetter setOuter;
       await tester.pumpWidget(
         _wrap(
@@ -176,6 +177,7 @@ void main() {
                 records: records(),
                 onTap: (_) {},
                 actionsFor: (_) => _actions,
+                trailingSlivers: trailing,
               );
             },
           ),
@@ -225,6 +227,43 @@ void main() {
         key.currentState!.scrollController.offset,
         greaterThan(0),
         reason: 'the offset moved; the photo did not',
+      );
+    });
+
+    testWidgets('holds the page below the grid, where Utilities sits', (
+      tester,
+    ) async {
+      final key = GlobalKey<AssetGridViewState>();
+      var records = _daily(40);
+      final setOuter = await pumpGrowable(
+        tester,
+        key,
+        () => records,
+        trailing: const [
+          SliverToBoxAdapter(
+            child: SizedBox(key: ValueKey('utilities'), height: 900),
+          ),
+        ],
+      );
+
+      // The foot of the page, past the end of the grid entirely. On the
+      // Library that is the Utilities list, which is where the Hidden row
+      // is — so it is where the page is standing every time somebody comes
+      // back from the private album.
+      final controller = key.currentState!.scrollController;
+      controller.jumpTo(controller.position.maxScrollExtent);
+      await tester.pumpAndSettle();
+      final before = tester.getTopLeft(find.byKey(const ValueKey('utilities')));
+
+      // Photos come back into the library — a hidden one put back, or a
+      // scan that landed while this page was covered.
+      setOuter(() => records = _daily(120));
+      await tester.pumpAndSettle();
+
+      expect(
+        tester.getTopLeft(find.byKey(const ValueKey('utilities'))).dy,
+        closeTo(before.dy, 1),
+        reason: 'the grid grew underneath; the page did not move',
       );
     });
   });
