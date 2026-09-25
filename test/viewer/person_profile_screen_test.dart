@@ -6,6 +6,10 @@ import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
+import 'package:photos_vault/photos/person_detail.dart';
+import 'package:photos_vault/vault/keys.dart';
+
+import '../settings/fake_secure_store.dart';
 import '../support/fake_asset_record_store.dart';
 import '../support/fake_person_store.dart';
 
@@ -40,7 +44,7 @@ void main() {
     );
     await tester.pump();
 
-    expect((await personStore.getById(person.id))!.bio, 'Loves hiking.');
+    expect((await personStore.detailFor(person.id)).bio, 'Loves hiking.');
   });
 
   testWidgets('tapping age sets a birth date, tapping gender sets a gender', (
@@ -69,7 +73,7 @@ void main() {
     await tester.tap(find.text('Female'));
     await tester.pumpAndSettle();
 
-    expect((await personStore.getById(person.id))!.gender, Gender.female);
+    expect((await personStore.detailFor(person.id)).gender, Gender.female);
     expect(find.text('Female'), findsOneWidget);
 
     await tester.tap(find.text('Age'));
@@ -77,7 +81,7 @@ void main() {
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
-    final saved = (await personStore.getById(person.id))!;
+    final saved = await personStore.detailFor(person.id);
     expect(saved.birthDate, isNotNull);
     expect(find.textContaining('years old'), findsOneWidget);
   });
@@ -162,67 +166,68 @@ void main() {
     },
   );
 
-  testWidgets(
-    'locked profile hides sections until the correct passcode is entered',
-    (tester) async {
-      final personStore = FakePersonStore();
-      final locked = await personStore.create(name: 'Mia');
-      await personStore.update(
-        locked.copyWith(
-          locked: true,
-          passcodeHash: () => hashPasscode('secret'),
-          passcodeHint: () => 'pet name',
-        ),
-      );
-      await personStore.addHistoryEntry(
-        PersonHistoryEntry(
-          id: 'e1',
-          personId: locked.id,
-          category: HistoryCategory.education,
-          title: 'MIT',
-        ),
-      );
-      final reloaded = (await personStore.getById(locked.id))!;
+  testWidgets('four digits open their own set, and only theirs', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final keychain = FakeSecureStore();
+    final vaultKeys = VaultKeys(store: keychain);
+    // The passphrase is the app's, shared with the private album. With one
+    // already set, the keypad goes straight up rather than through setup.
+    await vaultKeys.add('a good long passphrase');
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.saveDetail(mia.id, const PersonDetail(bio: 'open bio'));
 
-      await tester.pumpWidget(
-        _wrap(
-          PersonProfileScreen(
-            person: reloaded,
-            personStore: personStore,
-            assetRecordStore: FakeAssetRecordStore(),
-          ),
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+          vaultKeys: vaultKeys,
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('open bio'), findsOneWidget);
 
-      expect(find.text("This profile's details are locked."), findsOneWidget);
-      expect(find.text('Hint: pet name'), findsOneWidget);
-      // Only the Name field renders while locked — Education isn't reachable.
-      expect(find.byType(CupertinoTextField), findsOneWidget);
-      expect(find.text('Education'), findsNothing);
-
-      await tester.tap(find.widgetWithText(CupertinoButton, 'Unlock'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(CupertinoTextField).last, 'wrong');
+    await tester.tap(find.byIcon(CupertinoIcons.number));
+    await tester.pumpAndSettle();
+    for (final digit in '1234'.split('')) {
+      await tester.tap(find.text(digit));
       await tester.pump();
-      await tester.tap(find.widgetWithText(CupertinoDialogAction, 'Unlock'));
-      await tester.pumpAndSettle();
+    }
+    await tester.pumpAndSettle();
 
-      expect(find.text('Incorrect passcode.'), findsOneWidget);
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
+    // Nothing has been kept under 1234, so there is nothing here — which is
+    // exactly what a passcode that opens nothing looks like. No error, no
+    // "locked" notice, nothing to tell the two apart.
+    expect(find.text('open bio'), findsNothing);
+    expect(find.text('Incorrect passcode.'), findsNothing);
 
-      await tester.tap(find.widgetWithText(CupertinoButton, 'Unlock'));
-      await tester.pumpAndSettle();
-      await tester.enterText(find.byType(CupertinoTextField).last, 'secret');
-      await tester.pump();
-      await tester.tap(find.widgetWithText(CupertinoDialogAction, 'Unlock'));
-      await tester.pumpAndSettle();
+    // By placeholder, not by index: inside a set there is a hint field above
+    // About, and counting would silently target the wrong one.
+    await tester.enterText(
+      find.widgetWithText(CupertinoTextField, 'No bio yet.'),
+      'the other bio',
+    );
+    await tester.pump();
 
-      expect(find.text('Education'), findsOneWidget);
-      expect(find.text('MIT'), findsOneWidget);
-    },
-  );
+    // Saved under 1234 and nowhere else.
+    expect(
+      (await personStore.detailFor(
+        mia.id,
+        passcodeHash: hashPasscode('1234'),
+      )).bio,
+      'the other bio',
+    );
+    expect((await personStore.detailFor(mia.id)).bio, 'open bio');
+
+    // And back out again, with no confirmation to get through.
+    await tester.tap(find.byIcon(CupertinoIcons.number_circle_fill));
+    await tester.pumpAndSettle();
+    expect(find.text('open bio'), findsOneWidget);
+  });
 
   testWidgets('linking two people creates a mirrored relationship', (
     tester,
@@ -732,8 +737,8 @@ void main() {
       );
       await tester.pump();
 
-      final saved = await personStore.getById(mia.id);
-      expect(saved!.customFields.single.label, 'Nickname');
+      final saved = await personStore.detailFor(mia.id);
+      expect(saved.customFields.single.label, 'Nickname');
       expect(saved.customFields.single.value, 'Mimi');
     },
   );
