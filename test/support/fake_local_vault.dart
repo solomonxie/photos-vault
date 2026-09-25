@@ -23,6 +23,9 @@ class FakeLocalVault implements LocalVault {
   }
 
   @override
+  Future<File?> guardBeforeDeletion() => guard('pre-deletion');
+
+  @override
   Future<bool> keepDailyCopy() async {
     dailyCopies++;
     return true;

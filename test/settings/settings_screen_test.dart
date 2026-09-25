@@ -78,7 +78,7 @@ Future<BackupTargetsStore> _storeWithBucket({String prefix = 'p/'}) async {
 }
 
 void main() {
-  testWidgets('removing app data warns about the export prompt', (
+  testWidgets('removing app data names the copy it takes first', (
     tester,
   ) async {
     await _useTallSurface(tester);
@@ -93,10 +93,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Remove all app data?'), findsOneWidget);
-    expect(
-      find.textContaining('prompted to export your app data to a local folder'),
-      findsOneWidget,
-    );
+    // No prompt and no share sheet: the dialog's job is to say that a copy
+    // is taken anyway, and to name it well enough to find afterwards.
+    expect(find.textContaining('photos-vault-pre-deletion'), findsOneWidget);
   });
 
   testWidgets('restoring a file says what it will do before it does it', (
