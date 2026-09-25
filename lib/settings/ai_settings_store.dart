@@ -91,6 +91,20 @@ class AiSettingsStore {
     return migrated;
   }
 
+  /// Every vendor key and the rotation state around them. The legacy slot
+  /// too: an install that never opened the AI screen since the migration
+  /// still has its old key sitting there unmigrated.
+  Future<void> clearAll() async {
+    for (final key in const [
+      _keysKey,
+      _strategyKey,
+      _cursorKey,
+      _legacyOpenAiKey,
+    ]) {
+      await _store.delete(key);
+    }
+  }
+
   Future<void> _writeKeys(List<AiKeyMeta> keys) =>
       _store.write(_keysKey, jsonEncode(keys.map((k) => k.toJson()).toList()));
 

@@ -311,8 +311,20 @@ class FakeAssetRecordStore implements AssetRecordStore {
   @override
   Future<int> changeMark() async => mark;
 
+  /// Set to make [clearAll] throw — the one step of a wipe whose failure
+  /// must not strand the steps after it.
+  var throwOnClear = false;
+
+  /// Mirrors the real store: `app_state` and the place-name cache go with
+  /// the records. A wipe that left the bookkeeping behind would hide the
+  /// very thing [AppDataRemoval] exists to handle.
   @override
-  Future<void> clearAll() async => _records.clear();
+  Future<void> clearAll() async {
+    if (throwOnClear) throw StateError('database unavailable');
+    _records.clear();
+    _appState.clear();
+    _placeNames.clear();
+  }
 
   @override
   Future<List<Map<String, Object?>>> changeLogRows() async => const [];

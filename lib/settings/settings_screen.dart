@@ -17,6 +17,7 @@ import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'add_backup_screen.dart';
+import 'app_data_removal.dart';
 import 'backup_storage_type.dart';
 import 'backup_targets_store.dart';
 import 'bucket_browser_screen.dart';
@@ -38,6 +39,7 @@ class SettingsScreen extends StatefulWidget {
     this.bucketBackup,
     this.vault,
     this.snapshotFile,
+    this.appDataRemoval,
   });
 
   final BackupTargetsStore? store;
@@ -60,6 +62,10 @@ class SettingsScreen extends StatefulWidget {
   /// Export to a file, and import one back. Optional so tests can supply a
   /// stand-in picker rather than opening the system one.
   final SnapshotFile? snapshotFile;
+
+  /// Remove All App Data, end to end. Optional so tests can hand in one
+  /// that touches no container, keychain or queue database.
+  final AppDataRemoval? appDataRemoval;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -103,6 +109,17 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   late final SnapshotFile _snapshotFile =
       widget.snapshotFile ?? SnapshotFile(snapshots: _snapshots, vault: _vault);
+
+  late final AppDataRemoval _removal =
+      widget.appDataRemoval ??
+      AppDataRemoval(
+        snapshots: _snapshots,
+        settings: _assetRecordStore,
+        vault: _vault,
+        icloudBackup: _icloudBackup,
+        bucketBackup: _bucketBackup,
+        targetsStore: _store,
+      );
 
   bool _exporting = false;
   bool _restoring = false;
@@ -747,38 +764,15 @@ class _SettingsScreenState extends State<SettingsScreen>
     if (confirmed != true || !mounted) return;
     setState(() => _removingAppData = true);
     try {
-      // No prompt, no share sheet: the copy is simply taken. On this phone
-      // first, because that one cannot fail to reach a network and is the
-      // one somebody comes back for. These are deliberately archival names
-      // rather than the daily one — deleting the library makes the next
-      // daily backup empty, and an empty backup must not overwrite this.
-      await _vault.guardBeforeDeletion();
-      await _archiveOffDevice();
-      await _snapshots.clearAll();
+      // No prompt, no share sheet: the copies are simply taken, and then
+      // everything goes — rows, files, queue, credentials. See
+      // [AppDataRemoval] for why the order is what it is.
+      await _removal.run();
       await _reload();
       await _reloadICloud();
       await _reloadBucketData();
     } finally {
       if (mounted) setState(() => _removingAppData = false);
-    }
-  }
-
-  /// iCloud Drive and every configured bucket, each when it can be reached.
-  /// Both answer `false` rather than throwing when they can't be, but a
-  /// revoked credential or a dropped connection still can — and one
-  /// destination failing must take neither the other one nor, as it used
-  /// to, the removal itself.
-  Future<void> _archiveOffDevice() async => Future.wait([
-    _attempt(_icloudBackup.backUpBeforeDeletion),
-    _attempt(_bucketBackup.backUpBeforeDeletion),
-  ]);
-
-  static Future<void> _attempt(Future<bool> Function() write) async {
-    try {
-      await write();
-    } catch (_) {
-      // Offline, no iCloud container, credentials since revoked. The copy
-      // on this phone is the one that always lands.
     }
   }
 }

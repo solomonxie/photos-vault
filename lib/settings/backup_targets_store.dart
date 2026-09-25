@@ -169,4 +169,24 @@ class BackupTargetsStore {
     final targets = await loadAll();
     await _saveAll(targets.where((t) => t.id != id).toList());
   }
+
+  /// Every bucket, credential and preference this store owns. Listed here
+  /// rather than derived, because the keychain has no way to enumerate
+  /// what belongs to one store — a key added later and not added to this
+  /// list is a key that survives "remove all app data".
+  static const _allKeys = [
+    _key,
+    _orderStrategyKey,
+    _formatKey,
+    _syncFrequencyKey,
+    _lastSyncAtKey,
+    _queuePausedKey,
+    _queueConcurrencyKey,
+  ];
+
+  Future<void> clearAll() async {
+    for (final key in _allKeys) {
+      await _store.delete(key);
+    }
+  }
 }
