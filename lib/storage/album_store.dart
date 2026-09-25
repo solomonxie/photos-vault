@@ -85,11 +85,14 @@ class AlbumStore {
     _db = null;
   }
 
+  /// Empties this database. The log goes last, after the deletes above
+  /// have fired their triggers into it — see [AssetRecordStore.clearAll].
   Future<void> clearAll() async {
     final db = await _open();
     final batch = db.batch()
       ..delete(_memberTable)
-      ..delete(_albumTable);
+      ..delete(_albumTable)
+      ..delete(changeLogTable);
     await batch.commit(noResult: true);
   }
 
