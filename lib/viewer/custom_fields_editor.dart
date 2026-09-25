@@ -3,6 +3,10 @@ import 'package:flutter/cupertino.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
 
+/// Findable by name rather than by counting, same as the profile's own
+/// section headers.
+const customFieldsAddKey = ValueKey('more-details-add');
+
 /// User-defined label/value pairs — a "+" next to the header adds a blank
 /// row; each row renders like any other form field (not a bold list title),
 /// with its own delete button. Shared by the profile's top-level custom
@@ -85,6 +89,7 @@ class _CustomFieldsEditorState extends State<CustomFieldsEditor> {
                 ),
               ),
               CupertinoButton(
+                key: customFieldsAddKey,
                 padding: EdgeInsets.zero,
                 onPressed: _add,
                 child: const Icon(CupertinoIcons.add_circled),
