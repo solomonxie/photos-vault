@@ -931,6 +931,60 @@ class PersonStore {
     );
   }
 
+  /// Every row this person keeps behind a passcode, exactly as stored.
+  ///
+  /// Sealed, so this is ciphertext — which is what makes it safe to put in a
+  /// backup that lands in iCloud Drive. The open set is not here: it rides
+  /// in the snapshot's own typed fields, where builds older than this one
+  /// can still read it.
+  ///
+  /// Rows rather than objects, deliberately. Nothing on this phone can open
+  /// another passphrase's sets, and a backup that could only carry what this
+  /// phone happens to be able to read would quietly drop them.
+  Future<List<Map<String, Object?>>> sealedRowsFor(String personId) async {
+    final db = await _open();
+    final out = <Map<String, Object?>>[];
+    for (final table in const [
+      _detailTable,
+      _relationshipTable,
+      _locationTable,
+      _historyTable,
+    ]) {
+      final rows = await db.query(
+        table,
+        where: "person_id = ? AND passcode_hash != ''",
+        whereArgs: [personId],
+      );
+      for (final row in rows) {
+        out.add({'table': table, ...row});
+      }
+    }
+    return out;
+  }
+
+  /// Puts them back. Unknown tables and columns are skipped rather than
+  /// thrown on: a snapshot written by a later build must not fail a restore.
+  Future<void> restoreSealedRows(List<Map<String, Object?>> rows) async {
+    final db = await _open();
+    const known = {
+      _detailTable,
+      _relationshipTable,
+      _locationTable,
+      _historyTable,
+    };
+    final batch = db.batch();
+    for (final row in rows) {
+      final table = row['table'] as String?;
+      if (table == null || !known.contains(table)) continue;
+      batch.insert(
+        table,
+        {...row}..remove('table'),
+        conflictAlgorithm: sqflite.ConflictAlgorithm.replace,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
   String newId() => _uuid.v4();
 
   static Map<String, Object?> _toRow(Person person) => {

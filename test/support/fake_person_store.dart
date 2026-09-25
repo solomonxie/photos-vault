@@ -38,6 +38,21 @@ class FakePersonStore implements PersonStore {
   @override
   Future<void> update(Person person) async => _people[person.id] = person;
 
+  /// Raw sealed rows, by person. The fake keeps them opaque, same as the
+  /// real store does.
+  final sealedRows = <String, List<Map<String, Object?>>>{};
+
+  @override
+  Future<List<Map<String, Object?>>> sealedRowsFor(String personId) async =>
+      sealedRows[personId] ?? const [];
+
+  @override
+  Future<void> restoreSealedRows(List<Map<String, Object?>> rows) async {
+    for (final row in rows) {
+      (sealedRows[row['person_id'] as String? ?? ''] ??= []).add(row);
+    }
+  }
+
   final details = <String, PersonDetail>{};
 
   static String _key(String personId, String passcodeHash) =>
