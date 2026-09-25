@@ -909,7 +909,7 @@
   "personHistoryPresentLabel": "Present",
   "personHistorySpecificDateOption": "End Date",
   "personHistoryNotesLabel": "Notes",
-  "customFieldsHeader": "Custom Fields",
+  "customFieldsHeader": "More details",
   "customFieldsLabelPlaceholder": "Field",
   "customFieldsValuePlaceholder": "Value",
   "personHistoryDeleteButton": "Delete Entry",
