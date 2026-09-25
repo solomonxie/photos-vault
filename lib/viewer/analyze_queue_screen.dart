@@ -2,7 +2,6 @@ import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/analyze_queue.dart';
-import '../photos/on_device_vision.dart';
 import '../settings/backup_targets_store.dart' show SyncFrequency;
 import '../settings/settings_section.dart';
 
@@ -28,26 +27,14 @@ class AnalyzeQueueScreen extends StatefulWidget {
 }
 
 class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
-  /// Null until asked. Says which of the two things is actually matching
-  /// faces — a working fallback looks exactly like a working model until
-  /// the answers are poor and nobody can say which produced them.
-  Object? _faceModel;
-
   @override
   void initState() {
     super.initState();
     widget.queue.refresh();
-    _loadFaceModel();
-  }
-
-  Future<void> _loadFaceModel() async {
-    final status = await OnDeviceVisionService().faceModelStatus;
-    if (mounted) setState(() => _faceModel = status);
   }
 
   String _stepLabel(AppLocalizations l10n, AnalyzeStep step) => switch (step) {
     AnalyzeStep.findFaces => l10n.analyzeQueueStepFaces,
-    AnalyzeStep.suggest => l10n.analyzeQueueStepSuggest,
     AnalyzeStep.learnFaces => l10n.analyzeQueueStepLearnFaces,
     AnalyzeStep.matchFaces => l10n.analyzeQueueStepMatchFaces,
   };
@@ -144,13 +131,7 @@ class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
               valueListenable: widget.queue.remaining,
               builder: (context, remaining, _) => SettingsSection(
                 heading: l10n.analyzeQueueRemaining(remaining),
-                children: [
-                  _controls(l10n),
-                  const SettingsHairline(),
-                  _faceModelRow(l10n),
-                  const SettingsHairline(),
-                  _paidRow(l10n),
-                ],
+                children: [_controls(l10n)],
               ),
             ),
             const SettingsSectionDivider(),
@@ -264,76 +245,6 @@ class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
             ),
           ),
         ],
-      ),
-    );
-  }
-
-  Widget _faceModelRow(AppLocalizations l10n) {
-    final status = _faceModel;
-    if (status == null) return const SizedBox.shrink();
-    final on = status == true;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(settingsPagePadding, 10, 12, 10),
-      child: Row(
-        children: [
-          Icon(
-            on
-                ? CupertinoIcons.checkmark_seal_fill
-                : CupertinoIcons.exclamationmark_triangle_fill,
-            size: 18,
-            color: on
-                ? CupertinoColors.systemGreen
-                : CupertinoColors.systemOrange,
-          ),
-          const SizedBox(width: 8),
-          Expanded(
-            child: Text(
-              on ? l10n.analyzeQueueFaceModelOn : l10n.analyzeQueueFaceModelOff,
-              style: settingsRowSubtitleStyle,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  /// The one thing here that costs money, on its own row, saying what it
-  /// costs before it's switched on rather than after the bill.
-  Widget _paidRow(AppLocalizations l10n) {
-    return ValueListenableBuilder<bool>(
-      valueListenable: widget.queue.canSuggest,
-      builder: (context, canSuggest, _) => ValueListenableBuilder<bool>(
-        valueListenable: widget.queue.suggest,
-        builder: (context, on, _) => Padding(
-          padding: const EdgeInsets.fromLTRB(settingsPagePadding, 10, 12, 10),
-          child: Row(
-            children: [
-              Expanded(
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Text(
-                      l10n.analyzeQueuePaidTitle,
-                      style: settingsRowTitleStyle,
-                    ),
-                    const SizedBox(height: 2),
-                    Text(
-                      canSuggest
-                          ? l10n.analyzeQueuePaidNote
-                          : l10n.analyzeQueuePaidNoKey,
-                      style: settingsRowSubtitleStyle,
-                    ),
-                  ],
-                ),
-              ),
-              const SizedBox(width: 8),
-              CupertinoSwitch(
-                value: on && canSuggest,
-                onChanged: canSuggest ? widget.queue.setSuggest : null,
-              ),
-            ],
-          ),
-        ),
       ),
     );
   }

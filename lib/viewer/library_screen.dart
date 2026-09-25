@@ -301,7 +301,6 @@ class LibraryScreenState extends State<LibraryScreen>
         assetRecordStore: assetRecordStore,
         analysisStore: _aiAnalysisStore,
         onDeviceAnalysis: _onDeviceAnalysis,
-        aiVision: widget.aiVisionService ?? AiVisionService(),
         faceIdentity: _faceIdentity,
         taggedPeople: _taggedPeopleByAsset,
         resolvePath: _filePathFor,

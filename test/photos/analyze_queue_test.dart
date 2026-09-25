@@ -1,8 +1,5 @@
-import 'dart:io';
 import 'dart:typed_data';
 
-import 'package:photos_vault/photos/ai_analysis.dart';
-import 'package:photos_vault/photos/ai_vision_service.dart';
 import 'package:photos_vault/photos/analyze_queue.dart';
 import 'package:photos_vault/photos/face_identity.dart';
 import 'package:photos_vault/photos/on_device_analysis.dart';
@@ -48,22 +45,6 @@ class _FakeVision implements OnDeviceVisionService {
   }
 }
 
-class _FakeAiVision implements AiVisionService {
-  _FakeAiVision(this._answer);
-
-  final AiPhotoAnalysis Function(String localId) _answer;
-  int calls = 0;
-
-  @override
-  Future<AiPhotoAnalysis> analyze({
-    required String localId,
-    required File imageFile,
-  }) async {
-    calls++;
-    return _answer(localId);
-  }
-}
-
 /// The space this build describes faces in — a fake that answered from
 /// another one would be re-described on sight, which is the point of it.
 final _currentSpace = FaceDescriptor.combineRevision(
@@ -82,7 +63,7 @@ void main() {
     vision = _FakeVision();
   });
 
-  AnalyzeQueue build({AiVisionService? aiVision, bool hasKey = false}) {
+  AnalyzeQueue build() {
     return AnalyzeQueue(
       assetRecordStore: records,
       analysisStore: analyses,
@@ -90,8 +71,6 @@ void main() {
         analysisStore: analyses,
         vision: vision,
       ),
-      aiVision: aiVision,
-      hasAiKey: () async => hasKey,
       resolvePath: (record) async => '/tmp/${record.localId}.jpg',
       displayNameFor: (record) => record.localId,
       rest: Duration.zero,
@@ -145,7 +124,6 @@ void main() {
         analysisStore: analyses,
         vision: vision,
       ),
-      hasAiKey: () async => false,
       resolvePath: (record) async =>
           record.localId == 'photo:stuck' ? null : '/tmp/${record.localId}.jpg',
       displayNameFor: (record) => record.localId,
@@ -211,7 +189,6 @@ void main() {
         resolvePath: (r) async => '/tmp/${r.localId}.jpg',
         vision: vision,
       ),
-      hasAiKey: () async => false,
       resolvePath: (r) async => '/tmp/${r.localId}.jpg',
       displayNameFor: (r) => r.localId,
       rest: Duration.zero,
@@ -297,77 +274,6 @@ void main() {
     await queue.start();
     expect(vision.calls, 1, reason: 'asked directly, it still runs');
   });
-
-  _FakeAiVision talkative() => _FakeAiVision(
-    (localId) => AiPhotoAnalysis(
-      localId: localId,
-      peopleCount: 1,
-      eventLabel: 'Beach day',
-      analyzedAt: DateTime.now(),
-      tags: const ['beach'],
-      description: 'A day at the beach.',
-    ),
-  );
-
-  test('the paid step is out until it is switched on', () async {
-    await addPhoto('photo:a');
-    final ai = talkative();
-    final queue = build(aiVision: ai, hasKey: true);
-
-    await queue.start();
-    expect(ai.calls, 0, reason: 'off by default — it is the half that bills');
-
-    await queue.setSuggest(true);
-    await queue.start();
-
-    expect(ai.calls, 1);
-    final suggestion = (await analyses.unreviewed()).single;
-    expect(suggestion.tags, ['beach']);
-    expect(suggestion.description, 'A day at the beach.');
-  });
-
-  test('switched on with no key, nothing is spent', () async {
-    await addPhoto('photo:a');
-    final ai = talkative();
-    final queue = build(aiVision: ai);
-
-    await queue.setSuggest(true);
-    await queue.start();
-
-    expect(ai.calls, 0);
-    expect(queue.canSuggest.value, isFalse);
-  });
-
-  test(
-    'a photo the vendor had nothing to say about is never asked twice',
-    () async {
-      await addPhoto('photo:a');
-      final ai = _FakeAiVision(
-        (localId) => AiPhotoAnalysis(
-          localId: localId,
-          peopleCount: 0,
-          eventLabel: '',
-          analyzedAt: DateTime.now(),
-        ),
-      );
-      final queue = build(aiVision: ai, hasKey: true);
-      await queue.setSuggest(true);
-
-      await queue.start();
-      expect(ai.calls, 1);
-      expect(await analyses.unreviewed(), isEmpty);
-
-      await queue.start();
-
-      expect(
-        ai.calls,
-        1,
-        reason:
-            'paying twice for the same "no" is the one '
-            'thing a queue that spends money must not do',
-      );
-    },
-  );
 
   test('a video has no still to look at', () async {
     await records.upsert(
