@@ -9,11 +9,15 @@ import '../storage/asset_record_store.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
 
-/// Net graph of every [Person] and how they relate (T7.6) — hand-rolled
+/// Net graph of how people relate (T7.6) — hand-rolled
 /// (no graph-layout package, see DESIGN.md): family-type relationships
 /// (family/spouse/parent/child/sibling) cluster their members into a small
 /// circle: "a family is in a circle group" per the request. Other relation
 /// types are drawn as plain lines between clusters, styled by type.
+///
+/// Opened from a profile ([focusPersonId]), it draws that person's own net
+/// and nobody else's — everyone reachable from them by relationships in
+/// either direction. Opened without one, it draws everybody.
 class PersonGraphScreen extends StatefulWidget {
   const PersonGraphScreen({
     super.key,
@@ -41,8 +45,27 @@ class _PersonGraphScreenState extends State<PersonGraphScreen> {
   }
 
   Future<void> _load() async {
-    final people = await widget.personStore.listAll();
-    final relationships = await widget.personStore.allRelationships();
+    var people = await widget.personStore.listAll();
+    var relationships = await widget.personStore.allRelationships();
+    // Opened from somebody's profile, the graph is about *their* net. The
+    // rest of the library is a second, unrelated picture that happens to
+    // share the canvas — drawn together it reads as one net that isn't
+    // connected, which is the opposite of what the graph is for.
+    final focus = widget.focusPersonId;
+    if (focus != null) {
+      final reachable = peopleConnectedTo(focus, relationships);
+      people = [
+        for (final p in people)
+          if (reachable.contains(p.id)) p,
+      ];
+      final present = {for (final p in people) p.id};
+      relationships = [
+        for (final r in relationships)
+          if (present.contains(r.personId) &&
+              present.contains(r.relatedPersonId))
+            r,
+      ];
+    }
     if (!mounted) return;
     setState(() {
       _people = people;
