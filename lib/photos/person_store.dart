@@ -33,6 +33,7 @@ class PersonStore {
   static const _locationTable = 'person_location';
   static const _historyTable = 'person_history';
   static const _detailTable = 'person_detail';
+  static const _eventTable = 'person_event';
 
   Future<Database> _open() async {
     final existing = _db;
@@ -42,7 +43,7 @@ class PersonStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 7,
+        version: 8,
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await db.execute(
@@ -81,6 +82,9 @@ class PersonStore {
               );
             }
             await _widenRelationshipKey(db);
+          }
+          if (oldVersion < 8) {
+            await db.execute(_createEventTableSql);
           }
           if (oldVersion < 4) {
             await db.execute(
@@ -160,6 +164,7 @@ class PersonStore {
           ''');
           await db.execute(_createHistoryTableSql);
           await db.execute(_createDetailTableSql);
+          await db.execute(_createEventTableSql);
         },
       ),
     );
@@ -172,6 +177,7 @@ class PersonStore {
       _locationTable,
       _historyTable,
       _detailTable,
+      _eventTable,
     ]);
     _db = db;
     return db;
@@ -250,6 +256,22 @@ class PersonStore {
     await db.execute('DROP TABLE $_relationshipTable');
     await db.execute('ALTER TABLE $staging RENAME TO $_relationshipTable');
   }
+
+  /// Everything a profile records as having happened. Namespaced and sealed
+  /// the same way the other three are.
+  static const _createEventTableSql =
+      '''
+    CREATE TABLE $_eventTable (
+      id TEXT PRIMARY KEY,
+      person_id TEXT NOT NULL,
+      passcode_hash TEXT NOT NULL DEFAULT '',
+      payload TEXT NOT NULL DEFAULT '',
+      at INTEGER,
+      type TEXT NOT NULL DEFAULT '',
+      tags TEXT NOT NULL DEFAULT '[]',
+      notes TEXT NOT NULL DEFAULT ''
+    )
+  ''';
 
   /// Moves bio, birth date, gender and custom fields off the person row and
   /// into the namespace they belong to.
@@ -467,6 +489,7 @@ class PersonStore {
   Future<void> remove(String id) async {
     final db = await _open();
     await db.delete(_memberTable, where: 'person_id = ?', whereArgs: [id]);
+    await db.delete(_eventTable, where: 'person_id = ?', whereArgs: [id]);
     await db.delete(
       _relationshipTable,
       where: 'person_id = ? OR related_person_id = ?',
@@ -931,6 +954,72 @@ class PersonStore {
     );
   }
 
+  // --- Events ---
+
+  /// Insert-or-replace by [PersonEvent.id].
+  Future<void> saveEvent(
+    PersonEvent event, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    if (_unsealable(passcodeHash, keys)) return;
+    final db = await _open();
+    await db.insert(
+      _eventTable,
+      _rowFor(
+        structural: {
+          'id': event.id,
+          'person_id': event.personId,
+          'passcode_hash': passcodeHash,
+        },
+        content: {
+          'type': event.type.name,
+          'at': event.at?.millisecondsSinceEpoch,
+          'tags': jsonEncode(event.tags),
+          'notes': event.notes,
+        },
+        blanks: const {'type': '', 'at': null, 'tags': '[]', 'notes': ''},
+        passcodeHash: passcodeHash,
+        keys: keys,
+      ),
+      conflictAlgorithm: sqflite.ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> removeEvent(String id) async {
+    final db = await _open();
+    await db.delete(_eventTable, where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// Oldest first. Sorted here rather than in SQL, because a sealed row's
+  /// date is a placeholder until it is opened.
+  Future<List<PersonEvent>> eventsFor(
+    String personId, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    final db = await _open();
+    final rows = await db.query(
+      _eventTable,
+      where: 'person_id = ? AND passcode_hash = ?',
+      whereArgs: [personId, passcodeHash],
+    );
+    return [
+      for (final row in rows)
+        if (_contentOf(row, passcodeHash, keys) case final content?)
+          PersonEvent.fromJson(
+            content['id'] as String,
+            content['person_id'] as String,
+            {
+              'type': content['type'],
+              'at': content['at'],
+              'tags': jsonDecode(content['tags'] as String? ?? '[]'),
+              'notes': content['notes'],
+            },
+          ),
+    ]..sort((a, b) => (a.at ?? DateTime(0)).compareTo(b.at ?? DateTime(0)));
+  }
+
   /// Every row this person keeps behind a passcode, exactly as stored.
   ///
   /// Sealed, so this is ciphertext — which is what makes it safe to put in a
@@ -949,6 +1038,7 @@ class PersonStore {
       _relationshipTable,
       _locationTable,
       _historyTable,
+      _eventTable,
     ]) {
       final rows = await db.query(
         table,
@@ -971,6 +1061,7 @@ class PersonStore {
       _relationshipTable,
       _locationTable,
       _historyTable,
+      _eventTable,
     };
     final batch = db.batch();
     for (final row in rows) {

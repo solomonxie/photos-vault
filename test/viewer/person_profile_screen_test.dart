@@ -305,6 +305,81 @@ void main() {
     expect((await personStore.detailFor(mia.id)).impression.tags, isEmpty);
   });
 
+  testWidgets('the first-met row is a prompt until it is dated', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Always there, always first, and nothing written until it is filled in.
+    expect(find.text('First met / knew at'), findsOneWidget);
+    expect(await personStore.eventsFor(mia.id), isEmpty);
+    // No delete button on it, unlike every other event.
+    expect(find.byIcon(CupertinoIcons.xmark_circle), findsNothing);
+
+    await tester.tap(find.text('First met / knew at'));
+    await tester.pumpAndSettle();
+    // The type is not offered: there is exactly one of these.
+    expect(find.text('Type'), findsNothing);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final saved = await personStore.eventsFor(mia.id);
+    expect(saved.single.type, PersonEventType.firstMet);
+    expect(saved.single.at, isNotNull);
+  });
+
+  testWidgets('an event carries a type, tags and notes', (tester) async {
+    await _useTallSurface(tester);
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(profileSectionAddKey('Events')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Type'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Trip').last);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.widgetWithText(CupertinoTextField, 'Comma separated'),
+      'kyoto, autumn',
+    );
+    await tester.enterText(
+      find.widgetWithText(CupertinoTextField, 'Notes'),
+      'the maple one',
+    );
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final saved = (await personStore.eventsFor(mia.id)).single;
+    expect(saved.type, PersonEventType.trip);
+    expect(saved.tags, ['kyoto', 'autumn']);
+    expect(saved.notes, 'the maple one');
+  });
+
   testWidgets('linking two people creates a mirrored relationship', (
     tester,
   ) async {
