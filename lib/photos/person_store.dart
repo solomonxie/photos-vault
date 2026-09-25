@@ -164,6 +164,8 @@ class PersonStore {
     _db = null;
   }
 
+  /// Empties this database. The log goes last, after the deletes above
+  /// have fired their triggers into it — see [AssetRecordStore.clearAll].
   Future<void> clearAll() async {
     final db = await _open();
     final batch = db.batch()
@@ -171,7 +173,8 @@ class PersonStore {
       ..delete(_relationshipTable)
       ..delete(_locationTable)
       ..delete(_historyTable)
-      ..delete(_personTable);
+      ..delete(_personTable)
+      ..delete(changeLogTable);
     await batch.commit(noResult: true);
   }
 

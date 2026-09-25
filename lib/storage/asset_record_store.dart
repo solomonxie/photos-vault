@@ -352,13 +352,26 @@ class AssetRecordStore {
     _dropCache();
   }
 
+  /// Empties this database, log and all.
+  ///
+  /// The log goes last and deliberately: the deletes above fire their
+  /// triggers first, and each one writes the whole row it just removed
+  /// into the log. Left there, "remove all app data" would keep a verbatim
+  /// copy of every path, caption, tag and coordinate it claimed to erase.
+  ///
+  /// The cache has to be dropped by hand for the same reason [remove] says:
+  /// a delete leaves no row behind for [listAll]'s incremental re-read to
+  /// notice, so it would go on serving the library from before the wipe
+  /// until the app was restarted.
   Future<void> clearAll() async {
     final db = await _open();
     final batch = db.batch()
       ..delete(_table)
       ..delete(_placeNameTable)
-      ..delete(_appStateTable);
+      ..delete(_appStateTable)
+      ..delete(changeLogTable);
     await batch.commit(noResult: true);
+    _dropCache();
   }
 
   /// This store's database file, with the write-ahead log folded back in

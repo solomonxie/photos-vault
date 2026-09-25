@@ -27,6 +27,20 @@ void main() {
     expect(rows.every((row) => row['row_key'] == 'a'), isTrue);
   });
 
+  test('clearing the database clears the record of what was in it', () async {
+    final store = newStore();
+
+    await store.upsert(localId: 'a', contentHash: 'h', platform: 'ios');
+    await store.setDescription('a', 'a day at the beach');
+
+    await store.clearAll();
+
+    // A delete trigger writes the whole row it removed. Left behind, the
+    // log would be a verbatim copy of the library the wipe just promised
+    // to erase.
+    expect(await store.changeLogRows(), isEmpty);
+  });
+
   test('an update carries both sides of the change', () async {
     final store = newStore();
 
