@@ -92,10 +92,10 @@ class ICloudBackup {
 
   /// A final archive that is intentionally never replaced by the normal
   /// daily snapshot after the library has been emptied.
-  Future<bool> backUpBeforeRemoval() async {
+  Future<bool> backUpBeforeDeletion() async {
     if (await drive.status() != ICloudState.available) return false;
     return await drive.writeBytes(
-      removalArchiveName(DateTime.now()),
+      preDeletionArchiveName(DateTime.now()),
       zipSnapshot(
         await snapshots.export(),
         changeLog: await snapshots.changeLog(),

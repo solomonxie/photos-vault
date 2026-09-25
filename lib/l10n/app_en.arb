@@ -371,7 +371,7 @@
   },
   "settingsRemoveAllAppDataButton": "Remove All App Data",
   "settingsRemoveAllAppDataTitle": "Remove all app data?",
-  "settingsRemoveAllAppDataBody": "This cannot be undone. You will first be prompted to export your app data to a local folder before everything is deleted.",
+  "settingsRemoveAllAppDataBody": "This can't be undone. A copy is saved first, named photos-vault-pre-deletion, on this iPhone and in iCloud Drive and your buckets when they can be reached.",
   "settingsRemoveAllAppDataConfirm": "Remove All Data",
   "settingsICloudNotEntitled": "This build of the app isn't signed for iCloud",
   "settingsICloudDriveOff": "iCloud Drive is off on this device",

@@ -37,8 +37,8 @@ String dailyArchiveName(DateTime at) =>
 ///
 /// The leading sentinel makes it sort after daily archives, so a later
 /// empty daily backup cannot become the copy restored on a fresh install.
-String removalArchiveName(DateTime at) =>
-    '99999999-before-removal-'
+String preDeletionArchiveName(DateTime at) =>
+    '99999999-pre-deletion-'
     '${at.year.toString().padLeft(4, '0')}'
     '${at.month.toString().padLeft(2, '0')}'
     '${at.day.toString().padLeft(2, '0')}-'
@@ -65,7 +65,14 @@ bool isMonthlyArchiveName(String name) =>
 bool isSnapshotArchiveName(String name) =>
     isDailyArchiveName(name) ||
     isMonthlyArchiveName(name) ||
-    RegExp(r'^99999999-before-removal-\d{8}-\d{6}\.zip$').hasMatch(name);
+    isPreDeletionArchiveName(name);
+
+/// Both spellings. `before-removal` is what every build before this one
+/// wrote, and an archive already sitting in iCloud or a bucket still has to
+/// be found, counted and restored from there.
+bool isPreDeletionArchiveName(String name) =>
+    RegExp(r'^99999999-(pre-deletion|before-removal)-\d{8}-\d{6}\.zip$')
+        .hasMatch(name);
 
 Uint8List zipSnapshot(AppSnapshot snapshot, {Map<String, Object?>? changeLog}) {
   final archive = Archive()
