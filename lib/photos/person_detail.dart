@@ -202,8 +202,15 @@ class PersonDetailSeal {
   /// `iv(16) ‖ ciphertext ‖ mac(32)`, base64 — the same shape the carrier
   /// and the cache use, for the same reason: encrypt-then-MAC, and a
   /// failed MAC is indistinguishable from a set nobody has written to.
-  String seal(PersonDetail detail, AlbumKeys keys) {
-    final plain = Uint8List.fromList(utf8.encode(jsonEncode(detail.toJson())));
+  String seal(PersonDetail detail, AlbumKeys keys) =>
+      sealJson(detail.toJson(), keys);
+
+  /// The same envelope around any row's content. Education, job, places and
+  /// relationships go through this too: outside the open set a row keeps
+  /// only what a query needs — whose it is, and which passcode — and
+  /// everything it *says* lives in here.
+  String sealJson(Map<String, Object?> content, AlbumKeys keys) {
+    final plain = Uint8List.fromList(utf8.encode(jsonEncode(content)));
     final iv = randomBytes(16);
     final body = _cipher.transform(
       key: keys.carrier.encKey,
@@ -221,6 +228,11 @@ class PersonDetailSeal {
   /// different passphrase, or a truncated row. The caller shows an empty
   /// set, which is also what an unused passcode shows.
   PersonDetail? open(String payload, AlbumKeys keys) {
+    final json = openJson(payload, keys);
+    return json == null ? null : PersonDetail.fromJson(json);
+  }
+
+  Map<String, Object?>? openJson(String payload, AlbumKeys keys) {
     try {
       final bytes = base64Decode(payload);
       if (bytes.length <= 48) return null;
@@ -230,13 +242,11 @@ class PersonDetailSeal {
       if (!bytesMatch(vaultHmac(keys.carrier.macKey, [...iv, ...body]), mac)) {
         return null;
       }
-      return PersonDetail.fromJson(
-        (jsonDecode(
-          utf8.decode(
-            _cipher.transform(key: keys.carrier.encKey, iv: iv, data: body),
-          ),
-        ) as Map).cast<String, Object?>(),
-      );
+      return (jsonDecode(
+        utf8.decode(
+          _cipher.transform(key: keys.carrier.encKey, iv: iv, data: body),
+        ),
+      ) as Map).cast<String, Object?>();
     } catch (_) {
       // Not base64, not JSON, not ours.
       return null;

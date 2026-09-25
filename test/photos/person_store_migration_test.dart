@@ -72,6 +72,25 @@ Future<void> _seedV5(String path, {required bool locked}) async {
     'created_at': 0,
     'updated_at': 0,
   });
+  await db.insert('person', {
+    'id': 'dan',
+    'name': 'Daniel',
+    'locked': 0,
+    'created_at': 0,
+    'updated_at': 0,
+  });
+  await db.insert('person_relationship', {
+    'person_id': 'mia',
+    'related_person_id': 'dan',
+    'type': 'friend',
+    'created_at': 0,
+  });
+  await db.insert('person_relationship', {
+    'person_id': 'dan',
+    'related_person_id': 'mia',
+    'type': 'friend',
+    'created_at': 0,
+  });
   await db.close();
 }
 
@@ -125,6 +144,18 @@ void main() {
     await _seedV5(path, locked: false);
 
     expect((await storeAt(path).detailFor('mia')).hint, isEmpty);
+  });
+
+  test('relationships survive the key being widened', () async {
+    final path = p.join(dir.path, 'people.db');
+    await _seedV5(path, locked: false);
+    final store = storeAt(path);
+
+    // The table is rebuilt to put the passcode in its key. Dropping and
+    // copying is the only way SQLite will do that, so this checks the copy.
+    expect((await store.relationshipsFor('mia')).single.relatedPersonId, 'dan');
+    expect((await store.relationshipsFor('dan')).single.personId, 'dan');
+    expect(await store.allRelationships(), hasLength(2));
   });
 
   test('upgrading twice is not a second migration', () async {
