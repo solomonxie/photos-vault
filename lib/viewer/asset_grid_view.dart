@@ -180,6 +180,37 @@ class AssetGridViewState extends State<AssetGridView> {
     );
   }
 
+  /// Resting *below* the grid, in the sections that follow it — which on
+  /// the Library is Collections and Utilities, and so is where the Hidden
+  /// row lives and where tapping it leaves the page standing.
+  ///
+  /// Those sections keep their order and their height while the grid above
+  /// them changes, so what has to stay still is the gap past the grid's
+  /// end. [_viewportPin] deliberately answers `null` out here, and holding
+  /// a raw pixel offset instead drops the reader as many pixels into the
+  /// grid as the grid grew — several screens of older photos, on a library
+  /// that just had a hidden photo put back.
+  double? _pastGridPin() {
+    if (!_scrollController.hasClients || _layout.isEmpty) return null;
+    final position = _scrollController.position;
+    if (!position.hasPixels) return null;
+    final past = position.pixels - _gridStartOffset - _layout.totalExtent;
+    return past < 0 ? null : past;
+  }
+
+  void _restorePastGrid(double past) {
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (!mounted || !_scrollController.hasClients) return;
+      final position = _scrollController.position;
+      final target = (_gridStartOffset + _layout.totalExtent + past).clamp(
+        position.minScrollExtent,
+        position.maxScrollExtent,
+      );
+      if ((target - position.pixels).abs() < 0.5) return;
+      _scrollController.jumpTo(target);
+    });
+  }
+
   void _restore(({DateTime day, double within}) pin) {
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted || _layout.isEmpty || !_scrollController.hasClients) return;
@@ -219,6 +250,7 @@ class AssetGridViewState extends State<AssetGridView> {
       final wasResting = !_anchored || isAtNewest;
       final grew = _layout.records.length != widget.records.length;
       final pinned = wasResting ? null : _viewportPin();
+      final pastGrid = wasResting || pinned != null ? null : _pastGridPin();
       _layout = PhotoGridLayout.of(records: widget.records, width: width);
       _laidOut = widget.records;
       _laidOutWidth = width;
@@ -226,6 +258,8 @@ class AssetGridViewState extends State<AssetGridView> {
         _anchorAfterLayout();
       } else if (pinned != null && grew) {
         _restore(pinned);
+      } else if (pastGrid != null && grew) {
+        _restorePastGrid(pastGrid);
       }
     }
 
