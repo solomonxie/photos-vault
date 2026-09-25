@@ -365,7 +365,13 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(PersonPageScreen.nameLineKey));
     await tester.pumpAndSettle();
-    await tester.ensureVisible(find.text('Delete Person', skipOffstage: false));
+    // Bottom of the profile, and the page is a lazy `ListView` — below the
+    // fold it has not been built, so there is nothing to make visible yet.
+    await tester.scrollUntilVisible(
+      find.text('Delete Person', skipOffstage: false),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete Person'));
     await tester.pumpAndSettle();
