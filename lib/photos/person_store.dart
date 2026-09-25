@@ -42,7 +42,7 @@ class PersonStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 6,
+        version: 7,
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await db.execute(
@@ -70,6 +70,17 @@ class PersonStore {
               );
             }
             await _moveDetailOutOfPersonRows(db);
+          }
+          // After 6, deliberately: the rebuild below copies the column that
+          // step adds.
+          if (oldVersion < 7) {
+            for (final table in const [_locationTable, _historyTable]) {
+              await db.execute(
+                "ALTER TABLE $table ADD COLUMN payload TEXT NOT NULL "
+                "DEFAULT ''",
+              );
+            }
+            await _widenRelationshipKey(db);
           }
           if (oldVersion < 4) {
             await db.execute(
@@ -132,7 +143,8 @@ class PersonStore {
               organization TEXT,
               created_at INTEGER NOT NULL,
               passcode_hash TEXT NOT NULL DEFAULT '',
-              PRIMARY KEY (person_id, related_person_id)
+              payload TEXT NOT NULL DEFAULT '',
+              PRIMARY KEY (person_id, related_person_id, passcode_hash)
             )
           ''');
           await db.execute('''
@@ -142,7 +154,8 @@ class PersonStore {
               kind TEXT NOT NULL,
               place TEXT NOT NULL,
               since INTEGER NOT NULL,
-              passcode_hash TEXT NOT NULL DEFAULT ''
+              passcode_hash TEXT NOT NULL DEFAULT '',
+              payload TEXT NOT NULL DEFAULT ''
             )
           ''');
           await db.execute(_createHistoryTableSql);
@@ -178,7 +191,8 @@ class PersonStore {
       titles TEXT NOT NULL DEFAULT '[]',
       projects TEXT NOT NULL DEFAULT '[]',
       awards TEXT NOT NULL DEFAULT '[]',
-      passcode_hash TEXT NOT NULL DEFAULT ''
+      passcode_hash TEXT NOT NULL DEFAULT '',
+      payload TEXT NOT NULL DEFAULT ''
     )
   ''';
 
@@ -202,6 +216,40 @@ class PersonStore {
       PRIMARY KEY (person_id, passcode_hash)
     )
   ''';
+
+  /// Rebuilds the relationship table with the passcode in its key.
+  ///
+  /// Two people can be colleagues in one set and nothing in another, so the
+  /// pair alone cannot identify a row — with the old two-column key,
+  /// writing a link under a passcode *replaced* the one in the open set,
+  /// because the insert is a replace-on-conflict. SQLite cannot widen a
+  /// primary key in place, hence the copy.
+  static Future<void> _widenRelationshipKey(Database db) async {
+    const staging = '${_relationshipTable}_wide';
+    await db.execute('DROP TABLE IF EXISTS $staging');
+    await db.execute('''
+      CREATE TABLE $staging (
+        person_id TEXT NOT NULL,
+        related_person_id TEXT NOT NULL,
+        type TEXT NOT NULL,
+        organization TEXT,
+        created_at INTEGER NOT NULL,
+        passcode_hash TEXT NOT NULL DEFAULT '',
+        payload TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (person_id, related_person_id, passcode_hash)
+      )
+    ''');
+    await db.execute('''
+      INSERT INTO $staging
+        (person_id, related_person_id, type, organization, created_at,
+         passcode_hash, payload)
+      SELECT person_id, related_person_id, type, organization, created_at,
+             passcode_hash, ''
+      FROM $_relationshipTable
+    ''');
+    await db.execute('DROP TABLE $_relationshipTable');
+    await db.execute('ALTER TABLE $staging RENAME TO $_relationshipTable');
+  }
 
   /// Moves bio, birth date, gender and custom fields off the person row and
   /// into the namespace they belong to.
@@ -496,6 +544,49 @@ class PersonStore {
     return rows.map(_fromRow).toList();
   }
 
+  // --- Namespacing ---
+
+  /// Splits a row into what a query may see and what only the passcode may.
+  ///
+  /// The open set keeps its columns exactly as it always has: it is the
+  /// profile anybody holding the phone can read anyway, and keeping it
+  /// queryable is what makes the autocomplete pickers instant. Every other
+  /// set keeps only [structural] — whose row it is, and which passcode —
+  /// and seals the rest, so the database file, and every backup taken from
+  /// it, hold ciphertext.
+  ///
+  /// [blanks] are the placeholders the sealed row writes into the columns it
+  /// is no longer using. They exist because those columns are `NOT NULL`,
+  /// and they are constant, so they say nothing.
+  Map<String, Object?> _rowFor({
+    required Map<String, Object?> structural,
+    required Map<String, Object?> content,
+    required Map<String, Object?> blanks,
+    required String passcodeHash,
+    AlbumKeys? keys,
+  }) => passcodeHash == openNamespace
+      ? {...structural, ...content, 'payload': ''}
+      : {...structural, ...blanks, 'payload': _seal.sealJson(content, keys!)};
+
+  /// The row as its writer meant it, whichever way it was stored. `null` for
+  /// a sealed row these keys do not open — which the caller drops, so an
+  /// unreadable set and an empty one look the same.
+  Map<String, Object?>? _contentOf(
+    Map<String, Object?> row,
+    String passcodeHash,
+    AlbumKeys? keys,
+  ) {
+    if (passcodeHash == openNamespace) return row;
+    if (keys == null) return null;
+    final opened = _seal.openJson(row['payload'] as String? ?? '', keys);
+    return opened == null ? null : {...row, ...opened};
+  }
+
+  /// True when a write to [passcodeHash] cannot be sealed and so must not
+  /// happen — saving in the clear under a passcode is worse than not saving.
+  static bool _unsealable(String passcodeHash, AlbumKeys? keys) =>
+      passcodeHash != openNamespace && keys == null;
+
   // --- Relationships ---
 
   /// Links [personId] to [relatedPersonId] with [type] — stored both ways
@@ -503,12 +594,19 @@ class PersonStore {
   /// relationship list, and the graph, see it without a second query.
   /// [organization] (company/school/org) is shared as-is by both directions
   /// — only meaningful when `relationshipNeedsOrganization(type)`.
+  ///
+  /// Both directions land in the same namespace: a link added while a
+  /// passcode is open belongs to that passcode, and shows on the other
+  /// profile only when the same digits are typed there.
   Future<void> addRelationship(
     String personId,
     String relatedPersonId,
     RelationshipType type, {
     String? organization,
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
   }) async {
+    if (_unsealable(passcodeHash, keys)) return;
     final db = await _open();
     final now = DateTime.now().millisecondsSinceEpoch;
     final inverse = switch (type) {
@@ -517,85 +615,146 @@ class PersonStore {
       _ => type,
     };
     final batch = db.batch();
-    batch.insert(_relationshipTable, {
-      'person_id': personId,
-      'related_person_id': relatedPersonId,
-      'type': type.name,
-      'organization': organization,
-      'created_at': now,
-    }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
-    batch.insert(_relationshipTable, {
-      'person_id': relatedPersonId,
-      'related_person_id': personId,
-      'type': inverse.name,
-      'organization': organization,
-      'created_at': now,
-    }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+    for (final (from, to, kind) in [
+      (personId, relatedPersonId, type),
+      (relatedPersonId, personId, inverse),
+    ]) {
+      batch.insert(
+        _relationshipTable,
+        _rowFor(
+          structural: {
+            'person_id': from,
+            'related_person_id': to,
+            'passcode_hash': passcodeHash,
+            'created_at': now,
+          },
+          content: {'type': kind.name, 'organization': organization},
+          blanks: const {'type': '', 'organization': null},
+          passcodeHash: passcodeHash,
+          keys: keys,
+        ),
+        conflictAlgorithm: sqflite.ConflictAlgorithm.replace,
+      );
+    }
     await batch.commit(noResult: true);
   }
 
   Future<void> removeRelationship(
     String personId,
-    String relatedPersonId,
-  ) async {
+    String relatedPersonId, {
+    String passcodeHash = openNamespace,
+  }) async {
     final db = await _open();
     final batch = db.batch();
-    batch.delete(
-      _relationshipTable,
-      where: 'person_id = ? AND related_person_id = ?',
-      whereArgs: [personId, relatedPersonId],
-    );
-    batch.delete(
-      _relationshipTable,
-      where: 'person_id = ? AND related_person_id = ?',
-      whereArgs: [relatedPersonId, personId],
-    );
+    for (final (a, b) in [
+      (personId, relatedPersonId),
+      (relatedPersonId, personId),
+    ]) {
+      batch.delete(
+        _relationshipTable,
+        where: 'person_id = ? AND related_person_id = ? AND passcode_hash = ?',
+        whereArgs: [a, b, passcodeHash],
+      );
+    }
     await batch.commit(noResult: true);
   }
 
-  Future<List<PersonRelationship>> relationshipsFor(String personId) async {
+  Future<List<PersonRelationship>> relationshipsFor(
+    String personId, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
     final db = await _open();
     final rows = await db.query(
       _relationshipTable,
-      where: 'person_id = ?',
-      whereArgs: [personId],
+      where: 'person_id = ? AND passcode_hash = ?',
+      whereArgs: [personId, passcodeHash],
     );
-    return rows.map(_relationshipFromRow).toList();
+    return _relationships(rows, passcodeHash, keys);
   }
 
-  /// Every relationship row across all people — powers the graph screen.
-  Future<List<PersonRelationship>> allRelationships() async {
-    final db = await _open();
-    final rows = await db.query(_relationshipTable);
-    return rows.map(_relationshipFromRow).toList();
-  }
-
-  /// Every distinct organization used so far — the searchable-picker's
-  /// "select if exists" list for colleague/schoolmate/other relationships.
-  Future<Set<String>> allOrganizations() async {
+  /// Every relationship row in this namespace — powers the graph screen.
+  Future<List<PersonRelationship>> allRelationships({
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
     final db = await _open();
     final rows = await db.query(
       _relationshipTable,
-      columns: ['organization'],
-      distinct: true,
-      where: "organization IS NOT NULL AND organization != ''",
+      where: 'passcode_hash = ?',
+      whereArgs: [passcodeHash],
     );
-    return rows.map((r) => r['organization'] as String).toSet();
+    return _relationships(rows, passcodeHash, keys);
+  }
+
+  List<PersonRelationship> _relationships(
+    List<Map<String, Object?>> rows,
+    String passcodeHash,
+    AlbumKeys? keys,
+  ) => [
+    for (final row in rows)
+      if (_contentOf(row, passcodeHash, keys) case final content?)
+        _relationshipFromRow(content),
+  ];
+
+  /// Every distinct organization used in this namespace — the searchable
+  /// picker's "select if exists" list for colleague/schoolmate/other.
+  Future<Set<String>> allOrganizations({
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    if (passcodeHash == openNamespace) {
+      final db = await _open();
+      final rows = await db.query(
+        _relationshipTable,
+        columns: ['organization'],
+        distinct: true,
+        where:
+            "organization IS NOT NULL AND organization != '' "
+            "AND passcode_hash = ''",
+      );
+      return rows.map((r) => r['organization'] as String).toSet();
+    }
+    return {
+      for (final r in await allRelationships(
+        passcodeHash: passcodeHash,
+        keys: keys,
+      ))
+        if (r.organization case final org?)
+          if (org.isNotEmpty) org,
+    };
   }
 
   // --- Location history ---
 
   /// Insert-or-replace by [PersonLocation.id] — also how an existing entry
   /// gets edited (pass its own `id` back with updated fields).
-  Future<void> addLocation(PersonLocation location) async {
+  Future<void> addLocation(
+    PersonLocation location, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    if (_unsealable(passcodeHash, keys)) return;
     final db = await _open();
-    await db.insert(_locationTable, {
-      'id': location.id,
-      'person_id': location.personId,
-      'kind': location.kind.name,
-      'place': location.place,
-      'since': location.since.millisecondsSinceEpoch,
-    }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+    await db.insert(
+      _locationTable,
+      _rowFor(
+        structural: {
+          'id': location.id,
+          'person_id': location.personId,
+          'passcode_hash': passcodeHash,
+        },
+        content: {
+          'kind': location.kind.name,
+          'place': location.place,
+          'since': location.since.millisecondsSinceEpoch,
+        },
+        blanks: const {'kind': '', 'place': '', 'since': 0},
+        passcodeHash: passcodeHash,
+        keys: keys,
+      ),
+      conflictAlgorithm: sqflite.ConflictAlgorithm.replace,
+    );
   }
 
   Future<void> removeLocation(String id) async {
@@ -603,48 +762,72 @@ class PersonStore {
     await db.delete(_locationTable, where: 'id = ?', whereArgs: [id]);
   }
 
-  Future<List<PersonLocation>> locationsFor(String personId) async {
+  Future<List<PersonLocation>> locationsFor(
+    String personId, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
     final db = await _open();
     final rows = await db.query(
       _locationTable,
-      where: 'person_id = ?',
-      whereArgs: [personId],
-      orderBy: 'since ASC',
+      where: 'person_id = ? AND passcode_hash = ?',
+      whereArgs: [personId, passcodeHash],
     );
-    return rows
-        .map(
-          (r) => PersonLocation(
-            id: r['id'] as String,
-            personId: r['person_id'] as String,
-            kind: LocationKind.values.byName(r['kind'] as String),
-            place: r['place'] as String,
-            since: DateTime.fromMillisecondsSinceEpoch(r['since'] as int),
+    // Sorted here rather than in SQL: a sealed row's `since` column is a
+    // placeholder, and the real one only exists once it is opened.
+    return [
+      for (final row in rows)
+        if (_contentOf(row, passcodeHash, keys) case final content?)
+          PersonLocation(
+            id: content['id'] as String,
+            personId: content['person_id'] as String,
+            kind: LocationKind.values.byName(content['kind'] as String),
+            place: content['place'] as String,
+            since: DateTime.fromMillisecondsSinceEpoch(content['since'] as int),
           ),
-        )
-        .toList();
+    ]..sort((a, b) => a.since.compareTo(b.since));
   }
 
   // --- Education/job history ---
 
   /// Insert-or-replace by [PersonHistoryEntry.id] — also how an existing
   /// entry gets edited (pass its own `id` back with updated fields).
-  Future<void> addHistoryEntry(PersonHistoryEntry entry) async {
+  Future<void> addHistoryEntry(
+    PersonHistoryEntry entry, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    if (_unsealable(passcodeHash, keys)) return;
     final db = await _open();
-    await db.insert(_historyTable, {
-      'id': entry.id,
-      'person_id': entry.personId,
-      'category': entry.category.name,
-      'title': entry.title,
-      'start_date': entry.startDate?.millisecondsSinceEpoch,
-      'end_date': entry.endDate?.millisecondsSinceEpoch,
-      'notes': entry.notes,
-      'custom_fields': jsonEncode(
-        entry.customFields.map((f) => f.toJson()).toList(),
+    await db.insert(
+      _historyTable,
+      _rowFor(
+        structural: {
+          'id': entry.id,
+          'person_id': entry.personId,
+          'passcode_hash': passcodeHash,
+        },
+        content: {
+          'category': entry.category.name,
+          'title': entry.title,
+          'start_date': entry.startDate?.millisecondsSinceEpoch,
+          'end_date': entry.endDate?.millisecondsSinceEpoch,
+          'notes': entry.notes,
+          'custom_fields': jsonEncode(
+            entry.customFields.map((f) => f.toJson()).toList(),
+          ),
+          'titles': jsonEncode(entry.titles.map((t) => t.toJson()).toList()),
+          'projects': jsonEncode(
+            entry.projects.map((p) => p.toJson()).toList(),
+          ),
+          'awards': jsonEncode(entry.awards.map((a) => a.toJson()).toList()),
+        },
+        blanks: const {'category': '', 'title': ''},
+        passcodeHash: passcodeHash,
+        keys: keys,
       ),
-      'titles': jsonEncode(entry.titles.map((t) => t.toJson()).toList()),
-      'projects': jsonEncode(entry.projects.map((p) => p.toJson()).toList()),
-      'awards': jsonEncode(entry.awards.map((a) => a.toJson()).toList()),
-    }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+      conflictAlgorithm: sqflite.ConflictAlgorithm.replace,
+    );
   }
 
   Future<void> removeHistoryEntry(String id) async {
@@ -654,30 +837,60 @@ class PersonStore {
 
   Future<List<PersonHistoryEntry>> historyFor(
     String personId,
-    HistoryCategory category,
-  ) async {
+    HistoryCategory category, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
     final db = await _open();
     final rows = await db.query(
       _historyTable,
-      where: 'person_id = ? AND category = ?',
-      whereArgs: [personId, category.name],
-      orderBy: 'start_date ASC',
+      where: 'person_id = ? AND passcode_hash = ?',
+      whereArgs: [personId, passcodeHash],
     );
-    return rows.map(_historyFromRow).toList();
+    // Category and date are sealed with everything else, so both the filter
+    // and the order happen once the row is open.
+    return [
+      for (final row in rows)
+        if (_contentOf(row, passcodeHash, keys) case final content?)
+          if (content['category'] == category.name) _historyFromRow(content),
+      // Undated first, as `ORDER BY start_date ASC` did.
+    ]..sort(
+      (a, b) =>
+          (a.startDate ?? DateTime(0)).compareTo(b.startDate ?? DateTime(0)),
+    );
   }
 
-  /// Every distinct title already used for [category] across the whole
-  /// registry — the searchable-picker's "select if exists" list.
-  Future<Set<String>> allHistoryTitles(HistoryCategory category) async {
+  /// Every distinct title already used for [category] in this namespace —
+  /// the searchable picker's "select if exists" list.
+  Future<Set<String>> allHistoryTitles(
+    HistoryCategory category, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    if (passcodeHash == openNamespace) {
+      final db = await _open();
+      final rows = await db.query(
+        _historyTable,
+        columns: ['title'],
+        distinct: true,
+        where: "category = ? AND title != '' AND passcode_hash = ''",
+        whereArgs: [category.name],
+      );
+      return rows.map((r) => r['title'] as String).toSet();
+    }
     final db = await _open();
     final rows = await db.query(
       _historyTable,
-      columns: ['title'],
-      distinct: true,
-      where: "category = ? AND title != ''",
-      whereArgs: [category.name],
+      where: 'passcode_hash = ?',
+      whereArgs: [passcodeHash],
     );
-    return rows.map((r) => r['title'] as String).toSet();
+    return {
+      for (final row in rows)
+        if (_contentOf(row, passcodeHash, keys) case final content?)
+          if (content['category'] == category.name)
+            if ((content['title'] as String? ?? '').isNotEmpty)
+              content['title'] as String,
+    };
   }
 
   static PersonHistoryEntry _historyFromRow(Map<String, Object?> row) {
