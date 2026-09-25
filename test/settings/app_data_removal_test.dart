@@ -43,6 +43,9 @@ class _FakeDrive implements ICloudDrive {
   Future<String?> readLatest() async => null;
 
   @override
+  Future<Uint8List?> readBytes(String name) async => archives[name];
+
+  @override
   Future<Uint8List?> readLatestBytes() async {
     if (archives.isEmpty) return null;
     final newest = archives.keys.toList()..sort();

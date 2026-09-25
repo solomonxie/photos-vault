@@ -59,6 +59,18 @@ class ICloudDriveChannel {
       } else {
         result(nil)
       }
+    case "readBytes":
+      guard let arguments = call.arguments as? [String: Any],
+            let name = arguments["name"] as? String
+      else {
+        result(nil)
+        return
+      }
+      if let data = readBytes(name: name) {
+        result(FlutterStandardTypedData(bytes: data))
+      } else {
+        result(nil)
+      }
     case "latestWriteAt":
       result(latestWriteAt())
     case "list":
@@ -246,6 +258,22 @@ class ICloudDriveChannel {
 
   private static func readLatestBytes() -> Data? {
     guard let file = latestFile(withExtension: "zip") else { return nil }
+    try? FileManager.default.startDownloadingUbiquitousItem(at: file)
+    return try? Data(contentsOf: file)
+  }
+
+  /// One archive by name. Which archive to restore from is a question the
+  /// app answers — a pre-deletion copy outranks a newer daily one, and
+  /// nothing about that is visible from here. `lastPathComponent` on the
+  /// way in, as with `delete`, so a name carrying `../` can't reach
+  /// outside the app's own folder.
+  private static func readBytes(name: String) -> Data? {
+    guard let root = containerURL() else { return nil }
+    let file = root.appendingPathComponent(
+      URL(fileURLWithPath: name).lastPathComponent
+    )
+    // May be in the cloud and not yet on this device — exactly the
+    // fresh-install case this exists for.
     try? FileManager.default.startDownloadingUbiquitousItem(at: file)
     return try? Data(contentsOf: file)
   }

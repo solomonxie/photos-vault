@@ -20,7 +20,7 @@ the keychain, which outlives the app on its own.
 | File | Does |
 |---|---|
 | `app_snapshot.dart` | the payload: export from / import into the three stores |
-| `snapshot_archive.dart` | zip it, name it `YYYYMMDD.zip`, read old names back |
+| `snapshot_archive.dart` | zip it, name it (`YYYYMMDD.zip` daily, `<datetime>-<purpose>-photos-vault.zip` otherwise), read old names back |
 | `change_log.dart` | SQLite triggers recording every row write; the "has anything changed" mark |
 | `backup_schedule.dart` | the one gate: daily, only if changed, recorded after success |
 | `local_vault.dart` | tier 1 — Files-visible zips, raw `.db` copies, before-operation copies |

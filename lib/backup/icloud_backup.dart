@@ -112,13 +112,25 @@ class ICloudBackup {
     await backUpNow();
   }
 
-  /// Keeps the newest [keepCopies] and deletes this app's older ones.
-  /// Names sort by date, so "newest" is the tail of a sorted list — and
-  /// only names this app would have written are touched: the folder is the
-  /// user's, and anything else in it is theirs.
+  /// Keeps the newest [keepCopies] dated archives and deletes this app's
+  /// older ones. Names sort by date, so "newest" is the tail of a sorted
+  /// list — and only names this app would have written are touched: the
+  /// folder is the user's, and anything else in it is theirs.
+  ///
+  /// Pre-deletion copies are exempt and accumulate. They used to survive
+  /// this by accident, riding on the `99999999-` sentinel that put them at
+  /// the end of the sorted list; now it is the rule it always should have
+  /// been. They are written only by an explicit, rare, deliberate act, and
+  /// a copy taken because everything was about to be destroyed is the one
+  /// most likely to be wanted long after ten days of dailies have rolled
+  /// past.
   Future<void> _pruneOldCopies() async {
-    final mine = (await drive.list()).where(isSnapshotArchiveName).toList()
-      ..sort();
+    final mine =
+        (await drive.list())
+            .where(isSnapshotArchiveName)
+            .where((name) => !isPreDeletionArchiveName(name))
+            .toList()
+          ..sort();
     if (mine.length <= keepCopies) return;
     for (final name in mine.take(mine.length - keepCopies)) {
       await drive.delete(name);
@@ -147,10 +159,24 @@ class ICloudBackup {
     return restored;
   }
 
-  /// The newest zip of either naming generation, or — for a backup taken
-  /// before this app wrote zips at all — the single `library.json` it used
-  /// to write.
+  /// The archive worth restoring from, of any naming generation, or — for
+  /// a backup taken before this app wrote zips at all — the single
+  /// `library.json` it used to write.
+  ///
+  /// Chosen here rather than by the folder handing back whatever sorts
+  /// last: a pre-deletion copy outranks a newer daily one. See
+  /// [latestArchiveName].
   Future<AppSnapshot?> _latestSnapshot() async {
+    final name = latestArchiveName(await drive.list());
+    if (name != null) {
+      final bytes = await drive.readBytes(name);
+      if (bytes != null) {
+        final snapshot = unzipSnapshot(bytes);
+        if (snapshot != null) return snapshot;
+      }
+    }
+    // A folder this build can't make sense of — an archive named by a
+    // later build, or a listing that didn't come back.
     final bytes = await drive.readLatestBytes();
     if (bytes != null) {
       final snapshot = unzipSnapshot(bytes);
