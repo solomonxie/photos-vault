@@ -15,7 +15,7 @@ APP     := build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app
 BUDGET  := 33
 
 .DEFAULT_GOAL := help
-.PHONY: help bootstrap l10n fmt analyze test check build install run archive upload release size screenshots clean
+.PHONY: help bootstrap l10n fmt analyze test check build install install-ios run archive upload release size screenshots clean
 
 help: ## List the targets
 	@grep -hE '^[a-z][a-zA-Z0-9_-]*:.*?## ' $(MAKEFILE_LIST) \
@@ -45,7 +45,9 @@ install: ## Install on the phone in place, keeping its data
 	@test -n "$(DEVICE)" || { echo "No device. Plug the iPhone in, or pass DEVICE=<udid>."; exit 1; }
 	xcrun devicectl device install app --device $(DEVICE) build/ios/iphoneos/Runner.app
 
-run: build install ## Build and install on the phone
+install-ios: build install ## Build and install on the paired iPhone, keeping its data
+
+run: install-ios ## Same as install-ios
 
 archive: ## Archive a Release build without uploading it
 	$(FLUTTER) build ipa --release --build-number=$$(date +%Y%m%d%H%M) \
