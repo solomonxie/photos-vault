@@ -46,11 +46,12 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 15,
+        version: 16,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createPlaceNameTableSql);
           await db.execute(_createAppStateTableSql);
+          await db.execute(_createDerivativeTargetTableSql);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -141,6 +142,10 @@ class AssetRecordStore {
               'ALTER TABLE $_table ADD COLUMN local_optimized INTEGER NOT '
               'NULL DEFAULT 0',
             );
+          }
+          if (oldVersion < 16) {
+            await db.execute(_createDerivativeTargetTableSql);
+            await _adoptExistingUploads(db);
           }
           if (oldVersion < 10) {
             await db.execute('ALTER TABLE $_table ADD COLUMN latitude REAL');
@@ -335,6 +340,67 @@ class AssetRecordStore {
     )
   ''';
 
+  /// Which target holds which derivative.
+  ///
+  /// `asset_record` carries one status and one key per derivative, which
+  /// means "somewhere" rather than "where" — and with two buckets
+  /// configured, one of them failing every time was recorded as a
+  /// successful backup, because the aggregate only needed one to land. This
+  /// is the row that says otherwise, so a target that missed an upload can
+  /// be given it again without re-sending to the one that already has it.
+  static const _derivativeTargetTable = 'derivative_target';
+
+  static const _createDerivativeTargetTableSql =
+      '''
+    CREATE TABLE $_derivativeTargetTable (
+      local_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      destination_key TEXT NOT NULL,
+      source_hash TEXT,
+      uploaded_at INTEGER NOT NULL,
+      PRIMARY KEY (local_id, kind, target_id)
+    )
+  ''';
+
+  /// Credits every derivative already marked uploaded to every target
+  /// configured right now.
+  ///
+  /// A guess, and deliberately the optimistic one. The truth is unknowable
+  /// — the old row recorded that *a* target took it and not which — so the
+  /// choice is between believing what the app has believed all along, or
+  /// re-uploading every library on earth to find out. Nothing gets worse
+  /// than it is today, and every upload from here on is recorded properly.
+  ///
+  /// Targets are read from the row's own `destination_key`, which carries
+  /// the prefix of the target it was written for, so a single-target
+  /// install — the common case, and the one where the aggregate was never
+  /// wrong — is credited exactly right.
+  static Future<void> _adoptExistingUploads(Database db) async {
+    final rows = await db.query(_table);
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final batch = db.batch();
+    for (final row in rows) {
+      for (final kind in DerivativeKind.values) {
+        final prefix = _columnPrefix(kind);
+        if (row['${prefix}_status'] != UploadStatus.uploaded.name) continue;
+        final key = row['${prefix}_destination_key'] as String?;
+        if (key == null || key.isEmpty) continue;
+        batch.insert(_derivativeTargetTable, {
+          'local_id': row['local_id'],
+          'kind': kind.name,
+          // Empty means "whichever target this key was written for" — the
+          // only honest answer for a row written before this table existed.
+          'target_id': '',
+          'destination_key': key,
+          'source_hash': row['${prefix}_backed_up_hash'],
+          'uploaded_at': now,
+        }, conflictAlgorithm: sqflite.ConflictAlgorithm.ignore);
+      }
+    }
+    await batch.commit(noResult: true);
+  }
+
   static const _placeNameTable = 'place_name';
 
   static const _createPlaceNameTableSql =
@@ -369,9 +435,64 @@ class AssetRecordStore {
       ..delete(_table)
       ..delete(_placeNameTable)
       ..delete(_appStateTable)
+      ..delete(_derivativeTargetTable)
       ..delete(changeLogTable);
     await batch.commit(noResult: true);
     _dropCache();
+  }
+
+  /// Which targets already hold [kind] of [localId], as `targetId` →
+  /// `destinationKey`.
+  ///
+  /// A legacy row from before this table existed comes back under the empty
+  /// target id, meaning "some target, written for this key". [sourceHash]
+  /// filters to targets holding *this* version of the file — a local edit
+  /// since backup makes every target stale at once.
+  Future<Map<String, String>> targetsHolding(
+    String localId,
+    DerivativeKind kind, {
+    String? sourceHash,
+  }) async {
+    final db = await _open();
+    final rows = await db.query(
+      _derivativeTargetTable,
+      where: 'local_id = ? AND kind = ?',
+      whereArgs: [localId, kind.name],
+    );
+    return {
+      for (final row in rows)
+        if (sourceHash == null || row['source_hash'] == sourceHash)
+          row['target_id'] as String: row['destination_key'] as String,
+    };
+  }
+
+  Future<void> recordUpload({
+    required String localId,
+    required DerivativeKind kind,
+    required String targetId,
+    required String destinationKey,
+    String? sourceHash,
+  }) async {
+    final db = await _open();
+    await db.insert(_derivativeTargetTable, {
+      'local_id': localId,
+      'kind': kind.name,
+      'target_id': targetId,
+      'destination_key': destinationKey,
+      'source_hash': sourceHash,
+      'uploaded_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+  }
+
+  /// Forgets where a photo's derivatives went — what hiding one does, so
+  /// the next sync treats it as never uploaded.
+  Future<void> forgetUploads(String localId) async {
+    final db = await _open();
+    await db.delete(
+      _derivativeTargetTable,
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
   }
 
   /// This store's database file, with the write-ahead log folded back in

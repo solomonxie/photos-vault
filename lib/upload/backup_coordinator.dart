@@ -224,6 +224,20 @@ class BackupCoordinator {
     final fileName = _safeFileName(record, uploadPath);
     final derivativeDir = _derivativeDirs[kind]!;
 
+    // What each target already has, of this exact file. A retry after one
+    // target failed must not re-send to the one that worked — on a video
+    // that is minutes and somebody's data plan, twice.
+    final sourceHash = await _hashOrNull(filePath);
+    final held = await recordStore.targetsHolding(
+      record.localId,
+      kind,
+      sourceHash: sourceHash,
+    );
+    // A row from before per-target state existed says "some target has this"
+    // and cannot say which. Treated as covering everything, which is what
+    // the app believed anyway; a fresh upload records the truth.
+    final legacy = held.containsKey('');
+
     var succeeded = 0;
     String? firstDestinationKey;
     try {
@@ -233,6 +247,11 @@ class BackupCoordinator {
           derivativeDir: derivativeDir,
           fileName: fileName,
         );
+        if (legacy || held.containsKey(target.id)) {
+          succeeded++;
+          firstDestinationKey ??= key;
+          continue;
+        }
         final ok = await _s3Uploader.put(
           filePath: uploadPath,
           key: key,
@@ -241,15 +260,29 @@ class BackupCoordinator {
         if (ok) {
           succeeded++;
           firstDestinationKey ??= key;
+          await recordStore.recordUpload(
+            localId: record.localId,
+            kind: kind,
+            targetId: target.id,
+            destinationKey: key,
+            sourceHash: sourceHash,
+          );
         }
       }
     } finally {
       await _cleanupIfTemp(uploadPath, filePath);
     }
 
+    // **Every** target, not any of them. One of two buckets failing used to
+    // be recorded as a backup, and an `uploaded` derivative is never offered
+    // again — so the bucket that missed it stayed empty for good while the
+    // library reported itself safe. Short of all of them it is a failure,
+    // which the queue retries and which is at least true.
     final finalStatus = resolvedTargets.isEmpty
         ? UploadStatus.pending
-        : (succeeded > 0 ? UploadStatus.uploaded : UploadStatus.failed);
+        : (succeeded == resolvedTargets.length
+              ? UploadStatus.uploaded
+              : UploadStatus.failed);
     await recordStore.updateDerivative(
       record.localId,
       kind,
@@ -270,6 +303,14 @@ class BackupCoordinator {
   /// baseline `LibraryScreen`'s re-sync check compares against to detect a
   /// local edit since backup. Keeps [previousHash] on failure/no targets
   /// rather than losing drift-detection for this asset entirely.
+  Future<String?> _hashOrNull(String filePath) async {
+    try {
+      return await _hashFile(filePath);
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<String?> _hashOnSuccess(
     bool succeeded,
     String filePath,
