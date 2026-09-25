@@ -190,6 +190,36 @@ void main() {
     expect(drive.archives.keys, isNot(contains('20260901.zip')));
   });
 
+  test('final copies are kept, but not without limit', () async {
+    final source = _stores();
+    await source.assets.upsert(
+      localId: 'photo:PH1',
+      contentHash: 'PH1',
+      platform: 'ios',
+    );
+    final drive = _FakeDrive();
+    for (var day = 1; day <= 5; day++) {
+      drive.archives['2026010$day-090000-pre-deletion-photos-vault.zip'] =
+          Uint8List(0);
+    }
+
+    await ICloudBackup(
+      snapshots: source.io,
+      settings: source.assets,
+      drive: drive,
+    ).backUpNow();
+
+    // Age is the wrong rule for these, but exempting them outright leaves
+    // one more file in somebody's own Drive for every wipe they ever do.
+    final finals = drive.archives.keys.where(isPreDeletionArchiveName).toList()
+      ..sort(comparePreDeletionArchives);
+    expect(finals, [
+      '20260103-090000-pre-deletion-photos-vault.zip',
+      '20260104-090000-pre-deletion-photos-vault.zip',
+      '20260105-090000-pre-deletion-photos-vault.zip',
+    ]);
+  });
+
   test('a reinstall comes back to the final copy, not a newer daily', () async {
     final source = _stores();
     await source.assets.upsert(

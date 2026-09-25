@@ -13,6 +13,7 @@ import 'package:photos_vault/settings/app_data_removal.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/s3_target_drafts_store.dart';
 import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/upload/sync_job.dart';
 import 'package:photos_vault/vault/cache.dart';
 import 'package:photos_vault/vault/keys.dart';
@@ -258,6 +259,24 @@ void main() {
     // whole photo. The restore brings the row back; the bytes have to be
     // here for it to mean anything.
     expect(hidden.existsSync(), isTrue);
+  });
+
+  test('an owed object deletion survives the wipe', () async {
+    final s = _subject();
+    final owed = PendingDeletes(store: s.assets);
+    await owed.add(const [
+      PendingDelete(objectKey: 'originals/abc', targetId: 'bucket-1'),
+    ]);
+
+    await s.removal.run();
+
+    // The plaintext copy of a photo somebody *hid* is still in a bucket.
+    // Dropping the task abandons it there with nothing left that knows.
+    // Dormant is fine — the credentials went too, and re-adding that
+    // bucket is what runs them.
+    expect(await owed.pending(), [
+      const PendingDelete(objectKey: 'originals/abc', targetId: 'bucket-1'),
+    ]);
   });
 
   test('nothing is left to connect with', () async {

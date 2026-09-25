@@ -101,9 +101,15 @@ String? latestArchiveName(Iterable<String> names) {
   if (mine.isEmpty) return null;
   final finals = mine.where(isPreDeletionArchiveName).toList();
   if (finals.isEmpty) return (mine..sort()).last;
-  finals.sort((a, b) => _stampIn(a).compareTo(_stampIn(b)));
+  finals.sort(comparePreDeletionArchives);
   return finals.last;
 }
+
+/// Oldest first, by the datetime inside the name — which is where the three
+/// generations of pre-deletion name disagree, so they cannot be sorted
+/// against each other as strings.
+int comparePreDeletionArchives(String a, String b) =>
+    _stampIn(a).compareTo(_stampIn(b));
 
 /// The datetime inside a pre-deletion name, wherever that generation put
 /// it — leading in this one, trailing in the two before it.

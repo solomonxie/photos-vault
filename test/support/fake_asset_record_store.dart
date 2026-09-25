@@ -311,6 +311,39 @@ class FakeAssetRecordStore implements AssetRecordStore {
   @override
   Future<int> changeMark() async => mark;
 
+  /// `localId/kind` → `targetId` → `(key, hash)`.
+  final uploads = <String, Map<String, ({String key, String? hash})>>{};
+
+  @override
+  Future<Map<String, String>> targetsHolding(
+    String localId,
+    DerivativeKind kind, {
+    String? sourceHash,
+  }) async => {
+    for (final entry in (uploads['$localId/${kind.name}'] ?? const {}).entries)
+      if (sourceHash == null || entry.value.hash == sourceHash)
+        entry.key: entry.value.key,
+  };
+
+  @override
+  Future<void> recordUpload({
+    required String localId,
+    required DerivativeKind kind,
+    required String targetId,
+    required String destinationKey,
+    String? sourceHash,
+  }) async {
+    (uploads['$localId/${kind.name}'] ??= {})[targetId] = (
+      key: destinationKey,
+      hash: sourceHash,
+    );
+  }
+
+  @override
+  Future<void> forgetUploads(String localId) async {
+    uploads.removeWhere((key, _) => key.startsWith('$localId/'));
+  }
+
   /// Set to make [clearAll] throw — the one step of a wipe whose failure
   /// must not strand the steps after it.
   var throwOnClear = false;

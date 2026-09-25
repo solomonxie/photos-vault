@@ -9,6 +9,7 @@ import '../backup/icloud_backup.dart';
 import '../backup/local_vault.dart';
 import '../photos/thumbnail_cache.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/pending_deletes.dart';
 import '../upload/sync_job_store.dart';
 import '../vault/cache.dart';
 import '../vault/keys.dart';
@@ -42,6 +43,7 @@ class AppDataRemoval {
     required this.bucketBackup,
     required this.targetsStore,
     SyncJobStore? syncJobStore,
+    PendingDeletes? pendingDeletes,
     S3TargetDraftsStore? draftsStore,
     AiSettingsStore? aiSettingsStore,
     VaultKeys? vaultKeys,
@@ -49,6 +51,7 @@ class AppDataRemoval {
     this.supportDirectory = getApplicationSupportDirectory,
     this.cacheDirectory = getApplicationCacheDirectory,
   }) : _syncJobStore = syncJobStore ?? SyncJobStore(),
+       _pendingDeletes = pendingDeletes ?? PendingDeletes(store: settings),
        _draftsStore = draftsStore ?? S3TargetDraftsStore(),
        _aiSettingsStore = aiSettingsStore ?? AiSettingsStore(),
        _vaultKeys = vaultKeys ?? VaultKeys();
@@ -65,6 +68,7 @@ class AppDataRemoval {
   final BackupTargetsStore targetsStore;
 
   final SyncJobStore _syncJobStore;
+  final PendingDeletes _pendingDeletes;
   final S3TargetDraftsStore _draftsStore;
   final AiSettingsStore _aiSettingsStore;
   final VaultKeys _vaultKeys;
@@ -81,6 +85,14 @@ class AppDataRemoval {
     // which files are the only copy of anything.
     final keep = await _onlyCopies();
 
+    // Likewise, and for a stronger reason: these are the only thing in
+    // `app_state` that is an obligation to somebody else's storage rather
+    // than bookkeeping about this phone. See [_carryDeletionsOver].
+    final owed = await _attemptValue(
+      _pendingDeletes.pending,
+      const <PendingDelete>[],
+    );
+
     // On this phone first: it cannot fail to reach a network, and it is
     // the copy people come back for.
     await _attempt(vault.guardBeforeDeletion);
@@ -90,8 +102,38 @@ class AppDataRemoval {
     await _attempt(snapshots.clearAll);
     await _attempt(_syncJobStore.clearQueue);
     await _attempt(() => deleteOwnedFiles(keeping: keep));
+    await _attempt(() => _carryDeletionsOver(owed));
     await _attempt(forgetCredentials);
     await _attempt(sealAgainstRestore);
+  }
+
+  /// Puts the outstanding object deletions back after the wipe.
+  ///
+  /// They live in `app_state`, which the wipe empties, and dropping them is
+  /// not a tidy-up — it abandons plaintext copies of photos the user *hid*
+  /// in a bucket, with nothing left on the phone that knows they are there.
+  /// [PendingDeletes] says as much: a task ends when the object is gone or
+  /// the photo is, and the only time it may be dropped is when its bucket
+  /// has been forgotten *and* the user asks to forget it all. A wipe is not
+  /// that; it is the user asking to forget their own library.
+  ///
+  /// The credentials go in the same pass, so these come back dormant —
+  /// which is exactly what a task whose target has been removed is meant to
+  /// be. Re-add that bucket and they run.
+  Future<void> _carryDeletionsOver(List<PendingDelete> owed) async {
+    if (owed.isEmpty) return;
+    await _pendingDeletes.add(owed);
+  }
+
+  static Future<T> _attemptValue<T>(
+    Future<T> Function() read,
+    T fallback,
+  ) async {
+    try {
+      return await read();
+    } catch (_) {
+      return fallback;
+    }
   }
 
   /// Files holding pixels that exist nowhere else.
