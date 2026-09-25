@@ -886,24 +886,7 @@
   "personProfileAvatarPickerTitle": "Profile Picture",
   "personProfileAvatarPickerEmpty": "Tag this person in a photo first, then choose a profile picture here.",
   "personProfileNotSet": "Not set",
-  "personProfileLockButton": "Lock Profile",
-  "personProfileUnlockButton": "Unlock",
-  "personProfileRemoveLockTitle": "Remove the passcode from this profile?",
-  "personProfileLockedNote": "This profile's details are locked.",
-  "personProfileHintPrefix": "Hint: {hint}",
-  "@personProfileHintPrefix": {
-    "placeholders": {
-      "hint": {
-        "type": "String"
-      }
-    }
-  },
-  "personProfileSetPasscodeTitle": "Lock Profile",
-  "personProfileSetPasscodeBody": "Set a passcode to hide this profile's details.",
-  "personProfilePasscodeLabel": "Passcode",
   "personProfileHintLabel": "Hint (optional)",
-  "personProfileUnlockTitle": "Enter Passcode",
-  "personProfileWrongPasscode": "Incorrect passcode.",
   "personProfileRelationshipsHeader": "Relationships",
   "relationshipDeleteConfirmTitle": "Remove this relationship?",
   "relationshipDeleteConfirmBody": "This only removes the relationship between {name} and this person. Neither profile is deleted.",

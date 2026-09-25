@@ -4,11 +4,14 @@ import 'package:intl/intl.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
 import '../photos/face_identity.dart';
+import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/passcode_hash.dart';
+import '../vault/keys.dart';
+import '../vault/passphrase_sheet.dart';
 import 'custom_fields_editor.dart';
-import 'passcode_prompt.dart';
+import 'private_album_gate.dart';
 import 'person_avatar.dart';
 import 'person_avatar_picker.dart';
 import 'person_graph_screen.dart';
@@ -30,12 +33,17 @@ class PersonProfileScreen extends StatefulWidget {
     required this.person,
     required this.personStore,
     required this.assetRecordStore,
+    this.vaultKeys,
     this.autofocusName = false,
   });
 
   final Person person;
   final PersonStore personStore;
   final AssetRecordStore assetRecordStore;
+
+  /// Where the four digits become a key. App-wide and shared with the
+  /// private album: one passphrase, set from whichever screen asks first.
+  final VaultKeys? vaultKeys;
 
   /// Straight into the name field with the keyboard up — how a brand new
   /// person arrives here, where the only thing missing is the name.
@@ -57,10 +65,20 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     text: _person.name,
   );
   late final TextEditingController _bio = TextEditingController(
-    text: _person.bio,
+    text: _detail.bio,
+  );
+  late final TextEditingController _hint = TextEditingController(
+    text: _detail.hint,
   );
 
-  bool _unlocked = false;
+  /// Which set of details is on screen. The open one until somebody types
+  /// four digits, and then theirs — empty if nothing has been kept there,
+  /// which is indistinguishable from digits that open nothing.
+  String _namespace = openNamespace;
+  AlbumKeys? _keys;
+  PersonDetail _detail = PersonDetail.empty;
+
+  late final VaultKeys _vaultKeys = widget.vaultKeys ?? VaultKeys();
   List<PersonRelationship> _relationships = const [];
   List<Person> _allPeople = const [];
   List<PersonLocation> _locations = const [];
@@ -77,29 +95,63 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   void dispose() {
     _name.dispose();
     _bio.dispose();
+    _hint.dispose();
     super.dispose();
   }
 
   Future<void> _reload() async {
-    final relationships = await widget.personStore.relationshipsFor(_person.id);
-    final allPeople = await widget.personStore.listAll();
-    final locations = await widget.personStore.locationsFor(_person.id);
-    final education = await widget.personStore.historyFor(
+    final store = widget.personStore;
+    final ns = _namespace;
+    final keys = _keys;
+    final detail = await store.detailFor(
+      _person.id,
+      passcodeHash: ns,
+      keys: keys,
+    );
+    final relationships = await store.relationshipsFor(
+      _person.id,
+      passcodeHash: ns,
+      keys: keys,
+    );
+    final allPeople = await store.listAll();
+    final locations = await store.locationsFor(
+      _person.id,
+      passcodeHash: ns,
+      keys: keys,
+    );
+    final education = await store.historyFor(
       _person.id,
       HistoryCategory.education,
+      passcodeHash: ns,
+      keys: keys,
     );
-    final jobs = await widget.personStore.historyFor(
+    final jobs = await store.historyFor(
       _person.id,
       HistoryCategory.job,
+      passcodeHash: ns,
+      keys: keys,
     );
     if (!mounted) return;
     setState(() {
+      _detail = detail;
       _relationships = relationships;
       _allPeople = allPeople;
       _locations = locations;
       _education = education;
       _jobs = jobs;
+      if (_bio.text != detail.bio) _bio.text = detail.bio;
+      if (_hint.text != detail.hint) _hint.text = detail.hint;
     });
+  }
+
+  Future<void> _persistDetail(PersonDetail updated) async {
+    setState(() => _detail = updated);
+    await widget.personStore.saveDetail(
+      _person.id,
+      updated,
+      passcodeHash: _namespace,
+      keys: _keys,
+    );
   }
 
   Future<void> _persist(Person updated) async {
@@ -176,73 +228,42 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     await _reload();
   }
 
-  bool get _fieldsVisible => !_person.locked || _unlocked;
+  /// Switches which set of details is on screen.
+  ///
+  /// In the open set, this asks for four digits and shows whatever is kept
+  /// under them — which for digits nobody has used is nothing at all, and
+  /// looks the same. There is no wrong passcode to report, and deliberately
+  /// no way to find out whether a set exists without opening it.
+  ///
+  /// Already inside a set, it goes back to the open one. No confirmation:
+  /// nothing is being destroyed, and the way back is four digits.
+  Future<void> _switchNamespace() async {
+    if (_namespace != openNamespace) {
+      setState(() {
+        _namespace = openNamespace;
+        _keys = null;
+      });
+      await _reload();
+      return;
+    }
 
-  Future<void> _handleLockTap() async {
-    final l10n = AppLocalizations.of(context)!;
-    if (!_person.locked) {
-      final result = await showSetPasscodeSheet(context);
-      if (result == null) return;
-      await _persist(
-        _person.copyWith(
-          locked: true,
-          passcodeHash: () => hashPasscode(result.passcode),
-          passcodeHint: () => result.hint,
-        ),
-      );
-      setState(() => _unlocked = false);
-      return;
+    // The key comes from the passphrase, which is the app's, not this
+    // screen's. Nothing has asked for one yet on a phone that has never
+    // used a private album, so this is where it gets asked.
+    if ((await _vaultKeys.entries()).isEmpty) {
+      if (!mounted) return;
+      if (await showVaultSetupSheet(context, keys: _vaultKeys) == null) return;
     }
-    if (!_unlocked) {
-      final entered = await showEnterPasscodeSheet(
-        context,
-        hint: _person.passcodeHint,
-      );
-      if (entered == null) return;
-      if (hashPasscode(entered) != _person.passcodeHash) {
-        if (!mounted) return;
-        await showCupertinoDialog<void>(
-          context: context,
-          builder: (context) => CupertinoAlertDialog(
-            content: Text(l10n.personProfileWrongPasscode),
-            actions: [
-              CupertinoDialogAction(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(l10n.actionCancel),
-              ),
-            ],
-          ),
-        );
-        return;
-      }
-      setState(() => _unlocked = true);
-      return;
-    }
-    final confirmed = await showCupertinoDialog<bool>(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: Text(l10n.personProfileRemoveLockTitle),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(l10n.actionCancel),
-          ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(l10n.actionDelete),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true) return;
-    await _persist(
-      _person.copyWith(
-        locked: false,
-        passcodeHash: () => null,
-        passcodeHint: () => null,
-      ),
-    );
+    if (!mounted) return;
+    final passcode = await showPrivateAlbumPasscodeSheet(context);
+    if (passcode == null) return;
+    final keys = await _vaultKeys.unlockAlbum(passcode);
+    if (keys == null || !mounted) return;
+    setState(() {
+      _namespace = hashPasscode(passcode);
+      _keys = keys;
+    });
+    await _reload();
   }
 
   String _relationshipLabel(AppLocalizations l10n, RelationshipType type) =>
@@ -478,7 +499,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
 
   Future<void> _editBirthDate() async {
     final l10n = AppLocalizations.of(context)!;
-    var picked = _person.birthDate ?? DateTime(DateTime.now().year - 30);
+    var picked = _detail.birthDate ?? DateTime(DateTime.now().year - 30);
     final saved = await showCupertinoModalPopup<bool>(
       context: context,
       builder: (context) => CupertinoActionSheet(
@@ -506,7 +527,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       ),
     );
     if (saved != true) return;
-    await _persist(_person.copyWith(birthDate: () => picked));
+    await _persistDetail(_detail.copyWith(birthDate: () => picked));
   }
 
   Future<void> _pickGender() async {
@@ -532,14 +553,35 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       ),
     );
     if (selected == null) return;
-    await _persist(_person.copyWith(gender: () => selected));
+    await _persistDetail(_detail.copyWith(gender: () => selected));
   }
 
   /// Plain text, no box — "30 years old · Male", each part its own tap
   /// target (age opens the birth date picker, gender opens a picker sheet).
+  /// A reminder of *which* set this is, shown only from inside it.
+  ///
+  /// Outside, it would be proof that the set exists, which is the whole
+  /// thing the keypad avoids saying. In here it is the opposite of a
+  /// secret: somebody who keeps three sets needs to know which one they
+  /// have opened.
+  Widget _hintRow(AppLocalizations l10n) => Padding(
+    padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
+    child: CupertinoTextField.borderless(
+      controller: _hint,
+      textAlign: TextAlign.center,
+      placeholder: l10n.personProfileHintLabel,
+      placeholderStyle: const TextStyle(
+        fontSize: 13,
+        color: CupertinoColors.systemGrey2,
+      ),
+      style: const TextStyle(fontSize: 13, color: CupertinoColors.systemGrey),
+      onChanged: (v) => _persistDetail(_detail.copyWith(hint: v)),
+    ),
+  );
+
   Widget _ageGenderRow(AppLocalizations l10n) {
-    final age = ageFrom(_person.birthDate);
-    final genderText = switch (_person.gender) {
+    final age = ageFrom(_detail.birthDate);
+    final genderText = switch (_detail.gender) {
       Gender.male => l10n.genderMale,
       Gender.female => l10n.genderFemale,
       null => l10n.personProfileGenderLabel,
@@ -623,13 +665,13 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
         middle: Text(l10n.personProfileTitle),
         trailing: CupertinoButton(
           padding: EdgeInsets.zero,
-          onPressed: _handleLockTap,
+          onPressed: _switchNamespace,
+          // A keypad, not a padlock. A padlock says something is locked,
+          // which is the one thing this must not answer.
           child: Icon(
-            !_person.locked
-                ? CupertinoIcons.lock_open
-                : (_unlocked
-                      ? CupertinoIcons.lock_open_fill
-                      : CupertinoIcons.lock_fill),
+            _namespace == openNamespace
+                ? CupertinoIcons.number
+                : CupertinoIcons.number_circle_fill,
           ),
         ),
       ),
@@ -686,43 +728,8 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
               ),
             ),
             const SizedBox(height: 20),
-            if (!_fieldsVisible)
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 24,
-                ),
-                child: Column(
-                  children: [
-                    const Icon(
-                      CupertinoIcons.lock_fill,
-                      size: 32,
-                      color: CupertinoColors.systemGrey,
-                    ),
-                    const SizedBox(height: 8),
-                    Text(
-                      l10n.personProfileLockedNote,
-                      style: const TextStyle(color: CupertinoColors.systemGrey),
-                    ),
-                    if ((_person.passcodeHint ?? '').isNotEmpty)
-                      Padding(
-                        padding: const EdgeInsets.only(top: 4),
-                        child: Text(
-                          l10n.personProfileHintPrefix(_person.passcodeHint!),
-                          style: const TextStyle(
-                            color: CupertinoColors.systemGrey,
-                          ),
-                        ),
-                      ),
-                    const SizedBox(height: 12),
-                    CupertinoButton.filled(
-                      onPressed: _handleLockTap,
-                      child: Text(l10n.personProfileUnlockButton),
-                    ),
-                  ],
-                ),
-              )
-            else ...[
+            ...[
+              if (_namespace != openNamespace) _hintRow(l10n),
               _ageGenderRow(l10n),
               const SizedBox(height: 16),
               Padding(
@@ -736,7 +743,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                     fontSize: 15,
                     color: CupertinoColors.systemGrey,
                   ),
-                  onChanged: (v) => _persist(_person.copyWith(bio: v)),
+                  onChanged: (v) => _persistDetail(_detail.copyWith(bio: v)),
                 ),
               ),
               const SizedBox(height: 20),
@@ -873,9 +880,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                 ),
               const SizedBox(height: 20),
               CustomFieldsEditor(
-                initialFields: _person.customFields,
+                initialFields: _detail.customFields,
                 onChanged: (fields) =>
-                    _persist(_person.copyWith(customFields: fields)),
+                    _persistDetail(_detail.copyWith(customFields: fields)),
               ),
               const SizedBox(height: 32),
               Center(

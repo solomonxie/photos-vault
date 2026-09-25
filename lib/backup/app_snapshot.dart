@@ -3,6 +3,7 @@ import 'dart:io';
 
 import '../photos/ai_analysis_store.dart';
 import '../photos/person.dart';
+import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
@@ -318,6 +319,9 @@ class AppSnapshotIo {
   // ----------------------------------------------------------------- people
 
   Future<Map<String, Object?>> _personRow(Person person) async {
+    // The open set. What is kept behind a passcode goes out sealed, under
+    // `sealed` below — it cannot be read here and must not be lost either.
+    final detail = await personStore.detailFor(person.id);
     final history = <Map<String, Object?>>[];
     for (final category in HistoryCategory.values) {
       for (final entry in await personStore.historyFor(person.id, category)) {
@@ -341,13 +345,12 @@ class AppSnapshotIo {
       'createdAt': person.createdAt.toIso8601String(),
       'avatarLocalId': person.avatarLocalId,
       'avatarFace': person.avatarFace?.encode(),
-      'bio': person.bio,
-      'birthDate': person.birthDate?.toIso8601String(),
-      'gender': person.gender?.name,
-      'customFields': person.customFields.map((f) => f.toJson()).toList(),
-      'locked': person.locked,
-      'passcodeHash': person.passcodeHash,
-      'passcodeHint': person.passcodeHint,
+      'bio': detail.bio,
+      'birthDate': detail.birthDate?.toIso8601String(),
+      'gender': detail.gender?.name,
+      'customFields': detail.customFields.map((f) => f.toJson()).toList(),
+      'impression': detail.impression.toJson(),
+      'sealed': await personStore.sealedRowsFor(person.id),
       'localIds': await personStore.localIdsIn(person.id),
       'locations': [
         for (final location in await personStore.locationsFor(person.id))
@@ -374,6 +377,7 @@ class AppSnapshotIo {
     final id = row['id'] as String?;
     final name = row['name'] as String?;
     if (id == null || name == null) return;
+    await _importPersonDetail(id, row);
     final person = await personStore.create(name: name, id: id);
     await personStore.update(
       person.copyWith(
@@ -446,6 +450,36 @@ class AppSnapshotIo {
         ),
       );
     }
+  }
+
+  /// The open set, and whatever was kept behind a passcode.
+  ///
+  /// The sealed rows go back exactly as they came out. This phone may not be
+  /// able to open any of them — a different passphrase, or one forgotten
+  /// since — and that is not a reason to drop somebody's data on restore.
+  Future<void> _importPersonDetail(String id, Map<String, Object?> row) async {
+    final birth = row['birthDate'] as String?;
+    final gender = row['gender'] as String?;
+    await personStore.saveDetail(
+      id,
+      PersonDetail(
+        bio: row['bio'] as String? ?? '',
+        birthDate: birth == null ? null : DateTime.tryParse(birth),
+        gender: Gender.values.where((g) => g.name == gender).firstOrNull,
+        customFields: [
+          for (final f in (row['customFields'] as List? ?? const []))
+            PersonCustomField.fromJson((f as Map).cast<String, Object?>()),
+        ],
+        impression: PersonImpression.fromJson(
+          ((row['impression'] as Map?) ?? const {}).cast<String, Object?>(),
+        ),
+      ),
+    );
+    final sealed = row['sealed'] as List?;
+    if (sealed == null || sealed.isEmpty) return;
+    await personStore.restoreSealedRows([
+      for (final r in sealed) (r as Map).cast<String, Object?>(),
+    ]);
   }
 
   Future<void> _importRelationships(Map<String, Object?> row) async {
