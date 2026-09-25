@@ -53,6 +53,29 @@ class FakePersonStore implements PersonStore {
     }
   }
 
+  final events = <String, PersonEvent>{};
+
+  @override
+  Future<void> saveEvent(
+    PersonEvent event, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    events[event.id] = event;
+  }
+
+  @override
+  Future<void> removeEvent(String id) async => events.remove(id);
+
+  @override
+  Future<List<PersonEvent>> eventsFor(
+    String personId, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async =>
+      events.values.where((e) => e.personId == personId).toList()
+        ..sort((a, b) => (a.at ?? DateTime(0)).compareTo(b.at ?? DateTime(0)));
+
   final details = <String, PersonDetail>{};
 
   static String _key(String personId, String passcodeHash) =>

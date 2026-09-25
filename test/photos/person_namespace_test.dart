@@ -249,6 +249,58 @@ void main() {
     );
   });
 
+  test('events stay in their set and go with the person', () async {
+    final store = newStore();
+    final mia = await store.create(name: 'Mia');
+    final work = hashPasscode('1111');
+    final keys = _keysFor('1111');
+
+    await store.saveEvent(
+      PersonEvent(
+        id: store.newId(),
+        personId: mia.id,
+        type: PersonEventType.firstMet,
+        at: DateTime(2019, 3, 12),
+      ),
+    );
+    await store.saveEvent(
+      PersonEvent(
+        id: store.newId(),
+        personId: mia.id,
+        type: PersonEventType.fallingOut,
+        at: DateTime(2024, 1, 1),
+        notes: 'not for the open set',
+      ),
+      passcodeHash: work,
+      keys: keys,
+    );
+
+    expect(
+      (await store.eventsFor(mia.id)).single.type,
+      PersonEventType.firstMet,
+    );
+    final hidden = await store.eventsFor(
+      mia.id,
+      passcodeHash: work,
+      keys: keys,
+    );
+    expect(hidden.single.notes, 'not for the open set');
+
+    // Not in the database in the clear, either.
+    final dump = (await store.changeLogRows())
+        .map((r) => '${r['after']}')
+        .join();
+    expect(dump, isNot(contains('not for the open set')));
+
+    // And deleting the person takes both sets with them.
+    await store.remove(mia.id);
+    expect(await store.eventsFor(mia.id), isEmpty);
+    expect(
+      await store.eventsFor(mia.id, passcodeHash: work, keys: keys),
+      isEmpty,
+    );
+  });
+
   test('none of it is readable from the rows themselves', () async {
     final store = newStore();
     final mia = await store.create(name: 'Mia');
