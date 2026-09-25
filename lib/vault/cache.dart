@@ -47,11 +47,14 @@ class VaultCache {
   final Future<Directory> Function() _directory;
   final VaultCipher _cipher;
 
-  static const _root = 'vault';
+  /// The one directory under the cache container this holds. Public
+  /// because Remove All App Data has to delete it, and a second spelling
+  /// of 'vault' is a directory that quietly survives the wipe.
+  static const root = 'vault';
 
   Future<Directory> _poolDirectory(CachePool pool) async {
     final dir = Directory(
-      p.join((await _directory()).path, _root, pool.dirName),
+      p.join((await _directory()).path, root, pool.dirName),
     );
     if (!await dir.exists()) await dir.create(recursive: true);
     return dir;
@@ -152,7 +155,7 @@ class VaultCache {
 
   /// Everything, for when the passphrase is forgotten on this phone.
   Future<void> clear() async {
-    final dir = Directory(p.join((await _directory()).path, _root));
+    final dir = Directory(p.join((await _directory()).path, root));
     if (await dir.exists()) await dir.delete(recursive: true);
   }
 }

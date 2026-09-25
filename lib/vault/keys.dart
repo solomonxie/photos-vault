@@ -139,6 +139,22 @@ class VaultKeys {
     return true;
   }
 
+  /// Forgets every passphrase this phone can derive, and the master keys
+  /// behind them.
+  ///
+  /// The carriers in the bucket are untouched and stay unreadable until
+  /// someone types the passphrase again — which is the point of the scheme
+  /// and the reason this is safe to do: the only thing destroyed here is
+  /// this phone's ability to open them without being asked.
+  Future<void> clearAll() async {
+    for (final entry in await entries()) {
+      await _store.delete('$_masterPrefix${entry.id}');
+    }
+    await _store.delete(_entriesKey);
+    _unlocked.clear();
+    _ring.clear();
+  }
+
   Future<void> _remember(PassphraseEntry entry, Uint8List master) async {
     final known = await entries();
     if (!known.any((e) => e.id == entry.id)) {

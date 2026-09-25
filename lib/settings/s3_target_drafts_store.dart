@@ -32,6 +32,8 @@ class S3TargetDraftsStore {
     }
   }
 
+  Future<void> clearAll() => _store.delete(_key);
+
   Future<void> _saveAll(List<S3TargetDraft> drafts) {
     return _store.write(
       _key,
