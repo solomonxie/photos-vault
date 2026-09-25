@@ -139,22 +139,6 @@ class VaultKeys {
     return true;
   }
 
-  /// Forgets every passphrase this phone can derive, and the master keys
-  /// behind them.
-  ///
-  /// The carriers in the bucket are untouched and stay unreadable until
-  /// someone types the passphrase again — which is the point of the scheme
-  /// and the reason this is safe to do: the only thing destroyed here is
-  /// this phone's ability to open them without being asked.
-  Future<void> clearAll() async {
-    for (final entry in await entries()) {
-      await _store.delete('$_masterPrefix${entry.id}');
-    }
-    await _store.delete(_entriesKey);
-    _unlocked.clear();
-    _ring.clear();
-  }
-
   Future<void> _remember(PassphraseEntry entry, Uint8List master) async {
     final known = await entries();
     if (!known.any((e) => e.id == entry.id)) {
@@ -230,6 +214,18 @@ class VaultKeys {
   /// Forgets this phone's master keys. The carriers stay where they are and
   /// the passphrase still opens them; this phone just stops being able to
   /// until it is typed again.
+  ///
+  /// The **entries** deliberately survive — their salt, verifier and hint
+  /// are what let a retyped passphrase re-derive the master key. Deleting
+  /// them instead is what sends [openPrivateAlbum]'s gate down its "set up
+  /// a new passphrase" branch, which mints a fresh salt, derives a key that
+  /// matches no carrier, and opens an album that looks empty. Nothing is
+  /// lost on the way back from that, but nobody would find the way back.
+  ///
+  /// Also why this is safe to leave behind on Remove All App Data: the same
+  /// salts, verifiers and hints ride in the plaintext header of the
+  /// bucket's own `index.bin`, so keeping them on the phone reveals nothing
+  /// the destination doesn't already hold in the open.
   Future<void> forgetOnThisDevice() async {
     for (final entry in await entries()) {
       await _store.delete('$_masterPrefix${entry.id}');
