@@ -8,7 +8,9 @@ import 'package:sqflite/sqflite.dart'
 import 'package:uuid/uuid.dart';
 
 import '../backup/change_log.dart';
+import '../vault/keys.dart' show AlbumKeys;
 import 'person.dart';
+import 'person_detail.dart';
 
 /// Local `sqflite` store for [Person] profiles, their tagged-photo
 /// membership (same join-table shape as `album_store.dart`), relationships,
@@ -21,6 +23,7 @@ class PersonStore {
   final DatabaseFactory _databaseFactory;
   final String? _path;
   final Uuid _uuid;
+  final _seal = PersonDetailSeal();
 
   Database? _db;
 
@@ -29,6 +32,7 @@ class PersonStore {
   static const _relationshipTable = 'person_relationship';
   static const _locationTable = 'person_location';
   static const _historyTable = 'person_history';
+  static const _detailTable = 'person_detail';
 
   Future<Database> _open() async {
     final existing = _db;
@@ -38,7 +42,7 @@ class PersonStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 5,
+        version: 6,
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await db.execute(
@@ -52,6 +56,20 @@ class PersonStore {
             await db.execute(
               'ALTER TABLE $_personTable ADD COLUMN avatar_face TEXT',
             );
+          }
+          if (oldVersion < 6) {
+            await db.execute(_createDetailTableSql);
+            for (final table in const [
+              _relationshipTable,
+              _locationTable,
+              _historyTable,
+            ]) {
+              await db.execute(
+                "ALTER TABLE $table "
+                "ADD COLUMN passcode_hash TEXT NOT NULL DEFAULT ''",
+              );
+            }
+            await _moveDetailOutOfPersonRows(db);
           }
           if (oldVersion < 4) {
             await db.execute(
@@ -113,6 +131,7 @@ class PersonStore {
               type TEXT NOT NULL,
               organization TEXT,
               created_at INTEGER NOT NULL,
+              passcode_hash TEXT NOT NULL DEFAULT '',
               PRIMARY KEY (person_id, related_person_id)
             )
           ''');
@@ -122,10 +141,12 @@ class PersonStore {
               person_id TEXT NOT NULL,
               kind TEXT NOT NULL,
               place TEXT NOT NULL,
-              since INTEGER NOT NULL
+              since INTEGER NOT NULL,
+              passcode_hash TEXT NOT NULL DEFAULT ''
             )
           ''');
           await db.execute(_createHistoryTableSql);
+          await db.execute(_createDetailTableSql);
         },
       ),
     );
@@ -137,6 +158,7 @@ class PersonStore {
       _relationshipTable,
       _locationTable,
       _historyTable,
+      _detailTable,
     ]);
     _db = db;
     return db;
@@ -155,9 +177,77 @@ class PersonStore {
       custom_fields TEXT NOT NULL DEFAULT '[]',
       titles TEXT NOT NULL DEFAULT '[]',
       projects TEXT NOT NULL DEFAULT '[]',
-      awards TEXT NOT NULL DEFAULT '[]'
+      awards TEXT NOT NULL DEFAULT '[]',
+      passcode_hash TEXT NOT NULL DEFAULT ''
     )
   ''';
+
+  /// One row per (person, passcode). The payload is the whole
+  /// [PersonDetail] as JSON — sealed for every passcode but the open one,
+  /// which is the profile anybody holding the phone already sees.
+  ///
+  /// `sealed = 0` on a non-open row means a profile that was locked before
+  /// this table existed: its details were moved here under the passcode
+  /// hash they were locked with, and there was no way to encrypt them on
+  /// the way, because a hash is not a passcode. The first time those digits
+  /// are typed the row is re-written sealed. See [_moveDetailOutOfPersonRows].
+  static const _createDetailTableSql =
+      '''
+    CREATE TABLE $_detailTable (
+      person_id TEXT NOT NULL,
+      passcode_hash TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      sealed INTEGER NOT NULL DEFAULT 0,
+      updated_at INTEGER NOT NULL,
+      PRIMARY KEY (person_id, passcode_hash)
+    )
+  ''';
+
+  /// Moves bio, birth date, gender and custom fields off the person row and
+  /// into the namespace they belong to.
+  ///
+  /// An unlocked profile's details are the open set. A locked profile's are
+  /// its passcode's — anything else would publish, on upgrade, exactly what
+  /// the lock was put there to hide. The person row keeps its columns; they
+  /// simply stop being read. Dropping them would rewrite the table for no
+  /// gain and cost the one thing a migration must not: a way back.
+  static Future<void> _moveDetailOutOfPersonRows(Database db) async {
+    final rows = await db.query(
+      _personTable,
+      columns: [
+        'id',
+        'bio',
+        'birth_date',
+        'gender',
+        'custom_fields',
+        'locked',
+        'passcode_hash',
+        'passcode_hint',
+        'updated_at',
+      ],
+    );
+    for (final row in rows) {
+      final locked = (row['locked'] as int? ?? 0) != 0;
+      final hash = row['passcode_hash'] as String?;
+      final namespace = locked && hash != null && hash.isNotEmpty ? hash : '';
+      final payload = {
+        'bio': row['bio'] as String? ?? '',
+        'birthDate': row['birth_date'],
+        'gender': row['gender'],
+        'customFields': jsonDecode((row['custom_fields'] as String?) ?? '[]'),
+        'impression': const <String, Object?>{},
+        'hint': row['passcode_hint'] as String? ?? '',
+      };
+      await db.insert(_detailTable, {
+        'person_id': row['id'],
+        'passcode_hash': namespace,
+        'payload': jsonEncode(payload),
+        'sealed': 0,
+        'updated_at':
+            row['updated_at'] ?? DateTime.now().millisecondsSinceEpoch,
+      }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+    }
+  }
 
   Future<void> close() async {
     await _db?.close();
@@ -229,6 +319,79 @@ class PersonStore {
       where: 'id = ?',
       whereArgs: [person.id],
     );
+  }
+
+  /// The details kept for [personId] under [passcodeHash].
+  ///
+  /// [PersonDetail.empty] for a passcode nothing has been written under,
+  /// for the wrong passcode, and for a passcode whose [keys] this phone
+  /// cannot derive — three situations the caller is deliberately unable to
+  /// tell apart, because telling them apart is the whole thing this avoids.
+  ///
+  /// [keys] is unused for the open set and required for every other, since
+  /// nothing else can be read without them.
+  Future<PersonDetail> detailFor(
+    String personId, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    final db = await _open();
+    final rows = await db.query(
+      _detailTable,
+      where: 'person_id = ? AND passcode_hash = ?',
+      whereArgs: [personId, passcodeHash],
+      limit: 1,
+    );
+    if (rows.isEmpty) return PersonDetail.empty;
+    final row = rows.single;
+    final payload = row['payload'] as String? ?? '';
+    final sealed = (row['sealed'] as int? ?? 0) != 0;
+
+    if (passcodeHash == openNamespace) return _decodePlain(payload);
+    if (keys == null) return PersonDetail.empty;
+    if (!sealed) {
+      // Locked before this table existed: moved here in the clear because a
+      // hash is not a passcode. Now that the digits have been typed, it can
+      // be put beyond reach — including in every backup written from here.
+      final upgraded = _decodePlain(payload);
+      await saveDetail(
+        personId,
+        upgraded,
+        passcodeHash: passcodeHash,
+        keys: keys,
+      );
+      return upgraded;
+    }
+    return _seal.open(payload, keys) ?? PersonDetail.empty;
+  }
+
+  Future<void> saveDetail(
+    String personId,
+    PersonDetail detail, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    if (passcodeHash != openNamespace && keys == null) return;
+    final db = await _open();
+    await db.insert(_detailTable, {
+      'person_id': personId,
+      'passcode_hash': passcodeHash,
+      'payload': passcodeHash == openNamespace
+          ? jsonEncode(detail.toJson())
+          : _seal.seal(detail, keys!),
+      'sealed': passcodeHash == openNamespace ? 0 : 1,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
+    }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+  }
+
+  static PersonDetail _decodePlain(String payload) {
+    try {
+      return PersonDetail.fromJson(
+        (jsonDecode(payload) as Map).cast<String, Object?>(),
+      );
+    } catch (_) {
+      return PersonDetail.empty;
+    }
   }
 
   Future<Person?> getById(String id) async {

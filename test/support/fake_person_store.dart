@@ -1,6 +1,8 @@
 import 'dart:io';
 
 import 'package:photos_vault/photos/person.dart';
+import 'package:photos_vault/photos/person_detail.dart';
+import 'package:photos_vault/vault/keys.dart' show AlbumKeys;
 import 'package:photos_vault/photos/person_store.dart';
 
 /// Pure-Dart, in-memory stand-in for [PersonStore] — for widget tests, same
@@ -35,6 +37,28 @@ class FakePersonStore implements PersonStore {
 
   @override
   Future<void> update(Person person) async => _people[person.id] = person;
+
+  final details = <String, PersonDetail>{};
+
+  static String _key(String personId, String passcodeHash) =>
+      '$personId/$passcodeHash';
+
+  @override
+  Future<PersonDetail> detailFor(
+    String personId, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async => details[_key(personId, passcodeHash)] ?? PersonDetail.empty;
+
+  @override
+  Future<void> saveDetail(
+    String personId,
+    PersonDetail detail, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    details[_key(personId, passcodeHash)] = detail;
+  }
 
   @override
   Future<Person?> getById(String id) async => _people[id];
