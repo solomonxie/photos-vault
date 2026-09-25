@@ -280,6 +280,10 @@ Future<void> _retractFromBuckets({
   required BackupTargetsStore targetsStore,
 }) async {
   final targets = await targetsStore.loadAll();
+  // The per-target rows go with the aggregate status below. Left behind,
+  // the next sync would read them as "every target already has this" and
+  // upload nothing, for a photo whose plain copies were just retracted.
+  await store.forgetUploads(record.localId);
   final tasks = <PendingDelete>[];
   for (final kind in DerivativeKind.values) {
     final key = record.stateOf(kind).destinationKey;

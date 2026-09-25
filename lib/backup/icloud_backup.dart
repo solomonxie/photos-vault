@@ -53,6 +53,10 @@ class ICloudBackup {
   /// Ten days of undo. Past that the copy is the bucket's or nobody's.
   static const keepCopies = 10;
 
+  /// How many Remove All App Data copies to keep, matching
+  /// `LocalVault.keepPreDeletionCopies`. Counted, not aged.
+  static const keepPreDeletionCopies = 3;
+
   late final BackupSchedule schedule = BackupSchedule(
     settings: settings,
     snapshots: snapshots,
@@ -112,28 +116,37 @@ class ICloudBackup {
     await backUpNow();
   }
 
-  /// Keeps the newest [keepCopies] dated archives and deletes this app's
-  /// older ones. Names sort by date, so "newest" is the tail of a sorted
-  /// list — and only names this app would have written are touched: the
-  /// folder is the user's, and anything else in it is theirs.
+  /// Keeps the newest [keepCopies] dated archives and the newest
+  /// [keepPreDeletionCopies] final ones, and deletes this app's older ones.
   ///
-  /// Pre-deletion copies are exempt and accumulate. They used to survive
-  /// this by accident, riding on the `99999999-` sentinel that put them at
-  /// the end of the sorted list; now it is the rule it always should have
-  /// been. They are written only by an explicit, rare, deliberate act, and
-  /// a copy taken because everything was about to be destroyed is the one
-  /// most likely to be wanted long after ten days of dailies have rolled
-  /// past.
+  /// Two rules, because there are two kinds of copy. Dated archives sort by
+  /// name, so "newest" is the tail of a sorted list. Final copies are
+  /// counted separately and generously: age is the wrong rule for the one
+  /// copy whose whole point is being wanted late, and ten days of dailies
+  /// rolling past should not take it. But exempting them outright — which
+  /// is what they got when the `99999999-` sentinel parked them at the end
+  /// of the sorted list — means one more small file in somebody's own iCloud
+  /// Drive for every wipe they ever perform, forever.
+  ///
+  /// Only names this app would have written are touched either way: the
+  /// folder is the user's, and anything else in it is theirs.
   Future<void> _pruneOldCopies() async {
-    final mine =
-        (await drive.list())
-            .where(isSnapshotArchiveName)
-            .where((name) => !isPreDeletionArchiveName(name))
-            .toList()
-          ..sort();
-    if (mine.length <= keepCopies) return;
-    for (final name in mine.take(mine.length - keepCopies)) {
-      await drive.delete(name);
+    final mine = (await drive.list()).where(isSnapshotArchiveName).toList();
+
+    final dated = mine.where((name) => !isPreDeletionArchiveName(name)).toList()
+      ..sort();
+    if (dated.length > keepCopies) {
+      for (final name in dated.take(dated.length - keepCopies)) {
+        await drive.delete(name);
+      }
+    }
+
+    final finals = mine.where(isPreDeletionArchiveName).toList()
+      ..sort(comparePreDeletionArchives);
+    if (finals.length > keepPreDeletionCopies) {
+      for (final name in finals.take(finals.length - keepPreDeletionCopies)) {
+        await drive.delete(name);
+      }
     }
   }
 

@@ -262,6 +262,112 @@ void main() {
     );
   });
 
+  test('one target failing is not a backup', () async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final good = await targetsStore.add(
+      accessKeyId: 'a',
+      secretAccessKey: 'b',
+      region: 'us-east-1',
+      bucket: 'good',
+      prefix: 'good/',
+    );
+    await targetsStore.add(
+      accessKeyId: 'a',
+      secretAccessKey: 'b',
+      region: 'us-east-1',
+      bucket: 'bad',
+      prefix: 'bad/',
+    );
+    final recordStore = newRecordStore();
+    final record = await recordStore.upsert(
+      localId: 'manual:abc',
+      contentHash: 'abc',
+      platform: 'ios',
+    );
+    final coordinator = BackupCoordinator(
+      targetsStore: targetsStore,
+      recordStore: recordStore,
+      s3Uploader: _RecordingS3Uploader((_, key, _) => key.startsWith('good/')),
+      hashFile: (_) async => 'hash',
+    );
+
+    await coordinator.backUpDerivative(
+      record: record,
+      kind: DerivativeKind.original,
+      filePath: '/tmp/a.jpg',
+    );
+
+    // It used to read `uploaded` here, and an uploaded derivative is never
+    // offered again — so the second bucket stayed empty for good while the
+    // library called itself backed up.
+    final after = await recordStore.getByLocalId('manual:abc');
+    expect(after!.stateOf(DerivativeKind.original).status, UploadStatus.failed);
+    expect(
+      await recordStore.targetsHolding('manual:abc', DerivativeKind.original),
+      {good.id: 'good/originals/manual_abc.jpg'},
+    );
+  });
+
+  test('a retry only re-sends to the target that missed it', () async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    await targetsStore.add(
+      accessKeyId: 'a',
+      secretAccessKey: 'b',
+      region: 'us-east-1',
+      bucket: 'good',
+      prefix: 'good/',
+    );
+    await targetsStore.add(
+      accessKeyId: 'a',
+      secretAccessKey: 'b',
+      region: 'us-east-1',
+      bucket: 'bad',
+      prefix: 'bad/',
+    );
+    final recordStore = newRecordStore();
+    final record = await recordStore.upsert(
+      localId: 'manual:abc',
+      contentHash: 'abc',
+      platform: 'ios',
+    );
+    var badWorksNow = false;
+    final keys = <String>[];
+    final coordinator = BackupCoordinator(
+      targetsStore: targetsStore,
+      recordStore: recordStore,
+      s3Uploader: _RecordingS3Uploader((_, key, _) {
+        keys.add(key);
+        return key.startsWith('good/') || badWorksNow;
+      }),
+      hashFile: (_) async => 'hash',
+    );
+
+    await coordinator.backUpDerivative(
+      record: record,
+      kind: DerivativeKind.original,
+      filePath: '/tmp/a.jpg',
+    );
+    badWorksNow = true;
+    await coordinator.backUpDerivative(
+      record: (await recordStore.getByLocalId('manual:abc'))!,
+      kind: DerivativeKind.original,
+      filePath: '/tmp/a.jpg',
+    );
+
+    // Three attempts, not four: the bucket that already had it is skipped.
+    // On a video that saving is minutes and somebody's data plan.
+    expect(keys, [
+      'good/originals/manual_abc.jpg',
+      'bad/originals/manual_abc.jpg',
+      'bad/originals/manual_abc.jpg',
+    ]);
+    final after = await recordStore.getByLocalId('manual:abc');
+    expect(
+      after!.stateOf(DerivativeKind.original).status,
+      UploadStatus.uploaded,
+    );
+  });
+
   test('marks the derivative failed when every target fails', () async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     await targetsStore.add(
