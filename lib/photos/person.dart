@@ -93,6 +93,36 @@ bool isFamilyRelationship(RelationshipType type) => switch (type) {
   RelationshipType.other => false,
 };
 
+/// Everyone reachable from [personId] by following relationships in either
+/// direction, including [personId] itself.
+///
+/// Relationships are stored with a direction — who was added to whose
+/// profile — but nobody means it that way: if Mia is Daniel's colleague
+/// then Daniel is reachable from Mia. So the walk ignores which end a row
+/// was written from.
+Set<String> peopleConnectedTo(
+  String personId,
+  Iterable<PersonRelationship> relationships,
+) {
+  final neighbours = <String, List<String>>{};
+  for (final relationship in relationships) {
+    (neighbours[relationship.personId] ??= []).add(
+      relationship.relatedPersonId,
+    );
+    (neighbours[relationship.relatedPersonId] ??= []).add(
+      relationship.personId,
+    );
+  }
+  final reached = {personId};
+  final pending = [personId];
+  while (pending.isNotEmpty) {
+    for (final next in neighbours[pending.removeLast()] ?? const <String>[]) {
+      if (reached.add(next)) pending.add(next);
+    }
+  }
+  return reached;
+}
+
 /// `colleague` (company), `schoolmate` (school), and `other` (church/other
 /// org) each carry an associated [PersonRelationship.organization].
 bool relationshipNeedsOrganization(RelationshipType type) =>
