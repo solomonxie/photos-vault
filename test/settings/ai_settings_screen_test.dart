@@ -43,7 +43,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('AI Settings'), findsOneWidget);
-    expect(find.textContaining('incurs API usage charges'), findsOneWidget);
+    expect(find.textContaining('API usage is billed'), findsOneWidget);
     // No form parked under the list — just the link that opens one.
     expect(find.byType(CupertinoTextField), findsNothing);
 

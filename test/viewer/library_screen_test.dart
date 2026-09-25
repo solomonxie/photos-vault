@@ -288,7 +288,10 @@ void main() {
       await tester.pumpAndSettle();
       // A sheet at the bottom, the way Photos asks.
       expect(find.byType(CupertinoActionSheet), findsOneWidget);
-      expect(find.text('It moves to Recently Deleted.'), findsOneWidget);
+      expect(
+        find.text('It will be moved to Recently Deleted.'),
+        findsOneWidget,
+      );
 
       // Cancelling leaves the item alone and the viewer open.
       await tester.tap(find.text('Cancel'));
@@ -346,7 +349,7 @@ void main() {
     await tester.tap(find.byIcon(CupertinoIcons.add));
     await tester.pumpAndSettle();
 
-    expect(find.text('Added 0 file(s), backed up 0.'), findsOneWidget);
+    expect(find.text('Added 0 files, 0 backed up.'), findsOneWidget);
   });
 
   testWidgets('a fresh install shows an empty library and seeds nothing', (
@@ -621,7 +624,10 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Remove from Device'), findsNothing);
-      expect(find.text('It moves to Recently Deleted.'), findsOneWidget);
+      expect(
+        find.text('It will be moved to Recently Deleted.'),
+        findsOneWidget,
+      );
     },
   );
 
@@ -1073,11 +1079,11 @@ void main() {
       // header's own "More" button, which opens PeopleScreen.
       expect(find.text('No people yet. Tap + to add someone.'), findsOneWidget);
       expect(
-        find.text('Set a place on a photo and it shows up here.'),
+        find.text('Photos with a place set will show up here.'),
         findsOneWidget,
       );
       expect(
-        find.text('Set an event on a photo and it shows up here.'),
+        find.text('Photos with an event set will show up here.'),
         findsOneWidget,
       );
 

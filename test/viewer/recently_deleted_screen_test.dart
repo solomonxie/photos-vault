@@ -118,7 +118,7 @@ void main() {
       // Dropping it locally would orphan the objects with nothing left
       // pointing at them.
       expect(await store.getByLocalId('manual:gone'), isNotNull);
-      expect(find.textContaining("Couldn't remove"), findsOneWidget);
+      expect(find.textContaining("Couldn't delete"), findsOneWidget);
     });
   });
 }
