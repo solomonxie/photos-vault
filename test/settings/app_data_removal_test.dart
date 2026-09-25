@@ -12,6 +12,7 @@ import 'package:photos_vault/settings/ai_settings_store.dart';
 import 'package:photos_vault/settings/app_data_removal.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/s3_target_drafts_store.dart';
+import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/upload/sync_job.dart';
 import 'package:photos_vault/vault/cache.dart';
 import 'package:photos_vault/vault/keys.dart';
@@ -193,13 +194,78 @@ void main() {
     expect(keep.existsSync(), isTrue);
   });
 
+  test('the only copy of a photo is never the thing deleted', () async {
+    final s = _subject();
+    // Imported, not backed up anywhere: the bytes on disk are the photo.
+    final onlyCopy = File(p.join(s.support.path, '${'a' * 64}.jpg'))
+      ..writeAsBytesSync(const [1, 2, 3]);
+    await s.assets.upsert(
+      localId: 'manual:${'a' * 64}',
+      contentHash: 'a' * 64,
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: onlyCopy.path,
+    );
+
+    await s.removal.run();
+
+    // The copy taken first is a snapshot of rows and has never held a
+    // photo. Deleting this would restore a row pointing at nothing.
+    expect(onlyCopy.existsSync(), isTrue);
+  });
+
+  test('a photo safely in a bucket loses its local copy', () async {
+    final s = _subject();
+    final backedUp = File(p.join(s.support.path, '${'b' * 64}.jpg'))
+      ..writeAsBytesSync(const [1, 2, 3]);
+    await s.assets.upsert(
+      localId: 'manual:${'b' * 64}',
+      contentHash: 'b' * 64,
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: backedUp.path,
+    );
+    await s.assets.updateDerivative(
+      'manual:${'b' * 64}',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'originals/bbb',
+      ),
+    );
+
+    await s.removal.run();
+
+    expect(backedUp.existsSync(), isFalse);
+  });
+
+  test('a hidden photo with no carrier keeps its bytes', () async {
+    final s = _subject();
+    final hidden = File(p.join(s.support.path, '${'c' * 64}.jpg'))
+      ..writeAsBytesSync(const [1, 2, 3]);
+    await s.assets.upsert(
+      localId: 'manual:${'c' * 64}',
+      contentHash: 'c' * 64,
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: hidden.path,
+    );
+    await s.assets.setPasscodeHash('manual:${'c' * 64}', 'hash');
+
+    await s.removal.run();
+
+    // Without a bucket a hidden photo has no carrier, so this file is the
+    // whole photo. The restore brings the row back; the bytes have to be
+    // here for it to mean anything.
+    expect(hidden.existsSync(), isTrue);
+  });
+
   test('nothing is left to connect with', () async {
     final s = _subject();
     s.keychain.seed('backup_targets_v1', '[]');
     s.keychain.seed('s3_target_drafts_v1', '[]');
     s.keychain.seed('ai_keys_v1', '[]');
     s.keychain.seed('openai_api_key_v1', 'sk-legacy');
-    s.keychain.seed('vault_passphrase_entries', '[]');
     s.keychain.seed('backup_sync_frequency_v1', 'daily');
 
     await s.removal.run();
@@ -209,12 +275,31 @@ void main() {
       's3_target_drafts_v1',
       'ai_keys_v1',
       'openai_api_key_v1',
-      'vault_passphrase_entries',
       'backup_sync_frequency_v1',
     ]) {
       expect(await s.keychain.read(key), isNull, reason: key);
     }
   });
+
+  test(
+    'the passphrase entries survive, so the album can be reopened',
+    () async {
+      final s = _subject();
+      final keys = VaultKeys(store: s.keychain);
+      final entry = await keys.add('correct horse', hint: 'the usual');
+
+      await s.removal.run();
+
+      // The master key is gone — this phone cannot open the album unaided.
+      expect(await s.keychain.read('vault_master_${entry.id}'), isNull);
+      // The entry is not, because its salt and verifier are what a retyped
+      // passphrase re-derives from. Delete it and the gate offers to set up a
+      // *new* passphrase, which derives a key matching no carrier and opens
+      // an album that looks empty.
+      expect((await keys.entries()).map((e) => e.id), [entry.id]);
+      expect(await keys.unlockEntry(entry, 'correct horse'), isTrue);
+    },
+  );
 
   test('the sync queue goes with the photos it pointed at', () async {
     final s = _subject();

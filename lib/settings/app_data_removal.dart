@@ -77,6 +77,10 @@ class AppDataRemoval {
   final Future<Directory> Function()? cacheDirectory;
 
   Future<void> run() async {
+    // Before the rows go, because afterwards there is nothing left to ask
+    // which files are the only copy of anything.
+    final keep = await _onlyCopies();
+
     // On this phone first: it cannot fail to reach a network, and it is
     // the copy people come back for.
     await _attempt(vault.guardBeforeDeletion);
@@ -85,9 +89,36 @@ class AppDataRemoval {
 
     await _attempt(snapshots.clearAll);
     await _attempt(_syncJobStore.clearQueue);
-    await _attempt(deleteOwnedFiles);
+    await _attempt(() => deleteOwnedFiles(keeping: keep));
     await _attempt(forgetCredentials);
     await _attempt(sealAgainstRestore);
+  }
+
+  /// Files holding pixels that exist nowhere else.
+  ///
+  /// The copy taken before the wipe is a snapshot of *rows* — captions,
+  /// albums, people, who is in which photo. It has never held a photo. So
+  /// for anything whose bytes are only in this app's own storage — an
+  /// imported file, an edited copy, a hidden photo with no carrier yet —
+  /// deleting the file destroys the picture, and the restore afterwards
+  /// brings back a row pointing at nothing. An empty tile where a photo
+  /// was, and the dialog said a copy had been saved.
+  ///
+  /// [AssetRecord.isFullyBackedUp] is the codebase's existing answer to
+  /// "is it safe to remove the local copy?" — it accounts for the moving
+  /// half of a Live Photo, which the original's status alone does not.
+  Future<Set<String>> _onlyCopies() async {
+    try {
+      return {
+        for (final record in await settings.listAll())
+          if (!record.isFullyBackedUp) ?record.sourcePath,
+      };
+    } catch (_) {
+      // Unreadable database. Keeping everything is the safe way to be
+      // wrong: the files stay, and nothing is destroyed that cannot be
+      // got back.
+      return const {};
+    }
   }
 
   /// The bytes the rows pointed at. Clearing the databases leaves every one
@@ -98,12 +129,19 @@ class AppDataRemoval {
   /// matched by shape rather than by walking the records, so a file
   /// orphaned by an earlier crash goes too — and so that nothing else
   /// sharing the container can be caught by it.
-  Future<void> deleteOwnedFiles() async {
+  ///
+  /// [keeping] is spared: the files that are some photo's only copy. See
+  /// [_onlyCopies].
+  ///
+  /// The thumbnail and carrier caches go whatever happens. Both are caches
+  /// in the real sense — a thumbnail regenerates from its original, and a
+  /// carrier's plaintext is in the bucket it came from.
+  Future<void> deleteOwnedFiles({Set<String> keeping = const {}}) async {
     final support = supportDirectory;
     if (support != null) {
       final root = await support();
       await _deleteTree(Directory(p.join(root.path, ThumbnailCache.dirName)));
-      await _deleteOwnedOriginals(root);
+      await _deleteOwnedOriginals(root, keeping);
     }
     final cache = cacheDirectory;
     if (cache != null) {
@@ -113,14 +151,18 @@ class AppDataRemoval {
     }
   }
 
-  /// Every bucket, credential, API key and album passphrase. The carriers
-  /// already in a bucket are untouched and stay unreadable — see
-  /// [VaultKeys.clearAll].
+  /// Every bucket, credential and API key, and this phone's ability to open
+  /// its own private album unaided.
+  ///
+  /// The carriers already in a bucket are untouched and stay unreadable
+  /// until the passphrase is typed again. The passphrase *entries* stay too,
+  /// and deliberately — see [VaultKeys.forgetOnThisDevice] for why
+  /// deleting them makes the album look empty rather than locked.
   Future<void> forgetCredentials() async {
     await _attempt(targetsStore.clearAll);
     await _attempt(_draftsStore.clearAll);
     await _attempt(_aiSettingsStore.clearAll);
-    await _attempt(_vaultKeys.clearAll);
+    await _attempt(_vaultKeys.forgetOnThisDevice);
   }
 
   /// Stops the next launch from undoing all of the above.
@@ -143,11 +185,15 @@ class AppDataRemoval {
     await settings.setAppState(BucketBackup.restoredKey, at);
   }
 
-  Future<void> _deleteOwnedOriginals(Directory root) async {
+  Future<void> _deleteOwnedOriginals(
+    Directory root,
+    Set<String> keeping,
+  ) async {
     try {
       await for (final entity in root.list()) {
         if (entity is! File) continue;
         if (!_ownedOriginal.hasMatch(p.basename(entity.path))) continue;
+        if (keeping.contains(entity.path)) continue;
         await entity.delete();
       }
     } catch (_) {
