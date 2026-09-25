@@ -200,20 +200,25 @@ class BucketBackup {
     return 0;
   }
 
-  /// The newest archive in [target], of either naming generation, or the
-  /// single `library.json` an older build left there.
+  /// The archive worth restoring from in [target], of any naming
+  /// generation, or the single `library.json` an older build left there.
   ///
-  /// Listed rather than guessed at: the newest copy is whatever is actually
-  /// in the folder, and a device that has been off for two months has no
-  /// way to know what that is.
+  /// Listed rather than guessed at: what is really in the folder is the
+  /// only answer, and a device that has been off for two months has no way
+  /// to know it. A pre-deletion copy is taken over a newer daily one (see
+  /// [latestArchiveName]); past that the dates decide, and each candidate
+  /// is tried in turn because a download can fail or a zip be truncated.
   Future<AppSnapshot?> _latestSnapshotIn(S3BackupTarget target) async {
     final listing = await _list(target: target, prefix: keyFor(target, ''));
-    final archives =
-        (listing.page?.objects ?? const <S3Object>[])
-            .map((object) => object.key.split('/').last)
-            .where(isSnapshotArchiveName)
-            .toList()
-          ..sort();
+    final names = (listing.page?.objects ?? const <S3Object>[])
+        .map((object) => object.key.split('/').last)
+        .where(isSnapshotArchiveName)
+        .toList();
+    final first = latestArchiveName(names);
+    final archives = [
+      ...(names.where((name) => name != first).toList()..sort()),
+      ?first,
+    ];
     for (final name in archives.reversed) {
       final bytes = await _fetch(target, name);
       if (bytes == null) continue;

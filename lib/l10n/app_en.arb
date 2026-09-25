@@ -371,7 +371,7 @@
   },
   "settingsRemoveAllAppDataButton": "Remove All App Data",
   "settingsRemoveAllAppDataTitle": "Remove all app data?",
-  "settingsRemoveAllAppDataBody": "This removes your photos, albums, people, sync queue, bucket connections and API keys — everything, as if the app were newly installed. A copy is saved first, named photos-vault-pre-deletion, on this iPhone and in iCloud Drive and your buckets while they can still be reached.",
+  "settingsRemoveAllAppDataBody": "This removes your photos, albums, people, sync queue, bucket connections and API keys — everything, as if the app were newly installed. A copy is saved first — look for pre-deletion in the file name — on this iPhone and in iCloud Drive and your buckets while they can still be reached.",
   "settingsRemoveAllAppDataConfirm": "Remove All Data",
   "settingsICloudNotEntitled": "This build of the app isn't signed for iCloud",
   "settingsICloudDriveOff": "iCloud Drive is off on this device",

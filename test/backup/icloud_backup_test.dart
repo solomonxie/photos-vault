@@ -48,6 +48,9 @@ class _FakeDrive implements ICloudDrive {
   }
 
   @override
+  Future<Uint8List?> readBytes(String name) async => archives[name];
+
+  @override
   Future<Uint8List?> readLatestBytes() async {
     if (archives.isEmpty) return null;
     final newest = archives.keys.toList()..sort();
@@ -146,6 +149,76 @@ void main() {
     expect(drive.archives.keys, isNot(contains('20260901.zip')));
     expect(drive.archives.keys, contains('holiday.zip'));
     expect(drive.archives.keys, contains(dailyArchiveName(DateTime.now())));
+  });
+
+  test('a final copy is never pruned away', () async {
+    final source = _stores();
+    await source.assets.upsert(
+      localId: 'photo:PH1',
+      contentHash: 'PH1',
+      platform: 'ios',
+    );
+    final drive = _FakeDrive();
+    for (var day = 1; day <= 10; day++) {
+      drive.archives['202609${day.toString().padLeft(2, '0')}.zip'] = Uint8List(
+        0,
+      );
+    }
+    drive.archives['20260105-090000-pre-deletion-photos-vault.zip'] = Uint8List(
+      0,
+    );
+    // The two spellings already sitting in people's folders count too.
+    drive.archives['99999999-before-removal-20260101-000000.zip'] = Uint8List(
+      0,
+    );
+
+    await ICloudBackup(
+      snapshots: source.io,
+      settings: source.assets,
+      drive: drive,
+    ).backUpNow();
+
+    // Ten days of dailies is a promise about dailies. A copy taken because
+    // everything was about to be destroyed is wanted long after that.
+    expect(
+      drive.archives.keys,
+      containsAll([
+        '20260105-090000-pre-deletion-photos-vault.zip',
+        '99999999-before-removal-20260101-000000.zip',
+      ]),
+    );
+    expect(drive.archives.keys, isNot(contains('20260901.zip')));
+  });
+
+  test('a reinstall comes back to the final copy, not a newer daily', () async {
+    final source = _stores();
+    await source.assets.upsert(
+      localId: 'photo:PH1',
+      contentHash: 'PH1',
+      platform: 'ios',
+    );
+    final drive = _FakeDrive();
+    final icloud = ICloudBackup(
+      snapshots: source.io,
+      settings: source.assets,
+      drive: drive,
+    );
+    await icloud.backUpBeforeDeletion();
+
+    // What the app writes next, with the library now empty: a dated
+    // archive of nothing, and the newest name in the folder.
+    await source.io.clearAll();
+    await icloud.backUpNow();
+
+    final fresh = _stores();
+    final restored = await ICloudBackup(
+      snapshots: fresh.io,
+      settings: fresh.assets,
+      drive: drive,
+    ).restoreIfFreshInstall();
+
+    expect(restored, 1);
+    expect(await fresh.assets.getByLocalId('photo:PH1'), isNotNull);
   });
 
   test('a write that did not happen is not remembered as done', () async {

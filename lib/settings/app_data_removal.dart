@@ -130,7 +130,7 @@ class AppDataRemoval {
   /// empties the library and, because the marker lives in `app_state`, it
   /// erases the record as well. So the newest archive comes straight back
   /// down, and the newest archive is the pre-deletion copy written minutes
-  /// earlier, because its `99999999-` sentinel sorts it last on purpose.
+  /// earlier, which `latestArchiveName` picks ahead of any daily one.
   ///
   /// Writing the marker here says "the question of restoring has been
   /// settled" rather than "a restore ran", which is the honest reading:

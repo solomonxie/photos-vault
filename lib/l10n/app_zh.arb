@@ -259,7 +259,7 @@
   },
   "settingsRemoveAllAppDataButton": "移除所有应用数据",
   "settingsRemoveAllAppDataTitle": "移除所有应用数据？",
-  "settingsRemoveAllAppDataBody": "此操作会清除照片、相册、人物、同步队列、存储桶连接和 API 密钥——全部数据，恢复到刚安装时的状态。删除前会先自动保存一份副本，文件名以 photos-vault-pre-deletion 开头，保存在本机；iCloud 云盘和存储桶在仍可连接时也会各存一份。",
+  "settingsRemoveAllAppDataBody": "此操作会清除照片、相册、人物、同步队列、存储桶连接和 API 密钥——全部数据，恢复到刚安装时的状态。删除前会先自动保存一份副本，文件名中带有 pre-deletion，保存在本机；iCloud 云盘和存储桶在仍可连接时也会各存一份。",
   "settingsRemoveAllAppDataConfirm": "移除所有数据",
   "settingsICloudNotEntitled": "此版本未签署 iCloud 权限",
   "settingsICloudDriveOff": "此设备未开启 iCloud 云盘",

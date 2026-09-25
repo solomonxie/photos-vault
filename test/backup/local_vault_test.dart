@@ -108,7 +108,7 @@ void main() {
     await vault.guard('restore');
 
     expect(namesIn(documents), [
-      'photos-vault-before-restore-20260918-143200.zip',
+      '20260918-143200-before-restore-photos-vault.zip',
       LocalVault.dailyFileName,
     ]);
   });
@@ -122,42 +122,77 @@ void main() {
     // The one file somebody goes looking for by name after wiping the app,
     // and it holds the library as it stood a moment before.
     expect(namesIn(documents), [
-      'photos-vault-pre-deletion-20260918-143200.zip',
+      '20260918-143200-pre-deletion-photos-vault.zip',
     ]);
     final snapshot = unzipSnapshot(
       File(
-        p.join(documents.path, 'photos-vault-pre-deletion-20260918-143200.zip'),
+        p.join(documents.path, '20260918-143200-pre-deletion-photos-vault.zip'),
       ).readAsBytesSync(),
     );
     expect(snapshot!.assets.single['localId'], 'a');
   });
 
-  test('a pre-deletion copy prunes on the same week-old rule', () async {
+  test('a pre-deletion copy outlives the week-old rule', () async {
     final (:store, :vault) = newVault();
     await store.upsert(localId: 'a', contentHash: 'h', platform: 'ios');
 
-    final old = File(
-      p.join(
-        documents.path,
-        '${LocalVault.preDeletionStem}-20260101-000000.zip',
-      ),
+    final ancient = File(
+      p.join(documents.path, LocalVault.preDeletionName(DateTime(2026, 1, 1))),
     )..writeAsBytesSync(const [1, 2, 3]);
-    old.setLastModifiedSync(DateTime.now().subtract(const Duration(days: 8)));
-    final recent = File(
-      p.join(
-        documents.path,
-        '${LocalVault.preDeletionStem}-20260920-000000.zip',
-      ),
-    )..writeAsBytesSync(const [1, 2, 3]);
-    recent.setLastModifiedSync(
-      DateTime.now().subtract(const Duration(days: 2)),
+    ancient.setLastModifiedSync(
+      DateTime.now().subtract(const Duration(days: 400)),
     );
 
     await vault.prune();
 
-    expect(namesIn(documents), [
-      '${LocalVault.preDeletionStem}-20260920-000000.zip',
-    ]);
+    // The copy somebody comes back for is the one they come back for
+    // late. Age is the wrong rule for it.
+    expect(
+      namesIn(documents),
+      contains('20260101-000000-pre-deletion-photos-vault.zip'),
+    );
+  });
+
+  test('only the newest few pre-deletion copies are kept', () async {
+    final (:store, :vault) = newVault();
+    await store.upsert(localId: 'a', contentHash: 'h', platform: 'ios');
+
+    for (var day = 1; day <= 5; day++) {
+      File(
+        p.join(
+          documents.path,
+          LocalVault.preDeletionName(DateTime(2026, 1, day)),
+        ),
+      ).writeAsBytesSync(const [1, 2, 3]);
+    }
+
+    await vault.prune();
+
+    expect(
+      namesIn(documents),
+      unorderedEquals([
+        '20260103-000000-pre-deletion-photos-vault.zip',
+        '20260104-000000-pre-deletion-photos-vault.zip',
+        '20260105-000000-pre-deletion-photos-vault.zip',
+      ]),
+    );
+  });
+
+  test('a copy named by the build before this one is still found', () async {
+    final (:store, :vault) = newVault();
+    await store.upsert(localId: 'a', contentHash: 'h', platform: 'ios');
+
+    // What shipped before the rename, sitting in somebody's Files folder.
+    final legacy = File(
+      p.join(documents.path, 'photos-vault-before-import-20260101-000000.zip'),
+    )..writeAsBytesSync(const [1, 2, 3]);
+    legacy.setLastModifiedSync(
+      DateTime.now().subtract(const Duration(days: 8)),
+    );
+
+    await vault.prune();
+
+    expect(namesIn(documents), isEmpty);
   });
 
   test('copies older than a week go, the rest stay', () async {
@@ -165,11 +200,17 @@ void main() {
     await store.upsert(localId: 'a', contentHash: 'h', platform: 'ios');
 
     final old = File(
-      p.join(documents.path, '${LocalVault.guardPrefix}import-old.zip'),
+      p.join(
+        documents.path,
+        LocalVault.guardName('import', DateTime(2026, 1, 1)),
+      ),
     )..writeAsBytesSync(const [1, 2, 3]);
     old.setLastModifiedSync(DateTime.now().subtract(const Duration(days: 8)));
     final recent = File(
-      p.join(documents.path, '${LocalVault.guardPrefix}import-recent.zip'),
+      p.join(
+        documents.path,
+        LocalVault.guardName('import', DateTime(2026, 9, 20)),
+      ),
     )..writeAsBytesSync(const [1, 2, 3]);
     recent.setLastModifiedSync(
       DateTime.now().subtract(const Duration(days: 2)),
@@ -187,7 +228,7 @@ void main() {
     expect(
       namesIn(documents),
       unorderedEquals([
-        '${LocalVault.guardPrefix}import-recent.zip',
+        '20260920-000000-before-import-photos-vault.zip',
         'holiday.zip',
       ]),
     );

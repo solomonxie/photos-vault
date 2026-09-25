@@ -75,16 +75,40 @@ class LocalVault {
   /// backgrounding the app leaves one file in Files rather than seven.
   static const dailyFileName = 'photos-vault-daily.zip';
 
-  /// Anything a large operation writes is named apart from the daily one,
-  /// so the overwrite can't eat it and the user can tell at a glance what
-  /// it is: `photos-vault-before-restore-20260918-143210.zip`.
-  static const guardPrefix = 'photos-vault-before-';
+  /// Datetime, then purpose, then whose it is:
+  /// `20260918-143210-before-restore-photos-vault.zip`.
+  ///
+  /// Leading with the datetime is what makes the folder read in order in
+  /// Files, where these sit beside whatever else the user keeps there.
+  /// The purpose next, because that is the question being asked of the
+  /// list; the app name last, where it identifies without sorting on.
+  static String guardName(String operation, DateTime at) =>
+      '${archiveStamp(at)}-before-$operation-$archiveAppName.zip';
 
   /// The copy taken immediately before Remove All App Data, named apart
   /// from the other guards because it is the one somebody goes looking for
-  /// by name once the app is empty:
-  /// `photos-vault-pre-deletion-20260918-143210.zip`.
-  static const preDeletionStem = 'photos-vault-pre-deletion';
+  /// once the app is empty:
+  /// `20260918-143210-pre-deletion-photos-vault.zip`.
+  static String preDeletionName(DateTime at) => preDeletionArchiveName(at);
+
+  /// What builds before the rename wrote, and what a phone upgrading to
+  /// this one still has sitting in Files. Still listed, still pruned,
+  /// still restorable.
+  static const legacyGuardPrefix = 'photos-vault-before-';
+  static const legacyPreDeletionStem = 'photos-vault-pre-deletion';
+
+  /// A copy this app wrote, of either naming generation — the daily one
+  /// excepted, which is handled on its own everywhere it matters.
+  static bool isGuardCopy(String name) =>
+      name.endsWith('.zip') &&
+      name != dailyFileName &&
+      (isPreDeletionCopy(name) ||
+          name.startsWith(legacyGuardPrefix) ||
+          RegExp('^\\d{8}-\\d{6}-before-.+-$archiveAppName\\.zip\$')
+              .hasMatch(name));
+
+  static bool isPreDeletionCopy(String name) =>
+      isPreDeletionArchiveName(name) || name.startsWith(legacyPreDeletionStem);
 
   /// Raw database copies, out of the Files-visible folder: they're a
   /// mechanism for rollback, not something to hand anyone.
@@ -94,6 +118,16 @@ class LocalVault {
   /// count silently caps how many imports you get before losing yesterday.
   /// Age keeps the promise legible — anything from the last week.
   static const keepFor = Duration(days: 7);
+
+  /// The pre-deletion copy is exempt from [keepFor] and capped by count
+  /// instead.
+  ///
+  /// Age is the wrong rule for the one copy whose whole point is being
+  /// wanted late: somebody who empties the app and regrets it a fortnight
+  /// later is exactly who took it. A count is safe here where it wasn't
+  /// for the guards, because these are only written by an explicit, rare,
+  /// deliberate act rather than by every import.
+  static const keepPreDeletionCopies = 3;
 
   /// Today's copy, if it's owed: at most once a day, and only if the change
   /// log moved since the last one.
@@ -125,7 +159,7 @@ class LocalVault {
   ///
   /// [operation] names it: `restore`, `import`, `demo-data`.
   Future<File?> guard(String operation) =>
-      _guardedCopy('$guardPrefix$operation', operation);
+      _guardedCopy(guardName(operation, _now()), operation);
 
   /// The same copy, before the one operation that leaves nothing behind.
   ///
@@ -134,23 +168,15 @@ class LocalVault {
   /// — so it is always made, and named so it can be found afterwards by
   /// someone who only remembers that they deleted everything.
   Future<File?> guardBeforeDeletion() =>
-      _guardedCopy(preDeletionStem, 'pre-deletion');
+      _guardedCopy(preDeletionName(_now()), 'pre-deletion');
 
-  Future<File?> _guardedCopy(String stem, String label) async {
-    final stamp = _stamp(_now());
-    final name = '$stem-$stamp.zip';
+  Future<File?> _guardedCopy(String name, String label) async {
     if (!await _writeZip(name)) return null;
-    await _copyDatabases(suffix: '$label-$stamp');
+    // The raw copies take the same shape, with the database's own name
+    // where the app's goes: `20260918-143210-pre-deletion-asset_record.db`.
+    await _copyDatabases(prefix: '${archiveStamp(_now())}-$label');
     return File(p.join((await _documentsDirectory()).path, name));
   }
-
-  static String _stamp(DateTime at) =>
-      '${at.year.toString().padLeft(4, '0')}'
-      '${at.month.toString().padLeft(2, '0')}'
-      '${at.day.toString().padLeft(2, '0')}-'
-      '${at.hour.toString().padLeft(2, '0')}'
-      '${at.minute.toString().padLeft(2, '0')}'
-      '${at.second.toString().padLeft(2, '0')}';
 
   /// One payload, written wherever tier 1 wants it. The same bytes iCloud
   /// and the bucket get — which is what makes a file dragged out of Files
@@ -175,47 +201,99 @@ class LocalVault {
 
   /// The raw files, checkpointed first so the copy isn't missing the writes
   /// still sitting in the `-wal` sidecar.
-  Future<void> _copyDatabases({String? suffix}) async {
+  Future<void> _copyDatabases({String? prefix}) async {
     try {
       final directory = Directory(
         p.join((await _supportDirectory()).path, databaseCopyDirectory),
       );
       await directory.create(recursive: true);
       final at = _now();
-      final stamp =
-          suffix ??
+      // The daily copy leads with the date and no time, so a second one
+      // the same day replaces the first rather than joining it.
+      final lead =
+          prefix ??
           '${at.year.toString().padLeft(4, '0')}'
               '${at.month.toString().padLeft(2, '0')}'
-              '${at.day.toString().padLeft(2, '0')}';
+              '${at.day.toString().padLeft(2, '0')}-daily';
       for (final file in await snapshots.databaseFiles()) {
         final base = p.basenameWithoutExtension(file.path);
-        await file.copy(p.join(directory.path, '$base-$stamp.db'));
+        await file.copy(p.join(directory.path, '$lead-$base.db'));
       }
     } catch (_) {
       // Same as the zip: unattended, and the zip already went out.
     }
   }
 
-  /// Drops anything this app wrote that is older than [keepFor]. The daily
-  /// zip is exempt — it's overwritten, not accumulated, so pruning it would
-  /// just delete the most recent copy on a quiet week.
+  /// Drops anything this app wrote that is older than [keepFor], then
+  /// trims the pre-deletion copies to [keepPreDeletionCopies].
+  ///
+  /// Two rules because there are two kinds of copy. The daily zip is
+  /// exempt from both — it's overwritten, not accumulated, so pruning it
+  /// would just delete the most recent copy on a quiet week. The
+  /// pre-deletion copy is exempt from the age rule for the opposite
+  /// reason: it is the one wanted late.
   Future<void> prune() async {
     final cutoff = _now().subtract(keepFor);
+    final documents = await _documentsDirectory();
+    final databaseCopies = Directory(
+      p.join((await _supportDirectory()).path, databaseCopyDirectory),
+    );
+
     await _pruneIn(
-      await _documentsDirectory(),
-      (name) =>
-          (name.startsWith(guardPrefix) || name.startsWith(preDeletionStem)) &&
-          name.endsWith('.zip'),
+      documents,
+      (name) => isGuardCopy(name) && !isPreDeletionCopy(name),
       cutoff,
     );
     await _pruneIn(
-      Directory(
-        p.join((await _supportDirectory()).path, databaseCopyDirectory),
-      ),
-      (name) => name.endsWith('.db'),
+      databaseCopies,
+      (name) => name.endsWith('.db') && !_isPreDeletionDatabaseCopy(name),
       cutoff,
     );
+
+    await _trimPreDeletion(documents, isPreDeletionCopy);
+    await _trimPreDeletion(databaseCopies, _isPreDeletionDatabaseCopy);
   }
+
+  static bool _isPreDeletionDatabaseCopy(String name) =>
+      name.endsWith('.db') && name.contains('-pre-deletion-');
+
+  /// Keeps the [keepPreDeletionCopies] most recent wipes' worth and drops
+  /// the rest.
+  ///
+  /// Counted in wipes rather than in files, because one wipe writes a zip
+  /// and a copy of every database and they all have to go together. The
+  /// datetime in the name is what groups them — it is the same second for
+  /// every file one wipe produced, wherever in the name that generation
+  /// happened to put it.
+  Future<void> _trimPreDeletion(
+    Directory directory,
+    bool Function(String name) mine,
+  ) async {
+    try {
+      if (!directory.existsSync()) return;
+      final byStamp = <String, List<File>>{};
+      for (final file in directory.listSync().whereType<File>()) {
+        final name = p.basename(file.path);
+        if (!mine(name)) continue;
+        final stamp = _stampIn.firstMatch(name)?.group(0);
+        // Not one of ours after all, or a name no generation ever wrote.
+        // Deleting it is not this method's call to make.
+        if (stamp == null) continue;
+        (byStamp[stamp] ??= []).add(file);
+      }
+      final stamps = byStamp.keys.toList()..sort();
+      if (stamps.length <= keepPreDeletionCopies) return;
+      for (final stamp in stamps.take(stamps.length - keepPreDeletionCopies)) {
+        for (final file in byStamp[stamp]!) {
+          await file.delete();
+        }
+      }
+    } catch (_) {
+      // Same as the age prune: nothing here is load-bearing.
+    }
+  }
+
+  static final _stampIn = RegExp(r'\d{8}-\d{6}');
 
   Future<void> _pruneIn(
     Directory directory,

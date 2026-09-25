@@ -98,6 +98,19 @@ class ICloudDrive {
     }
   }
 
+  /// One file by name. Which archive to restore from is [ICloudBackup]'s
+  /// question — a pre-deletion copy outranks a newer daily one, and that
+  /// isn't answerable by sorting names.
+  Future<Uint8List?> readBytes(String name) async {
+    try {
+      return await _channel.invokeMethod<Uint8List>('readBytes', {
+        'name': name,
+      });
+    } catch (_) {
+      return null;
+    }
+  }
+
   /// The most recent file in the folder, by name — which sorts by date
   /// because of how [ICloudBackup] names them. `null` if the folder is
   /// empty or unreadable.
