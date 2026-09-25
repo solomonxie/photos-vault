@@ -259,7 +259,7 @@
   },
   "settingsRemoveAllAppDataButton": "移除所有应用数据",
   "settingsRemoveAllAppDataTitle": "移除所有应用数据？",
-  "settingsRemoveAllAppDataBody": "此操作无法撤销。删除所有内容前，系统会先提示你将应用数据导出到本地文件夹。",
+  "settingsRemoveAllAppDataBody": "此操作无法撤销。删除前会先自动保存一份副本，文件名以 photos-vault-pre-deletion 开头，保存在本机；iCloud 云盘和存储桶可连接时也会各存一份。",
   "settingsRemoveAllAppDataConfirm": "移除所有数据",
   "settingsICloudNotEntitled": "此版本未签署 iCloud 权限",
   "settingsICloudDriveOff": "此设备未开启 iCloud 云盘",

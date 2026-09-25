@@ -747,19 +747,38 @@ class _SettingsScreenState extends State<SettingsScreen>
     if (confirmed != true || !mounted) return;
     setState(() => _removingAppData = true);
     try {
-      // These are deliberately archival copies rather than the daily name:
-      // deleting the library makes the next daily backup empty.
-      await Future.wait([
-        _vault.guard('remove-app-data'),
-        _icloudBackup.backUpBeforeRemoval(),
-        _bucketBackup.backUpBeforeRemoval(),
-      ]);
+      // No prompt, no share sheet: the copy is simply taken. On this phone
+      // first, because that one cannot fail to reach a network and is the
+      // one somebody comes back for. These are deliberately archival names
+      // rather than the daily one — deleting the library makes the next
+      // daily backup empty, and an empty backup must not overwrite this.
+      await _vault.guardBeforeDeletion();
+      await _archiveOffDevice();
       await _snapshots.clearAll();
       await _reload();
       await _reloadICloud();
       await _reloadBucketData();
     } finally {
       if (mounted) setState(() => _removingAppData = false);
+    }
+  }
+
+  /// iCloud Drive and every configured bucket, each when it can be reached.
+  /// Both answer `false` rather than throwing when they can't be, but a
+  /// revoked credential or a dropped connection still can — and one
+  /// destination failing must take neither the other one nor, as it used
+  /// to, the removal itself.
+  Future<void> _archiveOffDevice() async => Future.wait([
+    _attempt(_icloudBackup.backUpBeforeDeletion),
+    _attempt(_bucketBackup.backUpBeforeDeletion),
+  ]);
+
+  static Future<void> _attempt(Future<bool> Function() write) async {
+    try {
+      await write();
+    } catch (_) {
+      // Offline, no iCloud container, credentials since revoked. The copy
+      // on this phone is the one that always lands.
     }
   }
 }

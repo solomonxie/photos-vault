@@ -113,6 +113,53 @@ void main() {
     ]);
   });
 
+  test('the copy before a deletion says so in its name', () async {
+    final (:store, :vault) = newVault(now: () => DateTime(2026, 9, 18, 14, 32));
+    await store.upsert(localId: 'a', contentHash: 'h', platform: 'ios');
+
+    await vault.guardBeforeDeletion();
+
+    // The one file somebody goes looking for by name after wiping the app,
+    // and it holds the library as it stood a moment before.
+    expect(namesIn(documents), [
+      'photos-vault-pre-deletion-20260918-143200.zip',
+    ]);
+    final snapshot = unzipSnapshot(
+      File(
+        p.join(documents.path, 'photos-vault-pre-deletion-20260918-143200.zip'),
+      ).readAsBytesSync(),
+    );
+    expect(snapshot!.assets.single['localId'], 'a');
+  });
+
+  test('a pre-deletion copy prunes on the same week-old rule', () async {
+    final (:store, :vault) = newVault();
+    await store.upsert(localId: 'a', contentHash: 'h', platform: 'ios');
+
+    final old = File(
+      p.join(
+        documents.path,
+        '${LocalVault.preDeletionStem}-20260101-000000.zip',
+      ),
+    )..writeAsBytesSync(const [1, 2, 3]);
+    old.setLastModifiedSync(DateTime.now().subtract(const Duration(days: 8)));
+    final recent = File(
+      p.join(
+        documents.path,
+        '${LocalVault.preDeletionStem}-20260920-000000.zip',
+      ),
+    )..writeAsBytesSync(const [1, 2, 3]);
+    recent.setLastModifiedSync(
+      DateTime.now().subtract(const Duration(days: 2)),
+    );
+
+    await vault.prune();
+
+    expect(namesIn(documents), [
+      '${LocalVault.preDeletionStem}-20260920-000000.zip',
+    ]);
+  });
+
   test('copies older than a week go, the rest stay', () async {
     final (:store, :vault) = newVault();
     await store.upsert(localId: 'a', contentHash: 'h', platform: 'ios');

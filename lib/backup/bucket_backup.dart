@@ -143,14 +143,14 @@ class BucketBackup {
 
   /// A final archive that remains newer than any ordinary daily snapshot,
   /// including one written after the library has been emptied.
-  Future<bool> backUpBeforeRemoval() async {
+  Future<bool> backUpBeforeDeletion() async {
     final targets = await targetsStore.loadAll();
     if (targets.isEmpty) return false;
     final body = zipSnapshot(
       await snapshots.export(),
       changeLog: await snapshots.changeLog(),
     );
-    final name = removalArchiveName(DateTime.now());
+    final name = preDeletionArchiveName(DateTime.now());
     var wrote = false;
     for (final target in targets) {
       try {

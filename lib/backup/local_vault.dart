@@ -80,6 +80,12 @@ class LocalVault {
   /// it is: `photos-vault-before-restore-20260918-143210.zip`.
   static const guardPrefix = 'photos-vault-before-';
 
+  /// The copy taken immediately before Remove All App Data, named apart
+  /// from the other guards because it is the one somebody goes looking for
+  /// by name once the app is empty:
+  /// `photos-vault-pre-deletion-20260918-143210.zip`.
+  static const preDeletionStem = 'photos-vault-pre-deletion';
+
   /// Raw database copies, out of the Files-visible folder: they're a
   /// mechanism for rollback, not something to hand anyone.
   static const databaseCopyDirectory = 'database-copies';
@@ -118,20 +124,33 @@ class LocalVault {
   /// nothing at all.
   ///
   /// [operation] names it: `restore`, `import`, `demo-data`.
-  Future<File?> guard(String operation) async {
-    final at = _now();
-    final stamp =
-        '${at.year.toString().padLeft(4, '0')}'
-        '${at.month.toString().padLeft(2, '0')}'
-        '${at.day.toString().padLeft(2, '0')}-'
-        '${at.hour.toString().padLeft(2, '0')}'
-        '${at.minute.toString().padLeft(2, '0')}'
-        '${at.second.toString().padLeft(2, '0')}';
-    final name = '$guardPrefix$operation-$stamp.zip';
+  Future<File?> guard(String operation) =>
+      _guardedCopy('$guardPrefix$operation', operation);
+
+  /// The same copy, before the one operation that leaves nothing behind.
+  ///
+  /// Taken without asking. A prompt here is a question nobody can answer
+  /// usefully at the moment they are asked it, and the copy costs a second
+  /// — so it is always made, and named so it can be found afterwards by
+  /// someone who only remembers that they deleted everything.
+  Future<File?> guardBeforeDeletion() =>
+      _guardedCopy(preDeletionStem, 'pre-deletion');
+
+  Future<File?> _guardedCopy(String stem, String label) async {
+    final stamp = _stamp(_now());
+    final name = '$stem-$stamp.zip';
     if (!await _writeZip(name)) return null;
-    await _copyDatabases(suffix: '$operation-$stamp');
+    await _copyDatabases(suffix: '$label-$stamp');
     return File(p.join((await _documentsDirectory()).path, name));
   }
+
+  static String _stamp(DateTime at) =>
+      '${at.year.toString().padLeft(4, '0')}'
+      '${at.month.toString().padLeft(2, '0')}'
+      '${at.day.toString().padLeft(2, '0')}-'
+      '${at.hour.toString().padLeft(2, '0')}'
+      '${at.minute.toString().padLeft(2, '0')}'
+      '${at.second.toString().padLeft(2, '0')}';
 
   /// One payload, written wherever tier 1 wants it. The same bytes iCloud
   /// and the bucket get — which is what makes a file dragged out of Files
@@ -184,7 +203,9 @@ class LocalVault {
     final cutoff = _now().subtract(keepFor);
     await _pruneIn(
       await _documentsDirectory(),
-      (name) => name.startsWith(guardPrefix) && name.endsWith('.zip'),
+      (name) =>
+          (name.startsWith(guardPrefix) || name.startsWith(preDeletionStem)) &&
+          name.endsWith('.zip'),
       cutoff,
     );
     await _pruneIn(
