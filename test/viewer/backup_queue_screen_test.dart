@@ -40,7 +40,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.text("Nothing in the queue — everything's backed up."),
+      find.text("The queue is empty. Everything is backed up."),
       findsOneWidget,
     );
   });
@@ -155,7 +155,7 @@ void main() {
     // holding a dozen green ticks reads as one that didn't work.
     expect(await queue.store.all(), isEmpty);
     expect(
-      find.text("Nothing in the queue — everything's backed up."),
+      find.text("The queue is empty. Everything is backed up."),
       findsOneWidget,
     );
   });
@@ -241,12 +241,18 @@ void main() {
 
     // The page carries the current answer, not both answers and their
     // reasons laid out permanently.
-    expect(find.textContaining('Full quality, byte-identical'), findsNothing);
+    expect(
+      find.textContaining('Full quality, exactly as stored'),
+      findsNothing,
+    );
     await tester.tap(find.text('Original'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('Full quality, byte-identical'), findsOneWidget);
-    expect(find.textContaining('Re-encodes photos as WebP'), findsOneWidget);
+    expect(
+      find.textContaining('Full quality, exactly as stored'),
+      findsOneWidget,
+    );
+    expect(find.textContaining('Converts photos to WebP'), findsOneWidget);
     await tester.tap(find.text('Optimized (WebP)'));
     await tester.pumpAndSettle();
 

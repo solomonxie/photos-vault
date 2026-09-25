@@ -189,13 +189,13 @@ void main() {
 
     // Every tile drops, the seed included — it sits at the bottom of an
     // oldest-first grid, and a tile that won't toggle reads as broken.
-    expect(find.text('0 photos look like this face'), findsOneWidget);
+    expect(find.text('0 photos match this face'), findsOneWidget);
     expect(find.text('Select All'), findsOneWidget);
 
     await tester.tap(find.text('Select All'));
     await tester.pumpAndSettle();
 
-    expect(find.text('3 photos look like this face'), findsOneWidget);
+    expect(find.text('3 photos match this face'), findsOneWidget);
   });
 
   testWidgets('the New Person row makes the person, not just a hint', (

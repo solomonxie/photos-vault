@@ -6,9 +6,9 @@
   },
   "tabLibrary": "Library",
   "libraryEmptyTitle": "No Photos Yet",
-  "libraryEmptyNote": "Grant Photos access to back up your camera roll, or tap + to manually add files from the Files app.",
+  "libraryEmptyNote": "Allow access to Photos to back up your camera roll, or tap + to add files from the Files app.",
   "libraryAddFilesButton": "Add Files",
-  "libraryAddFilesResult": "Added {picked} file(s), backed up {succeeded}.",
+  "libraryAddFilesResult": "{picked, plural, one{Added 1 file} other{Added {picked} files}}, {succeeded} backed up.",
   "@libraryAddFilesResult": {
     "placeholders": {
       "picked": {
@@ -39,11 +39,11 @@
   "libraryDeletePermanentlyAction": "Delete Permanently",
   "libraryDeleteConfirmTitle": "Delete this item?",
   "libraryDeleteFromDevice": "Remove from Device",
-  "libraryDeleteFromDeviceNote": "Removing from this device frees up space and keeps the backed-up copy — the photo stays in your library, and you can download the full resolution again any time.",
+  "libraryDeleteFromDeviceNote": "This frees up space on your device. The photo stays in your library and in your backup, and you can download the full-resolution version again at any time.",
   "libraryDeleteEverywhere": "Delete Photo",
   "libraryDeleteFromDeviceFailed": "Couldn't remove this from the device.",
-  "libraryDeleteConfirmBody": "It moves to Recently Deleted.",
-  "libraryDeleteConfirmBodyGone": "It isn't backed up, so this deletes it for good.",
+  "libraryDeleteConfirmBody": "It will be moved to Recently Deleted.",
+  "libraryDeleteConfirmBodyGone": "This item isn't backed up, so it will be deleted permanently.",
   "libraryAlbumEmpty": "No photos in this album.",
   "libraryRemoveFromAlbum": "Remove from Album",
   "detailGifBadge": "GIF",
@@ -56,14 +56,14 @@
   },
   "detailFileUnavailable": "This file is no longer available.",
   "detailRestoreOriginal": "Download Full Resolution",
-  "detailCloudOnlyNote": "Only the copy in your bucket is left.",
+  "detailCloudOnlyNote": "Only the backed-up copy in your bucket remains.",
   "detailRestoringOriginal": "Downloading…",
   "detailDoneButton": "Done",
   "detailEditButton": "Edit",
   "detailShareOriginalOption": "Share Original",
   "detailExportAsOption": "Export As…",
   "detailExportFailed": "Couldn't export this photo.",
-  "detailEditNotInLibrary": "This isn't in your Photos library, so it can't be edited there.",
+  "detailEditNotInLibrary": "This photo isn't in your Photos library, so it can't be edited in Photos.",
   "detailEditCropOption": "Crop",
   "detailEditRotateOption": "Rotate",
   "detailEditAiOption": "AI Touch Up",
@@ -71,7 +71,7 @@
   "editSaveButton": "Save",
   "editResetButton": "Reset",
   "editFailed": "Couldn't apply this edit.",
-  "editSavedAsCopy": "Saved as a new photo — the original is untouched.",
+  "editSavedAsCopy": "Saved as a new photo. The original is unchanged.",
   "editAngleDegrees": "{degrees}°",
   "@editAngleDegrees": {
     "placeholders": {
@@ -81,7 +81,7 @@
     }
   },
   "aiTouchUpTitle": "AI Touch Up",
-  "aiTouchUpPromptPlaceholder": "Describe the edit — \"brighten it and remove the fence\"",
+  "aiTouchUpPromptPlaceholder": "Describe the edit, e.g. \"Brighten it and remove the fence\"",
   "aiTouchUpStart": "Start",
   "aiTouchUpWorking": "AI working…",
   "aiTouchUpDone": "AI touch-up added to your library.",
@@ -94,7 +94,7 @@
     }
   },
   "aiTouchUpNoKey": "Add an AI key in Settings first.",
-  "aiTouchUpNote": "The photo and your prompt are sent to your AI vendor, and the result comes back as a new photo — this one stays as it is.",
+  "aiTouchUpNote": "The photo and your prompt are sent to your AI provider. The result is saved as a new photo, and the original is unchanged.",
   "detailInfoStatus": "Backup status",
   "detailInfoDimensions": "Dimensions",
   "detailInfoFileSize": "File Size",
@@ -108,12 +108,12 @@
   "detailDescriptionPlaceholder": "Add a description",
   "detailSuggestAi": "AI Suggest",
   "detailSuggestNoKey": "Add an AI key in AI Settings to use this.",
-  "detailSuggestNothing": "Nothing to suggest for this photo.",
+  "detailSuggestNothing": "No suggestions for this photo.",
   "detailFindFaces": "Find Faces",
   "@detailFindFaces": {
     "description": "Small link on the People header that detects faces in this photo, on the phone"
   },
-  "detailFacesHint": "Tap a face to say who it is.",
+  "detailFacesHint": "Tap a face to name the person.",
   "detailTagsHeader": "Tags",
   "detailPeopleHeader": "People",
   "detailPeopleTagPickerTitle": "Tag Person",
@@ -122,7 +122,7 @@
   "albumsNewTitle": "New Album",
   "albumsNewNamePlaceholder": "Album name",
   "albumUseAsCover": "Use as Album Cover",
-  "albumUseDefaultCover": "Use Colour Cover",
+  "albumUseDefaultCover": "Use Color Cover",
   "albumAddPhotos": "Add Photos",
   "albumDescriptionPlaceholder": "Add a note about this album",
   "albumTagsHeading": "Tags",
@@ -153,8 +153,8 @@
     }
   },
   "collectionsShowLess": "Show Less",
-  "collectionsPlacesEmpty": "Set a place on a photo and it shows up here.",
-  "collectionsEventsEmpty": "Set an event on a photo and it shows up here.",
+  "collectionsPlacesEmpty": "Photos with a place set will show up here.",
+  "collectionsEventsEmpty": "Photos with an event set will show up here.",
   "collectionsAiSuggestions": "AI Suggestions",
   "collectionsGroupPhotoCount": "{count, plural, one{1 photo} other{{count} photos}}",
   "@collectionsGroupPhotoCount": {
@@ -220,7 +220,7 @@
     }
   },
   "selectionDone": "Done",
-  "selectionHint": "Hold a photo to select more.",
+  "selectionHint": "Touch and hold a photo to select more.",
   "@selectionTitle": {
     "placeholders": {
       "count": {
@@ -237,9 +237,9 @@
   "collectionsImportPhotosRow": "Import Photos",
   "privacyHeading": "Privacy by Design",
   "privacyTitle": "Your photos stay yours.",
-  "privacyBody": "The library, its records and its faces live in a database on this iPhone and are worked out here — grouping, search and face recognition all run on the device. There is no Photos Vault server and no account, so nothing ever reaches whoever made this app. Photos leave only where you send them: your own bucket for backup, your own iCloud, your own key for an AI analysis. Keys stay in the Keychain, never in a backup. Delete the app and the local data goes with it.",
+  "privacyBody": "Your library, its records and its face data are stored in a database on this iPhone, and all processing — grouping, search and face recognition — happens on the device. There is no Photos Vault server and no account, so nothing is ever sent to the developer. Photos only go where you send them: your own bucket for backup, your own iCloud, or your own AI key for analysis. Keys are kept in the Keychain and never included in a backup. If you delete the app, its local data is deleted with it.",
   "backupQueueTitle": "Sync Queue",
-  "backupQueueEmpty": "Nothing in the queue — everything's backed up.",
+  "backupQueueEmpty": "The queue is empty. Everything is backed up.",
   "backupQueueClearButton": "Empty Queue",
   "backupQueueRetryFailedButton": "Retry Failed",
   "backupQueueHeader": "Queue ({count})",
@@ -262,7 +262,7 @@
   "backupQueueKindOriginal": "Backing up original",
   "backupQueueKindThumbnail": "Backing up thumbnail",
   "backupQueueKindLivePhoto": "Backing up Live Photo motion",
-  "backupQueueKindAnalyze": "Looking at the photo",
+  "backupQueueKindAnalyze": "Analyzing photo",
   "backupQueueWaiting": "Waiting",
   "backupQueueIdle": "Idle",
   "backupQueueSpeed": "{count} at a time",
@@ -294,7 +294,7 @@
   "settingsBackupFormatRow": "Format",
   "settingsSyncSpeedRow": "Upload speed",
   "settingsSyncFrequencyHeading": "Sync Frequency",
-  "settingsSyncFrequencyHint": "Runs only while the app is open — there's no background-sync permission yet.",
+  "settingsSyncFrequencyHint": "Sync only runs while the app is open. Background sync isn't supported yet.",
   "settingsSyncFrequencyManual": "Manual Only",
   "settingsSyncFrequencyEvery15Minutes": "Every 15 Minutes",
   "settingsSyncFrequencyEveryHour": "Every Hour",
@@ -310,23 +310,23 @@
     }
   },
   "settingsCloudVendorLabel": "Cloud vendor",
-  "settingsCloudVendorHint": "Whose cloud the bucket lives in — Amazon S3, Tencent COS, Alibaba OSS. Google Cloud Storage, Azure Blob and Backblaze B2 are coming.",
-  "settingsBackupFormatHint": "What actually gets uploaded for each photo.",
+  "settingsCloudVendorHint": "The provider that hosts your bucket: Amazon S3, Tencent COS or Alibaba OSS. Google Cloud Storage, Azure Blob and Backblaze B2 are coming soon.",
+  "settingsBackupFormatHint": "What gets uploaded for each photo.",
   "settingsBackupFormatHeading": "Backup Format",
   "settingsBackupFormatOriginal": "Original",
-  "settingsBackupFormatOriginalDescription": "Full quality, byte-identical to your device — larger uploads and more storage used.",
+  "settingsBackupFormatOriginalDescription": "Full quality, exactly as stored on your device. Larger uploads and more storage used.",
   "settingsBackupFormatOptimized": "Optimized (WebP)",
-  "settingsBackupFormatOptimizedDescription": "Re-encodes photos as WebP to cut upload and storage size, at a small, usually unnoticeable quality loss.",
-  "settingsBackupFormatVideoNote": "Videos always back up at original quality — there's no video re-encoding yet.",
-  "settingsBackupFormatFolderNote": "Both formats still upload under the same \"originals/\" folder — that name means full resolution (as opposed to a future thumbnail/medium tier), not \"byte-for-byte unmodified\". An Optimized upload there just has a .webp extension instead of the original file's.",
+  "settingsBackupFormatOptimizedDescription": "Converts photos to WebP for smaller uploads and less storage, with a small, usually unnoticeable loss in quality.",
+  "settingsBackupFormatVideoNote": "Videos are always backed up at original quality. Video conversion isn't supported yet.",
+  "settingsBackupFormatFolderNote": "Both formats are stored in the same \"originals/\" folder in your bucket. Optimized uploads simply have a .webp extension instead of the original one.",
   "settingsAppDataHeading": "App Data",
-  "settingsAppDataHint": "Albums, people, tags, captions and places — everything that isn't the photo itself. Copied out once a day, on the days something changed, and pulled back automatically if you reinstall. Keep a copy in either place, or both. Not sync between devices, and never your bucket keys.",
+  "settingsAppDataHint": "Albums, people, tags, captions and places — everything except the photos themselves. A copy is saved once a day when something has changed, and restored automatically if you reinstall the app. You can keep a copy in either place, or both. This isn't sync between devices, and your bucket keys are never included.",
   "settingsICloudRow": "iCloud Drive",
   "settingsBucketDataRow": "Your Cloud Bucket",
-  "settingsBucketDataPath": "app-data/YYYYMMDD.zip in every bucket",
+  "settingsBucketDataPath": "Saved as app-data/YYYYMMDD.zip in every bucket",
   "settingsBucketDataNoBucket": "Add a bucket below first",
   "settingsICloudPath": "Files → iCloud Drive → Photos Vault",
-  "settingsICloudNever": "Nothing backed up yet",
+  "settingsICloudNever": "No backup yet",
   "settingsICloudLastBackup": "Last copy {when}",
   "@settingsICloudLastBackup": {
     "placeholders": {
@@ -337,11 +337,11 @@
   },
   "settingsAppDataExportButton": "Export File",
   "settingsAppDataRestoreButton": "Restore from File",
-  "settingsAppDataLocalCopies": "Also kept on this iPhone — Files → On My iPhone → Photos Vault. The last 7 days, plus a copy taken before anything that rewrites a lot at once. Deleting the app deletes those too.",
-  "settingsAppDataExportFailed": "Couldn't write the file. Check there's space free and try again.",
-  "settingsAppDataRestoreUnreadable": "That file isn't a backup this version can read.",
+  "settingsAppDataLocalCopies": "A copy is also kept on this iPhone, in Files → On My iPhone → Photos Vault. The last 7 days are kept, plus a copy taken before any large change. Deleting the app deletes these too.",
+  "settingsAppDataExportFailed": "Couldn't save the file. Check that you have free space and try again.",
+  "settingsAppDataRestoreUnreadable": "This file isn't a backup that this version of the app can read.",
   "settingsAppDataRestoreConfirmTitle": "Restore this backup?",
-  "settingsAppDataRestoreConfirmBody": "Adds the albums, people, tags and captions from {when}. Nothing already here is changed, and a copy of today is saved first.",
+  "settingsAppDataRestoreConfirmBody": "This adds the albums, people, tags and captions from {when}. Nothing you already have is changed, and a copy of your current data is saved first.",
   "@settingsAppDataRestoreConfirmBody": {
     "placeholders": {
       "when": {
@@ -350,7 +350,7 @@
     }
   },
   "settingsAppDataRestoreConfirmAction": "Restore",
-  "settingsAppDataRestoreDone": "Restored {count} photos' details.",
+  "settingsAppDataRestoreDone": "{count, plural, one{Restored details for 1 photo.} other{Restored details for {count} photos.}}",
   "@settingsAppDataRestoreDone": {
     "placeholders": {
       "count": {
@@ -358,7 +358,7 @@
       }
     }
   },
-  "settingsAppDataRestorePartial": "Restored {count} photos' details. {waiting} were already here and kept what they had.",
+  "settingsAppDataRestorePartial": "Restored details for {count} photos. {waiting} already had details and were left unchanged.",
   "@settingsAppDataRestorePartial": {
     "placeholders": {
       "count": {
@@ -376,17 +376,17 @@
   "settingsICloudNotEntitled": "This build of the app isn't signed for iCloud",
   "settingsICloudDriveOff": "iCloud Drive is off on this device",
   "settingsICloudDriveOffFix": "Settings → your name → iCloud → Drive → turn on",
-  "settingsICloudNotReady": "iCloud isn't ready yet — try again shortly",
+  "settingsICloudNotReady": "iCloud isn't ready yet. Try again in a moment.",
   "settingsCloudBucketsHeading": "Cloud Buckets",
   "settingsCloudHeading": "Cloud",
-  "settingsCloudHint": "Photos upload to storage you own. Credentials stay on this device and go straight to the bucket. Syncing runs only while the app is open — there's no background-sync permission yet.",
+  "settingsCloudHint": "Photos are uploaded to storage you own. Your credentials stay on this device and are sent only to the bucket. Sync only runs while the app is open; background sync isn't supported yet.",
   "settingsBucketOrderHeading": "Bucket Order",
-  "settingsBucketOrderHint": "Every photo ends up in every bucket either way — this only changes the order they're filled in.",
-  "settingsBucketOrderOneBucketNote": "Matters once you add a second bucket.",
+  "settingsBucketOrderHint": "Every photo is backed up to every bucket either way. This only changes the order the buckets are filled in.",
+  "settingsBucketOrderOneBucketNote": "This only matters once you have more than one bucket.",
   "settingsBucketOrderFileByFile": "Photo by Photo",
-  "settingsBucketOrderFileByFileDescription": "Each photo goes to every bucket before the next photo starts — every bucket stays equally up to date.",
+  "settingsBucketOrderFileByFileDescription": "Each photo is uploaded to every bucket before the next photo starts, so all buckets stay equally up to date.",
   "settingsBucketOrderBucketByBucket": "Bucket by Bucket",
-  "settingsBucketOrderBucketByBucketDescription": "One bucket gets the whole library before the next one starts — the first complete copy exists sooner.",
+  "settingsBucketOrderBucketByBucketDescription": "The whole library is uploaded to one bucket before the next one starts, so you get a complete backup sooner.",
   "settingsSyncQueueButton": "Queue ({count})",
   "@settingsSyncQueueButton": {
     "placeholders": {
@@ -399,9 +399,9 @@
   "settingsEmptyNote": "Add one to start backing up your photos and videos.",
   "settingsAddButton": "Add Cloud Bucket",
   "settingsAddedMessage": "Cloud bucket added",
-  "settingsDeleteConfirmTitle": "Remove this backup target?",
-  "settingsDeleteConfirmBody": "This won't delete any files already in the bucket — just this app's saved configuration for it.",
-  "settingsCloudBucketsHint": "Photos upload to storage you own. Credentials stay on this device and go straight to the bucket.",
+  "settingsDeleteConfirmTitle": "Remove this bucket?",
+  "settingsDeleteConfirmBody": "Files already in the bucket won't be deleted. This only removes the bucket from this app.",
+  "settingsCloudBucketsHint": "Photos are uploaded to storage you own. Your credentials stay on this device and are sent only to the bucket.",
   "settingsCloudBucketsFooter": "{buckets, plural, one{1 bucket} other{{buckets} buckets}} · {backedUp} of {total} photos backed up",
   "@settingsCloudBucketsFooter": {
     "placeholders": {
@@ -417,12 +417,12 @@
     }
   },
   "settingsBrowseFilesAction": "Browse Files",
-  "settingsDeleteConnectionAction": "Delete Connection",
+  "settingsDeleteConnectionAction": "Remove Bucket",
   "backupQueueHiddenItem": "Hidden photo",
   "collectionsSyncQueueRow": "Sync Queue",
   "collectionsBackupQueueRow": "Backup Queue",
   "collectionsAnalyzeQueueRow": "Analyze Queue",
-  "analyzeQueueRemaining": "{count, plural, =0{Nothing left to look at} one{1 photo to look at} other{{count} photos to look at}}",
+  "analyzeQueueRemaining": "{count, plural, =0{Nothing left to analyze} one{1 photo to analyze} other{{count} photos to analyze}}",
   "@analyzeQueueRemaining": {
     "placeholders": {
       "count": {
@@ -432,22 +432,22 @@
   },
   "backupQueueListHeading": "IN THE QUEUE",
   "analyzeQueueListHeading": "IN THE QUEUE",
-  "analyzeQueueFaceModelOn": "Face model: on — faces are matched by a model trained on faces.",
-  "analyzeQueueFaceModelOff": "Face model: off — falling back to general image matching, which is much weaker.",
+  "analyzeQueueFaceModelOn": "Face recognition model: on. Faces are matched using a model trained on faces.",
+  "analyzeQueueFaceModelOff": "Face recognition model: off. Faces are matched by general image similarity instead, which is much less accurate.",
   "analyzeQueueRescanButton": "Rescan All",
-  "analyzeQueueRescanConfirmTitle": "Look at every photo again?",
-  "analyzeQueueRescanConfirmBody": "Faces are found again from the newest photo down. Names you have given stay, and nothing is sent anywhere or paid for.",
+  "analyzeQueueRescanConfirmTitle": "Rescan all photos?",
+  "analyzeQueueRescanConfirmBody": "All photos will be scanned for faces again, starting with the newest. Names you've assigned are kept. Nothing is sent to any service and nothing is charged.",
   "analyzeQueueRunNowButton": "Analyze Now",
   "analyzeQueueRunningMessage": "Analyzing…",
-  "analyzeQueueEmpty": "Nothing left to look at. New photos join the queue as they arrive.",
-  "analyzeQueueStepFaces": "Looking for faces",
-  "analyzeQueueStepSuggest": "Asking your AI for tags and a caption",
+  "analyzeQueueEmpty": "Nothing left to analyze. New photos are added to the queue as they arrive.",
+  "analyzeQueueStepFaces": "Finding faces",
+  "analyzeQueueStepSuggest": "Getting tags and a caption from your AI provider",
   "analyzeQueueStepLearnFaces": "Learning a face",
   "analyzeQueueStepMatchFaces": "Matching faces to people",
   "analyzeQueueFrequencyHeading": "How Often",
-  "analyzeQueueFrequencyHint": "Runs only while the app is open, a few photos at a time — it is meant to take its time, not to finish today.",
+  "analyzeQueueFrequencyHint": "Runs only while the app is open, a few photos at a time. It's designed to work gradually rather than finish all at once.",
   "analyzeQueuePaidTitle": "Tags, events and captions",
-  "analyzeQueuePaidNote": "Costs one call to your AI vendor per photo. Faces and scanning stay free either way.",
+  "analyzeQueuePaidNote": "Uses one request to your AI provider per photo. Face detection and scanning are always free.",
   "analyzeQueuePaidNoKey": "Add an AI key in Utilities → AI Settings to turn this on.",
   "analyzeReviewSuggestionTitle": "Suggested",
   "analyzeReviewSuggestedEvent": "Event: {value}",
@@ -459,7 +459,7 @@
     }
   },
   "analyzeReviewAccept": "Keep",
-  "analyzeReviewDismiss": "No thanks",
+  "analyzeReviewDismiss": "Dismiss",
   "settingsSyncQueueRow": "Sync queue",
   "settingsSyncQueuePending": "{pending} pending",
   "@settingsSyncQueuePending": {
@@ -480,7 +480,7 @@
   "settingsLastSyncedNever": "Never synced",
   "settingsSyncingMessage": "Syncing…",
   "settingsAccessKeyIdLabel": "Access key ID",
-  "settingsLengthHint": "{actual} characters — AWS keys are usually {expected}. Check for a bad paste.",
+  "settingsLengthHint": "{actual} characters. AWS keys are usually {expected}. Check that it was pasted correctly.",
   "@settingsLengthHint": {
     "placeholders": {
       "actual": {
@@ -508,26 +508,26 @@
   "@settingsPasteGroupTitle": {
     "description": "Header over the bucket/credential fields; the bracketed part opens the paste box"
   },
-  "settingsPasteToggle": "(paste info to add)",
+  "settingsPasteToggle": "(paste credentials instead)",
   "settingsPasteToggleBack": "(back to fields)",
   "settingsPasteBlockLabel": "Credentials block",
   "@settingsPasteBlockLabel": {
     "description": "Label above the paste box that replaces the credential fields"
   },
   "settingsPasteBlockHint": "bucket: my-photos\nprefix: photos-vault/\naccess_key_id: AKIA…\nsecret_access_key: …",
-  "settingsPasteNote": "\"name: value\" or \"name=value\", any spelling. The region is still detected for you.",
-  "settingsPasteNoteEndpoint": "\"name: value\" or \"name=value\", any spelling. Paste the bucket's endpoint URL and it fills in the region too.",
+  "settingsPasteNote": "One \"name: value\" or \"name=value\" per line; field names are matched loosely. The region is detected automatically.",
+  "settingsPasteNoteEndpoint": "One \"name: value\" or \"name=value\" per line; field names are matched loosely. Paste the bucket's endpoint URL to fill in the region too.",
   "settingsPasteFromClipboard": "Paste from Clipboard",
   "settingsBucketLabel": "Bucket name",
   "settingsPrefixLabel": "Key prefix",
   "settingsRegionLabel": "Region",
-  "settingsRegionHint": "The one the bucket's console shows. Pick it or type it.",
-  "settingsRegionRequiredError": "Pick the region this bucket is in.",
+  "settingsRegionHint": "As shown in your bucket's console. Choose one or type it in.",
+  "settingsRegionRequiredError": "Choose the region this bucket is in.",
   "settingsBucketAppIdHint": "Including the APPID suffix, e.g. my-photos-1250000000.",
   "settingsRequiredFieldError": "Required",
   "settingsSaveButton": "Save",
   "settingsValidatingMessage": "Validating bucket access…",
-  "settingsAccessCheckForbidden": "Access denied. Check the access key, secret, and that this bucket allows it.",
+  "settingsAccessCheckForbidden": "Access denied. Check the access key and secret, and that they have permission for this bucket.",
   "settingsAccessCheckNotFound": "Bucket not found. Check the bucket name.",
   "settingsAccessCheckNotFoundRegion": "Bucket not found. Check the bucket name and region.",
   "settingsAccessCheckNetworkError": "Could not reach the bucket. Check your network and try again.",
@@ -535,9 +535,9 @@
   "settingsDraftsTitle": "DRAFTS",
   "settingsDraftUntitled": "(no bucket yet)",
   "settingsDraftDeleteTooltip": "Delete draft",
-  "settingsAiTodoNote": "These keys power AI-recognized People and Events smart collections. Places (GPS-based) doesn't need them.",
+  "settingsAiTodoNote": "These keys are used for AI-recognized People and Events collections. Places is based on GPS and doesn't need a key.",
   "settingsAiKeysHeading": "AI Keys",
-  "settingsAiKeysHint": "Each analysis uses one configured key, trying the next on failure. Reorder with the arrows.",
+  "settingsAiKeysHint": "Each request uses one key. If it fails, the next key is tried. Use the arrows to reorder.",
   "settingsAiKeyStrategySequential": "Sequential",
   "settingsAiKeyStrategyRoundRobin": "Round Robin",
   "settingsAiKeyRequestCount": "{count, plural, one{1 request} other{{count} requests}}",
@@ -563,7 +563,7 @@
   "settingsAiClearButton": "Remove Key",
   "settingsAiSavedMessage": "API key saved",
   "settingsAiClearedMessage": "API key removed",
-  "settingsAiUsageWarning": "Enabling this sends photo data to whichever AI vendor's key handles the request, and incurs API usage charges billed to your account with them.",
+  "settingsAiUsageWarning": "This sends photo data to the AI provider whose key handles the request. API usage is billed to your account with that provider.",
   "bucketBrowserStats": "{folders, plural, =0{} =1{1 folder · } other{{folders} folders · }}{files, plural, =0{no files} =1{1 file} other{{files} files}}{size}",
   "@bucketBrowserStats": {
     "placeholders": {
@@ -587,7 +587,7 @@
       }
     }
   },
-  "bucketBrowserDeleteBody": "They go from the bucket for good. Photos on this device aren't touched — but any copy that only existed here is gone.",
+  "bucketBrowserDeleteBody": "This permanently deletes the selected files from the bucket. Photos on this device aren't affected, but anything that existed only in the bucket will be lost.",
   "bucketBrowserDeleteFailed": "{count, plural, one{1 file couldn't be deleted.} other{{count} files couldn't be deleted.}}",
   "@bucketBrowserDeleteFailed": {
     "placeholders": {
@@ -600,16 +600,16 @@
   "bucketBrowserEmpty": "This folder is empty.",
   "bucketBrowserLoadMore": "Load More",
   "bucketPreviewUnsupported": "Can't preview this file type.",
-  "bucketPreviewOpenExternally": "Open Externally",
+  "bucketPreviewOpenExternally": "Open in Another App",
   "bucketShowInBucket": "Show in Bucket",
   "bucketOpenInBrowser": "Open in Browser",
-  "bucketObjectUnreachable": "No bucket this phone can reach has this photo's object.",
+  "bucketObjectUnreachable": "This photo's file isn't in any bucket this phone can reach.",
   "collectionsStorageRow": "Optimize Storage",
   "@collectionsStorageRow": {
     "description": "Utilities row and page title for the storage clean-up page"
   },
   "storageTitle": "Optimize Storage",
-  "storageHint": "Back up first. Shrinking or removing a copy leaves the bucket holding the only full-quality one.",
+  "storageHint": "Back up first. Once a local copy is reduced or removed, the bucket holds the only full-quality version.",
   "storageScanning": "Measuring {done} of {total}…",
   "@storageScanning": {
     "placeholders": {
@@ -650,12 +650,12 @@
   },
   "storageNeverScanned": "Not scanned yet.",
   "storageRescan": "Rescan",
-  "storageEmpty": "Nothing to optimize. Everything is backed up, and no local copy is bigger than it needs to be.",
+  "storageEmpty": "Nothing to optimize. Everything is backed up and no local copy is larger than it needs to be.",
   "storageFilterAll": "All",
   "storageIssueOnDevice": "On device",
   "storageIssueLargeFile": "Large file",
   "storageIssueHighResolution": "High resolution",
-  "storageIssueOptimizableFormat": "Optimizable format",
+  "storageIssueOptimizableFormat": "Convertible format",
   "storageFixBackUpFirst": "Back Up First",
   "storageFixRemoveFromDevice": "Remove from Device",
   "storageFixReduceResolution": "Reduce Resolution",
@@ -683,7 +683,7 @@
       }
     }
   },
-  "storageConfirmBody": "Each photo gets the fix on its own card. Removing keeps it in your library and re-downloads on demand; reducing or converting replaces the copy on this device, and the bucket keeps the original.",
+  "storageConfirmBody": "Each photo is optimized using the action shown on its card. Removing keeps the photo in your library and downloads it again when needed. Reducing or converting replaces the copy on this device; the bucket keeps the original.",
   "storageResultFreed": "Freed {size}.",
   "@storageResultFreed": {
     "placeholders": {
@@ -700,7 +700,7 @@
       }
     }
   },
-  "storageResultSkipped": "{count, plural, one{1 was left alone.} other{{count} were left alone.}}",
+  "storageResultSkipped": "{count, plural, one{1 skipped.} other{{count} skipped.}}",
   "@storageResultSkipped": {
     "placeholders": {
       "count": {
@@ -710,7 +710,7 @@
   },
   "storageResultNothing": "Nothing changed.",
   "actionOk": "OK",
-  "privateAlbumReturnFailed": "{count, plural, one{One photo could not be put back into Photos. It is still here.} other{{count} photos could not be put back into Photos. They are still here.}}",
+  "privateAlbumReturnFailed": "{count, plural, one{1 photo couldn't be returned to Photos. It's still in this album.} other{{count} photos couldn't be returned to Photos. They're still in this album.}}",
   "@privateAlbumReturnFailed": {
     "placeholders": {
       "count": {
@@ -718,11 +718,11 @@
       }
     }
   },
-  "libraryHideStillInPhotos": "Hidden here, but Photos still has it — the removal was declined.",
-  "libraryHideFailed": "Could not copy the original, so nothing was hidden.",
-  "libraryHideNote": "Hidden photos are removed from Photos and kept by this app alone.",
-  "libraryDeleteBackupFailed": "Couldn't remove the backed-up copy from your bucket. The photo is still here — try again when you're back online.",
-  "libraryDeleteBatchCapped": "Photos only takes {limit} at a time. The rest are still selected — delete again to carry on.",
+  "libraryHideStillInPhotos": "Hidden in this app, but it's still in Photos because you didn't allow it to be removed.",
+  "libraryHideFailed": "Couldn't copy the original, so the photo wasn't hidden.",
+  "libraryHideNote": "Hidden photos are removed from Photos and kept only in this app.",
+  "libraryDeleteBackupFailed": "Couldn't delete the backup from your bucket. The photo is still here. Try again when you're back online.",
+  "libraryDeleteBatchCapped": "Photos can only delete {limit} at a time. The rest are still selected. Tap Delete again to continue.",
   "@libraryDeleteBatchCapped": {
     "placeholders": {
       "limit": {
@@ -758,7 +758,7 @@
   "privateAlbumMoveFromLibrary": "Add",
   "privateAlbumDeleteAlbum": "Delete Private Album",
   "privateAlbumDeleteConfirmTitle": "Delete this private album?",
-  "privateAlbumDeleteConfirmBody": "Moved photos return to your library. Nothing is deleted.",
+  "privateAlbumDeleteConfirmBody": "The photos will be moved back to your library. Nothing is deleted.",
   "privateAlbumPickerMoveTitle": "Move to Private Album",
   "privateAlbumPickerAddButton": "{count, plural, one{Add 1} other{Add {count}}}",
   "@privateAlbumPickerAddButton": {
@@ -770,16 +770,16 @@
   },
   "privateAlbumPickerEmpty": "No photos available to add.",
   "privateAlbumBackupTitle": "Backup",
-  "privateAlbumBackupStatusOn": "These photos live in your bucket, encrypted.",
-  "privateAlbumBackupStatusOff": "No bucket yet, so these stay on this phone.",
-  "privateAlbumBackupExplainer": "Hiding takes a photo out of Photos, and what leaves this phone is an ordinary-looking picture with yours encrypted inside it. Only your passphrase opens it.\n\nNothing about it stays here — no file, no thumbnail, no record — so this album needs a connection to show you anything.",
+  "privateAlbumBackupStatusOn": "These photos are stored encrypted in your bucket.",
+  "privateAlbumBackupStatusOff": "No bucket set up, so these photos stay on this phone.",
+  "privateAlbumBackupExplainer": "Hiding removes a photo from Photos. What's uploaded looks like an ordinary picture, with your photo encrypted inside it. Only your passphrase can open it.\n\nNothing is kept on this phone — no file, no thumbnail, no record — so this album needs an internet connection to show anything.",
   "vaultSetupTitle": "Private photos",
-  "vaultSetupBody": "Photos you hide leave this phone encrypted, disguised as ordinary photos in your bucket. This passphrase is the only thing that opens them.",
+  "vaultSetupBody": "Photos you hide are encrypted and stored in your bucket disguised as ordinary photos. This passphrase is the only way to open them.",
   "vaultSetupPassphraseLabel": "Passphrase",
   "vaultSetupHintLabel": "Hint",
-  "vaultSetupHintNote": "Optional. The hint travels in your backup, so anyone who can read your bucket can read it.",
-  "vaultSetupWarning": "Type it on a new phone to get these photos back. Lose it and nothing can open them — not this app, not anyone.",
-  "vaultSetupTooShort": "At least {count} characters. A passphrase someone can guess is a bucket someone can open.",
+  "vaultSetupHintNote": "Optional. The hint is stored in your backup, so anyone who can read your bucket can see it.",
+  "vaultSetupWarning": "You'll need to enter it on a new phone to get these photos back. If you lose it, nothing can open them — not this app, not anyone.",
+  "vaultSetupTooShort": "Use at least {count} characters. A passphrase that's easy to guess makes your bucket easy to open.",
   "@vaultSetupTooShort": {
     "placeholders": {
       "count": {
@@ -789,12 +789,12 @@
   },
   "vaultSetupContinue": "Continue",
   "vaultAddPassphraseTitle": "Add a passphrase",
-  "vaultAddPassphraseBody": "Photos backed up under an older passphrase open once you type it.",
-  "vaultPassphraseWrong": "That passphrase opens nothing here.",
+  "vaultAddPassphraseBody": "Photos backed up with an older passphrase can be opened once you enter it.",
+  "vaultPassphraseWrong": "No photos here open with that passphrase.",
   "vaultPassphrasesHeading": "PASSPHRASES",
   "vaultPassphraseInUse": "In use",
   "vaultPassphraseAdded": "Added",
-  "vaultPassphraseHint": "hint: {hint}",
+  "vaultPassphraseHint": "Hint: {hint}",
   "@vaultPassphraseHint": {
     "placeholders": {
       "hint": {
@@ -802,12 +802,12 @@
       }
     }
   },
-  "vaultPassphraseNoHint": "no hint",
-  "vaultForgetOnThisPhone": "Forget the passphrase on this phone",
+  "vaultPassphraseNoHint": "No hint",
+  "vaultForgetOnThisPhone": "Forget this passphrase on this phone",
   "vaultLockedItem": "Locked",
-  "vaultNeedsNetwork": "Hidden photos live in your bucket. Without a connection this album is empty.",
-  "vaultNoBucket": "With no bucket set up, hidden photos stay on this phone, unencrypted.",
-  "vaultHeldUpload": "{count} waiting for this album to be open",
+  "vaultNeedsNetwork": "Hidden photos are stored in your bucket. This album needs an internet connection.",
+  "vaultNoBucket": "Without a bucket, hidden photos stay on this phone unencrypted.",
+  "vaultHeldUpload": "{count} will upload once this album is opened",
   "@vaultHeldUpload": {
     "placeholders": {
       "count": {
@@ -819,10 +819,10 @@
   "peopleNamePromptTitle": "New Person",
   "peopleUnnamedFace": "Who's this?",
   "faceGroupTitle": "Who is this?",
-  "faceGroupNamePlaceholder": "Name, or search someone you've named",
+  "faceGroupNamePlaceholder": "Enter a name, or search people you've already named",
   "faceGroupSave": "Save",
   "personPageFindMore": "Find More Photos",
-  "faceGroupNoneForPerson": "No other faces look like them yet.",
+  "faceGroupNoneForPerson": "No other matching faces found yet.",
   "faceGroupMoreTitle": "More photos of {name}",
   "@faceGroupMoreTitle": {
     "placeholders": {
@@ -833,7 +833,7 @@
   },
   "faceGroupSelectAll": "Select All",
   "faceGroupDeselectAll": "Deselect All",
-  "faceGroupCount": "{count, plural, one{1 photo looks like this face} other{{count} photos look like this face}}",
+  "faceGroupCount": "{count, plural, one{1 photo matches this face} other{{count} photos match this face}}",
   "@faceGroupCount": {
     "placeholders": {
       "count": {
@@ -841,10 +841,10 @@
       }
     }
   },
-  "faceGroupNone": "No other photo looks like this one yet.",
-  "faceGroupNotScanned": "This face has not been looked at yet. Run Analyze Now.",
-  "faceGroupHint": "Nothing is saved until you give a name. Tap any photo that is not them to drop it.",
-  "faceGroupNeedsName": "Give this person a name first.",
+  "faceGroupNone": "No other matching photos found yet.",
+  "faceGroupNotScanned": "This face hasn't been analyzed yet. Use Analyze Now in the Analyze Queue.",
+  "faceGroupHint": "Nothing is saved until you enter a name. Tap any photo that isn't this person to remove it.",
+  "faceGroupNeedsName": "Enter a name for this person first.",
   "peopleSuggestedFace": "{name}?",
   "@peopleSuggestedFace": {
     "placeholders": {
@@ -866,7 +866,7 @@
   "peopleUnnamedHeading": "Faces to Name",
   "peopleEmpty": "No people yet. Tap + to add someone.",
   "peopleSearchEmpty": "No people match your search.",
-  "peopleAiAnalysisRow": "Find People with AI Analysis",
+  "peopleAiAnalysisRow": "Find People with AI",
   "personPageAddPhotos": "Add Photos",
   "personPagePhotosEmpty": "No photos tagged yet.",
   "personPageRemoveFromPerson": "Remove from Person",
@@ -888,13 +888,13 @@
   "personProfileEducationLabel": "Education",
   "personProfileJobLabel": "Job",
   "personProfileBioLabel": "About",
-  "personProfileBioEmpty": "This person doesn't have any bio",
+  "personProfileBioEmpty": "No bio yet.",
   "personProfileAvatarPickerTitle": "Profile Picture",
-  "personProfileAvatarPickerEmpty": "Tag this person in a photo first, and you can pick one here.",
+  "personProfileAvatarPickerEmpty": "Tag this person in a photo first, then choose a profile picture here.",
   "personProfileNotSet": "Not set",
   "personProfileLockButton": "Lock Profile",
   "personProfileUnlockButton": "Unlock",
-  "personProfileRemoveLockTitle": "Remove the lock on this profile?",
+  "personProfileRemoveLockTitle": "Remove the passcode from this profile?",
   "personProfileLockedNote": "This profile's details are locked.",
   "personProfileHintPrefix": "Hint: {hint}",
   "@personProfileHintPrefix": {
@@ -905,14 +905,14 @@
     }
   },
   "personProfileSetPasscodeTitle": "Lock Profile",
-  "personProfileSetPasscodeBody": "Choose a passcode to hide this profile's details.",
+  "personProfileSetPasscodeBody": "Set a passcode to hide this profile's details.",
   "personProfilePasscodeLabel": "Passcode",
   "personProfileHintLabel": "Hint (optional)",
   "personProfileUnlockTitle": "Enter Passcode",
   "personProfileWrongPasscode": "Incorrect passcode.",
   "personProfileRelationshipsHeader": "Relationships",
   "relationshipDeleteConfirmTitle": "Remove this relationship?",
-  "relationshipDeleteConfirmBody": "This only removes the link between {name} and this profile — neither person is deleted.",
+  "relationshipDeleteConfirmBody": "This only removes the relationship between {name} and this person. Neither profile is deleted.",
   "@relationshipDeleteConfirmBody": {
     "placeholders": {
       "name": {
@@ -926,7 +926,7 @@
   "personProfileLocationRelocation": "Relocation",
   "personProfileDeletePerson": "Delete Person",
   "personProfileDeleteConfirmTitle": "Delete this person?",
-  "personProfileDeleteConfirmBody": "Removes their profile and relationships. Photos stay in your library.",
+  "personProfileDeleteConfirmBody": "This deletes their profile and relationships. Photos stay in your library.",
   "personHistoryStartLabel": "Start",
   "personHistoryEndLabel": "End",
   "personHistoryPresentLabel": "Present",
@@ -954,7 +954,7 @@
       }
     }
   },
-  "personPickerTypeToCreate": "Type a name to tag someone new.",
+  "personPickerTypeToCreate": "Type a name to add a new person.",
   "relationshipTypeFamily": "Family",
   "relationshipTypeSpouse": "Spouse",
   "relationshipTypeParent": "Parent of",
@@ -975,16 +975,16 @@
       }
     }
   },
-  "stringPickerTypeToCreate": "Type to search or create a new value.",
+  "stringPickerTypeToCreate": "Type to search, or enter a new value.",
   "locationAddTitle": "Add Location",
   "locationEditTitle": "Edit Location",
   "locationPlaceLabel": "Place",
   "personGraphTitle": "Relationship Graph",
   "personGraphEmpty": "Add relationships to see the graph.",
-  "privateAlbumBackupNoBucket": "Until you add one, hidden photos stay on this phone and are not encrypted. This app holds the only copy, because Photos no longer has them.",
-  "privateAlbumBackupRecentlyDeleted": "Photos keeps what it deletes for 30 days. Hiding isn't finished until you empty its Recently Deleted.",
+  "privateAlbumBackupNoBucket": "Until you add a bucket, hidden photos stay on this phone and are not encrypted. This app holds the only copy, since they've been removed from Photos.",
+  "privateAlbumBackupRecentlyDeleted": "Photos keeps deleted items for 30 days. Hiding isn't complete until you empty Recently Deleted in Photos.",
   "privateAlbumHowTitle": "HOW THIS WORKS",
-  "privateAlbumHowBullets": "Every code opens an album. A code nobody has used opens an empty one, so nothing on this phone says whether anything is hidden.\nHiding takes the photo out of Photos. This app becomes the only holder of it.\nWhat goes to your bucket looks like an ordinary photo — a different picture from your own library, with yours encrypted inside it.\nThe decoy is picked to weigh about what your photo weighs, so it doesn't stand out in a list.\nThe decoy never wears your photo's date, and nothing records which picture is wearing which.\nYour passphrase and your four digits together make the key. Neither is stored anywhere, on this phone or in the bucket.\nNothing about a hidden photo stays here: no file, no thumbnail, no database row. That is why this album needs a connection.\nThumbnails come down 64 KB at a time, so a grid costs a fraction of what the photos do.\nNothing is ever deleted from your bucket unless you ask for it.\nAnyone who reads this app's source can spot a carrier and count them. They still cannot open one.",
+  "privateAlbumHowBullets": "Every code opens an album. A code that hasn't been used opens an empty one, so nothing on this phone reveals whether anything is hidden.\nHiding removes the photo from Photos. This app then holds the only copy.\nWhat's uploaded to your bucket looks like an ordinary photo: a different picture from your library, with your hidden photo encrypted inside it.\nThe decoy is chosen to be about the same file size as your photo, so it doesn't stand out.\nThe decoy never carries your photo's date, and nothing records which decoy holds which photo.\nYour passphrase and 4-digit code together form the key. Neither is stored anywhere, on this phone or in the bucket.\nNothing about a hidden photo is kept on this phone: no file, no thumbnail, no record. That's why this album needs an internet connection.\nThumbnails are downloaded 64 KB at a time, so browsing the grid uses a fraction of the data the full photos would.\nNothing is ever deleted from your bucket unless you delete it yourself.\nAnyone who reads this app's source code can identify the disguised photos and count them, but still cannot open one.",
   "actionMore": "More",
   "actionLess": "Less",
   "libraryLock": "Lock",

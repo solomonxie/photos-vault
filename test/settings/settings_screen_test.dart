@@ -134,14 +134,17 @@ void main() {
     // themselves: nothing here is overwritten, and a copy goes first.
     expect(find.text('Restore this backup?'), findsOneWidget);
     expect(find.textContaining('Sep 12, 2026'), findsOneWidget);
-    expect(find.textContaining('Nothing already here is changed'), findsOne);
+    expect(
+      find.textContaining('Nothing you already have is changed'),
+      findsOne,
+    );
 
     await tester.tap(find.text('Restore'));
     await tester.pumpAndSettle();
 
     expect(vault.guards, ['restore']);
     expect(file.restored.single.assets.single['localId'], 'a');
-    expect(find.textContaining("Restored 1 photos' details"), findsOneWidget);
+    expect(find.textContaining("Restored details for 1 photo"), findsOneWidget);
   });
 
   testWidgets('backing out of the confirmation restores nothing', (
@@ -359,7 +362,10 @@ void main() {
     // Visible so it can be found before the second bucket exists — but
     // not a live choice between two identical outcomes.
     expect(find.text('Photo by Photo'), findsOneWidget);
-    expect(find.text('Matters once you add a second bucket.'), findsOneWidget);
+    expect(
+      find.text('This only matters once you have more than one bucket.'),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('Photo by Photo'));
     await tester.pumpAndSettle();
@@ -386,7 +392,10 @@ void main() {
     // The pill carries the current value, like the queue's own settings,
     // and the one-bucket note is gone with the reason for it.
     expect(find.text('Photo by Photo'), findsOneWidget);
-    expect(find.text('Matters once you add a second bucket.'), findsNothing);
+    expect(
+      find.text('This only matters once you have more than one bucket.'),
+      findsNothing,
+    );
 
     await tester.tap(find.text('Photo by Photo'));
     await tester.pumpAndSettle();
@@ -394,7 +403,7 @@ void main() {
     // Leads with the part that doesn't change: both orders still put
     // every photo in every bucket.
     expect(
-      find.textContaining('ends up in every bucket either way'),
+      find.textContaining('is backed up to every bucket either way'),
       findsOneWidget,
     );
 

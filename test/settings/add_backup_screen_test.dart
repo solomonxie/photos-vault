@@ -55,7 +55,7 @@ void _tallSurface(WidgetTester tester) {
 /// What a paste looks like to the field: the whole block arriving as one
 /// multi-character insert.
 Future<void> _pasteBlock(WidgetTester tester, String text) async {
-  await tester.tap(find.text('(paste info to add)'));
+  await tester.tap(find.text('(paste credentials instead)'));
   await tester.pumpAndSettle();
   await tester.enterText(find.byKey(pasteFieldKey), text);
   await tester.pumpAndSettle();
@@ -357,7 +357,7 @@ void _pasteToFillTests() {
 
       expect(find.byKey(bucketFieldKey), findsOneWidget);
 
-      await tester.tap(find.text('(paste info to add)'));
+      await tester.tap(find.text('(paste credentials instead)'));
       await tester.pumpAndSettle();
 
       // A mode of the same group: the fields are replaced, not pushed down.
@@ -377,7 +377,7 @@ secret_access_key: pasted-secret
 ''');
 
       // Back on the fields, which are the confirmation.
-      expect(find.text('(paste info to add)'), findsOneWidget);
+      expect(find.text('(paste credentials instead)'), findsOneWidget);
       expect(find.text('AKIAPASTED'), findsOneWidget);
       expect(find.text('pasted-bucket'), findsOneWidget);
       expect(find.text('pasted/'), findsOneWidget);
@@ -409,14 +409,14 @@ secret_access_key: pasted-secret
 
     testWidgets('leaving the box drops the pasted text', (tester) async {
       await pumpForm(tester);
-      await tester.tap(find.text('(paste info to add)'));
+      await tester.tap(find.text('(paste credentials instead)'));
       await tester.pumpAndSettle();
       await tester.enterText(find.byKey(pasteFieldKey), 'b');
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('(back to fields)'));
       await tester.pumpAndSettle();
-      await tester.tap(find.text('(paste info to add)'));
+      await tester.tap(find.text('(paste credentials instead)'));
       await tester.pumpAndSettle();
 
       expect(find.text('b'), findsNothing);
@@ -644,7 +644,7 @@ void _providerTests() {
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining('Pick the region'), findsOneWidget);
+      expect(find.textContaining('Choose the region'), findsOneWidget);
       expect(await store.loadAll(), isEmpty);
     });
 
