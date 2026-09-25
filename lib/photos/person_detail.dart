@@ -163,6 +163,87 @@ class PersonImpression {
   }
 }
 
+/// What kind of occasion an event was.
+///
+/// [firstMet] is special: every profile has exactly one, it cannot be
+/// deleted, and it is not written to the database until a date is put on it.
+/// A blank row reads as a prompt; a row the app invented and dated from the
+/// earliest photo would read as a record, and be wrong.
+enum PersonEventType {
+  firstMet,
+  reunion,
+  trip,
+  celebration,
+  milestone,
+  favour,
+  fallingOut,
+  other,
+}
+
+/// Something that happened with somebody, on a date, with notes.
+class PersonEvent {
+  const PersonEvent({
+    required this.id,
+    required this.personId,
+    required this.type,
+    this.at,
+    this.tags = const [],
+    this.notes = '',
+  });
+
+  final String id;
+  final String personId;
+  final PersonEventType type;
+
+  /// Null only for the unwritten [PersonEventType.firstMet] prompt.
+  final DateTime? at;
+  final List<String> tags;
+  final String notes;
+
+  bool get isFirstMet => type == PersonEventType.firstMet;
+
+  PersonEvent copyWith({
+    PersonEventType? type,
+    DateTime? Function()? at,
+    List<String>? tags,
+    String? notes,
+  }) => PersonEvent(
+    id: id,
+    personId: personId,
+    type: type ?? this.type,
+    at: at != null ? at() : this.at,
+    tags: tags ?? this.tags,
+    notes: notes ?? this.notes,
+  );
+
+  Map<String, Object?> toJson() => {
+    'type': type.name,
+    'at': at?.millisecondsSinceEpoch,
+    'tags': tags,
+    'notes': notes,
+  };
+
+  static PersonEvent fromJson(
+    String id,
+    String personId,
+    Map<String, Object?> json,
+  ) {
+    final at = json['at'] as int?;
+    return PersonEvent(
+      id: id,
+      personId: personId,
+      type:
+          PersonEventType.values
+              .where((t) => t.name == json['type'] as String?)
+              .firstOrNull ??
+          PersonEventType.other,
+      at: at == null ? null : DateTime.fromMillisecondsSinceEpoch(at),
+      tags: [for (final t in (json['tags'] as List? ?? const [])) t as String],
+      notes: json['notes'] as String? ?? '',
+    );
+  }
+}
+
 /// The twelve offered as chips. Free-form is deliberately not offered: a
 /// typed word is a note, and notes belong in About.
 const impressionTags = [

@@ -11,6 +11,7 @@ import '../storage/passcode_hash.dart';
 import '../vault/keys.dart';
 import '../vault/passphrase_sheet.dart';
 import 'custom_fields_editor.dart';
+import 'person_event_sheet.dart';
 import 'private_album_gate.dart';
 import 'person_avatar.dart';
 import 'person_avatar_picker.dart';
@@ -23,9 +24,10 @@ import 'search_picker_sheet.dart';
 /// The full editable profile behind a person page's name chevron.
 ///
 /// Name and About, then Education and Job as their own pick-or-type
-/// sections, Places Lived, More details, and Relationships last (where
-/// family and relatives live, as typed links rather than a free-text field)
-/// with the link to the net graph beside them.
+/// sections, Places Lived, More details, Impression, Events, and
+/// Relationships last (where family and relatives live, as typed links
+/// rather than a free-text field) with the link to the net graph beside
+/// them.
 ///
 /// Everything below the name belongs to a passcode rather than to the
 /// person — four digits on the keypad in the nav bar switch which set is on
@@ -94,6 +96,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   List<PersonLocation> _locations = const [];
   List<PersonHistoryEntry> _education = const [];
   List<PersonHistoryEntry> _jobs = const [];
+  List<PersonEvent> _events = const [];
 
   @override
   void initState() {
@@ -141,6 +144,11 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       passcodeHash: ns,
       keys: keys,
     );
+    final events = await store.eventsFor(
+      _person.id,
+      passcodeHash: ns,
+      keys: keys,
+    );
     if (!mounted) return;
     setState(() {
       _detail = detail;
@@ -149,6 +157,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       _locations = locations;
       _education = education;
       _jobs = jobs;
+      _events = events;
       if (_bio.text != detail.bio) _bio.text = detail.bio;
       if (_hint.text != detail.hint) _hint.text = detail.hint;
     });
@@ -812,6 +821,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
               _sectionHeader(l10n.impressionHeader),
               _impressionSection(l10n),
               const SizedBox(height: 20),
+              _sectionHeader(l10n.eventsHeader, onAdd: () => _editEvent()),
+              _eventsSection(l10n),
+              const SizedBox(height: 20),
               _sectionHeader(
                 l10n.personProfileRelationshipsHeader,
                 onAdd: () => _addOrEditRelationship(),
@@ -1173,6 +1185,111 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     'steady' => l10n.impressionTagSteady,
     _ => l10n.impressionTagIntense,
   };
+
+  /// What happened, oldest first.
+  ///
+  /// "First met / knew at" is always the first row and cannot be removed.
+  /// It is not written to the database until a date is put on it, so an
+  /// empty one reads as a prompt rather than as something the app decided.
+  Widget _eventsSection(AppLocalizations l10n) {
+    final firstMet = _events.where((e) => e.isFirstMet).firstOrNull;
+    final rest = [
+      for (final e in _events)
+        if (!e.isFirstMet) e,
+    ];
+    return CupertinoListSection.insetGrouped(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      backgroundColor: _cardBackground,
+      decoration: _cardDecoration,
+      children: [
+        CupertinoListTile(
+          title: Text(l10n.eventsFirstMet),
+          subtitle: Text(
+            firstMet?.at == null
+                ? l10n.eventsNotSet
+                : _eventDate(firstMet!.at!),
+          ),
+          trailing: const Icon(
+            CupertinoIcons.chevron_right,
+            size: 16,
+            color: CupertinoColors.systemGrey,
+          ),
+          onTap: () => _editEvent(
+            existing:
+                firstMet ??
+                PersonEvent(
+                  id: widget.personStore.newId(),
+                  personId: _person.id,
+                  type: PersonEventType.firstMet,
+                ),
+          ),
+        ),
+        for (final event in rest)
+          CupertinoListTile(
+            title: Text(eventTypeLabel(l10n, event.type)),
+            subtitle: Text(
+              [
+                if (event.at != null) _eventDate(event.at!),
+                if (event.tags.isNotEmpty) event.tags.join(', '),
+                if (event.notes.isNotEmpty) event.notes,
+              ].join(' · '),
+            ),
+            trailing: CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () => _removeEvent(l10n, event),
+              child: const Icon(
+                CupertinoIcons.xmark_circle,
+                color: CupertinoColors.systemGrey,
+              ),
+            ),
+            onTap: () => _editEvent(existing: event),
+          ),
+      ],
+    );
+  }
+
+  static String _eventDate(DateTime at) => DateFormat.yMMMd().format(at);
+
+  Future<void> _removeEvent(AppLocalizations l10n, PersonEvent event) async {
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(l10n.eventsDeleteConfirmTitle),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.actionDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.personStore.removeEvent(event.id);
+    await _reload();
+  }
+
+  Future<void> _editEvent({PersonEvent? existing}) async {
+    final draft =
+        existing ??
+        PersonEvent(
+          id: widget.personStore.newId(),
+          personId: _person.id,
+          type: PersonEventType.other,
+        );
+    final saved = await showPersonEventSheet(context, event: draft);
+    if (saved == null) return;
+    await widget.personStore.saveEvent(
+      saved,
+      passcodeHash: _namespace,
+      keys: _keys,
+    );
+    await _reload();
+  }
 
   Widget _sectionHeader(String title, {VoidCallback? onAdd}) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
