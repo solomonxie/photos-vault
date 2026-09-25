@@ -867,6 +867,21 @@ class LibraryScreenState extends State<LibraryScreen>
     final libraryChanged = !identical(all, _all);
     final active = libraryChanged ? _activeOf(all) : _active;
 
+    // The photos are in, and on the first load they are the whole reason
+    // the app was opened. Everything below this reads three more
+    // databases — every album's members, every person's, and a face pass
+    // over every analysis — which is a second or two on a real library,
+    // and the grid used to spend all of it blank. Put the grid up now and
+    // let the rest land in the second paint.
+    final firstLoad = !_loaded;
+    if (firstLoad) {
+      if (!mounted) return;
+      setState(() {
+        _loaded = true;
+        _applyLibrary(all, active);
+      });
+    }
+
     final albums = await _albumStore.listAll();
     // One pass over the library for all albums together. Per album it was
     // a full pass each, so twenty albums meant twenty walks of everything
@@ -923,23 +938,7 @@ class LibraryScreenState extends State<LibraryScreen>
     if (!mounted) return;
     setState(() {
       _loaded = true;
-      if (libraryChanged) {
-        _all = all;
-        _active = active;
-        _videos = [
-          for (final record in active)
-            if (record.countsAsVideo) record,
-        ];
-        _favorites = [
-          for (final record in active)
-            if (record.isFavorite) record,
-        ];
-        _places = _groupedBy(active, (r) => r.location);
-        _events = _groupedBy(active, (r) => r.event, byRecency: true);
-        _deletedCount = all
-            .where((r) => r.isDeleted && !r.hasNothingLeft)
-            .length;
-      }
+      if (libraryChanged && !firstLoad) _applyLibrary(all, active);
       _albums = albums;
       _albumAssets = albumAssets;
       _builtInCovers = builtInCovers;
@@ -947,6 +946,25 @@ class LibraryScreenState extends State<LibraryScreen>
       _personPhotoCounts = personPhotoCounts;
       _unnamedFaces = unnamed.faces;
     });
+  }
+
+  /// Everything the screen derives from the library itself — a pass over
+  /// the whole of it each, which is why they are held rather than read in
+  /// `build`. Call inside [setState].
+  void _applyLibrary(List<AssetRecord> all, List<AssetRecord> active) {
+    _all = all;
+    _active = active;
+    _videos = [
+      for (final record in active)
+        if (record.countsAsVideo) record,
+    ];
+    _favorites = [
+      for (final record in active)
+        if (record.isFavorite) record,
+    ];
+    _places = _groupedBy(active, (r) => r.location);
+    _events = _groupedBy(active, (r) => r.event, byRecency: true);
+    _deletedCount = all.where((r) => r.isDeleted && !r.hasNothingLeft).length;
   }
 
   /// The card asks "who's this?", so a tap answers it. Opening the photo
