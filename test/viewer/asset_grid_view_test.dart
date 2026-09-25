@@ -4,7 +4,6 @@ import 'package:photos_vault/viewer/asset_grid.dart';
 import 'package:photos_vault/viewer/asset_grid_view.dart';
 import 'package:photos_vault/viewer/date_scrubber.dart';
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 AssetRecord _record(String id, DateTime createdAt) => AssetRecord(
@@ -69,7 +68,7 @@ Rect? _tileOverlapping(WidgetTester tester, Rect rect) {
   for (final element in find.byType(AssetTile).evaluate()) {
     final box = element.renderObject! as RenderBox;
     final dy = box.localToGlobal(Offset.zero).dy + box.size.height / 2;
-    if (best == null || (dy - y).abs() < (best!.dy - y).abs()) {
+    if (best == null || (dy - y).abs() < (best.dy - y).abs()) {
       best = (key: element.widget.key, dy: dy);
     }
   }

@@ -14,8 +14,8 @@ class SyncQueue {
   SyncQueue({
     required this.store,
     required this.settings,
-    required Future<void> Function(SyncJob job) process,
-  }) : _process = process;
+    required this._process,
+  });
 
   final SyncJobStore store;
 
