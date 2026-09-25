@@ -20,6 +20,33 @@ Widget _wrap(Widget child) => CupertinoApp(
   home: child,
 );
 
+/// A surface tall enough that the whole profile builds at once.
+///
+/// For the tests that compare where sections sit, or assert across several of
+/// them: the page is a lazy `ListView`, so on a phone-sized surface the
+/// sections below the fold do not exist to be measured.
+Future<void> _useTallSurface(WidgetTester tester) async {
+  await tester.binding.setSurfaceSize(const Size(800, 3000));
+  addTearDown(() => tester.binding.setSurfaceSize(null));
+}
+
+/// Scrolls the profile until [finder] exists *and* is on screen.
+///
+/// `ensureVisible` is not enough: the page is a lazy `ListView`, so a section
+/// far enough down has not been built yet and there is no element to make
+/// visible. This is the difference between a test that fails and a test that
+/// cannot see what it is testing.
+Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
+  // The outer one: the page has more than one Scrollable, and
+  // `scrollUntilVisible` will not guess between them.
+  await tester.scrollUntilVisible(
+    finder,
+    200,
+    scrollable: find.byType(Scrollable).first,
+  );
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('editing the About field persists it to the store', (
     tester,
@@ -228,6 +255,56 @@ void main() {
     expect(find.text('open bio'), findsOneWidget);
   });
 
+  testWidgets('an impression is picked, cleared, and tagged', (tester) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final social = find.text('Social energy');
+    await _scrollTo(tester, social);
+    await tester.tap(social);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Very outgoing').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      (await personStore.detailFor(mia.id)).impression.socialEnergy,
+      ImpressionLevel.veryHigh,
+    );
+
+    // Recorded by accident is worse than not recorded: it has to be
+    // clearable.
+    await tester.tap(social);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Not set').last);
+    await tester.pumpAndSettle();
+
+    expect(
+      (await personStore.detailFor(mia.id)).impression.socialEnergy,
+      isNull,
+    );
+
+    final tag = find.text('funny');
+    await _scrollTo(tester, tag);
+    await tester.tap(tag);
+    await tester.pumpAndSettle();
+    expect((await personStore.detailFor(mia.id)).impression.tags, ['funny']);
+
+    await tester.tap(tag);
+    await tester.pumpAndSettle();
+    expect((await personStore.detailFor(mia.id)).impression.tags, isEmpty);
+  });
+
   testWidgets('linking two people creates a mirrored relationship', (
     tester,
   ) async {
@@ -249,8 +326,7 @@ void main() {
     // Relationships sits below More details now, off the bottom of the
     // screen — a tap without this lands on nothing and passes quietly.
     final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
-    await tester.ensureVisible(addRelationship);
-    await tester.pumpAndSettle();
+    await _scrollTo(tester, addRelationship);
     await tester.tap(addRelationship);
     await tester.pumpAndSettle();
     expect(find.text('Daniel'), findsOneWidget);
@@ -286,8 +362,7 @@ void main() {
     // Relationships sits below More details now, off the bottom of the
     // screen — a tap without this lands on nothing and passes quietly.
     final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
-    await tester.ensureVisible(addRelationship);
-    await tester.pumpAndSettle();
+    await _scrollTo(tester, addRelationship);
     await tester.tap(addRelationship);
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(searchPickerFieldKey), 'Ada');
@@ -329,8 +404,7 @@ void main() {
     // Relationships sits below More details now, off the bottom of the
     // screen — a tap without this lands on nothing and passes quietly.
     final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
-    await tester.ensureVisible(addRelationship);
-    await tester.pumpAndSettle();
+    await _scrollTo(tester, addRelationship);
     await tester.tap(addRelationship);
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(searchPickerFieldKey), 'Grandma Lily');
@@ -369,8 +443,7 @@ void main() {
     // Relationships sits below More details now, off the bottom of the
     // screen — a tap without this lands on nothing and passes quietly.
     final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
-    await tester.ensureVisible(addRelationship);
-    await tester.pumpAndSettle();
+    await _scrollTo(tester, addRelationship);
     await tester.tap(addRelationship);
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(searchPickerFieldKey), 'daniel');
@@ -404,8 +477,7 @@ void main() {
       // Relationships sits below More details now, off the bottom of the
       // screen — a tap without this lands on nothing and passes quietly.
       final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
-      await tester.ensureVisible(addRelationship);
-      await tester.pumpAndSettle();
+      await _scrollTo(tester, addRelationship);
       await tester.tap(addRelationship);
       await tester.pumpAndSettle();
       await tester.tap(find.text('Daniel'));
@@ -453,7 +525,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('Daniel', skipOffstage: false));
+    await _scrollTo(tester, find.text('Daniel', skipOffstage: false));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Daniel'));
     await tester.pumpAndSettle();
@@ -488,10 +560,10 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.ensureVisible(
+      await _scrollTo(
+        tester,
         find.byIcon(CupertinoIcons.pencil, skipOffstage: false),
       );
-      await tester.pumpAndSettle();
       await tester.tap(find.byIcon(CupertinoIcons.pencil));
       await tester.pumpAndSettle();
       // Re-opens the searchable person picker (Daniel is still selectable —
@@ -535,7 +607,7 @@ void main() {
         CupertinoIcons.xmark_circle,
         skipOffstage: false,
       );
-      await tester.ensureVisible(deleteButton);
+      await _scrollTo(tester, deleteButton);
       await tester.pumpAndSettle();
       await tester.tap(deleteButton);
       await tester.pumpAndSettle();
@@ -558,6 +630,7 @@ void main() {
   testWidgets('relationships are grouped into subsections by type', (
     tester,
   ) async {
+    await _useTallSurface(tester);
     final personStore = FakePersonStore();
     final mia = await personStore.create(name: 'Mia');
     final daniel = await personStore.create(name: 'Daniel');
@@ -686,7 +759,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.ensureVisible(find.text('Shanghai', skipOffstage: false));
+    await _scrollTo(tester, find.text('Shanghai', skipOffstage: false));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Shanghai'));
     await tester.pumpAndSettle();
@@ -710,6 +783,7 @@ void main() {
   testWidgets('More details sits after Places Lived, Relationships after it', (
     tester,
   ) async {
+    await _useTallSurface(tester);
     final personStore = FakePersonStore();
     final mia = await personStore.create(name: 'Mia');
     await personStore.addLocation(
@@ -746,8 +820,7 @@ void main() {
     expect(relationshipsTop, greaterThan(moreDetailsTop));
 
     final addButton = find.byKey(customFieldsAddKey);
-    await tester.ensureVisible(addButton);
-    await tester.pumpAndSettle();
+    await _scrollTo(tester, addButton);
     await tester.tap(addButton);
     await tester.pumpAndSettle();
     await tester.enterText(
