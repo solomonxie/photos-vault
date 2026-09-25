@@ -39,10 +39,7 @@ class PhotoGridSliver extends SliverMultiBoxAdaptorWidget {
 }
 
 class RenderPhotoGridSliver extends RenderSliverFixedExtentBoxAdaptor {
-  RenderPhotoGridSliver({
-    required super.childManager,
-    required PhotoGridLayout layout,
-  }) : _layout = layout;
+  RenderPhotoGridSliver({required super.childManager, required this._layout});
 
   /// Not just `layout` — [RenderObject.layout] already owns that name.
   PhotoGridLayout get gridLayout => _layout;

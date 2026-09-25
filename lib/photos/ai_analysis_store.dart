@@ -568,10 +568,7 @@ class AiAnalysisStore {
 
   static List<FaceRect> decodeFaces(String? value) {
     if (value == null || value.isEmpty) return const [];
-    return [
-      for (final part in value.split(';'))
-        if (FaceRect.decode(part) case final rect?) rect,
-    ];
+    return [for (final part in value.split(';')) ?FaceRect.decode(part)];
   }
 
   /// The other half: what a vendor call came back with, waiting to be
