@@ -1,15 +1,12 @@
 import 'dart:async';
-import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
-import '../settings/ai_settings_store.dart';
 import '../settings/backup_targets_store.dart' show SyncFrequency;
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'ai_analysis.dart';
 import 'ai_analysis_store.dart';
-import 'ai_vision_service.dart';
 import 'face_identity.dart';
 import 'face_matcher.dart' show ConfirmedFace;
 import 'on_device_analysis.dart';
@@ -25,10 +22,6 @@ enum AnalyzeStep {
   /// Look for faces on the phone. Free, offline, and the only thing this
   /// app can learn about a photo without asking anyone for money.
   findFaces,
-
-  /// Ask the configured vendor for tags, an event label and a caption.
-  /// Costs one call per photo, which is why it is never on by default.
-  suggest,
 
   /// Remember what an already-named person looks like, from a photo that
   /// can only be about them. Catches up a library where people were named
@@ -107,12 +100,8 @@ class AnalyzeQueue {
     required this.displayNameFor,
     this.faceIdentity,
     this.taggedPeople,
-    this.aiVision,
-    Future<bool> Function()? hasAiKey,
     this.rest = const Duration(milliseconds: 400),
-  }) : _hasAiKey =
-           hasAiKey ??
-           (() async => (await AiSettingsStore().listKeys()).isNotEmpty);
+  });
 
   final AssetRecordStore assetRecordStore;
   final AiAnalysisStore analysisStore;
@@ -126,9 +115,6 @@ class AnalyzeQueue {
   /// localization or which photos are hidden.
   final String Function(AssetRecord record) displayNameFor;
 
-  /// Absent, the paid step simply isn't offered.
-  final AiVisionService? aiVision;
-
   /// Puts names to faces across photos. Absent, faces are still found —
   /// they just stay anonymous, which is where this app started.
   final FaceIdentityService? faceIdentity;
@@ -136,11 +122,6 @@ class AnalyzeQueue {
   /// Who is already tagged in each photo, `localId` → person ids. Feeds
   /// [AnalyzeStep.learnFaces]. Absent, the backfill simply doesn't run.
   final Future<Map<String, List<String>>> Function()? taggedPeople;
-
-  /// Whether there's a key to spend. A switch that can be turned on with
-  /// nothing behind it just queues a hundred jobs that all fail the same
-  /// way.
-  final Future<bool> Function() _hasAiKey;
 
   /// The wait between batches. The whole point of this queue is that it
   /// never makes the phone hot: a pass that finishes in an hour instead of
@@ -168,20 +149,12 @@ class AnalyzeQueue {
     SyncFrequency.manual,
   );
 
-  /// Whether the vendor step is in. Off until someone says otherwise: it is
-  /// the only part of this that arrives as a bill.
-  final ValueNotifier<bool> suggest = ValueNotifier(false);
-
-  /// Whether it *can* be switched on — an AI key is configured.
-  final ValueNotifier<bool> canSuggest = ValueNotifier(false);
-
   /// Everything still outstanding, including what didn't fit in [jobs].
   final ValueNotifier<int> remaining = ValueNotifier(0);
 
   static const pausedKey = 'analyze_paused';
   static const paceKey = 'analyze_pace';
   static const frequencyKey = 'analyze_frequency';
-  static const suggestKey = 'analyze_suggest';
   static const lastRunKey = 'analyze_last_run_at';
 
   bool _loaded = false;
@@ -195,7 +168,6 @@ class AnalyzeQueue {
     _loaded = true;
     try {
       paused.value = await assetRecordStore.getAppState(pausedKey) == 'true';
-      suggest.value = await assetRecordStore.getAppState(suggestKey) == 'true';
       final storedPace = int.tryParse(
         await assetRecordStore.getAppState(paceKey) ?? '',
       );
@@ -211,19 +183,6 @@ class AnalyzeQueue {
     } catch (_) {
       // No database (tests, no platform channel) — the defaults above are
       // a working queue, which is what matters.
-    }
-    // Deliberately not awaited: the answer comes from the keychain, which
-    // on a device without one never answers at all. Reading the camera
-    // roll must not wait behind a question about a key it doesn't need.
-    unawaited(_loadCanSuggest());
-  }
-
-  Future<void> _loadCanSuggest() async {
-    try {
-      canSuggest.value = aiVision != null && await _hasAiKey();
-    } catch (_) {
-      // No keychain, no key — the paid step stays off, which is where it
-      // starts anyway.
     }
   }
 
@@ -247,13 +206,6 @@ class AnalyzeQueue {
     await load();
     frequency.value = value;
     await _write(frequencyKey, value.name);
-  }
-
-  Future<void> setSuggest(bool value) async {
-    await load();
-    suggest.value = value;
-    await _write(suggestKey, value ? 'true' : 'false');
-    await refresh();
   }
 
   Future<void> _write(String key, String value) async {
@@ -405,26 +357,8 @@ class AnalyzeQueue {
             displayName: displayNameFor(record),
           ),
       ],
-      // The paid half stays at the end, whatever else is outstanding: it
-      // is the only part of this that arrives as a bill.
-      if (suggest.value && canSuggest.value)
-        for (final record in records)
-          if (_wantsSuggestion(analyzed[record.localId]))
-            AnalyzeJob(
-              id: 'suggest:${record.localId}',
-              localId: record.localId,
-              step: AnalyzeStep.suggest,
-              displayName: displayNameFor(record),
-            ),
     ];
   }
-
-  /// A photo the vendor hasn't been asked about. Once it has, the answer
-  /// waits in the review list, and a photo whose answer was dismissed is
-  /// never asked about again — paying twice for the same "no" is the one
-  /// unforgivable thing a queue that spends money can do.
-  bool _wantsSuggestion(AiPhotoAnalysis? analysis) =>
-      analysis != null && !analysis.hasSuggestions && !analysis.reviewed;
 
   /// Newest photo first. The backlog on a fresh install is the whole
   /// camera roll and this pass takes all week by design, so the order
@@ -557,8 +491,6 @@ class AnalyzeQueue {
       switch (job.step) {
         case AnalyzeStep.findFaces:
           await _findFaces(job);
-        case AnalyzeStep.suggest:
-          await _suggestFor(job);
         case AnalyzeStep.learnFaces:
           await _learnFaces(job);
         case AnalyzeStep.matchFaces:
@@ -626,34 +558,12 @@ class AnalyzeQueue {
     );
   }
 
-  Future<void> _suggestFor(AnalyzeJob job) async {
-    final vision = aiVision;
-    if (vision == null) return;
-    final record = await assetRecordStore.getByLocalId(job.localId!);
-    if (record == null) return;
-    final path = await resolvePath(record);
-    if (path == null) return;
-    final analysis = await vision.analyze(
-      localId: record.localId,
-      imageFile: File(path),
-    );
-    // Nothing worth asking about: marked answered so the photo never costs
-    // a second call to be told the same thing.
-    if (!analysis.hasSuggestions) {
-      await analysisStore.markReviewed(record.localId);
-      return;
-    }
-    await analysisStore.saveSuggestion(analysis);
-  }
-
   void dispose() {
     jobs.dispose();
     running.dispose();
     paused.dispose();
     pace.dispose();
     frequency.dispose();
-    suggest.dispose();
-    canSuggest.dispose();
     remaining.dispose();
   }
 }
