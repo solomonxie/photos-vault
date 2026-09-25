@@ -500,6 +500,21 @@ void main() {
     expect(identical(await store.listAll(), third), isTrue);
   });
 
+  test('clearing the library empties the grid without a restart', () async {
+    final store = newStore();
+    await store.upsert(localId: 'photo:1', contentHash: 'a', platform: 'ios');
+    await store.upsert(localId: 'photo:2', contentHash: 'b', platform: 'ios');
+    await store.listAll();
+
+    await store.clearAll();
+
+    // The incremental re-read looks for rows newer than the last one it
+    // saw, and a bulk delete leaves none — so without dropping the cache
+    // by hand the library goes on being served from before the wipe.
+    expect(await store.listAll(), isEmpty);
+    expect(await store.getAppState('anything'), isNull);
+  });
+
   test('paths from a previous app container are pointed at this one', () async {
     final root = await Directory.systemTemp.createTemp('support_');
     addTearDown(() => root.delete(recursive: true));
