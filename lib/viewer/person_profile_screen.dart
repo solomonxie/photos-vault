@@ -809,6 +809,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                     _persistDetail(_detail.copyWith(customFields: fields)),
               ),
               const SizedBox(height: 20),
+              _sectionHeader(l10n.impressionHeader),
+              _impressionSection(l10n),
+              const SizedBox(height: 20),
               _sectionHeader(
                 l10n.personProfileRelationshipsHeader,
                 onAdd: () => _addOrEditRelationship(),
@@ -967,6 +970,209 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     ];
     return parts.isEmpty ? null : parts.join(' · ');
   }
+
+  /// Impressions of somebody, not an assessment of them.
+  ///
+  /// Three scales and a set of tags, all optional and none scored. The
+  /// scales are the ones a reader already has words for; the tags carry what
+  /// a personality model would otherwise name, without naming it.
+  Widget _impressionSection(AppLocalizations l10n) {
+    final impression = _detail.impression;
+    return Column(
+      children: [
+        CupertinoListSection.insetGrouped(
+          margin: const EdgeInsets.symmetric(horizontal: 16),
+          backgroundColor: _cardBackground,
+          decoration: _cardDecoration,
+          children: [
+            _impressionRow(
+              l10n,
+              label: l10n.impressionOverallLabel,
+              value: impression.overall,
+              name: (level) => _overallLabel(l10n, level),
+              onPicked: (level) => _persistDetail(
+                _detail.copyWith(
+                  impression: impression.copyWith(overall: () => level),
+                ),
+              ),
+            ),
+            _impressionRow(
+              l10n,
+              label: l10n.impressionSocialLabel,
+              value: impression.socialEnergy,
+              name: (level) => _socialLabel(l10n, level),
+              onPicked: (level) => _persistDetail(
+                _detail.copyWith(
+                  impression: impression.copyWith(socialEnergy: () => level),
+                ),
+              ),
+            ),
+            _impressionRow(
+              l10n,
+              label: l10n.impressionIntroversionLabel,
+              value: impression.introversion,
+              name: (level) => _introversionLabel(l10n, level),
+              onPicked: (level) => _persistDetail(
+                _detail.copyWith(
+                  impression: impression.copyWith(introversion: () => level),
+                ),
+              ),
+            ),
+          ],
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(20, 12, 20, 0),
+          child: Align(
+            alignment: Alignment.centerLeft,
+            child: Text(
+              l10n.impressionTagsLabel,
+              style: const TextStyle(
+                fontSize: 13,
+                color: CupertinoColors.systemGrey,
+              ),
+            ),
+          ),
+        ),
+        Padding(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+          child: Wrap(
+            spacing: 8,
+            runSpacing: 8,
+            children: [
+              for (final tag in impressionTags)
+                _impressionTagChip(l10n, tag, impression),
+            ],
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _impressionRow(
+    AppLocalizations l10n, {
+    required String label,
+    required ImpressionLevel? value,
+    required String Function(ImpressionLevel) name,
+    required ValueChanged<ImpressionLevel?> onPicked,
+  }) => CupertinoListTile(
+    title: Text(label),
+    trailing: Text(
+      value == null ? l10n.impressionNotSet : name(value),
+      style: TextStyle(
+        color: value == null
+            ? CupertinoColors.systemGrey
+            : CupertinoColors.white,
+      ),
+    ),
+    onTap: () async {
+      final picked = await showCupertinoModalPopup<({ImpressionLevel? level})>(
+        context: context,
+        builder: (sheetContext) => CupertinoActionSheet(
+          title: Text(label),
+          actions: [
+            for (final level in ImpressionLevel.values)
+              CupertinoActionSheetAction(
+                onPressed: () => Navigator.of(sheetContext).pop((level: level)),
+                child: Text(name(level)),
+              ),
+            // Clearing has to be possible: an impression recorded by accident
+            // is worse than none, and this is somebody's view of a person.
+            if (value != null)
+              CupertinoActionSheetAction(
+                isDestructiveAction: true,
+                onPressed: () => Navigator.of(sheetContext).pop((level: null)),
+                child: Text(l10n.impressionNotSet),
+              ),
+          ],
+          cancelButton: CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(sheetContext).pop(),
+            child: Text(l10n.actionCancel),
+          ),
+        ),
+      );
+      if (picked != null) onPicked(picked.level);
+    },
+  );
+
+  Widget _impressionTagChip(
+    AppLocalizations l10n,
+    String tag,
+    PersonImpression impression,
+  ) {
+    final on = impression.tags.contains(tag);
+    return GestureDetector(
+      onTap: () => _persistDetail(
+        _detail.copyWith(
+          impression: impression.copyWith(
+            tags: on
+                ? [
+                    for (final t in impression.tags)
+                      if (t != tag) t,
+                  ]
+                : [...impression.tags, tag],
+          ),
+        ),
+      ),
+      child: Container(
+        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
+        decoration: BoxDecoration(
+          color: on ? CupertinoColors.systemBlue : const Color(0xFF2C2C2E),
+          borderRadius: BorderRadius.circular(14),
+        ),
+        child: Text(
+          _tagLabel(l10n, tag),
+          style: TextStyle(
+            fontSize: 13,
+            color: on ? CupertinoColors.white : CupertinoColors.systemGrey,
+          ),
+        ),
+      ),
+    );
+  }
+
+  static String _overallLabel(AppLocalizations l10n, ImpressionLevel level) =>
+      switch (level) {
+        ImpressionLevel.veryLow => l10n.impressionOverallVeryLow,
+        ImpressionLevel.low => l10n.impressionOverallLow,
+        ImpressionLevel.middle => l10n.impressionOverallMiddle,
+        ImpressionLevel.high => l10n.impressionOverallHigh,
+        ImpressionLevel.veryHigh => l10n.impressionOverallVeryHigh,
+      };
+
+  static String _socialLabel(AppLocalizations l10n, ImpressionLevel level) =>
+      switch (level) {
+        ImpressionLevel.veryLow => l10n.impressionSocialVeryLow,
+        ImpressionLevel.low => l10n.impressionSocialLow,
+        ImpressionLevel.middle => l10n.impressionSocialMiddle,
+        ImpressionLevel.high => l10n.impressionSocialHigh,
+        ImpressionLevel.veryHigh => l10n.impressionSocialVeryHigh,
+      };
+
+  static String _introversionLabel(
+    AppLocalizations l10n,
+    ImpressionLevel level,
+  ) => switch (level) {
+    ImpressionLevel.veryLow => l10n.impressionIntroversionVeryLow,
+    ImpressionLevel.low => l10n.impressionIntroversionLow,
+    ImpressionLevel.middle => l10n.impressionIntroversionMiddle,
+    ImpressionLevel.high => l10n.impressionIntroversionHigh,
+    ImpressionLevel.veryHigh => l10n.impressionIntroversionVeryHigh,
+  };
+
+  static String _tagLabel(AppLocalizations l10n, String tag) => switch (tag) {
+    'curious' => l10n.impressionTagCurious,
+    'organised' => l10n.impressionTagOrganised,
+    'spontaneous' => l10n.impressionTagSpontaneous,
+    'empathetic' => l10n.impressionTagEmpathetic,
+    'blunt' => l10n.impressionTagBlunt,
+    'patient' => l10n.impressionTagPatient,
+    'competitive' => l10n.impressionTagCompetitive,
+    'generous' => l10n.impressionTagGenerous,
+    'private' => l10n.impressionTagPrivate,
+    'funny' => l10n.impressionTagFunny,
+    'steady' => l10n.impressionTagSteady,
+    _ => l10n.impressionTagIntense,
+  };
 
   Widget _sectionHeader(String title, {VoidCallback? onAdd}) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
