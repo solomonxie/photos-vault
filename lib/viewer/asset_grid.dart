@@ -730,6 +730,13 @@ void _remember(String key, Uint8List bytes) {
 /// Everything held in memory for thumbnails, dropped. Called when iOS says
 /// it is short of memory — the alternative to handing some back is being
 /// killed, and every one of these is re-fetchable from the library.
+/// Puts bytes in the session cache as if the OS had just answered with
+/// them. A widget test has no photo library to ask, and the alternative is
+/// asserting on a placeholder, which every wrong answer also draws.
+@visibleForTesting
+void rememberThumbnailBytes(String assetId, Uint8List bytes, {int? size}) =>
+    _remember(_thumbnailKey(assetId, size, false), bytes);
+
 void clearThumbnailCaches() {
   _thumbnailBytes.clear();
   _fittedThumbnails.clear();
@@ -767,6 +774,29 @@ class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
     super.initState();
     // Whatever is in memory goes up on the first frame; the right size
     // arrives over it.
+    _bytes = cachedThumbnailBytes(
+      widget.assetId,
+      size: widget.size,
+      fitted: widget.fitted,
+    );
+    _load();
+  }
+
+  /// A *different photo in the same place*: an album cover whose newest
+  /// photo just left, a person's avatar reassigned, a tile reused down the
+  /// grid. The element is kept and [initState] does not run again, so
+  /// without this the widget goes on drawing the photo it first loaded.
+  @override
+  void didUpdateWidget(PhotoManagerThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.assetId == widget.assetId &&
+        oldWidget.size == widget.size &&
+        oldWidget.fitted == widget.fitted) {
+      return;
+    }
+    // Whatever is already in memory for the new one, then the right size
+    // over it — the same two steps as a fresh mount. Null until it lands
+    // is correct: a placeholder beats the wrong photo.
     _bytes = cachedThumbnailBytes(
       widget.assetId,
       size: widget.size,
