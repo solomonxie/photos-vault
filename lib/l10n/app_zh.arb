@@ -557,6 +557,8 @@
   "impressionIntroversionMiddle": "介于两者之间",
   "impressionIntroversionHigh": "外向",
   "impressionIntroversionVeryHigh": "强外向",
+  "impressionTagAddTitle": "添加标签",
+  "impressionTagAddPlaceholder": "一个词",
   "impressionTagCurious": "好奇",
   "impressionTagOrganised": "有条理",
   "impressionTagSpontaneous": "随性",
