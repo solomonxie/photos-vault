@@ -1212,8 +1212,7 @@ void main() {
       await tester.pump();
       await _scrollToInfoPanel(tester);
 
-      await tester.tap(find.text('Download Full Resolution'));
-      await tester.pumpAndSettle();
+      await _tapInPanel(tester, find.text('Download Full Resolution'));
 
       expect(find.text('Download Full Resolution'), findsNothing);
       // Back up to the photo, which the info panel was covering.
@@ -1288,8 +1287,7 @@ void main() {
       await tester.pump();
       await _scrollToInfoPanel(tester);
 
-      await tester.tap(find.text('Download Full Resolution'));
-      await tester.pumpAndSettle();
+      await _tapInPanel(tester, find.text('Download Full Resolution'));
 
       expect(find.text('Download Full Resolution'), findsOneWidget);
     });
