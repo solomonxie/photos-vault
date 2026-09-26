@@ -54,8 +54,11 @@ void main() {
           personStore: personStore,
           detail: PersonDetail.empty,
           service: service,
-          pickFile: () async =>
-              (name: 'cv.txt', bytes: utf8.encode('Mia worked at Acme.')),
+          pickFile: () async => (
+            name: 'cv.txt',
+            bytes: utf8.encode('Mia worked at Acme.'),
+            path: null,
+          ),
         ),
       ),
     );
@@ -84,7 +87,8 @@ void main() {
           personStore: personStore,
           detail: PersonDetail.empty,
           service: _FakeAsk(_reply),
-          pickFile: () async => (name: 'cv.txt', bytes: utf8.encode('x')),
+          pickFile: () async =>
+              (name: 'cv.txt', bytes: utf8.encode('x'), path: null),
         ),
       ),
     );
@@ -130,7 +134,8 @@ void main() {
           personStore: personStore,
           detail: PersonDetail.empty,
           service: _FakeAsk(_reply),
-          pickFile: () async => (name: 'cv.txt', bytes: utf8.encode('x')),
+          pickFile: () async =>
+              (name: 'cv.txt', bytes: utf8.encode('x'), path: null),
         ),
       ),
     );
@@ -147,7 +152,7 @@ void main() {
     expect(find.text('Nothing selected'), findsOneWidget);
   });
 
-  testWidgets('a file that is not text says so and asks nobody', (
+  testWidgets('a format with no reader says so and asks nobody', (
     tester,
   ) async {
     final personStore = FakePersonStore();
@@ -162,8 +167,11 @@ void main() {
           detail: PersonDetail.empty,
           service: service,
           // A PDF header.
-          pickFile: () async =>
-              (name: 'cv.pdf', bytes: [0x25, 0x50, 0x44, 0x46, 0x80, 0xFF]),
+          pickFile: () async => (
+            name: 'notes.rtf',
+            bytes: [0x7B, 0x5C, 0x72, 0x74, 0x66, 0x80, 0xFF],
+            path: null,
+          ),
         ),
       ),
     );
@@ -171,7 +179,7 @@ void main() {
     await tester.tap(find.text('Choose a file'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining("isn't plain text"), findsOneWidget);
+    expect(find.textContaining("can't be read"), findsOneWidget);
     // Nothing was sent, so nothing was charged for.
     expect(service.prompt, isNull);
   });

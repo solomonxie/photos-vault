@@ -1,5 +1,3 @@
-import 'dart:convert';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/photos/profile_autofill.dart';
 
@@ -70,12 +68,5 @@ void main() {
     // The instruction that matters most: a plausible invention is worse than
     // a gap, because nothing downstream can tell them apart.
     expect(prompt, contains('Do not guess'));
-  });
-
-  test('text comes out of a text file and nothing else', () {
-    expect(documentText(utf8.encode('Mia worked at Acme.')), contains('Acme'));
-    expect(documentText(utf8.encode('   ')), isNull);
-    // A PDF header, which is not text this app can read.
-    expect(documentText([0x25, 0x50, 0x44, 0x46, 0x80, 0xFF, 0xFE]), isNull);
   });
 }
