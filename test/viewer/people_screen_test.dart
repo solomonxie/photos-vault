@@ -10,6 +10,7 @@ import 'dart:typed_data';
 import 'package:photos_vault/photos/face_identity.dart';
 import 'package:photos_vault/photos/on_device_vision.dart';
 import 'package:photos_vault/photos/person.dart';
+import 'package:photos_vault/photos/person_detail.dart';
 
 import '../support/fake_ai_analysis_store.dart';
 import '../support/fake_asset_record_store.dart';
@@ -382,5 +383,53 @@ void main() {
     // too many emptied the navigator and left a frozen black screen.
     expect(find.byType(PeopleScreen), findsOneWidget);
     expect(find.text('No people yet. Tap + to add someone.'), findsOneWidget);
+  });
+  testWidgets('chips narrow the list, and a group is one of them', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final dan = await personStore.create(name: 'Daniel');
+    await personStore.create(name: 'Zoe');
+    await personStore.saveDetail(
+      mia.id,
+      const PersonDetail(gender: Gender.female),
+    );
+    await personStore.saveDetail(
+      dan.id,
+      const PersonDetail(gender: Gender.male),
+    );
+    const acme = PersonGroup(id: 'g1', name: 'Acme', kind: GroupKind.company);
+    await personStore.joinGroup(mia.id, acme);
+    await personStore.joinGroup(dan.id, acme);
+
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Zoe'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('people-filter-female')));
+    await tester.pumpAndSettle();
+    expect(find.text('Mia'), findsOneWidget);
+    expect(find.text('Daniel'), findsNothing);
+    expect(find.text('Zoe'), findsNothing);
+
+    // The group chip, and the group row, are the same filter.
+    await tester.tap(find.byKey(const ValueKey('people-filter-g1')));
+    await tester.pumpAndSettle();
+    expect(find.text('Mia'), findsOneWidget);
+    expect(find.text('Daniel'), findsOneWidget);
+    expect(find.text('Zoe'), findsNothing);
+
+    await tester.tap(find.byKey(const ValueKey('people-filter-all')));
+    await tester.pumpAndSettle();
+    expect(find.text('Zoe'), findsOneWidget);
   });
 }
