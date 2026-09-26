@@ -53,6 +53,12 @@ class FakePersonStore implements PersonStore {
     }
   }
 
+  @override
+  Future<Map<String, PersonDetail>> openDetails() async => {
+    for (final entry in details.entries)
+      if (entry.key.endsWith('/')) entry.key.split('/').first: entry.value,
+  };
+
   /// `personId` → groups they are in.
   final groups = <String, List<PersonGroup>>{};
 

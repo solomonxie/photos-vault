@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/person.dart';
 
 /// The one chip shape the profile uses — personality tags, and the fields
 /// More details is offering. Shared so the two rows of chips on one page do
@@ -98,3 +99,10 @@ Future<String?> showProfileTextPrompt(
   controller.dispose();
   return saved;
 }
+
+String groupKindLabel(AppLocalizations l10n, GroupKind kind) => switch (kind) {
+  GroupKind.family => l10n.groupKindFamily,
+  GroupKind.company => l10n.groupKindCompany,
+  GroupKind.school => l10n.groupKindSchool,
+  GroupKind.circle => l10n.groupKindCircle,
+};

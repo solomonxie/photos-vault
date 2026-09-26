@@ -7,10 +7,12 @@ import '../photos/ai_analysis_store.dart';
 import '../photos/person.dart';
 import '../photos/face_grouping.dart';
 import '../photos/face_identity.dart';
+import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
 import '../photos/unnamed_faces.dart';
 import '../storage/asset_record_store.dart';
 import 'person_avatar.dart';
+import 'profile_chip.dart';
 import 'person_page_screen.dart';
 import 'face_group_screen.dart';
 import 'person_picker_sheet.dart';
@@ -41,6 +43,25 @@ class PeopleScreen extends StatefulWidget {
   State<PeopleScreen> createState() => _PeopleScreenState();
 }
 
+/// What a chip filters the list down to.
+///
+/// One type rather than three flags: exactly one chip is on at a time, and a
+/// list that could be filtered by a group *and* a gender at once would need a
+/// way to show which combination is active, for a question nobody asks.
+sealed class PeopleFilter {
+  const PeopleFilter();
+}
+
+class GenderFilter extends PeopleFilter {
+  const GenderFilter(this.gender);
+  final Gender gender;
+}
+
+class GroupFilter extends PeopleFilter {
+  const GroupFilter(this.group);
+  final PersonGroup group;
+}
+
 class _PeopleScreenState extends State<PeopleScreen> {
   List<Person> _people = const [];
   Map<String, int> _counts = const {};
@@ -52,6 +73,11 @@ class _PeopleScreenState extends State<PeopleScreen> {
   /// twenty faces or four hundred.
   int _facesFound = 0;
   String _query = '';
+  Map<PersonGroup, List<String>> _groups = const {};
+  Map<String, PersonDetail> _details = const {};
+
+  /// Which chip is on. `null` is All — no filter, every named person.
+  PeopleFilter? _filter;
 
   /// This is the page you open to work through them, so it shows far more
   /// than the home row's handful. Each one is a person, not a face, and
@@ -81,6 +107,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
       tagged.addAll(localIds);
       if (localIds.isNotEmpty) firstPhoto[person.id] = localIds.first;
     }
+    final groups = await widget.personStore.allGroups();
+    final details = await widget.personStore.openDetails();
     final unnamed = await _loadUnnamedFaces(tagged, {
       for (final p in people) p.id: p.name,
     });
@@ -90,6 +118,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
     people.sort((a, b) => (counts[b.id] ?? 0).compareTo(counts[a.id] ?? 0));
     if (!mounted) return;
     setState(() {
+      _groups = groups;
+      _details = details;
       _people = people;
       _counts = counts;
       _firstPhoto = firstPhoto;
@@ -267,6 +297,106 @@ class _PeopleScreenState extends State<PeopleScreen> {
   /// the page you come to when you mean to work through them — and a
   /// sideways scroll inside a vertical one hides most of its contents
   /// behind a gesture nobody makes on a settings-shaped page.
+  bool _matchesFilter(Person person) => switch (_filter) {
+    null => true,
+    GenderFilter(:final gender) => _details[person.id]?.gender == gender,
+    GroupFilter(:final group) => (_groups[group] ?? const []).contains(
+      person.id,
+    ),
+  };
+
+  Widget _sectionHeading(String text) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+    child: Text(
+      text,
+      style: const TextStyle(
+        fontSize: 13,
+        fontWeight: FontWeight.w600,
+        color: CupertinoColors.systemGrey,
+      ),
+    ),
+  );
+
+  /// One row of chips, or nothing when there is nothing to narrow.
+  ///
+  /// Gender comes from the profile details rather than from a tag somebody
+  /// keeps up to date, and only the open set's — a list of faces anybody can
+  /// see must not be sortable by something only a passcode opens.
+  Widget? _filterChips(AppLocalizations l10n) {
+    final genders = {
+      for (final person in _people) ?_details[person.id]?.gender,
+    };
+    if (genders.isEmpty && _groups.isEmpty) return null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+      child: Wrap(
+        spacing: 8,
+        runSpacing: 8,
+        children: [
+          ProfileChip(
+            key: const ValueKey('people-filter-all'),
+            label: l10n.peopleFilterAll,
+            selected: _filter == null,
+            onTap: () => setState(() => _filter = null),
+          ),
+          for (final gender in Gender.values)
+            if (genders.contains(gender))
+              ProfileChip(
+                key: ValueKey('people-filter-${gender.name}'),
+                label: gender == Gender.male
+                    ? l10n.peopleFilterMale
+                    : l10n.peopleFilterFemale,
+                selected:
+                    _filter is GenderFilter &&
+                    (_filter as GenderFilter).gender == gender,
+                onTap: () => setState(() => _filter = GenderFilter(gender)),
+              ),
+          for (final group in _groups.keys)
+            ProfileChip(
+              key: ValueKey('people-filter-${group.id}'),
+              label: group.name,
+              selected:
+                  _filter is GroupFilter &&
+                  (_filter as GroupFilter).group.id == group.id,
+              onTap: () => setState(() => _filter = GroupFilter(group)),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Groups as rows, each one a way into the list above it. Tapping a group
+  /// is the same as tapping its chip — the section is there to say what
+  /// groups exist, which a row of chips alone does not.
+  List<Widget> _groupRows(AppLocalizations l10n) => [
+    for (final entry in _groups.entries)
+      CupertinoListTile(
+        key: ValueKey('people-group:${entry.key.id}'),
+        leading: const Icon(
+          CupertinoIcons.person_2_fill,
+          color: CupertinoColors.systemGrey,
+        ),
+        title: Text(entry.key.name),
+        subtitle: Text(groupKindLabel(l10n, entry.key.kind)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '${entry.value.length}',
+              style: const TextStyle(color: CupertinoColors.systemGrey),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              CupertinoIcons.chevron_forward,
+              size: 18,
+              color: CupertinoColors.systemGrey2,
+            ),
+          ],
+        ),
+        onTap: () => setState(() => _filter = GroupFilter(entry.key)),
+      ),
+  ];
+
   List<Widget> _unnamedFaceRows(AppLocalizations l10n) => [
     Padding(
       padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -427,9 +557,11 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final query = _query.trim().toLowerCase();
-    final filtered = query.isEmpty
-        ? _people
-        : _people.where((p) => p.name.toLowerCase().contains(query)).toList();
+    final filtered = [
+      for (final person in _people)
+        if (query.isEmpty || person.name.toLowerCase().contains(query))
+          if (_matchesFilter(person)) person,
+    ];
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(l10n.peopleScreenTitle),
@@ -455,6 +587,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   onChanged: (v) => setState(() => _query = v),
                 ),
               ),
+            ?_filterChips(l10n),
+            if (_people.isNotEmpty) _sectionHeading(l10n.peopleSectionNamed),
             if (_people.isEmpty && _unnamedFaces.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 48),
@@ -515,6 +649,11 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   ),
                   onTap: () => _openPerson(person),
                 ),
+            if (_groups.isNotEmpty) ...[
+              _sectionHeading(l10n.peopleSectionGroups),
+              ..._groupRows(l10n),
+            ],
+            // Its own heading already reads "Faces to Name".
             if (_unnamedFaces.isNotEmpty && query.isEmpty)
               ..._unnamedFaceRows(l10n),
             const SizedBox(height: 16),
