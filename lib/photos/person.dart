@@ -93,6 +93,47 @@ bool isFamilyRelationship(RelationshipType type) => switch (type) {
   RelationshipType.other => false,
 };
 
+/// The relationships that follow from people sharing a group.
+///
+/// Derived, never stored. A group says its members are family, or colleagues,
+/// or schoolmates — so the links are a restatement of the membership, and
+/// writing them down would mean 190 rows for a company of twenty and 190 to
+/// unpick when one of them leaves. Leave the group and the link goes with it,
+/// which is the behaviour anybody would expect and the one storing it cannot
+/// give.
+///
+/// [members] is each group and who is in it. Explicitly-created relationships
+/// win: somebody recorded as a `spouse` who is also in the family group stays
+/// a spouse rather than being flattened to `family`.
+List<PersonRelationship> groupRelationships({
+  required String personId,
+  required Map<PersonGroup, List<String>> members,
+  Iterable<PersonRelationship> explicit = const [],
+}) {
+  final already = {for (final r in explicit) r.relatedPersonId};
+  final out = <String, PersonRelationship>{};
+  for (final entry in members.entries) {
+    if (!entry.value.contains(personId)) continue;
+    for (final other in entry.value) {
+      if (other == personId || already.contains(other)) continue;
+      // First group wins for a pair in two groups. Arbitrary, and better than
+      // showing the same two people twice under different labels.
+      out.putIfAbsent(
+        other,
+        () => PersonRelationship(
+          personId: personId,
+          relatedPersonId: other,
+          type: relationshipForGroup(entry.key.kind),
+          organization: entry.key.kind == GroupKind.circle
+              ? null
+              : entry.key.name,
+        ),
+      );
+    }
+  }
+  return out.values.toList();
+}
+
 /// Everyone reachable from [personId] by following relationships in either
 /// direction, including [personId] itself.
 ///
@@ -129,6 +170,44 @@ bool relationshipNeedsOrganization(RelationshipType type) =>
     type == RelationshipType.colleague ||
     type == RelationshipType.schoolmate ||
     type == RelationshipType.other;
+
+/// A named set of people — a family, a company, a class, a circle of friends.
+///
+/// [kind] is what the group *means*, and it is the whole reason a group is
+/// more than a label: everybody in a family group is family to everybody else
+/// in it, so the links follow from the membership rather than being drawn one
+/// by one. Twenty colleagues would otherwise be 190 relationships to enter by
+/// hand, and 190 to unpick when somebody changes job.
+enum GroupKind { family, company, school, circle }
+
+/// The relationship shared-group membership implies. `circle` means friends,
+/// which is the honest reading of a group somebody made and did not label.
+RelationshipType relationshipForGroup(GroupKind kind) => switch (kind) {
+  GroupKind.family => RelationshipType.family,
+  GroupKind.company => RelationshipType.colleague,
+  GroupKind.school => RelationshipType.schoolmate,
+  GroupKind.circle => RelationshipType.friend,
+};
+
+class PersonGroup {
+  const PersonGroup({required this.id, required this.name, required this.kind});
+
+  final String id;
+  final String name;
+  final GroupKind kind;
+
+  Map<String, Object?> toJson() => {'id': id, 'name': name, 'kind': kind.name};
+
+  static PersonGroup fromJson(Map<String, Object?> json) => PersonGroup(
+    id: json['id'] as String? ?? '',
+    name: json['name'] as String? ?? '',
+    kind:
+        GroupKind.values
+            .where((k) => k.name == json['kind'] as String?)
+            .firstOrNull ??
+        GroupKind.circle,
+  );
+}
 
 /// Where a [Person] has lived — an origin or a relocation, never a trip.
 /// See DESIGN.md: explicitly excludes travel/vacation history.

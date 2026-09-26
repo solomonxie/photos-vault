@@ -46,7 +46,15 @@ class _PersonGraphScreenState extends State<PersonGraphScreen> {
 
   Future<void> _load() async {
     var people = await widget.personStore.listAll();
-    var relationships = await widget.personStore.allRelationships();
+    final groups = await widget.personStore.allGroups();
+    var relationships = [
+      ...await widget.personStore.allRelationships(),
+      // Groups are links too, and the graph is the one place where seeing a
+      // company as a cluster rather than as twenty unconnected faces is the
+      // entire point. Derived, never stored — see [groupRelationships].
+      for (final person in people)
+        ...groupRelationships(personId: person.id, members: groups),
+    ];
     // Opened from somebody's profile, the graph is about *their* net. The
     // rest of the library is a second, unrelated picture that happens to
     // share the canvas — drawn together it reads as one net that isn't

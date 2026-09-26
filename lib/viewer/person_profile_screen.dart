@@ -102,6 +102,11 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   List<PersonHistoryEntry> _education = const [];
   List<PersonHistoryEntry> _jobs = const [];
   List<PersonEvent> _events = const [];
+  List<PersonGroup> _groups = const [];
+
+  /// Every group in this set, so a profile can be added to one that already
+  /// exists instead of retyping its name.
+  Map<PersonGroup, List<String>> _allGroups = const {};
 
   @override
   void initState() {
@@ -154,15 +159,32 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       passcodeHash: ns,
       keys: keys,
     );
+    final groups = await store.groupsFor(
+      _person.id,
+      passcodeHash: ns,
+      keys: keys,
+    );
+    final allGroups = await store.allGroups(passcodeHash: ns, keys: keys);
     if (!mounted) return;
     setState(() {
       _detail = detail;
-      _relationships = relationships;
       _allPeople = allPeople;
       _locations = locations;
       _education = education;
       _jobs = jobs;
       _events = events;
+      _groups = groups;
+      _allGroups = allGroups;
+      // Shown beside the explicit ones rather than written down — see
+      // [groupRelationships].
+      _relationships = [
+        ...relationships,
+        ...groupRelationships(
+          personId: _person.id,
+          members: allGroups,
+          explicit: relationships,
+        ),
+      ];
       if (_bio.text != detail.bio) _bio.text = detail.bio;
       if (_hint.text != detail.hint) _hint.text = detail.hint;
     });
@@ -874,22 +896,24 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
               _sectionHeader(l10n.impressionHeader),
               _impressionSection(l10n),
               const SizedBox(height: 20),
-              PersonTraitsEditor(
-                traits: _detail.traits,
-                background: _cardBackground,
-                decoration: _cardDecoration,
-                onChanged: (traits) =>
-                    _persistDetail(_detail.copyWith(traits: traits)),
-              ),
-              const SizedBox(height: 4),
               CustomFieldsEditor(
                 initialFields: _detail.customFields,
                 onChanged: (fields) =>
                     _persistDetail(_detail.copyWith(customFields: fields)),
+                underHeader: PersonTraitsEditor(
+                  traits: _detail.traits,
+                  background: _cardBackground,
+                  decoration: _cardDecoration,
+                  onChanged: (traits) =>
+                      _persistDetail(_detail.copyWith(traits: traits)),
+                ),
               ),
               const SizedBox(height: 20),
               _sectionHeader(l10n.eventsHeader, onAdd: () => _editEvent()),
               _eventsSection(l10n),
+              const SizedBox(height: 20),
+              _sectionHeader(l10n.groupsHeader, onAdd: _addToGroup),
+              _groupsSection(l10n),
               const SizedBox(height: 20),
               _sectionHeader(
                 l10n.personProfileRelationshipsHeader,
@@ -1401,6 +1425,158 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   ///
   /// The same shape as a real row so it reads as the first one rather than as
   /// a notice, and greyed so it is plainly not filled in.
+  /// Which groups this person is in.
+  ///
+  /// A group is worth more than a label because membership *implies* the
+  /// links: everybody in a family group is family to everybody else in it, so
+  /// twenty colleagues are one group rather than 190 relationships typed by
+  /// hand — and 190 to unpick when somebody changes job.
+  Widget _groupsSection(AppLocalizations l10n) {
+    if (_groups.isEmpty) {
+      return _promptRow(
+        key: profileSectionPromptKey(l10n.groupsHeader),
+        title: l10n.groupsPrompt,
+        hint: l10n.groupsPromptHint,
+        onTap: _addToGroup,
+      );
+    }
+    return CupertinoListSection.insetGrouped(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      backgroundColor: _cardBackground,
+      decoration: _cardDecoration,
+      children: [
+        for (final group in _groups)
+          CupertinoListTile(
+            key: ValueKey('group:${group.id}'),
+            title: Text(group.name),
+            subtitle: Text(
+              [
+                _groupKindLabel(l10n, group.kind),
+                l10n.groupsDerivedNote(
+                  ((_allGroups[group] ?? const []).length - 1).clamp(0, 9999),
+                ),
+              ].join(' · '),
+            ),
+            trailing: CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: () => _leaveGroup(l10n, group),
+              child: const Icon(
+                CupertinoIcons.xmark_circle,
+                color: CupertinoColors.systemGrey,
+              ),
+            ),
+          ),
+      ],
+    );
+  }
+
+  Future<void> _leaveGroup(AppLocalizations l10n, PersonGroup group) async {
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(l10n.groupsLeaveConfirmTitle),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.actionDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await widget.personStore.leaveGroup(
+      _person.id,
+      group.id,
+      passcodeHash: _namespace,
+    );
+    await _reload();
+  }
+
+  /// Join one that exists, or make one. Existing first: a second "Smiths"
+  /// spelled differently is two families as far as the links are concerned.
+  Future<void> _addToGroup() async {
+    final l10n = AppLocalizations.of(context)!;
+    final mine = {for (final g in _groups) g.id};
+    final joinable = [
+      for (final group in _allGroups.keys)
+        if (!mine.contains(group.id)) group,
+    ];
+    final chosen = await showCupertinoModalPopup<({PersonGroup? group})>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: Text(l10n.groupsPickTitle),
+        actions: [
+          for (final group in joinable)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(sheetContext).pop((group: group)),
+              child: Text(
+                '${group.name} · ${_groupKindLabel(l10n, group.kind)}',
+              ),
+            ),
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(sheetContext).pop((group: null)),
+            child: Text(l10n.groupsNewTitle),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (chosen == null) return;
+    final group = chosen.group ?? await _makeGroup(l10n);
+    if (group == null) return;
+    await widget.personStore.joinGroup(
+      _person.id,
+      group,
+      passcodeHash: _namespace,
+      keys: _keys,
+    );
+    await _reload();
+  }
+
+  Future<PersonGroup?> _makeGroup(AppLocalizations l10n) async {
+    final name = await showProfileTextPrompt(
+      context,
+      title: l10n.groupsNewTitle,
+      placeholder: l10n.groupsNamePlaceholder,
+    );
+    if (name == null || name.isEmpty || !mounted) return null;
+    final kind = await showCupertinoModalPopup<GroupKind>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: Text(l10n.groupsKindLabel),
+        actions: [
+          for (final kind in GroupKind.values)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(sheetContext).pop(kind),
+              child: Text(_groupKindLabel(l10n, kind)),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (kind == null) return null;
+    return PersonGroup(id: widget.personStore.newId(), name: name, kind: kind);
+  }
+
+  static String _groupKindLabel(AppLocalizations l10n, GroupKind kind) =>
+      switch (kind) {
+        GroupKind.family => l10n.groupKindFamily,
+        GroupKind.company => l10n.groupKindCompany,
+        GroupKind.school => l10n.groupKindSchool,
+        GroupKind.circle => l10n.groupKindCircle,
+      };
+
   Widget _promptRow({
     required Key key,
     required String title,

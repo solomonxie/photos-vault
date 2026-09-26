@@ -626,6 +626,32 @@
   "personProfileJobPromptHint": "起止年份 · 职位",
   "personProfileLocationPrompt": "地点",
   "personProfileLocationPromptHint": "出生地或迁居 · 年份",
+  "groupsHeader": "群组",
+  "groupsPrompt": "群组",
+  "groupsPromptHint": "家庭、公司、学校或圈子",
+  "groupsNewTitle": "新建群组",
+  "groupsNamePlaceholder": "名称",
+  "groupsKindLabel": "类型",
+  "groupsLeaveConfirmTitle": "退出这个群组？",
+  "groupsPickTitle": "加入群组",
+  "groupsDerivedNote": "{count, plural, other{来自群组的 {count} 条关系}}",
+  "@groupsDerivedNote": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "groupKindFamily": "家庭",
+  "groupKindCompany": "公司",
+  "groupKindSchool": "学校",
+  "groupKindCircle": "圈子",
+  "peopleSectionNamed": "人物",
+  "peopleSectionGroups": "群组",
+  "peopleSectionUnnamed": "待命名的人脸",
+  "peopleFilterAll": "全部",
+  "peopleFilterMale": "男",
+  "peopleFilterFemale": "女",
   "personProfileRelationshipsHeader": "关系",
   "relationshipDeleteConfirmTitle": "移除该关系?",
   "relationshipDeleteConfirmBody": "仅移除与 {name} 之间的关联,不会删除任何人物。",

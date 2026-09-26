@@ -53,6 +53,51 @@ class FakePersonStore implements PersonStore {
     }
   }
 
+  /// `personId` → groups they are in.
+  final groups = <String, List<PersonGroup>>{};
+
+  @override
+  Future<void> joinGroup(
+    String personId,
+    PersonGroup group, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    final mine = groups[personId] ??= [];
+    mine.removeWhere((g) => g.id == group.id);
+    mine.add(group);
+  }
+
+  @override
+  Future<void> leaveGroup(
+    String personId,
+    String groupId, {
+    String passcodeHash = openNamespace,
+  }) async => groups[personId]?.removeWhere((g) => g.id == groupId);
+
+  @override
+  Future<List<PersonGroup>> groupsFor(
+    String personId, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async => List.unmodifiable(groups[personId] ?? const []);
+
+  @override
+  Future<Map<PersonGroup, List<String>>> allGroups({
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    final byId = <String, PersonGroup>{};
+    final members = <String, List<String>>{};
+    for (final entry in groups.entries) {
+      for (final group in entry.value) {
+        byId[group.id] = group;
+        (members[group.id] ??= []).add(entry.key);
+      }
+    }
+    return {for (final e in byId.entries) e.value: members[e.key] ?? const []};
+  }
+
   final events = <String, PersonEvent>{};
 
   @override
