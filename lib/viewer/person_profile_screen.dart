@@ -15,6 +15,7 @@ import 'ask_ai_screen.dart';
 import 'custom_fields_editor.dart';
 import 'person_event_sheet.dart';
 import 'person_traits_editor.dart';
+import 'profile_autofill_screen.dart';
 import 'profile_chip.dart';
 import 'private_album_gate.dart';
 import 'person_avatar.dart';
@@ -1651,6 +1652,20 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
             onTap: _askAboutPerson,
           ),
           CupertinoListTile(
+            key: const ValueKey('utility-autofill'),
+            leading: const Icon(
+              CupertinoIcons.doc_text_search,
+              color: CupertinoColors.systemIndigo,
+            ),
+            title: Text(l10n.autofillOption),
+            trailing: const Icon(
+              CupertinoIcons.chevron_forward,
+              size: 18,
+              color: CupertinoColors.systemGrey2,
+            ),
+            onTap: _autofillFromFile,
+          ),
+          CupertinoListTile(
             key: const ValueKey('utility-this-is-me'),
             title: Text(l10n.ownerThisIsMe),
             subtitle: Text(l10n.ownerThisIsMeNote),
@@ -1715,6 +1730,21 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
             AskAiScreen(subject: _person.name, context: _personContext(l10n)),
       ),
     );
+  }
+
+  Future<void> _autofillFromFile() async {
+    final added = await Navigator.of(context).push<int>(
+      CupertinoPageRoute(
+        builder: (_) => ProfileAutofillScreen(
+          person: _person,
+          personStore: widget.personStore,
+          detail: _detail,
+          passcodeHash: _namespace,
+          keys: _keys,
+        ),
+      ),
+    );
+    if (added != null && added > 0) await _reload();
   }
 
   Widget _promptRow({

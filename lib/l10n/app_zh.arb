@@ -680,6 +680,41 @@
   "askAiResolutionMedium": "中等",
   "askAiResolutionFull": "原图",
   "askAiResolutionNote": "图片越小消耗的 token 越少。描述场景通常用小图就够。",
+  "autofillOption": "从文件填写",
+  "autofillTitle": "从文件填写",
+  "autofillPickButton": "选择文件",
+  "autofillReading": "正在读取…",
+  "autofillAsking": "正在询问 AI…",
+  "autofillUnreadable": "这个文件不是纯文本。可以用 .txt 或 .md；PDF 和 Word 无法读取。",
+  "autofillNothingFound": "没有从这个文件中找到内容。",
+  "autofillSendsNote": "整个文件都会发送给你的 AI 服务商。简历里通常有真实姓名、住址和电话。",
+  "autofillReviewHeading": "建议内容",
+  "autofillAcceptAll": "全部接受",
+  "autofillRejectAll": "全部拒绝",
+  "autofillApply": "{count, plural, =0{未选择} other{添加 {count} 项}}",
+  "@autofillApply": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "autofillApplied": "{count, plural, other{已添加 {count} 项。}}",
+  "@autofillApplied": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "autofillTargetBio": "简介",
+  "autofillTargetTrait": "更多详情",
+  "autofillTargetCustomField": "更多详情",
+  "autofillTargetGroup": "群组",
+  "autofillTargetEducation": "教育",
+  "autofillTargetJob": "工作",
+  "autofillTargetPlace": "居住地",
+  "autofillTargetTag": "标签",
   "personProfileRelationshipsHeader": "关系",
   "relationshipDeleteConfirmTitle": "移除该关系?",
   "relationshipDeleteConfirmBody": "仅移除与 {name} 之间的关联,不会删除任何人物。",
