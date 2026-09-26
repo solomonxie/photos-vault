@@ -3,6 +3,7 @@ import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/storage/passcode_hash.dart';
 import 'package:photos_vault/viewer/custom_fields_editor.dart';
 import 'package:photos_vault/viewer/person_profile_screen.dart';
+import 'package:photos_vault/viewer/person_traits_editor.dart';
 import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -303,6 +304,76 @@ void main() {
     await tester.tap(tag);
     await tester.pumpAndSettle();
     expect((await personStore.detailFor(mia.id)).impression.tags, isEmpty);
+  });
+
+  testWidgets('an empty section says what it would hold', (tester) async {
+    await _useTallSurface(tester);
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // A heading and a "+" told nobody what the section was for.
+    expect(find.text('School'), findsOneWidget);
+    expect(find.text('Start – End · Majors / Degrees'), findsOneWidget);
+    expect(find.text('Company'), findsOneWidget);
+    expect(find.text('Place'), findsOneWidget);
+    expect(find.text('Origin or relocation · Year'), findsOneWidget);
+
+    // And the named rows in More details, empty but listed.
+    expect(find.text('Hair'), findsOneWidget);
+    expect(find.text('Eyes'), findsOneWidget);
+    expect(find.text('Handed'), findsOneWidget);
+  });
+
+  testWidgets('hair is a menu, height is typed', (tester) async {
+    await _useTallSurface(tester);
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(traitRowKey('hair')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('blonde').last);
+    await tester.pumpAndSettle();
+    expect((await personStore.detailFor(mia.id)).traits['hair'], 'blonde');
+
+    await tester.tap(find.byKey(traitRowKey('height')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(CupertinoTextField).last, '178 cm');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    expect((await personStore.detailFor(mia.id)).traits['height'], '178 cm');
+
+    // Cleared rather than stored blank, so a profile carries only what was
+    // actually written.
+    await tester.tap(find.byKey(traitRowKey('hair')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Not set').last);
+    await tester.pumpAndSettle();
+    expect(
+      (await personStore.detailFor(mia.id)).traits.containsKey('hair'),
+      isFalse,
+    );
   });
 
   testWidgets('the first-met row is a prompt until it is dated', (

@@ -12,6 +12,7 @@ import '../vault/keys.dart';
 import '../vault/passphrase_sheet.dart';
 import 'custom_fields_editor.dart';
 import 'person_event_sheet.dart';
+import 'person_traits_editor.dart';
 import 'private_album_gate.dart';
 import 'person_avatar.dart';
 import 'person_avatar_picker.dart';
@@ -38,6 +39,9 @@ import 'search_picker_sheet.dart';
 /// sections have been reordered twice now, and every positional lookup
 /// silently pointed at the wrong one both times.
 Key profileSectionAddKey(String title) => ValueKey('section-add:$title');
+
+/// The blank first row a section shows before anything is in it.
+Key profileSectionPromptKey(String title) => ValueKey('section-prompt:$title');
 
 class PersonProfileScreen extends StatefulWidget {
   const PersonProfileScreen({
@@ -773,7 +777,11 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                   l10n.personProfileEducationLabel,
                 ),
               ),
-              _historySection(_education, l10n.personProfileEducationLabel),
+              _historySection(
+                _education,
+                l10n.personProfileEducationLabel,
+                category: HistoryCategory.education,
+              ),
               const SizedBox(height: 20),
               _sectionHeader(
                 l10n.personProfileJobLabel,
@@ -782,12 +790,25 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                   l10n.personProfileJobLabel,
                 ),
               ),
-              _historySection(_jobs, l10n.personProfileJobLabel),
+              _historySection(
+                _jobs,
+                l10n.personProfileJobLabel,
+                category: HistoryCategory.job,
+              ),
               const SizedBox(height: 20),
               _sectionHeader(
                 l10n.personProfileLocationHeader,
                 onAdd: () => _editLocation(),
               ),
+              if (_locations.isEmpty)
+                _promptRow(
+                  key: profileSectionPromptKey(
+                    l10n.personProfileLocationHeader,
+                  ),
+                  title: l10n.personProfileLocationPrompt,
+                  hint: l10n.personProfileLocationPromptHint,
+                  onTap: () => _editLocation(),
+                ),
               if (_locations.isNotEmpty)
                 CupertinoListSection.insetGrouped(
                   margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -812,6 +833,14 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                   ],
                 ),
               const SizedBox(height: 20),
+              PersonTraitsEditor(
+                traits: _detail.traits,
+                background: _cardBackground,
+                decoration: _cardDecoration,
+                onChanged: (traits) =>
+                    _persistDetail(_detail.copyWith(traits: traits)),
+              ),
+              const SizedBox(height: 4),
               CustomFieldsEditor(
                 initialFields: _detail.customFields,
                 onChanged: (fields) =>
@@ -940,10 +969,27 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
 
   Widget _historySection(
     List<PersonHistoryEntry> entries,
-    String categoryLabel,
-  ) {
-    if (entries.isEmpty) return const SizedBox.shrink();
+    String categoryLabel, {
+    HistoryCategory? category,
+  }) {
     final l10n = AppLocalizations.of(context)!;
+    // An empty section used to render nothing at all, so a fresh profile
+    // showed a heading and a "+" and no clue what either was for. The row
+    // names the fields instead, and tapping it is the same as tapping "+".
+    if (entries.isEmpty) {
+      return category == null
+          ? const SizedBox.shrink()
+          : _promptRow(
+              key: profileSectionPromptKey(categoryLabel),
+              title: category == HistoryCategory.education
+                  ? l10n.personProfileEducationPrompt
+                  : l10n.personProfileJobPrompt,
+              hint: category == HistoryCategory.education
+                  ? l10n.personProfileEducationPromptHint
+                  : l10n.personProfileJobPromptHint,
+              onTap: () => _addHistoryEntry(category, categoryLabel),
+            );
+    }
     return CupertinoListSection.insetGrouped(
       margin: const EdgeInsets.symmetric(horizontal: 16),
       backgroundColor: _cardBackground,
@@ -1290,6 +1336,40 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     );
     await _reload();
   }
+
+  /// A section with nothing in it yet, showing what it would hold.
+  ///
+  /// The same shape as a real row so it reads as the first one rather than as
+  /// a notice, and greyed so it is plainly not filled in.
+  Widget _promptRow({
+    required Key key,
+    required String title,
+    required String hint,
+    required VoidCallback onTap,
+  }) => CupertinoListSection.insetGrouped(
+    margin: const EdgeInsets.symmetric(horizontal: 16),
+    backgroundColor: _cardBackground,
+    decoration: _cardDecoration,
+    children: [
+      CupertinoListTile(
+        key: key,
+        title: Text(
+          title,
+          style: const TextStyle(color: CupertinoColors.systemGrey),
+        ),
+        subtitle: Text(
+          hint,
+          style: const TextStyle(color: CupertinoColors.systemGrey2),
+        ),
+        trailing: const Icon(
+          CupertinoIcons.chevron_forward,
+          size: 18,
+          color: CupertinoColors.systemGrey2,
+        ),
+        onTap: onTap,
+      ),
+    ],
+  );
 
   Widget _sectionHeader(String title, {VoidCallback? onAdd}) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
