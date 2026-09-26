@@ -3,6 +3,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/ai_ask_service.dart';
+import '../photos/document_text.dart';
 import '../photos/person.dart';
 import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
@@ -30,6 +31,7 @@ class ProfileAutofillScreen extends StatefulWidget {
     this.keys,
     this.service,
     this.pickFile,
+    this.reader,
   });
 
   final Person person;
@@ -43,8 +45,13 @@ class ProfileAutofillScreen extends StatefulWidget {
 
   final AiAskService? service;
 
-  /// Overridable so a test never opens the system file browser.
-  final Future<({String name, List<int> bytes})?> Function()? pickFile;
+  /// Overridable so a test never opens the system file browser. [path] is
+  /// there for PDFKit, which opens a URL rather than bytes.
+  final Future<({String name, List<int> bytes, String? path})?> Function()?
+  pickFile;
+
+  /// Overridable so a test never reaches the PDF platform channel.
+  final DocumentReader? reader;
 
   @override
   State<ProfileAutofillScreen> createState() => _ProfileAutofillScreenState();
@@ -52,6 +59,7 @@ class ProfileAutofillScreen extends StatefulWidget {
 
 class _ProfileAutofillScreenState extends State<ProfileAutofillScreen> {
   late final AiAskService _service = widget.service ?? AiAskService();
+  late final DocumentReader _reader = widget.reader ?? DocumentReader();
   AutofillStage _stage = AutofillStage.idle;
   String? _error;
   String _fileName = '';
@@ -75,12 +83,21 @@ class _ProfileAutofillScreenState extends State<ProfileAutofillScreen> {
         if (mounted) setState(() => _stage = AutofillStage.idle);
         return;
       }
-      final text = documentText(picked.bytes);
+      final read = await _reader.read(
+        name: picked.name,
+        bytes: picked.bytes,
+        path: picked.path,
+      );
+      final text = read.text;
       if (text == null) {
         if (mounted) {
           setState(() {
             _stage = AutofillStage.idle;
-            _error = l10n.autofillUnreadable;
+            _error = switch (read.problem) {
+              DocumentProblem.scannedPdf => l10n.autofillScannedPdf,
+              DocumentProblem.empty => l10n.autofillEmptyFile,
+              _ => l10n.autofillUnsupportedFormat,
+            };
           });
         }
         return;
@@ -108,12 +125,12 @@ class _ProfileAutofillScreenState extends State<ProfileAutofillScreen> {
     }
   }
 
-  static Future<({String name, List<int> bytes})?>
+  static Future<({String name, List<int> bytes, String? path})?>
   _pickWithSystemBrowser() async {
     final picked = await FilePicker.pickFiles(type: FileType.any);
     final file = picked.firstOrNull;
     if (file == null) return null;
-    return (name: file.name, bytes: await file.readAsBytes());
+    return (name: file.name, bytes: await file.readAsBytes(), path: file.path);
   }
 
   /// Writes the accepted ones, each through the same call the screen it
