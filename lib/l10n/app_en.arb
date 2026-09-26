@@ -1055,6 +1055,41 @@
   "askAiResolutionMedium": "Medium",
   "askAiResolutionFull": "Full size",
   "askAiResolutionNote": "A smaller picture costs fewer tokens. Small is usually enough to describe a scene.",
+  "autofillOption": "Fill in from a file",
+  "autofillTitle": "Fill in from a file",
+  "autofillPickButton": "Choose a file",
+  "autofillReading": "Reading…",
+  "autofillAsking": "Asking AI…",
+  "autofillUnreadable": "That file isn't plain text. A .txt or .md file works; PDF and Word aren't read.",
+  "autofillNothingFound": "Nothing was found in that file.",
+  "autofillSendsNote": "The whole file is sent to your AI provider. A CV holds a real person's name, address and phone number.",
+  "autofillReviewHeading": "SUGGESTED",
+  "autofillAcceptAll": "Accept all",
+  "autofillRejectAll": "Reject all",
+  "autofillApply": "{count, plural, =0{Nothing selected} one{Add 1 item} other{Add {count} items}}",
+  "@autofillApply": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "autofillApplied": "{count, plural, one{Added 1 item.} other{Added {count} items.}}",
+  "@autofillApplied": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "autofillTargetBio": "About",
+  "autofillTargetTrait": "More details",
+  "autofillTargetCustomField": "More details",
+  "autofillTargetGroup": "Group",
+  "autofillTargetEducation": "Education",
+  "autofillTargetJob": "Job",
+  "autofillTargetPlace": "Places Lived",
+  "autofillTargetTag": "Tag",
   "personProfileRelationshipsHeader": "Relationships",
   "relationshipDeleteConfirmTitle": "Remove this relationship?",
   "relationshipDeleteConfirmBody": "This only removes the relationship between {name} and this person. Neither profile is deleted.",
