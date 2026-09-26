@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:http/http.dart' as http;
 
 import '../settings/ai_settings_store.dart';
+import 'ai_chat.dart';
 import 'ai_analysis.dart';
 import 'ai_vendor.dart';
 
@@ -57,154 +58,20 @@ class AiVisionService {
     return _parse(localId, content);
   }
 
+  /// The vendor call itself lives in `ai_chat.dart`, shared with the
+  /// questions somebody types. `jsonMode` only for the vendor that honours it;
+  /// the rest are asked for JSON by the prompt and mostly oblige, which is why
+  /// [_parse] treats a bad reply as an error rather than a crash.
   Future<String> _runVendor(AiVendor vendor, String apiKey, Uint8List bytes) =>
-      switch (vendor) {
-        AiVendor.openai => _runOpenAiCompatible(
-          vendorName: 'OpenAI',
-          endpoint: 'https://api.openai.com/v1/chat/completions',
-          model: 'gpt-4o-mini',
-          apiKey: apiKey,
-          bytes: bytes,
-          jsonMode: true,
-        ),
-        // Vision-capable models on each vendor's own OpenAI-compatible
-        // chat/completions endpoint — same `image_url` content-block shape as
-        // OpenAI itself. Model names are the most likely to go stale if a
-        // vendor retires/renames its vision model.
-        AiVendor.groq => _runOpenAiCompatible(
-          vendorName: 'Groq',
-          endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-          model: 'llama-3.2-11b-vision-preview',
-          apiKey: apiKey,
-          bytes: bytes,
-        ),
-        AiVendor.mistral => _runOpenAiCompatible(
-          vendorName: 'Mistral',
-          endpoint: 'https://api.mistral.ai/v1/chat/completions',
-          model: 'pixtral-12b-2409',
-          apiKey: apiKey,
-          bytes: bytes,
-        ),
-        AiVendor.xai => _runOpenAiCompatible(
-          vendorName: 'xAI',
-          endpoint: 'https://api.x.ai/v1/chat/completions',
-          model: 'grok-2-vision-1212',
-          apiKey: apiKey,
-          bytes: bytes,
-        ),
-        AiVendor.anthropic => _runAnthropic(apiKey, bytes),
-        AiVendor.google => _runGoogle(apiKey, bytes),
-      };
-
-  Future<String> _runOpenAiCompatible({
-    required String vendorName,
-    required String endpoint,
-    required String model,
-    required String apiKey,
-    required Uint8List bytes,
-    bool jsonMode = false,
-  }) async {
-    final base64Image = base64Encode(bytes);
-    final response = await _httpClient.post(
-      Uri.parse(endpoint),
-      headers: {
-        'Authorization': 'Bearer $apiKey',
-        'Content-Type': 'application/json',
-      },
-      body: jsonEncode({
-        'model': model,
-        if (jsonMode) 'response_format': {'type': 'json_object'},
-        'messages': [
-          {
-            'role': 'user',
-            'content': [
-              {'type': 'text', 'text': _prompt},
-              {
-                'type': 'image_url',
-                'image_url': {'url': 'data:image/jpeg;base64,$base64Image'},
-              },
-            ],
-          },
-        ],
-      }),
-    );
-    if (response.statusCode != 200) {
-      throw AiAnalysisException(
-        '$vendorName request failed (${response.statusCode})',
+      askVendor(
+        vendor: vendor,
+        apiKey: apiKey,
+        prompt: _prompt,
+        client: _httpClient,
+        image: bytes,
+        jsonMode: vendor == AiVendor.openai,
+        maxTokens: 256,
       );
-    }
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return (body['choices'] as List)[0]['message']['content'] as String;
-  }
-
-  Future<String> _runAnthropic(String apiKey, Uint8List bytes) async {
-    final base64Image = base64Encode(bytes);
-    final response = await _httpClient.post(
-      Uri.parse('https://api.anthropic.com/v1/messages'),
-      headers: {
-        'Content-Type': 'application/json',
-        'x-api-key': apiKey,
-        'anthropic-version': '2023-06-01',
-      },
-      body: jsonEncode({
-        'model': 'claude-haiku-4-5-20251001',
-        'max_tokens': 256,
-        'messages': [
-          {
-            'role': 'user',
-            'content': [
-              {'type': 'text', 'text': _prompt},
-              {
-                'type': 'image',
-                'source': {
-                  'type': 'base64',
-                  'media_type': 'image/jpeg',
-                  'data': base64Image,
-                },
-              },
-            ],
-          },
-        ],
-      }),
-    );
-    if (response.statusCode != 200) {
-      throw AiAnalysisException(
-        'Anthropic request failed (${response.statusCode})',
-      );
-    }
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return (body['content'] as List)[0]['text'] as String;
-  }
-
-  Future<String> _runGoogle(String apiKey, Uint8List bytes) async {
-    final base64Image = base64Encode(bytes);
-    final response = await _httpClient.post(
-      Uri.parse(
-        'https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent?key=$apiKey',
-      ),
-      headers: {'Content-Type': 'application/json'},
-      body: jsonEncode({
-        'contents': [
-          {
-            'parts': [
-              {'text': _prompt},
-              {
-                'inline_data': {'mime_type': 'image/jpeg', 'data': base64Image},
-              },
-            ],
-          },
-        ],
-      }),
-    );
-    if (response.statusCode != 200) {
-      throw AiAnalysisException(
-        'Google request failed (${response.statusCode})',
-      );
-    }
-    final body = jsonDecode(response.body) as Map<String, dynamic>;
-    return (body['candidates'] as List)[0]['content']['parts'][0]['text']
-        as String;
-  }
 
   AiPhotoAnalysis _parse(String localId, String content) {
     try {
