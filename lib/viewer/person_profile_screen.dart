@@ -1451,7 +1451,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
             title: Text(group.name),
             subtitle: Text(
               [
-                _groupKindLabel(l10n, group.kind),
+                groupKindLabel(l10n, group.kind),
                 l10n.groupsDerivedNote(
                   ((_allGroups[group] ?? const []).length - 1).clamp(0, 9999),
                 ),
@@ -1515,7 +1515,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
             CupertinoActionSheetAction(
               onPressed: () => Navigator.of(sheetContext).pop((group: group)),
               child: Text(
-                '${group.name} · ${_groupKindLabel(l10n, group.kind)}',
+                '${group.name} · ${groupKindLabel(l10n, group.kind)}',
               ),
             ),
           CupertinoActionSheetAction(
@@ -1556,7 +1556,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           for (final kind in GroupKind.values)
             CupertinoActionSheetAction(
               onPressed: () => Navigator.of(sheetContext).pop(kind),
-              child: Text(_groupKindLabel(l10n, kind)),
+              child: Text(groupKindLabel(l10n, kind)),
             ),
         ],
         cancelButton: CupertinoActionSheetAction(
@@ -1568,14 +1568,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     if (kind == null) return null;
     return PersonGroup(id: widget.personStore.newId(), name: name, kind: kind);
   }
-
-  static String _groupKindLabel(AppLocalizations l10n, GroupKind kind) =>
-      switch (kind) {
-        GroupKind.family => l10n.groupKindFamily,
-        GroupKind.company => l10n.groupKindCompany,
-        GroupKind.school => l10n.groupKindSchool,
-        GroupKind.circle => l10n.groupKindCircle,
-      };
 
   Widget _promptRow({
     required Key key,

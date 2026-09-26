@@ -978,6 +978,22 @@ class PersonStore {
     );
   }
 
+  /// Every person's open-set details at once, by person id.
+  ///
+  /// The People page needs one field — gender — across everybody, and asking
+  /// per person is a query per row. Only the open set: a list of faces anybody
+  /// can see must not sort itself by something only a passcode opens.
+  Future<Map<String, PersonDetail>> openDetails() async {
+    final db = await _open();
+    final rows = await db.query(_detailTable, where: "passcode_hash = ''");
+    return {
+      for (final row in rows)
+        row['person_id'] as String: _decodePlain(
+          row['payload'] as String? ?? '',
+        ),
+    };
+  }
+
   // --- Groups ---
 
   Future<void> joinGroup(
