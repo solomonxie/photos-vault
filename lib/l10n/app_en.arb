@@ -932,6 +932,8 @@
   "impressionIntroversionMiddle": "In between",
   "impressionIntroversionHigh": "Extrovert",
   "impressionIntroversionVeryHigh": "Strongly extrovert",
+  "impressionTagAddTitle": "Add a tag",
+  "impressionTagAddPlaceholder": "One word",
   "impressionTagCurious": "curious",
   "impressionTagOrganised": "organised",
   "impressionTagSpontaneous": "spontaneous",

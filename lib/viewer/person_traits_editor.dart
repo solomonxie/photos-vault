@@ -2,17 +2,19 @@ import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/person_detail.dart';
+import 'profile_chip.dart';
 
-/// The named rows at the top of More details — hair, eyes, height and the
-/// rest, always shown and each empty until filled in.
+/// More details: the fields somebody has filled in, and chips offering the
+/// ones they have not.
 ///
-/// They are listed rather than hidden on purpose. A section that shows
-/// nothing until you have already put something in it never gets used,
-/// because nothing tells you what it is for; the labels are the prompt.
+/// Eight named rows sitting there empty was eight rows of "Not set" on every
+/// profile — the section became mostly blanks, which is worse than the blank
+/// section it replaced. As chips they cost one line until used: tap one and it
+/// becomes a row, clear the row and it goes back to being a chip.
 ///
-/// Menus where the answers are a settled list, typing where they are not.
-/// The stored value is the English key, localised for display only, so
-/// switching language does not rewrite anybody's profile.
+/// Menus where the answers are a settled list, typing where they are not. The
+/// stored value is the English key, localised for display only, so switching
+/// language does not rewrite anybody's profile.
 class PersonTraitsEditor extends StatelessWidget {
   const PersonTraitsEditor({
     super.key,
@@ -30,13 +32,44 @@ class PersonTraitsEditor extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return CupertinoListSection.insetGrouped(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      backgroundColor: background,
-      decoration: decoration,
+    final filled = [
+      for (final trait in personTraits)
+        if ((traits[trait.key] ?? '').isNotEmpty) trait,
+    ];
+    final offered = [
+      for (final trait in personTraits)
+        if ((traits[trait.key] ?? '').isEmpty) trait,
+    ];
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        for (final trait in personTraits)
-          _row(context, l10n, trait, traits[trait.key] ?? ''),
+        if (filled.isNotEmpty)
+          CupertinoListSection.insetGrouped(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            backgroundColor: background,
+            decoration: decoration,
+            children: [
+              for (final trait in filled)
+                _row(context, l10n, trait, traits[trait.key]!),
+            ],
+          ),
+        if (offered.isNotEmpty)
+          Padding(
+            padding: EdgeInsets.fromLTRB(16, filled.isEmpty ? 0 : 10, 16, 0),
+            child: Wrap(
+              spacing: 8,
+              runSpacing: 8,
+              children: [
+                for (final trait in offered)
+                  ProfileChip(
+                    key: traitChipKey(trait.key),
+                    label: traitLabel(l10n, trait.key),
+                    selected: false,
+                    onTap: () => _edit(context, l10n, trait, ''),
+                  ),
+              ],
+            ),
+          ),
       ],
     );
   }
@@ -46,34 +79,32 @@ class PersonTraitsEditor extends StatelessWidget {
     AppLocalizations l10n,
     PersonTrait trait,
     String value,
-  ) {
-    final label = traitLabel(l10n, trait.key);
-    return CupertinoListTile(
-      key: traitRowKey(trait.key),
-      title: Text(label),
-      trailing: Text(
-        value.isEmpty
-            ? l10n.personProfileNotSet
-            : traitValueLabel(l10n, trait.key, value),
-        style: TextStyle(
-          color: value.isEmpty
-              ? CupertinoColors.systemGrey
-              : CupertinoColors.white,
-        ),
-      ),
-      onTap: () => trait.isMenu
-          ? _pickFromMenu(context, l10n, trait, value, label)
-          : _typeIt(context, l10n, trait, value, label),
-    );
-  }
+  ) => CupertinoListTile(
+    key: traitRowKey(trait.key),
+    title: Text(traitLabel(l10n, trait.key)),
+    trailing: Text(
+      traitValueLabel(l10n, trait.key, value),
+      style: const TextStyle(color: CupertinoColors.white),
+    ),
+    onTap: () => _edit(context, l10n, trait, value),
+  );
+
+  Future<void> _edit(
+    BuildContext context,
+    AppLocalizations l10n,
+    PersonTrait trait,
+    String value,
+  ) => trait.isMenu
+      ? _pickFromMenu(context, l10n, trait, value)
+      : _typeIt(context, l10n, trait, value);
 
   Future<void> _pickFromMenu(
     BuildContext context,
     AppLocalizations l10n,
     PersonTrait trait,
     String value,
-    String label,
   ) async {
+    final label = traitLabel(l10n, trait.key);
     final picked = await showCupertinoModalPopup<({String? value})>(
       context: context,
       builder: (sheetContext) => CupertinoActionSheet(
@@ -105,40 +136,19 @@ class PersonTraitsEditor extends StatelessWidget {
     AppLocalizations l10n,
     PersonTrait trait,
     String value,
-    String label,
   ) async {
-    final controller = TextEditingController(text: value);
-    final saved = await showCupertinoDialog<String>(
-      context: context,
-      builder: (dialogContext) => CupertinoAlertDialog(
-        title: Text(label),
-        content: Padding(
-          padding: const EdgeInsets.only(top: 12),
-          child: CupertinoTextField(
-            controller: controller,
-            autofocus: true,
-            placeholder: traitPlaceholder(l10n, trait.key),
-          ),
-        ),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(dialogContext).pop(),
-            child: Text(l10n.actionCancel),
-          ),
-          CupertinoDialogAction(
-            onPressed: () =>
-                Navigator.of(dialogContext).pop(controller.text.trim()),
-            child: Text(l10n.settingsSaveButton),
-          ),
-        ],
-      ),
+    final saved = await showProfileTextPrompt(
+      context,
+      title: traitLabel(l10n, trait.key),
+      placeholder: traitPlaceholder(l10n, trait.key),
+      initial: value,
     );
-    controller.dispose();
     if (saved != null) _write(trait.key, saved);
   }
 
   /// Blank clears the row rather than storing an empty string, so a profile
-  /// carries only what somebody actually wrote.
+  /// carries only what somebody actually wrote — and the field goes back to
+  /// being one of the chips on offer.
   void _write(String key, String value) {
     final next = {...traits};
     if (value.isEmpty) {
@@ -151,6 +161,7 @@ class PersonTraitsEditor extends StatelessWidget {
 }
 
 Key traitRowKey(String key) => ValueKey('trait:$key');
+Key traitChipKey(String key) => ValueKey('trait-chip:$key');
 
 String traitLabel(AppLocalizations l10n, String key) => switch (key) {
   'hair' => l10n.traitHair,

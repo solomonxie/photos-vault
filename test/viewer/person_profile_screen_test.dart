@@ -329,10 +329,11 @@ void main() {
     expect(find.text('Place'), findsOneWidget);
     expect(find.text('Origin or relocation · Year'), findsOneWidget);
 
-    // And the named rows in More details, empty but listed.
-    expect(find.text('Hair'), findsOneWidget);
-    expect(find.text('Eyes'), findsOneWidget);
-    expect(find.text('Handed'), findsOneWidget);
+    // More details offers its fields as chips rather than as eight rows of
+    // "Not set", which is what they were.
+    expect(find.byKey(traitChipKey('hair')), findsOneWidget);
+    expect(find.byKey(traitChipKey('eyes')), findsOneWidget);
+    expect(find.byKey(traitRowKey('hair')), findsNothing);
   });
 
   testWidgets('hair is a menu, height is typed', (tester) async {
@@ -351,13 +352,16 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(traitRowKey('hair')));
+    // A chip becomes a row once it holds something.
+    await tester.tap(find.byKey(traitChipKey('hair')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('blonde').last);
     await tester.pumpAndSettle();
     expect((await personStore.detailFor(mia.id)).traits['hair'], 'blonde');
+    expect(find.byKey(traitRowKey('hair')), findsOneWidget);
+    expect(find.byKey(traitChipKey('hair')), findsNothing);
 
-    await tester.tap(find.byKey(traitRowKey('height')));
+    await tester.tap(find.byKey(traitChipKey('height')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(CupertinoTextField).last, '178 cm');
     await tester.tap(find.text('Save'));
@@ -374,6 +378,85 @@ void main() {
       (await personStore.detailFor(mia.id)).traits.containsKey('hair'),
       isFalse,
     );
+    // And goes back to being on offer.
+    expect(find.byKey(traitChipKey('hair')), findsOneWidget);
+  });
+
+  testWidgets('a tag can be typed, and shows as typed', (tester) async {
+    await _useTallSurface(tester);
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('impression-tag-add')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(CupertinoTextField).last, 'Sardonic');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect((await personStore.detailFor(mia.id)).impression.tags, ['sardonic']);
+    // Not "intense", which is what the old catch-all in the label lookup
+    // would have shown for anything it did not recognise.
+    expect(find.text('sardonic'), findsOneWidget);
+    expect(find.text('intense'), findsOneWidget);
+  });
+
+  testWidgets('the keypad asks for the passphrase rather than doing nothing', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final personStore = FakePersonStore();
+    final keychain = FakeSecureStore();
+    final vaultKeys = VaultKeys(store: keychain);
+    await vaultKeys.add('a good long passphrase', hint: 'the usual');
+    // Exactly what Remove All App Data leaves behind: the entry is known,
+    // the master key it derives is not.
+    await vaultKeys.forgetOnThisDevice();
+    final mia = await personStore.create(name: 'Mia');
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+          vaultKeys: vaultKeys,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byIcon(CupertinoIcons.number));
+    await tester.pumpAndSettle();
+    for (final digit in '1234'.split('')) {
+      await tester.tap(find.text(digit));
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+
+    // Before this it took the four digits and silently did nothing, which
+    // reads as a broken button.
+    expect(find.textContaining('the usual'), findsWidgets);
+    await tester.enterText(
+      find.byType(CupertinoTextField).last,
+      'a good long passphrase',
+    );
+    await tester.pump();
+    await tester.tap(find.text('Continue'));
+    await tester.pumpAndSettle();
+
+    // Inside a set now, and it says so.
+    expect(find.byIcon(CupertinoIcons.number_circle_fill), findsOneWidget);
   });
 
   testWidgets('the first-met row is a prompt until it is dated', (

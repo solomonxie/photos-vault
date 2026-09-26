@@ -13,6 +13,7 @@ import '../vault/passphrase_sheet.dart';
 import 'custom_fields_editor.dart';
 import 'person_event_sheet.dart';
 import 'person_traits_editor.dart';
+import 'profile_chip.dart';
 import 'private_album_gate.dart';
 import 'person_avatar.dart';
 import 'person_avatar_picker.dart';
@@ -280,7 +281,24 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     if (!mounted) return;
     final passcode = await showPrivateAlbumPasscodeSheet(context);
     if (passcode == null) return;
-    final keys = await _vaultKeys.unlockAlbum(passcode);
+
+    var keys = await _vaultKeys.unlockAlbum(passcode);
+    if (keys == null) {
+      // The passphrase is known *of* but cannot be derived on this phone —
+      // which is exactly what Remove All App Data leaves behind, since it
+      // drops the master keys and keeps the entries. Without this the keypad
+      // took four digits and did nothing at all, silently, which is
+      // indistinguishable from a feature that does not work.
+      final known = await _vaultKeys.entries();
+      if (known.isEmpty || !mounted) return;
+      final unlocked = await showAddPassphraseSheet(
+        context,
+        keys: _vaultKeys,
+        candidates: known,
+      );
+      if (!unlocked || !mounted) return;
+      keys = await _vaultKeys.unlockAlbum(passcode);
+    }
     if (keys == null || !mounted) return;
     setState(() {
       _namespace = hashPasscode(passcode);
@@ -587,18 +605,38 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   /// thing the keypad avoids saying. In here it is the opposite of a
   /// secret: somebody who keeps three sets needs to know which one they
   /// have opened.
-  Widget _hintRow(AppLocalizations l10n) => Padding(
-    padding: const EdgeInsets.fromLTRB(24, 0, 24, 8),
-    child: CupertinoTextField.borderless(
-      controller: _hint,
-      textAlign: TextAlign.center,
-      placeholder: l10n.personProfileHintLabel,
-      placeholderStyle: const TextStyle(
-        fontSize: 13,
-        color: CupertinoColors.systemGrey2,
-      ),
-      style: const TextStyle(fontSize: 13, color: CupertinoColors.systemGrey),
-      onChanged: (v) => _persistDetail(_detail.copyWith(hint: v)),
+  Widget _hintRow(AppLocalizations l10n) => Container(
+    margin: const EdgeInsets.fromLTRB(16, 0, 16, 12),
+    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
+    decoration: BoxDecoration(
+      // Tinted, because the alternative was a filled icon in the nav bar and
+      // a placeholder — and on a profile that was empty to begin with, an
+      // empty set looks exactly like the one you came from. Something has to
+      // say plainly which set you are in.
+      color: CupertinoColors.systemBlue.withValues(alpha: 0.18),
+      borderRadius: BorderRadius.circular(10),
+    ),
+    child: Row(
+      children: [
+        const Icon(
+          CupertinoIcons.number,
+          size: 15,
+          color: CupertinoColors.systemBlue,
+        ),
+        const SizedBox(width: 8),
+        Expanded(
+          child: CupertinoTextField.borderless(
+            controller: _hint,
+            placeholder: l10n.personProfileHintLabel,
+            placeholderStyle: const TextStyle(
+              fontSize: 13,
+              color: CupertinoColors.systemGrey,
+            ),
+            style: const TextStyle(fontSize: 13, color: CupertinoColors.white),
+            onChanged: (v) => _persistDetail(_detail.copyWith(hint: v)),
+          ),
+        ),
+      ],
     ),
   );
 
@@ -833,6 +871,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                   ],
                 ),
               const SizedBox(height: 20),
+              _sectionHeader(l10n.impressionHeader),
+              _impressionSection(l10n),
+              const SizedBox(height: 20),
               PersonTraitsEditor(
                 traits: _detail.traits,
                 background: _cardBackground,
@@ -846,9 +887,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                 onChanged: (fields) =>
                     _persistDetail(_detail.copyWith(customFields: fields)),
               ),
-              const SizedBox(height: 20),
-              _sectionHeader(l10n.impressionHeader),
-              _impressionSection(l10n),
               const SizedBox(height: 20),
               _sectionHeader(l10n.eventsHeader, onAdd: () => _editEvent()),
               _eventsSection(l10n),
@@ -1097,8 +1135,15 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
             spacing: 8,
             runSpacing: 8,
             children: [
-              for (final tag in impressionTags)
+              for (final tag in _tagsOnOffer(impression))
                 _impressionTagChip(l10n, tag, impression),
+              ProfileChip(
+                key: const ValueKey('impression-tag-add'),
+                label: l10n.impressionTagAddTitle,
+                selected: false,
+                leading: CupertinoIcons.add,
+                onTap: () => _addImpressionTag(l10n, impression),
+              ),
             ],
           ),
         ),
@@ -1152,41 +1197,53 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     },
   );
 
+  /// The twelve built in, plus anything typed for this person. A tag added by
+  /// hand keeps showing after it is switched off — otherwise switching it off
+  /// would be the same as deleting it.
+  static List<String> _tagsOnOffer(PersonImpression impression) => [
+    ...impressionTags,
+    for (final tag in impression.tags)
+      if (!impressionTags.contains(tag)) tag,
+  ];
+
+  Future<void> _addImpressionTag(
+    AppLocalizations l10n,
+    PersonImpression impression,
+  ) async {
+    final typed = await showProfileTextPrompt(
+      context,
+      title: l10n.impressionTagAddTitle,
+      placeholder: l10n.impressionTagAddPlaceholder,
+    );
+    final tag = typed?.toLowerCase();
+    if (tag == null || tag.isEmpty || impression.tags.contains(tag)) return;
+    await _persistDetail(
+      _detail.copyWith(
+        impression: impression.copyWith(tags: [...impression.tags, tag]),
+      ),
+    );
+  }
+
   Widget _impressionTagChip(
     AppLocalizations l10n,
     String tag,
     PersonImpression impression,
-  ) {
-    final on = impression.tags.contains(tag);
-    return GestureDetector(
-      onTap: () => _persistDetail(
-        _detail.copyWith(
-          impression: impression.copyWith(
-            tags: on
-                ? [
-                    for (final t in impression.tags)
-                      if (t != tag) t,
-                  ]
-                : [...impression.tags, tag],
-          ),
+  ) => ProfileChip(
+    label: _tagLabel(l10n, tag),
+    selected: impression.tags.contains(tag),
+    onTap: () => _persistDetail(
+      _detail.copyWith(
+        impression: impression.copyWith(
+          tags: impression.tags.contains(tag)
+              ? [
+                  for (final t in impression.tags)
+                    if (t != tag) t,
+                ]
+              : [...impression.tags, tag],
         ),
       ),
-      child: Container(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 7),
-        decoration: BoxDecoration(
-          color: on ? CupertinoColors.systemBlue : const Color(0xFF2C2C2E),
-          borderRadius: BorderRadius.circular(14),
-        ),
-        child: Text(
-          _tagLabel(l10n, tag),
-          style: TextStyle(
-            fontSize: 13,
-            color: on ? CupertinoColors.white : CupertinoColors.systemGrey,
-          ),
-        ),
-      ),
-    );
-  }
+    ),
+  );
 
   static String _overallLabel(AppLocalizations l10n, ImpressionLevel level) =>
       switch (level) {
@@ -1229,7 +1286,10 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     'private' => l10n.impressionTagPrivate,
     'funny' => l10n.impressionTagFunny,
     'steady' => l10n.impressionTagSteady,
-    _ => l10n.impressionTagIntense,
+    'intense' => l10n.impressionTagIntense,
+    // Typed by hand: shown as typed. The old catch-all named the last
+    // built-in tag, so every custom one displayed as "intense".
+    _ => tag,
   };
 
   /// What happened, oldest first.
