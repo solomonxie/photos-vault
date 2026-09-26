@@ -17,7 +17,13 @@ class CustomFieldsEditor extends StatefulWidget {
     super.key,
     required this.initialFields,
     required this.onChanged,
+    this.underHeader,
   });
+
+  /// Sits between this section's title and its label/value pairs. The
+  /// profile puts its named fields here, so they are inside the section
+  /// rather than floating above its heading.
+  final Widget? underHeader;
 
   final List<PersonCustomField> initialFields;
   final ValueChanged<List<PersonCustomField>> onChanged;
@@ -97,6 +103,7 @@ class _CustomFieldsEditorState extends State<CustomFieldsEditor> {
             ],
           ),
         ),
+        ?widget.underHeader,
         if (_rows.isNotEmpty)
           Padding(
             padding: const EdgeInsets.symmetric(horizontal: 16),

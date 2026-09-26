@@ -1001,6 +1001,32 @@
   "personProfileJobPromptHint": "Start – End · Roles",
   "personProfileLocationPrompt": "Place",
   "personProfileLocationPromptHint": "Origin or relocation · Year",
+  "groupsHeader": "Groups",
+  "groupsPrompt": "Group",
+  "groupsPromptHint": "Family, company, school or circle",
+  "groupsNewTitle": "New group",
+  "groupsNamePlaceholder": "Name",
+  "groupsKindLabel": "Kind",
+  "groupsLeaveConfirmTitle": "Leave this group?",
+  "groupsPickTitle": "Add to a group",
+  "groupsDerivedNote": "{count, plural, one{1 link from groups} other{{count} links from groups}}",
+  "@groupsDerivedNote": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "groupKindFamily": "Family",
+  "groupKindCompany": "Company",
+  "groupKindSchool": "School",
+  "groupKindCircle": "Circle",
+  "peopleSectionNamed": "PEOPLE",
+  "peopleSectionGroups": "GROUPS",
+  "peopleSectionUnnamed": "FACES TO NAME",
+  "peopleFilterAll": "All",
+  "peopleFilterMale": "Male",
+  "peopleFilterFemale": "Female",
   "personProfileRelationshipsHeader": "Relationships",
   "relationshipDeleteConfirmTitle": "Remove this relationship?",
   "relationshipDeleteConfirmBody": "This only removes the relationship between {name} and this person. Neither profile is deleted.",

@@ -34,6 +34,7 @@ class PersonStore {
   static const _historyTable = 'person_history';
   static const _detailTable = 'person_detail';
   static const _eventTable = 'person_event';
+  static const _groupTable = 'person_group';
 
   Future<Database> _open() async {
     final existing = _db;
@@ -43,7 +44,7 @@ class PersonStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 8,
+        version: 9,
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await db.execute(
@@ -85,6 +86,9 @@ class PersonStore {
           }
           if (oldVersion < 8) {
             await db.execute(_createEventTableSql);
+          }
+          if (oldVersion < 9) {
+            await db.execute(_createGroupTableSql);
           }
           if (oldVersion < 4) {
             await db.execute(
@@ -165,6 +169,7 @@ class PersonStore {
           await db.execute(_createHistoryTableSql);
           await db.execute(_createDetailTableSql);
           await db.execute(_createEventTableSql);
+          await db.execute(_createGroupTableSql);
         },
       ),
     );
@@ -178,6 +183,7 @@ class PersonStore {
       _historyTable,
       _detailTable,
       _eventTable,
+      _groupTable,
     ]);
     _db = db;
     return db;
@@ -270,6 +276,23 @@ class PersonStore {
       type TEXT NOT NULL DEFAULT '',
       tags TEXT NOT NULL DEFAULT '[]',
       notes TEXT NOT NULL DEFAULT ''
+    )
+  ''';
+
+  /// Who is in which group. The group itself has no row of its own: a group
+  /// *is* its members, so an empty one is nothing, and a name and a kind
+  /// repeated across the rows that use it is cheaper than a second table to
+  /// keep in step with this one.
+  static const _createGroupTableSql =
+      '''
+    CREATE TABLE $_groupTable (
+      person_id TEXT NOT NULL,
+      group_id TEXT NOT NULL,
+      passcode_hash TEXT NOT NULL DEFAULT '',
+      payload TEXT NOT NULL DEFAULT '',
+      name TEXT NOT NULL DEFAULT '',
+      kind TEXT NOT NULL DEFAULT '',
+      PRIMARY KEY (person_id, group_id, passcode_hash)
     )
   ''';
 
@@ -490,6 +513,7 @@ class PersonStore {
     final db = await _open();
     await db.delete(_memberTable, where: 'person_id = ?', whereArgs: [id]);
     await db.delete(_eventTable, where: 'person_id = ?', whereArgs: [id]);
+    await db.delete(_groupTable, where: 'person_id = ?', whereArgs: [id]);
     await db.delete(
       _relationshipTable,
       where: 'person_id = ? OR related_person_id = ?',
@@ -954,6 +978,114 @@ class PersonStore {
     );
   }
 
+  // --- Groups ---
+
+  Future<void> joinGroup(
+    String personId,
+    PersonGroup group, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    if (_unsealable(passcodeHash, keys)) return;
+    final db = await _open();
+    await db.insert(
+      _groupTable,
+      _rowFor(
+        structural: {
+          'person_id': personId,
+          'group_id': group.id,
+          'passcode_hash': passcodeHash,
+        },
+        content: {'name': group.name, 'kind': group.kind.name},
+        blanks: const {'name': '', 'kind': ''},
+        passcodeHash: passcodeHash,
+        keys: keys,
+      ),
+      conflictAlgorithm: sqflite.ConflictAlgorithm.replace,
+    );
+  }
+
+  Future<void> leaveGroup(
+    String personId,
+    String groupId, {
+    String passcodeHash = openNamespace,
+  }) async {
+    final db = await _open();
+    await db.delete(
+      _groupTable,
+      where: 'person_id = ? AND group_id = ? AND passcode_hash = ?',
+      whereArgs: [personId, groupId, passcodeHash],
+    );
+  }
+
+  Future<List<PersonGroup>> groupsFor(
+    String personId, {
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    final db = await _open();
+    return _groups(
+      await db.query(
+        _groupTable,
+        where: 'person_id = ? AND passcode_hash = ?',
+        whereArgs: [personId, passcodeHash],
+      ),
+      passcodeHash,
+      keys,
+    );
+  }
+
+  /// Every group in this namespace, once each, with who is in it.
+  Future<Map<PersonGroup, List<String>>> allGroups({
+    String passcodeHash = openNamespace,
+    AlbumKeys? keys,
+  }) async {
+    final db = await _open();
+    final rows = await db.query(
+      _groupTable,
+      where: 'passcode_hash = ?',
+      whereArgs: [passcodeHash],
+    );
+    final byId = <String, PersonGroup>{};
+    final members = <String, List<String>>{};
+    for (final row in rows) {
+      final content = _contentOf(row, passcodeHash, keys);
+      if (content == null) continue;
+      final id = content['group_id'] as String;
+      byId[id] ??= PersonGroup(
+        id: id,
+        name: content['name'] as String? ?? '',
+        kind:
+            GroupKind.values
+                .where((k) => k.name == content['kind'] as String?)
+                .firstOrNull ??
+            GroupKind.circle,
+      );
+      (members[id] ??= []).add(content['person_id'] as String);
+    }
+    return {
+      for (final entry in byId.entries) entry.value: members[entry.key] ?? [],
+    };
+  }
+
+  List<PersonGroup> _groups(
+    List<Map<String, Object?>> rows,
+    String passcodeHash,
+    AlbumKeys? keys,
+  ) => [
+    for (final row in rows)
+      if (_contentOf(row, passcodeHash, keys) case final content?)
+        PersonGroup(
+          id: content['group_id'] as String,
+          name: content['name'] as String? ?? '',
+          kind:
+              GroupKind.values
+                  .where((k) => k.name == content['kind'] as String?)
+                  .firstOrNull ??
+              GroupKind.circle,
+        ),
+  ];
+
   // --- Events ---
 
   /// Insert-or-replace by [PersonEvent.id].
@@ -1039,6 +1171,7 @@ class PersonStore {
       _locationTable,
       _historyTable,
       _eventTable,
+      _groupTable,
     ]) {
       final rows = await db.query(
         table,
@@ -1062,6 +1195,7 @@ class PersonStore {
       _locationTable,
       _historyTable,
       _eventTable,
+      _groupTable,
     };
     final batch = db.batch();
     for (final row in rows) {
