@@ -109,9 +109,17 @@ void main() {
         exportedAt: DateTime(2026, 9, 12),
         assets: const [
           {'localId': 'a', 'contentHash': 'h', 'platform': 'ios'},
+          {'localId': 'b', 'contentHash': 'h2', 'platform': 'ios'},
+          // Not the library, so not in the count.
+          {'localId': 'c', 'contentHash': 'h3', 'isHidden': true},
         ],
-        albums: const [],
-        people: const [],
+        albums: const [
+          {'id': 'al1', 'name': 'Japan'},
+        ],
+        people: const [
+          {'id': 'p1', 'name': 'Mia'},
+          {'id': 'p2', 'name': 'Daniel'},
+        ],
       ),
     );
 
@@ -138,13 +146,18 @@ void main() {
       find.textContaining('Nothing you already have is changed'),
       findsOne,
     );
+    // What is actually in it, so two copies a week apart can be told apart.
+    expect(
+      find.text('2 photos \u00b7 2 people \u00b7 1 album'),
+      findsOneWidget,
+    );
 
     await tester.tap(find.text('Restore'));
     await tester.pumpAndSettle();
 
     expect(vault.guards, ['restore']);
-    expect(file.restored.single.assets.single['localId'], 'a');
-    expect(find.textContaining("Restored details for 1 photo"), findsOneWidget);
+    expect(file.restored.single.assets.first['localId'], 'a');
+    expect(find.textContaining('Restored details for'), findsOneWidget);
   });
 
   testWidgets('backing out of the confirmation restores nothing', (

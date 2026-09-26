@@ -27,6 +27,19 @@ import '../storage/asset_record_store.dart';
 /// so those survive a reinstall on the same device. A record whose photo
 /// isn't there is still restored — it carries the work done on it, and the
 /// photo may come back from the bucket later.
+/// The headline numbers in a snapshot. See [AppSnapshot.summary].
+class SnapshotSummary {
+  const SnapshotSummary({
+    required this.photos,
+    required this.people,
+    required this.albums,
+  });
+
+  final int photos;
+  final int people;
+  final int albums;
+}
+
 class AppSnapshot {
   const AppSnapshot({
     required this.version,
@@ -48,6 +61,32 @@ class AppSnapshot {
   final List<Map<String, Object?>> people;
 
   bool get isEmpty => assets.isEmpty && albums.isEmpty && people.isEmpty;
+
+  /// What is in here, for the line the restore dialog shows before it asks.
+  ///
+  /// Two copies taken a week apart look identical otherwise — same file
+  /// naming, same size to the eye — and the question anybody actually has in
+  /// front of a list of them is which one holds more of their library.
+  ///
+  /// [photos] is the library count: what would show in the grid. Photos in
+  /// the bin are left out because they are not in the library, and hidden
+  /// ones because a number that moved when you hid something would be one
+  /// more thing answering the question the private album exists not to
+  /// answer.
+  SnapshotSummary get summary {
+    var photos = 0;
+    for (final asset in assets) {
+      if (asset['deletedAt'] != null) continue;
+      if (asset['isHidden'] as bool? ?? false) continue;
+      if (asset['passcodeHash'] != null) continue;
+      photos++;
+    }
+    return SnapshotSummary(
+      photos: photos,
+      people: people.length,
+      albums: albums.length,
+    );
+  }
 
   String encode() => jsonEncode({
     'version': version,
