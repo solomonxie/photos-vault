@@ -22,13 +22,27 @@ Future<Person?> showPersonPickerSheet({
   required List<Person> candidates,
   required PersonStore personStore,
   String? title,
+
+  /// Whose phone this is, if it is known. They go to the top and are marked,
+  /// because "who is this person to me" is the commonest link anybody draws
+  /// and nobody should have to remember which name in the list is their own.
+  String? ownerId,
 }) {
   final l10n = AppLocalizations.of(context)!;
+  final ordered = ownerId == null
+      ? candidates
+      : [
+          for (final p in candidates)
+            if (p.id == ownerId) p,
+          for (final p in candidates)
+            if (p.id != ownerId) p,
+        ];
   return showSearchPickerSheetOf<Person>(
     context: context,
     title: title ?? l10n.relationshipPickerTitle,
-    options: candidates,
-    labelOf: (p) => p.name,
+    options: ordered,
+    labelOf: (p) =>
+        p.id == ownerId ? '${l10n.ownerPickerMe} · ${p.name}' : p.name,
     emptyHint: l10n.personPickerTypeToCreate,
     createLabel: (query) =>
         query.isEmpty ? null : l10n.personPickerNewNamed(query),

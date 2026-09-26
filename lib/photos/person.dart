@@ -127,6 +127,7 @@ List<PersonRelationship> groupRelationships({
           organization: entry.key.kind == GroupKind.circle
               ? null
               : entry.key.name,
+          derived: true,
         ),
       );
     }
@@ -321,6 +322,7 @@ class PersonRelationship {
     required this.relatedPersonId,
     required this.type,
     this.organization,
+    this.derived = false,
   });
 
   final String personId;
@@ -330,6 +332,12 @@ class PersonRelationship {
   /// The company/school/org connecting the two — only meaningful when
   /// [relationshipNeedsOrganization] is true for [type].
   final String? organization;
+
+  /// Came from a shared group rather than from anybody drawing it, so there
+  /// is no row behind it. Never stored — see [groupRelationships]. It has to
+  /// be visible to the UI, because offering to delete one is offering to
+  /// delete something that does not exist.
+  final bool derived;
 }
 
 /// One entry in a person's geolocation movement history.

@@ -9,6 +9,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:photos_vault/photos/person_detail.dart';
+import 'package:photos_vault/photos/person_owner.dart';
 import 'package:photos_vault/vault/keys.dart';
 
 import '../settings/fake_secure_store.dart';
@@ -1066,5 +1067,78 @@ void main() {
     final saved = await personStore.detailFor(mia.id);
     expect(saved.customFields.single.label, 'Nickname');
     expect(saved.customFields.single.value, 'Mimi');
+  });
+  testWidgets('a profile says how its person stands to you', (tester) async {
+    await _useTallSurface(tester);
+    final personStore = FakePersonStore();
+    final assets = FakeAssetRecordStore();
+    final me = await personStore.create(name: 'Solomon');
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.addRelationship(mia.id, me.id, RelationshipType.sibling);
+    await assets.setAppState(PersonOwner.key, me.id);
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: assets,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Your sibling'), findsOneWidget);
+  });
+
+  testWidgets('with nobody marked as you, it says nothing', (tester) async {
+    await _useTallSurface(tester);
+    final personStore = FakePersonStore();
+    final me = await personStore.create(name: 'Solomon');
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.addRelationship(mia.id, me.id, RelationshipType.sibling);
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Your sibling'), findsNothing);
+  });
+
+  testWidgets('a derived link offers nothing to delete', (tester) async {
+    await _useTallSurface(tester);
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final dan = await personStore.create(name: 'Daniel');
+    const acme = PersonGroup(id: 'g1', name: 'Acme', kind: GroupKind.company);
+    await personStore.joinGroup(mia.id, acme);
+    await personStore.joinGroup(dan.id, acme);
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Daniel shows as a colleague because they share a company group.
+    expect(find.text('Daniel', skipOffstage: false), findsOneWidget);
+    // But there is no row behind it, so nothing to edit and nothing to
+    // delete — offering either deleted an unrelated row or nothing at all.
+    expect(
+      find.byIcon(CupertinoIcons.pencil, skipOffstage: false),
+      findsNothing,
+    );
   });
 }
