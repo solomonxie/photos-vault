@@ -111,17 +111,3 @@ List<ProfileSuggestion> parseAutofill(String reply) {
     return const [];
   }
 }
-
-/// Plain text out of whatever was picked.
-///
-/// Only what decodes as text. A PDF or a Word file is a container this app has
-/// no parser for, and sending its raw bytes to a vendor would spend money to
-/// be told it is unreadable — so it says so instead.
-String? documentText(List<int> bytes) {
-  try {
-    final text = utf8.decode(bytes, allowMalformed: false);
-    return text.trim().isEmpty ? null : text;
-  } catch (_) {
-    return null;
-  }
-}
