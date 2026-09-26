@@ -25,6 +25,7 @@ class PersonDetail {
     this.birthDate,
     this.gender,
     this.customFields = const [],
+    this.traits = const {},
     this.impression = const PersonImpression(),
     this.hint = '',
   });
@@ -33,8 +34,14 @@ class PersonDetail {
   final DateTime? birthDate;
   final Gender? gender;
 
-  /// "More details" — user-defined label/value pairs.
+  /// "More details" — user-defined label/value pairs, under the named ones.
   final List<PersonCustomField> customFields;
+
+  /// The named rows in More details, by [PersonTrait.key]. Absent or empty
+  /// means the row is shown blank rather than hidden: a section that lists
+  /// what it holds is answerable, and one that shows nothing until you have
+  /// already filled it in is a section nobody finds.
+  final Map<String, String> traits;
 
   final PersonImpression impression;
 
@@ -49,6 +56,7 @@ class PersonDetail {
       birthDate == null &&
       gender == null &&
       customFields.isEmpty &&
+      traits.values.every((v) => v.isEmpty) &&
       impression.isEmpty &&
       hint.isEmpty;
 
@@ -57,6 +65,7 @@ class PersonDetail {
     DateTime? Function()? birthDate,
     Gender? Function()? gender,
     List<PersonCustomField>? customFields,
+    Map<String, String>? traits,
     PersonImpression? impression,
     String? hint,
   }) => PersonDetail(
@@ -64,6 +73,7 @@ class PersonDetail {
     birthDate: birthDate != null ? birthDate() : this.birthDate,
     gender: gender != null ? gender() : this.gender,
     customFields: customFields ?? this.customFields,
+    traits: traits ?? this.traits,
     impression: impression ?? this.impression,
     hint: hint ?? this.hint,
   );
@@ -73,6 +83,7 @@ class PersonDetail {
     'birthDate': birthDate?.millisecondsSinceEpoch,
     'gender': gender?.name,
     'customFields': [for (final f in customFields) f.toJson()],
+    'traits': traits,
     'impression': impression.toJson(),
     'hint': hint,
   };
@@ -90,6 +101,10 @@ class PersonDetail {
         for (final f in (json['customFields'] as List? ?? const []))
           PersonCustomField.fromJson((f as Map).cast<String, Object?>()),
       ],
+      traits: {
+        for (final e in ((json['traits'] as Map?) ?? const {}).entries)
+          '${e.key}': '${e.value}',
+      },
       impression: PersonImpression.fromJson(
         ((json['impression'] as Map?) ?? const {}).cast<String, Object?>(),
       ),
@@ -243,6 +258,39 @@ class PersonEvent {
     );
   }
 }
+
+/// A named row in More details.
+///
+/// [options] empty means it is typed; otherwise it is a menu, because those
+/// are the questions with a settled list of answers and a menu is faster and
+/// spells them consistently. The options are stored as written here and
+/// localised for display only, so switching language does not rewrite
+/// anybody's profile.
+class PersonTrait {
+  const PersonTrait(this.key, {this.options = const []});
+
+  final String key;
+  final List<String> options;
+
+  bool get isMenu => options.isNotEmpty;
+}
+
+const personTraits = [
+  PersonTrait(
+    'hair',
+    options: ['black', 'brown', 'blonde', 'red', 'grey', 'white', 'dyed'],
+  ),
+  PersonTrait(
+    'eyes',
+    options: ['brown', 'blue', 'green', 'hazel', 'grey', 'dark'],
+  ),
+  PersonTrait('height'),
+  PersonTrait('build', options: ['slight', 'average', 'solid', 'tall']),
+  PersonTrait('handed', options: ['left', 'right']),
+  PersonTrait('languages'),
+  PersonTrait('diet'),
+  PersonTrait('contact'),
+];
 
 /// The twelve offered as chips. Free-form is deliberately not offered: a
 /// typed word is a note, and notes belong in About.

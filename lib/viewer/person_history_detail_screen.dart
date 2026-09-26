@@ -5,6 +5,7 @@ import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import 'custom_fields_editor.dart';
+import 'year_wheel.dart';
 import 'search_picker_sheet.dart';
 
 const _cardBackground = Color(0xFF1C1C1E);
@@ -75,13 +76,7 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
         title: Text(l10n.personHistoryStartLabel),
         message: SizedBox(
           height: 180,
-          child: CupertinoDatePicker(
-            mode: CupertinoDatePickerMode.date,
-            initialDateTime: date,
-            maximumDate: DateTime.now(),
-            minimumYear: 1900,
-            onDateTimeChanged: (value) => date = value,
-          ),
+          child: YearWheel(initial: date, onChanged: (value) => date = value),
         ),
         actions: [
           CupertinoActionSheetAction(
@@ -124,12 +119,9 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
                 if (!ongoing)
                   SizedBox(
                     height: 180,
-                    child: CupertinoDatePicker(
-                      mode: CupertinoDatePickerMode.date,
-                      initialDateTime: date,
-                      maximumDate: DateTime.now(),
-                      minimumYear: 1900,
-                      onDateTimeChanged: (value) => date = value,
+                    child: YearWheel(
+                      initial: date,
+                      onChanged: (value) => date = value,
                     ),
                   ),
               ],
@@ -472,7 +464,7 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
                   trailing: Text(
                     _entry.startDate == null
                         ? l10n.personProfileNotSet
-                        : DateFormat.yMMM().format(_entry.startDate!),
+                        : DateFormat.y().format(_entry.startDate!),
                     style: const TextStyle(color: CupertinoColors.systemGrey),
                   ),
                   onTap: _pickStartDate,
@@ -482,7 +474,7 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
                   trailing: Text(
                     _entry.endDate == null
                         ? l10n.personHistoryPresentLabel
-                        : DateFormat.yMMM().format(_entry.endDate!),
+                        : DateFormat.y().format(_entry.endDate!),
                     style: const TextStyle(color: CupertinoColors.systemGrey),
                   ),
                   onTap: _pickEndDate,
