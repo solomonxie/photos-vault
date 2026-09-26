@@ -5,6 +5,7 @@ import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
 import '../photos/face_identity.dart';
 import '../photos/person_detail.dart';
+import '../photos/person_owner.dart';
 import '../photos/person_store.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/passcode_hash.dart';
@@ -96,6 +97,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   PersonDetail _detail = PersonDetail.empty;
 
   late final VaultKeys _vaultKeys = widget.vaultKeys ?? VaultKeys();
+  late final PersonOwner _owner = PersonOwner(widget.assetRecordStore);
+
+  String? _ownerId;
   List<PersonRelationship> _relationships = const [];
   List<Person> _allPeople = const [];
   List<PersonLocation> _locations = const [];
@@ -165,6 +169,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       keys: keys,
     );
     final allGroups = await store.allGroups(passcodeHash: ns, keys: keys);
+    final ownerId = await _owner.id();
     if (!mounted) return;
     setState(() {
       _detail = detail;
@@ -175,6 +180,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       _events = events;
       _groups = groups;
       _allGroups = allGroups;
+      _ownerId = ownerId;
       // Shown beside the explicit ones rather than written down — see
       // [groupRelationships].
       _relationships = [
@@ -389,6 +395,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       context: context,
       candidates: candidates,
       personStore: widget.personStore,
+      ownerId: _ownerId,
     );
     if (other == null || !mounted) return;
 
@@ -813,6 +820,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
             const SizedBox(height: 20),
             ...[
               if (_namespace != openNamespace) _hintRow(l10n),
+              ?_ownerRelationLine(l10n),
               _ageGenderRow(l10n),
               const SizedBox(height: 16),
               Padding(
@@ -955,32 +963,43 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                                   relationship.organization!.isEmpty
                               ? null
                               : Text(relationship.organization!),
-                          trailing: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              CupertinoButton(
-                                padding: EdgeInsets.zero,
-                                onPressed: () => _addOrEditRelationship(
-                                  existing: relationship,
+                          // Nothing to edit or delete on a link that comes
+                          // from a shared group: there is no row behind it,
+                          // and the way to remove it is to leave the group.
+                          // Offering the buttons anyway would have deleted
+                          // some unrelated explicit row, or nothing at all.
+                          trailing: relationship.derived
+                              ? const Icon(
+                                  CupertinoIcons.person_2,
+                                  size: 18,
+                                  color: CupertinoColors.systemGrey2,
+                                )
+                              : Row(
+                                  mainAxisSize: MainAxisSize.min,
+                                  children: [
+                                    CupertinoButton(
+                                      padding: EdgeInsets.zero,
+                                      onPressed: () => _addOrEditRelationship(
+                                        existing: relationship,
+                                      ),
+                                      child: const Icon(
+                                        CupertinoIcons.pencil,
+                                        size: 20,
+                                        color: CupertinoColors.systemGrey,
+                                      ),
+                                    ),
+                                    const SizedBox(width: 12),
+                                    CupertinoButton(
+                                      padding: EdgeInsets.zero,
+                                      onPressed: () =>
+                                          _removeRelationship(relationship),
+                                      child: const Icon(
+                                        CupertinoIcons.xmark_circle,
+                                        color: CupertinoColors.systemGrey,
+                                      ),
+                                    ),
+                                  ],
                                 ),
-                                child: const Icon(
-                                  CupertinoIcons.pencil,
-                                  size: 20,
-                                  color: CupertinoColors.systemGrey,
-                                ),
-                              ),
-                              const SizedBox(width: 12),
-                              CupertinoButton(
-                                padding: EdgeInsets.zero,
-                                onPressed: () =>
-                                    _removeRelationship(relationship),
-                                child: const Icon(
-                                  CupertinoIcons.xmark_circle,
-                                  color: CupertinoColors.systemGrey,
-                                ),
-                              ),
-                            ],
-                          ),
                           onTap: () => _openRelatedPerson(relationship),
                         ),
                     ],
@@ -1001,6 +1020,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                 child: Text(l10n.personProfileViewGraph),
               ),
               const SizedBox(height: 20),
+              const SizedBox(height: 20),
+              _sectionHeader(l10n.utilitiesHeader),
+              _utilitiesSection(l10n),
               const SizedBox(height: 32),
               Center(
                 child: CupertinoButton(
@@ -1568,6 +1590,65 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     if (kind == null) return null;
     return PersonGroup(id: widget.personStore.newId(), name: name, kind: kind);
   }
+
+  /// How this person stands to you, in plain words, under their name.
+  ///
+  /// Direct links only, and nothing at all when there are none — a profile
+  /// that says "Connected to you" about somebody two hops away is worse than
+  /// one that says nothing.
+  Widget? _ownerRelationLine(AppLocalizations l10n) {
+    if (_person.id == _ownerId) return null;
+    final relations = relationsToOwner(
+      ownerId: _ownerId,
+      relationships: _relationships,
+    );
+    if (relations.isEmpty) return null;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 0, 24, 10),
+      child: Text(
+        relations.map((type) => _ownerRelationLabel(l10n, type)).join(' · '),
+        textAlign: TextAlign.center,
+        style: const TextStyle(fontSize: 13, color: CupertinoColors.systemBlue),
+      ),
+    );
+  }
+
+  static String _ownerRelationLabel(
+    AppLocalizations l10n,
+    RelationshipType type,
+  ) => switch (type) {
+    RelationshipType.family => l10n.ownerRelationFamily,
+    RelationshipType.spouse => l10n.ownerRelationSpouse,
+    RelationshipType.parent => l10n.ownerRelationParent,
+    RelationshipType.child => l10n.ownerRelationChild,
+    RelationshipType.sibling => l10n.ownerRelationSibling,
+    RelationshipType.friend => l10n.ownerRelationFriend,
+    RelationshipType.colleague => l10n.ownerRelationColleague,
+    RelationshipType.schoolmate => l10n.ownerRelationSchoolmate,
+    RelationshipType.other => l10n.ownerRelationOther,
+  };
+
+  /// Odd jobs, at the bottom, above Delete Person.
+  Widget _utilitiesSection(AppLocalizations l10n) =>
+      CupertinoListSection.insetGrouped(
+        margin: const EdgeInsets.symmetric(horizontal: 16),
+        backgroundColor: _cardBackground,
+        decoration: _cardDecoration,
+        children: [
+          CupertinoListTile(
+            key: const ValueKey('utility-this-is-me'),
+            title: Text(l10n.ownerThisIsMe),
+            subtitle: Text(l10n.ownerThisIsMeNote),
+            trailing: CupertinoSwitch(
+              value: _person.id == _ownerId,
+              onChanged: (on) async {
+                await _owner.set(on ? _person.id : null);
+                await _reload();
+              },
+            ),
+          ),
+        ],
+      );
 
   Widget _promptRow({
     required Key key,
