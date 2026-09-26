@@ -349,6 +349,30 @@
       }
     }
   },
+  "settingsAppDataRestoreSummaryPhotos": "{count, plural, one{1 photo} other{{count} photos}}",
+  "@settingsAppDataRestoreSummaryPhotos": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsAppDataRestoreSummaryPeople": "{count, plural, one{1 person} other{{count} people}}",
+  "@settingsAppDataRestoreSummaryPeople": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsAppDataRestoreSummaryAlbums": "{count, plural, one{1 album} other{{count} albums}}",
+  "@settingsAppDataRestoreSummaryAlbums": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "settingsAppDataRestoreConfirmAction": "Restore",
   "settingsAppDataRestoreDone": "{count, plural, one{Restored details for 1 photo.} other{Restored details for {count} photos.}}",
   "@settingsAppDataRestoreDone": {

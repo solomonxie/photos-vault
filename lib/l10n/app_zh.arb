@@ -237,6 +237,30 @@
       }
     }
   },
+  "settingsAppDataRestoreSummaryPhotos": "{count, plural, other{{count} 张照片}}",
+  "@settingsAppDataRestoreSummaryPhotos": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsAppDataRestoreSummaryPeople": "{count, plural, other{{count} 位人物}}",
+  "@settingsAppDataRestoreSummaryPeople": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsAppDataRestoreSummaryAlbums": "{count, plural, other{{count} 个相册}}",
+  "@settingsAppDataRestoreSummaryAlbums": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "settingsAppDataRestoreConfirmAction": "恢复",
   "settingsAppDataRestoreDone": "已恢复 {count} 张照片的信息。",
   "@settingsAppDataRestoreDone": {

@@ -575,10 +575,25 @@ class _SettingsScreenState extends State<SettingsScreen>
       context: context,
       builder: (dialogContext) => CupertinoAlertDialog(
         title: Text(l10n.settingsAppDataRestoreConfirmTitle),
-        content: Text(
-          l10n.settingsAppDataRestoreConfirmBody(
-            DateFormat.yMMMd().format(snapshot.exportedAt.toLocal()),
-          ),
+        content: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            // What is in it, before what it will do. Two copies a week apart
+            // are indistinguishable otherwise, and "which of these holds
+            // more of my library" is the only question anybody has here.
+            Padding(
+              padding: const EdgeInsets.only(top: 6, bottom: 8),
+              child: Text(
+                _summaryLine(l10n, snapshot.summary),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+            Text(
+              l10n.settingsAppDataRestoreConfirmBody(
+                DateFormat.yMMMd().format(snapshot.exportedAt.toLocal()),
+              ),
+            ),
+          ],
         ),
         actions: [
           CupertinoDialogAction(
@@ -594,6 +609,13 @@ class _SettingsScreenState extends State<SettingsScreen>
     );
     return answer ?? false;
   }
+
+  static String _summaryLine(AppLocalizations l10n, SnapshotSummary summary) =>
+      [
+        l10n.settingsAppDataRestoreSummaryPhotos(summary.photos),
+        l10n.settingsAppDataRestoreSummaryPeople(summary.people),
+        l10n.settingsAppDataRestoreSummaryAlbums(summary.albums),
+      ].join(' \u00b7 ');
 
   Future<void> _tell(String message) => showCupertinoDialog<void>(
     context: context,
