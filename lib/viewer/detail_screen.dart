@@ -33,6 +33,7 @@ import '../photos/photo_location.dart';
 import '../photos/suggestion_review.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/bucket_location.dart';
+import 'ask_ai_screen.dart';
 import 'asset_grid.dart';
 import '../storage/album.dart';
 import '../storage/album_store.dart';
@@ -1890,6 +1891,43 @@ class _InfoPanelState extends State<_InfoPanel> {
     if (updated != null) widget.onRecordChanged(updated);
   }
 
+  /// A question about this photo, with the picture attached at whichever size
+  /// the asking page is set to.
+  ///
+  /// The caption, place and date go as context: a vendor can see what is in
+  /// the frame but not where it was or when, and a question like "was this the
+  /// same trip as the others" is unanswerable without them.
+  Future<void> _askAboutPhoto() async {
+    final l10n = AppLocalizations.of(context)!;
+    final record = widget.record;
+    final context_ = [
+      'Taken: ${DateFormat.yMMMd().format(record.createdAt)}',
+      if (record.location case final place?)
+        if (place.isNotEmpty) 'Place: $place',
+      if (record.description.isNotEmpty) 'Caption: ${record.description}',
+      if (record.tags.isNotEmpty) 'Tags: ${record.tags.join(', ')}',
+    ].join('\n');
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => AskAiScreen(
+          subject: l10n.askAiPhotoOption,
+          context: context_,
+          imageBytes: () async {
+            final path = widget.resolvedPath;
+            if (path == null) return null;
+            try {
+              return await File(path).readAsBytes();
+            } catch (_) {
+              // Cloud-only, or gone since. The question still goes, without
+              // the picture, which is better than refusing to ask.
+              return null;
+            }
+          },
+        ),
+      ),
+    );
+  }
+
   Future<void> _dropSuggestion() async {
     final suggestion = _suggestion;
     if (suggestion == null) return;
@@ -2548,6 +2586,31 @@ class _InfoPanelState extends State<_InfoPanel> {
                     record.stateOf(DerivativeKind.original).status,
                   ),
                 ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 16),
+          CupertinoListSection.insetGrouped(
+            margin: EdgeInsets.zero,
+            backgroundColor: _screenBackground,
+            decoration: const BoxDecoration(
+              color: Color(0xFF2C2C2E),
+              borderRadius: BorderRadius.all(Radius.circular(10)),
+            ),
+            children: [
+              CupertinoListTile(
+                key: const ValueKey('photo-utility-ask-ai'),
+                leading: const Icon(
+                  CupertinoIcons.sparkles,
+                  color: CupertinoColors.systemIndigo,
+                ),
+                title: Text(l10n.askAiPhotoOption),
+                trailing: const Icon(
+                  CupertinoIcons.chevron_forward,
+                  size: 18,
+                  color: CupertinoColors.systemGrey2,
+                ),
+                onTap: _askAboutPhoto,
               ),
             ],
           ),
