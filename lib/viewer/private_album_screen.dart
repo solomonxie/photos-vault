@@ -111,6 +111,22 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       _cloudEntries = entries;
       _passphrases = known;
     });
+    await _reloadHoldings();
+  }
+
+  /// Which entries are held in full here, and what that weighs. Its own
+  /// pass, after the grid is already on screen: it stats a directory, and a
+  /// photo grid must not wait on a filesystem walk.
+  Future<void> _reloadHoldings() async {
+    final gallery = _gallery;
+    if (gallery == null) return;
+    final held = await gallery.localKeys(_cloudEntries);
+    final usage = await gallery.store.usage();
+    if (!mounted) return;
+    setState(() {
+      _onThisPhone = held;
+      _localBytes = usage.carrierBytes + usage.thumbnailBytes;
+    });
   }
 
   /// Whether there is anywhere for these photos to go. The one thing the
@@ -126,6 +142,22 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
 
   VaultGallery? _gallery;
   List<IndexEntry> _cloudEntries = const [];
+
+  /// Which of [_cloudEntries] this phone still holds in full. The rest draw
+  /// from a kept thumbnail and need a download to open.
+  Set<String> _onThisPhone = const {};
+
+  /// What the carriers cost on this phone — the number that makes "send some
+  /// of these back to the bucket" a decision rather than a guess.
+  int _localBytes = 0;
+
+  /// Selection over the bucket-side grid, separate from [_selecting] over the
+  /// local records: the two grids hold different things and offer different
+  /// verbs. One selection mode covering both would put "Move to Library"
+  /// beside "Download" for photos that can only do one of them.
+  bool _cloudSelecting = false;
+  Set<String> _selectedCloudKeys = {};
+  bool _cloudBusy = false;
   List<PassphraseEntry> _passphrases = const [];
 
   /// Its own load, deliberately not part of [_reload]: this reaches secure
@@ -324,6 +356,65 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     );
   }
 
+  /// The two things you can do to a selection of hidden photos: send the
+  /// full copies back to the bucket, or bring them down.
+  ///
+  /// Both are shown whatever is selected, and each is dead when it would do
+  /// nothing — a mixed selection is the normal case, and a bar whose buttons
+  /// appear and vanish as tiles are tapped is harder to aim at than one whose
+  /// buttons grey out.
+  Widget _cloudSelectionBar(AppLocalizations l10n) {
+    final chosen = _selectedCloud;
+    final here = chosen.where((e) => _onThisPhone.contains(e.objectKey)).length;
+    final away = chosen.length - here;
+    return SafeArea(
+      top: false,
+      child: Padding(
+        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
+        child: Column(
+          children: [
+            Text(
+              l10n.vaultSelectionHeld(here, away),
+              style: const TextStyle(
+                fontSize: 12,
+                color: CupertinoColors.systemGrey,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Row(
+              children: [
+                Expanded(
+                  child: CupertinoButton(
+                    color: const Color(0xFF2C2C2E),
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    onPressed: _cloudBusy || here == 0 ? null : _freeUpSelected,
+                    child: Text(
+                      l10n.vaultFreeUpButton(here),
+                      style: const TextStyle(fontSize: 15),
+                    ),
+                  ),
+                ),
+                const SizedBox(width: 8),
+                Expanded(
+                  child: CupertinoButton.filled(
+                    padding: const EdgeInsets.symmetric(vertical: 10),
+                    onPressed: _cloudBusy || away == 0
+                        ? null
+                        : _downloadSelected,
+                    child: Text(
+                      l10n.vaultDownloadButton(away),
+                      style: const TextStyle(fontSize: 15),
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   /// Everything that is only in the bucket. Its own grid rather than mixed
   /// into the local one: these have no record on this phone to mix with.
   Widget _cloudSliver(AppLocalizations l10n) {
@@ -344,12 +435,115 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
           return VaultTile(
             gallery: gallery,
             entry: entry,
-            onTap: () => _openCloud(entry),
+            selecting: _cloudSelecting,
+            selected: _selectedCloudKeys.contains(entry.objectKey),
+            onThisPhone: _onThisPhone.contains(entry.objectKey),
+            onTap: _cloudSelecting
+                ? () => _toggleCloud(entry)
+                : () => _openCloud(entry),
+            onLongPress: _cloudSelecting
+                ? null
+                : () => _enterCloudSelect(entry),
           );
         }, childCount: _cloudEntries.length),
       ),
     );
   }
+
+  void _enterCloudSelect(IndexEntry entry) => setState(() {
+    _cloudSelecting = true;
+    _selectedCloudKeys = {entry.objectKey};
+  });
+
+  void _exitCloudSelect() => setState(() {
+    _cloudSelecting = false;
+    _selectedCloudKeys = {};
+  });
+
+  void _toggleCloud(IndexEntry entry) => setState(() {
+    if (!_selectedCloudKeys.remove(entry.objectKey)) {
+      _selectedCloudKeys.add(entry.objectKey);
+    }
+  });
+
+  List<IndexEntry> get _selectedCloud => [
+    for (final entry in _cloudEntries)
+      if (_selectedCloudKeys.contains(entry.objectKey)) entry,
+  ];
+
+  /// Drops the full local copy of each selected photo and keeps its tile.
+  ///
+  /// Each one is checked against the bucket first (`sendBackToBucket`), and
+  /// a photo the bucket cannot be shown to hold is left alone and counted —
+  /// freeing space must never be how a hidden photo stops existing.
+  Future<void> _freeUpSelected() async {
+    final gallery = _gallery;
+    if (gallery == null || _cloudBusy) return;
+    final chosen = _selectedCloud;
+    if (chosen.isEmpty) return;
+    setState(() => _cloudBusy = true);
+    var freed = 0;
+    var refused = 0;
+    for (final entry in chosen) {
+      if (await gallery.sendBackToBucket(entry)) {
+        freed++;
+      } else {
+        refused++;
+      }
+    }
+    if (!mounted) return;
+    setState(() => _cloudBusy = false);
+    _exitCloudSelect();
+    await _reloadHoldings();
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    await _say(
+      refused == 0
+          ? l10n.vaultFreedResult(freed)
+          : l10n.vaultFreedPartial(freed, refused),
+    );
+  }
+
+  /// Brings the selected photos back down, so they open with no network.
+  Future<void> _downloadSelected() async {
+    final gallery = _gallery;
+    if (gallery == null || _cloudBusy) return;
+    final chosen = [
+      for (final entry in _selectedCloud)
+        if (!_onThisPhone.contains(entry.objectKey)) entry,
+    ];
+    if (chosen.isEmpty) return;
+    setState(() => _cloudBusy = true);
+    var got = 0;
+    for (final entry in chosen) {
+      if (await gallery.download(entry)) got++;
+    }
+    if (!mounted) return;
+    setState(() => _cloudBusy = false);
+    _exitCloudSelect();
+    await _reloadHoldings();
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    await _say(
+      got == chosen.length
+          ? l10n.vaultDownloadedResult(got)
+          : l10n.vaultDownloadedPartial(got, chosen.length - got),
+    );
+  }
+
+  Future<void> _say(String message) => showCupertinoDialog<void>(
+    context: context,
+    builder: (dialogContext) => CupertinoAlertDialog(
+      content: Text(message),
+      actions: [
+        CupertinoDialogAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: Text(AppLocalizations.of(context)!.actionOk),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _openCloud(IndexEntry entry) async {
     final gallery = _gallery;
@@ -594,10 +788,10 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       CupertinoPageScaffold(
         navigationBar: CupertinoNavigationBar(
           middle: Text(l10n.privateAlbumScreenTitle),
-          leading: _selecting
+          leading: _selecting || _cloudSelecting
               ? CupertinoButton(
                   padding: EdgeInsets.zero,
-                  onPressed: _exitSelectMode,
+                  onPressed: _selecting ? _exitSelectMode : _exitCloudSelect,
                   child: Text(l10n.actionCancel),
                 )
               : null,
@@ -607,7 +801,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
           // across the top read as a toolbar of unrelated verbs — with
           // "Delete Private Album" sitting in red next to "Add", a tap away
           // from each other.
-          trailing: _selecting
+          trailing: _selecting || _cloudSelecting
               ? null
               : Row(
                   mainAxisSize: MainAxisSize.min,
@@ -644,9 +838,36 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                 ),
                 child: Align(
                   alignment: Alignment.centerLeft,
-                  child: Text(
-                    '${l10n.privateAlbumItemCount(_records.length)} · ${_formatSize(_totalBytes)}',
-                    style: const TextStyle(color: CupertinoColors.systemGrey),
+                  child: Column(
+                    crossAxisAlignment: CrossAxisAlignment.start,
+                    children: [
+                      // Both grids in one number. Counting only the local
+                      // records read as an empty album the moment the
+                      // carriers were filed and the rows deleted.
+                      Text(
+                        '${l10n.privateAlbumItemCount(_records.length + _cloudEntries.length)}'
+                        ' · ${_formatSize(_totalBytes + _localBytes)}',
+                        style: const TextStyle(
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ),
+                      // What is held in full here, which is the number the
+                      // "free up space" decision is made against.
+                      if (_onThisPhone.isNotEmpty)
+                        Padding(
+                          padding: const EdgeInsets.only(top: 2),
+                          child: Text(
+                            l10n.vaultLocalFooter(
+                              _onThisPhone.length,
+                              _formatSize(_localBytes),
+                            ),
+                            style: const TextStyle(
+                              fontSize: 12,
+                              color: CupertinoColors.systemGrey,
+                            ),
+                          ),
+                        ),
+                    ],
                   ),
                 ),
               ),
@@ -722,6 +943,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                     ),
                   ),
                 ),
+              if (_cloudSelecting) _cloudSelectionBar(l10n),
             ],
           ),
         ),

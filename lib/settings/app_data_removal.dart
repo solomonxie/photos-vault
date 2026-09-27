@@ -13,6 +13,7 @@ import '../upload/pending_deletes.dart';
 import '../upload/sync_job_store.dart';
 import '../vault/cache.dart';
 import '../vault/keys.dart';
+import '../vault/store.dart';
 import 'ai_settings_store.dart';
 import 'backup_targets_store.dart';
 import 's3_target_drafts_store.dart';
@@ -175,14 +176,23 @@ class AppDataRemoval {
   /// [keeping] is spared: the files that are some photo's only copy. See
   /// [_onlyCopies].
   ///
-  /// The thumbnail and carrier caches go whatever happens. Both are caches
-  /// in the real sense — a thumbnail regenerates from its original, and a
-  /// carrier's plaintext is in the bucket it came from.
+  /// The thumbnail cache and the carrier cache go whatever happens. Both are
+  /// caches in the real sense — a thumbnail regenerates from its original,
+  /// and a cached carrier came from a bucket that still has it.
+  ///
+  /// The **vault store** goes too, and it is not a cache: it holds hidden
+  /// photos, and for any of them that was never uploaded it holds the only
+  /// copy. It goes anyway, because the dialog promises the app is left as if
+  /// newly installed, and a directory of undeletable ciphertext surviving a
+  /// wipe would be the opposite of that. The pre-deletion archive taken a
+  /// moment earlier is what stands behind the promise — and for hidden
+  /// photos, the carriers already in a bucket, which nothing here can touch.
   Future<void> deleteOwnedFiles({Set<String> keeping = const {}}) async {
     final support = supportDirectory;
     if (support != null) {
       final root = await support();
       await _deleteTree(Directory(p.join(root.path, ThumbnailCache.dirName)));
+      await _deleteTree(Directory(p.join(root.path, VaultStore.root)));
       await _deleteOwnedOriginals(root, keeping);
     }
     final cache = cacheDirectory;

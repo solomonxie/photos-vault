@@ -9,8 +9,10 @@ import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../vault/object_key.dart';
 import '../vault/carrier_upload.dart';
 import '../vault/keys.dart';
+import '../vault/store.dart';
 import 'backup_cancel_token.dart';
 import 's3_object_delete.dart' as s3_object_delete;
 import 's3_uploader.dart';
@@ -39,6 +41,7 @@ class BackupCoordinator {
     required this.targetsStore,
     required this.recordStore,
     this.carriers,
+    this.vaultStore,
     this.vaultKeys,
     Future<List<DecoyCandidate>> Function()? decoyCandidates,
     S3Uploader? s3Uploader,
@@ -66,6 +69,11 @@ class BackupCoordinator {
   /// on an install that has never opened Hidden, where no hidden record can
   /// exist either.
   final CarrierBuilder? carriers;
+
+  /// Where a hidden photo's carrier is kept on this phone. The bucket is a
+  /// second copy, not the only one — see `../vault/store.dart`. Null skips
+  /// the local copy, which is what the old behaviour was.
+  final VaultStore? vaultStore;
   final VaultKeys? vaultKeys;
 
   /// The ordinary library, as things a carrier could pretend to be.
@@ -105,10 +113,10 @@ class BackupCoordinator {
     return allGone;
   }
 
-  static String _safeFileName(AssetRecord record, String filePath) {
-    final base = record.localId.replaceAll(RegExp(r'[^a-zA-Z0-9_.-]'), '_');
-    return '$base${p.extension(filePath)}';
-  }
+  /// Public because `../vault/object_key.dart` has to produce the same name
+  /// without a file in hand, and a second sanitiser is a second answer.
+  static String safeFileName(AssetRecord record, String filePath) =>
+      '${vaultSafeName(record.localId)}${p.extension(filePath)}';
 
   /// If [format] is [BackupFormat.optimized] and [record] is a still photo,
   /// re-encodes the file at [filePath] to WebP in a fresh temp file and
@@ -167,6 +175,30 @@ class BackupCoordinator {
     return built?.path;
   }
 
+  /// Files a freshly built carrier in the vault store, keyed by the
+  /// prefix-independent [objectKey] the album index uses.
+  ///
+  /// A no-op for anything that isn't a hidden photo, and for a carrier that
+  /// is already there — the queue re-offers work, and rewriting a multi-
+  /// megabyte file to reach the same bytes is wasted I/O.
+  Future<void> _keepCarrierLocally({
+    required AssetRecord record,
+    required String carrierPath,
+    required String objectKey,
+  }) async {
+    final hash = record.passcodeHash;
+    final store = vaultStore;
+    if (hash == null || store == null) return;
+    final keys = vaultKeys?.ringKeysFor(hash);
+    if (keys == null) return;
+    // Only a real carrier: with no decoy to wear, `_carrierPath` hands back
+    // the plaintext path and the upload is refused. Keeping *that* would put
+    // an unencrypted hidden photo in the container.
+    if (carrierPath == record.sourcePath) return;
+    if (await store.hasCarrier(keys, objectKey)) return;
+    await store.putCarrier(keys, objectKey, File(carrierPath));
+  }
+
   /// Whether this record may leave the device at all right now. A hidden
   /// photo may not while its album is locked: the key exists only in
   /// memory, and sending the photo up unencrypted "for now" is the one
@@ -221,8 +253,19 @@ class BackupCoordinator {
       filePath: filePath,
       format: format,
     );
-    final fileName = _safeFileName(record, uploadPath);
+    final fileName = safeFileName(record, uploadPath);
     final derivativeDir = _derivativeDirs[kind]!;
+
+    // The local copy first, before a single byte goes anywhere. A hidden
+    // photo has been taken out of Photos, so between the copy-out and the
+    // upload this app is the only thing holding it — and the carrier is the
+    // form it is held in, which is why this is the same file the upload
+    // reads rather than a second encryption of the same bytes.
+    await _keepCarrierLocally(
+      record: record,
+      carrierPath: uploadPath,
+      objectKey: vaultObjectKey(derivativeDir, fileName),
+    );
 
     // What each target already has, of this exact file. A retry after one
     // target failed must not re-send to the one that worked — on a video
@@ -411,7 +454,7 @@ class BackupCoordinator {
           );
         }
         try {
-          final fileName = _safeFileName(record, path);
+          final fileName = safeFileName(record, path);
           final key = derivativeKey(
             prefix: target.prefix,
             derivativeDir: derivativeDir,

@@ -472,9 +472,9 @@
   "privateAlbumPickerAddButton": "添加 {count} 项",
   "privateAlbumPickerEmpty": "没有可添加的照片。",
   "privateAlbumBackupTitle": "备份",
-  "privateAlbumBackupStatusOn": "这些照片加密后存在你的存储桶里。",
-  "privateAlbumBackupStatusOff": "尚未配置存储桶，它们只能留在本机。",
-  "privateAlbumBackupExplainer": "隐藏会把照片移出「照片」App，而离开本机的是一张看上去普普通通的照片，你的那张加密藏在它里面。只有你的密语能打开它。\n\n本机不会留下任何痕迹——没有文件、没有缩略图、也没有记录——所以此相册需联网才能显示内容。",
+  "privateAlbumBackupStatusOn": "这些照片以加密形式保存在本机，并会有第二份加密副本上传到你的存储桶。",
+  "privateAlbumBackupStatusOff": "尚未配置存储桶，因此本机是唯一副本——虽已加密，但仅此一份。",
+  "privateAlbumBackupExplainer": "隐藏会把照片从「照片」中移出。本应用会将它加密保存在本机，藏在一个能作为普通图片打开的文件里——因此即使没有网络、没有存储桶，相册也照常可用。只有你的口令能打开真正的照片。\n\n配置存储桶后，同一个文件也会上传一份，这是手机丢失后仍然存在的副本。隐藏照片的任何信息都不会写入应用数据库，也不会进入你的 iCloud 设备备份。\n\n在相册中选择照片，可把它们的完整副本交还存储桶以释放本机空间。缩略图会保留，打开时会重新下载。",
   "vaultSetupTitle": "私密照片",
   "vaultSetupBody": "隐藏的照片会加密后离开本机，在存储桶里伪装成普通照片。这个密语是能打开它们的唯一东西。",
   "vaultSetupPassphraseLabel": "密语",
@@ -809,10 +809,9 @@
   "storageResultNothing": "没有任何改动。",
   "personGraphTitle": "关系图谱",
   "personGraphEmpty": "添加关系后即可查看图谱。",
+  "privateAlbumHideNoBucketTitle": "本机将成为唯一副本",
   "privateAlbumHideAnyway": "仍然隐藏",
-  "privateAlbumHideNoBucketTitle": "没有备份也要隐藏吗？",
-  "privateAlbumHideAnyway": "仍然隐藏",
-  "privateAlbumBackupNoBucket": "在你添加存储桶之前，隐藏照片会以未加密的形式留在本机。「照片」App 已经没有它们，本应用是唯一的保管者。",
+  "privateAlbumBackupNoBucket": "隐藏照片会以加密形式保存在本机，因此可离线使用。但隐藏会把照片从「照片」中移出，而在尚未配置存储桶时，其他任何地方都没有第二份副本——删除应用，它也会一并消失。",
   "privateAlbumBackupRecentlyDeleted": "「照片」App 会把删除的内容再保留 30 天。没去那里清空之前，隐藏并没有真正完成。",
   "privateAlbumHowTitle": "工作方式",
   "privateAlbumHowBullets": "任何密码都能打开一个相册。没用过的密码打开的是空相册，所以本机不会透露到底有没有隐藏内容。\n隐藏会把照片移出「照片」App，从此只有本应用还留着它。\n上传到存储桶的看上去就是一张普通照片——来自你自己图库的另一张，你的那张加密藏在它里面。\n诱饵图片按体积接近原图来挑，所以在列表里不显眼。\n诱饵图片从不带你那张的拍摄日期，也没有任何地方记录哪张穿了哪张的皮。\n密语加上四位密码才组成密钥。两者都不会被存下来——本机没有，存储桶里也没有。\n隐藏照片在本机不留任何痕迹：没有文件、没有缩略图、也没有数据库记录。这也是此相册需要联网的原因。\n缩略图每次只拉 64 KB，所以浏览网格的流量远小于原图。\n除非你主动要求，否则不会从存储桶删除任何东西。\n看过本应用源码的人能认出这些伪装文件、数出有多少张，但仍然打不开其中任何一张。",
@@ -1012,6 +1011,72 @@
     }
   },
   "privacyCheckRow": "查看全部副本并核对",
+  "vaultSelectionHeld": "{here} 张在本机 · {away} 张仅在存储桶",
+  "@vaultSelectionHeld": {
+    "placeholders": {
+      "here": {
+        "type": "int"
+      },
+      "away": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultFreeUpButton": "{count, plural, =0{释放空间} other{释放 {count} 张}}",
+  "@vaultFreeUpButton": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultDownloadButton": "{count, plural, =0{下载} other{下载 {count} 张}}",
+  "@vaultDownloadButton": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultFreedResult": "{count, plural, other{{count} 张照片现在仅存于存储桶。缩略图仍在本机，打开时会自动下载回来。}}",
+  "@vaultFreedResult": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultFreedPartial": "{freed} 张现在仅存于存储桶。{refused} 张仍保留在本机——无法确认存储桶已保存它们，在确认之前本应用的副本是唯一副本。",
+  "@vaultFreedPartial": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "refused": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultDownloadedResult": "{count, plural, other{{count} 张照片已回到本机，现在无需联网即可打开。}}",
+  "@vaultDownloadedResult": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultDownloadedPartial": "{got} 张已回到本机。{failed} 张未能获取——请在联网后重试。",
+  "@vaultDownloadedPartial": {
+    "placeholders": {
+      "got": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultLocalFooter": "{count, plural, other{本机存有 {count} 张隐藏照片}} · {size}",
   "@vaultLocalFooter": {
     "placeholders": {
       "count": {

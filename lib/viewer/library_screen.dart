@@ -53,6 +53,8 @@ import '../vault/bucket.dart';
 import '../vault/carrier_upload.dart';
 import '../vault/decoy.dart';
 import '../vault/keys.dart';
+import '../vault/object_key.dart';
+import '../vault/store.dart';
 import '../vault/album_index.dart';
 import '../upload/pending_deletes.dart';
 import '../upload/sync_job.dart';
@@ -103,6 +105,7 @@ class LibraryScreen extends StatefulWidget {
     this.bucketBackup,
     this.vault,
     this.appDataRemoval,
+    this.vaultStore,
     this.backgroundPassInterval,
     this.personStore,
     this.hashFile,
@@ -152,6 +155,10 @@ class LibraryScreen extends StatefulWidget {
   /// Overridable for tests so backgrounding never writes into the real
   /// app container.
   final LocalVault? vault;
+
+  /// The durable local home for hidden photos. Optional so tests point it at
+  /// a temp directory rather than the real container.
+  final VaultStore? vaultStore;
 
   /// Remove All App Data, end to end — the button at the foot of this page.
   /// Optional so tests can hand in one that touches no container, keychain
@@ -215,8 +222,12 @@ class LibraryScreenState extends State<LibraryScreen>
     videoDuration: _photoLibraryService.durationOf,
   );
 
+  /// Where hidden photos actually live on this phone — the copy the bucket
+  /// is a backup *of*, not the other way round. See `../vault/store.dart`.
+  late final VaultStore _vaultStore = widget.vaultStore ?? VaultStore();
   late final VaultBucket _vaultBucket = VaultBucket(
     targetsStore: _backupTargetsStore,
+    store: _vaultStore,
   );
 
   late final BackupCoordinator _coordinator =
@@ -226,6 +237,7 @@ class LibraryScreenState extends State<LibraryScreen>
         recordStore: assetRecordStore,
         carriers: _carriers,
         vaultKeys: _vaultKeys,
+        vaultStore: _vaultStore,
         decoyCandidates: _decoyCandidates,
       );
   late final AiAnalysisStore _aiAnalysisStore =
@@ -1203,20 +1215,36 @@ class LibraryScreenState extends State<LibraryScreen>
   /// knowable until the queue gets to them, and not how many were *asked*
   /// for: the queue is capped ([SyncQueue.capacity]) and refuses while
   /// paused, so a big library goes up a queueful at a time.
-  /// A hidden photo's carrier has landed, so the phone stops holding it:
-  /// the entry goes into the album's slice of the index, then the local
-  /// file and **the record itself** are deleted.
+  /// A hidden photo's carrier is filed, so the plaintext stops existing.
+  ///
+  /// **The local carrier is what this waits for, not the upload.** The
+  /// carrier in `VaultStore` is the copy of the photo — encrypted, disguised,
+  /// durable, out of the device backup — so once it is written the phone has
+  /// the photo and the plaintext original is a duplicate that happens to be
+  /// readable. A bucket is the second copy; with none configured, or none
+  /// reachable, hiding still completes and the album still opens.
   ///
   /// The row matters as much as the file. It carries the photo's date,
   /// name, description, place, people — and the count of rows is the answer
-  /// to the one question the gate exists not to answer. All of it rides to
-  /// the bucket in the daily snapshot.
+  /// to the one question the gate exists not to answer. All of it goes into
+  /// the album's own index instead, which is encrypted and padded.
   Future<void> _finishHiddenUpload(AssetRecord record) async {
     final hash = record.passcodeHash;
     if (hash == null) return;
     final keys = _vaultKeys.ringKeysFor(hash);
-    final key = record.stateOf(DerivativeKind.original).destinationKey;
-    if (keys == null || key == null || !record.isFullyBackedUp) return;
+    if (keys == null) return;
+
+    // The key the coordinator filed the carrier under — worked out from the
+    // record, because with no bucket there is no destination key to read.
+    final key = vaultCarrierKey(record);
+    if (!await _vaultStore.hasCarrier(keys, key)) return;
+    // Both halves, for a Live Photo. Settling on the still alone would
+    // delete the plaintext while the motion and the sound were still only in
+    // the photo library this has just taken the photo out of.
+    if (record.isLivePhoto &&
+        !await _vaultStore.hasCarrier(keys, vaultLiveCarrierKey(record))) {
+      return;
+    }
 
     final album = await _vaultBucket.readAlbum(keys);
     final entry = IndexEntry(
@@ -1227,27 +1255,25 @@ class LibraryScreenState extends State<LibraryScreen>
       isVideo: record.countsAsVideo,
       name: _displayNameFor(record),
     );
-    final wrote = await _vaultBucket.writeAlbum(
+    final entries = [
+      for (final e in album.entries)
+        if (e.objectKey != key) e,
+      entry,
+    ];
+    // Local index first, and it is the one that has to land: it is what
+    // lists the album on a phone with no signal, and the row about to be
+    // deleted is the only other place this photo is described.
+    final index = await _vaultBucket.encodeAlbum(
       keys: keys,
-      entries: [
-        for (final e in album.entries)
-          if (e.objectKey != key) e,
-        entry,
-      ],
+      entries: entries,
       passphrases: await _vaultKeys.entries(),
     );
-    // Only once the listing is safely up. A record deleted before it would
-    // leave an object nothing points at.
-    if (!wrote) return;
-
-    // And only once the bucket says it really has the carrier. This is the
-    // most final delete in the app — the local file *and* the row go, and
-    // the encrypted object becomes the only copy in existence — so it is the
-    // last place that should trust an upload's own word for having landed.
-    // Anything but a confirmation leaves the photo here; the queue retries.
-    if (await _backupVerifier.proveOriginal(record) != CopyProof.present) {
-      return;
-    }
+    if (index == null) return;
+    await _vaultStore.writeIndex(index);
+    // Best-effort, and deliberately after: a bucket that is unreachable
+    // today gets this album's listing on the next write, and the carrier is
+    // already re-offered by the sync queue until it lands.
+    unawaited(_vaultBucket.saveIndex(index));
 
     await _thumbnailCache.remove(record);
     final path = record.sourcePath;
@@ -1448,6 +1474,10 @@ class LibraryScreenState extends State<LibraryScreen>
           kind: DerivativeKind.livePhoto,
           filePath: file.path,
         );
+        // The still may already be held, in which case this was the half
+        // the settle was waiting on.
+        final settled = await assetRecordStore.getByLocalId(record.localId);
+        if (settled != null) await _finishHiddenUpload(settled);
       case SyncJobKind.uploadThumbnail:
         final path = await _uploadableThumbnailFor(record);
         if (path == null) return;

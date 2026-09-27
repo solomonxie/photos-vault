@@ -799,9 +799,9 @@
   },
   "privateAlbumPickerEmpty": "No photos available to add.",
   "privateAlbumBackupTitle": "Backup",
-  "privateAlbumBackupStatusOn": "These photos are stored encrypted in your bucket.",
-  "privateAlbumBackupStatusOff": "No bucket set up, so these photos stay on this phone.",
-  "privateAlbumBackupExplainer": "Hiding removes a photo from Photos. What's uploaded looks like an ordinary picture, with your photo encrypted inside it. Only your passphrase can open it.\n\nNothing is kept on this phone — no file, no thumbnail, no record — so this album needs an internet connection to show anything.",
+  "privateAlbumBackupStatusOn": "These photos are kept encrypted on this phone, and a second encrypted copy goes to your bucket.",
+  "privateAlbumBackupStatusOff": "No bucket set up, so this phone holds the only copy — encrypted, but the only one.",
+  "privateAlbumBackupExplainer": "Hiding removes a photo from Photos. This app keeps it encrypted on this phone, inside a file that opens as an ordinary picture — so the album works with no internet and no bucket at all. Only your passphrase can open the real photo.\n\nThe same file goes to your bucket when you have one, which is the copy that survives losing the phone. Nothing about a hidden photo is kept in the app's database, and nothing about it rides into your iCloud device backup.\n\nSelect photos in the album to send their full copies back to the bucket and free up space here. Their tiles stay, and opening one downloads it again.",
   "vaultSetupTitle": "Private photos",
   "vaultSetupBody": "Photos you hide are encrypted and stored in your bucket disguised as ordinary photos. This passphrase is the only way to open them.",
   "vaultSetupPassphraseLabel": "Passphrase",
@@ -1175,10 +1175,9 @@
   "locationPlaceLabel": "Place",
   "personGraphTitle": "Relationship Graph",
   "personGraphEmpty": "Add relationships to see the graph.",
+  "privateAlbumHideNoBucketTitle": "This phone will be the only copy",
   "privateAlbumHideAnyway": "Hide Anyway",
-  "privateAlbumHideNoBucketTitle": "Hide with no backup?",
-  "privateAlbumHideAnyway": "Hide Anyway",
-  "privateAlbumBackupNoBucket": "Until you add a bucket, hidden photos stay on this phone and are not encrypted. This app holds the only copy, since they've been removed from Photos.",
+  "privateAlbumBackupNoBucket": "Hidden photos are kept encrypted on this phone, so the album works offline. But hiding takes the photo out of Photos, and with no bucket set up there is no second copy anywhere — delete the app and it goes with it.",
   "privateAlbumBackupRecentlyDeleted": "Photos keeps deleted items for 30 days. Hiding isn't complete until you empty Recently Deleted in Photos.",
   "privateAlbumHowTitle": "HOW THIS WORKS",
   "privateAlbumHowBullets": "Every code opens an album. A code that hasn't been used opens an empty one, so nothing on this phone reveals whether anything is hidden.\nHiding removes the photo from Photos. This app then holds the only copy.\nWhat's uploaded to your bucket looks like an ordinary photo: a different picture from your library, with your hidden photo encrypted inside it.\nThe decoy is chosen to be about the same file size as your photo, so it doesn't stand out.\nThe decoy never carries your photo's date, and nothing records which decoy holds which photo.\nYour passphrase and 4-digit code together form the key. Neither is stored anywhere, on this phone or in the bucket.\nNothing about a hidden photo is kept on this phone: no file, no thumbnail, no record. That's why this album needs an internet connection.\nThumbnails are downloaded 64 KB at a time, so browsing the grid uses a fraction of the data the full photos would.\nNothing is ever deleted from your bucket unless you delete it yourself.\nAnyone who reads this app's source code can identify the disguised photos and count them, but still cannot open one.",
@@ -1378,6 +1377,72 @@
     }
   },
   "privacyCheckRow": "See every copy, and check them",
+  "vaultSelectionHeld": "{here} on this phone · {away} in the bucket only",
+  "@vaultSelectionHeld": {
+    "placeholders": {
+      "here": {
+        "type": "int"
+      },
+      "away": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultFreeUpButton": "{count, plural, =0{Free Up Space} other{Free Up {count}}}",
+  "@vaultFreeUpButton": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultDownloadButton": "{count, plural, =0{Download} other{Download {count}}}",
+  "@vaultDownloadButton": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultFreedResult": "{count, plural, one{1 photo is in the bucket only now. Its tile stays here, and opening it downloads it back.} other{{count} photos are in the bucket only now. Their tiles stay here, and opening one downloads it back.}}",
+  "@vaultFreedResult": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultFreedPartial": "{freed} now in the bucket only. {refused} were left on this phone — the bucket couldn't be shown to have them, and this app's copy is the only one until it can.",
+  "@vaultFreedPartial": {
+    "placeholders": {
+      "freed": {
+        "type": "int"
+      },
+      "refused": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultDownloadedResult": "{count, plural, one{1 photo is back on this phone. It opens with no network now.} other{{count} photos are back on this phone. They open with no network now.}}",
+  "@vaultDownloadedResult": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultDownloadedPartial": "{got} back on this phone. {failed} couldn't be fetched — try again when you're online.",
+  "@vaultDownloadedPartial": {
+    "placeholders": {
+      "got": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "vaultLocalFooter": "{count, plural, one{1 hidden photo on this phone} other{{count} hidden photos on this phone}} · {size}",
   "@vaultLocalFooter": {
     "placeholders": {
       "count": {

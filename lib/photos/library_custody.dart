@@ -16,10 +16,13 @@ import 'photo_library_service.dart';
 /// the hidden album puts it back. In between, this app's own copy in its
 /// container is the only copy on the device.
 ///
-/// Which is the risk, and it's worth being plain about: a hidden photo
-/// lives in the app container and in whatever bucket it's been backed up
-/// to. Delete the app and iOS deletes the container with it. That's the
-/// price of it not being in Photos.
+/// Which is the risk, and it's worth being plain about: a hidden photo lives
+/// as an encrypted carrier in this app's container (`../vault/store.dart` —
+/// durable, and out of the device backup) and in whatever bucket it's been
+/// backed up to. Delete the app and iOS deletes the container with it, so
+/// with no bucket configured that carrier is the only copy in existence.
+/// That's the price of it not being in Photos, and the hide flow says so
+/// once, before the first one.
 enum CustodyResult {
   /// Copied out, and the library let go of it.
   taken,

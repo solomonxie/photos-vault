@@ -10,6 +10,67 @@ Today's behaviour, which the footer copy states plainly: same folders,
 filename replaced by an id, **not encrypted**. The id hides *which* photo it
 is and nothing else.
 
+
+## Offline first, the bucket optional
+
+The first build had it the wrong way round: a hidden photo was copied out of
+Photos, uploaded as a carrier, and then deleted locally **along with its
+database row**. The bucket held the only copy. With no bucket, or no signal,
+an album was a grid of nothing — and the one feature whose photos have been
+removed from Photos is the one that can least afford to depend on a network.
+
+Now the carrier is kept on the phone (`lib/vault/store.dart`) and the bucket
+is the second copy.
+
+- **The carrier is the local copy, stored exactly as uploaded.** It is already
+  AES-CTR under the album key, already MAC'd, and already a real openable
+  JPEG or MP4 of somebody else's picture. Re-encrypting it would be a second
+  lock on the same door; keeping the plaintext instead would undo the feature.
+  One artifact with two homes also means the upload body is the local file,
+  and the two copies can be compared byte for byte.
+- **Application Support, with the iOS backup turned off for that directory.**
+  Application Support is durable and backed up; Caches is out of the backup
+  and purgeable; this needs both properties, and iOS offers no directory that
+  is both. So it takes the durable one and sets
+  `isExcludedFromBackupKey` (`ios/Runner/BackupExclusionChannel.swift`).
+  Tens of gigabytes of hidden photos must not eat the owner's iCloud quota,
+  and an offline-first store cannot live somewhere the system may empty.
+- **Names are HMACs of the object key under the album key.** A directory
+  listing is a set of equal-looking blobs that says nothing about how many
+  albums exist or which photo is which. The plausible-photo half of the
+  disguise is in the file's *contents*, which is where it belongs: a forensic
+  dump reads bytes, and these bytes open as a picture.
+- **Nothing in the store is ever evicted.** That is the difference between it
+  and `cache.dart`, which exists to make re-fetching cheap and is free to
+  throw anything away. A carrier leaves only when the user sends that photo
+  back to the bucket, when the album is emptied, or on Remove All App Data.
+- **Object keys are relative to a bucket's prefix**, so one index reads
+  against every configured bucket and — the point — a hidden photo has a name
+  worked out from its record before any bucket exists. Keys written by older
+  builds carry the full prefix and are passed through unchanged
+  (`VaultBucket.resolveKey`).
+- **A rewrite merges into the index as it stands.** Offline that is the local
+  mirror. A rewrite that fell back to "no index" would build a fresh one — 32
+  sections of random bytes — and silently take every other album with it.
+- **The settle waits on the local carrier, not the upload.** Once the carrier
+  is filed, the plaintext original is a readable duplicate and goes; the row
+  goes with it. Both halves of a Live Photo are required first, because a Live
+  Photo held as a still alone is a silent still.
+
+### Freeing space, per photo
+
+Selecting in the album offers two verbs, and the bar shows how many of the
+selection each applies to:
+
+- **Free Up Space** drops the local carrier and keeps an encrypted thumbnail
+  in its place, so the tile still draws with no network and opening it
+  downloads the photo again. **Refused** for a photo the bucket cannot be
+  shown to hold: until something else has it, this app's copy is the only one,
+  and freeing space must never be how a hidden photo stops existing.
+- **Download** fetches the carrier back, and keeps it only if this album's key
+  can open it — a truncated download or somebody else's object would otherwise
+  leave a photo that claims to be here and opens as nothing.
+
 ## What this covers
 
 Everything about the private album, in one place: what a carrier is and how
@@ -259,22 +320,35 @@ the payload size at an ordinary bitrate rather than picking a wrong one.
 A hidden Live Photo's `.mov` half takes this path too, so its motion
 survives — which the still-only version would have lost.
 
-## Nothing stays on this phone
+## Nothing *readable* stays on this phone
 
-No original in the container, no thumbnail in the cache directory, **no
-database row**. A phone that is imaged, dumped or browsed yields nothing
-about a private album, and the app does not grow by a gigabyte because
-someone hid a lot.
+**Superseded in part — see "Offline first, the bucket optional" above.** The
+original plan kept nothing lasting on the phone at all, which made the bucket
+the only copy and an album useless offline. What survived the change is every
+word about *readability*: no plaintext original, no plaintext thumbnail, **no
+database row**. What changed is that the encrypted carrier now stays, on
+purpose, because it is the copy of the photo.
+
+A phone that is imaged, dumped or browsed yields ciphertext under meaningless
+names inside files that open as ordinary pictures. The app does grow by a
+gigabyte when someone hides a gigabyte — that is the deliberate trade for
+working offline, and the album's own footer says what it is holding, with a
+per-photo way to hand it back to the bucket.
 
 Deleting the row matters as much as deleting the file: it holds the photo's
 date, filename, description, location, event and people, and the *count of
 rows* is itself the answer to the question the gate exists not to answer.
 
-### The local cache is a cache, and lives where caches live
+### The cache is still a cache — the *store* is the copy
 
-Not "nothing on disk" — **nothing *lasting*, nothing browsable, nothing
-backed up**. A hidden photo's bytes may sit on the phone the way any app's
-cache does: evictable, expiring, opaque.
+Two directories, and the difference is the whole point:
+
+| | what it is | lifetime |
+|---|---|---|
+| `<AppSupport>/vault/` (`store.dart`) | the carriers themselves, **the local copy** | until the user frees it |
+| `Library/Caches/vault/` (`cache.dart`) | what came *down* from a bucket | TTL + LRU, purgeable |
+
+Everything below describes the cache. It still applies to it, unchanged.
 
 `Library/Caches/` (`getApplicationCacheDirectory`), and the distinction is
 not cosmetic:
@@ -317,9 +391,10 @@ videos          big           cap ~2 GB      TTL 30 days    expensive; keep
 Three exceptions. Two are ours and temporary; one is the operating
 system's and is the largest hole in the design.
 
-1. **Between hiding and the upload landing**, the file and a minimal record
-   exist — the phone holds the only copy. Both are deleted the moment the
-   carrier is confirmed on ≥1 target.
+1. **Between hiding and the carrier being filed**, the plaintext file and a
+   minimal record exist. Both are deleted the moment the carrier is in the
+   store — not the moment an upload lands, which is what made the bucket
+   mandatory.
 2. **The sync queue names its jobs.** `displayName` is the filename today; a
    hidden job carries an opaque label instead.
 3. **iOS Photos keeps what it deleted for 30 days.** Hiding removes the
@@ -333,9 +408,11 @@ Photos there. Hiding is not complete until that album is emptied.
 
 ### With no bucket configured
 
-There is nowhere to put them, so hidden photos stay local and unencrypted,
-exactly as today, and the album says so. The private side is local-only
-until a bucket exists, then it moves out entirely.
+Hiding still works, and still encrypts: the carrier is built and filed in the
+store, and the album opens normally. What is missing is a *second* copy, and
+that is what the one confirmation before the first hide says — delete the app
+and the photo goes with it. Add a bucket later and the sync queue carries the
+same carriers up; nothing is rebuilt.
 
 ## The index
 
