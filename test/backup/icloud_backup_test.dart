@@ -2,6 +2,7 @@ import 'package:photos_vault/backup/app_snapshot.dart';
 import 'package:photos_vault/backup/icloud_backup.dart';
 import 'package:photos_vault/backup/icloud_drive.dart';
 import 'package:photos_vault/backup/snapshot_archive.dart';
+import 'package:photos_vault/backup/snapshot_index.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 
@@ -111,14 +112,24 @@ void main() {
       drive: drive,
     );
 
+    // On unless turned off: the copy that gets the library's work back
+    // after a reinstall is not something the user should have to find.
+    expect(await backup.isEnabled(), isTrue);
+    await backup.setEnabled(false);
     expect(await backup.isEnabled(), isFalse);
     await backup.setEnabled(true);
 
     expect(await backup.isEnabled(), isTrue);
     // Flipping it on backed up at once, rather than waiting for the next
     // change — which could be days off.
-    expect(drive.archives, hasLength(1));
-    expect(drive.archives.keys.single, dailyArchiveName(DateTime.now()));
+    expect(drive.archives.keys.where(isSnapshotArchiveName), hasLength(1));
+    expect(
+      drive.archives.keys.where(isSnapshotArchiveName).single,
+      dailyArchiveName(DateTime.now()),
+    );
+    // And the readable index landed beside it, loose, for the recovery that
+    // starts in a Files window rather than in this app.
+    expect(drive.archives.keys, contains(indexEntryName));
   });
 
   test('the folder keeps ten days and drops the eleventh', () async {
@@ -143,9 +154,9 @@ void main() {
       drive: drive,
     ).backUpNow();
 
-    // Eleven of ours, so the oldest goes — and the user's own file stays,
-    // because the folder is theirs.
-    expect(drive.archives, hasLength(11));
+    // Eleven of ours were written, so the oldest goes and ten are left —
+    // and the user's own file stays, because the folder is theirs.
+    expect(drive.archives.keys.where(isSnapshotArchiveName), hasLength(10));
     expect(drive.archives.keys, isNot(contains('20260901.zip')));
     expect(drive.archives.keys, contains('holiday.zip'));
     expect(drive.archives.keys, contains(dailyArchiveName(DateTime.now())));
@@ -418,7 +429,9 @@ void main() {
 
       // Same month, same file: a backup twice in September is one
       // September.
-      expect(drive.archives.keys.toList(), [dailyArchiveName(DateTime.now())]);
+      expect(drive.archives.keys.where(isSnapshotArchiveName).toList(), [
+        dailyArchiveName(DateTime.now()),
+      ]);
     },
   );
 

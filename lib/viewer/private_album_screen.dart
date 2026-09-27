@@ -40,6 +40,7 @@ class PrivateAlbumScreen extends StatefulWidget {
     this.custody,
     this.albumKeys,
     this.vaultKeys,
+    this.targetsStore,
   });
 
   final String passcodeHash;
@@ -47,6 +48,11 @@ class PrivateAlbumScreen extends StatefulWidget {
 
   /// Overridable for tests so they never touch the real photo library.
   final LibraryCustody? custody;
+
+  /// Where the buckets are, for the one question hiding has to ask: with
+  /// none configured this app's container becomes the only copy. Overridable
+  /// so tests don't reach the keychain.
+  final BackupTargetsStore? targetsStore;
 
   /// This album's key, derived when the gate took the code. Absent only
   /// where nothing has been set up yet, which is also where nothing can
@@ -259,6 +265,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       records: picked,
       passcodeHash: widget.passcodeHash,
       custody: _custody,
+      targetsStore: widget.targetsStore,
     );
     await _reload();
   }

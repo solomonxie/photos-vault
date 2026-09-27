@@ -174,6 +174,10 @@ class _StorageOptimizationScreenState extends State<StorageOptimizationScreen> {
       if (result.queuedForBackup > 0)
         l10n.storageResultQueued(result.queuedForBackup),
       if (result.skipped > 0) l10n.storageResultSkipped(result.skipped),
+      // Last, and in full: this one says the backup wasn't what the app
+      // thought it was, which is worth more words than a count.
+      if (result.unverified > 0)
+        l10n.storageResultUnverified(result.unverified),
     ];
     showCupertinoDialog<void>(
       context: context,

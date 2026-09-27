@@ -50,6 +50,21 @@ backed up a queueful at a time — `LibraryScreen` refills it whenever a drain
 that actually did work finishes, so the refill continues a sync rather than
 starting one the sync-frequency setting didn't ask for.
 
+`backup_verifier.dart` is the only thing in the app that asks the *bucket*
+whether a backup exists, instead of asking this app's database.
+`proveOriginal` is one presigned HEAD, and nothing removes the last local copy
+of anything without it (`../photos/asset_removal.dart`); `reconcile` is one
+listing pass per thousand keys, which is what a batch of removals and the
+safety screen's Check Now use; `testRestore` downloads three photos back and
+checks them. An unreachable bucket is deliberately **not** a missing one — it
+blocks the delete and says which happened, rather than reporting a loss that
+hasn't occurred.
+
+`library_restore.dart` is the bulk of the other direction: after a reinstall
+the records come back from the app-data snapshot but the thumbnails died with
+the container, so it refills them from `thumbnails/`. Thumbnails only —
+originals stay in the bucket until something opens one.
+
 `s3_object_delete.dart` is the only thing in the app that removes an object
 from the bucket, and it's reached from exactly one place: emptying this app's
 Recently Deleted (`BackupCoordinator.deleteBackup`). Everything short of that

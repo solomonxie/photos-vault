@@ -29,7 +29,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Library'), findsOneWidget);
-    expect(find.text('Utilities'), findsOneWidget);
+    expect(find.text('More'), findsOneWidget);
   });
 
   testWidgets('renders Mandarin labels under zh locale', (tester) async {
@@ -52,6 +52,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('图库'), findsOneWidget);
-    expect(find.text('实用工具'), findsOneWidget);
+    expect(find.text('更多'), findsOneWidget);
   });
 }

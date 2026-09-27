@@ -70,3 +70,33 @@ Future<Uri> presignGetUrl({
     expiresIn: expiresIn,
   );
 }
+
+/// A presigned `HEAD` URL for [key] in [target] — existence and size
+/// without the body, which is what "is my backup really there" needs to
+/// ask thousands of times.
+///
+/// Signed as HEAD rather than reusing the GET presign: SigV4 covers the
+/// method, so a GET-signed URL fetched with HEAD is a signature mismatch on
+/// some S3-compatible endpoints even where AWS itself allows it.
+Future<Uri> presignHeadUrl({
+  required S3BackupTarget target,
+  required String key,
+  Duration expiresIn = const Duration(minutes: 15),
+}) async {
+  final signer = AWSSigV4Signer(
+    credentialsProvider: AWSCredentialsProvider(
+      AWSCredentials(target.accessKeyId, target.secretAccessKey),
+    ),
+  );
+  final scope = AWSCredentialScope.raw(
+    region: signingRegion(target),
+    service: 's3',
+  );
+  final request = AWSHttpRequest.head(targetUri(target, path: '/$key'));
+  return signer.presign(
+    request,
+    credentialScope: scope,
+    serviceConfiguration: S3ServiceConfiguration(),
+    expiresIn: expiresIn,
+  );
+}

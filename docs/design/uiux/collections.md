@@ -92,7 +92,7 @@ Hiding is two halves, always together: tag the record with the passcode hash
 **and** take it out of the OS photo library. Tagging alone leaves the photo
 sitting in Photos, which is the one outcome a hidden album must not produce.
 
-The **Hidden row in Utilities carries no count** (`library.md`). A number
+The **Hidden row in More carries no count** (`library.md`). A number
 there answers "is there a hidden album, and how big is it" for anyone
 holding the phone, before a digit of the passcode is typed — which is the
 one question the gate exists not to answer.
@@ -184,4 +184,3 @@ AI-guessed groupings, opt-in, spends the user's own credit.
  └──────┴──────┴──────┘
  empty  No photos available to add.
 ```
-

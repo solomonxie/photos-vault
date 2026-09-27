@@ -1,9 +1,39 @@
 import 'dart:io';
 
+import '../settings/backup_targets_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/backup_verifier.dart';
 import 'photo_library_service.dart';
 import 'thumbnail_cache.dart';
+
+/// What [AssetRemoval.removeFromDevice] did, and when it didn't, why.
+///
+/// Four outcomes rather than a bool because the three failures need three
+/// different sentences: one is "make a thumbnail first", one is "your
+/// bucket hasn't got this photo", and one is "ask again when you're
+/// online". Collapsing them into false is how a photo gets dropped on the
+/// strength of a backup nobody checked.
+enum RemovalOutcome {
+  /// The local copy is gone, the bucket's copy is confirmed, the record is
+  /// cloud-only.
+  freed,
+
+  /// Nothing moved: no thumbnail could be made, or the OS prompt was
+  /// declined.
+  failed,
+
+  /// The bucket answered, and it has not got this photo — whatever this
+  /// app's own row said. Nothing was deleted, and the derivative has been
+  /// put back in the upload queue.
+  backupMissing,
+
+  /// No bucket could be reached, so the copy could not be confirmed.
+  /// Freeing space is never urgent enough to do it unverified.
+  backupUnverifiable;
+
+  bool get freedSpace => this == RemovalOutcome.freed;
+}
 
 /// The two ways a photo or video can go, and the work behind each.
 ///
@@ -17,12 +47,24 @@ class AssetRemoval {
     required this.store,
     ThumbnailCache? thumbnails,
     PhotoLibraryService? library,
+    BackupVerifier? verifier,
   }) : thumbnails = thumbnails ?? ThumbnailCache(store: store),
-       library = library ?? PhotoLibraryService(store: store);
+       library = library ?? PhotoLibraryService(store: store),
+       verifier =
+           verifier ??
+           BackupVerifier(
+             targetsStore: BackupTargetsStore(),
+             recordStore: store,
+           );
 
   final AssetRecordStore store;
   final ThumbnailCache thumbnails;
   final PhotoLibraryService library;
+
+  /// Asked before the last local copy of anything goes. [canRemoveFromDevice]
+  /// reads this app's own row, which is a claim; this asks the bucket, which
+  /// is an answer.
+  final BackupVerifier verifier;
 
   /// Whether "keep the cloud copy, free the space" is on the table: there
   /// has to *be* a cloud copy, a local one to reclaim, and something left
@@ -42,27 +84,56 @@ class AssetRemoval {
   /// the full-resolution local copy — from the OS photo library for a
   /// camera-roll asset, since this app never held its own copy of one.
   ///
-  /// False means nothing moved: no thumbnail could be made, or the OS
-  /// prompt was declined.
-  Future<bool> removeFromDevice(AssetRecord record) async {
+  /// The bucket is asked first, every time. One HEAD request against the
+  /// object this app says it uploaded, before the only copy on the phone is
+  /// deleted on the strength of that claim — a wrong prefix, a lifecycle
+  /// rule or one upload that reported a success it didn't have all look
+  /// identical from inside the database, and all three cost the photo.
+  Future<RemovalOutcome> removeFromDevice(AssetRecord record) async {
+    switch (await verifier.proveOriginal(record)) {
+      case CopyProof.present:
+        break;
+      case CopyProof.missing:
+      // A record claiming to be uploaded with no key to check is in the
+      // same position as one the bucket hasn't got: there is nothing
+      // anywhere that can be shown to hold it. (An un-uploaded derivative
+      // never reaches here — `canRemoveFromDevice` turns it down first.)
+      case CopyProof.notRecorded:
+        // The row was wrong. Put it back in the queue so the next sync
+        // makes it true, rather than leaving it claiming to be backed up.
+        await store.updateDerivative(
+          record.localId,
+          DerivativeKind.original,
+          record
+              .stateOf(DerivativeKind.original)
+              .copyWith(status: UploadStatus.pending),
+        );
+        return RemovalOutcome.backupMissing;
+      case CopyProof.unreachable:
+        return RemovalOutcome.backupUnverifiable;
+    }
     try {
       // A video's poster frame comes from the library itself, so there's
       // no need to export the whole movie just to make a picture of it.
       final path = record.isVideo ? null : await localPathOf(record);
-      if (path == null && !record.isVideo) return false;
-      if (await thumbnails.ensureFor(record, path) == null) return false;
+      if (path == null && !record.isVideo) return RemovalOutcome.failed;
+      if (await thumbnails.ensureFor(record, path) == null) {
+        return RemovalOutcome.failed;
+      }
 
       if (record.sourcePath != null) {
         await File(record.sourcePath!).delete();
       } else {
-        // iOS puts up its own confirmation; a decline lands here as false
-        // and must not leave the record claiming to be cloud-only.
-        if (!await library.deleteFromLibrary(record)) return false;
+        // iOS puts up its own confirmation; a decline lands here and must
+        // not leave the record claiming to be cloud-only.
+        if (!await library.deleteFromLibrary(record)) {
+          return RemovalOutcome.failed;
+        }
       }
       await store.setLocalDeleted(record.localId, true);
-      return true;
+      return RemovalOutcome.freed;
     } catch (_) {
-      return false;
+      return RemovalOutcome.failed;
     }
   }
 

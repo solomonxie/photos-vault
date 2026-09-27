@@ -28,6 +28,29 @@ Formats, analyses, tests, archives an obfuscated Release build and uploads it
 to App Store Connect — no Xcode, no Product ▸ Archive ▸ Distribute. `make`
 on its own lists the rest.
 
+## The backup has to open without this app
+
+Objects go up keyed by the iOS asset identifier — `originals/B84E8479-…_L0_001.HEIC`
+— which says nothing about when a photo was taken or who is in it. A bucket of
+thirty thousand of those is a write-only pile. So every copy of the app-data
+snapshot carries an **`index.csv`**: one row per photo, `taken_at` first, with
+album, people, caption, place and the object's key. It sits loose in
+`app-data/` in each bucket and in the iCloud folder as well as inside each
+zip, because recovery starts with somebody in a web console who shouldn't have
+to guess which of thirty archives to download. Hidden photos are excluded on
+purpose — see `lib/backup/snapshot_index.dart`.
+
+`isFullyBackedUp` is a local row written by whichever upload reported success,
+and a wrong prefix, a lifecycle rule, a bucket emptied in a console or one
+upload that lied all look identical from inside the database. So
+`lib/upload/backup_verifier.dart` asks the bucket instead, and **nothing
+deletes a local original without it** — one HEAD for a single
+remove-from-device, one listing pass for a batch. An unreachable bucket blocks
+the delete rather than being treated as either answer. Utilities → **Where Your
+Photos Are** carries the rest: every copy that exists, when a bucket last
+confirmed it, a three-photo restore drill, and the steps to get everything back
+with none of this software involved.
+
 ## Private albums have no wrong passcode
 
 Utilities → Hidden asks for four digits, and **every** code is valid. The

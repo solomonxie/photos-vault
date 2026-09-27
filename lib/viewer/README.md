@@ -116,3 +116,9 @@ times per frame, which is fine for hundreds of rows and hopeless for the tens
 of thousands ten years of photos come to. That exact geometry is also what lets
 `AssetGridView` jump straight to the newest photo and `date_scrubber.dart`
 label itself with the month under the handle.
+
+`safety_screen.dart` is the trust page: every copy that exists, when a real
+bucket last confirmed it, a three-photo restore drill, and the steps to get
+everything back without this app. It reports rather than configures — the
+app-data switches stay in Cloud Settings with the buckets they write to. See
+`docs/design/uiux/safety.md`.

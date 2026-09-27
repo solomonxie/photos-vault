@@ -112,7 +112,16 @@ enum DeleteOutcome {
 
   /// Asked for and couldn't be done — no thumbnail could be made, so
   /// dropping the original would have left nothing to draw.
-  failed;
+  failed,
+
+  /// The bucket was asked and hasn't got the photo, so nothing was freed.
+  /// The one outcome the user has to hear about in full: this app believed
+  /// it was backed up and it is not.
+  backupMissing,
+
+  /// No bucket could be reached, so the copy couldn't be confirmed and
+  /// nothing was deleted. Try again online.
+  backupUnverifiable;
 
   bool get leftTheList => this == DeleteOutcome.binned;
 }
@@ -138,9 +147,12 @@ Future<DeleteOutcome> deleteAsset(
     case DeleteChoice.cancel:
       return DeleteOutcome.none;
     case DeleteChoice.fromDevice:
-      return await removal.removeFromDevice(record)
-          ? DeleteOutcome.cloudOnly
-          : DeleteOutcome.failed;
+      return switch (await removal.removeFromDevice(record)) {
+        RemovalOutcome.freed => DeleteOutcome.cloudOnly,
+        RemovalOutcome.failed => DeleteOutcome.failed,
+        RemovalOutcome.backupMissing => DeleteOutcome.backupMissing,
+        RemovalOutcome.backupUnverifiable => DeleteOutcome.backupUnverifiable,
+      };
     case DeleteChoice.everywhere:
       return await removal.deleteEverywhere(record)
           ? DeleteOutcome.binned

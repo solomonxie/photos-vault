@@ -58,7 +58,7 @@ Smoke-test on the device: grid scroll, add a bucket, Sync Now, a photo's detail,
 | Field | Value |
 |---|---|
 | Platforms | iOS |
-| Name | `Photos Vault: Complete Privacy` |
+| Name | `Photos Vault — Your Bucket` |
 | Primary Language | English (U.S.) |
 | Bundle ID | `com.solomonxie.photosVault` (dropdown) |
 | SKU | `photosvault-ios` |
@@ -68,14 +68,21 @@ If the name is taken, try in order: `Photos Vault — Own Your Backup`,
 `Photos Vault: Your Own Bucket`, `Photo Vault Bucket Backup`. The name only
 has to be unique across the store; the bundle ID does not change.
 
-Two things reviewers do occasionally push back on with this name, both
-answerable rather than fatal: "Photos" is also Apple's own app (the listing
-never claims any association, and the description says whose bucket the
-photos go to in the first line), and "Complete Privacy" is an absolute claim
-(the privacy policy backs it — no server, no account, no analytics — so it is
-a statement of fact about the app, not marketing). If either comes back as a
-metadata rejection, `Photos Vault — Own Your Backup` sidesteps both without a
-new build.
+**The name and subtitle sell custody and findability, not secrecy.** They
+used to read `Photos Vault: Complete Privacy` / `Back up to a bucket you
+own` — two lines about privacy, which is not the thing people hesitate
+over. What stops somebody handing a photo library to an app is *will this
+still be here, and can I get it out again*. So the name says whose storage
+it is and the subtitle answers the second question; the privacy story is
+still in the first line of the description, where it was always doing the
+work. It also drops an absolute claim ("Complete") that a metadata reviewer
+can argue with, for one that is demonstrable in the app.
+
+"Photos" being Apple's own app name is the one remaining thing a reviewer
+occasionally raises: the listing claims no association, and the description
+says whose bucket the photos go to in its first sentence. If it comes back
+as a metadata rejection, `Photos Vault — Own Your Backup` sidesteps it
+without a new build.
 
 ## 6. The reviewer needs a bucket — do this before submitting
 
@@ -194,7 +201,7 @@ repo root are README art at ~840 px and upscale into mush. Capture a fresh set:
    5. **Cloud** — the bucket list with "56 of 57 photos backed up"
    6. **Sync Queue** — uploads in flight
    7. **Optimize Storage** — "Free up to 12.4 GB"
-   8. **Privacy by Design** — the Utilities page's privacy copy
+   8. **Your Copies, Your Privacy** — the note at the foot of the library
 5. AirDrop to the Mac, e.g. `~/Desktop/shots/`, then:
 
 ```
@@ -246,13 +253,21 @@ second at cold start and Apple does not reject for it — worth a pass at
 Promotional Text (168/170):
 
 ```
-Back up your camera roll to a bucket you own — S3, COS or OSS. No account, no subscription, no server in the middle. Faces, albums and search all run on the phone.
+Back up your camera roll to a bucket you own — S3, COS or OSS. Plain files, plus an index you can read without this app. No account, no subscription, no server in the middle.
 ```
 
 Description:
 
 ```
 Photos Vault backs up your photos and videos to object storage you own — an Amazon S3, Tencent COS or Alibaba Cloud OSS bucket, with your credentials, under your bill. There is no Photos Vault account, no subscription, and no server between your camera roll and your bucket.
+
+IF YOU EVER LOSE THIS APP
+• Your photos are ordinary files in your own bucket, not a proprietary archive
+• An index.csv sits beside them listing every photo by date, album, person, caption and place — open it in any spreadsheet and find anything again, with no account and nothing installed
+• Check Now asks your bucket, object by object, whether it really holds what this app says it holds
+• Test Restore downloads photos back out of the bucket and checks them, so "backed up" is something you have watched work rather than a number on a screen
+• Nothing on the phone is deleted on the strength of an unverified backup
+• This app cannot delete from your bucket — only you can
 
 BACKUP TO STORAGE YOU OWN
 • Add a bucket by name — the region is detected for you, and access is verified before anything is saved
@@ -289,7 +304,8 @@ Bring your own API key from OpenAI, Anthropic, Google, Groq, Mistral or xAI and 
 
 YOUR DATA
 • Library, records and faces live in a database on this iPhone and are worked out here
-• Albums, people, tags and captions can be copied daily to your iCloud Drive, your bucket, or both — pulled back automatically if you reinstall
+• Albums, people, tags and captions are copied to your iCloud Drive and your bucket on any day something changed — on by default, and pulled back automatically if you reinstall
+• Every copy carries that readable index.csv, so the backup opens without this app
 • Export and import as plain files, any time
 • Keys live in the iOS Keychain and are never included in any backup
 • Delete the app and the local data goes with it
@@ -314,7 +330,7 @@ TESTING BACKUP — this needs a bucket, so here is one:
   Access key ID: TODO
   Secret access key: TODO
   Key prefix: leave the default
-Utilities -> Cloud Settings -> Add Cloud Bucket, paste the above, Save. The
+More -> Cloud Settings -> Add Cloud Bucket, paste the above, Save. The
 app verifies access before saving. Then Sync Now, and Queue shows uploads.
 These are throwaway credentials scoped to that one bucket and will be revoked
 after review.
@@ -323,7 +339,7 @@ WITHOUT a bucket, everything except upload still works: the library, albums,
 People and face recognition, search, editing, private albums (they stay on
 the device when no bucket is configured).
 
-PRIVATE ALBUMS (Utilities -> Hidden): a four-digit code. Every code is valid
+PRIVATE ALBUMS (More -> Hidden): a four-digit code. Every code is valid
 by design — an unused one opens a new empty album rather than showing an
 error, because an error would confirm that some other album exists. There is
 no "wrong passcode" state and nothing is being hidden from the reviewer; any
@@ -347,8 +363,8 @@ What's New: not shown for a first version. From 1.0.1 on, write it here.
 
 | Field | Value |
 |---|---|
-| Name | `Photos Vault: Complete Privacy` |
-| Subtitle (27/30) | `Back up to a bucket you own` |
+| Name | `Photos Vault — Your Bucket` |
+| Subtitle (28/30) | `Your photos, always findable` |
 | Category — Primary | Photo & Video |
 | Category — Secondary | Utilities |
 | Content Rights | **No**, it does not contain, show, or access third-party content |
@@ -465,7 +481,7 @@ The app ships `zh`. App Store Connect → App Information → language dropdown
 | Field | Value |
 |---|---|
 | Name | `Photos Vault 照片保险库` |
-| Subtitle | `备份到你自己的存储桶` |
+| Subtitle | `你的照片，随时找得回` |
 | Keywords | `照片,备份,存储桶,相册,人脸,隐私,离线,加密,私密,归档,对象存储,图库` |
 | Privacy Policy URL | same |
 | Screenshots | reuse the English ones (App Store Connect falls back automatically) |
@@ -473,13 +489,21 @@ The app ships `zh`. App Store Connect → App Information → language dropdown
 Promotional Text:
 
 ```
-把相机胶卷备份到你自己的存储桶——S3、腾讯 COS 或阿里云 OSS。无需账号，无订阅，中间没有任何服务器。人脸识别、相册和搜索全部在手机上完成。
+把相机胶卷备份到你自己的存储桶——S3、腾讯 COS 或阿里云 OSS。存的是普通文件，还附一份不用本应用也能读的索引。无需账号，无订阅，中间没有任何服务器。
 ```
 
 Description:
 
 ```
 Photos Vault 把你的照片和视频备份到你自己的对象存储——Amazon S3、腾讯云 COS 或阿里云 OSS，用你自己的密钥，走你自己的账单。没有 Photos Vault 账号，没有订阅，从相机胶卷到存储桶之间没有任何服务器。
+
+万一这个应用不在了
+• 你的照片就是你自己存储桶里的普通文件，不是私有格式的归档包
+• 旁边还有一份 index.csv，按日期、相册、人物、描述和地点列出每一张照片——用任意表格应用打开就能重新找到任何一张，不需要账号，也不用装任何东西
+• “立即核对”会逐个对象询问存储桶：它是否真的存着本应用声称已备份的内容
+• “试试恢复”会把照片从存储桶下载回来并校验，让“已备份”成为你亲眼见过的事实，而不是屏幕上的一个数字
+• 未经核实的备份，绝不会成为删除本机照片的理由
+• 本应用无权从你的存储桶删除任何内容——只有你可以
 
 备份到你自己的存储
 • 只填存储桶名字——区域自动识别，保存前先验证访问权限
@@ -516,7 +540,8 @@ Photos Vault 把你的照片和视频备份到你自己的对象存储——Amaz
 
 你的数据
 • 照片库、各项记录与人脸都存在这台 iPhone 的数据库里，也都在本机算出
-• 相册、人物、标签和描述可每天复制到你的 iCloud 云盘、你的存储桶，或两者都要；重装后自动取回
+• 相册、人物、标签和描述会在有变动的日子复制到你的 iCloud 云盘和你的存储桶——默认开启，重装后自动取回
+• 每一份副本都带着那份可读的 index.csv，因此不用本应用也能打开备份
 • 随时导出导入为普通文件
 • 密钥保存在钥匙串中，任何备份都不包含
 • 删除应用，本机数据一并消失
