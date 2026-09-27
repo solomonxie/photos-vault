@@ -10,6 +10,7 @@ import '../upload/signing.dart';
 import 'app_snapshot.dart';
 import 'backup_schedule.dart';
 import 'snapshot_archive.dart';
+import 'snapshot_index.dart';
 
 /// The same snapshot `ICloudBackup` writes to iCloud Drive, kept in the
 /// user's own bucket instead — for anyone whose photos already go there and
@@ -97,8 +98,18 @@ class BucketBackup {
   /// when there's no monthly archive yet.
   static const legacyFileName = 'library.json';
 
+  /// **On unless it has been turned off.** The snapshot is the only thing
+  /// that maps a bucket full of opaque keys back to dates, albums, people
+  /// and captions, so a bucket without one holds photos nobody can find
+  /// again — and [restoreIfFreshInstall] on the new phone finds nothing to
+  /// restore. Defaulting it off made the copy that makes the backup
+  /// *legible* the one thing the user had to go and ask for.
+  ///
+  /// A few hundred kilobytes a day, into a bucket they are already paying
+  /// to fill with gigabytes of photos. An unset key is therefore on; only
+  /// an explicit `'false'` is off.
   Future<bool> isEnabled() async =>
-      await settings.getAppState(enabledKey) == 'true';
+      await settings.getAppState(enabledKey) != 'false';
 
   /// Turning it on backs up immediately — "did that work?" is answered by
   /// the switch, not by a button next to it.
@@ -116,10 +127,9 @@ class BucketBackup {
   Future<bool> backUpNow() async {
     final targets = await targetsStore.loadAll();
     if (targets.isEmpty) return false;
-    final body = zipSnapshot(
-      await snapshots.export(),
-      changeLog: await snapshots.changeLog(),
-    );
+    final snapshot = await snapshots.export();
+    final body = zipSnapshot(snapshot, changeLog: await snapshots.changeLog());
+    final index = indexCsv(snapshot);
     final name = dailyArchiveName(DateTime.now());
     var wrote = false;
     for (final target in targets) {
@@ -134,11 +144,38 @@ class BucketBackup {
         // Unreachable bucket, expired credentials — the next one may work,
         // and the copy in iCloud may already have it covered.
       }
+      await _writeIndex(target, index);
     }
     // Only after a bucket actually took it. Recorded before, a failed
     // upload is remembered as done and the next day's gate skips for good.
     if (wrote) await schedule.recordSuccess();
     return wrote;
+  }
+
+  /// The readable index, loose in `app-data/` rather than only inside the
+  /// day's zip: somebody staring at this bucket in a web console after
+  /// losing the phone should not have to know which of thirty zips to
+  /// download first, or that they need to unzip anything at all.
+  ///
+  /// One rolling file, overwritten — the history is in the dated zips,
+  /// each of which carries the index it was written with. Its own try
+  /// block because it must never be what makes the day's backup report
+  /// failure: the zip is the copy that restores.
+  Future<void> _writeIndex(S3BackupTarget target, String csv) async {
+    try {
+      await _put(
+        await presignPutUrl(
+          target: target,
+          key: keyFor(target, indexEntryName),
+        ),
+        // Bytes, like every other body this class PUTs — a String body
+        // leaves the charset to the HTTP client, and this file holds
+        // captions in whatever language they were typed in.
+        body: utf8.encode(csv),
+      );
+    } catch (_) {
+      // See above.
+    }
   }
 
   /// A final archive that remains newer than any ordinary daily snapshot,

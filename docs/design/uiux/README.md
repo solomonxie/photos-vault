@@ -27,7 +27,8 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
    │                                            └─▶ PersonGraphScreen
    │  Places / Events ──▶ AssetGroupScreen
    │  Events (AI Suggestions) ──▶ SmartCollectionScreen
-   └─ Utilities
+   └─ More
+        Where Your Photos Are ──▶ SafetyScreen
         Cloud Settings ──▶ SettingsScreen ──▶ BucketBrowser ─▶ (deeper)
         │                        └─▶ [AddS3Backup]   └─▶ ObjectPreview
         Backup Queue ──▶ BackupQueueScreen
@@ -47,6 +48,7 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
 | `people.md` | people list, person page, profile, history, graph |
 | `collections.md` | albums, favorites, groups, smart collections, hidden, deleted |
 | `cloud.md` | Cloud Settings, add bucket, bucket browser |
+| `safety.md` | where every copy is, checking it, getting it back without the app |
 | `queue.md` | sync queue sheet |
 | `storage.md` | optimize storage: problem filters, per-photo fixes, batch |
 | `ai.md` | AI settings and AI touch-up |

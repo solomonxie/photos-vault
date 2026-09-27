@@ -115,7 +115,7 @@
   "albumDeleteConfirmTitle": "删除该相册?",
   "albumDeleteConfirmBody": "相册内的照片和视频仍会保留在图库中。",
   "collectionsPeopleRow": "人物",
-  "collectionsMoreButton": "更多",
+  "collectionsMoreButton": "全部",
   "collectionsPlacesRow": "地点",
   "collectionsEventsRow": "事件",
   "collectionsShowAll": "全部显示（{count}）",
@@ -157,16 +157,17 @@
       }
     }
   },
-  "collectionsUtilities": "实用工具",
+  "collectionsUtilities": "更多",
   "collectionsFavoritesRow": "收藏",
   "collectionsHiddenRow": "隐藏",
   "collectionsRecentlyDeletedRow": "最近删除",
+  "collectionsSafetyRow": "你的照片在哪里",
   "collectionsCloudSettingsRow": "云设置",
   "collectionsAiSettingsRow": "AI 设置",
   "collectionsImportPhotosRow": "导入照片",
-  "privacyHeading": "隐私即设计",
+  "privacyHeading": "你的副本，你的隐私",
   "privacyTitle": "你的照片始终属于你。",
-  "privacyBody": "照片库、各项记录与人脸都存在这台 iPhone 的数据库里，也都在本机算出——归类、搜索、人脸识别全部在设备上完成。Photos Vault 没有服务器、无需账号，任何信息都不会传给本应用的开发者。照片只会去你让它去的地方：备份用你自己的存储桶、你自己的 iCloud，AI 分析用你自己的密钥。密钥保存在钥匙串中，备份从不包含。删除应用，本机数据也一并消失。",
+  "privacyBody": "你的照片以普通文件的形式存入你自己的存储桶，旁边还有一份 index.csv，按日期、相册、人物、描述和地点列出每一张照片——只用一个表格应用就能重新找到任意一张。不需要账号，不需要导出工具，也不需要我们。本应用无权从你的存储桶删除任何内容，只有你可以。\n\n任何内容都不会发送给开发者。没有服务器，也没有账号：你的图库、记录与人脸数据都保存在这台 iPhone 的数据库中，分组、搜索与人脸识别等处理全部在本机完成。照片只会去你指定的地方：你自己的存储桶、你自己的 iCloud、你自己的 AI 密钥。密钥保存在钥匙串中，从不包含在备份里。",
   "backupQueueTitle": "同步队列",
   "backupQueueEmpty": "队列为空——已全部备份完成。",
   "backupQueueClearButton": "清空队列",
@@ -215,7 +216,7 @@
   "settingsBackupFormatVideoNote": "视频始终以原始画质备份——暂不支持视频转码。",
   "settingsBackupFormatFolderNote": "两种格式都存放在存储桶的同一个「originals/」文件夹中，优化上传只是扩展名变为 .webp。",
   "settingsAppDataHeading": "应用数据",
-  "settingsAppDataHint": "相册、人物、标签、说明和地点——除照片本身以外的一切。每天一份，只在有改动的那天写出，重装后会自动取回。可以存到其中一处，也可以两处都存。这不是多设备同步，也绝不包含你的存储密钥。",
+  "settingsAppDataHint": "相册、人物、标签、描述和地点——除照片本身以外的一切。两处默认均已开启：有变动时每天保存一份副本，重装应用后自动恢复。每份副本都带有一份 index.csv，按日期、相册和人物列出每张照片，因此不用本应用也能打开。这不是设备间同步，你的存储桶密钥也从不包含在内。",
   "settingsICloudRow": "iCloud 云盘",
   "settingsBucketDataRow": "你的云存储桶",
   "settingsBucketDataPath": "每个存储桶中的 app-data/YYYYMMDD.zip",
@@ -449,6 +450,8 @@
   "libraryHideFailed": "无法复制原图，未做任何更改。",
   "libraryHideNote": "隐藏的照片会从“照片”中移除，仅由本应用保管。",
   "libraryDeleteBackupFailed": "无法从存储桶中删除已备份的副本。照片仍保留在此——请在恢复联网后重试。",
+  "libraryDeleteBackupMissing": "存储桶中没有这张照片，因此未删除任何内容。此前应用将它标记为已备份——现已重新加入同步队列。",
+  "libraryDeleteBackupUnverifiable": "无法连接存储桶以确认备份，因此未删除任何内容。请在恢复联网后重试。",
   "libraryDeleteBatchCapped": "「照片」每次最多删除 {limit} 项。其余仍处于选中状态——再删一次即可继续。",
   "actionCancel": "取消",
   "actionDelete": "删除",
@@ -671,7 +674,7 @@
   "askAiPromptPlaceholder": "你想了解什么？",
   "askAiSendButton": "询问",
   "askAiThinking": "正在询问…",
-  "askAiNoKey": "请先在「工具 → AI 设置」中添加 AI 密钥。",
+  "askAiNoKey": "请先在「更多 → AI 设置」中添加 AI 密钥。",
   "askAiSendsNote": "你的问题和下面的资料会发送给你的 AI 服务商。",
   "askAiContextHeading": "作为上下文发送",
   "askAiAnswerHeading": "回答",
@@ -795,9 +798,20 @@
   "storageResultFreed": "已释放 {size}。",
   "storageResultQueued": "{count, plural, other{{count} 项已加入备份队列。}}",
   "storageResultSkipped": "{count, plural, other{已跳过 {count} 项。}}",
+  "storageResultUnverified": "{count, plural, one{1 项未处理——存储桶无法确认已保存其全画质副本。} other{{count} 项未处理——存储桶无法确认已保存它们的全画质副本。}}",
+  "@storageResultUnverified": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "storageResultNothing": "没有任何改动。",
   "personGraphTitle": "关系图谱",
   "personGraphEmpty": "添加关系后即可查看图谱。",
+  "privateAlbumHideAnyway": "仍然隐藏",
+  "privateAlbumHideNoBucketTitle": "没有备份也要隐藏吗？",
+  "privateAlbumHideAnyway": "仍然隐藏",
   "privateAlbumBackupNoBucket": "在你添加存储桶之前，隐藏照片会以未加密的形式留在本机。「照片」App 已经没有它们，本应用是唯一的保管者。",
   "privateAlbumBackupRecentlyDeleted": "「照片」App 会把删除的内容再保留 30 天。没去那里清空之前，隐藏并没有真正完成。",
   "privateAlbumHowTitle": "工作方式",
@@ -817,6 +831,194 @@
     "placeholders": {
       "count": {
         "type": "int"
+      }
+    }
+  },
+  "safetyTitle": "你的照片在哪里",
+  "safetyCopiesHeading": "副本",
+  "safetyCopiesHint": "此应用中的每张照片都存放在下列一处或多处。存储桶中的副本比这台手机更长久，而且是本应用无权删除的一份。",
+  "safetyDeviceRow": "这台 iPhone",
+  "safetyPhotoCount": "{count, plural, other{{count} 张照片}}",
+  "@safetyPhotoCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyDeviceNote": "删除应用时会一并删除，所以不要让它成为唯一副本。",
+  "safetyDeviceCloudOnly": "{count, plural, other{{count} 张照片仅存于存储桶——其全画质副本已从本机释放。}}",
+  "@safetyDeviceCloudOnly": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyNoBucketRow": "尚未添加存储桶",
+  "safetyNoBucketSubtitle": "这台手机是唯一副本。请添加一个你自己的存储桶。",
+  "safetyBucketOriginals": "已备份 {backedUp}/{total} 张原图",
+  "@safetyBucketOriginals": {
+    "placeholders": {
+      "backedUp": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyBucketComplete": "图库中的全部内容都已上传。",
+  "safetyBucketWaiting": "{count, plural, other{仍有 {count} 张等待上传。}}",
+  "@safetyBucketWaiting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyICloudRow": "iCloud 云盘",
+  "safetyICloudOff": "本设备上已关闭，因此不会复制到那里。",
+  "safetyICloudNever": "尚无副本。",
+  "safetyICloudCopied": "应用数据已于{when}复制。",
+  "@safetyICloudCopied": {
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "safetyICloudPath": "文件 → iCloud 云盘 → Photos Vault",
+  "safetyWhenToday": "今天 {time}",
+  "@safetyWhenToday": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "safetyNeverChecked": "尚未与存储桶核对。以上数字是本应用的记录，而非存储桶确认的结果。",
+  "safetyLastChecked": "上次与存储桶核对：{when}。",
+  "@safetyLastChecked": {
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "safetyCheckNow": "立即核对",
+  "safetyChecking": "核对中…",
+  "safetyTestRestore": "试试恢复",
+  "safetyTestingRestore": "下载中…",
+  "safetyCheckAllPresent": "{count, plural, other{存储桶已确认全部 {count} 张原图，没有缺失。}}",
+  "@safetyCheckAllPresent": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyCheckMissing": "{count, plural, other{存储桶中缺少 {count} 张照片，已将 {requeued} 张重新加入同步队列。}}",
+  "@safetyCheckMissing": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "requeued": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyCheckUnreachable": "无法连接存储桶，因此未能确认任何结果。请在联网后重试。",
+  "safetyDrillVerified": "{count, plural, other{已从存储桶取回 {count} 张照片并校验通过。备份是真实可用的。}}",
+  "@safetyDrillVerified": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyDrillFailed": "{count, plural, other{有 {count} 张照片无法取回。请运行“立即核对”了解还有多少受影响。}}",
+  "@safetyDrillFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyDrillNothingToTry": "尚未备份任何内容，因此没有可取回的照片。",
+  "safetyAppDataHeading": "相册、人物、描述",
+  "safetyAppDataHint": "你在照片之上所做的整理。这些内容既不在照片文件里，也不随照片存入存储桶，因此单独备份——每有变动时写入数百 KB，重装应用后会自动恢复。",
+  "safetyAppDataBucketRow": "存放在你的存储桶",
+  "safetyAppDataICloudRow": "存放在 iCloud 云盘",
+  "safetyAppDataOff": "已在“设置”中关闭。",
+  "safetyAppDataNever": "尚无副本。",
+  "safetyAppDataCopied": "已于{when}复制。",
+  "@safetyAppDataCopied": {
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "safetyRefillGridRow": "从存储桶重建缩略图",
+  "safetyRefillGridSubtitle": "适用于重装之后。下载小尺寸副本让照片重新显示；打开某张时才取回全画质。",
+  "safetyRecoveryHeading": "如果这个应用不在了",
+  "safetyRecoveryHint": "你的照片就是你自己存储桶里的普通文件。以下步骤不需要这个应用、不需要账号，也不需要我们。",
+  "safetyRecoverySteps": "1. 登录你的云服务商控制台，打开存储桶。\n2. 下载 {prefix}app-data/index.csv，用任意表格应用打开。\n3. 按 taken_at 列排序——那就是你的图库全貌，含每个相册、人物、描述与地点。\n4. file 列是该对象在 {prefix}originals/ 下的名称。可逐个下载，也可用任意 S3 工具整个目录下载。\n\n同一份 index.csv 也在每个备份压缩包内、iCloud 云盘中，以及“导出文件”生成的文件里。",
+  "@safetyRecoverySteps": {
+    "placeholders": {
+      "prefix": {
+        "type": "String"
+      }
+    }
+  },
+  "safetyRefillOwed": "{count, plural, other{仍有 {count} 张照片在本机没有画面。}}",
+  "@safetyRefillOwed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyRefillRunning": "已获取 {done}/{total}…",
+  "@safetyRefillRunning": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyRefillDone": "{count, plural, other{{count} 张照片已回到网格中。}}",
+  "@safetyRefillDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyRefillPartial": "已恢复 {done} 张。{failed} 张未能获取——请在联网后重试。",
+  "@safetyRefillPartial": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "privacyCheckRow": "查看全部副本并核对",
+  "@vaultLocalFooter": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
       }
     }
   }

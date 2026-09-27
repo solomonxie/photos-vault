@@ -141,7 +141,7 @@
   "albumDeleteConfirmTitle": "Delete this album?",
   "albumDeleteConfirmBody": "The photos and videos inside stay in your library.",
   "collectionsPeopleRow": "People",
-  "collectionsMoreButton": "More",
+  "collectionsMoreButton": "See All",
   "collectionsPlacesRow": "Places",
   "collectionsEventsRow": "Events",
   "collectionsShowAll": "Show All ({count})",
@@ -228,16 +228,17 @@
       }
     }
   },
-  "collectionsUtilities": "Utilities",
+  "collectionsUtilities": "More",
   "collectionsFavoritesRow": "Favorites",
   "collectionsHiddenRow": "Hidden",
   "collectionsRecentlyDeletedRow": "Recently Deleted",
+  "collectionsSafetyRow": "Where Your Photos Are",
   "collectionsCloudSettingsRow": "Cloud Settings",
   "collectionsAiSettingsRow": "AI Settings",
   "collectionsImportPhotosRow": "Import Photos",
-  "privacyHeading": "Privacy by Design",
-  "privacyTitle": "Your photos stay yours.",
-  "privacyBody": "Your library, its records and its face data are stored in a database on this iPhone, and all processing — grouping, search and face recognition — happens on the device. There is no Photos Vault server and no account, so nothing is ever sent to the developer. Photos only go where you send them: your own bucket for backup, your own iCloud, or your own AI key for analysis. Keys are kept in the Keychain and never included in a backup. If you delete the app, its local data is deleted with it.",
+  "privacyHeading": "Your Copies, Your Privacy",
+  "privacyTitle": "Your photos always belong to you.",
+  "privacyBody": "Your photos go to a bucket you own, as ordinary files. Alongside them sits an index.csv listing every photo by date, album, person, caption and place — so you can find any one of them again with a spreadsheet and nothing else. No account, no export tool, no us. This app has no permission to delete from your bucket; only you do.\n\nNothing is ever sent to the developer. There is no server and no account: your library, its records and its face data stay in a database on this iPhone, and all processing — grouping, search, face recognition — happens here. Photos go only where you send them: your own bucket, your own iCloud, your own AI key. Keys are kept in the Keychain and are never included in a backup.",
   "backupQueueTitle": "Sync Queue",
   "backupQueueEmpty": "The queue is empty. Everything is backed up.",
   "backupQueueClearButton": "Empty Queue",
@@ -320,7 +321,7 @@
   "settingsBackupFormatVideoNote": "Videos are always backed up at original quality. Video conversion isn't supported yet.",
   "settingsBackupFormatFolderNote": "Both formats are stored in the same \"originals/\" folder in your bucket. Optimized uploads simply have a .webp extension instead of the original one.",
   "settingsAppDataHeading": "App Data",
-  "settingsAppDataHint": "Albums, people, tags, captions and places — everything except the photos themselves. A copy is saved once a day when something has changed, and restored automatically if you reinstall the app. You can keep a copy in either place, or both. This isn't sync between devices, and your bucket keys are never included.",
+  "settingsAppDataHint": "Albums, people, tags, captions and places — everything except the photos themselves. On in both places by default: a copy is saved once a day when something has changed, and restored automatically if you reinstall the app. Each copy carries an index.csv listing every photo by date, album and person, so it opens without this app. This isn't sync between devices, and your bucket keys are never included.",
   "settingsICloudRow": "iCloud Drive",
   "settingsBucketDataRow": "Your Cloud Bucket",
   "settingsBucketDataPath": "Saved as app-data/YYYYMMDD.zip in every bucket",
@@ -726,6 +727,14 @@
       }
     }
   },
+  "storageResultUnverified": "{count, plural, one{1 left alone — your bucket couldn't confirm it has the full-quality copy.} other{{count} left alone — your bucket couldn't confirm it has their full-quality copies.}}",
+  "@storageResultUnverified": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "storageResultNothing": "Nothing changed.",
   "actionOk": "OK",
   "privateAlbumReturnFailed": "{count, plural, one{1 photo couldn't be returned to Photos. It's still in this album.} other{{count} photos couldn't be returned to Photos. They're still in this album.}}",
@@ -740,6 +749,8 @@
   "libraryHideFailed": "Couldn't copy the original, so the photo wasn't hidden.",
   "libraryHideNote": "Hidden photos are removed from Photos and kept only in this app.",
   "libraryDeleteBackupFailed": "Couldn't delete the backup from your bucket. The photo is still here. Try again when you're back online.",
+  "libraryDeleteBackupMissing": "Your bucket hasn't got this photo, so nothing was removed. The app had it marked as backed up — it's back in the sync queue now.",
+  "libraryDeleteBackupUnverifiable": "Couldn't reach your bucket to confirm the backup, so nothing was removed. Try again when you're back online.",
   "libraryDeleteBatchCapped": "Photos can only delete {limit} at a time. The rest are still selected. Tap Delete again to continue.",
   "@libraryDeleteBatchCapped": {
     "placeholders": {
@@ -1046,7 +1057,7 @@
   "askAiPromptPlaceholder": "What do you want to know?",
   "askAiSendButton": "Ask",
   "askAiThinking": "Asking…",
-  "askAiNoKey": "Add an AI key in Utilities → AI Settings first.",
+  "askAiNoKey": "Add an AI key in More → AI Settings first.",
   "askAiSendsNote": "Your question and the details below are sent to your AI provider.",
   "askAiContextHeading": "SENT AS CONTEXT",
   "askAiAnswerHeading": "ANSWER",
@@ -1164,6 +1175,9 @@
   "locationPlaceLabel": "Place",
   "personGraphTitle": "Relationship Graph",
   "personGraphEmpty": "Add relationships to see the graph.",
+  "privateAlbumHideAnyway": "Hide Anyway",
+  "privateAlbumHideNoBucketTitle": "Hide with no backup?",
+  "privateAlbumHideAnyway": "Hide Anyway",
   "privateAlbumBackupNoBucket": "Until you add a bucket, hidden photos stay on this phone and are not encrypted. This app holds the only copy, since they've been removed from Photos.",
   "privateAlbumBackupRecentlyDeleted": "Photos keeps deleted items for 30 days. Hiding isn't complete until you empty Recently Deleted in Photos.",
   "privateAlbumHowTitle": "HOW THIS WORKS",
@@ -1183,6 +1197,194 @@
     "placeholders": {
       "count": {
         "type": "int"
+      }
+    }
+  },
+  "safetyTitle": "Where Your Photos Are",
+  "safetyCopiesHeading": "Copies",
+  "safetyCopiesHint": "Every photo this app knows about lives in one or more of these. The bucket is the copy that outlives this phone — and the only one this app has no permission to delete from.",
+  "safetyDeviceRow": "This iPhone",
+  "safetyPhotoCount": "{count, plural, one{1 photo} other{{count} photos}}",
+  "@safetyPhotoCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyDeviceNote": "Deleted with the app, so never leave it as the only copy.",
+  "safetyDeviceCloudOnly": "{count, plural, one{1 photo is in the bucket only — the full-quality copy was freed from here.} other{{count} photos are in the bucket only — their full-quality copies were freed from here.}}",
+  "@safetyDeviceCloudOnly": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyNoBucketRow": "No bucket yet",
+  "safetyNoBucketSubtitle": "This phone is the only copy. Add a bucket you own.",
+  "safetyBucketOriginals": "{backedUp} of {total} originals backed up",
+  "@safetyBucketOriginals": {
+    "placeholders": {
+      "backedUp": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyBucketComplete": "Everything in the library is up there.",
+  "safetyBucketWaiting": "{count, plural, one{1 still waiting to upload.} other{{count} still waiting to upload.}}",
+  "@safetyBucketWaiting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyICloudRow": "iCloud Drive",
+  "safetyICloudOff": "Off on this device, so nothing is being copied there.",
+  "safetyICloudNever": "No copy yet.",
+  "safetyICloudCopied": "App data copied {when}.",
+  "@safetyICloudCopied": {
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "safetyICloudPath": "Files → iCloud Drive → Photos Vault",
+  "safetyWhenToday": "today at {time}",
+  "@safetyWhenToday": {
+    "placeholders": {
+      "time": {
+        "type": "String"
+      }
+    }
+  },
+  "safetyNeverChecked": "Never checked with your bucket. The counts above are what this app believes, not what the bucket has confirmed.",
+  "safetyLastChecked": "Last checked with your bucket {when}.",
+  "@safetyLastChecked": {
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "safetyCheckNow": "Check Now",
+  "safetyChecking": "Checking…",
+  "safetyTestRestore": "Test Restore",
+  "safetyTestingRestore": "Downloading…",
+  "safetyCheckAllPresent": "{count, plural, one{Your bucket confirmed 1 of 1 original. Nothing is missing.} other{Your bucket confirmed all {count} originals. Nothing is missing.}}",
+  "@safetyCheckAllPresent": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyCheckMissing": "{count, plural, one{1 photo is missing from your bucket. {requeued} put back in the sync queue.} other{{count} photos are missing from your bucket. {requeued} put back in the sync queue.}}",
+  "@safetyCheckMissing": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "requeued": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyCheckUnreachable": "Couldn't reach your bucket, so nothing was confirmed either way. Try again when you're online.",
+  "safetyDrillVerified": "{count, plural, one{Downloaded 1 photo back out of your bucket and checked it. The backup is real.} other{Downloaded {count} photos back out of your bucket and checked them. The backup is real.}}",
+  "@safetyDrillVerified": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyDrillFailed": "{count, plural, one{1 of the photos couldn't be downloaded back. Run Check Now to find out how much else is affected.} other{{count} of the photos couldn't be downloaded back. Run Check Now to find out how much else is affected.}}",
+  "@safetyDrillFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyDrillNothingToTry": "Nothing has been backed up yet, so there's nothing to fetch back.",
+  "safetyAppDataHeading": "ALBUMS, PEOPLE, CAPTIONS",
+  "safetyAppDataHint": "The work you did on top of the photos. It is not in the photo files and not in the bucket alongside them, so it gets its own copy — a few hundred kilobytes, written on any day something changed, and restored automatically if you reinstall.",
+  "safetyAppDataBucketRow": "In your bucket",
+  "safetyAppDataICloudRow": "In iCloud Drive",
+  "safetyAppDataOff": "Turned off in Settings.",
+  "safetyAppDataNever": "No copy yet.",
+  "safetyAppDataCopied": "Copied {when}.",
+  "@safetyAppDataCopied": {
+    "placeholders": {
+      "when": {
+        "type": "String"
+      }
+    }
+  },
+  "safetyRefillGridRow": "Refill the grid from your bucket",
+  "safetyRefillGridSubtitle": "After a reinstall. Downloads the small copies so photos show again; full quality comes back when you open one.",
+  "safetyRecoveryHeading": "IF THIS APP IS GONE",
+  "safetyRecoveryHint": "Your photos are ordinary files in a bucket you own. Nothing below needs this app, an account, or us.",
+  "safetyRecoverySteps": "1. Sign in to your cloud provider's console and open your bucket.\n2. Download {prefix}app-data/index.csv and open it in any spreadsheet app.\n3. Sort by the taken_at column — that's your library, in order, with every album, person, caption and place.\n4. The file column is the object's name under {prefix}originals/. Download the ones you want, or the whole folder with any S3 tool.\n\nThe same index.csv is inside every backup zip, in iCloud Drive and in the file the Export button hands out.",
+  "@safetyRecoverySteps": {
+    "placeholders": {
+      "prefix": {
+        "type": "String"
+      }
+    }
+  },
+  "safetyRefillOwed": "{count, plural, one{1 photo has no picture on this phone yet.} other{{count} photos have no picture on this phone yet.}}",
+  "@safetyRefillOwed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyRefillRunning": "Fetching {done} of {total}…",
+  "@safetyRefillRunning": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyRefillDone": "{count, plural, one{1 photo is back in the grid.} other{{count} photos are back in the grid.}}",
+  "@safetyRefillDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyRefillPartial": "{done} back in the grid. {failed} couldn't be fetched — try again when you're online.",
+  "@safetyRefillPartial": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      }
+    }
+  },
+  "privacyCheckRow": "See every copy, and check them",
+  "@vaultLocalFooter": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "size": {
+        "type": "String"
       }
     }
   }

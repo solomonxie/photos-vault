@@ -103,7 +103,7 @@ DO — one scrollable page              DON'T — a tab per section
 │ Collections         │               │                     │
 │   Albums · People   │               │                     │
 │   Places · Events   │               ├──────────┬──────────┤
-│ Utilities           │               │ Library  │ Collect… │ ← a tab standing in
+│ More                │               │ Library  │ Collect… │ ← a tab standing in
 │   Favorites · …     │               └──────────┴──────────┘   for a section
 └─────────────────────┘
 ```
@@ -483,6 +483,80 @@ backup.zip
    and on read, if the stored path is gone, re-find by filename
    under the CURRENT app-support dir and heal the record
 ```
+
+
+### Trust: not losing it, and finding it again
+
+The blocker on an app like this is not a feature. It is whether somebody
+believes the photos they hand over will still be there, and still findable,
+later. Every surface here used to answer the *other* question —
+confidentiality: no server, no account, nothing sent to the developer — which
+is worth saying and is not what anyone hesitates over.
+
+- **Say which question you are answering.** The store name and subtitle carry
+  custody and findability (`Photos Vault — Your Bucket` / "Your photos,
+  always findable"); the privacy sentence keeps the first line of the
+  description, where it was always doing the work. The note at the foot of
+  the library covers both, durability first, and ends in a link to the page
+  where the reader can go and check.
+- **A number this app computed is a claim. Only the bucket's answer is a
+  fact.** `isFullyBackedUp` is a local row written by the upload that
+  reported success — and a wrong prefix, a lifecycle rule, a bucket emptied
+  in a console, or one upload that reported a success it didn't have all look
+  identical from inside the database. So there is one place
+  (`lib/upload/backup_verifier.dart`) that asks the bucket, and nothing
+  destroys a local original without it: one HEAD before a single
+  remove-from-device, one listing pass before a batch of them.
+- **Refusing is the right answer when you cannot check.** "Couldn't reach
+  your bucket" is not "your backup is gone" and is also not permission to
+  delete. Freeing space is never urgent enough to guess, so an unreachable
+  bucket blocks the removal and says which of the two happened.
+- **Finding out is half the job; the other half is fixing it.** A photo the
+  bucket hasn't got goes back in the sync queue on the spot. A report that
+  only counted would hand somebody a number and nothing to do with it.
+- **Rehearse the restore, in the product.** Three photos, spread across the
+  library, downloaded in full and hash-checked, with one line of result. The
+  user watching a photo come back out of their own bucket is worth more than
+  every paragraph of reassurance written around it.
+- **The backup has to open without the app that wrote it.** Objects are keyed
+  by the iOS asset identifier — `originals/B84E8479-…_L0_001.HEIC` — which
+  says nothing about when the photo was taken or who is in it. So every copy
+  carries an `index.csv`: one row per photo, `taken_at` first, with album,
+  people, caption, place and the object's key. Loose in `app-data/` as well
+  as inside each zip, because recovery starts with somebody staring at a web
+  console, not knowing which of thirty archives to download.
+
+```
+✗ what the bucket says on its own     ✓ with the index beside it
+  originals/                            app-data/index.csv
+  ├── B84E8479-…_L0_001.HEIC              taken_at,type,file,albums,people,…
+  ├── C91FA2B7-…_L0_001.HEIC              2011-03-12T09:14:00,photo,B84E…,Japan,Mum,…
+  └── … 30,000 more                       2011-03-12T11:02:00,video,C91F…,Japan,,…
+  no date, no album, no order           opens in any spreadsheet, sorts by
+  nothing to search on                  column one, needs nothing installed
+```
+
+- **Hidden photos are in none of it.** A private album's objects are
+  encrypted carriers that look like ordinary pictures; a plaintext index
+  naming what they really are would undo the feature. They are also left out
+  of every count on the safety page, because a number that moved when you hid
+  something answers the question the album exists not to answer.
+- **Default the copy that makes the rest legible to ON.** App-data backup was
+  off until asked for, which meant the common case was a bucket holding
+  photos nobody could map back to a date, and a reinstall finding nothing to
+  restore. A few hundred kilobytes a day, into a bucket already holding
+  gigabytes.
+- **Never let the app be the only holder without saying so.** Hiding removes
+  the photo from Photos, so with no bucket configured this app's container is
+  the only copy in existence and iOS deletes it with the app. That earns the
+  one confirmation the flow otherwise refuses to show.
+- **A restored library is records, not pictures.** Thumbnails live in the
+  container and die with it, so after a reinstall the grid is the right shape
+  and entirely blank. Refill it from the bucket's `thumbnails/` — kilobytes
+  each, the whole library visible in minutes — and leave the originals up
+  there until something opens one.
+
+The screen that carries all of this: `uiux/safety.md`.
 
 
 ### Cloud Bucket Backup

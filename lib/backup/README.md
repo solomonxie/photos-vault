@@ -7,6 +7,8 @@ the keychain, which outlives the app on its own.
 ```text
                     app_snapshot.dart ── reads/writes the three stores
                             │
+                    snapshot_index.dart ── the same library as CSV, for a person
+                            │
                     snapshot_archive.dart ── one zip, every destination
                             │
         ┌───────────────────┼───────────────────┬──────────────────┐
@@ -20,7 +22,8 @@ the keychain, which outlives the app on its own.
 | File | Does |
 |---|---|
 | `app_snapshot.dart` | the payload: export from / import into the three stores |
-| `snapshot_archive.dart` | zip it, name it (`YYYYMMDD.zip` daily, `<datetime>-<purpose>-photos-vault.zip` otherwise), read old names back |
+| `snapshot_index.dart` | `index.csv` — one row per photo, readable with no app at all |
+| `snapshot_archive.dart` | zip it (with the index inside), name it (`YYYYMMDD.zip` daily, `<datetime>-<purpose>-photos-vault.zip` otherwise), read old names back |
 | `change_log.dart` | SQLite triggers recording every row write; the "has anything changed" mark |
 | `backup_schedule.dart` | the one gate: daily, only if changed, recorded after success |
 | `local_vault.dart` | tier 1 — Files-visible zips, raw `.db` copies, before-operation copies |
@@ -30,3 +33,15 @@ the keychain, which outlives the app on its own.
 | `icloud_drive.dart` | thin platform channel over the app's iCloud folder |
 
 Tiers, cadence and retention and why they differ: `docs/design/UIUX-DESIGN.md`.
+
+`index.csv` rides in every zip *and* sits loose in `app-data/` in each bucket
+and in the iCloud folder, overwritten each time. Never read back by this app —
+`library.json` beside it is what restores. It exists for the case where there
+is no app: a bucket keyed by iOS asset identifiers is unsearchable, and
+recovery starts with somebody in a web console who should not have to guess
+which of thirty zips to download first. Hidden photos are excluded on purpose
+(see `snapshot_index.dart`).
+
+Both off-device destinations are **on unless turned off**. They were off by
+default, which made the copy that makes a bucket legible the one thing the
+user had to go and ask for — and a reinstall then found nothing to restore.
