@@ -1437,5 +1437,68 @@
         "type": "String"
       }
     }
+  },
+  "peopleProfileCsvRow": "Import & export profiles",
+  "profileCsvTitle": "Profiles as a spreadsheet",
+  "profileCsvHint": "One row per person, one column per field. Export to edit them anywhere; import to bring them back. Profiles kept behind a passcode are not in the file.",
+  "profileCsvExportButton": "Export profiles",
+  "profileCsvImportButton": "Import from a file",
+  "profileCsvColumns": "Columns: name, birthdate, gender, bio, hair, eyes, height, build, handed, languages, diet, contact, fields, groups, education, jobs, places, tags. Only name is required; unknown columns are ignored. Repeating cells are separated by “;” and their parts by “|” — a job reads Acme Ltd|Engineer|2015-01-01|2019-06-30.",
+  "profileCsvExported": "{count, plural, one{1 profile written to profiles.csv} other{{count} profiles written to profiles.csv}}",
+  "@profileCsvExported": {
+      "placeholders": {
+          "count": {
+              "type": "int"
+          }
+      }
+  },
+  "profileCsvImported": "{created, plural, =0{} one{1 person added} other{{created} people added}}{updated, plural, =0{} one{, 1 updated} other{, {updated} updated}}",
+  "@profileCsvImported": {
+      "placeholders": {
+          "created": {
+              "type": "int"
+          },
+          "updated": {
+              "type": "int"
+          }
+      }
+  },
+  "profileCsvNobodyToExport": "There are no named people to export yet.",
+  "profileCsvNoRows": "That file has no rows under its header.",
+  "profileCsvNoHeader": "That file is empty.",
+  "profileCsvNoNameColumn": "That file has no “name” column, so there is nobody to match it to.",
+  "profileCsvMissingName": "Line {line} has no name — skipped.",
+  "@profileCsvMissingName": {
+      "placeholders": {
+          "line": {
+              "type": "int"
+          }
+      }
+  },
+  "profileCsvReviewHeading": "{count, plural, one{1 person in this file} other{{count} people in this file}}",
+  "@profileCsvReviewHeading": {
+      "placeholders": {
+          "count": {
+              "type": "int"
+          }
+      }
+  },
+  "profileCsvRowItems": "{count, plural, =0{Name only} one{1 detail} other{{count} details}}",
+  "@profileCsvRowItems": {
+      "placeholders": {
+          "count": {
+              "type": "int"
+          }
+      }
+  },
+  "profileCsvSelectAll": "Select all",
+  "profileCsvSelectNone": "None",
+  "profileCsvApply": "{count, plural, =0{Nothing selected} one{Import 1 person} other{Import {count} people}}",
+  "@profileCsvApply": {
+      "placeholders": {
+          "count": {
+              "type": "int"
+          }
+      }
   }
 }

@@ -33,6 +33,11 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
 - `person.dart` / `person_store.dart` — named `Person` profiles (bio fields,
   tagged photos, relationships, location history) behind
   `../viewer/people_screen.dart`; see DESIGN.md's "People profiles" section.
+- `profile_csv.dart` / `profile_transfer.dart` — the People registry as a
+  spreadsheet, out and back in: the column schema and the delimited format in
+  the first, the store rules (match by name, blank cells leave what is there,
+  lists merge) in the second. Reached from the People page
+  via `../viewer/profile_transfer_screen.dart`.
 - `photo_library_change.dart` — parses one OS photo-library change
   notification into the asset ids that were created/updated/deleted, which
   `photo_library_service.dart`'s `applyChange` then touches *only those*.

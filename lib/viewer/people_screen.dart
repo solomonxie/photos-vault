@@ -17,6 +17,7 @@ import 'person_page_screen.dart';
 import 'face_group_screen.dart';
 import 'person_picker_sheet.dart';
 import 'person_profile_screen.dart';
+import 'profile_transfer_screen.dart';
 import 'smart_collection_screen.dart';
 
 /// Collections' "People" row: named [Person] profiles (T7.1-T7.3), each with
@@ -552,6 +553,16 @@ class _PeopleScreenState extends State<PeopleScreen> {
     );
   }
 
+  /// Reloads on the way back: an import adds people to the list behind it.
+  Future<void> _openProfileTransfer() async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => ProfileTransferScreen(personStore: widget.personStore),
+      ),
+    );
+    if (mounted) await _reload();
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -668,6 +679,22 @@ class _PeopleScreenState extends State<PeopleScreen> {
                 color: CupertinoColors.systemGrey2,
               ),
               onTap: _openAiAnalysis,
+            ),
+            // Under it, and last: the two rows here act on the whole
+            // registry rather than on anybody in the list, and this one is
+            // the registry as a file.
+            CupertinoListTile(
+              leading: const Icon(
+                CupertinoIcons.person_2_square_stack,
+                color: CupertinoColors.systemPink,
+              ),
+              title: Text(l10n.peopleProfileCsvRow),
+              trailing: const Icon(
+                CupertinoIcons.chevron_forward,
+                size: 18,
+                color: CupertinoColors.systemGrey2,
+              ),
+              onTap: _openProfileTransfer,
             ),
             const SizedBox(height: 24),
           ],
