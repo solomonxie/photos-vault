@@ -1,6 +1,6 @@
 # Optimize Storage
 
-`lib/viewer/storage_optimization_screen.dart` — Utilities → Optimize
+`lib/viewer/storage_optimization_screen.dart` — More → Optimize
 Storage. Where the space went, and one fix per photo.
 
 A page, not a sheet: the list is long, it's re-read after every change, and

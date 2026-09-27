@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/material.dart' show MaterialPageRoute;
 import 'package:intl/intl.dart';
@@ -17,7 +19,6 @@ import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'add_backup_screen.dart';
-import 'app_data_removal.dart';
 import 'backup_storage_type.dart';
 import 'backup_targets_store.dart';
 import 'bucket_browser_screen.dart';
@@ -39,7 +40,6 @@ class SettingsScreen extends StatefulWidget {
     this.bucketBackup,
     this.vault,
     this.snapshotFile,
-    this.appDataRemoval,
   });
 
   final BackupTargetsStore? store;
@@ -62,10 +62,6 @@ class SettingsScreen extends StatefulWidget {
   /// Export to a file, and import one back. Optional so tests can supply a
   /// stand-in picker rather than opening the system one.
   final SnapshotFile? snapshotFile;
-
-  /// Remove All App Data, end to end. Optional so tests can hand in one
-  /// that touches no container, keychain or queue database.
-  final AppDataRemoval? appDataRemoval;
 
   @override
   State<SettingsScreen> createState() => _SettingsScreenState();
@@ -110,20 +106,8 @@ class _SettingsScreenState extends State<SettingsScreen>
   late final SnapshotFile _snapshotFile =
       widget.snapshotFile ?? SnapshotFile(snapshots: _snapshots, vault: _vault);
 
-  late final AppDataRemoval _removal =
-      widget.appDataRemoval ??
-      AppDataRemoval(
-        snapshots: _snapshots,
-        settings: _assetRecordStore,
-        vault: _vault,
-        icloudBackup: _icloudBackup,
-        bucketBackup: _bucketBackup,
-        targetsStore: _store,
-      );
-
   bool _exporting = false;
   bool _restoring = false;
-  bool _removingAppData = false;
 
   ICloudState _icloudState = ICloudState.unsupported;
   bool _icloudEnabled = false;
@@ -264,7 +248,15 @@ class _SettingsScreenState extends State<SettingsScreen>
     final added = await Navigator.of(context).push<bool>(
       MaterialPageRoute(builder: (_) => AddBackupScreen(store: _store)),
     );
-    if (added == true) await _reload();
+    if (added != true) return;
+    await _reload();
+    // The new bucket has no app-data in it at all, and until it does it
+    // holds photos under keys that mean nothing without this phone. Waiting
+    // for the daily gate would leave it that way until tomorrow.
+    if (await _bucketBackup.isEnabled()) {
+      unawaited(_bucketBackup.backUpNow());
+    }
+    if (mounted) await _reloadBucketData();
   }
 
   void _browse(S3BackupTarget target) {
@@ -377,7 +369,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                   _appDataSection(l10n, targets),
                   const SettingsSectionDivider(),
                   _cloudSection(l10n, targets),
-                  _removeAppDataButton(l10n),
                 ],
               ),
             ),
@@ -746,55 +737,5 @@ class _SettingsScreenState extends State<SettingsScreen>
         ],
       ),
     );
-  }
-
-  Widget _removeAppDataButton(AppLocalizations l10n) => Padding(
-    padding: const EdgeInsets.only(top: 20, bottom: 8),
-    child: Center(
-      child: CupertinoButton(
-        padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
-        minimumSize: Size.zero,
-        onPressed: _removingAppData ? null : _confirmRemoveAppData,
-        child: Text(
-          l10n.settingsRemoveAllAppDataButton,
-          style: const TextStyle(color: CupertinoColors.systemRed),
-        ),
-      ),
-    ),
-  );
-
-  Future<void> _confirmRemoveAppData() async {
-    final l10n = AppLocalizations.of(context)!;
-    final confirmed = await showCupertinoDialog<bool>(
-      context: context,
-      builder: (dialogContext) => CupertinoAlertDialog(
-        title: Text(l10n.settingsRemoveAllAppDataTitle),
-        content: Text(l10n.settingsRemoveAllAppDataBody),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(l10n.actionCancel),
-          ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(l10n.settingsRemoveAllAppDataConfirm),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    setState(() => _removingAppData = true);
-    try {
-      // No prompt, no share sheet: the copies are simply taken, and then
-      // everything goes — rows, files, queue, credentials. See
-      // [AppDataRemoval] for why the order is what it is.
-      await _removal.run();
-      await _reload();
-      await _reloadICloud();
-      await _reloadBucketData();
-    } finally {
-      if (mounted) setState(() => _removingAppData = false);
-    }
   }
 }

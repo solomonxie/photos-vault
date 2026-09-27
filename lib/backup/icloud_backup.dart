@@ -1,8 +1,12 @@
+import 'dart:convert';
+import 'dart:typed_data';
+
 import '../storage/asset_record_store.dart';
 import 'app_snapshot.dart';
 import 'backup_schedule.dart';
 import 'icloud_drive.dart';
 import 'snapshot_archive.dart';
+import 'snapshot_index.dart';
 
 /// Keeps a copy of everything that isn't a photo in the user's own iCloud
 /// Drive, and puts it back after a reinstall.
@@ -64,8 +68,15 @@ class ICloudBackup {
     atKey: lastBackupKey,
   );
 
+  /// **On unless it has been turned off**, for the same reason
+  /// `BucketBackup.isEnabled` is: this is the copy that gets the library's
+  /// work back after a reinstall, it needs no setup at all, and a default
+  /// of off meant the reinstall found nothing. An unset key is on; only an
+  /// explicit `'false'` is off. Writing still no-ops silently when the
+  /// container isn't available, so the default costs nothing on a device
+  /// with iCloud Drive switched off.
   Future<bool> isEnabled() async =>
-      await settings.getAppState(enabledKey) == 'true';
+      await settings.getAppState(enabledKey) != 'false';
 
   /// Turning it on backs up immediately: waiting for the next change could
   /// be days, and "did that work?" should be answered by flipping the
@@ -81,14 +92,20 @@ class ICloudBackup {
   /// interrupt anyone with.
   Future<bool> backUpNow() async {
     if (await drive.status() != ICloudState.available) return false;
+    final snapshot = await snapshots.export();
     final wrote = await drive.writeBytes(
       dailyArchiveName(DateTime.now()),
-      zipSnapshot(
-        await snapshots.export(),
-        changeLog: await snapshots.changeLog(),
-      ),
+      zipSnapshot(snapshot, changeLog: await snapshots.changeLog()),
     );
     if (!wrote) return false;
+    // Loose beside the zips, overwritten each time: this folder is visible
+    // in Files, and the recovery this is for starts with somebody opening
+    // it and needing to see their library rather than a list of archives.
+    // Never pruned — `isSnapshotArchiveName` only matches `.zip` names.
+    await drive.writeBytes(
+      indexEntryName,
+      Uint8List.fromList(utf8.encode(indexCsv(snapshot))),
+    );
     await schedule.recordSuccess();
     await _pruneOldCopies();
     return true;

@@ -1,7 +1,7 @@
 # Library — the one page
 
 `lib/viewer/library_screen.dart`. No tabs: a day-grouped grid, then Albums /
-People / Places / Events, then Utilities. Opens at the **newest** photo.
+People / Places / Events, then More. Opens at the **newest** photo.
 
 ```
  ▁▁▁ status bar — tap = jump home ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
@@ -35,7 +35,7 @@ People / Places / Events, then Utilities. Opens at the **newest** photo.
  Events                            AI Suggestions ›
  📅 Graduation                           9 ›
  Set an event on a photo and it shows up here.
- Utilities                                   ← inset-grouped card, here only
+ More                                        ← inset-grouped card, here only
  ┌─────────────────────────────────────────┐
  │ ▣ Cloud Settings                     ›  │
  │ ✦ Analyze Queue                    3 ›  │  ← count = answers waiting,
@@ -70,7 +70,7 @@ decade of scrolling away.
            │  files from the Files app.             │
            │      [[ Add Files ]]                   │
            └────────────────────────────────────────┘
-           ← Albums/People/Places/Events are not drawn; Utilities still is
+           ← Albums/People/Places/Events are not drawn; More still is
  busy      the ＋ button goes disabled while a pick is running
  ai edit   ⟳ AI working…            ← thin row under the nav bar
 ```

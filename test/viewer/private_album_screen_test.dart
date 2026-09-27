@@ -7,7 +7,9 @@ import 'package:photos_vault/storage/passcode_hash.dart';
 import 'package:photos_vault/viewer/private_album_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/settings/backup_targets_store.dart';
 
+import '../settings/fake_secure_store.dart';
 import '../support/fake_asset_record_store.dart';
 
 Widget _wrap(Widget child) => CupertinoApp(
@@ -60,6 +62,22 @@ final _hash = hashPasscode('1234');
 Future<void> _openAlbumMenu(WidgetTester tester) async {
   await tester.tap(find.byIcon(CupertinoIcons.ellipsis_circle));
   await tester.pumpAndSettle();
+}
+
+/// A targets store holding one bucket. Hiding with none configured makes
+/// this app's container the only copy of the photo, which now earns its own
+/// confirmation — and these tests are about the ordinary case, where the
+/// copy has somewhere to go.
+Future<BackupTargetsStore> _storeWithBucket() async {
+  final store = BackupTargetsStore(store: FakeSecureStore());
+  await store.add(
+    accessKeyId: 'AKIA',
+    secretAccessKey: 'secret',
+    region: 'us-east-1',
+    bucket: 'bucket',
+    prefix: 'photos/',
+  );
+  return store;
 }
 
 void main() {
@@ -266,6 +284,7 @@ void main() {
           passcodeHash: _hash,
           assetRecordStore: assetStore,
           custody: custody,
+          targetsStore: await _storeWithBucket(),
         ),
       ),
     );
@@ -286,6 +305,51 @@ void main() {
     // The album is already open, so its passcode isn't asked for again.
     expect((await assetStore.getByLocalId('manual:free'))!.passcodeHash, _hash);
     expect(custody.takenOut, ['manual:free'], reason: 'gone from Photos');
+  });
+
+  testWidgets('hiding with nowhere to put the copy asks first', (tester) async {
+    final assetStore = FakeAssetRecordStore();
+    await assetStore.upsert(
+      localId: 'manual:free',
+      contentHash: 'free',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/free.jpg',
+    );
+    final custody = _RecordingCustody();
+
+    await tester.pumpWidget(
+      _wrap(
+        PrivateAlbumScreen(
+          passcodeHash: _hash,
+          assetRecordStore: assetStore,
+          custody: custody,
+          // No bucket: hiding takes the photo out of Photos, so this app's
+          // container becomes the only copy in existence — and iOS deletes
+          // that container with the app.
+          targetsStore: BackupTargetsStore(store: FakeSecureStore()),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Add'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manual:free')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add 1'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Hide with no backup?'), findsOneWidget);
+
+    // Backing out leaves the photo exactly where it was.
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(custody.takenOut, isEmpty);
+    expect(
+      (await assetStore.getByLocalId('manual:free'))!.passcodeHash,
+      isNull,
+    );
   });
 
   testWidgets('a group of photos is one trip to Photos, not one each', (
@@ -309,6 +373,7 @@ void main() {
           passcodeHash: _hash,
           assetRecordStore: assetStore,
           custody: custody,
+          targetsStore: await _storeWithBucket(),
         ),
       ),
     );

@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/backup_verifier.dart';
 import 'file_hash.dart';
 import 'image_pipeline.dart';
 import 'photo_library_service.dart';
@@ -20,11 +21,17 @@ class StorageFixResult {
     this.freedBytes = 0,
     this.queuedForBackup = 0,
     this.skipped = 0,
+    this.unverified = 0,
   });
 
   final int freedBytes;
   final int queuedForBackup;
   final int skipped;
+
+  /// Left alone because the bucket could not confirm it has the photo —
+  /// separate from [skipped], because this one is news: either the backup
+  /// isn't what this app believed, or it couldn't be reached to ask.
+  final int unverified;
 }
 
 /// Carries out what `storage_advice.dart` suggested.
@@ -40,6 +47,7 @@ class StorageOptimizer {
     required this.thumbnails,
     required this.library,
     required this.backUp,
+    this.verifier,
     Future<(Uint8List, int, int)?> Function(Uint8List bytes, int? maxEdge)?
     encode,
   }) : _encode = encode ?? _defaultEncode;
@@ -51,6 +59,16 @@ class StorageOptimizer {
   /// Queues uploads through the library screen's own sync queue, so a
   /// backup started here is the same backup as any other.
   final Future<void> Function(List<AssetRecord> records) backUp;
+
+  /// Asked once per [apply], not once per photo: a [BackupVerifier.reconcile]
+  /// over a library of thirty thousand is thirty listings, where a HEAD each
+  /// would be thirty thousand requests.
+  ///
+  /// Null skips the check — for tests, and only for tests. Anything holding
+  /// somebody's photos passes one, because every fix below either deletes
+  /// the local original or overwrites it with a smaller one, on the strength
+  /// of a backup this app has never confirmed exists.
+  final BackupVerifier? verifier;
 
   /// Overridable for tests so they never decode a real image.
   final Future<(Uint8List, int, int)?> Function(Uint8List bytes, int? maxEdge)
@@ -64,6 +82,7 @@ class StorageOptimizer {
   Future<StorageFixResult> apply(List<StorageItem> items) async {
     var freed = 0;
     var skipped = 0;
+    var unverified = 0;
 
     final toBackUp = [
       for (final item in items)
@@ -71,9 +90,17 @@ class StorageOptimizer {
     ];
     if (toBackUp.isNotEmpty) await backUp(toBackUp);
 
+    final unconfirmed = await _unconfirmed(items);
+
     for (final item in items) {
       if (item.fix != StorageFix.reduceResolution &&
           item.fix != StorageFix.convertFormat) {
+        continue;
+      }
+      // The re-encodes replace the local file in place, which is only safe
+      // while the bucket holds the full-quality copy they're throwing away.
+      if (unconfirmed.contains(item.record.localId)) {
+        unverified++;
         continue;
       }
       final saved = await _rewrite(item);
@@ -84,10 +111,16 @@ class StorageOptimizer {
       }
     }
 
-    final removal = await _removeFromDevice([
-      for (final item in items)
-        if (item.fix == StorageFix.removeFromDevice) item,
-    ]);
+    final removable = <StorageItem>[];
+    for (final item in items) {
+      if (item.fix != StorageFix.removeFromDevice) continue;
+      if (unconfirmed.contains(item.record.localId)) {
+        unverified++;
+      } else {
+        removable.add(item);
+      }
+    }
+    final removal = await _removeFromDevice(removable);
     freed += removal.freedBytes;
     skipped += removal.skipped;
 
@@ -95,7 +128,35 @@ class StorageOptimizer {
       freedBytes: freed,
       queuedForBackup: toBackUp.length,
       skipped: skipped,
+      unverified: unverified,
     );
+  }
+
+  /// Which of [items]' photos the bucket could not be shown to hold.
+  ///
+  /// An unreachable bucket puts *every* destructive fix in here rather than
+  /// none: "we couldn't check" and "it's fine" are not the same answer, and
+  /// freeing space is never urgent enough to guess. Only the two fixes that
+  /// destroy a local original are asked about — queueing a backup is safe
+  /// whatever the bucket says.
+  Future<Set<String>> _unconfirmed(List<StorageItem> items) async {
+    final verifier = this.verifier;
+    if (verifier == null) return const {};
+    final atRisk = {
+      for (final item in items)
+        if (item.fix == StorageFix.removeFromDevice ||
+            item.fix == StorageFix.reduceResolution ||
+            item.fix == StorageFix.convertFormat)
+          item.record.localId,
+    };
+    if (atRisk.isEmpty) return const {};
+    try {
+      final report = await verifier.reconcile();
+      if (!report.reachedBucket) return atRisk;
+      return atRisk.intersection(report.missingLocalIds.toSet());
+    } catch (_) {
+      return atRisk;
+    }
   }
 
   /// Returns the bytes saved, or null if nothing was written.

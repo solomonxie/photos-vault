@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:archive/archive.dart';
 
 import 'app_snapshot.dart';
+import 'snapshot_index.dart';
 
 /// One payload, every destination. The file the share sheet hands out, the
 /// one in iCloud Drive, the one in the bucket and the one in the Files app
@@ -12,6 +13,7 @@ import 'app_snapshot.dart';
 /// ```
 /// 20260918.zip
 /// ├── library.json      the snapshot: user-authored data, no secrets
+/// ├── index.csv         the same library, readable without this app
 /// └── change-log.json   every row write since the log began
 /// ```
 ///
@@ -120,7 +122,12 @@ String _stampIn(String name) =>
 
 Uint8List zipSnapshot(AppSnapshot snapshot, {Map<String, Object?>? changeLog}) {
   final archive = Archive()
-    ..addFile(ArchiveFile.string(snapshotEntryName, snapshot.encode()));
+    ..addFile(ArchiveFile.string(snapshotEntryName, snapshot.encode()))
+    // Never read back by this app — `library.json` beside it is what
+    // restores. It rides along so that every copy of the backup, wherever
+    // it ended up, can be opened by whoever has it without this app, this
+    // phone or this account. See `snapshot_index.dart`.
+    ..addFile(ArchiveFile.string(indexEntryName, indexCsv(snapshot)));
   if (changeLog != null) {
     archive.addFile(
       ArchiveFile.string(changeLogEntryName, jsonEncode(changeLog)),

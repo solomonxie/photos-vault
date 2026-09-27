@@ -1067,7 +1067,7 @@ void main() {
       // now — there's no "Collections" heading above them to look for.
       final albumsY = tester.getCenter(find.text('Albums')).dy;
       final peopleY = tester.getCenter(find.text('People')).dy;
-      final utilitiesY = tester.getCenter(find.text('Utilities')).dy;
+      final utilitiesY = tester.getCenter(find.text('More')).dy;
       expect(albumsY, lessThan(peopleY));
       expect(peopleY, lessThan(utilitiesY));
       expect(find.text('Places'), findsOneWidget);
@@ -1087,7 +1087,9 @@ void main() {
         findsOneWidget,
       );
 
-      await tester.tap(find.text('More'));
+      // The section headers' browse-all button. It used to say "More",
+      // which now names the section holding the app's own tools.
+      await tester.tap(find.text('See All').first);
       await tester.pumpAndSettle();
       expect(find.text('No people yet. Tap + to add someone.'), findsWidgets);
     },
@@ -1658,5 +1660,51 @@ void main() {
           .status,
       UploadStatus.pending,
     );
+  });
+
+  testWidgets('Remove All App Data sits at the foot of the home page', (
+    tester,
+  ) async {
+    await tester.binding.setSurfaceSize(const Size(500, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          aiAnalysisStore: FakeAiAnalysisStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    // Last on the page, under the note that explains what there is to lose.
+    // It used to be filed in Cloud Settings, which is a page about where
+    // photos go rather than about the whole app.
+    final privacyY = tester
+        .getCenter(find.text('Your Copies, Your Privacy'))
+        .dy;
+    final removeY = tester.getCenter(find.text('Remove All App Data')).dy;
+    expect(privacyY, lessThan(removeY));
+
+    await tester.tap(find.text('Remove All App Data'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Remove all app data?'), findsOneWidget);
+    // No prompt and no share sheet: the dialog's job is to say that a copy
+    // is taken anyway, and to name it well enough to find afterwards.
+    expect(find.textContaining('pre-deletion'), findsOneWidget);
   });
 }

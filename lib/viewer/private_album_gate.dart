@@ -322,11 +322,43 @@ Future<bool> hideIntoPrivateAlbum(
   BackupTargetsStore? targetsStore,
 }) async {
   final l10n = AppLocalizations.of(context)!;
-  // No confirmation of our own. The OS puts one up for the delete a moment
-  // later — listing exactly what is about to go — and two dialogs in a row
-  // asking the same question is how people learn to tap through both.
+  // No confirmation of our own, with one exception. The OS puts one up for
+  // the delete a moment later — listing exactly what is about to go — and
+  // two dialogs in a row asking the same question is how people learn to
+  // tap through both.
+  //
+  // The exception is having nowhere to put the copy. Hiding removes the
+  // photo from Photos, so with no bucket configured this app's container
+  // becomes the only copy in existence, and iOS deletes that container
+  // with the app. The OS prompt cannot say that, and it is not a detail:
+  // it is the difference between hiding a photo and losing it.
+  final buckets = targetsStore ?? BackupTargetsStore();
+  if ((await _bucketCount(buckets)) == 0) {
+    if (!context.mounted) return false;
+    final proceed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: Text(l10n.privateAlbumHideNoBucketTitle),
+        content: Text(l10n.privateAlbumBackupNoBucket),
+        actions: [
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.privateAlbumHideAnyway),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true) return false;
+  }
   var hash = passcodeHash;
   if (hash == null) {
+    if (!context.mounted) return false;
     final passcode = await showPrivateAlbumPasscodeSheet(context);
     if (passcode == null) return false;
     hash = hashPasscode(passcode);
@@ -359,7 +391,7 @@ Future<bool> hideIntoPrivateAlbum(
       record: record,
       store: assetRecordStore,
       deletes: pendingDeletes ?? PendingDeletes(store: assetRecordStore),
-      targetsStore: targetsStore ?? BackupTargetsStore(),
+      targetsStore: buckets,
     );
   }
 
@@ -380,4 +412,14 @@ Future<bool> hideIntoPrivateAlbum(
     );
   }
   return failed < records.length;
+}
+
+/// Zero rather than throwing when the keychain can't be read: the warning
+/// this gates is the safe answer, so an unreadable store shows it.
+Future<int> _bucketCount(BackupTargetsStore store) async {
+  try {
+    return (await store.loadAll()).length;
+  } catch (_) {
+    return 0;
+  }
 }

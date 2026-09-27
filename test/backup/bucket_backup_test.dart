@@ -129,6 +129,11 @@ void main() {
       bucket: bucket,
     );
 
+    // On unless turned off — see `BucketBackup.isEnabled`. A bucket whose
+    // app-data copy was never written holds photos under keys that mean
+    // nothing without this phone.
+    expect(await backup.isEnabled(), isTrue);
+    await backup.setEnabled(false);
     expect(await backup.isEnabled(), isFalse);
     await backup.setEnabled(true);
 
@@ -136,11 +141,15 @@ void main() {
     // Flipping it on wrote at once, in its own folder beside the photos,
     // as this month's archive.
     final name = dailyArchiveName(DateTime.now());
-    expect(bucket.objects.keys.single, 'my-bucket/photos/app-data/$name');
-    expect(
-      unzipSnapshot(bucket.objects.values.single)!.encode(),
-      contains('temple'),
-    );
+    final key = 'my-bucket/photos/app-data/$name';
+    expect(bucket.objects.keys, contains(key));
+    expect(unzipSnapshot(bucket.objects[key]!)!.encode(), contains('temple'));
+    // Plus the readable index, loose in the same folder: the bucket console
+    // is where a recovery starts, and it should not begin by unzipping.
+    const indexKey = 'my-bucket/photos/app-data/index.csv';
+    expect(bucket.objects.keys, contains(indexKey));
+    expect(utf8.decode(bucket.objects[indexKey]!), contains('taken_at'));
+    expect(utf8.decode(bucket.objects[indexKey]!), contains('temple'));
     expect(await backup.lastBackupAt(), isNotNull);
   });
 

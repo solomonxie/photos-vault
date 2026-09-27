@@ -78,26 +78,6 @@ Future<BackupTargetsStore> _storeWithBucket({String prefix = 'p/'}) async {
 }
 
 void main() {
-  testWidgets('removing app data names the copy it takes first', (
-    tester,
-  ) async {
-    await _useTallSurface(tester);
-    await tester.pumpWidget(
-      _wrap(
-        SettingsScreen(store: BackupTargetsStore(store: FakeSecureStore())),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.tap(find.text('Remove All App Data'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Remove all app data?'), findsOneWidget);
-    // No prompt and no share sheet: the dialog's job is to say that a copy
-    // is taken anyway, and to name it well enough to find afterwards.
-    expect(find.textContaining('pre-deletion'), findsOneWidget);
-  });
-
   testWidgets('restoring a file says what it will do before it does it', (
     tester,
   ) async {
@@ -218,16 +198,26 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Your Cloud Bucket'), findsOneWidget);
-    // Flipping it on writes the copy at once, rather than waiting for the
-    // next change — which could be days off.
+    // On to begin with: the copy that makes a bucket of opaque keys legible
+    // is not something the user should have to go and find.
+    expect(await bucket.backup.isEnabled(), isTrue);
+    await tester.tap(find.byType(CupertinoSwitch));
+    await tester.pumpAndSettle();
+    expect(await bucket.backup.isEnabled(), isFalse);
+
+    // Flipping it back on writes the copy at once, rather than waiting for
+    // the next change — which could be days off.
     await tester.tap(find.byType(CupertinoSwitch));
     await tester.pumpAndSettle();
 
-    expect(
-      bucket.objects.keys.single,
-      '/p/app-data/${dailyArchiveName(DateTime.now())}',
-    );
     expect(await bucket.backup.isEnabled(), isTrue);
+    expect(
+      bucket.objects.keys,
+      contains('/p/app-data/${dailyArchiveName(DateTime.now())}'),
+    );
+    // And the readable index, loose beside it — the bucket console is where
+    // a recovery actually starts.
+    expect(bucket.objects.keys, contains('/p/app-data/index.csv'));
   });
 
   testWidgets('with no bucket, the app data switch says so and stays dead', (

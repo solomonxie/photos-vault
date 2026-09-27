@@ -7,10 +7,10 @@ doing arithmetic on rows about faces.
 
 | | opened from | what it does | costs |
 |---|---|---|---|
-| Backup queue | Utilities | uploads, thumbnails, change checks | bandwidth |
-| Analyze queue | Utilities | finds faces, guesses who they are, (optionally) asks an AI | battery, and money only if asked |
+| Backup queue | More | uploads, thumbnails, change checks | bandwidth |
+| Analyze queue | More | finds faces, guesses who they are, (optionally) asks an AI | battery, and money only if asked |
 
-Siblings in Utilities, Backup above Analyze. The backup queue used to be a
+Siblings in More, Backup above Analyze. The backup queue used to be a
 block of pills on Cloud Settings, which made that page answer two questions
 at once — where the copies go, and whether the upload is working. Cloud
 Settings is the connections now.

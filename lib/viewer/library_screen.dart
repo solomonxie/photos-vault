@@ -38,6 +38,7 @@ import '../photos/storage_advice.dart';
 import '../photos/storage_optimizer.dart';
 import '../photos/thumbnail_cache.dart';
 import '../settings/ai_settings_screen.dart';
+import '../settings/app_data_removal.dart';
 import '../settings/backup_targets_store.dart';
 import '../upload/original_restore.dart';
 import '../settings/settings_screen.dart';
@@ -46,6 +47,8 @@ import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/backup_coordinator.dart';
+import '../upload/backup_verifier.dart';
+import '../upload/library_restore.dart';
 import '../vault/bucket.dart';
 import '../vault/carrier_upload.dart';
 import '../vault/decoy.dart';
@@ -72,6 +75,7 @@ import 'backup_queue_screen.dart';
 import 'unnamed_face_card.dart';
 import 'private_album_gate.dart';
 import 'recently_deleted_screen.dart';
+import 'safety_screen.dart';
 import 'search_picker_sheet.dart';
 import 'smart_collection_screen.dart';
 import 'storage_optimization_screen.dart';
@@ -98,6 +102,7 @@ class LibraryScreen extends StatefulWidget {
     this.icloudBackup,
     this.bucketBackup,
     this.vault,
+    this.appDataRemoval,
     this.backgroundPassInterval,
     this.personStore,
     this.hashFile,
@@ -147,6 +152,11 @@ class LibraryScreen extends StatefulWidget {
   /// Overridable for tests so backgrounding never writes into the real
   /// app container.
   final LocalVault? vault;
+
+  /// Remove All App Data, end to end — the button at the foot of this page.
+  /// Optional so tests can hand in one that touches no container, keychain
+  /// or queue database.
+  final AppDataRemoval? appDataRemoval;
 
   /// How often the background pass looks for work — backups still owed,
   /// then the camera roll, then the on-device face pass. Null switches it
@@ -204,6 +214,7 @@ class LibraryScreenState extends State<LibraryScreen>
     posterFrame: (record) => _thumbnailCache.libraryThumbnail(record),
     videoDuration: _photoLibraryService.durationOf,
   );
+
   late final VaultBucket _vaultBucket = VaultBucket(
     targetsStore: _backupTargetsStore,
   );
@@ -234,6 +245,19 @@ class LibraryScreenState extends State<LibraryScreen>
     personStore: _personStore,
     aiAnalysisStore: _aiAnalysisStore,
   );
+
+  /// Remove All App Data, from the button at the foot of this page.
+  late final AppDataRemoval _appDataRemoval =
+      widget.appDataRemoval ??
+      AppDataRemoval(
+        snapshots: _snapshots,
+        settings: assetRecordStore,
+        vault: _vault,
+        icloudBackup: _icloudBackup,
+        bucketBackup: _bucketBackup,
+        targetsStore: _backupTargetsStore,
+      );
+
   late final LocalVault _vault =
       widget.vault ??
       LocalVault(snapshots: _snapshots, settings: assetRecordStore);
@@ -255,11 +279,27 @@ class LibraryScreenState extends State<LibraryScreen>
     store: assetRecordStore,
     library: _photoLibraryService,
   );
+  late final LibraryRestore _libraryRestore = LibraryRestore(
+    recordStore: assetRecordStore,
+    originals: OriginalRestore(
+      targetsStore: _backupTargetsStore,
+      recordStore: assetRecordStore,
+    ),
+  );
+
+  /// The one thing in the app that asks the bucket whether a backup is
+  /// real, instead of asking this app's own database. Shared by every path
+  /// that destroys a local original. See `../upload/backup_verifier.dart`.
+  late final BackupVerifier _backupVerifier = BackupVerifier(
+    targetsStore: _backupTargetsStore,
+    recordStore: assetRecordStore,
+  );
   late final StorageOptimizer _storageOptimizer = StorageOptimizer(
     store: assetRecordStore,
     thumbnails: _thumbnailCache,
     library: _photoLibraryService,
     backUp: _backUpRecords,
+    verifier: _backupVerifier,
   );
 
   /// Deleting is the same decision on every screen: keep the cloud copy
@@ -268,6 +308,7 @@ class LibraryScreenState extends State<LibraryScreen>
     store: assetRecordStore,
     thumbnails: _thumbnailCache,
     library: _photoLibraryService,
+    verifier: _backupVerifier,
   );
   late final SyncJobStore _syncJobStore = widget.syncJobStore ?? SyncJobStore();
   late final OnDeviceAnalysisService _onDeviceAnalysis =
@@ -364,6 +405,7 @@ class LibraryScreenState extends State<LibraryScreen>
   static const _unnamedFacesShown = 20;
   String _query = '';
   bool _busy = false;
+  bool _removingAppData = false;
 
   /// Non-null while "hold a photo to select" mode is on — the set of
   /// `localId`s the batch actions apply to.
@@ -1198,6 +1240,15 @@ class LibraryScreenState extends State<LibraryScreen>
     // leave an object nothing points at.
     if (!wrote) return;
 
+    // And only once the bucket says it really has the carrier. This is the
+    // most final delete in the app — the local file *and* the row go, and
+    // the encrypted object becomes the only copy in existence — so it is the
+    // last place that should trust an upload's own word for having landed.
+    // Anything but a confirmation leaves the photo here; the queue retries.
+    if (await _backupVerifier.proveOriginal(record) != CopyProof.present) {
+      return;
+    }
+
     await _thumbnailCache.remove(record);
     final path = record.sourcePath;
     if (path != null) {
@@ -1659,6 +1710,7 @@ class LibraryScreenState extends State<LibraryScreen>
         assetRecordStore: assetRecordStore,
         records: [record],
         custody: _custody,
+        targetsStore: _backupTargetsStore,
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -1685,8 +1737,19 @@ class LibraryScreenState extends State<LibraryScreen>
       if (mounted) setState(() => _busy = false);
     }
     await reload();
-    if (mounted && outcome == DeleteOutcome.failed) {
-      _showResult(l10n.libraryDeleteFromDeviceFailed);
+    if (mounted) {
+      switch (outcome) {
+        case DeleteOutcome.failed:
+          _showResult(l10n.libraryDeleteFromDeviceFailed);
+        case DeleteOutcome.backupMissing:
+          _showResult(l10n.libraryDeleteBackupMissing);
+        case DeleteOutcome.backupUnverifiable:
+          _showResult(l10n.libraryDeleteBackupUnverifiable);
+        case DeleteOutcome.none:
+        case DeleteOutcome.cloudOnly:
+        case DeleteOutcome.binned:
+          break;
+      }
     }
     return outcome.leftTheList;
   }
@@ -2116,6 +2179,19 @@ class LibraryScreenState extends State<LibraryScreen>
   /// configured sync frequency — since coming back from Cloud Backups
   /// usually means a target/setting just changed and shouldn't need a
   /// separate manual sync to take effect.
+  void _openSafety() => _push(
+    SafetyScreen(
+      recordStore: assetRecordStore,
+      targetsStore: _backupTargetsStore,
+      verifier: _backupVerifier,
+      icloudBackup: _icloudBackup,
+      bucketBackup: _bucketBackup,
+      libraryRestore: _libraryRestore,
+      onRestored: () => unawaited(reload()),
+      onAddBucket: _openCloudBackups,
+    ),
+  );
+
   Future<void> _openCloudBackups() async {
     await Navigator.of(context).push(
       CupertinoPageRoute(
@@ -2616,6 +2692,15 @@ class LibraryScreenState extends State<LibraryScreen>
           borderRadius: BorderRadius.all(Radius.circular(10)),
         ),
         children: [
+          // First in the list, and deliberately above the buckets: the
+          // question it answers ("is this safe, and can I get it back")
+          // comes before the machinery that answers it.
+          _row(
+            icon: CupertinoIcons.checkmark_shield_fill,
+            color: CupertinoColors.systemGreen,
+            title: l10n.collectionsSafetyRow,
+            onTap: _openSafety,
+          ),
           _row(
             // Filled, like every other glyph in this list — the outline
             // silo drawn for this row read as a different icon set. An
@@ -2698,9 +2783,53 @@ class LibraryScreenState extends State<LibraryScreen>
       ),
     ),
     SliverToBoxAdapter(child: _SectionHeader(title: l10n.privacyHeading)),
-    const SliverToBoxAdapter(child: _PrivacyNote()),
+    SliverToBoxAdapter(child: _PrivacyNote(onCheck: _openSafety)),
+    // The last thing on the page, under the note that explains what there
+    // is to lose. It lived in Cloud Settings, which is a page about where
+    // photos *go* — the wipe is about the whole app, so it belongs at the
+    // end of the whole app rather than filed under one of its parts.
+    SliverToBoxAdapter(
+      child: _RemoveAllDataButton(
+        busy: _removingAppData,
+        onPressed: _confirmRemoveAppData,
+      ),
+    ),
     SliverToBoxAdapter(child: SizedBox(height: selection == null ? 24 : 140)),
   ];
+
+  Future<void> _confirmRemoveAppData() async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(l10n.settingsRemoveAllAppDataTitle),
+        content: Text(l10n.settingsRemoveAllAppDataBody),
+        actions: [
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.settingsRemoveAllAppDataConfirm),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _removingAppData = true);
+    try {
+      // No prompt, no share sheet: the copies are simply taken, and then
+      // everything goes — rows, files, queue, credentials. See
+      // `../settings/app_data_removal.dart` for why the order is what it is.
+      await _appDataRemoval.run();
+    } finally {
+      if (mounted) setState(() => _removingAppData = false);
+    }
+    if (mounted) await reload();
+  }
 
   CupertinoListTile _row({
     required IconData icon,
@@ -2914,7 +3043,11 @@ class _PersonCard extends StatelessWidget {
 /// Last thing on the page, after everything configurable above it: what the
 /// app does with your photos, said once and in full.
 class _PrivacyNote extends StatelessWidget {
-  const _PrivacyNote();
+  const _PrivacyNote({this.onCheck});
+
+  /// The note ends in the one thing that turns it from a claim into
+  /// something the reader can go and confirm for themselves.
+  final VoidCallback? onCheck;
 
   @override
   Widget build(BuildContext context) {
@@ -2942,7 +3075,66 @@ class _PrivacyNote extends StatelessWidget {
               color: CupertinoColors.systemGrey,
             ),
           ),
+          if (onCheck != null) ...[
+            const SizedBox(height: 12),
+            GestureDetector(
+              behavior: HitTestBehavior.opaque,
+              onTap: onCheck,
+              child: Row(
+                children: [
+                  Expanded(
+                    child: Text(
+                      l10n.privacyCheckRow,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        fontWeight: FontWeight.w600,
+                        color: CupertinoColors.activeBlue,
+                      ),
+                    ),
+                  ),
+                  const Icon(
+                    CupertinoIcons.chevron_right,
+                    size: 14,
+                    color: CupertinoColors.activeBlue,
+                  ),
+                ],
+              ),
+            ),
+          ],
         ],
+      ),
+    );
+  }
+}
+
+/// Remove All App Data, at the very foot of the page.
+///
+/// A bare red text button rather than a row in a list: it is not one of the
+/// things the page offers, it is the way out of all of them, and giving it a
+/// row would put it in reach of a thumb scrolling past.
+class _RemoveAllDataButton extends StatelessWidget {
+  const _RemoveAllDataButton({required this.busy, required this.onPressed});
+
+  final bool busy;
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Padding(
+      padding: const EdgeInsets.only(top: 24),
+      child: Center(
+        child: CupertinoButton(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          minimumSize: Size.zero,
+          onPressed: busy ? null : onPressed,
+          child: busy
+              ? const CupertinoActivityIndicator(radius: 9)
+              : Text(
+                  l10n.settingsRemoveAllAppDataButton,
+                  style: const TextStyle(color: CupertinoColors.systemRed),
+                ),
+        ),
       ),
     );
   }
