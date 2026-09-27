@@ -29,6 +29,11 @@ LibraryScreen                                          library_screen.dart
   ├─ "Collections" → People row ──► PeopleScreen            people_screen.dart
   │     named Person profiles, then the faces nobody has named yet
   │       (../photos/ai_analysis_store.dart's stored face boxes)
+  │     "AI Suggestions" ──► SmartCollectionScreen   smart_collection_screen.dart
+  │       groups the library by how many people a vendor call counted
+  │     "Import & export profiles" ──► ProfileTransferScreen
+  │       profile_transfer_screen.dart — the registry as a CSV, one row per
+  │       person, reviewed before anything is written
   │     "+" ──► a new Person straight into PersonProfileScreen, name focused;
   │             left unnamed, it is dropped rather than kept as an empty row
   │     tap a person ──► PersonPageScreen                   person_page_screen.dart
