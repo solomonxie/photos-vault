@@ -1071,5 +1071,68 @@
         "type": "String"
       }
     }
+  },
+  "peopleProfileCsvRow": "导入与导出档案",
+  "profileCsvTitle": "以表格形式管理档案",
+  "profileCsvHint": "每人一行，每项一列。导出后可在任意表格软件中编辑，再导入回来。设有密码的档案不会出现在文件中。",
+  "profileCsvExportButton": "导出档案",
+  "profileCsvImportButton": "从文件导入",
+  "profileCsvColumns": "列：name、birthdate、gender、bio、hair、eyes、height、build、handed、languages、diet、contact、fields、groups、education、jobs、places、tags。仅 name 为必填，未识别的列会被忽略。同一格内多项用“;”分隔，各部分用“|”分隔——例如工作写作 Acme Ltd|Engineer|2015-01-01|2019-06-30。",
+  "profileCsvExported": "{count, plural, other{已将 {count} 份档案写入 profiles.csv}}",
+  "@profileCsvExported": {
+      "placeholders": {
+          "count": {
+              "type": "int"
+          }
+      }
+  },
+  "profileCsvImported": "{created, plural, =0{} other{新增 {created} 人}}{updated, plural, =0{} other{，更新 {updated} 人}}",
+  "@profileCsvImported": {
+      "placeholders": {
+          "created": {
+              "type": "int"
+          },
+          "updated": {
+              "type": "int"
+          }
+      }
+  },
+  "profileCsvNobodyToExport": "还没有已命名的人物可以导出。",
+  "profileCsvNoRows": "该文件的表头之下没有数据行。",
+  "profileCsvNoHeader": "该文件是空的。",
+  "profileCsvNoNameColumn": "该文件没有“name”列，无法对应到任何人。",
+  "profileCsvMissingName": "第 {line} 行没有名字，已跳过。",
+  "@profileCsvMissingName": {
+      "placeholders": {
+          "line": {
+              "type": "int"
+          }
+      }
+  },
+  "profileCsvReviewHeading": "{count, plural, other{文件中有 {count} 人}}",
+  "@profileCsvReviewHeading": {
+      "placeholders": {
+          "count": {
+              "type": "int"
+          }
+      }
+  },
+  "profileCsvRowItems": "{count, plural, =0{仅姓名} other{{count} 项资料}}",
+  "@profileCsvRowItems": {
+      "placeholders": {
+          "count": {
+              "type": "int"
+          }
+      }
+  },
+  "profileCsvSelectAll": "全选",
+  "profileCsvSelectNone": "全不选",
+  "profileCsvApply": "{count, plural, =0{未选择任何人} other{导入 {count} 人}}",
+  "@profileCsvApply": {
+      "placeholders": {
+          "count": {
+              "type": "int"
+          }
+      }
   }
 }

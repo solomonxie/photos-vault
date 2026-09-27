@@ -432,4 +432,25 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Zoe'), findsOneWidget);
   });
+
+  testWidgets('the profiles row opens the import/export page', (tester) async {
+    final personStore = FakePersonStore();
+    await personStore.create(name: 'Mia');
+
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Import & export profiles'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Profiles as a spreadsheet'), findsWidgets);
+    expect(find.text('Export profiles'), findsOne);
+  });
 }
