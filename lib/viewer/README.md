@@ -21,11 +21,10 @@ LibraryScreen                                          library_screen.dart
   │                    Edit ──► crop/rotate  PhotoEditScreen  photo_edit_screen.dart
   │                          └─ AI Touch Up  ../photos/ai_touch_up_queue.dart
   │                             (background; result filed by createDerivedAsset)
-  │     hold tile ──► selection mode + batch bar (tag / place / event / date)
+  │     hold tile ──► selection mode + batch bar (tag / place / date)
   │
-  ├─ "Collections" → Places / Events rows ──► AssetGroupScreen  asset_group_screen.dart
-  │     live groups of AssetRecord.location / .event (set per photo in DetailScreen)
-  │     Events' "AI Suggestions" ──► SmartCollectionScreen  smart_collection_screen.dart
+  ├─ "Collections" → Places row ──► AssetGroupScreen        asset_group_screen.dart
+  │     live groups of AssetRecord.location (set per photo in DetailScreen)
   │
   ├─ "Collections" → People row ──► PeopleScreen            people_screen.dart
   │     named Person profiles, then the faces nobody has named yet
@@ -90,14 +89,14 @@ and "Use as Album Cover"; the same action on the photo that already *is*
 the cover puts the colour back. The choice is filed in app state, since
 these two have no album row to hang a `coverLocalId` on.
 
-Every pick-a-value field (location, event, tag, school, person) goes through
+Every pick-a-value field (location, tag, school, person) goes through
 `search_picker_sheet.dart` — a drop-down sheet over the current page, not a
 push. `person_picker_sheet.dart` is the same sheet with "New Person…" wired
 to `PersonStore.create`.
 
 Edits never overwrite: `PhotoEditScreen` and the AI queue both hand their
 bytes to `../photos/derived_asset.dart`, which files a new library item
-carrying the source's date/description/tags/place/event/people.
+carrying the source's date/description/tags/place/people.
 
 `BackupScreen` reads local upload-status counts only (`../storage`) — it
 doesn't talk to S3.

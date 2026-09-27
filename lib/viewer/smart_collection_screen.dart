@@ -10,23 +10,19 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_group_screen.dart';
 
-enum SmartCollectionKind { people, events }
-
-/// People/Events smart collections: analyzes each not-yet-analyzed photo via
+/// The People smart collection: analyzes each not-yet-analyzed photo via
 /// [AiVisionService] (opt-in, spends the user's OpenAI credit), caches the
-/// result in [AiAnalysisStore], then groups by people-count or event label.
+/// result in [AiAnalysisStore], then groups by how many people are in it.
 /// Only `manualFile`-sourced assets are analyzable — `photoManager` ones need
 /// T2.1's on-demand file resolution first. See IMPLEMENTATION_PLAN.md T4.4.
 class SmartCollectionScreen extends StatefulWidget {
   const SmartCollectionScreen({
     super.key,
-    required this.kind,
     required this.assetRecordStore,
     this.aiAnalysisStore,
     this.aiVisionService,
   });
 
-  final SmartCollectionKind kind;
   final AssetRecordStore assetRecordStore;
   final AiAnalysisStore? aiAnalysisStore;
   final AiVisionService? aiVisionService;
@@ -114,11 +110,7 @@ class _SmartCollectionScreenState extends State<SmartCollectionScreen> {
     for (final record in _analyzable) {
       final analysis = _analyses[record.localId];
       if (analysis == null) continue;
-      final key = widget.kind == SmartCollectionKind.people
-          ? _peopleGroupKey(l10n, analysis.peopleCount)
-          : (analysis.eventLabel.isEmpty
-                ? l10n.smartCollectionsUncategorized
-                : analysis.eventLabel);
+      final key = _peopleGroupKey(l10n, analysis.peopleCount);
       groups.putIfAbsent(key, () => []).add(record);
     }
     return groups;
@@ -127,9 +119,7 @@ class _SmartCollectionScreenState extends State<SmartCollectionScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final title = widget.kind == SmartCollectionKind.people
-        ? l10n.collectionsPeopleRow
-        : l10n.collectionsEventsRow;
+    final title = l10n.collectionsPeopleRow;
     final pendingCount = _unanalyzed.length;
     final groups = _groups(l10n);
     return CupertinoPageScaffold(

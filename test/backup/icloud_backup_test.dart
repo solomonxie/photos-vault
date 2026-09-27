@@ -445,7 +445,6 @@ void main() {
         sourceType: AssetSourceType.manualFile,
         sourcePath: '/old/container/a.jpg',
       );
-      await source.assets.setEvent('manual:a', "Nina's Wedding");
       final mia = await source.people.create(name: 'Mia');
       final dan = await source.people.create(name: 'Daniel');
       await source.people.addRelationship(
@@ -460,7 +459,6 @@ void main() {
       await fresh.io.import(decoded);
 
       final photo = (await fresh.assets.getByLocalId('manual:a'))!;
-      expect(photo.event, "Nina's Wedding");
       // The old container is gone; the path in it would never open again.
       expect(photo.sourcePath, isNull);
       expect(

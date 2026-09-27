@@ -11,7 +11,7 @@ import '../storage/asset_record_store.dart';
 
 /// Everything this app knows that isn't a photo.
 ///
-/// Captions, tags, places, events, albums, people and their profiles, and
+/// Captions, tags, places, albums, people and their profiles, and
 /// which photo is which person — none of it is in the photo library, none
 /// of it is in the bucket alongside the originals, and all of it is gone
 /// the moment the app is deleted. The pixels are the one part that *is*
@@ -250,7 +250,6 @@ class AppSnapshotIo {
     'description': record.description,
     'tags': record.tags,
     'location': record.location,
-    'event': record.event,
     'passcodeHash': record.passcodeHash,
     'latitude': record.latitude,
     'longitude': record.longitude,
@@ -303,8 +302,6 @@ class AppSnapshotIo {
     if (tags.isNotEmpty) await assetRecordStore.setTags(localId, tags);
     final location = row['location'] as String?;
     if (location != null) await assetRecordStore.setLocation(localId, location);
-    final event = row['event'] as String?;
-    if (event != null) await assetRecordStore.setEvent(localId, event);
     final passcodeHash = row['passcodeHash'] as String?;
     if (passcodeHash != null) {
       await assetRecordStore.setPasscodeHash(localId, passcodeHash);

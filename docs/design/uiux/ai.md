@@ -19,7 +19,7 @@ a key is a half sheet rather than a form parked under the list.
  └───┘
                    Add AI Key                     ← centred accent link,
                                                     not a filled button
- These keys power AI-recognized People and Events smart collections.
+ These keys power the AI-recognized People smart collection.
  Places (GPS-based) doesn't need them.
  ⚠ Enabling this sends photo data to whichever AI vendor's key handles
    the request, and incurs API usage charges billed to your account

@@ -43,7 +43,6 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     _analyses[localId] = AiPhotoAnalysis(
       localId: localId,
       peopleCount: peopleCount,
-      eventLabel: existing?.eventLabel ?? '',
       analyzedAt: analyzedAt,
       tags: existing?.tags ?? const [],
       description: existing?.description ?? '',
@@ -57,7 +56,6 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     _analyses[analysis.localId] = AiPhotoAnalysis(
       localId: analysis.localId,
       peopleCount: existing?.peopleCount ?? analysis.peopleCount,
-      eventLabel: analysis.eventLabel,
       analyzedAt: analysis.analyzedAt,
       tags: analysis.tags,
       description: analysis.description,
@@ -71,7 +69,6 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     _analyses[localId] = AiPhotoAnalysis(
       localId: existing.localId,
       peopleCount: existing.peopleCount,
-      eventLabel: existing.eventLabel,
       analyzedAt: existing.analyzedAt,
       tags: existing.tags,
       description: existing.description,
@@ -237,7 +234,6 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
       _analyses[id] = AiPhotoAnalysis(
         localId: a.localId,
         peopleCount: -1,
-        eventLabel: a.eventLabel,
         analyzedAt: a.analyzedAt,
         tags: a.tags,
         description: a.description,

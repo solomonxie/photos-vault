@@ -22,8 +22,8 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
 - `photo_editor.dart` — crop/rotate in pure Dart, off the calling isolate,
   re-encoded in the source's own format.
 - `derived_asset.dart` — files edited bytes as a *new* library item carrying
-  the source's date, description, tags, place, event, people and
-  private-album membership. Every edit path (crop, rotate, AI touch-up) ends
+  the source's date, description, tags, place, people and private-album
+  membership. Every edit path (crop, rotate, AI touch-up) ends
   here, so the photo that was edited — and its backed-up copy — is never
   overwritten.
 - `ai_image_edit_service.dart` / `ai_touch_up_queue.dart` — prompt + photo out

@@ -90,7 +90,7 @@ void main() {
     expect(
       labelsFor(enabled: false, isCover: false),
       isEmpty,
-      reason: 'a People or Events group has no card to be the cover of',
+      reason: 'a place or People group has no card to be the cover of',
     );
     expect(labelsFor(enabled: true, isCover: false), [l10n.albumUseAsCover]);
     expect(labelsFor(enabled: true, isCover: true), [

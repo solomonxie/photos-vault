@@ -9,15 +9,14 @@ import 'ai_analysis_store.dart';
 /// what they're saying yes to, and the photo screen has no business knowing
 /// a queue exists.
 ///
-/// Tags are *merged*, and an event or caption is only filled in where there
-/// isn't one — accepting a suggestion adds to the work already done on a
-/// photo, it never overwrites it.
+/// Tags are *merged*, and a caption is only filled in where there isn't one
+/// — accepting a suggestion adds to the work already done on a photo, it
+/// never overwrites it.
 Future<void> acceptSuggestion(
   AiPhotoAnalysis analysis, {
   required AssetRecordStore records,
   required AiAnalysisStore analyses,
   bool tags = true,
-  bool event = true,
   bool description = true,
 }) async {
   final record = await records.getByLocalId(analysis.localId);
@@ -27,9 +26,6 @@ Future<void> acceptSuggestion(
         record.localId,
         {...record.tags, ...analysis.tags}.toList(),
       );
-    }
-    if (event && analysis.eventLabel.isNotEmpty && record.event == null) {
-      await records.setEvent(record.localId, analysis.eventLabel);
     }
     if (description &&
         analysis.description.isNotEmpty &&

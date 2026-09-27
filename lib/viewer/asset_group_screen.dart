@@ -15,8 +15,8 @@ import 'detail_screen.dart';
 import 'private_album_gate.dart';
 import 'zoom_page_route.dart';
 
-/// Grid screen for a fixed list of records — used to drill into one
-/// People/Events group from [SmartCollectionScreen].
+/// Grid screen for a fixed list of records — used to drill into one place,
+/// or one People group from [SmartCollectionScreen].
 class AssetGroupScreen extends StatefulWidget {
   const AssetGroupScreen({
     super.key,
@@ -31,7 +31,7 @@ class AssetGroupScreen extends StatefulWidget {
   final AssetRecordStore assetRecordStore;
 
   /// Set when this screen *is* one of the built-in albums, which is what
-  /// puts "Use as Cover" on its tiles. A People or Events group has no
+  /// puts "Use as Cover" on its tiles. A place or People group has no
   /// card to be the cover of.
   final BuiltInAlbum? coverFor;
 

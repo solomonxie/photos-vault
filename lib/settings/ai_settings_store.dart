@@ -52,8 +52,8 @@ class NoAiKeyException implements Exception {
 }
 
 /// Stores every AI key the user has added (any mix of vendors) plus the
-/// fallback [AiKeyStrategy] between them — powers the People/Events smart
-/// collections. See IMPLEMENTATION_PLAN.md T4.4.
+/// fallback [AiKeyStrategy] between them — powers the People smart
+/// collection. See IMPLEMENTATION_PLAN.md T4.4.
 class AiSettingsStore {
   AiSettingsStore({SecureStore? store, Uuid? uuid})
     : _store = store ?? const FlutterSecureStore(),

@@ -26,8 +26,6 @@ scroller.
  │                                          │  ⌖ → [Google Maps] at the
  │                                          │      photo's own lat/lon
  ├───────────────────────────────────────────┤
- │ Event                            No Event │
- ├───────────────────────────────────────────┤
  │ Dimensions                      4288×2848 │
  │ Duration                            0:12  │  video only
  │ File Size                          4.2 MB │
@@ -36,8 +34,8 @@ scroller.
  ╰───────────────────────────────────────────╯  Backed up · Failed
  ┌─ ✨ Suggested ────────────────────────────┐  ← only when the analyze
  │ Low sun over the harbour wall.           │    pass has an unanswered
- │ Event: Beach day                         │    suggestion for *this*
- │ ( beach ) ( sunset )                     │    photo
+ │ ( beach ) ( sunset )                     │    suggestion for *this*
+ │                                          │    photo
  │ [ Keep ]   ( No thanks )                 │
  └──────────────────────────────────────────┘
  Add a description                          ✨ AI Suggest
@@ -175,8 +173,8 @@ it's describing. A list of suggestion cards somewhere else would be asking
 "is this right?" about a photo you can't see.
 
 Nothing on the card is on the photo yet — that's the difference between a
-suggestion and a tag. Keep merges tags and fills a caption or event only
-where there isn't one; No thanks marks it answered so it is never offered,
+suggestion and a tag. Keep merges tags and fills a caption only where
+there isn't one; No thanks marks it answered so it is never offered,
 or paid for, twice. Faces work the same way and always have: **Find Faces**
 on the People section, one tap to put a name to one.
 

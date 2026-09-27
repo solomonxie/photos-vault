@@ -112,7 +112,7 @@ Code: [`lib/vault/`](../../../lib/vault/README.md),
    included, in the app's cache directory — a browsable contact sheet for
    anything that can read the container.
 5. The record row carries `passcodeHash` *and* the photo's date, filename,
-   description, location, event and people — plaintext, in sqlite, in the
+   description, location and people — plaintext, in sqlite, in the
    daily snapshot, in the bucket. `sha256(4 digits)` is 10,000 guesses to
    reverse.
 
@@ -336,7 +336,7 @@ working offline, and the album's own footer says what it is holding, with a
 per-photo way to hand it back to the bucket.
 
 Deleting the row matters as much as deleting the file: it holds the photo's
-date, filename, description, location, event and people, and the *count of
+date, filename, description, location and people, and the *count of
 rows* is itself the answer to the question the gate exists not to answer.
 
 ### The cache is still a cache — the *store* is the copy

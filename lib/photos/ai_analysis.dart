@@ -1,11 +1,9 @@
-/// One asset's AI analysis result — people count and a short event/scene
-/// label — powering the People/Events smart collections. See
-/// IMPLEMENTATION_PLAN.md T4.4.
+/// One asset's AI analysis result — a people count, plus the suggested tags
+/// and caption waiting to be accepted. See IMPLEMENTATION_PLAN.md T4.4.
 class AiPhotoAnalysis {
   const AiPhotoAnalysis({
     required this.localId,
     required this.peopleCount,
-    required this.eventLabel,
     required this.analyzedAt,
     this.tags = const [],
     this.description = '',
@@ -20,8 +18,6 @@ class AiPhotoAnalysis {
   /// produce it — see `AiAnalysisStore.forgetFaces`.
   bool get needsLookingAt => peopleCount < 0;
 
-  /// Empty when the model couldn't tell — grouped as "Uncategorized".
-  final String eventLabel;
   final DateTime analyzedAt;
 
   /// Suggested tags. Persisted here until they're reviewed, then merged
@@ -37,6 +33,5 @@ class AiPhotoAnalysis {
   final bool reviewed;
 
   /// Whether there's anything here worth asking about.
-  bool get hasSuggestions =>
-      tags.isNotEmpty || eventLabel.isNotEmpty || description.isNotEmpty;
+  bool get hasSuggestions => tags.isNotEmpty || description.isNotEmpty;
 }
