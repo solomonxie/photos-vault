@@ -142,7 +142,6 @@ void main() {
     final analysis = AiPhotoAnalysis(
       localId: 'p1',
       peopleCount: 2,
-      eventLabel: 'Birthday party',
       analyzedAt: DateTime(2024),
     );
 
@@ -151,7 +150,6 @@ void main() {
     final all = await store.listAll();
     expect(all, hasLength(1));
     expect(all['p1']!.peopleCount, 2);
-    expect(all['p1']!.eventLabel, 'Birthday party');
   });
 
   test('save overwrites a prior analysis for the same localId', () async {
@@ -160,7 +158,6 @@ void main() {
       AiPhotoAnalysis(
         localId: 'p1',
         peopleCount: 1,
-        eventLabel: 'A',
         analyzedAt: DateTime(2024),
       ),
     );
@@ -169,7 +166,6 @@ void main() {
       AiPhotoAnalysis(
         localId: 'p1',
         peopleCount: 3,
-        eventLabel: 'B',
         analyzedAt: DateTime(2024),
       ),
     );
@@ -177,7 +173,6 @@ void main() {
     final all = await store.listAll();
     expect(all, hasLength(1));
     expect(all['p1']!.peopleCount, 3);
-    expect(all['p1']!.eventLabel, 'B');
   });
 
   test('listAll is empty with nothing saved', () async {

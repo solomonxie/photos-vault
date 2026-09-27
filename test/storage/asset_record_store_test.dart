@@ -411,23 +411,6 @@ void main() {
     expect(record.location, 'Kyoto, Japan');
   });
 
-  test('setEvent round-trips and allEvents skips the unset ones', () async {
-    final store = newStore();
-    for (final id in ['asset-1', 'asset-2', 'asset-3']) {
-      await store.upsert(localId: id, contentHash: id, platform: 'ios');
-    }
-
-    await store.setEvent('asset-1', "Nina's Wedding");
-    await store.setEvent('asset-2', "Nina's Wedding");
-
-    expect((await store.getByLocalId('asset-1'))!.event, "Nina's Wedding");
-    expect((await store.getByLocalId('asset-3'))!.event, isNull);
-    expect(await store.allEvents(), {"Nina's Wedding"});
-
-    await store.setEvent('asset-1', null);
-    expect((await store.getByLocalId('asset-1'))!.event, isNull);
-  });
-
   test('setLocation(null) clears a previously-set location', () async {
     final store = newStore();
     await store.upsert(

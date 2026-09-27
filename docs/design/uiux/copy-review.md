@@ -65,7 +65,7 @@ Backup Queue / Analyze Queue where the first two look like the same screen.
 
 | key | current | proposed |
 |---|---|---|
-| `settingsAiTodoNote` | "These keys **power** AI-recognized People and Events smart collections. Places (GPS-based) **doesn't** need them." | "Used for the People and Events collections. Places works from a photo's own location and needs no key." (also: the key is named `…TodoNote`) |
+| `settingsAiTodoNote` | "These keys **power** the AI-recognized People smart collection. Places (GPS-based) **doesn't** need them." | "Used for the People collection. Places works from a photo's own location and needs no key." (also: the key is named `…TodoNote`) |
 | `settingsAiKeyStrategySequential` / `…RoundRobin` | Sequential / Round Robin | "One key until it fails" / "Take turns" |
 | `analyzeQueueFaceModelOff` | "Face model: off — **falling back to** general image matching, which is much weaker." | "Face matching is off. Photos are compared as whole pictures instead, which gets it wrong more often." |
 | `bucketPreviewOpenExternally` | Open **Externally** | "Open in…" (what iOS calls it) |
@@ -107,7 +107,7 @@ it."
   says so in the README. Two screens apart, the same app ships both ideas.
   See [relationships-vs-rim.md](../relationships-vs-rim.md#1-the-lock-on-a-person-contradicts-the-lock-on-an-album).
 - **Title Case vs sentence case** is decided per-string rather than per-role.
-  `detailInfoNoLocation` "No Location" and `detailInfoNoEvent` "No Event"
-  are Title Case *values*, next to `personProfileNotSet` "Not set". Apple's
+  `detailInfoNoLocation` "No Location" is a Title Case *value*, next to
+  `personProfileNotSet` "Not set". Apple's
   rule: Title Case for buttons and menu items, sentence case for everything
   else. About 20 strings would move.

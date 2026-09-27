@@ -7,7 +7,7 @@ import 'ai_settings_store.dart';
 import 'settings_section.dart';
 
 /// Standalone "AI Settings" utility screen — the keys that power
-/// People/Events smart-collection recognition (T4.4, see
+/// the People smart collection's recognition (T4.4, see
 /// `lib/viewer/smart_collection_screen.dart`), kept separate from S3 backup
 /// settings since it configures a different, optional feature. Any mix of
 /// vendors can be added; [AiSettingsStore.runWithKeys] tries them in turn

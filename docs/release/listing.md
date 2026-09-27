@@ -195,9 +195,9 @@ repo root are README art at ~840 px and upscale into mush. Capture a fresh set:
 3. Status bar: full battery, Wi-Fi, no notification badges. Side button + Volume Up per shot.
 4. Shots, in upload order:
    1. **Library** — the day-grouped grid, scrolled to a dense month
-   2. **Collections** — albums, People, Places, Events
+   2. **Collections** — albums, People, Places
    3. **People** — the face grid, several named
-   4. **Photo detail** — place, event, faces, tags on one photo
+   4. **Photo detail** — place, faces, tags on one photo
    5. **Cloud** — the bucket list with "56 of 57 photos backed up"
    6. **Sync Queue** — uploads in flight
    7. **Optimize Storage** — "Free up to 12.4 GB"
@@ -279,7 +279,7 @@ BACKUP TO STORAGE YOU OWN
 
 A GALLERY, NOT A BACKUP TOOL
 • Day-grouped grid built to scroll like Photos does, on libraries of tens of thousands
-• Albums, favorites, tags, captions, places and events
+• Albums, favorites, tags, captions and places
 • Live Photos, GIFs, videos, bursts
 • Crop, rotate, and an optional AI touch-up — always saved as a new photo
 • Lock a photo and nothing can delete it, edit it, or shrink it to save space
@@ -300,7 +300,7 @@ FREE UP SPACE
 • Drop the full-resolution copy of anything already backed up — the photo stays in your library and comes back on demand
 
 OPTIONAL AI
-Bring your own API key from OpenAI, Anthropic, Google, Groq, Mistral or xAI and let it tag, caption and sort photos into People and Events collections. The key is yours, the usage is billed to your account with that vendor, and the feature is off until you turn it on. Skip it and the app works the same — faces and search never needed it.
+Bring your own API key from OpenAI, Anthropic, Google, Groq, Mistral or xAI and let it tag, caption and sort photos into the People collection. The key is yours, the usage is billed to your account with that vendor, and the feature is off until you turn it on. Skip it and the app works the same — faces and search never needed it.
 
 YOUR DATA
 • Library, records and faces live in a database on this iPhone and are worked out here

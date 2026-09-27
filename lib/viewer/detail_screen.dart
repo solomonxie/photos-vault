@@ -2273,25 +2273,6 @@ class _InfoPanelState extends State<_InfoPanel> {
     widget.onRecordChanged(widget.record.withLocation(normalized));
   }
 
-  /// The occasion this photo belongs to — what the Events collection
-  /// groups by, picked the same way as Location.
-  Future<void> _editEvent() async {
-    final l10n = AppLocalizations.of(context)!;
-    final options = await widget.assetRecordStore.allEvents();
-    if (!mounted) return;
-    final value = await showSearchPickerSheet(
-      context: context,
-      title: l10n.detailInfoEvent,
-      options: options,
-      selected: widget.record.event,
-      clearLabel: widget.record.event == null ? null : l10n.detailInfoNoEvent,
-    );
-    if (value == null) return;
-    final normalized = value.trim().isEmpty ? null : value.trim();
-    await widget.assetRecordStore.setEvent(widget.record.localId, normalized);
-    widget.onRecordChanged(widget.record.withEvent(normalized));
-  }
-
   void _saveDescription(String value) {
     widget.assetRecordStore.setDescription(widget.record.localId, value);
     widget.onRecordChanged(widget.record.withDescription(value));
@@ -2552,11 +2533,6 @@ class _InfoPanelState extends State<_InfoPanel> {
                         ),
                       ),
                 onTap: _editLocation,
-              ),
-              CupertinoListTile(
-                title: Text(l10n.detailInfoEvent),
-                additionalInfo: Text(record.event ?? l10n.detailInfoNoEvent),
-                onTap: _editEvent,
               ),
               if (_width != null && _height != null)
                 CupertinoListTile(
@@ -2877,17 +2853,6 @@ class _SuggestionCard extends StatelessWidget {
                 style: const TextStyle(
                   fontSize: 14,
                   color: CupertinoColors.white,
-                ),
-              ),
-            ),
-          if (suggestion.eventLabel.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                l10n.analyzeReviewSuggestedEvent(suggestion.eventLabel),
-                style: const TextStyle(
-                  fontSize: 12,
-                  color: CupertinoColors.systemGrey,
                 ),
               ),
             ),

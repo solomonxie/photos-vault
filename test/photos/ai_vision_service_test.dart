@@ -84,7 +84,7 @@ void main() {
           return http.Response(
             openAiSuccessBody({
               'people_count': 2,
-              'event_label': 'Birthday party',
+              'tags': ['cake'],
             }),
             200,
           );
@@ -95,7 +95,7 @@ void main() {
 
       expect(result.localId, 'p1');
       expect(result.peopleCount, 2);
-      expect(result.eventLabel, 'Birthday party');
+      expect(result.tags, ['cake']);
       expect(captured.headers['Authorization'], 'Bearer sk-test');
       expect(captured.body, contains(base64Encode([1, 2, 3])));
     },
@@ -110,17 +110,13 @@ void main() {
         apiKey: 'sk-ant-test',
         httpClient: MockClient((request) async {
           captured = request;
-          return http.Response(
-            anthropicSuccessBody({'people_count': 1, 'event_label': 'Hiking'}),
-            200,
-          );
+          return http.Response(anthropicSuccessBody({'people_count': 1}), 200);
         }),
       );
 
       final result = await service.analyze(localId: 'p1', imageFile: imageFile);
 
       expect(result.peopleCount, 1);
-      expect(result.eventLabel, 'Hiking');
       expect(captured.headers['x-api-key'], 'sk-ant-test');
     },
   );
@@ -134,23 +130,19 @@ void main() {
         apiKey: 'AIza-test',
         httpClient: MockClient((request) async {
           captured = request;
-          return http.Response(
-            googleSuccessBody({'people_count': 3, 'event_label': 'Wedding'}),
-            200,
-          );
+          return http.Response(googleSuccessBody({'people_count': 3}), 200);
         }),
       );
 
       final result = await service.analyze(localId: 'p1', imageFile: imageFile);
 
       expect(result.peopleCount, 3);
-      expect(result.eventLabel, 'Wedding');
       expect(captured.url.toString(), contains('key=AIza-test'));
     },
   );
 
   test(
-    'defaults to 0 people and an empty label when fields are missing',
+    'defaults to 0 people and no suggestions when fields are missing',
     () async {
       final service = await serviceWith(
         apiKey: 'sk-test',
@@ -162,7 +154,7 @@ void main() {
       final result = await service.analyze(localId: 'p1', imageFile: imageFile);
 
       expect(result.peopleCount, 0);
-      expect(result.eventLabel, '');
+      expect(result.hasSuggestions, isFalse);
     },
   );
 
@@ -202,10 +194,7 @@ void main() {
         if (request.url.host.contains('openai')) {
           return http.Response('rejected', 401);
         }
-        return http.Response(
-          anthropicSuccessBody({'people_count': 5, 'event_label': 'Reunion'}),
-          200,
-        );
+        return http.Response(anthropicSuccessBody({'people_count': 5}), 200);
       }),
     );
 
@@ -213,6 +202,5 @@ void main() {
 
     expect(calls, 2);
     expect(result.peopleCount, 5);
-    expect(result.eventLabel, 'Reunion');
   });
 }

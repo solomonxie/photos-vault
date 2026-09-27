@@ -79,7 +79,6 @@ import 'private_album_gate.dart';
 import 'recently_deleted_screen.dart';
 import 'safety_screen.dart';
 import 'search_picker_sheet.dart';
-import 'smart_collection_screen.dart';
 import 'storage_optimization_screen.dart';
 import 'zoom_page_route.dart';
 
@@ -129,7 +128,7 @@ class LibraryScreen extends StatefulWidget {
   /// Overridable for tests so People never opens the real `sqflite` factory.
   final PersonStore? personStore;
 
-  /// Overridable for tests so the People/Events smart collections never open
+  /// Overridable for tests so the People smart collection never opens
   /// the real (platform-backed) `sqflite` factory.
   final AiAnalysisStore? aiAnalysisStore;
 
@@ -390,7 +389,7 @@ class LibraryScreenState extends State<LibraryScreen>
 
   /// Everything derived from [_all], computed once per [reload] instead of
   /// per build. Each one is a pass over the whole library — several of
-  /// them sort it — and `build` reads six: as getters, that was six passes
+  /// them sort it — and `build` reads five: as getters, that was five passes
   /// over tens of thousands of records every time anything called
   /// `setState`, which is the jank CLAUDE.md's "no per-build work
   /// proportional to library size" rule exists to prevent.
@@ -398,7 +397,6 @@ class LibraryScreenState extends State<LibraryScreen>
   List<AssetRecord> _videos = const [];
   List<AssetRecord> _favorites = const [];
   Map<String, List<AssetRecord>> _places = const {};
-  Map<String, List<AssetRecord>> _events = const {};
   int _deletedCount = 0;
   List<Album> _albums = const [];
   Map<String, List<AssetRecord>> _albumAssets = const {};
@@ -1016,7 +1014,6 @@ class LibraryScreenState extends State<LibraryScreen>
         if (record.isFavorite) record,
     ];
     _places = _groupedBy(active, (r) => r.location);
-    _events = _groupedBy(active, (r) => r.event, byRecency: true);
     _deletedCount = all.where((r) => r.isDeleted && !r.hasNothingLeft).length;
   }
 
@@ -1058,20 +1055,12 @@ class LibraryScreenState extends State<LibraryScreen>
         .toList();
   }
 
-  /// Places and Events are both "group the library by one free-text field
-  /// the user filled in" — biggest group first, so the row leads with what
-  /// they actually photograph.
-  /// Grouped by one free-text field, biggest group first — the place you
-  /// have five hundred photos of is the one you mean.
-  ///
-  /// [byRecency] ranks by the newest photo in each group instead, which is
-  /// what an event wants: "Nina's Wedding" is interesting for a month and
-  /// then it isn't, however many photos it holds.
+  /// Grouped by one free-text field the user filled in, biggest group first
+  /// — the place you have five hundred photos of is the one you mean.
   static Map<String, List<AssetRecord>> _groupedBy(
     List<AssetRecord> records,
-    String? Function(AssetRecord) of, {
-    bool byRecency = false,
-  }) {
+    String? Function(AssetRecord) of,
+  ) {
     final groups = <String, List<AssetRecord>>{};
     for (final record in records) {
       final key = of(record);
@@ -1079,16 +1068,9 @@ class LibraryScreenState extends State<LibraryScreen>
       groups.putIfAbsent(key, () => []).add(record);
     }
     final sorted = groups.entries.toList()
-      ..sort(
-        byRecency
-            ? (a, b) => _newest(b.value).compareTo(_newest(a.value))
-            : (a, b) => b.value.length.compareTo(a.value.length),
-      );
+      ..sort((a, b) => b.value.length.compareTo(a.value.length));
     return {for (final entry in sorted) entry.key: entry.value};
   }
-
-  static DateTime _newest(List<AssetRecord> records) =>
-      records.map((r) => r.createdAt).reduce((a, b) => a.isAfter(b) ? a : b);
 
   void _openGroup(String title, List<AssetRecord> records) => _push(
     AssetGroupScreen(
@@ -2118,24 +2100,6 @@ class LibraryScreenState extends State<LibraryScreen>
     await reload();
   }
 
-  Future<void> _batchSetEvent() async {
-    final l10n = AppLocalizations.of(context)!;
-    final options = await assetRecordStore.allEvents();
-    if (!mounted) return;
-    final value = await showSearchPickerSheet(
-      context: context,
-      title: l10n.selectionSetEvent,
-      options: options,
-      clearLabel: l10n.detailInfoNoEvent,
-    );
-    if (value == null) return;
-    final event = value.trim().isEmpty ? null : value.trim();
-    for (final record in _selectedRecords) {
-      await assetRecordStore.setEvent(record.localId, event);
-    }
-    await reload();
-  }
-
   /// Shifts the whole selection by however far the *earliest* photo moves,
   /// so a batch of shots keeps its internal spacing — the same thing
   /// Photos' "Adjust Date & Time" does to a multi-selection.
@@ -2420,7 +2384,6 @@ class LibraryScreenState extends State<LibraryScreen>
                       onAddTag: _batchAddTag,
                       onAddToAlbum: _batchAddToAlbum,
                       onSetPlace: _batchSetPlace,
-                      onSetEvent: _batchSetEvent,
                       onAdjustDateTime: _batchAdjustDateTime,
                       onDelete: _batchDelete,
                       onDone: () => setState(() => _selection = null),
@@ -2686,28 +2649,6 @@ class LibraryScreenState extends State<LibraryScreen>
           emptyNote: l10n.collectionsPlacesEmpty,
           icon: CupertinoIcons.map_pin_ellipse,
           color: CupertinoColors.systemTeal,
-          onTap: _openGroup,
-        ),
-      ),
-      SliverToBoxAdapter(
-        child: _SubsectionHeader(
-          title: l10n.collectionsEventsRow,
-          moreLabel: l10n.collectionsAiSuggestions,
-          onMore: () => _push(
-            SmartCollectionScreen(
-              kind: SmartCollectionKind.events,
-              assetRecordStore: assetRecordStore,
-              aiAnalysisStore: _aiAnalysisStore,
-            ),
-          ),
-        ),
-      ),
-      SliverToBoxAdapter(
-        child: _GroupList(
-          groups: _events,
-          emptyNote: l10n.collectionsEventsEmpty,
-          icon: CupertinoIcons.calendar,
-          color: CupertinoColors.systemOrange,
           onTap: _openGroup,
         ),
       ),
@@ -3187,17 +3128,12 @@ class _SectionHeader extends StatelessWidget {
   }
 }
 
-/// Albums, People, Places, Events — each a section of the page, not a
-/// subsection of one. They used to sit under a "Collections" heading that
-/// named a category nobody was looking for: you look for people, or for a
-/// place, and the extra level only pushed all four further down.
+/// Albums, People, Places — each a section of the page, not a subsection of
+/// one. They used to sit under a "Collections" heading that named a category
+/// nobody was looking for: you look for people, or for a place, and the
+/// extra level only pushed all three further down.
 class _SubsectionHeader extends StatelessWidget {
-  const _SubsectionHeader({
-    required this.title,
-    this.onMore,
-    this.moreLabel,
-    this.onAdd,
-  });
+  const _SubsectionHeader({required this.title, this.onMore, this.onAdd});
 
   final String title;
 
@@ -3210,10 +3146,6 @@ class _SubsectionHeader extends StatelessWidget {
   /// full `PeopleScreen`) instead of a separate trailing card in the row
   /// below.
   final VoidCallback? onMore;
-
-  /// Overrides that chevron's "More" — Events' one opens AI-guessed
-  /// groupings, which is a different thing from "more of the same".
-  final String? moreLabel;
 
   @override
   Widget build(BuildContext context) {
@@ -3252,7 +3184,7 @@ class _SubsectionHeader extends StatelessWidget {
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   Text(
-                    moreLabel ?? l10n.collectionsMoreButton,
+                    l10n.collectionsMoreButton,
                     style: const TextStyle(color: CupertinoColors.systemGrey),
                   ),
                   const Icon(
@@ -3270,7 +3202,7 @@ class _SubsectionHeader extends StatelessWidget {
 }
 
 /// The bar that replaces per-tile actions while photos are selected: the
-/// count and a way out up top, the batch edits (tag, place, event, date)
+/// count and a way out up top, the batch edits (tag, place, date)
 /// below. Everything here is additive or a single-field set — nothing
 /// destructive lives on a multi-selection.
 class _SelectionBar extends StatelessWidget {
@@ -3279,7 +3211,6 @@ class _SelectionBar extends StatelessWidget {
     required this.onAddTag,
     required this.onAddToAlbum,
     required this.onSetPlace,
-    required this.onSetEvent,
     required this.onAdjustDateTime,
     required this.onDelete,
     required this.onDone,
@@ -3289,7 +3220,6 @@ class _SelectionBar extends StatelessWidget {
   final VoidCallback onAddTag;
   final VoidCallback onAddToAlbum;
   final VoidCallback onSetPlace;
-  final VoidCallback onSetEvent;
   final VoidCallback onAdjustDateTime;
   final VoidCallback onDelete;
   final VoidCallback onDone;
@@ -3405,13 +3335,6 @@ class _SelectionBar extends StatelessWidget {
           CupertinoActionSheetAction(
             onPressed: () {
               Navigator.of(sheetContext).pop();
-              onSetEvent();
-            },
-            child: Text(l10n.selectionSetEvent),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () {
-              Navigator.of(sheetContext).pop();
               onAdjustDateTime();
             },
             child: Text(l10n.selectionAdjustDateTime),
@@ -3469,7 +3392,7 @@ class _SelectionAction extends StatelessWidget {
   }
 }
 
-/// Places/Events: one text row per distinct value the user has set.
+/// Places: one text row per distinct value the user has set.
 ///
 /// These were cover cards, the same 140x190 as an album. A place is a word,
 /// though, and most places had no photo worth that much room — the section
