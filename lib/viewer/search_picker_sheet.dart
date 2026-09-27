@@ -199,7 +199,7 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
         ? null
         : widget.createLabel!(query);
 
-    // Sized to what's actually in it: picking between three events should
+    // Sized to what's actually in it: picking between three places should
     // be a small pop-up, not the same slab every time. Still sits above the
     // keyboard, and still tall enough to be worth opening.
     final rows =

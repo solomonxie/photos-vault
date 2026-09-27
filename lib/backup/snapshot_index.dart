@@ -30,7 +30,6 @@ const _columns = [
   'caption',
   'tags',
   'place',
-  'event',
   'original_key',
   'thumbnail_key',
 ];
@@ -59,7 +58,6 @@ String indexCsv(AppSnapshot snapshot) {
       asset['description'] as String? ?? '',
       _tagsOf(asset['tags']),
       asset['location'] as String? ?? '',
-      asset['event'] as String? ?? '',
       originalKey,
       _keyOf(derivatives, 'thumbnail'),
     ]);

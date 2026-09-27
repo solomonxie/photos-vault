@@ -370,7 +370,6 @@ void main() {
       AiPhotoAnalysis(
         localId: 'a',
         peopleCount: 0,
-        eventLabel: 'Beach day',
         analyzedAt: DateTime(2026, 9, 17),
         tags: const ['beach'],
         description: 'A day at the beach.',
@@ -404,7 +403,6 @@ void main() {
     final after = (await records.getByLocalId('a'))!;
     expect(after.tags, ['beach']);
     expect(after.description, 'A day at the beach.');
-    expect(after.event, 'Beach day');
     // Answered, so it stops asking.
     expect(find.text('Suggested'), findsNothing);
   });
@@ -423,7 +421,6 @@ void main() {
       AiPhotoAnalysis(
         localId: 'a',
         peopleCount: 0,
-        eventLabel: '',
         analyzedAt: DateTime(2026, 9, 17),
         tags: const ['beach'],
       ),
@@ -733,48 +730,6 @@ void main() {
     expect(find.text('Kyoto, Japan'), findsOneWidget);
     final saved = await assetRecordStore.getByLocalId('a');
     expect(saved!.location, 'Kyoto, Japan');
-  });
-
-  testWidgets('editing the event shows it in place of "No Event"', (
-    tester,
-  ) async {
-    final record = _record(localId: 'a');
-    final assetRecordStore = FakeAssetRecordStore();
-    await assetRecordStore.upsert(
-      localId: record.localId,
-      contentHash: record.localId,
-      platform: 'ios',
-      sourceType: AssetSourceType.manualFile,
-      sourcePath: record.sourcePath,
-      createdAt: record.createdAt,
-    );
-
-    await tester.pumpWidget(
-      _wrap(
-        DetailScreen(
-          records: [record],
-          initialIndex: 0,
-          assetRecordStore: assetRecordStore,
-          personStore: FakePersonStore(),
-          onDelete: (_) async => true,
-          onToggleFavorite: (_) async {},
-        ),
-      ),
-    );
-    await tester.pump();
-    await _scrollToInfoPanel(tester);
-
-    expect(find.text('No Event'), findsOneWidget);
-    await tester.tap(find.text('No Event'));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(searchPickerFieldKey), "Nina's Wedding");
-    await tester.pump();
-    await tester.tap(find.text('Use "Nina\'s Wedding"'));
-    await tester.pumpAndSettle();
-
-    expect(find.text("Nina's Wedding"), findsOneWidget);
-    final saved = await assetRecordStore.getByLocalId('a');
-    expect(saved!.event, "Nina's Wedding");
   });
 
   testWidgets('editing the description persists it', (tester) async {

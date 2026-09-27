@@ -25,8 +25,8 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
    │                                      └─▶ PersonProfileScreen
    │                                            ├─▶ PersonHistoryDetail
    │                                            └─▶ PersonGraphScreen
-   │  Places / Events ──▶ AssetGroupScreen
-   │  Events (AI Suggestions) ──▶ SmartCollectionScreen
+   │  Places ──▶ AssetGroupScreen
+   │  People (AI Suggestions) ──▶ SmartCollectionScreen
    └─ More
         Where Your Photos Are ──▶ SafetyScreen
         Cloud Settings ──▶ SettingsScreen ──▶ BucketBrowser ─▶ (deeper)

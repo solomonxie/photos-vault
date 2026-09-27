@@ -44,7 +44,7 @@ class OnDeviceAnalysisService {
     // that question to decide what's left, would hand this photo back to
     // itself forever.
     //
-    // The count is what the People/Events smart collections read. Written
+    // The count is what the People smart collection reads. Written
     // on its own so a suggestion waiting to be reviewed on the same photo
     // isn't overwritten by a pass that knows nothing about it.
     await analysisStore.saveFaceCount(

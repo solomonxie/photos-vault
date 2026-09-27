@@ -8,7 +8,6 @@ import '../support/fake_asset_record_store.dart';
 AiPhotoAnalysis _suggestion(String localId) => AiPhotoAnalysis(
   localId: localId,
   peopleCount: 0,
-  eventLabel: 'Beach day',
   analyzedAt: DateTime.now(),
   tags: const ['beach'],
   description: 'A day at the beach.',
@@ -41,14 +40,12 @@ void main() {
       reason: 'accepting adds to the work already done, it never replaces it',
     );
     expect(after.description, 'A day at the beach.');
-    expect(after.event, 'Beach day');
     expect(await analyses.unreviewed(), isEmpty);
   });
 
   test('a caption already written is not overwritten', () async {
     await records.upsert(localId: 'photo:a', contentHash: 'a', platform: 'ios');
     await records.setDescription('photo:a', 'Mum on the pier');
-    await records.setEvent('photo:a', 'Summer 2019');
 
     await acceptSuggestion(
       _suggestion('photo:a'),
@@ -58,7 +55,6 @@ void main() {
 
     final after = (await records.getByLocalId('photo:a'))!;
     expect(after.description, 'Mum on the pier');
-    expect(after.event, 'Summer 2019');
     expect(after.tags, ['beach'], reason: 'tags still merge');
   });
 

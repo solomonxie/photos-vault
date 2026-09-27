@@ -545,7 +545,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
     Navigator.of(context).push(
       CupertinoPageRoute(
         builder: (_) => SmartCollectionScreen(
-          kind: SmartCollectionKind.people,
           assetRecordStore: widget.assetRecordStore,
           aiAnalysisStore: widget.aiAnalysisStore,
         ),

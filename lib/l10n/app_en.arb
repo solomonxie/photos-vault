@@ -101,8 +101,6 @@
   "detailInfoFormat": "Format",
   "detailInfoLocation": "Location",
   "detailInfoNoLocation": "No Location",
-  "detailInfoEvent": "Event",
-  "detailInfoNoEvent": "No Event",
   "detailInfoDuration": "Duration",
   "detailEditDateTimeTitle": "Date & Time",
   "detailDescriptionPlaceholder": "Add a description",
@@ -143,7 +141,6 @@
   "collectionsPeopleRow": "People",
   "collectionsMoreButton": "See All",
   "collectionsPlacesRow": "Places",
-  "collectionsEventsRow": "Events",
   "collectionsShowAll": "Show All ({count})",
   "@collectionsShowAll": {
     "placeholders": {
@@ -154,8 +151,6 @@
   },
   "collectionsShowLess": "Show Less",
   "collectionsPlacesEmpty": "Photos with a place set will show up here.",
-  "collectionsEventsEmpty": "Photos with an event set will show up here.",
-  "collectionsAiSuggestions": "AI Suggestions",
   "collectionsGroupPhotoCount": "{count, plural, one{1 photo} other{{count} photos}}",
   "@collectionsGroupPhotoCount": {
     "placeholders": {
@@ -185,7 +180,6 @@
   },
   "smartCollectionsEmpty": "No photos to analyze yet.",
   "smartCollectionsCardLabel": "Tap to Analyze",
-  "smartCollectionsUncategorized": "Uncategorized",
   "smartCollectionsNoPeople": "No People",
   "smartCollectionsOnePerson": "1 Person",
   "smartCollectionsPeopleCount": "{count} People",
@@ -199,7 +193,6 @@
   "selectionTitle": "{count, plural, one{1 Selected} other{{count} Selected}}",
   "selectionAddTag": "Add Tag",
   "selectionSetPlace": "Set Place",
-  "selectionSetEvent": "Set Event",
   "selectionAdjustDateTime": "Adjust Date",
   "selectionDelete": "Delete",
   "selectionMore": "More",
@@ -469,14 +462,6 @@
   "analyzeQueueFrequencyHeading": "How Often",
   "analyzeQueueFrequencyHint": "Runs only while the app is open, a few photos at a time. It's designed to work gradually rather than finish all at once.",
   "analyzeReviewSuggestionTitle": "Suggested",
-  "analyzeReviewSuggestedEvent": "Event: {value}",
-  "@analyzeReviewSuggestedEvent": {
-    "placeholders": {
-      "value": {
-        "type": "String"
-      }
-    }
-  },
   "analyzeReviewAccept": "Keep",
   "analyzeReviewDismiss": "Dismiss",
   "settingsSyncQueueRow": "Sync queue",
@@ -554,7 +539,7 @@
   "settingsDraftsTitle": "DRAFTS",
   "settingsDraftUntitled": "(no bucket yet)",
   "settingsDraftDeleteTooltip": "Delete draft",
-  "settingsAiTodoNote": "These keys are used for AI-recognized People and Events collections. Places is based on GPS and doesn't need a key.",
+  "settingsAiTodoNote": "These keys are used for the AI-recognized People collection. Places is based on GPS and doesn't need a key.",
   "settingsAiKeysHeading": "AI Keys",
   "settingsAiKeysHint": "Each request uses one key. If it fails, the next key is tried. Use the arrows to reorder.",
   "settingsAiKeyStrategySequential": "Sequential",

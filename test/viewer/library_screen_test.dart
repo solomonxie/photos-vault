@@ -427,7 +427,7 @@ void main() {
 
     await tester.tap(find.text('More'));
     await tester.pumpAndSettle();
-    for (final action in ['Set Place', 'Set Event', 'Adjust Date']) {
+    for (final action in ['Set Place', 'Adjust Date']) {
       expect(find.text(action), findsOneWidget);
     }
     await tester.tap(find.text('Cancel'));
@@ -768,7 +768,7 @@ void main() {
       await recordStore.setFavorite('manual:fav', true);
 
       // Tall surface so the Utilities section — now below the added
-      // Collections (Albums/People/Places/Events) section — is built by the
+      // Collections (Albums/People/Places) section — is built by the
       // lazy CustomScrollView without needing a scroll.
       await tester.binding.setSurfaceSize(const Size(400, 2000));
       addTearDown(() => tester.binding.setSurfaceSize(null));
@@ -1024,76 +1024,70 @@ void main() {
     },
   );
 
-  testWidgets(
-    'People, Places and Events each get a section; People opens its screen',
-    (tester) async {
-      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      final recordStore = FakeAssetRecordStore();
-      await recordStore.upsert(
-        localId: 'manual:one',
-        contentHash: 'one',
-        platform: 'ios',
-        sourceType: AssetSourceType.manualFile,
-        sourcePath: '/tmp/one.jpg',
-      );
+  testWidgets('People and Places each get a section; People opens its screen', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:one',
+      contentHash: 'one',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/one.jpg',
+    );
 
-      // Tall surface: People is a full horizontal-scroll subsection and
-      // Places/Events are lists under their own headers, so there's a lot
-      // of vertical content to fit.
-      await tester.binding.setSurfaceSize(const Size(400, 3200));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+    // Tall surface: People is a full horizontal-scroll subsection and
+    // Places is a list under its own header, so there's a lot of
+    // vertical content to fit.
+    await tester.binding.setSurfaceSize(const Size(400, 3200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      await tester.pumpWidget(
-        _wrap(
-          LibraryScreen(
-            assetRecordStore: recordStore,
-            thumbnailCache: _noThumbnails(recordStore),
-            syncJobStore: FakeSyncJobStore(),
-            albumStore: FakeAlbumStore(),
-            personStore: FakePersonStore(),
-            backupTargetsStore: targetsStore,
-            backupCoordinator: BackupCoordinator(
-              targetsStore: targetsStore,
-              recordStore: recordStore,
-              s3Uploader: _UnusedS3Uploader(),
-            ),
-            aiAnalysisStore: FakeAiAnalysisStore(),
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
           ),
+          aiAnalysisStore: FakeAiAnalysisStore(),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      // Albums, People, Places and Events are sections in their own right
-      // now — there's no "Collections" heading above them to look for.
-      final albumsY = tester.getCenter(find.text('Albums')).dy;
-      final peopleY = tester.getCenter(find.text('People')).dy;
-      final utilitiesY = tester.getCenter(find.text('More')).dy;
-      expect(albumsY, lessThan(peopleY));
-      expect(peopleY, lessThan(utilitiesY));
-      expect(find.text('Places'), findsOneWidget);
-      expect(find.text('Events'), findsOneWidget);
+    // Albums, People and Places are sections in their own right now —
+    // there's no "Collections" heading above them to look for.
+    final albumsY = tester.getCenter(find.text('Albums')).dy;
+    final peopleY = tester.getCenter(find.text('People')).dy;
+    final utilitiesY = tester.getCenter(find.text('More')).dy;
+    expect(albumsY, lessThan(peopleY));
+    expect(peopleY, lessThan(utilitiesY));
+    expect(find.text('Places'), findsOneWidget);
 
-      // Places and Events group by what the user has set on each photo —
-      // nothing set here, so both show their own empty note. People (no
-      // people configured either) shows an empty-state hint below its
-      // header's own "More" button, which opens PeopleScreen.
-      expect(find.text('No people yet. Tap + to add someone.'), findsOneWidget);
-      expect(
-        find.text('Photos with a place set will show up here.'),
-        findsOneWidget,
-      );
-      expect(
-        find.text('Photos with an event set will show up here.'),
-        findsOneWidget,
-      );
+    // Places groups by what the user has set on each photo — nothing set
+    // here, so it shows its empty note. People (no people configured
+    // either) shows an empty-state hint below its header's own "More"
+    // button, which opens PeopleScreen.
+    expect(find.text('No people yet. Tap + to add someone.'), findsOneWidget);
+    expect(
+      find.text('Photos with a place set will show up here.'),
+      findsOneWidget,
+    );
 
-      // The section headers' browse-all button. It used to say "More",
-      // which now names the section holding the app's own tools.
-      await tester.tap(find.text('See All').first);
-      await tester.pumpAndSettle();
-      expect(find.text('No people yet. Tap + to add someone.'), findsWidgets);
-    },
-  );
+    // The section headers' browse-all button. It used to say "More",
+    // which now names the section holding the app's own tools.
+    await tester.tap(find.text('See All').first);
+    await tester.pumpAndSettle();
+    expect(find.text('No people yet. Tap + to add someone.'), findsWidgets);
+  });
 
   testWidgets('Albums always shows, with Videos in it and a way to make one', (
     tester,
@@ -1209,61 +1203,6 @@ void main() {
     await tester.tap(find.text('Show All (6)'));
     await tester.pumpAndSettle();
     expect(find.text('Nikko'), findsOneWidget);
-  });
-
-  testWidgets('Events lists what happened most recently first', (tester) async {
-    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-    final recordStore = FakeAssetRecordStore();
-    await recordStore.upsert(
-      localId: 'manual:one',
-      contentHash: 'one',
-      platform: 'ios',
-      sourceType: AssetSourceType.manualFile,
-      sourcePath: '/tmp/one.jpg',
-    );
-    await recordStore.setEvent('manual:one', "Nina's Wedding");
-    // Older, and with more photos in it — which would put it first if
-    // events ranked by size the way places do.
-    for (final id in ['two', 'three']) {
-      await recordStore.upsert(
-        localId: 'manual:$id',
-        contentHash: id,
-        platform: 'ios',
-        sourceType: AssetSourceType.manualFile,
-        sourcePath: '/tmp/$id.jpg',
-        createdAt: DateTime(2019, 4, 2),
-      );
-      await recordStore.setEvent('manual:$id', 'Japan 2019');
-    }
-
-    await tester.binding.setSurfaceSize(const Size(400, 3200));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await tester.pumpWidget(
-      _wrap(
-        LibraryScreen(
-          assetRecordStore: recordStore,
-          thumbnailCache: _noThumbnails(recordStore),
-          syncJobStore: FakeSyncJobStore(),
-          albumStore: FakeAlbumStore(),
-          personStore: FakePersonStore(),
-          backupTargetsStore: targetsStore,
-          backupCoordinator: BackupCoordinator(
-            targetsStore: targetsStore,
-            recordStore: recordStore,
-            s3Uploader: _UnusedS3Uploader(),
-          ),
-          aiAnalysisStore: FakeAiAnalysisStore(),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    // Shown straight away, newest event at the top.
-    expect(
-      tester.getCenter(find.text("Nina's Wedding")).dy,
-      lessThan(tester.getCenter(find.text('Japan 2019')).dy),
-    );
   });
 
   testWidgets(

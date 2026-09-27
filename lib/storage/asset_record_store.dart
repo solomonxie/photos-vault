@@ -90,9 +90,6 @@ class AssetRecordStore {
               'ALTER TABLE $_table ADD COLUMN local_deleted INTEGER NOT NULL DEFAULT 0',
             );
           }
-          if (oldVersion < 7) {
-            await db.execute('ALTER TABLE $_table ADD COLUMN event TEXT');
-          }
           if (oldVersion < 8) {
             await db.execute(
               'ALTER TABLE $_table ADD COLUMN is_live_photo INTEGER NOT NULL DEFAULT 0',
@@ -308,7 +305,6 @@ class AssetRecordStore {
       description TEXT NOT NULL DEFAULT '',
       tags TEXT NOT NULL DEFAULT '[]',
       location TEXT,
-      event TEXT,
       passcode_hash TEXT,
       library_id TEXT,
       latitude REAL,
@@ -934,29 +930,6 @@ class AssetRecordStore {
     return rows.map((r) => r['location'] as String).toSet();
   }
 
-  Future<void> setEvent(String localId, String? value) async {
-    final db = await _open();
-    await db.update(
-      _table,
-      {'event': value, 'updated_at': DateTime.now().millisecondsSinceEpoch},
-      where: 'local_id = ?',
-      whereArgs: [localId],
-    );
-  }
-
-  /// Same role as [allLocations], for the Event field and the Events
-  /// collection.
-  Future<Set<String>> allEvents() async {
-    final db = await _open();
-    final rows = await db.query(
-      _table,
-      columns: ['event'],
-      distinct: true,
-      where: "event IS NOT NULL AND event != ''",
-    );
-    return rows.map((r) => r['event'] as String).toSet();
-  }
-
   /// Every distinct tag already used across all photos — same "select if
   /// exists" role as [allLocations], for the Tags field.
   Future<Set<String>> allTags() async {
@@ -1196,7 +1169,6 @@ class AssetRecordStore {
       description: row['description'] as String? ?? '',
       tags: tags,
       location: row['location'] as String?,
-      event: row['event'] as String?,
       passcodeHash: row['passcode_hash'] as String?,
       libraryId: row['library_id'] as String?,
       latitude: row['latitude'] as double?,

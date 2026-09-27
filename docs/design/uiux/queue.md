@@ -119,7 +119,7 @@ and an inbox of little cards can't.
  184 photos to look at              ⟳
  [ ⏸ Pause ] [ 🕐 Manual ] [ − 1 at a time + ]
  ─────────────────────────────────────────────
- Tags, events and captions                  ○─  ← off; the only paid half
+ Tags and captions                          ○─  ← off; the only paid half
  Costs one call to your AI vendor per photo.
  Faces and scanning stay free either way.
  ─────────────────────────────────────────────

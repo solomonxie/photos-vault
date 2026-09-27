@@ -11,7 +11,7 @@ import 'person_store.dart';
 
 /// Files [bytes] as a new library item that inherits everything about
 /// [source] except its pixels — same timestamp, description, tags, place,
-/// event, people, and private-album membership, but its own hash-named
+/// people, and private-album membership, but its own hash-named
 /// file. Every edit (crop, rotate, AI touch-up) lands this way, so the
 /// photo that was edited — and whatever is already backed up under its
 /// key — is never overwritten.
@@ -42,7 +42,6 @@ Future<AssetRecord> createDerivedAsset({
   }
   if (source.tags.isNotEmpty) await store.setTags(id, source.tags);
   if (source.location != null) await store.setLocation(id, source.location);
-  if (source.event != null) await store.setEvent(id, source.event);
   if (source.isFavorite) await store.setFavorite(id, true);
   if (source.isHidden) await store.setHidden(id, true);
   // An edit of a private-album photo belongs in that album, not loose in

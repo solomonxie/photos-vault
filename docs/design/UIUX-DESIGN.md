@@ -102,7 +102,7 @@ DO — one scrollable page              DON'T — a tab per section
 │ ▦ ▦ ▦ ▦             │               │ ▦ ▦ ▦ ▦             │
 │ Collections         │               │                     │
 │   Albums · People   │               │                     │
-│   Places · Events   │               ├──────────┬──────────┤
+│   Places            │               ├──────────┬──────────┤
 │ More                │               │ Library  │ Collect… │ ← a tab standing in
 │   Favorites · …     │               └──────────┴──────────┘   for a section
 └─────────────────────┘
@@ -225,7 +225,7 @@ Sometimes text link style look better than big button, depends on the usage.
 - **Hold a tile to start selecting** (Photos' own gesture) — one gesture, one meaning. Screens with no batch actions keep the long-press context menu instead.
 - Multi-select reuses the same tile with a checkmark overlay rather than a separate mode/screen; the batch actions live in a bottom bar that only exists while selecting.
 - Batch delete is the one destructive batch action, and it asks once for the whole selection, **naming the count**: "Delete 40 photos?" is a different decision from "Delete this photo?", and by the time the sheet is up the selection has usually scrolled out of sight. A prompt per photo isn't a safeguard, it's a wall to click through.
-- Every other batch edit is additive or a single-field set (tag, place, event, date shift).
+- Every other batch edit is additive or a single-field set (tag, place, date shift).
 - Adjusting the date on a multi-selection **shifts** every photo by the same delta rather than stamping them all identically, so a burst keeps its spacing.
 - **A video is a tile with a picture on it**, same as a photo — its poster frame, with a small camera badge. A black square and a play glyph says "a video" and nothing about *which* video, which is the only question a grid answers. The play-glyph tile stays as the fallback for a file with no frame to show.
 - Tile image source order: live local file → OS library thumbnail → app's own cached thumbnail → placeholder. The cache is a *fallback*; preferring it means one stale path blanks a tile whose real photo is right there.
@@ -260,7 +260,7 @@ date scrubber — only while the grid is moving:
 hold a tile ⇒ selection mode, and a bar appears for the batch:
 ┌──────────────────────────────────────────┐
 │ 2 Selected                          Done │
-│   ⊕ Add Tag  ⌖ Set Place  ▤ Set Event  ◷ Adjust Date │
+│   ⊕ Add Tag  ⌖ Set Place  ◷ Adjust Date              │
 └──────────────────────────────────────────┘
 ```
 
@@ -326,7 +326,7 @@ app cached thumb ──found──▶  draw it
 - "Edit" sits top-right in the nav bar and opens a menu: Crop, Rotate, AI Touch Up.
   - Crop and rotate are local and instant; rotate is a **full 360° dial** you spin, not four preset buttons.
   - AI Touch Up asks for a prompt, then runs in the background — the Edit button becomes "AI working…" and the library shows the same line, so leaving the photo doesn't cancel anything.
-  - Every edit **lands as a new photo** carrying the original's date, description, tags, place, event and people. Editing in place would silently overwrite what's already backed up under that key.
+  - Every edit **lands as a new photo** carrying the original's date, description, tags, place and people. Editing in place would silently overwrite what's already backed up under that key.
 - **Video gets a real transport, not just tap-to-play**: a persistent bar under the frame with play/pause, elapsed and remaining time, a draggable timeline and mute. Dragging it seeks *live* — the frame under your thumb is the frame you see — and playback pauses for the drag, then resumes if it was running.
 - **A Live Photo plays while held**, like Photos: press and hold the still, release to stop. The paired video is fetched on the first hold, never on open — pre-loading it would pull a video file (and maybe an iCloud download) for every photo swiped past. A small LIVE badge marks the photo both in the grid and in the viewer.
 - Export/share: offer the original always; offer re-encoded formats only where you actually have an encoder, and say why when you don't.
@@ -365,9 +365,9 @@ app cached thumb ──found──▶  draw it
 - **A tap target is an area, not the ink.** A `GestureDetector` wrapped straight around a min-width row of text and a chevron is only hit-testable where something is painted — the gaps between letters do nothing, and the chevron ends up looking like the only target because it's the densest thing on the line. Make it opaque, pad it, and let it span the line.
 - **A group shot is not one person's picture.** Taking the first tagged photo as someone's avatar breaks the moment two people are tagged in the same one — they get the same picture, and whoever stood centre-frame becomes the face of both. Record *which face* is theirs alongside the photo, and crop to it.
 - **A first example is better than an empty slot.** Linking the first photo to a person sets their picture from it, because a face on the row beats a placeholder and nobody wants a second step to say so. Only ever fills an empty slot — a portrait chosen on purpose stays.
-- Any value that is free text but repeats across records (location, event, tag, school, employer, organization) gets a **fuzzy search-or-create picker**: typing filters existing values across all records, and the same field creates a new one. No separate "create" button, no separate mode.
+- Any value that is free text but repeats across records (location, tag, school, employer, organization) gets a **fuzzy search-or-create picker**: typing filters existing values across all records, and the same field creates a new one. No separate "create" button, no separate mode.
 - That picker is a **drop-down sheet over the current page**, never a page push — picking a value shouldn't cost a navigation. It carries the field name, a checkmark on the current value, and a clear row when one is set.
-- **Size it to what's in it**, capped at **half** the screen and floored at something worth opening. Choosing between three events should be a small pop-up; the same slab every time reads as a page and buries the photo behind it. Half is the ceiling because the page underneath is the context for the choice — a sheet that covers it is a page push with extra steps.
+- **Size it to what's in it**, capped at **half** the screen and floored at something worth opening. Choosing between three places should be a small pop-up; the same slab every time reads as a page and buries the photo behind it. Half is the ceiling because the page underneath is the context for the choice — a sheet that covers it is a page push with extra steps.
 - **The keyboard only comes up unasked when typing is the point** — a list too long to scan (>8), or an empty one where typing is the only way forward. Everywhere else it would cover the page the sheet was careful not to, to save a tap on a field that's right there.
 - **A grabber is a promise.** A sheet drawn with one has to dismiss when it's pulled down — from the grabber, from the title beside it, or by pulling the list past its top. The list takes clamping physics so that last pull has somewhere to go; iOS bounce would swallow it into a stretch. A pull that stops short springs back.
 - Passcode entry: tap-only numeric keypad with dot indicators, not a system keyboard. Auto-submit on the final digit when there's nothing left to disambiguate.

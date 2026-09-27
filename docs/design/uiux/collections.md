@@ -19,14 +19,14 @@ different long-press action set — never a new tier to learn.
  ⇒ Delete this album?  The photos and videos inside stay in your library.
 ```
 
-## Favorites · group (place/event) · Recently Deleted
+## Favorites · group (place) · Recently Deleted
 
 ```
  ‹            Favorites                  hold ▸ ♡ Unfavorite · 🗑 Delete !
  empty  No favorites yet.
 
  ‹              Kyoto                    hold ▸ ♥ · 👁⃠ Hide · 🗑 Delete !
-        ↑ the place or event name; 12 photos
+        ↑ the place name; 12 photos
 
  ‹        Recently Deleted               hold ▸ ↩ Recover
  empty  No recently deleted items.              🗑 Delete Permanently !
@@ -165,13 +165,13 @@ another photo.
 AI-guessed groupings, opt-in, spends the user's own credit.
 
 ```
- ‹              People                    ← or Events
+ ‹              People
  [[ Analyze 42 Photos ]]      ⟳ Analyzing… 12 of 42
  ┌────────┐ ┌────────┐ ┌────────┐
  │ cover  │ │ cover  │ │  ⊞     │
  └────────┘ └────────┘ └────────┘
  2 People    1 Person    Tap to Analyze     ← the not-yet-analyzed card
- No People   Uncategorized
+ No People
  empty  No photos to analyze yet.
 ```
 

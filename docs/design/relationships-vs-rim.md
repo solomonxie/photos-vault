@@ -35,31 +35,21 @@ applied to any list is the consistent one. Either make the person lock
 behave like the album's, or say in the copy that it is a different, weaker
 thing and why. Today it silently is.
 
-### 2. Events should be entities, not a string
-
-An event here is free text on a photo (`event`, grouped in
-`_groupedBy`). RIM's "story graphs" make a story a node with people, a
-place and a time hanging off it. The small version of that is worth it on
-its own: an Event with an id, linked to people and photos, rendered in the
-graph that already exists. It turns "who is this" into "when were these
-people in the same room", which is the question a photo library can answer
-and a contact manager cannot.
-
-### 3. Genealogy is a second layout, not a second feature
+### 2. Genealogy is a second layout, not a second feature
 
 Typed relationships are here; generational layout is not. The current graph
 unions family relationships into clusters and rings them around a circle —
 right for "who knows whom", wrong for "who descends from whom". A family
 tree is a DAG laid out by generation. Same data, second painter.
 
-### 4. Printing a profile
+### 3. Printing a profile
 
 RIM: "easy print profiles and graphs". Nothing here renders a person to
 anything shareable. Cheap route that respects the size budget: paint the
 existing profile and graph into an image and hand it to the share sheet
 already wired up — no PDF package, no new megabyte.
 
-### 5. Bio fields are the least protected data in the app
+### 4. Bio fields are the least protected data in the app
 
 `lib/vault/README.md` is emphatic that nothing about the private side goes
 in sqlite, because sqlite rides to the bucket in the daily snapshot. Person

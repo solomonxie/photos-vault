@@ -42,7 +42,6 @@ void main() {
       await store.setDescription(source.localId, 'at the lake');
       await store.setTags(source.localId, ['lake', 'summer']);
       await store.setLocation(source.localId, 'Lake Como');
-      await store.setEvent(source.localId, 'Italy 2011');
       await store.setFavorite(source.localId, true);
 
       final created = await createDerivedAsset(
@@ -64,7 +63,6 @@ void main() {
       expect(created.description, 'at the lake');
       expect(created.tags, ['lake', 'summer']);
       expect(created.location, 'Lake Como');
-      expect(created.event, 'Italy 2011');
       expect(created.isFavorite, isTrue);
 
       // The source keeps its own file and its own record.

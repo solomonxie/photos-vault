@@ -1,7 +1,7 @@
 # Library — the one page
 
 `lib/viewer/library_screen.dart`. No tabs: a day-grouped grid, then Albums /
-People / Places / Events, then More. Opens at the **newest** photo.
+People / Places, then More. Opens at the **newest** photo.
 
 ```
  ▁▁▁ status bar — tap = jump home ▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁▁
@@ -32,9 +32,6 @@ People / Places / Events, then More. Opens at the **newest** photo.
  📍 Home                                 4 ›
  Show All (18)                               ← folds past 5 rows
  Set a place on a photo and it shows up here. ← empty
- Events                            AI Suggestions ›
- 📅 Graduation                           9 ›
- Set an event on a photo and it shows up here.
  More                                        ← inset-grouped card, here only
  ┌─────────────────────────────────────────┐
  │ ▣ Cloud Settings                     ›  │
@@ -70,7 +67,7 @@ decade of scrolling away.
            │  files from the Files app.             │
            │      [[ Add Files ]]                   │
            └────────────────────────────────────────┘
-           ← Albums/People/Places/Events are not drawn; More still is
+           ← Albums/People/Places are not drawn; More still is
  busy      the ＋ button goes disabled while a pick is running
  ai edit   ⟳ AI working…            ← thin row under the nav bar
 ```
@@ -96,7 +93,7 @@ over the bottom.
 **Four buttons, not six.** Six across a phone left each one a 9-point glyph
 over a word too small to read, and the two anybody presses — album and
 delete — were the same size as the ones nobody does. `More` opens a sheet
-with the batch *metadata* edits (Set Place, Set Event, Adjust Date & Time),
+with the batch *metadata* edits (Set Place, Adjust Date & Time),
 which belong together because that is what they are: a list of fields to
 set, each opening a picker of its own anyway.
 

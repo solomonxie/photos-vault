@@ -52,12 +52,11 @@ class AiAnalysisStore {
     final db = await _factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 5,
+        version: 6,
         onCreate: (db, version) => db.execute('''
           CREATE TABLE $_table (
             local_id TEXT PRIMARY KEY,
             people_count INTEGER NOT NULL,
-            event_label TEXT NOT NULL,
             analyzed_at INTEGER NOT NULL,
             tags TEXT NOT NULL DEFAULT '',
             description TEXT NOT NULL DEFAULT '',
@@ -100,11 +99,36 @@ class AiAnalysisStore {
             await db.execute('DROP TABLE IF EXISTS $_descriptorTable');
             await _createDescriptors(db);
           }
+          // v6 dropped `event_label`, the occasion guess behind a collection
+          // that albums already did better. Rebuilt rather than
+          // `DROP COLUMN`, which needs a newer SQLite than every phone has.
+          if (from < 6) await _dropEventLabel(db);
         },
       ),
     );
     _db = db;
     return db;
+  }
+
+  static Future<void> _dropEventLabel(Database db) async {
+    await db.execute('ALTER TABLE $_table RENAME TO ${_table}_old');
+    await db.execute('''
+      CREATE TABLE $_table (
+        local_id TEXT PRIMARY KEY,
+        people_count INTEGER NOT NULL,
+        analyzed_at INTEGER NOT NULL,
+        tags TEXT NOT NULL DEFAULT '',
+        description TEXT NOT NULL DEFAULT '',
+        reviewed INTEGER NOT NULL DEFAULT 0,
+        faces TEXT NOT NULL DEFAULT ''
+      )
+    ''');
+    await db.execute(
+      'INSERT INTO $_table (local_id, people_count, analyzed_at, tags, '
+      'description, reviewed, faces) SELECT local_id, people_count, '
+      'analyzed_at, tags, description, reviewed, faces FROM ${_table}_old',
+    );
+    await db.execute('DROP TABLE ${_table}_old');
   }
 
   /// Idempotent, and run on open as well as on upgrade: the descriptors are
@@ -314,8 +338,8 @@ class AiAnalysisStore {
   /// Marks every photo as never-looked-at, so the whole library is walked
   /// again from the newest.
   ///
-  /// Only the free half. Tags, captions and event labels a vendor was paid
-  /// for stay exactly where they are, and a suggestion already dismissed
+  /// Only the free half. The tags and captions a vendor was paid for stay
+  /// exactly where they are, and a suggestion already dismissed
   /// stays dismissed — a rescan that re-billed the library would be the
   /// most expensive button in the app.
   Future<void> forgetFaces() async {
@@ -484,7 +508,6 @@ class AiAnalysisStore {
     await db.insert(_table, {
       'local_id': analysis.localId,
       'people_count': analysis.peopleCount,
-      'event_label': analysis.eventLabel,
       'analyzed_at': analysis.analyzedAt.millisecondsSinceEpoch,
       'tags': jsonEncode(analysis.tags),
       'description': analysis.description,
@@ -518,7 +541,6 @@ class AiAnalysisStore {
     await db.insert(_table, {
       'local_id': localId,
       'people_count': peopleCount,
-      'event_label': '',
       'analyzed_at': analyzedAt.millisecondsSinceEpoch,
       'tags': jsonEncode(const <String>[]),
       'description': '',
@@ -576,7 +598,6 @@ class AiAnalysisStore {
   Future<void> saveSuggestion(AiPhotoAnalysis analysis) async {
     final db = await _open();
     final row = {
-      'event_label': analysis.eventLabel,
       'tags': jsonEncode(analysis.tags),
       'description': analysis.description,
       'reviewed': 0,
@@ -643,7 +664,6 @@ class AiAnalysisStore {
   static AiPhotoAnalysis _fromRow(Map<String, Object?> row) => AiPhotoAnalysis(
     localId: row['local_id'] as String,
     peopleCount: row['people_count'] as int,
-    eventLabel: row['event_label'] as String,
     analyzedAt: DateTime.fromMillisecondsSinceEpoch(row['analyzed_at'] as int),
     tags: _tags(row['tags']),
     description: row['description'] as String? ?? '',
