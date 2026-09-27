@@ -340,7 +340,7 @@ void main() {
     await tester.tap(find.text('Add 1'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Hide with no backup?'), findsOneWidget);
+    expect(find.text('This phone will be the only copy'), findsOneWidget);
 
     // Backing out leaves the photo exactly where it was.
     await tester.tap(find.text('Cancel'));
@@ -466,8 +466,9 @@ void main() {
 
     // The footer is there on an empty album too: this is what hiding does,
     // and it is worth knowing before the first photo goes in. With no
-    // bucket configured — which is this test — it says the honest thing.
-    expect(find.textContaining('are not encrypted'), findsOneWidget);
+    // bucket configured — which is this test — it says the honest thing:
+    // the photo is encrypted here, and here is the only place it is.
+    expect(find.textContaining('no second copy anywhere'), findsOneWidget);
     // Hiding is not finished until Photos' own Recently Deleted is empty,
     // and nothing else in the app says so.
     expect(find.textContaining('30 days'), findsOneWidget);

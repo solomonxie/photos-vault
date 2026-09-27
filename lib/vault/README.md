@@ -20,16 +20,58 @@ still_video.dart the video decoy — one frame held for a real duration,
 
 album_index.dart app-data/index.bin — every install writes one, same size
                  always, 32 padded sections, yours found by a keyed tag
-cache.dart       Library/Caches, encrypted, TTL + LRU per pool
+object_key.dart  what a carrier is called, everywhere — relative, so one
+                 index reads against every bucket and a photo has a name
+                 before any bucket exists
+store.dart       <AppSupport>/vault — the carriers themselves, durable and
+                 out of the device backup. **The local copy.**
+cache.dart       Library/Caches, encrypted, TTL + LRU per pool — for what
+                 came *down* from a bucket, and free to be thrown away
 ```
+
+## This phone first, the bucket second
+
+A hidden photo's carrier is kept in `store.dart`, so an album opens, scrolls
+and plays with **no network and no bucket configured at all**. The bucket is
+the copy that survives losing the phone, and the only source for a photo the
+user has deliberately sent back to it.
+
+The carrier is stored exactly as uploaded — already encrypted under the album
+key, already a real openable JPEG or MP4 of somebody else's picture. One
+artifact, two homes: the local file *is* the upload body, and the two copies
+can be compared byte for byte.
+
+```text
+hide ─▶ CarrierBuilder ─▶ VaultStore (the copy) ─▶ bucket (the backup)
+                              │                       │
+   tile:  seek first 64 KB ◀──┘        ranged GET ◀────┘  (only if not here)
+   photo: read the file    ◀──┘        whole GET  ◀────┘
+```
+
+Per-photo, the user chooses: **Free Up Space** drops the local carrier and
+keeps an encrypted thumbnail in its place (the tile still draws offline);
+**Download** fetches it back. Freeing is refused for a photo the bucket cannot
+be shown to hold — until something else has it, this app's copy is the only
+one.
+
+Where it lives, and why nowhere else: Application Support is durable and in
+the device backup, Caches is out of the backup and purgeable, and this needs
+both properties — so it takes the durable directory and turns the backup off
+(`ios/Runner/BackupExclusionChannel.swift`).
 
 Design and the reasoning behind each choice:
 [`docs/design/hidden-backup/DESIGN.md`](../../docs/design/hidden-backup/DESIGN.md).
 
-Two rules worth not rediscovering:
+Rules worth not rediscovering:
 
 - **Nothing about the private side goes in sqlite.** The database is in the
-  daily app-data snapshot, which is in the bucket next to the carriers.
+  daily app-data snapshot, which is in the bucket next to the carriers. A
+  hidden photo's row is deleted the moment its carrier is filed; the album
+  index is the only thing that describes it after that.
+- **A rewrite merges into the index as it stands, local or remote.** Falling
+  back to "no index" while offline builds a fresh one — 32 sections of random
+  bytes — and every other album on the phone is gone. `VaultBucket.currentIndex`
+  is the one place that decides which index a rewrite is based on.
 - **A wrong 4-digit code is never an error.** It derives a different album
   key, which matches no index section and no carrier MAC, so the album is
   simply empty. There is no code path that could report "wrong passcode".

@@ -184,3 +184,38 @@ AI-guessed groupings, opt-in, spends the user's own credit.
  └──────┴──────┴──────┘
  empty  No photos available to add.
 ```
+
+## Hidden: what the phone is holding  `lib/viewer/private_album_screen.dart`
+
+Hidden photos are kept on the phone as encrypted carriers, so the album works
+with no network and no bucket (`docs/design/hidden-backup/DESIGN.md`). That
+makes "how much is this costing me" a real question, and gives the album a
+second verb.
+
+```
+ ‹ Cancel            Hidden                      Select  ⋯
+
+ 12 items · 3.4 GB                     ← both grids, one number
+ 8 hidden photos on this phone · 3.4 GB   ← what is held in full
+
+ ▦ ▦ ▦ ▦        ← long-press a tile to select
+ ▦ ☁ ▦ ☁        ← ☁ bottom-left: in the bucket only, opens after a download
+ ▦ ▦ ✓ ▦        ← ✓ top-right while selecting
+
+ 3 on this phone · 1 in the bucket only
+ [ Free Up 3 ]        [[ Download 1 ]]
+```
+
+- **Two verbs, both always shown, each dead when it would do nothing.** A
+  mixed selection is the normal case, and a bar whose buttons appear and
+  vanish as tiles are tapped is harder to aim at than one whose buttons grey
+  out. The count is in the label, so which one applies to what is legible
+  before the tap.
+- **The badge goes on the exception, not the rule.** Only bucket-only tiles
+  are marked, so the marked ones answer "what would I have to wait for".
+- **Freeing is refused per photo when the bucket cannot be shown to have it**,
+  and the result says how many were left behind and why. Freeing space must
+  never be how a hidden photo stops existing.
+- **Two selection modes, not one.** The local grid (photos hidden but not yet
+  filed) offers "Move to Library"; the bucket-side grid offers these two. One
+  mode over both would put verbs on photos that cannot do them.

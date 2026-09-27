@@ -7,36 +7,7 @@ import 'package:photos_vault/vault/cipher.dart';
 import 'package:photos_vault/vault/jpeg_segments.dart';
 import 'package:photos_vault/vault/mp4_boxes.dart';
 
-Uint8List _decoyJpeg({int width = 640, int height = 480}) {
-  final image = img.Image(width: width, height: height);
-  for (var y = 0; y < height; y++) {
-    for (var x = 0; x < width; x++) {
-      image.setPixelRgb(x, y, x % 255, y % 255, (x + y) % 255);
-    }
-  }
-  return Uint8List.fromList(img.encodeJpg(image, quality: 50));
-}
-
-/// Smallest thing `parseMp4Boxes` accepts: ftyp + mdat + moov.
-Uint8List _decoyMp4() {
-  final out = BytesBuilder();
-  void box(String type, List<int> payload) {
-    final size = 8 + payload.length;
-    out.add([
-      (size >> 24) & 0xFF,
-      (size >> 16) & 0xFF,
-      (size >> 8) & 0xFF,
-      size & 0xFF,
-      ...type.codeUnits,
-      ...payload,
-    ]);
-  }
-
-  box('ftyp', 'isomiso2avc1'.codeUnits);
-  box('mdat', List.filled(2048, 7));
-  box('moov', List.filled(512, 3));
-  return out.toBytes();
-}
+import 'carrier_fixtures.dart';
 
 void main() {
   final cipher = PlatformCipher();
@@ -60,7 +31,7 @@ void main() {
         cipher: cipher,
         keys: keys,
         masterSalt: masterSalt,
-        decoy: _decoyJpeg(),
+        decoy: decoyJpeg(),
         thumbnail: thumbnail,
         original: original,
         extension: 'heic',
@@ -119,7 +90,7 @@ void main() {
     });
 
     test('an ordinary photo has no payload at all', () {
-      expect(payloadOf(_decoyJpeg()), isNull);
+      expect(payloadOf(decoyJpeg()), isNull);
     });
 
     test('two carriers of the same photo share no bytes to group them by', () {
@@ -127,7 +98,7 @@ void main() {
         cipher: cipher,
         keys: keys,
         masterSalt: masterSalt,
-        decoy: _decoyJpeg(),
+        decoy: decoyJpeg(),
         thumbnail: thumbnail,
         original: original,
         extension: 'heic',
@@ -145,7 +116,7 @@ void main() {
 
   group('mp4 carrier', () {
     test('round trips, stays parseable, and keeps the decoy first', () {
-      final decoy = _decoyMp4();
+      final decoy = decoyMp4();
       final carrier = buildMp4Carrier(
         cipher: cipher,
         keys: keys,
@@ -175,7 +146,7 @@ void main() {
     });
 
     test('an ordinary video has no payload', () {
-      expect(payloadOf(_decoyMp4()), isNull);
+      expect(payloadOf(decoyMp4()), isNull);
     });
   });
 }

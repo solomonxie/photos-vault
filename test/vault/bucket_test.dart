@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,7 @@ import 'package:photos_vault/settings/secure_store.dart';
 import 'package:photos_vault/vault/album_index.dart';
 import 'package:photos_vault/vault/bucket.dart';
 import 'package:photos_vault/vault/keys.dart';
+import 'package:photos_vault/vault/store.dart';
 
 class _MemoryStore implements SecureStore {
   final Map<String, String> values = {};
@@ -49,6 +51,12 @@ void main() {
     );
     bucket = VaultBucket(
       targetsStore: store,
+      // Pointed at a temp directory: the local mirror is real, it just
+      // isn't the app container.
+      store: VaultStore(
+        directory: () async =>
+            Directory.systemTemp.createTempSync('pv_bucket_test_'),
+      ),
       put: (url, {body}) async {
         objects[url.path] = body is List<int>
             ? Uint8List.fromList(body)
