@@ -1,4 +1,4 @@
-import 'package:flutter/material.dart';
+import 'package:flutter/cupertino.dart';
 import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/app_localizations.dart';
@@ -80,18 +80,20 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final url = _url;
-    return Scaffold(
-      backgroundColor: Colors.black,
-      appBar: AppBar(
-        backgroundColor: Colors.black,
-        foregroundColor: Colors.white,
-        title: Text(_fileName, overflow: TextOverflow.ellipsis),
+    return CupertinoPageScaffold(
+      backgroundColor: CupertinoColors.black,
+      navigationBar: CupertinoNavigationBar(
+        backgroundColor: CupertinoColors.black,
+        middle: Text(_fileName, overflow: TextOverflow.ellipsis),
       ),
-      body: Center(
+      child: Center(
         child: _error != null
-            ? Text(_error!, style: const TextStyle(color: Colors.white))
+            ? Text(
+                _error!,
+                style: const TextStyle(color: CupertinoColors.white),
+              )
             : url == null
-            ? const CircularProgressIndicator()
+            ? const CupertinoActivityIndicator()
             : _isImage
             ? InteractiveViewer(
                 child: Image.network(
@@ -100,7 +102,7 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
                       _openExternally(l10n, url),
                   loadingBuilder: (context, child, progress) => progress == null
                       ? child
-                      : const CircularProgressIndicator(),
+                      : const CupertinoActivityIndicator(),
                 ),
               )
             : _openExternally(l10n, url),
@@ -113,17 +115,17 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         const Icon(
-          Icons.insert_drive_file_outlined,
-          color: Colors.grey,
+          CupertinoIcons.doc,
+          color: CupertinoColors.systemGrey,
           size: 48,
         ),
         const SizedBox(height: 12),
         Text(
           l10n.bucketPreviewUnsupported,
-          style: const TextStyle(color: Colors.grey),
+          style: const TextStyle(color: CupertinoColors.systemGrey),
         ),
         const SizedBox(height: 16),
-        FilledButton(
+        CupertinoButton.filled(
           onPressed: () => launchUrl(url, mode: LaunchMode.externalApplication),
           child: Text(l10n.bucketPreviewOpenExternally),
         ),

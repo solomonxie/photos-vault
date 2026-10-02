@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show MaterialPageRoute;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/app_localizations.dart';
@@ -39,7 +38,7 @@ Future<void> showObjectInBucketBrowser(
   final target = await _locate(context, objectKey, locate);
   if (target == null || !context.mounted) return;
   await Navigator.of(context).push(
-    MaterialPageRoute(
+    CupertinoPageRoute(
       builder: (_) => BucketBrowserScreen(
         target: target,
         prefix: folderPrefixOf(objectKey),

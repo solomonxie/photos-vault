@@ -49,9 +49,9 @@ does — not whatever a Flutter app usually does. A frame dropped while
 scrolling the grid is a bug, not a polish item.
 
 **Size budget: 33 MB installed.** Measured baseline (release `Runner.app`,
-Sep 2026) is **32.2 MB** — Flutter.framework 10 MB, Dart AOT snapshot
-7.6 MB, **SFace.mlmodelc 9.3 MB**, statically linked plugin code 2.6 MB,
-app icons 884 KB, no bundled assets.
+Oct 2026) is **31.0 MB** — Flutter.framework 10 MB, Dart AOT snapshot
+7.7 MB, **SFace.mlmodelc 9.3 MB**, statically linked plugin code 2.7 MB,
+app icons 768 KB, ~12 KB of demo text.
 
 The budget was 25 MB and the baseline 22.3 until face recognition needed a
 model. That was a deliberate call, not a drift: a general image descriptor
@@ -71,11 +71,13 @@ nothing. Keep the emitted symbol files for the release: a crash report from
 an obfuscated build is unreadable without them. (It can't be combined with
 `--analyze-size`; drop both flags for that one measuring build.)
 
-Two standing rules that came out of getting here, easy to undo by accident:
+Three standing rules that came out of getting here, easy to undo by accident:
 **decode images through `decodePhoto`**, never `img.decodeImage` — the
 latter reaches every decoder in the `image` package and AOT then keeps all
-of them; and **nothing goes in `flutter: assets:`** without a reason it has
-to be on every phone.
+of them; **nothing goes in `flutter: assets:`** without a reason it has
+to be on every phone; and **nothing from `package:flutter/material.dart`**
+— the app is Cupertino only, which lets AOT drop the Material library
+(~0.5 MB) and keeps `uses-material-design: false`.
 
 A new dependency is a size and startup cost, and most of them replace code
 that would have been shorter than the package's own API surface — see the
