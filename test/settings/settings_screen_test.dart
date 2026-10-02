@@ -3,10 +3,12 @@ import 'package:photos_vault/backup/bucket_backup.dart';
 import 'package:photos_vault/backup/snapshot_archive.dart';
 import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/settings/add_backup_screen.dart';
+import 'package:photos_vault/settings/backup_queue_panel.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/bucket_browser_screen.dart';
 import 'package:photos_vault/settings/settings_screen.dart';
 import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/upload/sync_queue.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -16,6 +18,7 @@ import '../support/fake_asset_record_store.dart';
 import '../support/fake_local_vault.dart';
 import '../support/fake_person_store.dart';
 import '../support/fake_snapshot_file.dart';
+import '../support/fake_sync_job_store.dart';
 import 'fake_secure_store.dart';
 
 Widget _wrap(Widget child) {
@@ -201,13 +204,13 @@ void main() {
     // On to begin with: the copy that makes a bucket of opaque keys legible
     // is not something the user should have to go and find.
     expect(await bucket.backup.isEnabled(), isTrue);
-    await tester.tap(find.byType(CupertinoSwitch));
+    await tester.tap(find.byType(CupertinoSwitch).first);
     await tester.pumpAndSettle();
     expect(await bucket.backup.isEnabled(), isFalse);
 
     // Flipping it back on writes the copy at once, rather than waiting for
     // the next change — which could be days off.
-    await tester.tap(find.byType(CupertinoSwitch));
+    await tester.tap(find.byType(CupertinoSwitch).first);
     await tester.pumpAndSettle();
 
     expect(await bucket.backup.isEnabled(), isTrue);
@@ -239,7 +242,9 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Add a bucket below first'), findsOneWidget);
-    final toggle = tester.widget<CupertinoSwitch>(find.byType(CupertinoSwitch));
+    final toggle = tester.widget<CupertinoSwitch>(
+      find.byType(CupertinoSwitch).first,
+    );
     expect(toggle.onChanged, isNull);
   });
 
@@ -415,5 +420,45 @@ void main() {
 
     expect(find.text('Bucket by Bucket'), findsOneWidget);
     expect(await store.getOrderStrategy(), BackupOrderStrategy.bucketByBucket);
+  });
+
+  testWidgets('cloud settings carries the backup queue under the buckets', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final queue = SyncQueue(
+      store: FakeSyncJobStore(),
+      settings: BackupTargetsStore(store: FakeSecureStore()),
+      process: (_) async {},
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(
+          store: await _storeWithBucket(),
+          assetRecordStore: FakeAssetRecordStore(),
+          syncQueue: queue,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(BackupQueuePanel), findsOneWidget);
+    expect(find.text('Sync Now'), findsOneWidget);
+  });
+
+  testWidgets('demo mode is not in cloud settings', (tester) async {
+    await _useTallSurface(tester);
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(
+          store: await _storeWithBucket(),
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('settingsDemoModeRow')), findsNothing);
   });
 }
