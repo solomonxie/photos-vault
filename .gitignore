@@ -49,3 +49,9 @@ ios/Flutter/Signing.xcconfig
 # Store screenshots — captured off the phone at submission time, regenerated
 # by `make screenshots FROM=<dir>`. Megabytes of derived art, not source.
 docs/release/screenshots/
+
+# Storefront of the last build, written by make (STOREFRONT=USA|CAN|CHN)
+ios/Flutter/Store.xcconfig
+
+# Demo-mode credentials (see .env.demo.example)
+.env.demo

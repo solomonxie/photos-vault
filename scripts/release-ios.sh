@@ -8,12 +8,24 @@
 # The build number is a timestamp so every upload is higher than the last.
 # The user-visible version is `version:` in pubspec.yaml.
 #
-# Usage: scripts/release-ios.sh [build-number]
+# Usage: [STOREFRONT=USA|CAN|CHN] scripts/release-ios.sh [build-number]
 set -e
 cd "$(dirname "$0")/.."
 
 FLUTTER=.tools/flutter/bin/flutter
 [ -x "$FLUTTER" ] || FLUTTER=flutter
+
+# Storefront (App Store country code) -> Info.plist AppStoreRegion.
+case "${STOREFRONT:-USA}" in
+  USA | CAN) REGION=us ;;
+  CHN) REGION=cn ;;
+  *) echo "STOREFRONT must be USA, CAN or CHN"; exit 1 ;;
+esac
+echo "APP_STORE_REGION = $REGION" > ios/Flutter/Store.xcconfig
+
+# Demo-mode credentials, if present (see .env.demo.example).
+DEFINES=
+[ -f .env.demo ] && DEFINES=--dart-define-from-file=.env.demo
 
 BUILD=${1:-$(date +%Y%m%d%H%M)}
 SYMBOLS=build/symbols/$BUILD
@@ -24,7 +36,7 @@ SYMBOLS=build/symbols/$BUILD
 "$FLUTTER" build ipa --release \
   --build-number="$BUILD" \
   --obfuscate --split-debug-info="$SYMBOLS" \
-  --export-options-plist=ios/ExportOptions.plist
+  --export-options-plist=ios/ExportOptions.plist $DEFINES
 
 du -sh build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app 2>/dev/null || true
 echo

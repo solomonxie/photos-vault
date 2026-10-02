@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'package:uuid/uuid.dart';
 
 import '../photos/ai_vendor.dart';
+import 'app_store_region.dart';
 import 'secure_store.dart';
 
 /// Sequential is sticky — every call starts from the same key, only moving
@@ -55,12 +56,17 @@ class NoAiKeyException implements Exception {
 /// fallback [AiKeyStrategy] between them — powers the People smart
 /// collection. See IMPLEMENTATION_PLAN.md T4.4.
 class AiSettingsStore {
-  AiSettingsStore({SecureStore? store, Uuid? uuid})
+  AiSettingsStore({SecureStore? store, Uuid? uuid, this.fixedRegion})
     : _store = store ?? const FlutterSecureStore(),
       _uuid = uuid ?? const Uuid();
 
   final SecureStore _store;
   final Uuid _uuid;
+
+  /// For tests; otherwise the build's storefront.
+  final AppStoreRegion? fixedRegion;
+
+  AppStoreRegion get region => fixedRegion ?? AppStoreRegion.current;
 
   static const _keysKey = 'ai_keys_v1';
   static const _strategyKey = 'ai_key_strategy_v1';
@@ -74,9 +80,13 @@ class AiSettingsStore {
     final raw = await _store.read(_keysKey);
     if (raw != null) {
       final list = jsonDecode(raw) as List<dynamic>;
-      return list
-          .map((e) => AiKeyMeta.fromJson(e as Map<String, dynamic>))
-          .toList();
+      // A vendor a later build dropped is skipped, not a crash; the next
+      // write forgets it.
+      final known = {for (final v in AiVendor.values) v.name};
+      return [
+        for (final e in list.cast<Map<String, dynamic>>())
+          if (known.contains(e['vendor'])) AiKeyMeta.fromJson(e),
+      ];
     }
     final legacy = await _store.read(_legacyOpenAiKey);
     if (legacy == null || legacy.isEmpty) {
@@ -90,6 +100,13 @@ class AiSettingsStore {
     await _store.delete(_legacyOpenAiKey);
     return migrated;
   }
+
+  /// The keys this storefront may use. Others stay stored, untouched, so
+  /// switching a phone between storefront builds loses nothing.
+  Future<List<AiKeyMeta>> usableKeys() async => [
+    for (final key in await listKeys())
+      if (aiVendorAllowed(key.vendor, region)) key,
+  ];
 
   /// Every vendor key and the rotation state around them. The legacy slot
   /// too: an install that never opened the AI screen since the migration
@@ -167,7 +184,7 @@ class AiSettingsStore {
   /// the next configured key before giving up, so one dead/rate-limited
   /// key doesn't take AI Analysis down entirely.
   Future<T> runWithKeys<T>(Future<T> Function(AiKeyMeta key) call) async {
-    final keys = await listKeys();
+    final keys = await usableKeys();
     if (keys.isEmpty) throw NoAiKeyException();
     final strategy = await getStrategy();
     final startAt = (await _getCursor()) % keys.length;
