@@ -8,6 +8,7 @@ import '../photos/person_store.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/membership_sweep.dart';
 
 /// Everything this app knows that isn't a photo.
 ///
@@ -180,17 +181,26 @@ class AppSnapshotIo {
   Future<AppSnapshot> export() async {
     final records = await assetRecordStore.listAll();
     final albums = <Map<String, Object?>>[];
+    final albumMembers = await albumStore.allMemberships();
     for (final album in await albumStore.listAll()) {
       albums.add({
         'id': album.id,
         'name': album.name,
         'createdAt': album.createdAt.toIso8601String(),
-        'localIds': await albumStore.localIdsIn(album.id),
+        'localIds': albumMembers[album.id] ?? const <String>[],
       });
     }
     final people = <Map<String, Object?>>[];
+    final personMembers = await personStore.allMemberships();
+    final sets = await personStore.exportSets();
     for (final person in await personStore.listAll()) {
-      people.add(await _personRow(person));
+      people.add(
+        _personRow(
+          person,
+          personMembers[person.id] ?? const <String>[],
+          sets[person.id] ?? PersonExportSet(),
+        ),
+      );
     }
     return AppSnapshot(
       version: AppSnapshot.currentVersion,
@@ -201,7 +211,10 @@ class AppSnapshotIo {
     );
   }
 
-  Future<int> import(AppSnapshot snapshot) async {
+  Future<int> import(AppSnapshot snapshot) =>
+      RestoreGuard.run(() => _import(snapshot));
+
+  Future<int> _import(AppSnapshot snapshot) async {
     var restored = 0;
     for (final row in snapshot.assets) {
       if (await _importAsset(row)) restored++;
@@ -243,6 +256,7 @@ class AppSnapshotIo {
     'isLivePhoto': record.isLivePhoto,
     'isGif': record.isGif,
     'createdAt': record.createdAt.toIso8601String(),
+    'addedAt': record.addedAt.toIso8601String(),
     'isFavorite': record.isFavorite,
     'isHidden': record.isHidden,
     'deletedAt': record.deletedAt?.toIso8601String(),
@@ -288,6 +302,7 @@ class AppSnapshotIo {
       isLivePhoto: row['isLivePhoto'] as bool? ?? false,
       isGif: row['isGif'] as bool? ?? false,
       createdAt: _date(row['createdAt']),
+      addedAt: _date(row['addedAt']),
       libraryId: row['libraryId'] as String?,
       latitude: (row['latitude'] as num?)?.toDouble(),
       longitude: (row['longitude'] as num?)?.toDouble(),
@@ -354,14 +369,17 @@ class AppSnapshotIo {
 
   // ----------------------------------------------------------------- people
 
-  Future<Map<String, Object?>> _personRow(Person person) async {
+  Map<String, Object?> _personRow(
+    Person person,
+    List<String> localIds,
+    PersonExportSet set,
+  ) {
     // The open set. What is kept behind a passcode goes out sealed, under
     // `sealed` below — it cannot be read here and must not be lost either.
-    final detail = await personStore.detailFor(person.id);
-    final history = <Map<String, Object?>>[];
-    for (final category in HistoryCategory.values) {
-      for (final entry in await personStore.historyFor(person.id, category)) {
-        history.add({
+    final detail = set.detail;
+    final history = [
+      for (final entry in set.history)
+        {
           'id': entry.id,
           'category': entry.category.name,
           'title': entry.title,
@@ -372,9 +390,8 @@ class AppSnapshotIo {
           'titles': entry.titles.map((t) => t.toJson()).toList(),
           'projects': entry.projects.map((p) => p.toJson()).toList(),
           'awards': entry.awards.map((a) => a.toJson()).toList(),
-        });
-      }
-    }
+        },
+    ];
     return {
       'id': person.id,
       'name': person.name,
@@ -386,10 +403,10 @@ class AppSnapshotIo {
       'gender': detail.gender?.name,
       'customFields': detail.customFields.map((f) => f.toJson()).toList(),
       'impression': detail.impression.toJson(),
-      'sealed': await personStore.sealedRowsFor(person.id),
-      'localIds': await personStore.localIdsIn(person.id),
+      'sealed': set.sealed,
+      'localIds': localIds,
       'locations': [
-        for (final location in await personStore.locationsFor(person.id))
+        for (final location in set.locations)
           {
             'id': location.id,
             'kind': location.kind.name,
@@ -399,7 +416,7 @@ class AppSnapshotIo {
       ],
       'history': history,
       'relationships': [
-        for (final r in await personStore.relationshipsFor(person.id))
+        for (final r in set.relationships)
           {
             'relatedPersonId': r.relatedPersonId,
             'type': r.type.name,

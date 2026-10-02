@@ -401,4 +401,48 @@ void main() {
       const FaceRect(0.1, 0.2, 0.3, 0.4),
     );
   });
+
+  test('exportSets matches the per-person reads', () async {
+    final store = newStore();
+    final a = await store.create(name: 'A');
+    final b = await store.create(name: 'B');
+    for (final (id, category, year) in [
+      ('j1', HistoryCategory.job, 2015),
+      ('e1', HistoryCategory.education, 2010),
+      ('e0', HistoryCategory.education, 2006),
+    ]) {
+      await store.addHistoryEntry(
+        PersonHistoryEntry(
+          id: id,
+          personId: a.id,
+          category: category,
+          title: id,
+          startDate: DateTime(year),
+        ),
+      );
+    }
+    await store.addLocation(
+      PersonLocation(
+        id: 'l1',
+        personId: a.id,
+        kind: LocationKind.relocation,
+        place: 'Oslo',
+        since: DateTime(2020),
+      ),
+    );
+    await store.addRelationship(a.id, b.id, RelationshipType.parent);
+
+    final sets = await store.exportSets();
+
+    final perPerson = [
+      for (final c in HistoryCategory.values)
+        ...await store.historyFor(a.id, c),
+    ];
+    expect(sets[a.id]!.history.map((e) => e.id), perPerson.map((e) => e.id));
+    expect(sets[a.id]!.locations.single.place, 'Oslo');
+    expect(
+      sets[b.id]!.relationships.single.type,
+      (await store.relationshipsFor(b.id)).single.type,
+    );
+  });
 }

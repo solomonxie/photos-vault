@@ -150,6 +150,23 @@ class FakePersonStore implements PersonStore {
   }
 
   @override
+  Future<void> dropMembersOfMissingPeople() async =>
+      _members.removeWhere((id, _) => !_people.containsKey(id));
+
+  @override
+  Future<Map<String, PersonExportSet>> exportSets() async => {
+    for (final id in _people.keys)
+      id: PersonExportSet()
+        ..detail = await detailFor(id)
+        ..history.addAll([
+          for (final c in HistoryCategory.values) ...await historyFor(id, c),
+        ])
+        ..locations.addAll(await locationsFor(id))
+        ..relationships.addAll(await relationshipsFor(id))
+        ..sealed.addAll(await sealedRowsFor(id)),
+  };
+
+  @override
   Future<Person?> getById(String id) async => _people[id];
 
   @override
@@ -187,8 +204,22 @@ class FakePersonStore implements PersonStore {
   }
 
   @override
+  Future<void> forgetAssets(Iterable<String> localIds) async {
+    final gone = localIds.toSet();
+    for (final members in _members.values) {
+      members.removeAll(gone);
+    }
+  }
+
+  @override
   Future<List<String>> localIdsIn(String personId) async =>
       _members[personId]?.toList() ?? const [];
+
+  @override
+  Future<Map<String, List<String>>> allMemberships() async => {
+    for (final entry in _members.entries)
+      if (entry.value.isNotEmpty) entry.key: entry.value.toList(),
+  };
 
   @override
   Future<List<Person>> peopleFor(String localId) async => _members.entries

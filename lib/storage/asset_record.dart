@@ -83,13 +83,18 @@ class AssetRecord {
     this.width,
     this.height,
     this.libraryId,
-  });
+    DateTime? addedAt,
+  }) : addedAt = addedAt ?? createdAt;
 
   final String localId;
   final String contentHash;
   final String platform;
   final DateTime createdAt;
   final DateTime updatedAt;
+
+  /// When this app first recorded the photo — not when it was taken. An
+  /// old photo imported today is "Recently Added" today.
+  final DateTime addedAt;
   final AssetSourceType sourceType;
 
   /// Absolute file path, set only for [AssetSourceType.manualFile].
@@ -213,10 +218,16 @@ class AssetRecord {
   ///
   /// A record like this draws an empty tile and has nothing to give back,
   /// so the bin doesn't keep it.
+  ///
+  /// A derivative with a key counts even when not `uploaded`: that is one
+  /// that reached some buckets and not all, or is being sent again — either
+  /// way a bucket holds a copy.
   bool get hasNothingLeft =>
       sourcePath == null &&
       thumbnailPath == null &&
-      !derivatives.values.any((d) => d.status == UploadStatus.uploaded);
+      !derivatives.values.any(
+        (d) => d.status == UploadStatus.uploaded || d.destinationKey != null,
+      );
 
   DerivativeState stateOf(DerivativeKind kind) =>
       derivatives[kind] ?? const DerivativeState();
@@ -248,6 +259,7 @@ class AssetRecord {
     platform: platform,
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? DateTime.now(),
+    addedAt: addedAt,
     sourceType: sourceType,
     sourcePath: sourcePath ?? this.sourcePath,
     thumbnailPath: thumbnailPath != null ? thumbnailPath() : this.thumbnailPath,
