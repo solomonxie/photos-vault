@@ -1,0 +1,569 @@
+{
+  "_comment": "Demo library seed. Photos are drawn by lib/demo/demo_images.dart from 'scene' + id, so nothing here needs a license. addedDaysAgo drives Recently Added; takenAt is the photo's own date. See demo/README.md.",
+  "hiddenAlbum": {
+    "passcode": "1234",
+    "passphrase": "demo vault passphrase",
+    "hint": "demo",
+    "notes": [
+      "Apartment deposit: paid 9/28, receipt in email. Keep the before photos until move-out.",
+      "Kauai: flight AS 841, Oct 18. Hotel confirmation 4XK-2291. Tell Maya on the plane."
+    ]
+  },
+  "people": [
+    {
+      "name": "Maya Chen",
+      "bio": "Hiking partner since college. Always first to the summit."
+    },
+    {
+      "name": "Leo Park",
+      "bio": "Roommate, photographer, night-market guide."
+    },
+    {
+      "name": "Sam Rivera",
+      "bio": "Nephew, 7. Tide-pool expert."
+    },
+    {
+      "name": "Grace Chen",
+      "bio": "Maya's mom. Keeper of the family albums."
+    }
+  ],
+  "photos": [
+    {
+      "id": "p01",
+      "scene": "sunset",
+      "takenAt": "2026-09-27T19:12:00",
+      "addedDaysAgo": 1,
+      "caption": "Last light over the bay before the fog rolled in.",
+      "tags": [
+        "sunset",
+        "ocean"
+      ],
+      "place": "Sausalito, CA",
+      "latitude": 37.859,
+      "longitude": -122.485,
+      "favorite": true,
+      "albums": [
+        "Weekend Walks"
+      ],
+      "people": [
+        "Maya Chen"
+      ],
+      "backup": "pending"
+    },
+    {
+      "id": "p02",
+      "scene": "city",
+      "takenAt": "2026-09-26T21:40:00",
+      "addedDaysAgo": 2,
+      "caption": "Rooftop after Leo's birthday dinner.",
+      "tags": [
+        "night",
+        "friends"
+      ],
+      "place": "Brooklyn, NY",
+      "latitude": 40.678,
+      "longitude": -73.944,
+      "albums": [
+        "Friends"
+      ],
+      "people": [
+        "Leo Park",
+        "Maya Chen"
+      ],
+      "backup": "uploading"
+    },
+    {
+      "id": "p03",
+      "scene": "beach",
+      "takenAt": "2026-09-20T11:05:00",
+      "addedDaysAgo": 8,
+      "caption": "Tide pools at low tide. Found two starfish.",
+      "tags": [
+        "beach",
+        "kids"
+      ],
+      "place": "Half Moon Bay, CA",
+      "latitude": 37.463,
+      "longitude": -122.428,
+      "favorite": true,
+      "albums": [
+        "Summer 2026"
+      ],
+      "people": [
+        "Sam Rivera"
+      ],
+      "backup": "uploaded"
+    },
+    {
+      "id": "p04",
+      "scene": "mountains",
+      "takenAt": "2026-09-14T08:30:00",
+      "addedDaysAgo": 14,
+      "caption": "Sunrise on the ridge trail, mile 6.",
+      "tags": [
+        "hiking",
+        "mountains"
+      ],
+      "place": "Yosemite, CA",
+      "latitude": 37.865,
+      "longitude": -119.538,
+      "favorite": true,
+      "albums": [
+        "Summer 2026",
+        "Hikes"
+      ],
+      "people": [
+        "Maya Chen"
+      ],
+      "backup": "uploaded"
+    },
+    {
+      "id": "p05",
+      "scene": "lake",
+      "takenAt": "2026-09-13T18:50:00",
+      "addedDaysAgo": 15,
+      "caption": "Glass-calm evening on the lake.",
+      "tags": [
+        "lake",
+        "calm"
+      ],
+      "place": "Lake Tahoe, CA",
+      "latitude": 39.096,
+      "longitude": -120.032,
+      "albums": [
+        "Hikes"
+      ],
+      "backup": "uploaded"
+    },
+    {
+      "id": "p06",
+      "scene": "forest",
+      "takenAt": "2026-09-02T15:20:00",
+      "addedDaysAgo": 26,
+      "caption": "Redwoods, looking straight up.",
+      "tags": [
+        "forest",
+        "trees"
+      ],
+      "place": "Muir Woods, CA",
+      "latitude": 37.895,
+      "longitude": -122.582,
+      "albums": [
+        "Weekend Walks"
+      ],
+      "people": [
+        "Sam Rivera"
+      ],
+      "backup": "uploaded"
+    },
+    {
+      "id": "p07",
+      "scene": "desert",
+      "takenAt": "2026-08-22T17:45:00",
+      "addedDaysAgo": 37,
+      "caption": "Dunes at golden hour, wind picking up.",
+      "tags": [
+        "desert",
+        "road trip"
+      ],
+      "place": "Death Valley, CA",
+      "latitude": 36.505,
+      "longitude": -117.079,
+      "favorite": true,
+      "albums": [
+        "Road Trip"
+      ],
+      "people": [
+        "Leo Park"
+      ],
+      "backup": "cloudOnly"
+    },
+    {
+      "id": "p08",
+      "scene": "snow",
+      "takenAt": "2026-02-08T10:15:00",
+      "addedDaysAgo": 3,
+      "caption": "First run of the day, fresh powder.",
+      "tags": [
+        "snow",
+        "ski"
+      ],
+      "place": "Lake Tahoe, CA",
+      "latitude": 39.196,
+      "longitude": -120.235,
+      "albums": [
+        "Winter"
+      ],
+      "people": [
+        "Maya Chen",
+        "Leo Park"
+      ],
+      "backup": "pending"
+    },
+    {
+      "id": "p09",
+      "scene": "sunset",
+      "takenAt": "2019-07-04T20:31:00",
+      "addedDaysAgo": 2,
+      "caption": "Scanned from Mom's album: the Fourth of July, 2019.",
+      "tags": [
+        "family",
+        "scan"
+      ],
+      "place": "Santa Cruz, CA",
+      "latitude": 36.962,
+      "longitude": -122.022,
+      "favorite": true,
+      "albums": [
+        "Family"
+      ],
+      "people": [
+        "Grace Chen"
+      ],
+      "backup": "pending"
+    },
+    {
+      "id": "p10",
+      "scene": "beach",
+      "takenAt": "2021-06-18T13:10:00",
+      "addedDaysAgo": 4,
+      "caption": "Imported from the old laptop — Grace's graduation trip.",
+      "tags": [
+        "family",
+        "beach"
+      ],
+      "place": "Maui, HI",
+      "latitude": 20.798,
+      "longitude": -156.332,
+      "albums": [
+        "Family"
+      ],
+      "people": [
+        "Grace Chen"
+      ],
+      "backup": "failed"
+    },
+    {
+      "id": "p11",
+      "scene": "mountains",
+      "takenAt": "2026-07-30T07:55:00",
+      "addedDaysAgo": 62,
+      "caption": "Summit selfie, no filter needed.",
+      "tags": [
+        "hiking"
+      ],
+      "place": "Mount Tamalpais, CA",
+      "latitude": 37.923,
+      "longitude": -122.596,
+      "albums": [
+        "Hikes"
+      ],
+      "people": [
+        "Maya Chen"
+      ],
+      "backup": "cloudOnly"
+    },
+    {
+      "id": "p12",
+      "scene": "city",
+      "takenAt": "2026-07-12T22:10:00",
+      "addedDaysAgo": 80,
+      "caption": "Skyline from the ferry.",
+      "tags": [
+        "night",
+        "city"
+      ],
+      "place": "New York, NY",
+      "latitude": 40.703,
+      "longitude": -74.016,
+      "albums": [
+        "Road Trip"
+      ],
+      "backup": "uploaded"
+    },
+    {
+      "id": "p13",
+      "scene": "lake",
+      "takenAt": "2026-06-28T06:40:00",
+      "addedDaysAgo": 95,
+      "caption": "Morning mist, coffee on the dock.",
+      "tags": [
+        "lake",
+        "morning"
+      ],
+      "place": "Lake Placid, NY",
+      "latitude": 44.279,
+      "longitude": -73.982,
+      "favorite": true,
+      "albums": [
+        "Summer 2026"
+      ],
+      "people": [
+        "Sam Rivera"
+      ],
+      "backup": "uploaded"
+    },
+    {
+      "id": "p14",
+      "scene": "forest",
+      "takenAt": "2026-06-10T12:00:00",
+      "addedDaysAgo": 113,
+      "caption": "Picnic spot by the creek.",
+      "tags": [
+        "picnic",
+        "forest"
+      ],
+      "place": "Big Sur, CA",
+      "latitude": 36.27,
+      "longitude": -121.807,
+      "albums": [
+        "Weekend Walks"
+      ],
+      "people": [
+        "Grace Chen"
+      ],
+      "backup": "uploaded"
+    },
+    {
+      "id": "p15",
+      "scene": "desert",
+      "takenAt": "2026-05-02T16:30:00",
+      "addedDaysAgo": 150,
+      "caption": "Joshua trees and a very long road.",
+      "tags": [
+        "road trip"
+      ],
+      "place": "Joshua Tree, CA",
+      "latitude": 33.873,
+      "longitude": -115.901,
+      "albums": [
+        "Road Trip"
+      ],
+      "people": [
+        "Leo Park"
+      ],
+      "backup": "cloudOnly"
+    },
+    {
+      "id": "p16",
+      "scene": "snow",
+      "takenAt": "2026-01-02T09:20:00",
+      "addedDaysAgo": 270,
+      "caption": "New Year's cabin, snowed in.",
+      "tags": [
+        "winter",
+        "cabin"
+      ],
+      "place": "Mammoth Lakes, CA",
+      "latitude": 37.648,
+      "longitude": -118.972,
+      "favorite": true,
+      "albums": [
+        "Winter"
+      ],
+      "people": [
+        "Maya Chen",
+        "Grace Chen"
+      ],
+      "backup": "uploaded"
+    },
+    {
+      "id": "p17",
+      "scene": "sunset",
+      "takenAt": "2025-11-15T17:05:00",
+      "addedDaysAgo": 320,
+      "tags": [
+        "sunset"
+      ],
+      "place": "Point Reyes, CA",
+      "latitude": 38.069,
+      "longitude": -122.808,
+      "backup": "uploaded"
+    },
+    {
+      "id": "p18",
+      "scene": "mountains",
+      "takenAt": "2025-10-04T11:45:00",
+      "addedDaysAgo": 360,
+      "caption": "Fall colors on the pass.",
+      "tags": [
+        "autumn",
+        "mountains"
+      ],
+      "place": "Tioga Pass, CA",
+      "latitude": 37.91,
+      "longitude": -119.258,
+      "albums": [
+        "Hikes"
+      ],
+      "backup": "uploaded"
+    },
+    {
+      "id": "p19",
+      "scene": "beach",
+      "takenAt": "2025-08-09T15:30:00",
+      "addedDaysAgo": 420,
+      "caption": "Sandcastle competition. We lost.",
+      "tags": [
+        "beach",
+        "kids"
+      ],
+      "place": "Carmel, CA",
+      "latitude": 36.555,
+      "longitude": -121.923,
+      "favorite": true,
+      "albums": [
+        "Family"
+      ],
+      "people": [
+        "Sam Rivera",
+        "Grace Chen"
+      ],
+      "backup": "cloudOnly"
+    },
+    {
+      "id": "p20",
+      "scene": "city",
+      "takenAt": "2025-05-21T20:00:00",
+      "addedDaysAgo": 500,
+      "caption": "Night market lanterns.",
+      "tags": [
+        "food",
+        "night"
+      ],
+      "place": "Taipei",
+      "latitude": 25.051,
+      "longitude": 121.533,
+      "albums": [
+        "Friends"
+      ],
+      "people": [
+        "Leo Park"
+      ],
+      "backup": "uploaded"
+    },
+    {
+      "id": "p21",
+      "scene": "lake",
+      "takenAt": "2024-09-01T18:15:00",
+      "addedDaysAgo": 760,
+      "caption": "Canoe day.",
+      "tags": [
+        "lake"
+      ],
+      "place": "Banff, AB",
+      "latitude": 51.417,
+      "longitude": -116.217,
+      "albums": [
+        "Road Trip"
+      ],
+      "people": [
+        "Maya Chen"
+      ],
+      "backup": "uploaded"
+    },
+    {
+      "id": "p22",
+      "scene": "forest",
+      "takenAt": "2024-04-20T10:00:00",
+      "addedDaysAgo": 900,
+      "caption": "Spring trail, everything green.",
+      "tags": [
+        "spring",
+        "hiking"
+      ],
+      "place": "Portland, OR",
+      "latitude": 45.535,
+      "longitude": -122.723,
+      "albums": [
+        "Hikes"
+      ],
+      "backup": "uploaded"
+    },
+    {
+      "id": "p23",
+      "scene": "desert",
+      "takenAt": "2023-03-11T07:10:00",
+      "addedDaysAgo": 1200,
+      "caption": "Hot air balloons at dawn.",
+      "tags": [
+        "travel"
+      ],
+      "place": "Cappadocia",
+      "latitude": 38.643,
+      "longitude": 34.828,
+      "favorite": true,
+      "albums": [
+        "Travel"
+      ],
+      "people": [
+        "Maya Chen"
+      ],
+      "backup": "cloudOnly"
+    },
+    {
+      "id": "p24",
+      "scene": "snow",
+      "takenAt": "2022-12-24T16:00:00",
+      "addedDaysAgo": 1500,
+      "caption": "Christmas Eve walk.",
+      "tags": [
+        "winter",
+        "family"
+      ],
+      "place": "Quebec City",
+      "latitude": 46.813,
+      "longitude": -71.208,
+      "albums": [
+        "Winter",
+        "Family"
+      ],
+      "people": [
+        "Grace Chen"
+      ],
+      "backup": "uploaded"
+    },
+    {
+      "id": "p25",
+      "scene": "sunset",
+      "takenAt": "2026-09-29T18:58:00",
+      "addedDaysAgo": 0,
+      "caption": "Note to self: the 'before' photo for the apartment.",
+      "tags": [
+        "home"
+      ],
+      "place": "San Francisco, CA",
+      "latitude": 37.776,
+      "longitude": -122.424,
+      "backup": "pending",
+      "hidden": true
+    },
+    {
+      "id": "p26",
+      "scene": "city",
+      "takenAt": "2026-09-21T23:00:00",
+      "addedDaysAgo": 9,
+      "caption": "Passport and visa copies, kept private.",
+      "tags": [
+        "documents"
+      ],
+      "backup": "pending",
+      "hidden": true
+    },
+    {
+      "id": "p27",
+      "scene": "beach",
+      "takenAt": "2026-08-30T12:30:00",
+      "addedDaysAgo": 30,
+      "caption": "Surprise anniversary trip — don't tell Maya yet.",
+      "tags": [
+        "surprise"
+      ],
+      "place": "Kauai, HI",
+      "latitude": 22.072,
+      "longitude": -159.507,
+      "backup": "pending",
+      "hidden": true
+    }
+  ]
+}
