@@ -27,6 +27,9 @@ dependencies:
   ffi: ^2.1.4
   video_player: ^2.14.0
   path_provider: ^2.1.6
+  # Already linked through path_provider; imported to scope paths in demo
+  # mode (lib/demo/demo_mode.dart).
+  path_provider_platform_interface: ^2.1.2
   photo_manager: ^3.12.0
   geocoding: ^4.0.0
   share_plus: ^13.3.0
@@ -44,11 +47,16 @@ dev_dependencies:
   flutter_launcher_icons: ^0.14.4
 
 flutter:
-  uses-material-design: true
+  # Off: the app is Cupertino only, so the Material icon font is dead weight.
+  uses-material-design: false
   generate: true
-  # Nothing is bundled. `assets/demo/` stays in the repo as test fixtures
-  # and for seeding a dev build by hand; shipping it put 208 KB of someone
-  # else's photos in every install. See CLAUDE.md's size budget.
+  # Only the demo library's text, ~8 KB: demo mode can be switched on from
+  # Utilities in the real app, so it has to be on every phone. Its photos
+  # are drawn at runtime (lib/demo/demo_images.dart), not bundled.
+  # `assets/demo/` stays in the repo as test fixtures only; shipping it put
+  # 208 KB of someone else's photos in every install. See CLAUDE.md.
+  assets:
+    - demo/seed.json
 
 dependency_overrides:
   # connectivity_plus 7.3.1 (pulled in transitively by background_downloader)

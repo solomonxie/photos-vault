@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter/services.dart';
 
+import '../demo/demo_flag.dart';
+
 /// Why the iCloud container isn't usable — four unrelated causes that the
 /// OS reports as one "nil container", and which need four different things
 /// said about them.
@@ -45,7 +47,8 @@ class ICloudDrive {
   final MethodChannel _channel;
 
   Future<ICloudState> status() async {
-    if (!Platform.isIOS) return ICloudState.unsupported;
+    // The demo library must never reach the real iCloud folder.
+    if (!Platform.isIOS || DemoFlag.active) return ICloudState.unsupported;
     try {
       final name = await _channel.invokeMethod<String>('status');
       return ICloudState.values.firstWhere(
@@ -62,6 +65,7 @@ class ICloudDrive {
   /// Writes [contents] as [name] in the app's iCloud folder, replacing a
   /// file of the same name. Returns false if the write didn't happen.
   Future<bool> write(String name, String contents) async {
+    if (DemoFlag.active) return false;
     try {
       return await _channel.invokeMethod<bool>('write', {
             'name': name,
@@ -76,6 +80,7 @@ class ICloudDrive {
   /// Writes [bytes] as [name], replacing a file of the same name — the
   /// zipped snapshot, which is not text and can't go through [write].
   Future<bool> writeBytes(String name, Uint8List bytes) async {
+    if (DemoFlag.active) return false;
     try {
       return await _channel.invokeMethod<bool>('writeBytes', {
             'name': name,
@@ -91,6 +96,7 @@ class ICloudDrive {
   /// including on an older backup, which is a single `.json` and comes back
   /// from [readLatest] instead.
   Future<Uint8List?> readLatestBytes() async {
+    if (DemoFlag.active) return null;
     try {
       return await _channel.invokeMethod<Uint8List>('readLatestBytes');
     } catch (_) {
@@ -102,6 +108,7 @@ class ICloudDrive {
   /// question — a pre-deletion copy outranks a newer daily one, and that
   /// isn't answerable by sorting names.
   Future<Uint8List?> readBytes(String name) async {
+    if (DemoFlag.active) return null;
     try {
       return await _channel.invokeMethod<Uint8List>('readBytes', {
         'name': name,
@@ -115,6 +122,7 @@ class ICloudDrive {
   /// because of how [ICloudBackup] names them. `null` if the folder is
   /// empty or unreadable.
   Future<String?> readLatest() async {
+    if (DemoFlag.active) return null;
     try {
       return await _channel.invokeMethod<String>('readLatest');
     } catch (_) {
@@ -127,6 +135,7 @@ class ICloudDrive {
   /// device that has been off for a month can't work it out from its own
   /// records.
   Future<List<String>> list() async {
+    if (DemoFlag.active) return const [];
     try {
       final names = await _channel.invokeMethod<List<Object?>>('list');
       return (names ?? const []).whereType<String>().toList();
@@ -138,6 +147,7 @@ class ICloudDrive {
   /// Removes one file by name. Only ever called on a name this app wrote —
   /// the folder is the user's, and anything else in it is theirs.
   Future<bool> delete(String name) async {
+    if (DemoFlag.active) return false;
     try {
       return await _channel.invokeMethod<bool>('delete', {'name': name}) ??
           false;

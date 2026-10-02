@@ -1,11 +1,20 @@
 import 'package:flutter/foundation.dart';
-import 'package:flutter/material.dart';
+import 'package:flutter/widgets.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'app.dart';
+import 'demo/demo_mode.dart';
+import 'settings/app_store_region.dart';
 
-void main() {
+Future<void> main() async {
+  WidgetsFlutterBinding.ensureInitialized();
   if (kProfileMode) _reportJank();
+  await AppStoreRegion.load();
+  try {
+    await DemoMode.init();
+  } catch (_) {
+    // Demo plumbing must never be why the real app doesn't open.
+  }
   runApp(const App());
 }
 
