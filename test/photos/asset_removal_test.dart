@@ -283,4 +283,38 @@ void main() {
     expect(binned, isFalse);
     expect((await store.getByLocalId('photo:1'))!.isDeleted, isFalse);
   });
+
+  test('a hidden photo out of Photos is deleted, not silently kept', () async {
+    // Taken out of the library by hiding: no library id. The library
+    // answers "nothing deleted" for it, which used to fail the whole delete.
+    final store = FakeAssetRecordStore();
+    await store.upsert(
+      localId: 'photo:h',
+      contentHash: 'h',
+      platform: 'ios',
+      sourcePath: '/tmp/h.heic',
+    );
+    final record = (await store.getByLocalId('photo:h'))!;
+    expect(record.libraryId, isNull);
+
+    expect(await removalOver(store).deleteEverywhere(record), isTrue);
+    expect(deleted, isEmpty, reason: 'nothing in Photos to ask about');
+    expect((await store.getByLocalId('photo:h'))!.isDeleted, isTrue);
+  });
+
+  test('a locked photo is not deleted from any screen', () async {
+    final store = FakeAssetRecordStore();
+    await store.upsert(
+      localId: 'manual:l',
+      contentHash: 'l',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/l.jpg',
+    );
+    await store.setLocked('manual:l', true);
+    final record = (await store.getByLocalId('manual:l'))!;
+
+    expect(await removalOver(store).deleteEverywhere(record), isFalse);
+    expect((await store.getByLocalId('manual:l'))!.isDeleted, isFalse);
+  });
 }

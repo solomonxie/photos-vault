@@ -707,52 +707,81 @@ void main() {
       },
     );
 
-    test('bucketByBucket still marks a record uploaded if only one target succeeds', () async {
-      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.add(
-        accessKeyId: 'a',
-        secretAccessKey: 'b',
-        region: 'us-east-1',
-        bucket: 'good',
-        prefix: '',
-      );
-      await targetsStore.add(
-        accessKeyId: 'a',
-        secretAccessKey: 'b',
-        region: 'us-east-1',
-        bucket: 'bad',
-        prefix: '',
-      );
-      await targetsStore.setOrderStrategy(BackupOrderStrategy.bucketByBucket);
-      final recordStore = newRecordStore();
-      final a = await recordStore.upsert(
-        localId: 'manual:a',
-        contentHash: 'a',
-        platform: 'ios',
-      );
-      final fakeUploader = _RecordingS3Uploader(
-        (filePath, key, target) => target.bucket == 'good',
-      );
-      final coordinator = BackupCoordinator(
-        targetsStore: targetsStore,
-        recordStore: recordStore,
-        s3Uploader: fakeUploader,
-      );
+    test(
+      'bucketByBucket: one target failing is not a backup, but is not nothing',
+      () async {
+        final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+        await targetsStore.add(
+          accessKeyId: 'a',
+          secretAccessKey: 'b',
+          region: 'us-east-1',
+          bucket: 'good',
+          prefix: '',
+        );
+        await targetsStore.add(
+          accessKeyId: 'a',
+          secretAccessKey: 'b',
+          region: 'us-east-1',
+          bucket: 'bad',
+          prefix: '',
+        );
+        await targetsStore.setOrderStrategy(BackupOrderStrategy.bucketByBucket);
+        final recordStore = newRecordStore();
+        final a = await recordStore.upsert(
+          localId: 'manual:a',
+          contentHash: 'a',
+          platform: 'ios',
+        );
+        final sent = <String>[];
+        var badWorks = false;
+        final fakeUploader = _RecordingS3Uploader((filePath, key, target) {
+          sent.add(target.bucket);
+          return target.bucket == 'good' || badWorks;
+        });
+        final coordinator = BackupCoordinator(
+          targetsStore: targetsStore,
+          recordStore: recordStore,
+          s3Uploader: fakeUploader,
+        );
 
-      final succeeded = await coordinator.backUpBatch(
-        records: [a],
-        kind: DerivativeKind.original,
-        resolvePath: (r) async => '/tmp/${r.localId}.jpg',
-      );
+        final succeeded = await coordinator.backUpBatch(
+          records: [a],
+          kind: DerivativeKind.original,
+          resolvePath: (r) async => '/tmp/${r.localId}.jpg',
+        );
 
-      expect(succeeded, 1);
-      expect(
-        (await recordStore.getByLocalId('manual:a'))!
-            .stateOf(DerivativeKind.original)
-            .status,
-        UploadStatus.uploaded,
-      );
-    });
+        expect(succeeded, 0);
+        final partial = (await recordStore.getByLocalId('manual:a'))!;
+        expect(
+          partial.stateOf(DerivativeKind.original).status,
+          UploadStatus.failed,
+        );
+        // The good bucket has it: the record still points there.
+        expect(
+          partial.stateOf(DerivativeKind.original).destinationKey,
+          'originals/manual_a.jpg',
+        );
+        expect(partial.hasNothingLeft, isFalse);
+
+        sent.clear();
+        badWorks = true;
+        expect(
+          await coordinator.backUpBatch(
+            records: [partial],
+            kind: DerivativeKind.original,
+            resolvePath: (r) async => '/tmp/${r.localId}.jpg',
+          ),
+          1,
+        );
+        expect(sent, ['bad']);
+        expect(
+          (await recordStore.getByLocalId('manual:a'))!
+              .stateOf(DerivativeKind.original)
+              .status,
+          UploadStatus.uploaded,
+        );
+      },
+    );
 
     test('skips a record whose path fails to resolve', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
@@ -896,16 +925,14 @@ void main() {
       );
 
       // "a" got exactly one attempt (against "one") before cancellation —
-      // that alone is enough to mark it uploaded. "b" never got any
-      // attempt at all, so it's left alone rather than reconciled as
-      // "failed".
-      expect(succeeded, 1);
-      expect(
-        (await recordStore.getByLocalId('manual:a'))!
-            .stateOf(DerivativeKind.original)
-            .status,
-        UploadStatus.uploaded,
-      );
+      // one of two targets, so not a backup yet, but its key is kept. "b"
+      // never got any attempt at all, so it's left alone rather than
+      // reconciled as "failed".
+      expect(succeeded, 0);
+      final partial = (await recordStore.getByLocalId('manual:a'))!
+          .stateOf(DerivativeKind.original);
+      expect(partial.status, UploadStatus.failed);
+      expect(partial.destinationKey, isNotNull);
       expect(
         (await recordStore.getByLocalId('manual:b'))!
             .stateOf(DerivativeKind.original)

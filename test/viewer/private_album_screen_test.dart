@@ -127,21 +127,20 @@ void main() {
     expect(find.text('Nothing here yet.'), findsOneWidget);
   });
 
-  testWidgets('shows the item count and offers a long-press context menu', (
+  testWidgets('holding a photo selects it, and sweeping picks up the next', (
     tester,
   ) async {
-    // CupertinoContextMenu's open gesture is finicky to drive reliably in a
-    // widget test (real Haptic Touch timing) — same convention as
-    // library_screen_test.dart's equivalent check.
     final assetStore = FakeAssetRecordStore();
-    await assetStore.upsert(
-      localId: 'manual:in',
-      contentHash: 'in',
-      platform: 'ios',
-      sourceType: AssetSourceType.manualFile,
-      sourcePath: '/tmp/in.jpg',
-    );
-    await assetStore.setPasscodeHash('manual:in', _hash);
+    for (final id in ['a', 'b']) {
+      await assetStore.upsert(
+        localId: 'manual:$id',
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+      await assetStore.setPasscodeHash('manual:$id', _hash);
+    }
 
     await tester.pumpWidget(
       _wrap(
@@ -149,15 +148,17 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.textContaining('2 items'), findsOneWidget);
 
-    expect(find.textContaining('1 item'), findsOneWidget);
-    expect(
-      find.descendant(
-        of: find.byKey(const ValueKey('manual:in')),
-        matching: find.byType(CupertinoContextMenu),
-      ),
-      findsOneWidget,
+    final hold = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('manual:a'))),
     );
+    await tester.pump(const Duration(milliseconds: 600));
+    await hold.moveTo(tester.getCenter(find.byKey(const ValueKey('manual:b'))));
+    await hold.up();
+    await tester.pumpAndSettle();
+
+    expect(find.text('Recover 2 to Library'), findsOneWidget);
   });
 
   testWidgets(
@@ -195,6 +196,13 @@ void main() {
       await tester.pump();
 
       await tester.tap(find.text('Recover 2 to Library'));
+      // Un-hiding checks the file on disk: real I/O, outside fake time.
+      for (var i = 0; i < 10; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump();
+      }
       await tester.pumpAndSettle();
 
       expect(find.text('Nothing here yet.'), findsOneWidget);

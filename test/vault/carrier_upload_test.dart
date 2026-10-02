@@ -156,4 +156,23 @@ void main() {
         );
     expect(carrier, isNull);
   });
+
+  test('a Live Photo\'s motion goes up as a video, never as a still', () async {
+    final still = File('${temp.path}/still.jpg')
+      ..writeAsBytesSync(_jpeg(800, 600));
+    final motion = File('${temp.path}/still.jpg.live.mov')
+      ..writeAsBytesSync(List.filled(4096, 3));
+
+    // Only a still decoy on offer. Built as a `.jpg` it would land on the
+    // still's own key and replace it.
+    final carrier = await CarrierBuilder(temporaryDirectory: () async => temp)
+        .build(
+          record: _hidden(),
+          filePath: motion.path,
+          keys: _keys(),
+          candidates: [_candidate('photo-only', 4096)],
+          motionOf: still.path,
+        );
+    expect(carrier, isNull);
+  });
 }

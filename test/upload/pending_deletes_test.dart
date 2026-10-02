@@ -100,4 +100,30 @@ void main() {
     ]);
     expect(await deletes.count(), 1);
   });
+
+  test('a task added while a drain is running is not lost', () async {
+    final store = FakeAssetRecordStore();
+    late PendingDeletes deletes;
+    deletes = PendingDeletes(
+      store: store,
+      delete: ({required target, required key}) async {
+        // Another hide lands mid-drain.
+        if (key == 'originals/a.jpg') {
+          await deletes.add(const [
+            PendingDelete(objectKey: 'originals/late.jpg', targetId: 't1'),
+          ]);
+        }
+        return key == 'originals/a.jpg';
+      },
+    );
+    await deletes.add(const [
+      PendingDelete(objectKey: 'originals/a.jpg', targetId: 't1'),
+    ]);
+
+    await deletes.drain([_target]);
+
+    expect(await deletes.pending(), const [
+      PendingDelete(objectKey: 'originals/late.jpg', targetId: 't1'),
+    ]);
+  });
 }
