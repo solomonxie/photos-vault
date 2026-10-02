@@ -12,6 +12,7 @@ import 'built_in_album.dart';
 import 'asset_grid_view.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
+import 'photo_grid_layout.dart';
 import 'private_album_gate.dart';
 import 'zoom_page_route.dart';
 
@@ -24,7 +25,11 @@ class AssetGroupScreen extends StatefulWidget {
     required this.records,
     required this.assetRecordStore,
     this.coverFor,
+    this.dateOf = PhotoGridLayout.takenAt,
   });
+
+  /// See [PhotoGridLayout.dateOf].
+  final DateTime Function(AssetRecord) dateOf;
 
   final String title;
   final List<AssetRecord> records;
@@ -137,6 +142,7 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
       child: SafeArea(
         child: AssetGridView(
           records: _records,
+          dateOf: widget.dateOf,
           onTap: _open,
           actionsFor: (r) => [
             TileAction(

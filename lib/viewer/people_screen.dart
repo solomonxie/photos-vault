@@ -102,8 +102,9 @@ class _PeopleScreenState extends State<PeopleScreen> {
     final counts = <String, int>{};
     final firstPhoto = <String, String>{};
     final tagged = <String>{};
+    final members = await widget.personStore.allMemberships();
     for (final person in people) {
-      final localIds = await widget.personStore.localIdsIn(person.id);
+      final localIds = members[person.id] ?? const <String>[];
       counts[person.id] = localIds.length;
       tagged.addAll(localIds);
       if (localIds.isNotEmpty) firstPhoto[person.id] = localIds.first;

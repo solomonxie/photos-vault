@@ -68,6 +68,7 @@ class PhotoGridLayout {
     required this.rowExtent,
     required this.rowCount,
     required this.totalExtent,
+    required this.dateOf,
   });
 
   factory PhotoGridLayout.of({
@@ -77,6 +78,7 @@ class PhotoGridLayout {
     double spacing = 8,
     double horizontalPadding = 8,
     double headerExtent = 44,
+    DateTime Function(AssetRecord) dateOf = takenAt,
   }) {
     final columns = math.max(1, crossAxisCount);
     final tileExtent = math.max(
@@ -90,9 +92,9 @@ class PhotoGridLayout {
     var row = 0;
     var i = 0;
     while (i < records.length) {
-      final day = _midnight(records[i].createdAt);
+      final day = _midnight(dateOf(records[i]));
       var end = i;
-      while (end < records.length && _midnight(records[end].createdAt) == day) {
+      while (end < records.length && _midnight(dateOf(records[end])) == day) {
         end++;
       }
       final count = end - i;
@@ -125,6 +127,7 @@ class PhotoGridLayout {
       rowExtent: rowExtent,
       rowCount: row,
       totalExtent: offset,
+      dateOf: dateOf,
     );
   }
 
@@ -140,6 +143,13 @@ class PhotoGridLayout {
   final double rowExtent;
   final int rowCount;
   final double totalExtent;
+
+  /// Which date the days are grouped by — when a photo was taken, or for
+  /// Recently Added, when it arrived. [records] are sorted by the same one.
+  final DateTime Function(AssetRecord) dateOf;
+
+  static DateTime takenAt(AssetRecord r) => r.createdAt;
+  static DateTime addedAt(AssetRecord r) => r.addedAt;
 
   bool get isEmpty => rowCount == 0;
 
@@ -270,7 +280,7 @@ class PhotoGridLayout {
     var hi = records.length;
     while (lo < hi) {
       final mid = (lo + hi) ~/ 2;
-      if (records[mid].createdAt.isBefore(day)) {
+      if (dateOf(records[mid]).isBefore(day)) {
         lo = mid + 1;
       } else {
         hi = mid;

@@ -28,6 +28,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     bool isGif = false,
     bool isLivePhoto = false,
     DateTime? createdAt,
+    DateTime? addedAt,
     double? latitude,
     double? longitude,
     int? width,
@@ -53,6 +54,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
       height: height,
       createdAt: now,
       updatedAt: now,
+      addedAt: addedAt,
     );
     _records[localId] = record;
     return record;
@@ -78,7 +80,19 @@ class FakeAssetRecordStore implements AssetRecordStore {
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
   @override
-  Future<void> remove(String localId) async => _records.remove(localId);
+  Future<void> remove(String localId) async {
+    _records.remove(localId);
+    removed.add(localId);
+  }
+
+  final removed = <String>{};
+
+  @override
+  Future<Set<String>> removedIds() async => {...removed};
+
+  @override
+  Future<void> forgetRemoved(Iterable<String> localIds) async =>
+      removed.removeAll(localIds);
 
   @override
   Future<void> setSourcePath(String localId, String value) async {
@@ -346,4 +360,33 @@ class FakeAssetRecordStore implements AssetRecordStore {
 
   @override
   Future<List<Map<String, Object?>>> changeLogRows() async => const [];
+
+  final hiddenNotes = <String, Map<String, Object?>>{};
+
+  @override
+  Future<List<Map<String, Object?>>> hiddenNoteRows(String albumTag) async =>
+      hiddenNotes.values.where((r) => r['album_tag'] == albumTag).toList()
+        ..sort(
+          (a, b) => (b['created_at'] as int).compareTo(a['created_at'] as int),
+        );
+
+  @override
+  Future<void> putHiddenNote({
+    required String id,
+    required String albumTag,
+    required String payload,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+  }) async {
+    hiddenNotes[id] = {
+      'id': id,
+      'album_tag': albumTag,
+      'payload': payload,
+      'created_at': createdAt.millisecondsSinceEpoch,
+      'updated_at': updatedAt.millisecondsSinceEpoch,
+    };
+  }
+
+  @override
+  Future<void> removeHiddenNote(String id) async => hiddenNotes.remove(id);
 }

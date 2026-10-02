@@ -94,11 +94,10 @@ class _FaceGroupScreenState extends State<FaceGroupScreen> {
     final people = await widget.personStore.listAll();
     // Most-tagged first, so tapping the empty field offers the people you
     // actually photograph rather than whoever happens to sort first.
-    final counts = <String, int>{};
-    for (final person in people) {
-      counts[person.id] = (await widget.personStore.localIdsIn(person.id))
-          .length;
-    }
+    final counts = {
+      for (final entry in (await widget.personStore.allMemberships()).entries)
+        entry.key: entry.value.length,
+    };
     people.sort((a, b) => (counts[b.id] ?? 0).compareTo(counts[a.id] ?? 0));
     final seed = _seed;
     final group = seed != null

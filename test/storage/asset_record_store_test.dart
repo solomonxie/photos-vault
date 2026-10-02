@@ -541,4 +541,23 @@ void main() {
       reason: 'a cached thumbnail keeps its subdirectory',
     );
   });
+
+  test(
+    'a record remembers when it arrived, apart from when it was taken',
+    () async {
+      final store = newStore();
+      final before = DateTime.now().subtract(const Duration(seconds: 1));
+
+      await store.upsert(
+        localId: 'manual:old',
+        contentHash: 'old',
+        platform: 'ios',
+        createdAt: DateTime(2019, 7, 4),
+      );
+
+      final saved = (await store.getByLocalId('manual:old'))!;
+      expect(saved.createdAt, DateTime(2019, 7, 4));
+      expect(saved.addedAt.isBefore(before), isFalse);
+    },
+  );
 }

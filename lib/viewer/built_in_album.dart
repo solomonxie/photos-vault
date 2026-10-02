@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
 
@@ -28,7 +29,19 @@ enum BuiltInAlbum {
     icon: CupertinoIcons.play_fill,
     from: Color(0xFF3730A3),
     to: Color(0xFF22B8CF),
+  ),
+
+  /// By when the photo reached this app, not when it was taken — an old
+  /// photo imported today belongs here. See [AssetRecord.addedAt].
+  recentlyAdded(
+    id: 'builtin:recently_added',
+    icon: CupertinoIcons.clock_fill,
+    from: Color(0xFF0F766E),
+    to: Color(0xFF84CC16),
   );
+
+  /// How far back Recently Added reaches.
+  static const recentWindow = Duration(days: 30);
 
   const BuiltInAlbum({
     required this.id,
@@ -51,6 +64,16 @@ enum BuiltInAlbum {
   /// membership list as well — a second, staler answer to a question the
   /// library already answers.
   String get coverStateKey => 'cover:$id';
+}
+
+/// Recently Added: what arrived within [BuiltInAlbum.recentWindow] of
+/// [now], ordered by arrival, oldest first like every grid.
+List<AssetRecord> recentlyAdded(List<AssetRecord> active, DateTime now) {
+  final since = now.subtract(BuiltInAlbum.recentWindow);
+  return [
+    for (final r in active)
+      if (r.addedAt.isAfter(since)) r,
+  ]..sort((a, b) => a.addedAt.compareTo(b.addedAt));
 }
 
 /// The photo the user picked for [album], or null for the coloured
