@@ -1,9 +1,12 @@
 import 'package:flutter/cupertino.dart';
+import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/ai_chat.dart';
 import '../photos/ai_vendor.dart';
 import 'ai_settings_store.dart';
+import 'app_store_region.dart';
 import 'settings_section.dart';
 
 /// Standalone "AI Settings" utility screen — the keys that power
@@ -19,9 +22,12 @@ import 'settings_section.dart';
 /// adding a key is a half sheet rather than a form permanently parked
 /// under the list.
 class AiSettingsScreen extends StatefulWidget {
-  const AiSettingsScreen({super.key, this.aiSettingsStore});
+  const AiSettingsScreen({super.key, this.aiSettingsStore, this.keyCheck});
 
   final AiSettingsStore? aiSettingsStore;
+
+  /// For tests; otherwise a real round trip to the vendor.
+  final AiKeyCheck? keyCheck;
 
   @override
   State<AiSettingsScreen> createState() => _AiSettingsScreenState();
@@ -41,7 +47,7 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   }
 
   Future<void> _load() async {
-    final keys = await _store.listKeys();
+    final keys = await _store.usableKeys();
     final strategy = await _store.getStrategy();
     if (!mounted) return;
     setState(() {
@@ -51,7 +57,10 @@ class _AiSettingsScreenState extends State<AiSettingsScreen> {
   }
 
   Future<void> _addKey() async {
-    final added = await showAddAiKeySheet(context);
+    final check = widget.keyCheck;
+    final added = check == null
+        ? await showAddAiKeySheet(context)
+        : await showAddAiKeySheet(context, check: check);
     if (added == null) return;
     await _store.addKey(added.vendor, added.secret);
     await _load();
@@ -238,16 +247,35 @@ class AddedAiKey {
   final String secret;
 }
 
-/// Two fields don't need a page: vendor, key, and a link to that vendor's
-/// own console for anyone who doesn't have one yet.
-Future<AddedAiKey?> showAddAiKeySheet(BuildContext context) =>
-    showCupertinoModalPopup<AddedAiKey>(
-      context: context,
-      builder: (_) => const _AddAiKeySheet(),
-    );
+/// Checks a key before it's saved; throws when it doesn't work.
+typedef AiKeyCheck = Future<void> Function({
+  required AiVendor vendor,
+  required String apiKey,
+});
+
+Future<void> _checkOnline({required AiVendor vendor, required String apiKey}) {
+  final client = http.Client();
+  return checkVendorKey(
+    vendor: vendor,
+    apiKey: apiKey,
+    client: client,
+  ).whenComplete(client.close);
+}
+
+/// One sheet, no nested pickers: vendors as chips, the key under them, and
+/// a ten-second check on Save so a dead key is caught here, not mid-analysis.
+Future<AddedAiKey?> showAddAiKeySheet(
+  BuildContext context, {
+  AiKeyCheck check = _checkOnline,
+}) => showCupertinoModalPopup<AddedAiKey>(
+  context: context,
+  builder: (_) => _AddAiKeySheet(check: check),
+);
 
 class _AddAiKeySheet extends StatefulWidget {
-  const _AddAiKeySheet();
+  const _AddAiKeySheet({required this.check});
+
+  final AiKeyCheck check;
 
   @override
   State<_AddAiKeySheet> createState() => _AddAiKeySheetState();
@@ -255,12 +283,15 @@ class _AddAiKeySheet extends StatefulWidget {
 
 class _AddAiKeySheetState extends State<_AddAiKeySheet> {
   final _secretController = TextEditingController();
-  AiVendor _vendor = AiVendor.openai;
+  final _vendors = aiVendorsFor(AppStoreRegion.current);
+  late AiVendorMeta _meta = _vendors.first;
+  bool _checking = false;
+  String? _error;
 
   @override
   void initState() {
     super.initState();
-    _secretController.addListener(() => setState(() {}));
+    _secretController.addListener(() => setState(() => _error = null));
   }
 
   @override
@@ -269,41 +300,40 @@ class _AddAiKeySheetState extends State<_AddAiKeySheet> {
     super.dispose();
   }
 
-  AiVendorMeta get _meta => aiVendors.firstWhere((v) => v.vendor == _vendor);
+  String get _secret => _secretController.text.trim();
 
-  Future<void> _pickVendor() async {
-    await showCupertinoModalPopup<void>(
-      context: context,
-      builder: (sheetContext) => CupertinoActionSheet(
-        actions: [
-          for (final meta in aiVendors)
-            CupertinoActionSheetAction(
-              onPressed: () {
-                Navigator.of(sheetContext).pop();
-                setState(() => _vendor = meta.vendor);
-              },
-              child: Text(meta.name),
-            ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(sheetContext).pop(),
-          child: Text(AppLocalizations.of(context)!.actionCancel),
-        ),
-      ),
-    );
+  Future<void> _save() async {
+    if (_secret.isEmpty || _checking) return;
+    setState(() {
+      _checking = true;
+      _error = null;
+    });
+    try {
+      await widget.check(vendor: _meta.vendor, apiKey: _secret);
+      if (mounted) _done();
+    } catch (e) {
+      if (mounted) {
+        setState(() {
+          _checking = false;
+          _error = '$e';
+        });
+      }
+    }
   }
 
-  void _save() {
-    final secret = _secretController.text.trim();
-    if (secret.isEmpty) return;
-    Navigator.of(context).pop(AddedAiKey(_vendor, secret));
-  }
+  void _done() => Navigator.of(context).pop(AddedAiKey(_meta.vendor, _secret));
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final media = MediaQuery.of(context);
-    final ready = _secretController.text.trim().isNotEmpty;
+    final ready = _secret.isNotEmpty && !_checking;
+    const fieldPadding = EdgeInsets.fromLTRB(
+      settingsPagePadding,
+      0,
+      settingsPagePadding,
+      12,
+    );
 
     return Padding(
       padding: EdgeInsets.only(bottom: media.viewInsets.bottom),
@@ -316,6 +346,7 @@ class _AddAiKeySheetState extends State<_AddAiKeySheet> {
           top: false,
           child: Column(
             mainAxisSize: MainAxisSize.min,
+            crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Padding(
                 padding: const EdgeInsets.fromLTRB(8, 10, 8, 6),
@@ -344,71 +375,74 @@ class _AddAiKeySheetState extends State<_AddAiKeySheet> {
                         ),
                       ),
                     ),
-                    CupertinoButton(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      minimumSize: Size.zero,
-                      onPressed: ready ? _save : null,
-                      child: Text(
-                        l10n.settingsSaveButton,
-                        style: TextStyle(
-                          fontSize: 15,
-                          fontWeight: FontWeight.w600,
-                          color: ready ? settingsAccent : settingsTertiary,
+                    if (_checking)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(horizontal: 18),
+                        child: CupertinoActivityIndicator(),
+                      )
+                    else
+                      CupertinoButton(
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        onPressed: ready ? _save : null,
+                        child: Text(
+                          l10n.settingsSaveButton,
+                          style: TextStyle(
+                            fontSize: 15,
+                            fontWeight: FontWeight.w600,
+                            color: ready ? settingsAccent : settingsTertiary,
+                          ),
                         ),
                       ),
-                    ),
                   ],
                 ),
               ),
               const SettingsHairline(),
-              SettingsRow(
-                title: l10n.settingsAiVendorLabel,
-                onTap: _pickVendor,
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
+              Padding(
+                padding: const EdgeInsets.fromLTRB(
+                  settingsPagePadding,
+                  14,
+                  settingsPagePadding,
+                  10,
+                ),
+                child: Wrap(
+                  spacing: 8,
+                  runSpacing: 8,
                   children: [
-                    Text(_meta.name, style: settingsRowDetailStyle),
-                    const SizedBox(width: 4),
-                    const Icon(
-                      CupertinoIcons.chevron_down,
-                      size: 12,
-                      color: settingsSecondary,
-                    ),
+                    for (final meta in _vendors)
+                      _VendorChip(
+                        label: meta.name,
+                        selected: meta == _meta,
+                        onTap: _checking
+                            ? null
+                            : () => setState(() {
+                                _meta = meta;
+                                _error = null;
+                              }),
+                      ),
                   ],
                 ),
               ),
-              const SettingsHairline(indent: settingsPagePadding),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  settingsPagePadding,
-                  12,
-                  settingsPagePadding,
-                  6,
-                ),
-                child: Align(
-                  alignment: Alignment.centerLeft,
+              if (!_meta.readsPhotos)
+                Padding(
+                  padding: fieldPadding,
                   child: Text(
-                    l10n.settingsAiApiKeyLabel,
-                    style: settingsRowTitleStyle,
+                    l10n.settingsAiTextOnly(_meta.name),
+                    style: settingsHintStyle,
                   ),
                 ),
-              ),
               Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  settingsPagePadding,
-                  0,
-                  settingsPagePadding,
-                  8,
-                ),
+                padding: fieldPadding,
                 child: CupertinoTextField(
                   controller: _secretController,
                   autofocus: true,
                   obscureText: true,
                   autocorrect: false,
                   enableSuggestions: false,
+                  enabled: !_checking,
                   smartDashesType: SmartDashesType.disabled,
                   smartQuotesType: SmartQuotesType.disabled,
-                  placeholder: _meta.keyHint,
+                  placeholder: '${_meta.name} ${l10n.settingsAiApiKeyLabel}',
                   padding: const EdgeInsets.symmetric(
                     horizontal: 12,
                     vertical: 12,
@@ -421,35 +455,83 @@ class _AddAiKeySheetState extends State<_AddAiKeySheet> {
                   onSubmitted: (_) => _save(),
                 ),
               ),
-              Padding(
-                padding: const EdgeInsets.fromLTRB(
-                  settingsPagePadding,
-                  0,
-                  settingsPagePadding,
-                  16,
-                ),
-                child: Row(
-                  children: [
-                    Expanded(
-                      child: Text(
-                        l10n.settingsAiNoKeyYet(_meta.name),
-                        style: settingsHintStyle,
+              if (_error case final error?)
+                Padding(
+                  padding: fieldPadding,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          l10n.settingsAiKeyCheckFailed(error),
+                          style: settingsHintStyle.copyWith(
+                            color: CupertinoColors.systemRed,
+                          ),
+                        ),
                       ),
-                    ),
-                    SettingsAccentButton(
-                      label: l10n.settingsAiGetKeyLink,
-                      onPressed: () => launchUrl(
-                        Uri.parse(_meta.docsUrl),
-                        mode: LaunchMode.externalApplication,
+                      SettingsAccentButton(
+                        label: l10n.settingsAiSaveAnyway,
+                        onPressed: _done,
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
+                )
+              else
+                Padding(
+                  padding: fieldPadding,
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          l10n.settingsAiNoKeyYet(_meta.name),
+                          style: settingsHintStyle,
+                        ),
+                      ),
+                      SettingsAccentButton(
+                        label: l10n.settingsAiGetKeyLink,
+                        onPressed: () => launchUrl(
+                          Uri.parse(_meta.docsUrl),
+                          mode: LaunchMode.externalApplication,
+                        ),
+                      ),
+                    ],
+                  ),
                 ),
-              ),
             ],
           ),
         ),
       ),
     );
   }
+}
+
+class _VendorChip extends StatelessWidget {
+  const _VendorChip({
+    required this.label,
+    required this.selected,
+    required this.onTap,
+  });
+
+  final String label;
+  final bool selected;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) => GestureDetector(
+    onTap: onTap,
+    child: Container(
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 9),
+      decoration: BoxDecoration(
+        color: selected ? settingsAccent : const Color(0xFF2C2C2E),
+        borderRadius: BorderRadius.circular(18),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          fontSize: 15,
+          fontWeight: selected ? FontWeight.w600 : FontWeight.w400,
+          color: CupertinoColors.white,
+        ),
+      ),
+    ),
+  );
 }

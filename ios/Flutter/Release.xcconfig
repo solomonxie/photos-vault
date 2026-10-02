@@ -1,2 +1,7 @@
 #include "Generated.xcconfig"
 #include? "Signing.xcconfig"
+
+// Storefront region: us (USA/CAN) or cn (CHN). `make <build> STOREFRONT=CHN`
+// writes the gitignored Store.xcconfig; lands in Info.plist AppStoreRegion.
+APP_STORE_REGION = us
+#include? "Store.xcconfig"

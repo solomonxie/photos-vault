@@ -3,6 +3,7 @@
 Photos Vault is a Flutter app (iOS first, Android backlog) that backs up Photos/Videos to your own bucket — AWS S3, Tencent COS or Alibaba Cloud OSS — with thumbnail-first browsing and storage tiering via your bucket's own Lifecycle Rules. Localized (English, Mandarin) from the start.
 
 Design: `docs/design/DESIGN.md`
+Demo mode: `demo/README.md`
 UI/UX: `docs/design/UIUX-DESIGN.md`
 Plan: `docs/design/IMPLEMENTATION_PLAN.md`
 
@@ -27,6 +28,14 @@ make release
 Formats, analyses, tests, archives an obfuscated Release build and uploads it
 to App Store Connect — no Xcode, no Product ▸ Archive ▸ Distribute. `make`
 on its own lists the rest.
+
+Storefront: every build/install/release takes an App Store country code,
+`STOREFRONT=USA|CAN|CHN` (default `USA`), e.g. `make install-ios STOREFRONT=CHN`.
+USA/CAN → `us`, CHN → `cn`, into Info.plist `AppStoreRegion` (via gitignored
+`ios/Flutter/Store.xcconfig`); Dart reads it as `AppStoreRegion.current`
+(`lib/settings/app_store_region.dart`). `cn` defaults the language to
+Simplified Chinese unless a language was picked for the app in iOS Settings.
+Same bundle id for every storefront: `install-ios` upgrades in place, data kept.
 
 ## The backup has to open without this app
 
