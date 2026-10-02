@@ -1,5 +1,4 @@
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show MaterialPageRoute;
 
 import '../l10n/app_localizations.dart';
 import '../upload/s3_object_delete.dart' as s3;
@@ -180,7 +179,7 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
 
   void _openFolder(String folderPrefix) {
     Navigator.of(context).push(
-      MaterialPageRoute(
+      CupertinoPageRoute(
         builder: (_) => BucketBrowserScreen(
           target: widget.target,
           prefix: folderPrefix,
@@ -390,7 +389,7 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
                 subtitle: formatBytes(object.size),
                 onTap: selection == null
                     ? () => Navigator.of(context).push(
-                        MaterialPageRoute(
+                        CupertinoPageRoute(
                           builder: (_) => BucketObjectPreviewScreen(
                             target: widget.target,
                             objectKey: object.key,
