@@ -2,21 +2,21 @@ import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/upload/sync_job.dart';
 import 'package:photos_vault/upload/sync_queue.dart';
-import 'package:photos_vault/viewer/backup_queue_screen.dart';
+import 'package:photos_vault/settings/backup_queue_panel.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
-import '../settings/fake_secure_store.dart';
+import 'fake_secure_store.dart';
 import '../support/fake_sync_job_store.dart';
 
 Widget _wrap(Widget child) => CupertinoApp(
   localizationsDelegates: AppLocalizations.localizationsDelegates,
   supportedLocales: AppLocalizations.supportedLocales,
-  home: child,
+  home: CupertinoPageScaffold(child: ListView(children: [child])),
 );
 
 Widget _screen(SyncQueue queue, {Future<int> Function()? syncEverything}) =>
-    BackupQueueScreen(
+    BackupQueuePanel(
       queue: queue,
       settingsStore: BackupTargetsStore(store: FakeSecureStore()),
       syncEverything: syncEverything,
@@ -165,7 +165,7 @@ void main() {
   ) async {
     final store = BackupTargetsStore(store: FakeSecureStore());
     await tester.pumpWidget(
-      _wrap(BackupQueueScreen(queue: newQueue(), settingsStore: store)),
+      _wrap(BackupQueuePanel(queue: newQueue(), settingsStore: store)),
     );
     await tester.pumpAndSettle();
 
@@ -202,7 +202,7 @@ void main() {
     var ran = 0;
     await tester.pumpWidget(
       _wrap(
-        BackupQueueScreen(
+        BackupQueuePanel(
           queue: newQueue(),
           settingsStore: store,
           syncEverything: () async => ++ran,
@@ -235,7 +235,7 @@ void main() {
       'sheet where it is chosen', (tester) async {
     final store = BackupTargetsStore(store: FakeSecureStore());
     await tester.pumpWidget(
-      _wrap(BackupQueueScreen(queue: newQueue(), settingsStore: store)),
+      _wrap(BackupQueuePanel(queue: newQueue(), settingsStore: store)),
     );
     await tester.pumpAndSettle();
 

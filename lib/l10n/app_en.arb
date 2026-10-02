@@ -72,6 +72,7 @@
   "editResetButton": "Reset",
   "editFailed": "Couldn't apply this edit.",
   "editSavedAsCopy": "Saved as a new photo. The original is unchanged.",
+  "editDiscard": "Discard Edit",
   "editAngleDegrees": "{degrees}°",
   "@editAngleDegrees": {
     "placeholders": {
@@ -389,7 +390,7 @@
   },
   "settingsRemoveAllAppDataButton": "Remove All App Data",
   "settingsRemoveAllAppDataTitle": "Remove all app data?",
-  "settingsRemoveAllAppDataBody": "This removes your photos, albums, people, sync queue, bucket connections and API keys — everything, as if the app were newly installed. A copy is saved first — look for pre-deletion in the file name — on this iPhone and in iCloud Drive and your buckets while they can still be reached.",
+  "settingsRemoveAllAppDataBody": "This removes your photos, albums, people, sync queue, bucket connections and API keys — everything, as if the app were newly installed. A copy is saved first — look for pre-deletion in the file name — on this iPhone and in iCloud Drive and your buckets while they can still be reached. Hidden photos stored on this iPhone are kept, encrypted, and open again with your passphrase and code; delete them from inside the hidden album.",
   "settingsRemoveAllAppDataConfirm": "Remove All Data",
   "settingsICloudNotEntitled": "This build of the app isn't signed for iCloud",
   "settingsICloudDriveOff": "iCloud Drive is off on this device",
@@ -437,7 +438,6 @@
   "settingsBrowseFilesAction": "Browse Files",
   "settingsDeleteConnectionAction": "Remove Bucket",
   "backupQueueHiddenItem": "Hidden photo",
-  "collectionsSyncQueueRow": "Sync Queue",
   "collectionsBackupQueueRow": "Backup Queue",
   "collectionsAnalyzeQueueRow": "Analyze Queue",
   "analyzeQueueRemaining": "{count, plural, =0{Nothing left to analyze} one{1 photo to analyze} other{{count} photos to analyze}}",
@@ -555,6 +555,19 @@
   "settingsAddAiKeyLink": "Add AI Key",
   "settingsAiVendorLabel": "Vendor",
   "settingsAiGetKeyLink": "Get one",
+  "settingsAiTextOnly": "{vendor} answers questions but can't analyze photos. Add a second vendor for photo analysis.",
+  "@settingsAiTextOnly": {
+    "placeholders": {
+      "vendor": {"type": "String"}
+    }
+  },
+  "settingsAiKeyCheckFailed": "Couldn't verify this key: {error}",
+  "@settingsAiKeyCheckFailed": {
+    "placeholders": {
+      "error": {"type": "String"}
+    }
+  },
+  "settingsAiSaveAnyway": "Save Anyway",
   "settingsAiNoKeyYet": "Don't have a {vendor} key?",
   "@settingsAiNoKeyYet": {
     "placeholders": {
@@ -609,6 +622,12 @@
   "bucketOpenInBrowser": "Open in Browser",
   "bucketObjectUnreachable": "This photo's file isn't in any bucket this phone can reach.",
   "collectionsStorageRow": "Optimize Storage",
+  "privateAlbumFewDecoysTitle": "Few photos to hide among",
+  "privateAlbumFewDecoysBody": "Your library has fewer than 100 photos. Hidden photos are disguised as copies of your other photos, so with this few the same decoys repeat and are easy to spot. They're still encrypted with your code, so nobody can open them.",
+  "privateAlbumFewDecoysContinue": "Continue",
+  "collectionsImportFilesRow": "Import from Files",
+  "collectionsLanguageRow": "Language",
+  "languageSystem": "System",
   "@collectionsStorageRow": {
     "description": "Utilities row and page title for the storage clean-up page"
   },
@@ -1500,5 +1519,93 @@
               "type": "int"
           }
       }
-  }
+  },
+  "hiddenDeleteConfirmTitle": "{count, plural, one{Delete 1 hidden photo?} other{Delete {count} hidden photos?}}",
+  "@hiddenDeleteConfirmTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hiddenDeleteConfirmBody": "Hidden photos don't go to Recently Deleted. They're removed from this phone and from your buckets, and can't be recovered.",
+  "hiddenDeleteFailed": "Couldn't update the album's index, so nothing was deleted. Try again.",
+  "hiddenNotesTitle": "Notes",
+  "hiddenNotesAdd": "New Note",
+  "hiddenNotesEdit": "Edit Note",
+  "hiddenNotesPlaceholder": "Write something only this album's code opens",
+  "hiddenNotesEmpty": "No notes yet. Notes are encrypted with this album's key.",
+  "albumsRecentlyAddedName": "Recently Added",
+  "hideCodeTitle": "Hidden Album Code",
+  "hideCodeBody": "Choose the 4 digits for the hidden album these photos go into. This is not your iPhone passcode.",
+  "hideCodeWarning": "Every code opens an album, so there is no \"wrong code\" and no reset. Forget this code and these photos can't be found again.",
+  "hideCodeConfirmTitle": "Enter It Again",
+  "hideCodeConfirmBody": "Type the same 4 digits to confirm.",
+  "hideCodeMismatch": "The two codes didn't match, so nothing was hidden.",
+  "resizeOption": "Resize…",
+  "resizeTitle": "{count, plural, one{Resize 1 photo} other{Resize {count} photos}}",
+  "@resizeTitle": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "resizeBody": "Saved as JPEG at the size you pick. A replaced original goes to Recently Deleted.",
+  "resizeReplace": "{count, plural, one{Replace Original} other{Replace Originals}}",
+  "@resizeReplace": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "resizeSaveNew": "Save as New",
+  "resizeBodyHidden": "Saved as JPEG at the size you pick, in this album. A replaced original is deleted for good — hidden photos have no Recently Deleted.",
+  "resizeCopyLimit": "Save as New is for up to {limit} photos, so the library doesn't fill with duplicates.",
+  "@resizeCopyLimit": {
+    "placeholders": {
+      "limit": {"type": "int"}
+    }
+  },
+  "resizeFailed": "None of these could be resized, so nothing changed.",
+  "exportSmallerLarge": "Large ({px} px)",
+  "@exportSmallerLarge": {
+    "placeholders": {
+      "px": {
+        "type": "int"
+      }
+    }
+  },
+  "exportSmallerMedium": "Medium ({px} px)",
+  "@exportSmallerMedium": {
+    "placeholders": {
+      "px": {
+        "type": "int"
+      }
+    }
+  },
+  "exportSmallerSmall": "Small ({px} px)",
+  "@exportSmallerSmall": {
+    "placeholders": {
+      "px": {
+        "type": "int"
+      }
+    }
+  },
+  "exportSmallerSkipped": "{count, plural, one{1 photo couldn't be exported and was left as it is.} other{{count} photos couldn't be exported and were left as they are.}}",
+  "@exportSmallerSkipped": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "demoModeEnterRow": "Demo Mode",
+  "demoModeExitRow": "Exit Demo Mode",
+  "demoModeEnterBody": "Opens a separate library filled with sample photos, albums, people and notes. Your real photos, buckets and settings are not touched, and nothing from the demo is mixed into them.",
+  "demoModeExitBody": "Back to your own library. The demo library stays as it is for next time.",
+  "demoModeEnterAction": "Open Demo",
+  "demoModeExitAction": "Exit Demo",
+  "settingsDemoHeading": "Demo",
+  "settingsDemoResetRow": "Reset Demo Data",
+  "settingsDemoResetTitle": "Reset demo data?",
+  "settingsDemoResetBody": "The demo library goes back to its sample photos, albums, people and notes. Your own library isn't touched.",
+  "settingsDemoResetConfirm": "Reset"
 }

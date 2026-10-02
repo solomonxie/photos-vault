@@ -29,9 +29,8 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
    │  People (AI Suggestions) ──▶ SmartCollectionScreen
    └─ More
         Where Your Photos Are ──▶ SafetyScreen
-        Cloud Settings ──▶ SettingsScreen ──▶ BucketBrowser ─▶ (deeper)
+        Cloud Settings (+ Backup Queue) ──▶ SettingsScreen ──▶ BucketBrowser ─▶ (deeper)
         │                        └─▶ [AddS3Backup]   └─▶ ObjectPreview
-        Backup Queue ──▶ BackupQueueScreen
         Analyze Queue ──▶ AnalyzeQueueScreen
         AI Settings ──▶ AiSettingsScreen ──▶ [AddKey sheet]
         Hidden ──▶ [PrivateAlbumGate] ──▶ PrivateAlbumScreen

@@ -2,24 +2,22 @@ import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
-import '../settings/backup_targets_store.dart';
-import '../settings/settings_section.dart';
 import '../upload/sync_job.dart';
 import '../upload/sync_queue.dart';
+import 'backup_targets_store.dart';
+import 'settings_section.dart';
 
 /// Everything the app owes a bucket, one row per unit of work — uploads,
 /// the `.mov` half of a Live Photo, thumbnails, and the change checks that
 /// re-hash a file to spot an edit.
 ///
-/// A page rather than the sheet it used to be, and a sibling of
-/// `AnalyzeQueueScreen` rather than a block of pills on Cloud Settings.
+/// Part of Cloud Settings, under the connections it uploads to: its
+/// controls first, then the queue in a box of its own height, so a long
+/// queue scrolls inside it rather than pushing the page out forever.
 /// Called the *backup* queue, not the sync queue: what it does is put your
 /// photos somewhere safe, and "sync" reads as two-way.
-/// The two queues are the same kind of thing — a long list, paced, pausable,
-/// with settings you come back to — so they read the same and sit next to
-/// each other. Cloud Settings goes back to being about the connections.
-class BackupQueueScreen extends StatefulWidget {
-  const BackupQueueScreen({
+class BackupQueuePanel extends StatefulWidget {
+  const BackupQueuePanel({
     super.key,
     required this.queue,
     required this.settingsStore,
@@ -42,10 +40,10 @@ class BackupQueueScreen extends StatefulWidget {
   final Future<void> Function(String localId)? onOpenAsset;
 
   @override
-  State<BackupQueueScreen> createState() => _BackupQueueScreenState();
+  State<BackupQueuePanel> createState() => _BackupQueuePanelState();
 }
 
-class _BackupQueueScreenState extends State<BackupQueueScreen> {
+class _BackupQueuePanelState extends State<BackupQueuePanel> {
   BackupFormat _format = BackupFormat.original;
   SyncFrequency _frequency = SyncFrequency.manual;
   DateTime? _lastSyncAt;
@@ -182,36 +180,14 @@ class _BackupQueueScreenState extends State<BackupQueueScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return CupertinoPageScaffold(
-      backgroundColor: settingsPageBackground,
-      navigationBar: CupertinoNavigationBar(
-        backgroundColor: settingsPageBackground,
-        middle: Text(l10n.collectionsBackupQueueRow),
-        trailing: ValueListenableBuilder<bool>(
-          valueListenable: widget.queue.draining,
-          builder: (context, draining, _) => draining
-              ? const CupertinoActivityIndicator(radius: 8)
-              : const SizedBox.shrink(),
-        ),
-      ),
-      child: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.only(top: 16, bottom: 32),
-          children: [
-            ValueListenableBuilder<List<SyncJob>>(
-              valueListenable: widget.queue.jobs,
-              builder: (context, jobs, _) => SettingsSection(
-                heading: l10n.backupQueueHeader(
-                  jobs.where((job) => !job.isFinished).length,
-                ),
-                children: [_controls(l10n), const SettingsHairline(), _note()],
-              ),
-            ),
-            const SettingsSectionDivider(),
-            _jobs(l10n),
-          ],
-        ),
-      ),
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        _controls(l10n),
+        _note(),
+        const SettingsSectionDivider(),
+        _jobs(l10n),
+      ],
     );
   }
 
@@ -327,8 +303,16 @@ class _BackupQueueScreenState extends State<BackupQueueScreen> {
     return ValueListenableBuilder<List<SyncJob>>(
       valueListenable: widget.queue.jobs,
       builder: (context, jobs, _) => SettingsSection(
-        heading: l10n.backupQueueListHeading,
+        heading: l10n.backupQueueHeader(
+          jobs.where((job) => !job.isFinished).length,
+        ),
         primary: false,
+        action: ValueListenableBuilder<bool>(
+          valueListenable: widget.queue.draining,
+          builder: (context, draining, _) => draining
+              ? const CupertinoActivityIndicator(radius: 8)
+              : const SizedBox.shrink(),
+        ),
         children: jobs.isEmpty
             ? [
                 Padding(
@@ -344,23 +328,43 @@ class _BackupQueueScreenState extends State<BackupQueueScreen> {
                   ),
                 ),
               ]
-            : [
+            : jobs.length <= _rowsShown
+            ? [
                 for (var i = 0; i < jobs.length; i++) ...[
                   if (i > 0)
                     const SettingsHairline(indent: settingsPagePadding),
-                  _JobRow(
-                    job: jobs[i],
-                    kindLabel: _kindLabel(l10n, jobs[i].kind),
-                    onRetry: () => widget.queue.retry(jobs[i]),
-                    onOpen: widget.onOpenAsset == null
-                        ? null
-                        : () => widget.onOpenAsset!(jobs[i].localId),
-                  ),
+                  _row(l10n, jobs[i]),
                 ],
+              ]
+            : [
+                SizedBox(
+                  height: _listHeight,
+                  child: ListView.separated(
+                    primary: false,
+                    padding: EdgeInsets.zero,
+                    itemCount: jobs.length,
+                    separatorBuilder: (context, i) =>
+                        const SettingsHairline(indent: settingsPagePadding),
+                    itemBuilder: (context, i) => _row(l10n, jobs[i]),
+                  ),
+                ),
               ],
       ),
     );
   }
+
+  /// Past this many rows the list stops growing and scrolls in place.
+  static const _rowsShown = 6;
+  static const _listHeight = 360.0;
+
+  Widget _row(AppLocalizations l10n, SyncJob job) => _JobRow(
+    job: job,
+    kindLabel: _kindLabel(l10n, job.kind),
+    onRetry: () => widget.queue.retry(job),
+    onOpen: widget.onOpenAsset == null
+        ? null
+        : () => widget.onOpenAsset!(job.localId),
+  );
 }
 
 class _JobRow extends StatelessWidget {
