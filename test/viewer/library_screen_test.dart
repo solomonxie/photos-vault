@@ -344,9 +344,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Adding lives on the header row, where it's reachable from anywhere
-    // in the library rather than only from the bottom of it.
-    await tester.tap(find.byIcon(CupertinoIcons.add));
+    await tester.scrollUntilVisible(
+      find.text('Import from Files'),
+      300,
+      scrollable: find.byType(Scrollable).first,
+    );
+    await tester.tap(find.text('Import from Files'));
     await tester.pumpAndSettle();
 
     expect(find.text('Added 0 files, 0 backed up.'), findsOneWidget);
@@ -418,16 +421,16 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('1 Selected'), findsOneWidget);
-    // The bar carries the two anybody presses plus the way out; the batch
-    // metadata edits are a list, so they live in the menu.
-    for (final action in ['Album', 'Add Tag', 'More', 'Delete']) {
+    // Delete lives in More, away from Done.
+    for (final action in ['Album', 'Add Tag', 'More']) {
       expect(find.text(action), findsOneWidget);
     }
     expect(find.text('Set Place'), findsNothing);
+    expect(find.text('Delete'), findsNothing);
 
     await tester.tap(find.text('More'));
     await tester.pumpAndSettle();
-    for (final action in ['Set Place', 'Adjust Date']) {
+    for (final action in ['Set Place', 'Adjust Date', 'Delete']) {
       expect(find.text(action), findsOneWidget);
     }
     await tester.tap(find.text('Cancel'));
@@ -727,11 +730,12 @@ void main() {
 
       expect(
         find.byType(BuiltInAlbumCoverArt),
-        findsNWidgets(2),
-        reason: 'both cards coloured, neither of them the clip itself',
+        findsNWidgets(3),
+        reason: 'every built-in card coloured, none of them the clip itself',
       );
       expect(coverIcon(CupertinoIcons.heart_fill), findsOneWidget);
       expect(coverIcon(CupertinoIcons.play_fill), findsOneWidget);
+      expect(coverIcon(CupertinoIcons.clock_fill), findsOneWidget);
     });
 
     testWidgets('and a chosen cover wins over the colour', (tester) async {
@@ -745,7 +749,7 @@ void main() {
 
       expect(
         find.byType(BuiltInAlbumCoverArt),
-        findsOneWidget,
+        findsNWidgets(2),
         reason: 'Favourites still coloured; Videos shows the chosen photo',
       );
       expect(coverIcon(CupertinoIcons.play_fill), findsNothing);
@@ -795,9 +799,8 @@ void main() {
       expect(find.text('Favorites'), findsOneWidget);
       expect(find.text('Hidden'), findsOneWidget);
       expect(find.text('Recently Deleted'), findsOneWidget);
-      // Both queues live here, as siblings: Sync above Analyze. Cloud
-      // Settings is the connections, not what the upload is doing.
-      expect(find.text('Backup Queue'), findsOneWidget);
+      // The backup queue lives on Cloud Settings, with the buckets.
+      expect(find.text('Backup Queue'), findsNothing);
       expect(find.text('Analyze Queue'), findsOneWidget);
       expect(find.text('Cloud Settings'), findsOneWidget);
 
@@ -1007,6 +1010,15 @@ void main() {
       final albumsY = tester.getCenter(find.text('Albums')).dy;
       final peopleY = tester.getCenter(find.text('People')).dy;
       expect(albumsY, lessThan(peopleY));
+      // Past Favourites, Videos and Recently Added on the same row.
+      await tester.dragUntilVisible(
+        find.text('Nature'),
+        find
+            .ancestor(of: find.text('Videos'), matching: find.byType(ListView))
+            .first,
+        const Offset(-150, 0),
+      );
+      await tester.pumpAndSettle();
       expect(find.text('Nature'), findsOneWidget);
 
       // A single horizontally-scrolling row, not a multi-row grid. The
@@ -1014,7 +1026,7 @@ void main() {
       // albums are further along it.
       expect(
         tester.getCenter(find.text('Nature')).dy,
-        tester.getCenter(find.text('Videos')).dy,
+        tester.getCenter(find.text('Recently Added')).dy,
       );
 
       await tester.tap(find.text('Nature'));
@@ -1360,6 +1372,8 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('manual:two')));
     await tester.pumpAndSettle();
 
+    await tester.tap(find.text('More'));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();
 
@@ -1412,6 +1426,8 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.longPress(find.byKey(const ValueKey('manual:one')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('More'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete'));
     await tester.pumpAndSettle();

@@ -390,124 +390,135 @@ class AssetTile extends StatelessWidget {
   Widget _tile() {
     final video = record.isVideo;
 
+    final clipped = ClipRRect(
+      borderRadius: BorderRadius.circular(8),
+      child: Stack(
+        fit: StackFit.expand,
+        children: [
+          // Videos draw their poster frame like any other tile — the OS
+          // library hands one back for them too, and a black square with
+          // a play glyph told you nothing about which video it was.
+          // Aspect-fit, not the square crop the OS would give by
+          // default: `cover` on the tile crops it back to a square
+          // anyway, and asking this way means the viewer opening on top
+          // of this tile already has the whole picture in memory to put
+          // up on its first frame. 200 on the long edge leaves the short
+          // edge about where the old 150 square was.
+          assetImage(
+            record,
+            thumbnailSize: 200,
+            fittedThumbnail: true,
+            placeholder: _placeholder,
+            onMissing: onMissing,
+          ),
+          // Only in the bucket now: dimmed, so what is no longer on this
+          // phone reads apart from what is. A flat overlay rather than a
+          // greyscale filter, which would be a saveLayer per tile.
+          if (record.localDeleted) const ColoredBox(color: Color(0x738E8E93)),
+          if (marked)
+            Positioned.fill(
+              child: IgnorePointer(
+                child: DecoratedBox(
+                  decoration: BoxDecoration(
+                    border: Border.all(
+                      color: CupertinoColors.activeBlue,
+                      width: 3,
+                    ),
+                    borderRadius: BorderRadius.circular(4),
+                  ),
+                ),
+              ),
+            ),
+          if (record.isGif)
+            const Positioned(
+              top: 4,
+              left: 4,
+              child: Text(
+                'GIF',
+                style: TextStyle(
+                  fontSize: 9,
+                  fontWeight: FontWeight.w700,
+                  color: CupertinoColors.white,
+                ),
+              ),
+            )
+          else if (record.isLivePhoto)
+            const Positioned(
+              top: 4,
+              left: 4,
+              child: Icon(
+                CupertinoIcons.smallcircle_circle,
+                size: 14,
+                color: CupertinoColors.white,
+              ),
+            ),
+          if (video)
+            const Positioned(
+              top: 4,
+              right: 4,
+              child: Icon(
+                CupertinoIcons.video_camera_solid,
+                size: 14,
+                color: CupertinoColors.white,
+              ),
+            ),
+          if (record.isFavorite)
+            const Positioned(
+              bottom: 4,
+              left: 4,
+              child: Icon(
+                CupertinoIcons.heart_fill,
+                size: 14,
+                color: CupertinoColors.white,
+              ),
+            ),
+          Positioned(bottom: 4, right: 4, child: StatusDot(record: record)),
+          if (selected != null) ...[
+            if (selected!) const ColoredBox(color: Color(0x662E7DFF)),
+            Positioned(
+              top: 4,
+              right: 4,
+              child: Icon(
+                selected!
+                    ? CupertinoIcons.checkmark_circle_fill
+                    : CupertinoIcons.circle,
+                color: selected!
+                    ? CupertinoColors.activeBlue
+                    : CupertinoColors.white,
+                size: 20,
+              ),
+            ),
+          ],
+        ],
+      ),
+    );
+    // The underline sits in the gap under the tile, outside its clip — the
+    // row's own bottom padding — so it underlines the photo rather than
+    // covering it.
     return SizedBox.square(
       dimension: extent,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            // Videos draw their poster frame like any other tile — the OS
-            // library hands one back for them too, and a black square with
-            // a play glyph told you nothing about which video it was.
-            // Aspect-fit, not the square crop the OS would give by
-            // default: `cover` on the tile crops it back to a square
-            // anyway, and asking this way means the viewer opening on top
-            // of this tile already has the whole picture in memory to put
-            // up on its first frame. 200 on the long edge leaves the short
-            // edge about where the old 150 square was.
-            assetImage(
-              record,
-              thumbnailSize: 200,
-              fittedThumbnail: true,
-              placeholder: _placeholder,
-              onMissing: onMissing,
-            ),
-            if (marked)
-              Positioned.fill(
-                child: IgnorePointer(
-                  child: DecoratedBox(
-                    decoration: BoxDecoration(
-                      border: Border.all(
-                        color: CupertinoColors.activeBlue,
-                        width: 3,
-                      ),
-                      borderRadius: BorderRadius.circular(4),
-                    ),
-                  ),
-                ),
-              ),
-            if (record.isGif)
-              const Positioned(
-                top: 4,
-                left: 4,
-                child: Text(
-                  'GIF',
-                  style: TextStyle(
-                    fontSize: 9,
-                    fontWeight: FontWeight.w700,
-                    color: CupertinoColors.white,
-                  ),
-                ),
-              )
-            else if (record.isLivePhoto)
-              const Positioned(
-                top: 4,
-                left: 4,
-                child: Icon(
-                  CupertinoIcons.smallcircle_circle,
-                  size: 14,
-                  color: CupertinoColors.white,
-                ),
-              ),
-            if (video)
-              const Positioned(
-                top: 4,
-                right: 4,
-                child: Icon(
-                  CupertinoIcons.video_camera_solid,
-                  size: 14,
-                  color: CupertinoColors.white,
-                ),
-              ),
-            if (record.isFavorite)
-              const Positioned(
-                bottom: 4,
-                left: 4,
-                child: Icon(
-                  CupertinoIcons.heart_fill,
-                  size: 14,
-                  color: CupertinoColors.white,
-                ),
-              ),
-            Positioned(bottom: 4, right: 4, child: StatusDot(record: record)),
-            if (selected != null) ...[
-              if (selected!) const ColoredBox(color: Color(0x662E7DFF)),
-              Positioned(
-                top: 4,
-                right: 4,
-                child: Icon(
-                  selected!
-                      ? CupertinoIcons.checkmark_circle_fill
-                      : CupertinoIcons.circle,
-                  color: selected!
-                      ? CupertinoColors.activeBlue
-                      : CupertinoColors.white,
-                  size: 20,
-                ),
-              ),
-            ],
-          ],
-        ),
+      child: Stack(
+        clipBehavior: Clip.none,
+        fit: StackFit.expand,
+        children: [
+          clipped,
+          Positioned(
+            left: 6,
+            right: 6,
+            bottom: -4.5,
+            height: BackupUnderline.thickness,
+            child: BackupUnderline(record: record),
+          ),
+        ],
       ),
     );
   }
 }
 
-/// The tile's bottom-right badge, which is where "where does this photo
-/// actually live?" is answered.
-///
-/// Two states, and they can't both be true: a filled cloud for a photo
-/// that is only in the bucket now, and a light dotted ring for one not
-/// backed up yet. A photo in both places gets nothing at all, so a library
-/// that is fully synced and fully on the device reads as clean instead of
-/// every tile carrying a checkmark.
-///
-/// The cloud took this corner rather than the top-left one it used to
-/// share with GIF and Live Photo: those say what *kind* of thing the photo
-/// is, and a cloud-only Live Photo was losing its marker to the chain. It
-/// also can't collide with the ring — cloud-only means the original is up
-/// there, so the ring would never draw for one.
+/// The tile's bottom-right badge: a cloud on every photo the bucket holds
+/// in full, whether or not this phone still has it. Cloud-only tiles are
+/// also dimmed (see [AssetTile]), so the cloud says "safe" and the dimming
+/// says "not here".
 class StatusDot extends StatelessWidget {
   const StatusDot({super.key, required this.record});
 
@@ -515,24 +526,200 @@ class StatusDot extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (record.localDeleted) {
-      return const Icon(
-        CupertinoIcons.cloud_fill,
-        size: 14,
-        color: CupertinoColors.white,
-        // White on a white photo is nothing at all, and this is the badge
-        // somebody scans a grid for.
-        shadows: [Shadow(color: Color(0x99000000), blurRadius: 3)],
-      );
-    }
-    final status = record.stateOf(DerivativeKind.original).status;
-    if (status == UploadStatus.uploaded) return const SizedBox.shrink();
-    return const SizedBox(
-      width: 14,
-      height: 14,
-      child: CustomPaint(painter: _DottedRingPainter()),
+    if (!record.isFullyBackedUp) return const SizedBox.shrink();
+    return const Icon(
+      CupertinoIcons.cloud_fill,
+      size: 13,
+      color: CupertinoColors.white,
+      // White on a white photo is nothing at all.
+      shadows: [Shadow(color: Color(0x99000000), blurRadius: 3)],
     );
   }
+}
+
+/// How much of a photo is safe in the bucket, as a line under its tile.
+enum BackupLine {
+  /// Everything is up. Solid green.
+  safe,
+
+  /// Some of it is going up now — green for what's there, yellow for the
+  /// rest.
+  uploading,
+
+  /// Waiting its turn. Dashed yellow.
+  pending,
+
+  /// The last try failed. Dashed red: it won't fix itself by waiting.
+  failed;
+
+  static BackupLine of(AssetRecord record) {
+    if (record.isFullyBackedUp) return safe;
+    final parts = [
+      record.stateOf(DerivativeKind.original).status,
+      if (record.isLivePhoto) record.stateOf(DerivativeKind.livePhoto).status,
+    ];
+    if (parts.contains(UploadStatus.uploading)) return uploading;
+    if (parts.contains(UploadStatus.failed)) return failed;
+    return pending;
+  }
+
+  /// The green share of the line: a Live Photo with its still up and its
+  /// motion going is further along than one with nothing up.
+  static double safeShare(AssetRecord record) {
+    final parts = [
+      record.stateOf(DerivativeKind.original).status,
+      if (record.isLivePhoto) record.stateOf(DerivativeKind.livePhoto).status,
+    ];
+    var done = 0.0;
+    for (final status in parts) {
+      if (status == UploadStatus.uploaded) done += 1;
+      if (status == UploadStatus.uploading) done += 0.5;
+    }
+    return done / parts.length;
+  }
+}
+
+/// A text underline for the photo above it: what is safe in the cloud and
+/// what isn't, readable across a whole screen of tiles at once.
+///
+/// Green rather than grey for "safe": grey disappears into the dark page
+/// and reads as "disabled", and it would be one colour too many next to the
+/// grey of a cloud-only tile. Green and yellow are one scale — the green
+/// length is how much is up — so an upload in progress is the same line
+/// filling in. Dashed vs solid carries the same answer without colour.
+/// Only an uploading line moves — a glint running along its yellow part,
+/// behind its own repaint boundary — so the cost is bounded by the few
+/// uploads in flight, not by the tiles on screen.
+class BackupUnderline extends StatelessWidget {
+  const BackupUnderline({super.key, required this.record});
+
+  final AssetRecord record;
+
+  static const thickness = 2.5;
+  static const green = Color(0xFF30D158);
+  static const yellow = Color(0xFFFFD60A);
+  static const red = Color(0xFFFF453A);
+
+  @override
+  Widget build(BuildContext context) {
+    final line = BackupLine.of(record);
+    if (line == BackupLine.uploading &&
+        !MediaQuery.disableAnimationsOf(context)) {
+      return RepaintBoundary(
+        child: _UploadingUnderline(safeShare: BackupLine.safeShare(record)),
+      );
+    }
+    return CustomPaint(
+      painter: _UnderlinePainter(
+        line: line,
+        safeShare: line == BackupLine.uploading
+            ? BackupLine.safeShare(record)
+            : 0,
+      ),
+    );
+  }
+}
+
+class _UploadingUnderline extends StatefulWidget {
+  const _UploadingUnderline({required this.safeShare});
+
+  final double safeShare;
+
+  @override
+  State<_UploadingUnderline> createState() => _UploadingUnderlineState();
+}
+
+class _UploadingUnderlineState extends State<_UploadingUnderline>
+    with SingleTickerProviderStateMixin {
+  late final _glint = AnimationController(
+    vsync: this,
+    duration: const Duration(milliseconds: 1200),
+  )..repeat();
+
+  @override
+  void dispose() {
+    _glint.dispose();
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => CustomPaint(
+    painter: _UnderlinePainter(
+      line: BackupLine.uploading,
+      safeShare: widget.safeShare,
+      glint: _glint,
+    ),
+  );
+}
+
+class _UnderlinePainter extends CustomPainter {
+  const _UnderlinePainter({
+    required this.line,
+    required this.safeShare,
+    this.glint,
+  }) : super(repaint: glint);
+
+  final BackupLine line;
+  final double safeShare;
+  final Animation<double>? glint;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final y = size.height / 2;
+    final paint = Paint()
+      ..strokeWidth = size.height
+      ..strokeCap = StrokeCap.round;
+    switch (line) {
+      case BackupLine.safe:
+        canvas.drawLine(
+          Offset(0, y),
+          Offset(size.width, y),
+          paint..color = BackupUnderline.green,
+        );
+      case BackupLine.uploading:
+        final split = size.width * safeShare;
+        canvas.drawLine(
+          Offset(split, y),
+          Offset(size.width, y),
+          paint..color = BackupUnderline.yellow,
+        );
+        if (split > 0) {
+          canvas.drawLine(
+            Offset(0, y),
+            Offset(split, y),
+            paint..color = BackupUnderline.green,
+          );
+        }
+        final t = glint?.value;
+        if (t != null && split < size.width) {
+          final span = size.width - split;
+          final glintWidth = math.min(14.0, span);
+          final start = split + (span + glintWidth) * t - glintWidth;
+          canvas.drawLine(
+            Offset(math.max(start, split), y),
+            Offset(math.min(start + glintWidth, size.width), y),
+            paint..color = const Color(0xFFFFFFFF).withValues(alpha: 0.85),
+          );
+        }
+      case BackupLine.pending || BackupLine.failed:
+        paint.color = line == BackupLine.pending
+            ? BackupUnderline.yellow
+            : BackupUnderline.red;
+        const dash = 5.0;
+        const gap = 4.0;
+        for (var x = 0.0; x < size.width; x += dash + gap) {
+          canvas.drawLine(
+            Offset(x, y),
+            Offset(math.min(x + dash, size.width), y),
+            paint,
+          );
+        }
+    }
+  }
+
+  @override
+  bool shouldRepaint(_UnderlinePainter old) =>
+      old.line != line || old.safeShare != safeShare || old.glint != glint;
 }
 
 /// The square at the end of the roll that adds photos. Shaped like a tile
@@ -837,29 +1024,4 @@ class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
       ),
     );
   }
-}
-
-class _DottedRingPainter extends CustomPainter {
-  const _DottedRingPainter();
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    final paint = Paint()
-      ..color = const Color(0xE6FFFFFF)
-      ..style = PaintingStyle.stroke
-      ..strokeWidth = 1.6
-      ..strokeCap = StrokeCap.round;
-    final rect = Rect.fromCircle(
-      center: size.center(Offset.zero),
-      radius: size.width / 2 - 1,
-    );
-    const dashCount = 8;
-    const sweep = 2 * math.pi / dashCount;
-    for (var i = 0; i < dashCount; i++) {
-      canvas.drawArc(rect, i * sweep, sweep * 0.5, false, paint);
-    }
-  }
-
-  @override
-  bool shouldRepaint(_DottedRingPainter oldDelegate) => false;
 }

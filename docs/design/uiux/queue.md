@@ -28,13 +28,14 @@ Photos.
 
 # Backup queue
 
-`lib/viewer/backup_queue_screen.dart` — a page, and named *backup* rather
+`lib/settings/backup_queue_panel.dart` — part of Cloud Settings, under the
+list of connections: controls first, then the queue. Past 6 rows the list
+stops growing and scrolls inside a fixed 360pt box. Named *backup* rather
 than sync: what it does is put photos somewhere safe, and "sync" reads as
 two-way.
 
 ```
- ‹              Backup Queue                     ⟳   ← ⟳ only while draining
- QUEUE (12)
+ (Cloud Settings, under the connections)
  ┌───────────────────────────────────────────────┐
  │ [ ⟳ Sync Now ] [ ⏸ Pause ] [ 🕐 Manual Only ] │
  │ [ 🖼 Original ] [ ✓ Clear Done ] [ ⊗ Empty ]  │
@@ -42,7 +43,7 @@ two-way.
  ├───────────────────────────────────────────────┤
  │ Last synced Sep 19, 3:04 PM                   │
  └───────────────────────────────────────────────┘
- IN THE QUEUE
+ QUEUE (12)                                    ⟳   ← ⟳ only while draining
  IMG_4934.HEIC                                 ⟳
  Backing up original
  IMG_5001.MOV                             Waiting

@@ -75,13 +75,13 @@ offers. `asset_picker_screen.dart`'s multi-select grid is the shared
 "pick from the full library" flow behind Private Albums' Move/Copy and
 People's "Add Photos".
 
-`asset_grid.dart`'s `StatusDot` is the tile's bottom-right badge and the
-answer to "where does this photo actually live?" — a filled cloud when
-only the bucket has it, a dotted ring when the bucket doesn't have it yet,
-nothing when both do. The top-left corner says what *kind* of thing it is
-(GIF, Live Photo) and the top-right that it's a video, which is why the
-cloud moved out of that chain: a cloud-only Live Photo was losing its own
-marker to it.
+`asset_grid.dart` answers "is this safe in the cloud?" per tile:
+`BackupUnderline`, a thin line under the tile (solid green: backed up;
+green+yellow: uploading, green share = how much is up; dashed yellow:
+pending; dashed red: failed), `StatusDot`, a cloud bottom-right on every
+backed-up photo, and a grey overlay on one that is only in the bucket now.
+The top-left corner says what *kind* of thing it is (GIF, Live Photo) and
+the top-right that it's a video.
 
 `built_in_album.dart` holds the two cards the library makes itself,
 Favourites and Videos: no row in the album table, and a gradient + glyph

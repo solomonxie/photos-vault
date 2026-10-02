@@ -33,6 +33,7 @@ import '../photos/photo_location.dart';
 import '../photos/suggestion_review.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/bucket_location.dart';
+import '../settings/app_store_region.dart';
 import 'ask_ai_screen.dart';
 import 'asset_grid.dart';
 import '../storage/album.dart';
@@ -42,6 +43,7 @@ import '../storage/asset_record_store.dart';
 import '../upload/original_restore.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
+import 'resize_photos.dart';
 import 'gif_view.dart';
 import 'live_photo_view.dart';
 import 'motion_playback.dart';
@@ -63,9 +65,9 @@ enum _ExportFormat { jpg, png, webp }
 /// What the share sheet offers. The last two only once the photo has an
 /// object in a bucket — sharing is "where else can this go", and by then
 /// it is already somewhere else.
-enum _ShareChoice { original, exportAs, showInBucket, openInBrowser }
+enum _ShareChoice { original, exportAs, hide, showInBucket, openInBrowser }
 
-enum _EditChoice { crop, rotate, aiTouchUp }
+enum _EditChoice { crop, rotate, resize, aiTouchUp }
 
 /// Runs off the UI isolate via [compute] — decode+encode of a full-size
 /// photo is heavy enough to jank a frame otherwise.
@@ -93,6 +95,8 @@ class DetailScreen extends StatefulWidget {
     required this.onDelete,
     required this.onToggleFavorite,
     required this.assetRecordStore,
+    this.onHide,
+    this.onReplaceOriginals,
     this.personStore,
     this.albumStore,
     this.resolvePhotoManagerFile,
@@ -111,6 +115,14 @@ class DetailScreen extends StatefulWidget {
   /// cancelled the confirmation, in which case nothing here should change.
   final Future<bool> Function(AssetRecord record) onDelete;
   final Future<void> Function(AssetRecord record) onToggleFavorite;
+
+  /// Hides the photo; returns whether it went. Absent where hiding makes
+  /// no sense (already hidden, the bin).
+  final Future<bool> Function(AssetRecord record)? onHide;
+
+  /// Bins originals a resize replaced, without asking again. Absent: the
+  /// viewer's own [onDelete], which does ask.
+  final Future<void> Function(List<AssetRecord> originals)? onReplaceOriginals;
 
   /// Backs the info panel's editable fields (date/time, location,
   /// description, tags). Required since every caller already holds one.
@@ -273,6 +285,17 @@ class _DetailScreenState extends State<DetailScreen> {
     final record = _records[_index];
     final deleted = await widget.onDelete(record);
     if (!deleted || !mounted) return;
+    _dropCurrent();
+  }
+
+  Future<void> _hide() async {
+    final record = _records[_index];
+    final hidden = await widget.onHide!(record);
+    if (!hidden || !mounted) return;
+    _dropCurrent();
+  }
+
+  void _dropCurrent() {
     if (_records.length <= 1) {
       Navigator.of(context).pop();
       return;
@@ -353,13 +376,19 @@ class _DetailScreenState extends State<DetailScreen> {
               onPressed: () => Navigator.of(context).pop(_ShareChoice.original),
               child: Text(l10n.detailShareOriginalOption),
             ),
-            if (!record.countsAsVideo)
+            if (!record.countsAsVideo) ...[
               CupertinoActionSheetAction(
                 onPressed: () =>
                     Navigator.of(context).pop(_ShareChoice.exportAs),
                 child: Text(l10n.detailExportAsOption),
               ),
+            ],
           ],
+          if (widget.onHide != null)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(context).pop(_ShareChoice.hide),
+              child: Text(l10n.libraryHide),
+            ),
           if (objectKey != null) ...[
             CupertinoActionSheetAction(
               onPressed: () =>
@@ -385,6 +414,8 @@ class _DetailScreenState extends State<DetailScreen> {
         await SharePlus.instance.share(ShareParams(files: [XFile(path!)]));
       case _ShareChoice.exportAs:
         await _exportAndShare(path!);
+      case _ShareChoice.hide:
+        await _hide();
       case _ShareChoice.showInBucket:
         await showObjectInBucketBrowser(context, objectKey: objectKey!);
       case _ShareChoice.openInBrowser:
@@ -460,9 +491,15 @@ class _DetailScreenState extends State<DetailScreen> {
             child: Text(l10n.detailEditRotateOption),
           ),
           CupertinoActionSheetAction(
-            onPressed: () => Navigator.of(context).pop(_EditChoice.aiTouchUp),
-            child: Text(l10n.detailEditAiOption),
+            onPressed: () => Navigator.of(context).pop(_EditChoice.resize),
+            child: Text(l10n.resizeOption),
           ),
+          // Image editing is OpenAI/Google only, neither offered in China.
+          if (AppStoreRegion.current != AppStoreRegion.cn)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(context).pop(_EditChoice.aiTouchUp),
+              child: Text(l10n.detailEditAiOption),
+            ),
         ],
         cancelButton: CupertinoActionSheetAction(
           onPressed: () => Navigator.of(context).pop(),
@@ -476,6 +513,8 @@ class _DetailScreenState extends State<DetailScreen> {
         await _runLocalEdit(PhotoEditMode.crop);
       case _EditChoice.rotate:
         await _runLocalEdit(PhotoEditMode.rotate);
+      case _EditChoice.resize:
+        await _resize();
       case _EditChoice.aiTouchUp:
         await _runAiTouchUp();
     }
@@ -496,6 +535,8 @@ class _DetailScreenState extends State<DetailScreen> {
       ),
     );
     if (edited == null || !mounted) return;
+    final saveMode = await askSaveMode(context);
+    if (saveMode == null || !mounted) return;
     try {
       final created = await createDerivedAsset(
         source: record,
@@ -505,10 +546,86 @@ class _DetailScreenState extends State<DetailScreen> {
         personStore: _personStore,
       );
       if (!mounted) return;
-      _showEdited(created);
-      _showMessage(l10n.editSavedAsCopy);
+      await _finishEdit(record, created, saveMode, l10n.editSavedAsCopy);
     } catch (_) {
       if (mounted) _showMessage(l10n.editFailed);
+    }
+  }
+
+  Future<void> _replaceOriginals(List<AssetRecord> originals) async {
+    final replace = widget.onReplaceOriginals;
+    if (replace != null) {
+      await replace(originals);
+    } else {
+      for (final original in originals) {
+        await widget.onDelete(original);
+      }
+    }
+  }
+
+  /// Shows [created]: in [original]'s place when replacing, beside it
+  /// otherwise.
+  Future<void> _finishEdit(
+    AssetRecord original,
+    AssetRecord created,
+    SaveMode mode,
+    String copiedMessage,
+  ) async {
+    if (mode == SaveMode.copy) {
+      _showEdited(created);
+      _showMessage(copiedMessage);
+      return;
+    }
+    await _replaceOriginals([original]);
+    if (!mounted) return;
+    // Looked up again: an AI edit lands seconds later, maybe after a swipe.
+    final at = _records.indexWhere((r) => r.localId == original.localId);
+    setState(() {
+      _records = [..._records];
+      if (at >= 0) {
+        _records[at] = created;
+      } else {
+        _records.insert(_index + 1, created);
+      }
+    });
+  }
+
+  Future<void> _resize() async {
+    final l10n = AppLocalizations.of(context)!;
+    final record = _records[_index];
+    final path = await _resolvePath(record);
+    if (!mounted) return;
+    if (path == null) {
+      _showMessage(l10n.detailFileUnavailable);
+      return;
+    }
+    var replaced = false;
+    final created = await resizePhotos(
+      context,
+      records: [record],
+      readBytes: (_) => File(path).readAsBytes(),
+      saveCopy: (source, bytes) => createDerivedAsset(
+        source: source,
+        bytes: bytes,
+        extension: '.jpg',
+        store: widget.assetRecordStore,
+        personStore: _personStore,
+      ),
+      replaceOriginals: (originals) async {
+        await _replaceOriginals(originals);
+        replaced = true;
+      },
+    );
+    if (created.isEmpty || !mounted) return;
+    if (replaced) {
+      final at = _records.indexWhere((r) => r.localId == record.localId);
+      setState(() {
+        _records = [..._records];
+        if (at >= 0) _records[at] = created.single;
+      });
+    } else {
+      _showEdited(created.single);
+      _showMessage(l10n.editSavedAsCopy);
     }
   }
 
@@ -535,6 +652,8 @@ class _DetailScreenState extends State<DetailScreen> {
     }
     final prompt = await _askAiPrompt();
     if (prompt == null || prompt.isEmpty || !mounted) return;
+    final saveMode = await askSaveMode(context);
+    if (saveMode == null || !mounted) return;
     final created = await AiTouchUpQueue.instance.submit(
       source: record,
       file: File(path),
@@ -549,8 +668,7 @@ class _DetailScreenState extends State<DetailScreen> {
       );
       return;
     }
-    _showEdited(created);
-    _showMessage(l10n.aiTouchUpDone);
+    await _finishEdit(record, created, saveMode, l10n.aiTouchUpDone);
   }
 
   Future<String?> _askAiPrompt() async {
@@ -2140,12 +2258,11 @@ class _InfoPanelState extends State<_InfoPanel> {
   Future<void> _loadAlbums() async {
     final store = widget.albumStore;
     if (store == null) return;
-    final albums = <Album>[];
-    for (final album in await store.listAll()) {
-      if ((await store.localIdsIn(album.id)).contains(widget.record.localId)) {
-        albums.add(album);
-      }
-    }
+    final ids = await store.albumIdsContaining(widget.record.localId);
+    final albums = [
+      for (final album in await store.listAll())
+        if (ids.contains(album.id)) album,
+    ];
     if (!mounted) return;
     setState(() => _albums = albums);
   }

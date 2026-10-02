@@ -10,6 +10,9 @@ import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 
 import '../l10n/app_localizations.dart';
+import '../demo/demo_flag.dart';
+import '../demo/demo_mode.dart';
+import '../photos/derived_asset.dart';
 import '../photos/asset_removal.dart';
 import '../photos/library_metadata.dart';
 import '../photos/library_scanner.dart';
@@ -39,6 +42,7 @@ import '../photos/storage_optimizer.dart';
 import '../photos/thumbnail_cache.dart';
 import '../settings/ai_settings_screen.dart';
 import '../settings/app_data_removal.dart';
+import '../settings/app_store_region.dart';
 import '../settings/backup_targets_store.dart';
 import '../upload/original_restore.dart';
 import '../settings/settings_screen.dart';
@@ -46,16 +50,16 @@ import '../storage/album.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/membership_sweep.dart';
 import '../upload/backup_coordinator.dart';
 import '../upload/backup_verifier.dart';
 import '../upload/library_restore.dart';
 import '../vault/bucket.dart';
 import '../vault/carrier_upload.dart';
 import '../vault/decoy.dart';
+import '../vault/hidden_filing.dart';
 import '../vault/keys.dart';
-import '../vault/object_key.dart';
 import '../vault/store.dart';
-import '../vault/album_index.dart';
 import '../upload/pending_deletes.dart';
 import '../upload/sync_job.dart';
 import '../upload/sync_job_store.dart';
@@ -69,11 +73,12 @@ import 'asset_group_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'favorites_screen.dart';
+import 'resize_photos.dart';
 import 'people_screen.dart';
+import 'photo_grid_layout.dart';
 import 'face_group_screen.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
-import 'backup_queue_screen.dart';
 import 'unnamed_face_card.dart';
 import 'private_album_gate.dart';
 import 'recently_deleted_screen.dart';
@@ -364,10 +369,12 @@ class LibraryScreenState extends State<LibraryScreen>
   /// photo has exactly one name in it, so a stale list would attribute a
   /// face to the wrong person.
   Future<Map<String, List<String>>> _taggedPeopleByAsset() async {
+    final people = {for (final p in await _personStore.listAll()) p.id};
     final byAsset = <String, List<String>>{};
-    for (final person in await _personStore.listAll()) {
-      for (final localId in await _personStore.localIdsIn(person.id)) {
-        byAsset.putIfAbsent(localId, () => []).add(person.id);
+    for (final entry in (await _personStore.allMemberships()).entries) {
+      if (!people.contains(entry.key)) continue;
+      for (final localId in entry.value) {
+        byAsset.putIfAbsent(localId, () => []).add(entry.key);
       }
     }
     return byAsset;
@@ -396,6 +403,7 @@ class LibraryScreenState extends State<LibraryScreen>
   List<AssetRecord> _active = const [];
   List<AssetRecord> _videos = const [];
   List<AssetRecord> _favorites = const [];
+  List<AssetRecord> _recentlyAdded = const [];
   Map<String, List<AssetRecord>> _places = const {};
   int _deletedCount = 0;
   List<Album> _albums = const [];
@@ -907,6 +915,32 @@ class LibraryScreenState extends State<LibraryScreen>
     return true;
   }
 
+  /// Photos deleted for good leave their album and people rows behind —
+  /// those live in other databases. Dropped here, one batch per store. An
+  /// id that has a record again (restored from a snapshot) is spared.
+  /// Whether [sweepOrphanMemberships] has run (or found nothing to do)
+  /// this session — so reloads don't re-read its done-flag every time.
+  var _orphansSwept = false;
+
+  Future<void> _forgetRemovedMemberships(List<AssetRecord> all) async {
+    final removed = await assetRecordStore.removedIds();
+    if (removed.isEmpty) return;
+    final present = {
+      for (final record in all)
+        if (removed.contains(record.localId)) record.localId,
+    };
+    final gone = removed.difference(present);
+    try {
+      if (gone.isNotEmpty) {
+        await _albumStore.forgetAssets(gone);
+        await _personStore.forgetAssets(gone);
+      }
+      await assetRecordStore.forgetRemoved(removed);
+    } catch (_) {
+      // Kept for the next reload; a stale membership draws nothing.
+    }
+  }
+
   /// [faces] forces the strangers row to be worked out again — for a
   /// caller that knows the analysis database moved under it.
   Future<void> reload({bool faces = false}) async {
@@ -933,13 +967,31 @@ class LibraryScreenState extends State<LibraryScreen>
       });
     }
 
+    if (libraryChanged) await _forgetRemovedMemberships(all);
+    if (!_orphansSwept) {
+      _orphansSwept = true;
+      try {
+        final swept = await sweepOrphanMemberships(
+          assetRecordStore: assetRecordStore,
+          albumStore: _albumStore,
+          personStore: _personStore,
+        );
+        // Not run (restore under way, nothing scanned yet): next launch.
+        if (swept == null) _orphansSwept = false;
+      } catch (_) {
+        // A stale membership draws nothing; try again next reload.
+        _orphansSwept = false;
+      }
+    }
+
     final albums = await _albumStore.listAll();
     // One pass over the library for all albums together. Per album it was
     // a full pass each, so twenty albums meant twenty walks of everything
     // every time anything reloaded.
     final albumsOf = <String, List<String>>{};
+    final albumMembers = await _albumStore.allMemberships();
     for (final album in albums) {
-      for (final localId in await _albumStore.localIdsIn(album.id)) {
+      for (final localId in albumMembers[album.id] ?? const <String>[]) {
         albumsOf.putIfAbsent(localId, () => []).add(album.id);
       }
     }
@@ -962,8 +1014,9 @@ class LibraryScreenState extends State<LibraryScreen>
     if (libraryChanged || peopleChanged || faces) {
       final counts = <String, int>{};
       final tagged = <String>{};
+      final personMembers = await _personStore.allMemberships();
       for (final person in people) {
-        final localIds = await _personStore.localIdsIn(person.id);
+        final localIds = personMembers[person.id] ?? const <String>[];
         counts[person.id] = localIds.length;
         tagged.addAll(localIds);
       }
@@ -1013,8 +1066,13 @@ class LibraryScreenState extends State<LibraryScreen>
       for (final record in active)
         if (record.isFavorite) record,
     ];
+    _recentlyAdded = recentlyAdded(active, DateTime.now());
     _places = _groupedBy(active, (r) => r.location);
-    _deletedCount = all.where((r) => r.isDeleted && !r.hasNothingLeft).length;
+    _deletedCount = all
+        .where(
+          (r) => r.isDeleted && !r.hasNothingLeft && r.passcodeHash == null,
+        )
+        .length;
   }
 
   /// The card asks "who's this?", so a tap answers it. Opening the photo
@@ -1083,11 +1141,6 @@ class LibraryScreenState extends State<LibraryScreen>
   /// What the analyze pass still has to get through — see the Analyze
   /// Queue row.
   int get _toAnalyzeCount => _analyzeQueue.remaining.value;
-
-  /// What the bucket is still owed, as rows in the queue rather than
-  /// photos: one photo can be an original, a thumbnail and a `.mov`.
-  int get _toSyncCount =>
-      syncQueue.jobs.value.where((job) => !job.isFinished).length;
 
   /// What the automatic refill is allowed to pick up: everything owed,
   /// minus what has already been tried and didn't work.
@@ -1197,77 +1250,18 @@ class LibraryScreenState extends State<LibraryScreen>
   /// knowable until the queue gets to them, and not how many were *asked*
   /// for: the queue is capped ([SyncQueue.capacity]) and refuses while
   /// paused, so a big library goes up a queueful at a time.
-  /// A hidden photo's carrier is filed, so the plaintext stops existing.
-  ///
-  /// **The local carrier is what this waits for, not the upload.** The
-  /// carrier in `VaultStore` is the copy of the photo — encrypted, disguised,
-  /// durable, out of the device backup — so once it is written the phone has
-  /// the photo and the plaintext original is a duplicate that happens to be
-  /// readable. A bucket is the second copy; with none configured, or none
-  /// reachable, hiding still completes and the album still opens.
-  ///
-  /// The row matters as much as the file. It carries the photo's date,
-  /// name, description, place, people — and the count of rows is the answer
-  /// to the one question the gate exists not to answer. All of it goes into
-  /// the album's own index instead, which is encrypted and padded.
-  Future<void> _finishHiddenUpload(AssetRecord record) async {
-    final hash = record.passcodeHash;
-    if (hash == null) return;
-    final keys = _vaultKeys.ringKeysFor(hash);
-    if (keys == null) return;
+  /// See [HiddenFiling].
+  Future<void> _finishHiddenUpload(AssetRecord record) =>
+      _hiddenFiling.file(record, name: _displayNameFor(record));
 
-    // The key the coordinator filed the carrier under — worked out from the
-    // record, because with no bucket there is no destination key to read.
-    final key = vaultCarrierKey(record);
-    if (!await _vaultStore.hasCarrier(keys, key)) return;
-    // Both halves, for a Live Photo. Settling on the still alone would
-    // delete the plaintext while the motion and the sound were still only in
-    // the photo library this has just taken the photo out of.
-    if (record.isLivePhoto &&
-        !await _vaultStore.hasCarrier(keys, vaultLiveCarrierKey(record))) {
-      return;
-    }
-
-    final album = await _vaultBucket.readAlbum(keys);
-    final entry = IndexEntry(
-      objectKey: key,
-      takenAt: record.createdAt,
-      width: record.width ?? 0,
-      height: record.height ?? 0,
-      isVideo: record.countsAsVideo,
-      name: _displayNameFor(record),
-    );
-    final entries = [
-      for (final e in album.entries)
-        if (e.objectKey != key) e,
-      entry,
-    ];
-    // Local index first, and it is the one that has to land: it is what
-    // lists the album on a phone with no signal, and the row about to be
-    // deleted is the only other place this photo is described.
-    final index = await _vaultBucket.encodeAlbum(
-      keys: keys,
-      entries: entries,
-      passphrases: await _vaultKeys.entries(),
-    );
-    if (index == null) return;
-    await _vaultStore.writeIndex(index);
-    // Best-effort, and deliberately after: a bucket that is unreachable
-    // today gets this album's listing on the next write, and the carrier is
-    // already re-offered by the sync queue until it lands.
-    unawaited(_vaultBucket.saveIndex(index));
-
-    await _thumbnailCache.remove(record);
-    final path = record.sourcePath;
-    if (path != null) {
-      try {
-        await File(path).delete();
-      } catch (_) {
-        // Already gone.
-      }
-    }
-    await assetRecordStore.remove(record.localId);
-  }
+  late final HiddenFiling _hiddenFiling = HiddenFiling(
+    records: assetRecordStore,
+    vaultStore: _vaultStore,
+    bucket: _vaultBucket,
+    keysFor: _vaultKeys.ringKeysFor,
+    passphrases: _vaultKeys.entries,
+    removeThumbnail: _thumbnailCache.remove,
+  );
 
   /// What a carrier can pretend to be: ordinary photos this phone still
   /// holds, with their real file sizes.
@@ -1324,10 +1318,33 @@ class LibraryScreenState extends State<LibraryScreen>
     return candidates;
   }
 
+  /// Hidden photos filed with no bucket, and an index the buckets haven't
+  /// got, sent with no album open. Best-effort: still marked if it fails.
+  Future<void> _sendUnsentCarriers() async {
+    try {
+      if (!await _hasBackupTarget()) return;
+      if (await _vaultStore.isIndexUnpublished()) {
+        final local = await _vaultStore.readIndex();
+        if (local != null) await _vaultBucket.pushIndex(local);
+      }
+      await _vaultStore.sendUnsent(
+        outboxKey: _vaultKeys.outboxKey,
+        put: _vaultBucket.putEverywhere,
+      );
+    } catch (_) {
+      // Retried on the next sync.
+    }
+  }
+
   /// Best-effort and unawaited: a delete that cannot land today is still
   /// on the list tomorrow.
   Future<void> _drainPendingDeletes() async {
     try {
+      // Un-hidden photos' carriers, now that their plain copy is up.
+      await DeferredDeletes(
+        store: assetRecordStore,
+        pending: _pendingDeletes,
+      ).release();
       await _pendingDeletes.drain(await _backupTargetsStore.loadAll());
     } catch (_) {
       // Nothing to report — the tasks stay queued.
@@ -1340,10 +1357,20 @@ class LibraryScreenState extends State<LibraryScreen>
     // thousands of exports (and iCloud downloads) handed to a coordinator
     // with nowhere to put them. Adding a target runs `_syncEverything`,
     // which picks every pending asset up then.
-    if (!await _hasBackupTarget()) return 0;
+    //
+    // Except hidden photos: the job is also what encrypts and files them,
+    // and with no bucket that still has to happen — or they stay plain
+    // files for good. Their carriers go up once a bucket exists.
+    final work = await _hasBackupTarget()
+        ? records
+        : [
+            for (final r in records)
+              if (r.passcodeHash != null && _coordinator.canUpload(r)) r,
+          ];
+    if (work.isEmpty) return 0;
     var queued = 0;
     var enqueuedAny = false;
-    for (final record in _newestFirst(records)) {
+    for (final record in _newestFirst(work)) {
       final hash = record.passcodeHash;
       final name = _displayNameFor(record);
       // The thumbnail goes in *first*, and not for the bucket's sake:
@@ -1355,10 +1382,10 @@ class LibraryScreenState extends State<LibraryScreen>
       // first, the job a full queue turns away is the *original*, which is
       // still pending and comes back on the next pass.
       //
-      // A hidden photo produces exactly one object. A `thumbnails/` copy
-      // is the same picture at 320px in the folder built for cheap
-      // browsing — the private album's contents, legible to anyone who can
-      // read the bucket. Same for a Live Photo's `.mov` half.
+      // A hidden photo gets no `thumbnails/` copy: the same picture at
+      // 320px in the folder built for cheap browsing — the private album's
+      // contents, legible to anyone who can read the bucket. A Live Photo's
+      // `.mov` does go, as a carrier of its own.
       if (hash == null) {
         final tookThumbnail = await syncQueue.enqueue(
           localId: record.localId,
@@ -1384,7 +1411,7 @@ class LibraryScreenState extends State<LibraryScreen>
       // The other half of a Live Photo. A job of its own rather than part
       // of the original's, so it shows in the queue by name and a failure
       // to fetch the `.mov` doesn't take the still down with it.
-      if (hash == null && record.isLivePhoto) {
+      if (record.isLivePhoto) {
         await syncQueue.enqueue(
           localId: record.localId,
           kind: SyncJobKind.uploadLivePhoto,
@@ -1434,6 +1461,13 @@ class LibraryScreenState extends State<LibraryScreen>
             _triedAndFailed.add(record.localId);
           } else if (after != null) {
             await _finishHiddenUpload(after);
+            // Nothing landed and nothing was filed (no bucket and no
+            // carrier yet): not handed back by every refill.
+            if (after.stateOf(DerivativeKind.original).status ==
+                    UploadStatus.pending &&
+                await assetRecordStore.getByLocalId(record.localId) != null) {
+              _triedAndFailed.add(record.localId);
+            }
           }
         } catch (_) {
           // Thrown or recorded, a failure is a failure: remembered either
@@ -1619,6 +1653,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // every sync: hiding happens offline constantly, and a plain copy left
     // in a bucket does not stop being a plain copy.
     unawaited(_drainPendingDeletes());
+    unawaited(_sendUnsentCarriers());
     _forgetFailures();
     await _enqueueChangeChecks();
     await _backUpRecords(_pendingAndFailed);
@@ -1715,12 +1750,19 @@ class LibraryScreenState extends State<LibraryScreen>
   /// open on it. The copy into this app's own storage happens first, so
   /// there's never a moment where the only copy is the one being deleted.
   Future<void> _hide(AssetRecord record) async {
+    await _hideRecords([record]);
+  }
+
+  /// Stays on the library afterwards — see [hideIntoPrivateAlbum].
+  Future<bool> _hideRecords(List<AssetRecord> records) async {
+    if (records.isEmpty) return false;
     setState(() => _busy = true);
+    var hidden = false;
     try {
-      await hideIntoPrivateAlbum(
+      hidden = await hideIntoPrivateAlbum(
         context,
         assetRecordStore: assetRecordStore,
-        records: [record],
+        records: records,
         custody: _custody,
         targetsStore: _backupTargetsStore,
       );
@@ -1728,6 +1770,41 @@ class LibraryScreenState extends State<LibraryScreen>
       if (mounted) setState(() => _busy = false);
     }
     await reload();
+    return hidden;
+  }
+
+  Future<void> _batchHide() async {
+    if (await _hideRecords(_selectedRecords) && mounted) {
+      setState(() => _selection = null);
+    }
+  }
+
+  Future<void> _batchResize() async {
+    final stills = [
+      for (final r in _selectedRecords)
+        if (!r.countsAsVideo && !r.localDeleted) r,
+    ];
+    final created = await resizePhotos(
+      context,
+      records: stills,
+      readBytes: (r) async {
+        final path = await _filePathFor(r);
+        return path == null ? null : File(path).readAsBytes();
+      },
+      saveCopy: (source, bytes) => createDerivedAsset(
+        source: source,
+        bytes: bytes,
+        extension: '.jpg',
+        store: assetRecordStore,
+        personStore: _personStore,
+      ),
+      replaceOriginals: (originals) =>
+          _batchDelete(only: originals, ask: false),
+    );
+    if (created.isNotEmpty && mounted) {
+      setState(() => _selection = null);
+      await reload();
+    }
   }
 
   /// Returns whether the asset left the library — false for a
@@ -1879,6 +1956,9 @@ class LibraryScreenState extends State<LibraryScreen>
           records: records,
           initialIndex: index >= 0 ? index : 0,
           onDelete: _softDelete,
+          onHide: (record) => _hideRecords([record]),
+          onReplaceOriginals: (originals) =>
+              _batchDelete(only: originals, ask: false),
           onToggleFavorite: _toggleFavorite,
           assetRecordStore: assetRecordStore,
           personStore: _personStore,
@@ -1980,8 +2060,10 @@ class LibraryScreenState extends State<LibraryScreen>
   /// The count is in the confirmation because "delete 40 photos" is a
   /// different decision from "delete this photo", and the selection has
   /// probably scrolled out of sight by the time the sheet is up.
-  Future<void> _batchDelete() async {
-    final records = _selectedRecords;
+  /// [only] with [ask] false is "delete the originals" after an export,
+  /// which has already asked.
+  Future<void> _batchDelete({List<AssetRecord>? only, bool ask = true}) async {
+    var records = only ?? _selectedRecords;
     if (records.isEmpty) return;
     final l10n = AppLocalizations.of(context)!;
     // iOS lists every photo of a single delete call in one sheet, and past
@@ -1989,15 +2071,25 @@ class LibraryScreenState extends State<LibraryScreen>
     // overflow stays selected for a second round rather than going unseen
     // with the rest.
     const limit = PhotoLibraryService.deleteBatchLimit;
+    final locked = records.where((r) => r.isLocked).length;
+    records = records.where((r) => !r.isLocked).toList();
+    if (records.isEmpty) {
+      if (locked > 0) _showResult(l10n.lockBlockedDelete);
+      return;
+    }
     final capped = records.length > limit;
     final batch = capped ? records.take(limit).toList() : records;
-    if (!await confirmDeleteSelection(context, count: batch.length)) return;
+    if (ask && !await confirmDeleteSelection(context, count: batch.length)) {
+      return;
+    }
     setState(() => _busy = true);
     try {
       final fromLibrary = batch
           .where(
             (r) =>
-                r.sourceType == AssetSourceType.photoManager && !r.localDeleted,
+                r.sourceType == AssetSourceType.photoManager &&
+                !r.localDeleted &&
+                r.libraryId != null,
           )
           .toList();
       // One OS prompt for the whole batch. Asking forty times isn't a
@@ -2162,6 +2254,7 @@ class LibraryScreenState extends State<LibraryScreen>
       assetRecordStore: assetRecordStore,
       custody: _custody,
       vaultKeys: _vaultKeys,
+      libraryCount: _all.length,
     );
     // Whatever was waiting on this album's key can go now.
     _heldUntilUnlocked.clear();
@@ -2186,6 +2279,78 @@ class LibraryScreenState extends State<LibraryScreen>
     ),
   );
 
+  Future<void> _pickLanguage() {
+    final l10n = AppLocalizations.of(context)!;
+    final current = AppStoreRegion.language.value;
+    return showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: Text(l10n.collectionsLanguageRow),
+        actions: [
+          // Each in its own language, so it can be found from the wrong one.
+          for (final (code, name) in [
+            (null, l10n.languageSystem),
+            ('en', 'English'),
+            ('zh', '中文'),
+          ])
+            CupertinoActionSheetAction(
+              isDefaultAction: code == current,
+              onPressed: () {
+                Navigator.of(sheetContext).pop();
+                AppStoreRegion.setLanguage(code);
+              },
+              child: Text(name),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+  }
+
+  /// A separate, pre-filled library — see `../demo/demo_mode.dart`. The
+  /// whole screen is rebuilt on the other side, so nothing here is touched
+  /// after the switch.
+  Future<void> _toggleDemoMode() async {
+    setState(() => _busy = true);
+    try {
+      await DemoMode.setActive(!DemoFlag.active);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _confirmDemoReset() async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(l10n.settingsDemoResetTitle),
+        content: Text(l10n.settingsDemoResetBody),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.settingsDemoResetConfirm),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    setState(() => _busy = true);
+    try {
+      await DemoMode.reset();
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
   Future<void> _openCloudBackups() async {
     await Navigator.of(context).push(
       CupertinoPageRoute(
@@ -2193,9 +2358,14 @@ class LibraryScreenState extends State<LibraryScreen>
           store: _backupTargetsStore,
           assetRecordStore: assetRecordStore,
           icloudBackup: _icloudBackup,
+          syncQueue: syncQueue,
+          syncEverything: _syncEverything,
+          onOpenAsset: _openById,
         ),
       ),
     );
+    // Gone if demo mode flipped from that page: the library was rebuilt.
+    if (!mounted) return;
     await _syncEverything();
   }
 
@@ -2233,6 +2403,19 @@ class LibraryScreenState extends State<LibraryScreen>
       // anyway.
       return const {};
     }
+  }
+
+  void _openRecentlyAdded() {
+    final l10n = AppLocalizations.of(context)!;
+    _push(
+      AssetGroupScreen(
+        title: l10n.albumsRecentlyAddedName,
+        records: _recentlyAdded,
+        assetRecordStore: assetRecordStore,
+        coverFor: BuiltInAlbum.recentlyAdded,
+        dateOf: PhotoGridLayout.addedAt,
+      ),
+    );
   }
 
   void _openVideos() {
@@ -2373,6 +2556,7 @@ class LibraryScreenState extends State<LibraryScreen>
                   scrubberInsets: const EdgeInsets.only(top: 56, bottom: 16),
                   leadingSlivers: _leadingSlivers(l10n),
                   trailingSlivers: _trailingSlivers(l10n, selection),
+                  restKey: _peopleRowKey,
                 ),
                 if (selection != null)
                   Positioned(
@@ -2386,6 +2570,8 @@ class LibraryScreenState extends State<LibraryScreen>
                       onSetPlace: _batchSetPlace,
                       onAdjustDateTime: _batchAdjustDateTime,
                       onDelete: _batchDelete,
+                      onHide: _batchHide,
+                      onResize: _batchResize,
                       onDone: () => setState(() => _selection = null),
                     ),
                   ),
@@ -2444,11 +2630,10 @@ class LibraryScreenState extends State<LibraryScreen>
   /// stays pinned under the status bar however far the page is scrolled.
   static const _navigationBarHeight = 44.0;
 
-  /// Kept clear at the trailing end of the bar for its own buttons — add
-  /// and search. A translucent overlay still wins the gesture arena against
+  /// Kept clear at the trailing end of the bar for its search button. A translucent overlay still wins the gesture arena against
   /// what's under it, so anything covered here is a button that can't be
   /// pressed.
-  static const _navigationBarActionWidth = 128.0;
+  static const _navigationBarActionWidth = 88.0;
 
   /// The system's own status-bar tap. It never reaches the widget tree — iOS
   /// hands it to the engine, which forwards it to every
@@ -2464,6 +2649,10 @@ class LibraryScreenState extends State<LibraryScreen>
   /// very top. Bound to the status bar, the navigation bar and the large
   /// title: the whole header, which is what a thumb reaches for when it's
   /// lost.
+  /// Home rests the People row on the bottom of the screen, not the
+  /// newest photo: the faces are what's opened most from here.
+  final _peopleRowKey = GlobalKey();
+
   void _jumpHome() => _gridKey.currentState?.toggleAnchor();
 
   List<Widget> _leadingSlivers(AppLocalizations l10n) => [
@@ -2472,23 +2661,13 @@ class LibraryScreenState extends State<LibraryScreen>
         onTap: _jumpHome,
         child: Text(l10n.tabLibrary),
       ),
-      // Buttons, not fields. A search box living at the top of the scroll
+      // A button, not a field. A search box living at the top of the scroll
       // content is a box nobody can reach: the page opens at the *newest*
-      // photo, so the field sat a decade of scrolling away. On the
-      // navigation bar they're in the same place whatever you're looking
-      // at — which is the whole argument for importing living here too,
-      // rather than at the end of a grid you have to reach the bottom of.
+      // photo, so the field sat a decade of scrolling away. Importing from
+      // Files is rare enough to live in More.
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          CupertinoButton(
-            // A bar button is a thumb target, not a glyph: zero padding
-            // around a 22pt icon is a quarter of the area a finger needs.
-            padding: const EdgeInsets.symmetric(horizontal: 6),
-            minimumSize: const Size(40, 44),
-            onPressed: _busy ? null : addFiles,
-            child: const Icon(CupertinoIcons.add, size: 24),
-          ),
           if (_all.isNotEmpty)
             CupertinoButton(
               padding: const EdgeInsets.symmetric(horizontal: 6),
@@ -2546,11 +2725,11 @@ class LibraryScreenState extends State<LibraryScreen>
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            // Favourites, then Videos, then the user's own. The first two
-            // aren't albums anybody made — they're the two groupings the
-            // library can always answer for itself, so they're always
+            // Favourites, Videos, Recently Added, then the user's own. The
+            // first three aren't albums anybody made — they're groupings
+            // the library can always answer for itself, so they're always
             // there and there's nothing to delete.
-            itemCount: _albums.length + 2,
+            itemCount: _albums.length + 3,
             separatorBuilder: (context, i) => const SizedBox(width: 12),
             itemBuilder: (context, i) => SizedBox(
               width: 140,
@@ -2575,11 +2754,20 @@ class LibraryScreenState extends State<LibraryScreen>
                   records: _videos,
                   onTap: _openVideos,
                 ),
+                2 => _AlbumCard(
+                  album: _builtInAlbum(
+                    BuiltInAlbum.recentlyAdded,
+                    l10n.albumsRecentlyAddedName,
+                  ),
+                  builtIn: BuiltInAlbum.recentlyAdded,
+                  records: _recentlyAdded,
+                  onTap: _openRecentlyAdded,
+                ),
                 _ => _AlbumCard(
-                  album: _albums[i - 2],
-                  records: _albumAssets[_albums[i - 2].id] ?? const [],
-                  onTap: () => _openAlbum(_albums[i - 2]),
-                  onDelete: () => _confirmDeleteAlbum(_albums[i - 2]),
+                  album: _albums[i - 3],
+                  records: _albumAssets[_albums[i - 3].id] ?? const [],
+                  onTap: () => _openAlbum(_albums[i - 3]),
+                  onDelete: () => _confirmDeleteAlbum(_albums[i - 3]),
                 ),
               },
             ),
@@ -2593,6 +2781,7 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       ),
       SliverToBoxAdapter(
+        key: _peopleRowKey,
         child: _people.isEmpty && _unnamedFaces.isEmpty
             ? Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
@@ -2683,24 +2872,6 @@ class LibraryScreenState extends State<LibraryScreen>
             title: l10n.collectionsCloudSettingsRow,
             onTap: _openCloudBackups,
           ),
-          // Above Analyze, and the same shape as it: two queues, one
-          // list each, side by side. It used to be a block of pills on
-          // Cloud Settings, which made that page answer two questions —
-          // where the buckets are, and whether the upload is working.
-          _row(
-            icon: CupertinoIcons.tray_full,
-            color: CupertinoColors.systemTeal,
-            title: l10n.collectionsBackupQueueRow,
-            count: _toSyncCount == 0 ? null : _toSyncCount,
-            onTap: () => _push(
-              BackupQueueScreen(
-                queue: syncQueue,
-                settingsStore: _backupTargetsStore,
-                syncEverything: _syncEverything,
-                onOpenAsset: _openById,
-              ),
-            ),
-          ),
           _row(
             icon: CupertinoIcons.wand_stars,
             color: CupertinoColors.systemIndigo,
@@ -2727,6 +2898,18 @@ class LibraryScreenState extends State<LibraryScreen>
                 onOpenAsset: _openById,
               ),
             ),
+          ),
+          _row(
+            icon: CupertinoIcons.folder_fill,
+            color: CupertinoColors.systemBlue,
+            title: l10n.collectionsImportFilesRow,
+            onTap: _busy ? null : addFiles,
+          ),
+          _row(
+            icon: CupertinoIcons.globe,
+            color: CupertinoColors.systemBlue,
+            title: l10n.collectionsLanguageRow,
+            onTap: _pickLanguage,
           ),
           _row(
             icon: CupertinoIcons.eye_slash_fill,
@@ -2765,6 +2948,33 @@ class LibraryScreenState extends State<LibraryScreen>
         onPressed: _confirmRemoveAppData,
       ),
     ),
+    SliverToBoxAdapter(
+      child: Center(
+        child: CupertinoButton(
+          padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+          minimumSize: Size.zero,
+          onPressed: _busy ? null : _toggleDemoMode,
+          child: Text(
+            DemoFlag.active ? l10n.demoModeExitRow : l10n.demoModeEnterRow,
+            style: const TextStyle(color: CupertinoColors.systemGrey),
+          ),
+        ),
+      ),
+    ),
+    if (DemoFlag.active)
+      SliverToBoxAdapter(
+        child: Center(
+          child: CupertinoButton(
+            padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
+            minimumSize: Size.zero,
+            onPressed: _busy ? null : _confirmDemoReset,
+            child: Text(
+              l10n.settingsDemoResetRow,
+              style: const TextStyle(color: CupertinoColors.systemGrey),
+            ),
+          ),
+        ),
+      ),
     SliverToBoxAdapter(child: SizedBox(height: selection == null ? 24 : 140)),
   ];
 
@@ -3202,9 +3412,8 @@ class _SubsectionHeader extends StatelessWidget {
 }
 
 /// The bar that replaces per-tile actions while photos are selected: the
-/// count and a way out up top, the batch edits (tag, place, date)
-/// below. Everything here is additive or a single-field set — nothing
-/// destructive lives on a multi-selection.
+/// count and a way out up top, the batch actions below; the rarer ones and
+/// delete sit behind More.
 class _SelectionBar extends StatelessWidget {
   const _SelectionBar({
     required this.count,
@@ -3212,6 +3421,8 @@ class _SelectionBar extends StatelessWidget {
     required this.onAddToAlbum,
     required this.onSetPlace,
     required this.onAdjustDateTime,
+    required this.onHide,
+    required this.onResize,
     required this.onDelete,
     required this.onDone,
   });
@@ -3221,6 +3432,8 @@ class _SelectionBar extends StatelessWidget {
   final VoidCallback onAddToAlbum;
   final VoidCallback onSetPlace;
   final VoidCallback onAdjustDateTime;
+  final VoidCallback onHide;
+  final VoidCallback onResize;
   final VoidCallback onDelete;
   final VoidCallback onDone;
 
@@ -3268,12 +3481,8 @@ class _SelectionBar extends StatelessWidget {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(8, 2, 8, 6),
-              // Four, not six. Six actions across a phone left each one a
-              // 9-point glyph over a word too small to read, and the two
-              // anybody presses — album and delete — were the same size as
-              // the ones nobody does. What's left is the batch *metadata*
-              // edits, which belong together in a menu because that's what
-              // they are: a list of fields to set.
+              // Three, not six: room for a thumb-sized target each. Delete
+              // lives in More — beside Done it was one slip from a mistake.
               child: Row(
                 children: [
                   Expanded(
@@ -3297,14 +3506,6 @@ class _SelectionBar extends StatelessWidget {
                       onPressed: count == 0
                           ? null
                           : () => _showMore(context, l10n),
-                    ),
-                  ),
-                  Expanded(
-                    child: _SelectionAction(
-                      icon: CupertinoIcons.delete,
-                      label: l10n.selectionDelete,
-                      destructive: true,
-                      onPressed: count == 0 ? null : onDelete,
                     ),
                   ),
                 ],
@@ -3339,6 +3540,28 @@ class _SelectionBar extends StatelessWidget {
             },
             child: Text(l10n.selectionAdjustDateTime),
           ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              onResize();
+            },
+            child: Text(l10n.resizeOption),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              onHide();
+            },
+            child: Text(l10n.libraryHide),
+          ),
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              onDelete();
+            },
+            child: Text(l10n.selectionDelete),
+          ),
         ],
         cancelButton: CupertinoActionSheetAction(
           onPressed: () => Navigator.of(sheetContext).pop(),
@@ -3354,19 +3577,14 @@ class _SelectionAction extends StatelessWidget {
     required this.icon,
     required this.label,
     required this.onPressed,
-    this.destructive = false,
   });
 
   final IconData icon;
   final String label;
   final VoidCallback? onPressed;
-  final bool destructive;
 
   @override
   Widget build(BuildContext context) {
-    final color = destructive && onPressed != null
-        ? CupertinoColors.systemRed
-        : null;
     return CupertinoButton(
       // A thumb-sized target with a face, not a glyph with a caption: at
       // 44 points tall with a filled back it reads as a button from across
@@ -3378,13 +3596,13 @@ class _SelectionAction extends StatelessWidget {
       child: Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          Icon(icon, size: 26, color: color),
+          Icon(icon, size: 26),
           const SizedBox(height: 4),
           Text(
             label,
             maxLines: 1,
             overflow: TextOverflow.ellipsis,
-            style: TextStyle(fontSize: 12, color: color),
+            style: const TextStyle(fontSize: 12),
           ),
         ],
       ),

@@ -7,6 +7,7 @@ AssetRecord _record({
   bool localDeleted = false,
   UploadStatus status = UploadStatus.pending,
   bool isLivePhoto = false,
+  UploadStatus live = UploadStatus.pending,
 }) => AssetRecord(
   localId: 'manual:a',
   contentHash: 'a',
@@ -17,7 +18,10 @@ AssetRecord _record({
   updatedAt: DateTime(2026, 1, 1),
   localDeleted: localDeleted,
   isLivePhoto: isLivePhoto,
-  derivatives: {DerivativeKind.original: DerivativeState(status: status)},
+  derivatives: {
+    DerivativeKind.original: DerivativeState(status: status),
+    DerivativeKind.livePhoto: DerivativeState(status: live),
+  },
 );
 
 Future<void> _pump(WidgetTester tester, AssetRecord record) =>
@@ -39,17 +43,42 @@ void main() {
     );
   });
 
-  testWidgets('one not backed up yet wears the ring instead', (tester) async {
+  testWidgets('so does one in both places', (tester) async {
+    await _pump(tester, _record(status: UploadStatus.uploaded));
+
+    expect(find.byIcon(CupertinoIcons.cloud_fill), findsOneWidget);
+  });
+
+  testWidgets('one not backed up yet wears no cloud', (tester) async {
     await _pump(tester, _record());
 
     expect(find.byIcon(CupertinoIcons.cloud_fill), findsNothing);
-    expect(find.byType(CustomPaint), findsWidgets);
   });
 
-  testWidgets('one in both places wears nothing', (tester) async {
-    await _pump(tester, _record(status: UploadStatus.uploaded));
+  test('the underline says how much is safe', () {
+    expect(
+      BackupLine.of(_record(status: UploadStatus.uploaded)),
+      BackupLine.safe,
+    );
+    expect(BackupLine.of(_record()), BackupLine.pending);
+    expect(
+      BackupLine.of(_record(status: UploadStatus.uploading)),
+      BackupLine.uploading,
+    );
+    expect(
+      BackupLine.of(_record(status: UploadStatus.failed)),
+      BackupLine.failed,
+    );
+  });
 
-    expect(find.byIcon(CupertinoIcons.cloud_fill), findsNothing);
-    expect(find.byType(SizedBox), findsOneWidget);
+  test('a Live Photo with its still up is partly green', () {
+    final record = _record(
+      isLivePhoto: true,
+      status: UploadStatus.uploaded,
+      live: UploadStatus.uploading,
+    );
+
+    expect(BackupLine.of(record), BackupLine.uploading);
+    expect(BackupLine.safeShare(record), 0.75);
   });
 }

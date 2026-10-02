@@ -1,7 +1,6 @@
 import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
-import 'package:flutter/material.dart' show MaterialPageRoute;
 import 'package:intl/intl.dart';
 
 import 'package:share_plus/share_plus.dart';
@@ -18,7 +17,9 @@ import '../photos/person_store.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/sync_queue.dart';
 import 'add_backup_screen.dart';
+import 'backup_queue_panel.dart';
 import 'backup_storage_type.dart';
 import 'backup_targets_store.dart';
 import 'bucket_browser_screen.dart';
@@ -29,8 +30,8 @@ import 'settings_section.dart';
 /// "Cloud Settings" — one flat page: the bucket list up top, then the
 /// settings that govern syncing it. Nothing here pushes a sub-page that
 /// only holds connections: where the copies go, and how to add another.
-/// What the upload is *doing* — the queue, the schedule, Sync Now — is the
-/// Sync Queue's own page, so this one answers one question rather than two.
+/// What the upload is *doing* — the queue, the schedule, Sync Now — sits
+/// right under the connections it uploads to ([BackupQueuePanel]).
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
@@ -40,7 +41,18 @@ class SettingsScreen extends StatefulWidget {
     this.bucketBackup,
     this.vault,
     this.snapshotFile,
+    this.syncQueue,
+    this.syncEverything,
+    this.onOpenAsset,
   });
+
+  /// The backup queue shown under the connections. Absent in tests that
+  /// are only about the connections.
+  final SyncQueue? syncQueue;
+
+  /// See [BackupQueuePanel].
+  final Future<int> Function()? syncEverything;
+  final Future<void> Function(String localId)? onOpenAsset;
 
   final BackupTargetsStore? store;
   final AssetRecordStore? assetRecordStore;
@@ -246,7 +258,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   Future<void> _addBackup() async {
     final added = await Navigator.of(context).push<bool>(
-      MaterialPageRoute(builder: (_) => AddBackupScreen(store: _store)),
+      CupertinoPageRoute(builder: (_) => AddBackupScreen(store: _store)),
     );
     if (added != true) return;
     await _reload();
@@ -265,7 +277,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     // whatever else shares the bucket.
     Navigator.of(context)
         .push(
-          MaterialPageRoute(
+          CupertinoPageRoute(
             builder: (_) => BucketBrowserScreen(
               target: target,
               onDeleteConnection: () => _delete(target),
@@ -369,6 +381,13 @@ class _SettingsScreenState extends State<SettingsScreen>
                   _appDataSection(l10n, targets),
                   const SettingsSectionDivider(),
                   _cloudSection(l10n, targets),
+                  if (widget.syncQueue != null)
+                    BackupQueuePanel(
+                      queue: widget.syncQueue!,
+                      settingsStore: _store,
+                      syncEverything: widget.syncEverything,
+                      onOpenAsset: widget.onOpenAsset,
+                    ),
                 ],
               ),
             ),

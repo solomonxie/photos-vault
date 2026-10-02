@@ -32,10 +32,15 @@ class AssetGridView extends StatefulWidget {
     this.markedId,
     this.leadingSlivers = const [],
     this.trailingSlivers = const [],
+    this.restKey,
     this.emptySliver,
     this.onAdd,
     this.scrubberInsets = const EdgeInsets.symmetric(vertical: 12),
+    this.dateOf = PhotoGridLayout.takenAt,
   });
+
+  /// See [PhotoGridLayout.dateOf].
+  final DateTime Function(AssetRecord) dateOf;
 
   /// Oldest-first — the grid draws them in the order given.
   final List<AssetRecord> records;
@@ -59,6 +64,10 @@ class AssetGridView extends StatefulWidget {
   /// Library's Collections/Utilities sections).
   final List<Widget> leadingSlivers;
   final List<Widget> trailingSlivers;
+
+  /// A sliver in [trailingSlivers] whose bottom edge, rather than the
+  /// newest photo's, rests on the bottom of the screen at the anchor.
+  final GlobalKey? restKey;
 
   /// Shown in the grid's place when there are no records at all.
   final Widget? emptySliver;
@@ -111,15 +120,27 @@ class AssetGridViewState extends State<AssetGridView> {
   }
 
   /// Offset that rests the newest photo on the bottom edge of the screen —
-  /// the end of the grid, with whatever follows it just below the fold.
+  /// the end of the grid, with whatever follows it just below the fold —
+  /// or, given a [AssetGridView.restKey], that sliver's bottom edge.
   double? get newestOffset {
     if (!_scrollController.hasClients || _layout.isEmpty) return null;
     final position = _scrollController.position;
     if (!position.hasViewportDimension || !position.hasContentDimensions) {
       return null;
     }
-    return (_gridStartOffset + _layout.totalExtent - position.viewportDimension)
-        .clamp(position.minScrollExtent, position.maxScrollExtent);
+    return (_restEnd - position.viewportDimension).clamp(
+      position.minScrollExtent,
+      position.maxScrollExtent,
+    );
+  }
+
+  double get _restEnd {
+    final rest = widget.restKey?.currentContext?.findRenderObject();
+    if (rest is RenderSliver && rest.geometry != null) {
+      return rest.constraints.precedingScrollExtent +
+          rest.geometry!.scrollExtent;
+    }
+    return _gridStartOffset + _layout.totalExtent;
   }
 
   bool get isAtNewest {
@@ -175,7 +196,7 @@ class AssetGridViewState extends State<AssetGridView> {
         ? _layout.sections[spec.section].firstRecord
         : spec.firstRecord;
     return (
-      day: _layout.records[index].createdAt,
+      day: _layout.dateOf(_layout.records[index]),
       within: offset - _layout.offsetOfRow(row),
     );
   }
@@ -251,7 +272,11 @@ class AssetGridViewState extends State<AssetGridView> {
       final grew = _layout.records.length != widget.records.length;
       final pinned = wasResting ? null : _viewportPin();
       final pastGrid = wasResting || pinned != null ? null : _pastGridPin();
-      _layout = PhotoGridLayout.of(records: widget.records, width: width);
+      _layout = PhotoGridLayout.of(
+        records: widget.records,
+        width: width,
+        dateOf: widget.dateOf,
+      );
       _laidOut = widget.records;
       _laidOutWidth = width;
       if (wasResting && grew) {
@@ -261,6 +286,10 @@ class AssetGridViewState extends State<AssetGridView> {
       } else if (pastGrid != null && grew) {
         _restorePastGrid(pastGrid);
       }
+    } else if (widget.restKey != null && _anchored && isAtNewest) {
+      // The rest sliver can change height under a resting view — the
+      // People row filling in after the photos — so stay resting on it.
+      _anchorAfterLayout();
     }
 
     final empty = widget.emptySliver;
