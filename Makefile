@@ -14,8 +14,17 @@ DEVICE ?= $(shell xcrun devicectl list devices 2>/dev/null | awk '/physical/ { f
 APP     := build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app
 BUDGET  := 33
 
+# Storefront baked into every build, as an App Store country code:
+# make install-ios STOREFRONT=CHN. Default USA; USA/CAN -> us, CHN -> cn,
+# into Info.plist AppStoreRegion via Store.xcconfig. Same bundle id either
+# way, so switching storefronts keeps the phone's data.
+STOREFRONT ?= USA
+REGION  := $(if $(filter CHN,$(STOREFRONT)),cn,$(if $(filter USA CAN,$(STOREFRONT)),us))
+# Demo-mode credentials, if present (copy .env.demo.example).
+DEFINES := $(if $(wildcard .env.demo),--dart-define-from-file=.env.demo)
+
 .DEFAULT_GOAL := help
-.PHONY: help bootstrap l10n fmt analyze test check build install install-ios run archive upload release size screenshots clean
+.PHONY: help bootstrap l10n fmt analyze test check build install install-ios run archive upload release size screenshots clean storefront
 
 help: ## List the targets
 	@grep -hE '^[a-z][a-zA-Z0-9_-]*:.*?## ' $(MAKEFILE_LIST) \
@@ -38,20 +47,24 @@ test: ## The whole suite
 
 check: fmt analyze test ## Format, analyse, test — the pass before any build
 
-build: ## Release build for a device, obfuscated
-	$(FLUTTER) build ios --release --obfuscate --split-debug-info=build/symbols
+storefront: ## Write ios/Flutter/Store.xcconfig from STOREFRONT=USA|CAN|CHN (every build does this)
+	@test -n "$(REGION)" || { echo "STOREFRONT must be USA, CAN or CHN, not '$(STOREFRONT)'"; exit 1; }
+	@echo "APP_STORE_REGION = $(REGION)" > ios/Flutter/Store.xcconfig
 
-install: ## Install on the phone in place, keeping its data
+build: storefront ## Release build for a device, obfuscated (STOREFRONT=USA|CAN|CHN)
+	$(FLUTTER) build ios --release --obfuscate --split-debug-info=build/symbols $(DEFINES)
+
+install: ## Install on the phone in place (upgrade, same bundle id): keeps its data
 	@test -n "$(DEVICE)" || { echo "No device. Plug the iPhone in, or pass DEVICE=<udid>."; exit 1; }
 	xcrun devicectl device install app --device $(DEVICE) build/ios/iphoneos/Runner.app
 
-install-ios: build install ## Build and install on the paired iPhone, keeping its data
+install-ios: build install ## Build and install on the paired iPhone, keeping its data (STOREFRONT=USA|CAN|CHN)
 
 run: install-ios ## Same as install-ios
 
-archive: ## Archive a Release build without uploading it
+archive: storefront ## Archive a Release build without uploading it (STOREFRONT=...)
 	$(FLUTTER) build ipa --release --build-number=$$(date +%Y%m%d%H%M) \
-	  --obfuscate --split-debug-info=build/symbols/$$(date +%Y%m%d%H%M)
+	  --obfuscate --split-debug-info=build/symbols/$$(date +%Y%m%d%H%M) $(DEFINES)
 
 upload: ## Upload the archive that already exists, without rebuilding
 	xcodebuild -exportArchive \
@@ -59,8 +72,8 @@ upload: ## Upload the archive that already exists, without rebuilding
 	  -exportOptionsPlist ios/ExportOptions.plist \
 	  -exportPath build/ios/ipa -allowProvisioningUpdates
 
-release: check ## Test, archive and upload to App Store Connect
-	./scripts/release-ios.sh
+release: check storefront ## Test, archive and upload to App Store Connect (STOREFRONT=...)
+	STOREFRONT=$(STOREFRONT) ./scripts/release-ios.sh
 
 size: ## Measure the archived app against the 33 MB budget
 	@test -d $(APP) || { echo "No archive yet — run 'make archive'."; exit 1; }

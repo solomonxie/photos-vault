@@ -47,7 +47,7 @@ class AiVisionService {
     final String content;
     try {
       content = await _aiSettingsStore.runWithKeys(
-        (key) => _runVendor(key.vendor, key.secret, bytes),
+        (key) => _runVendor(key, bytes),
       );
     } on NoAiKeyException {
       throw AiAnalysisException('No AI key configured');
@@ -61,16 +61,15 @@ class AiVisionService {
   /// questions somebody types. `jsonMode` only for the vendor that honours it;
   /// the rest are asked for JSON by the prompt and mostly oblige, which is why
   /// [_parse] treats a bad reply as an error rather than a crash.
-  Future<String> _runVendor(AiVendor vendor, String apiKey, Uint8List bytes) =>
-      askVendor(
-        vendor: vendor,
-        apiKey: apiKey,
-        prompt: _prompt,
-        client: _httpClient,
-        image: bytes,
-        jsonMode: vendor == AiVendor.openai,
-        maxTokens: 256,
-      );
+  Future<String> _runVendor(AiKeyMeta key, Uint8List bytes) => askVendor(
+    vendor: key.vendor,
+    apiKey: key.secret,
+    prompt: _prompt,
+    client: _httpClient,
+    image: bytes,
+    jsonMode: key.vendor == AiVendor.openai,
+    maxTokens: 256,
+  );
 
   AiPhotoAnalysis _parse(String localId, String content) {
     try {

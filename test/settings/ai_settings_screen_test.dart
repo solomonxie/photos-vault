@@ -7,14 +7,16 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'fake_secure_store.dart';
 
+Future<void> _keyOk({required AiVendor vendor, required String apiKey}) async {}
+
 Widget _wrap(Widget child) => CupertinoApp(
   localizationsDelegates: AppLocalizations.localizationsDelegates,
   supportedLocales: AppLocalizations.supportedLocales,
   home: child,
 );
 
-/// Adding is a half sheet: open it, pick a vendor if it isn't the default,
-/// type the key, Save.
+/// Adding is a half sheet: open it, tap a vendor chip if it isn't the
+/// default, type the key, Save.
 Future<void> _addKey(
   WidgetTester tester, {
   required String secret,
@@ -23,8 +25,6 @@ Future<void> _addKey(
   await tester.tap(find.text('Add AI Key'));
   await tester.pumpAndSettle();
   if (vendor != null) {
-    await tester.tap(find.text('Vendor'));
-    await tester.pumpAndSettle();
     await tester.tap(find.text(vendor));
     await tester.pumpAndSettle();
   }
@@ -39,7 +39,9 @@ void main() {
     tester,
   ) async {
     final store = AiSettingsStore(store: FakeSecureStore());
-    await tester.pumpWidget(_wrap(AiSettingsScreen(aiSettingsStore: store)));
+    await tester.pumpWidget(
+      _wrap(AiSettingsScreen(aiSettingsStore: store, keyCheck: _keyOk)),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('AI Settings'), findsOneWidget);
@@ -61,7 +63,9 @@ void main() {
 
   testWidgets('every vendor is offered, not just OpenAI', (tester) async {
     final store = AiSettingsStore(store: FakeSecureStore());
-    await tester.pumpWidget(_wrap(AiSettingsScreen(aiSettingsStore: store)));
+    await tester.pumpWidget(
+      _wrap(AiSettingsScreen(aiSettingsStore: store, keyCheck: _keyOk)),
+    );
     await tester.pumpAndSettle();
 
     await _addKey(tester, secret: 'sk-ant-test', vendor: 'Anthropic');
@@ -73,7 +77,9 @@ void main() {
   testWidgets('removing a key is confirmed first', (tester) async {
     final store = AiSettingsStore(store: FakeSecureStore());
     await store.addKey(AiVendor.openai, 'sk-test');
-    await tester.pumpWidget(_wrap(AiSettingsScreen(aiSettingsStore: store)));
+    await tester.pumpWidget(
+      _wrap(AiSettingsScreen(aiSettingsStore: store, keyCheck: _keyOk)),
+    );
     await tester.pumpAndSettle();
 
     await tester.tap(find.byIcon(CupertinoIcons.ellipsis));
@@ -92,7 +98,9 @@ void main() {
     ) async {
       final store = AiSettingsStore(store: FakeSecureStore());
       await store.addKey(AiVendor.openai, 'sk-test');
-      await tester.pumpWidget(_wrap(AiSettingsScreen(aiSettingsStore: store)));
+      await tester.pumpWidget(
+        _wrap(AiSettingsScreen(aiSettingsStore: store, keyCheck: _keyOk)),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Sequential'));
@@ -106,7 +114,9 @@ void main() {
       final store = AiSettingsStore(store: FakeSecureStore());
       await store.addKey(AiVendor.openai, 'sk-one');
       await store.addKey(AiVendor.anthropic, 'sk-two');
-      await tester.pumpWidget(_wrap(AiSettingsScreen(aiSettingsStore: store)));
+      await tester.pumpWidget(
+        _wrap(AiSettingsScreen(aiSettingsStore: store, keyCheck: _keyOk)),
+      );
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Sequential'));
@@ -116,4 +126,30 @@ void main() {
       expect(await store.getStrategy(), AiKeyStrategy.roundRobin);
     });
   });
+
+  testWidgets(
+    'a key that fails its check stays open, and can be saved anyway',
+    (tester) async {
+      final store = AiSettingsStore(store: FakeSecureStore());
+      await tester.pumpWidget(
+        _wrap(
+          AiSettingsScreen(
+            aiSettingsStore: store,
+            keyCheck: ({required vendor, required apiKey}) async =>
+                throw Exception('401'),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      await _addKey(tester, secret: 'sk-bad');
+
+      expect(find.textContaining("Couldn't verify"), findsOneWidget);
+      expect(await store.listKeys(), isEmpty);
+
+      await tester.tap(find.text('Save Anyway'));
+      await tester.pumpAndSettle();
+      expect((await store.listKeys()).single.secret, 'sk-bad');
+    },
+  );
 }
