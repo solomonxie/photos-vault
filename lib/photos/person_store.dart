@@ -36,6 +36,15 @@ class PersonStore {
   static const _eventTable = 'person_event';
   static const _groupTable = 'person_group';
 
+  /// Photo memberships whose person no longer exists.
+  Future<void> dropMembersOfMissingPeople() async {
+    final db = await _open();
+    await db.rawDelete(
+      'DELETE FROM $_memberTable '
+      'WHERE person_id NOT IN (SELECT id FROM $_personTable)',
+    );
+  }
+
   Future<Database> _open() async {
     final existing = _db;
     if (existing != null) return existing;
@@ -559,6 +568,28 @@ class PersonStore {
     );
   }
 
+  /// Drops [localIds] from every person, and as an avatar — photos deleted
+  /// for good. One batch, however many.
+  Future<void> forgetAssets(Iterable<String> localIds) async {
+    final db = await _open();
+    final ids = localIds.toList();
+    final batch = db.batch();
+    // Under SQLite's bound-parameter limit.
+    for (var i = 0; i < ids.length; i += 500) {
+      final chunk = ids.sublist(i, i + 500 > ids.length ? ids.length : i + 500);
+      final marks = List.filled(chunk.length, '?').join(',');
+      batch
+        ..delete(_memberTable, where: 'local_id IN ($marks)', whereArgs: chunk)
+        ..update(
+          _personTable,
+          {'avatar_local_id': null, 'avatar_face': null},
+          where: 'avatar_local_id IN ($marks)',
+          whereArgs: chunk,
+        );
+    }
+    await batch.commit(noResult: true);
+  }
+
   Future<List<String>> localIdsIn(String personId) async {
     final db = await _open();
     final rows = await db.query(
@@ -568,6 +599,23 @@ class PersonStore {
       whereArgs: [personId],
     );
     return rows.map((r) => r['local_id'] as String).toList();
+  }
+
+  /// Every person's photos in one query, by person id — for callers that
+  /// would otherwise ask [localIdsIn] once per person.
+  Future<Map<String, List<String>>> allMemberships() async {
+    final db = await _open();
+    final rows = await db.query(
+      _memberTable,
+      columns: ['person_id', 'local_id'],
+    );
+    final byPerson = <String, List<String>>{};
+    for (final row in rows) {
+      byPerson
+          .putIfAbsent(row['person_id'] as String, () => [])
+          .add(row['local_id'] as String);
+    }
+    return byPerson;
   }
 
   /// Reverse of [localIdsIn] — every [Person] tagged in one photo, for the
@@ -825,15 +873,85 @@ class PersonStore {
     return [
       for (final row in rows)
         if (_contentOf(row, passcodeHash, keys) case final content?)
-          PersonLocation(
-            id: content['id'] as String,
-            personId: content['person_id'] as String,
-            kind: LocationKind.values.byName(content['kind'] as String),
-            place: content['place'] as String,
-            since: DateTime.fromMillisecondsSinceEpoch(content['since'] as int),
-          ),
+          _locationFromRow(content),
     ]..sort((a, b) => a.since.compareTo(b.since));
   }
+
+  static PersonLocation _locationFromRow(Map<String, Object?> content) =>
+      PersonLocation(
+        id: content['id'] as String,
+        personId: content['person_id'] as String,
+        kind: LocationKind.values.byName(content['kind'] as String),
+        place: content['place'] as String,
+        since: DateTime.fromMillisecondsSinceEpoch(content['since'] as int),
+      );
+
+  /// Everyone's open set plus their sealed rows, for the app-data export:
+  /// one query per table instead of a dozen per person.
+  Future<Map<String, PersonExportSet>> exportSets() async {
+    final db = await _open();
+    final sets = <String, PersonExportSet>{};
+    PersonExportSet of(Object? id) =>
+        sets.putIfAbsent(id as String, PersonExportSet.new);
+    const open = 'passcode_hash = ?';
+    const openArgs = [openNamespace];
+
+    for (final row in await db.query(
+      _detailTable,
+      where: open,
+      whereArgs: openArgs,
+    )) {
+      of(row['person_id']).detail = _decodePlain(
+        row['payload'] as String? ?? '',
+      );
+    }
+    for (final row in await db.query(
+      _historyTable,
+      where: open,
+      whereArgs: openArgs,
+    )) {
+      of(row['person_id']).history.add(_historyFromRow(row));
+    }
+    for (final row in await db.query(
+      _locationTable,
+      where: open,
+      whereArgs: openArgs,
+    )) {
+      of(row['person_id']).locations.add(_locationFromRow(row));
+    }
+    for (final row in await db.query(
+      _relationshipTable,
+      where: open,
+      whereArgs: openArgs,
+    )) {
+      of(row['person_id']).relationships.add(_relationshipFromRow(row));
+    }
+    for (final table in _sealedTables) {
+      for (final row in await db.query(table, where: "passcode_hash != ''")) {
+        of(row['person_id']).sealed.add({'table': table, ...row});
+      }
+    }
+    for (final set in sets.values) {
+      set.history.sort((a, b) {
+        final byCategory = a.category.index.compareTo(b.category.index);
+        if (byCategory != 0) return byCategory;
+        return (a.startDate ?? DateTime(0)).compareTo(
+          b.startDate ?? DateTime(0),
+        );
+      });
+      set.locations.sort((a, b) => a.since.compareTo(b.since));
+    }
+    return sets;
+  }
+
+  static const _sealedTables = [
+    _detailTable,
+    _relationshipTable,
+    _locationTable,
+    _historyTable,
+    _eventTable,
+    _groupTable,
+  ];
 
   // --- Education/job history ---
 
@@ -1279,4 +1397,13 @@ class PersonStore {
         type: RelationshipType.values.byName(row['type'] as String),
         organization: row['organization'] as String?,
       );
+}
+
+/// One person's slice of [PersonStore.exportSets].
+class PersonExportSet {
+  PersonDetail detail = PersonDetail.empty;
+  final history = <PersonHistoryEntry>[];
+  final locations = <PersonLocation>[];
+  final relationships = <PersonRelationship>[];
+  final sealed = <Map<String, Object?>>[];
 }

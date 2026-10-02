@@ -178,6 +178,32 @@ class AlbumStore {
     );
   }
 
+  /// Drops [localIds] from every album, and as a cover — photos deleted
+  /// for good. One batch, however many.
+  Future<void> forgetAssets(Iterable<String> localIds) async {
+    final db = await _open();
+    final batch = db.batch();
+    for (final chunk in _chunks(localIds.toList())) {
+      final marks = List.filled(chunk.length, '?').join(',');
+      batch
+        ..delete(_memberTable, where: 'local_id IN ($marks)', whereArgs: chunk)
+        ..update(
+          _albumTable,
+          {'cover_local_id': null},
+          where: 'cover_local_id IN ($marks)',
+          whereArgs: chunk,
+        );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Under SQLite's bound-parameter limit.
+  static Iterable<List<String>> _chunks(List<String> ids) sync* {
+    for (var i = 0; i < ids.length; i += 500) {
+      yield ids.sublist(i, i + 500 > ids.length ? ids.length : i + 500);
+    }
+  }
+
   Future<List<String>> localIdsIn(String albumId) async {
     final db = await _open();
     final rows = await db.query(
@@ -187,6 +213,45 @@ class AlbumStore {
       whereArgs: [albumId],
     );
     return rows.map((r) => r['local_id'] as String).toList();
+  }
+
+  /// The albums one photo is in, in one query.
+  Future<Set<String>> albumIdsContaining(String localId) async {
+    final db = await _open();
+    final rows = await db.query(
+      _memberTable,
+      columns: ['album_id'],
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+    return {for (final row in rows) row['album_id'] as String};
+  }
+
+  /// Every album's members in one query, by album id — for callers that
+  /// would otherwise ask [localIdsIn] once per album.
+  Future<Map<String, List<String>>> allMemberships() async {
+    final db = await _open();
+    final rows = await db.query(
+      _memberTable,
+      columns: ['album_id', 'local_id'],
+    );
+    final byAlbum = <String, List<String>>{};
+    for (final row in rows) {
+      byAlbum
+          .putIfAbsent(row['album_id'] as String, () => [])
+          .add(row['local_id'] as String);
+    }
+    return byAlbum;
+  }
+
+  /// Membership rows whose album no longer exists, from before [remove]
+  /// deleted them together.
+  Future<void> dropMembersOfMissingAlbums() async {
+    final db = await _open();
+    await db.rawDelete(
+      'DELETE FROM $_memberTable '
+      'WHERE album_id NOT IN (SELECT id FROM $_albumTable)',
+    );
   }
 
   /// Deletes the album itself and its membership rows — the assets it

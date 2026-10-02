@@ -46,12 +46,13 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 16,
+        version: 17,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createPlaceNameTableSql);
           await db.execute(_createAppStateTableSql);
           await db.execute(_createDerivativeTargetTableSql);
+          await db.execute(_createHiddenNoteTableSql);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -143,6 +144,13 @@ class AssetRecordStore {
           if (oldVersion < 16) {
             await db.execute(_createDerivativeTargetTableSql);
             await _adoptExistingUploads(db);
+          }
+          if (oldVersion < 17) {
+            // Null for rows from before, read as their own date — the
+            // honest stand-in, so the upgrade doesn't call the whole
+            // library new.
+            await db.execute('ALTER TABLE $_table ADD COLUMN added_at INTEGER');
+            await db.execute(_createHiddenNoteTableSql);
           }
           if (oldVersion < 10) {
             await db.execute('ALTER TABLE $_table ADD COLUMN latitude REAL');
@@ -312,7 +320,8 @@ class AssetRecordStore {
       width INTEGER,
       height INTEGER,
       created_at INTEGER NOT NULL,
-      updated_at INTEGER NOT NULL
+      updated_at INTEGER NOT NULL,
+      added_at INTEGER
     )
   ''';
 
@@ -397,6 +406,55 @@ class AssetRecordStore {
     await batch.commit(noResult: true);
   }
 
+  /// Notes kept in a hidden album, sealed with the album's key. A row says
+  /// only which album (a keyed tag, not the passcode hash) and when — what
+  /// a note says is in `payload`. See `../vault/hidden_notes.dart`.
+  static const _hiddenNoteTable = 'hidden_note';
+
+  static const _createHiddenNoteTableSql =
+      '''
+    CREATE TABLE $_hiddenNoteTable (
+      id TEXT PRIMARY KEY,
+      album_tag TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  ''';
+
+  /// Rows for [albumTag], newest first.
+  Future<List<Map<String, Object?>>> hiddenNoteRows(String albumTag) async {
+    final db = await _open();
+    return db.query(
+      _hiddenNoteTable,
+      where: 'album_tag = ?',
+      whereArgs: [albumTag],
+      orderBy: 'created_at DESC',
+    );
+  }
+
+  Future<void> putHiddenNote({
+    required String id,
+    required String albumTag,
+    required String payload,
+    required DateTime createdAt,
+    required DateTime updatedAt,
+  }) async {
+    final db = await _open();
+    await db.insert(_hiddenNoteTable, {
+      'id': id,
+      'album_tag': albumTag,
+      'payload': payload,
+      'created_at': createdAt.millisecondsSinceEpoch,
+      'updated_at': updatedAt.millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> removeHiddenNote(String id) async {
+    final db = await _open();
+    await db.delete(_hiddenNoteTable, where: 'id = ?', whereArgs: [id]);
+  }
+
   static const _placeNameTable = 'place_name';
 
   static const _createPlaceNameTableSql =
@@ -432,6 +490,7 @@ class AssetRecordStore {
       ..delete(_placeNameTable)
       ..delete(_appStateTable)
       ..delete(_derivativeTargetTable)
+      ..delete(_hiddenNoteTable)
       ..delete(changeLogTable);
     await batch.commit(noResult: true);
     _dropCache();
@@ -518,6 +577,7 @@ class AssetRecordStore {
   /// exists, refreshes `sourcePath` when it's changed (e.g. demo/manual
   /// files re-copied to a new app container path after a reinstall) —
   /// otherwise a stale path could never heal.
+  /// [addedAt] is for a restore, which carries the original arrival time.
   /// [createdAt] backdates a freshly-inserted record (used by
   /// `DemoAssetsService` to spread demo assets across days/years so the
   /// day-grouped grid isn't just one giant "Today" section); ignored for an
@@ -532,6 +592,7 @@ class AssetRecordStore {
     bool isLivePhoto = false,
     bool isGif = false,
     DateTime? createdAt,
+    DateTime? addedAt,
     double? latitude,
     double? longitude,
     int? width,
@@ -554,7 +615,8 @@ class AssetRecordStore {
       return existing.withSourcePath(sourcePath, now);
     }
 
-    final now = createdAt ?? DateTime.now();
+    final added = addedAt ?? DateTime.now();
+    final now = createdAt ?? added;
     await db.insert(_table, {
       'local_id': localId,
       'content_hash': contentHash,
@@ -571,6 +633,7 @@ class AssetRecordStore {
       'height': height,
       'created_at': now.millisecondsSinceEpoch,
       'updated_at': now.millisecondsSinceEpoch,
+      'added_at': added.millisecondsSinceEpoch,
     });
     return AssetRecord(
       localId: localId,
@@ -588,6 +651,7 @@ class AssetRecordStore {
       height: height,
       createdAt: now,
       updatedAt: now,
+      addedAt: added,
     );
   }
 
@@ -1093,10 +1157,53 @@ class AssetRecordStore {
   /// through the trash.
   Future<void> remove(String localId) async {
     final db = await _open();
-    await db.delete(_table, where: 'local_id = ?', whereArgs: [localId]);
+    final batch = db.batch()
+      ..delete(_table, where: 'local_id = ?', whereArgs: [localId])
+      ..delete(
+        _derivativeTargetTable,
+        where: 'local_id = ?',
+        whereArgs: [localId],
+      )
+      // Albums and people live in other databases; see [removedIds].
+      ..insert(_appStateTable, {
+        'key': '$_removedKeyPrefix$localId',
+        'value': '1',
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await batch.commit(noResult: true);
     // A delete leaves no row to notice, so it is the one change [listAll]
     // cannot catch up on by itself.
     if (_cached?.remove(localId) != null) _rebuildSorted();
+  }
+
+  static const _removedKeyPrefix = 'removed:';
+
+  /// Records [remove]d since the last [forgetRemoved] — for dropping their
+  /// album and people memberships, which this database can't reach.
+  Future<Set<String>> removedIds() async {
+    final db = await _open();
+    final rows = await db.query(
+      _appStateTable,
+      columns: ['key'],
+      where: 'substr(key, 1, ?) = ?',
+      whereArgs: [_removedKeyPrefix.length, _removedKeyPrefix],
+    );
+    return {
+      for (final row in rows)
+        (row['key'] as String).substring(_removedKeyPrefix.length),
+    };
+  }
+
+  Future<void> forgetRemoved(Iterable<String> localIds) async {
+    final db = await _open();
+    final batch = db.batch();
+    for (final id in localIds) {
+      batch.delete(
+        _appStateTable,
+        where: 'key = ?',
+        whereArgs: ['$_removedKeyPrefix$id'],
+      );
+    }
+    await batch.commit(noResult: true);
   }
 
   static String _columnPrefix(DerivativeKind kind) => switch (kind) {
@@ -1156,6 +1263,10 @@ class AssetRecordStore {
       isGif: (row['is_gif'] as int? ?? 0) != 0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
+      addedAt: switch (row['added_at']) {
+        final int at => DateTime.fromMillisecondsSinceEpoch(at),
+        _ => null,
+      },
       derivatives: {
         for (final kind in DerivativeKind.values) kind: stateFor(kind),
       },

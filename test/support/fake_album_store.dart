@@ -54,8 +54,32 @@ class FakeAlbumStore implements AlbumStore {
   }
 
   @override
+  Future<void> dropMembersOfMissingAlbums() async =>
+      _members.removeWhere((id, _) => !_albums.containsKey(id));
+
+  @override
+  Future<void> forgetAssets(Iterable<String> localIds) async {
+    final gone = localIds.toSet();
+    for (final members in _members.values) {
+      members.removeAll(gone);
+    }
+  }
+
+  @override
   Future<List<String>> localIdsIn(String albumId) async =>
       _members[albumId]?.toList() ?? const [];
+
+  @override
+  Future<Set<String>> albumIdsContaining(String localId) async => {
+    for (final entry in _members.entries)
+      if (entry.value.contains(localId)) entry.key,
+  };
+
+  @override
+  Future<Map<String, List<String>>> allMemberships() async => {
+    for (final entry in _members.entries)
+      if (entry.value.isNotEmpty) entry.key: entry.value.toList(),
+  };
 
   @override
   Future<void> remove(String albumId) async {
