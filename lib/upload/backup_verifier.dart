@@ -293,9 +293,17 @@ class BackupVerifier {
         if (!record.isDeleted) record,
     ];
     final expected = <String, String>{}; // key -> localId
+    // A Live Photo's `.mov` sits beside its still under `originals/`, and a
+    // missing one makes the photo missing — the bulk Remove from Device
+    // trusts this list.
+    final motion = <String, String>{};
     for (final record in records) {
       final key = record.stateOf(DerivativeKind.original).destinationKey;
       if (key != null) expected[key] = record.localId;
+      final live = record.isLivePhoto
+          ? record.stateOf(DerivativeKind.livePhoto).destinationKey
+          : null;
+      if (live != null) motion[live] = record.localId;
     }
 
     final seen = <String>{};
@@ -322,13 +330,13 @@ class BackupVerifier {
       at: DateTime.now(),
       expected: expected.length,
       present: expected.keys.where(seen.contains).length,
-      missingLocalIds: [
-        for (final entry in expected.entries)
+      missingLocalIds: {
+        for (final entry in [...expected.entries, ...motion.entries])
           if (!seen.contains(entry.key)) entry.value,
-      ],
+      }.toList(),
       unreferencedKeys: [
         for (final key in seen)
-          if (!expected.containsKey(key)) key,
+          if (!expected.containsKey(key) && !motion.containsKey(key)) key,
       ],
       reachedBucket: reached,
     );
@@ -368,14 +376,21 @@ class BackupVerifier {
     for (final localId in report.missingLocalIds) {
       final record = await recordStore.getByLocalId(localId);
       if (record == null) continue;
-      final state = record.stateOf(DerivativeKind.original);
-      if (state.status == UploadStatus.pending) continue;
-      await recordStore.updateDerivative(
-        localId,
+      var touched = false;
+      for (final kind in [
         DerivativeKind.original,
-        state.copyWith(status: UploadStatus.pending),
-      );
-      requeued++;
+        if (record.isLivePhoto) DerivativeKind.livePhoto,
+      ]) {
+        final state = record.stateOf(kind);
+        if (state.status == UploadStatus.pending) continue;
+        await recordStore.updateDerivative(
+          localId,
+          kind,
+          state.copyWith(status: UploadStatus.pending),
+        );
+        touched = true;
+      }
+      if (touched) requeued++;
     }
     return requeued;
   }

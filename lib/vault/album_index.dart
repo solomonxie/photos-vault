@@ -46,6 +46,7 @@ class IndexEntry {
     required this.height,
     required this.isVideo,
     this.name = '',
+    this.hasMotion,
   });
 
   factory IndexEntry.fromJson(Map<String, dynamic> json) => IndexEntry(
@@ -55,6 +56,7 @@ class IndexEntry {
     height: json['h'] as int? ?? 0,
     isVideo: json['v'] as bool? ?? false,
     name: json['n'] as String? ?? '',
+    hasMotion: json['m'] as bool?,
   );
 
   final String objectKey;
@@ -64,6 +66,11 @@ class IndexEntry {
   final bool isVideo;
   final String name;
 
+  /// A Live Photo, with a `.mov` carrier beside this one. Null on entries
+  /// filed before this was recorded: unknown, so un-hiding has to ask the
+  /// buckets whether a motion half exists.
+  final bool? hasMotion;
+
   Map<String, dynamic> toJson() => {
     'k': objectKey,
     't': takenAt.millisecondsSinceEpoch,
@@ -71,6 +78,7 @@ class IndexEntry {
     'h': height,
     'v': isVideo,
     'n': name,
+    'm': ?hasMotion,
   };
 }
 

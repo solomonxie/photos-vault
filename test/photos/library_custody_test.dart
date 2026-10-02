@@ -165,6 +165,82 @@ void main() {
     );
   });
 
+  Future<AssetRecord> trackedLive(FakeAssetRecordStore store) async {
+    await store.upsert(
+      localId: 'photo:LV1',
+      contentHash: 'LV1',
+      platform: 'ios',
+      libraryId: 'LV1',
+      isLivePhoto: true,
+    );
+    return (await store.getByLocalId('photo:LV1'))!;
+  }
+
+  test('hiding a Live Photo keeps its motion beside the still', () async {
+    final store = FakeAssetRecordStore();
+    final record = await trackedLive(store);
+    final motion = await originalFile('IMG_4.mov');
+    final library = _FakeLibrary(original: await originalFile('IMG_4.heic'));
+    final custody = LibraryCustody(
+      store: store,
+      library: library,
+      directory: () async => dir,
+      liveVideo: (_) async => motion,
+    );
+
+    expect(await custody.takeOut(record), CustodyResult.taken);
+
+    final still = (await store.getByLocalId(record.localId))!.sourcePath!;
+    expect(
+      File(PhotoLibraryService.heldLiveVideoPath(still)).existsSync(),
+      isTrue,
+    );
+  });
+
+  test('no motion to copy means the Live Photo stays in Photos', () async {
+    final store = FakeAssetRecordStore();
+    final record = await trackedLive(store);
+    final library = _FakeLibrary(original: await originalFile('IMG_5.heic'));
+    final custody = LibraryCustody(
+      store: store,
+      library: library,
+      directory: () async => dir,
+      liveVideo: (_) async => null,
+    );
+
+    expect(await custody.takeOut(record), CustodyResult.failed);
+    expect(library.deleteRequests, 0);
+  });
+
+  test('un-hiding a Live Photo puts it back moving', () async {
+    final store = FakeAssetRecordStore();
+    final record = await trackedLive(store);
+    final motion = await originalFile('IMG_6.mov');
+    var stills = 0;
+    File? savedVideo;
+    final custody = LibraryCustody(
+      store: store,
+      library: _FakeLibrary(original: await originalFile('IMG_6.heic')),
+      directory: () async => dir,
+      liveVideo: (_) async => motion,
+      saveToLibrary: (file, {required isVideo, required createdAt}) async {
+        stills++;
+        return null;
+      },
+      saveLiveToLibrary: (still, video, {required createdAt}) async {
+        savedVideo = video;
+        return AssetEntity(id: 'LV2', typeInt: 1, width: 1, height: 1);
+      },
+    );
+    await custody.takeOut(record);
+    final hidden = (await store.getByLocalId(record.localId))!;
+
+    expect(await custody.putBack(hidden), CustodyResult.returned);
+    expect(stills, 0);
+    expect(savedVideo?.readAsBytesSync(), motion.readAsBytesSync());
+    expect((await store.getByLocalId(record.localId))!.libraryId, 'LV2');
+  });
+
   test('a photo imported by hand is never pushed into Photos', () async {
     final store = FakeAssetRecordStore();
     await store.upsert(

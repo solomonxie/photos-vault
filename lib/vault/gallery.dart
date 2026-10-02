@@ -71,14 +71,9 @@ class VaultGallery {
   /// album: falling through to the mirror is the difference between "no
   /// signal" and "everything is gone".
   Future<List<IndexEntry>> list() async {
-    final remote = await _bucket.loadIndex();
-    if (remote != null) {
-      await _store.writeIndex(remote);
-      return readSection(cipher: _cipher, keys: keys, index: remote);
-    }
-    final local = await _store.readIndex();
-    if (local == null) return const [];
-    return readSection(cipher: _cipher, keys: keys, index: local);
+    final index = await _bucket.currentIndex();
+    if (index == null) return const [];
+    return readSection(cipher: _cipher, keys: keys, index: index);
   }
 
   /// Which of [entries] this phone holds in full. The rest are in the bucket
@@ -197,6 +192,46 @@ class VaultGallery {
     return _store.sendBackToBucket(keys, entry.objectKey, thumbnail: tile);
   }
 
+  /// Puts every carrier of [entries] filed with no bucket into the buckets
+  /// that exist now — a Live Photo's `.mov` too. Returns how many went.
+  Future<int> sendUnsent(List<IndexEntry> entries) async {
+    var sent = 0;
+    for (final entry in entries) {
+      for (final key in siblingCarrierKeys(entry.objectKey)) {
+        if (!await _store.isUnsent(keys, key)) continue;
+        if (!await _store.hasCarrier(keys, key)) continue;
+        final file = await _store.carrierFile(keys, key);
+        if (!await _bucket.putEverywhere(file, key)) continue;
+        await _store.setUnsent(keys, key, false);
+        sent++;
+      }
+    }
+    return sent;
+  }
+
+  /// The carrier behind [objectKey], opened, from this phone or a bucket.
+  /// [absent] only when no copy exists anywhere it could be.
+  Future<({OpenedCarrier? opened, bool absent})> openFull(
+    String objectKey,
+  ) async {
+    final local = await _store.readCarrier(keys, objectKey);
+    final Uint8List? bytes;
+    if (local != null) {
+      bytes = local;
+    } else {
+      final fetched = await _bucket.fetch(objectKey);
+      if (fetched.bytes == null) return (opened: null, absent: fetched.absent);
+      bytes = fetched.bytes;
+    }
+    final payload = payloadOf(bytes!);
+    return (
+      opened: payload == null
+          ? null
+          : openCarrier(cipher: _cipher, keys: keys.carrier, payload: payload),
+      absent: false,
+    );
+  }
+
   Uint8List? _openPrefix(Uint8List prefix) {
     final payload = payloadOfPrefix(prefix);
     if (payload == null) return null;
@@ -208,6 +243,15 @@ class VaultGallery {
   }
 
   void dispose() => _memory.clear();
+}
+
+/// A carrier and its Live Photo twin share a name and differ by extension;
+/// the index lists only the still.
+List<String> siblingCarrierKeys(String objectKey) {
+  final dot = objectKey.lastIndexOf('.');
+  if (dot == -1) return [objectKey];
+  final base = objectKey.substring(0, dot);
+  return {objectKey, '$base.mov'}.toList();
 }
 
 /// The payload out of a *partial* carrier — a JPEG prefix has its segments,
@@ -227,6 +271,8 @@ class VaultTile extends StatefulWidget {
     required this.entry,
     this.onTap,
     this.onLongPress,
+    this.onSelectDragUpdate,
+    this.onSelectDragEnd,
     this.selecting = false,
     this.selected = false,
     this.onThisPhone = true,
@@ -236,6 +282,11 @@ class VaultTile extends StatefulWidget {
   final IndexEntry entry;
   final VoidCallback? onTap;
   final VoidCallback? onLongPress;
+
+  /// A hold then sweep, or a sideways drag once selecting — see
+  /// `AssetTile.onSelectDragUpdate`.
+  final void Function(Offset globalPosition)? onSelectDragUpdate;
+  final VoidCallback? onSelectDragEnd;
 
   final bool selecting;
   final bool selected;
@@ -272,65 +323,85 @@ class _VaultTileState extends State<VaultTile> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final bytes = _bytes;
+    final drag = widget.onSelectDragUpdate;
+    final dragEnd = widget.onSelectDragEnd;
     return GestureDetector(
       onTap: widget.onTap,
       onLongPress: widget.onLongPress,
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          Container(
-            color: const Color(0xFF1C1C1E),
-            child: bytes != null
-                ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
-                : Center(
-                    child: _tried
-                        ? Text(
-                            l10n.vaultLockedItem,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: CupertinoColors.systemGrey,
-                            ),
-                          )
-                        : const SizedBox.shrink(),
-                  ),
-          ),
-          // Bottom-left, small, and only on the ones that aren't here — the
-          // ordinary case earns no badge, so the marked tiles are the answer
-          // to "what would I have to wait for".
-          if (!widget.onThisPhone)
-            const Positioned(
-              left: 4,
-              bottom: 4,
-              child: Icon(
-                CupertinoIcons.cloud,
-                size: 13,
-                color: CupertinoColors.white,
-                shadows: [Shadow(blurRadius: 3, color: Color(0x99000000))],
+      onLongPressMoveUpdate: drag == null
+          ? null
+          : (details) => drag(details.globalPosition),
+      onLongPressEnd: dragEnd == null ? null : (_) => dragEnd(),
+      onHorizontalDragUpdate: !widget.selecting || drag == null
+          ? null
+          : (details) => drag(details.globalPosition),
+      onHorizontalDragEnd: !widget.selecting || dragEnd == null
+          ? null
+          : (_) => dragEnd(),
+      child: MetaData(
+        metaData: widget.entry,
+        behavior: HitTestBehavior.opaque,
+        child: Stack(
+          fit: StackFit.expand,
+          children: [
+            Container(
+              color: const Color(0xFF1C1C1E),
+              child: bytes != null
+                  ? Image.memory(
+                      bytes,
+                      fit: BoxFit.cover,
+                      gaplessPlayback: true,
+                    )
+                  : Center(
+                      child: _tried
+                          ? Text(
+                              l10n.vaultLockedItem,
+                              style: const TextStyle(
+                                fontSize: 11,
+                                color: CupertinoColors.systemGrey,
+                              ),
+                            )
+                          : const SizedBox.shrink(),
+                    ),
+            ),
+            // Bottom-left, small, and only on the ones that aren't here — the
+            // ordinary case earns no badge, so the marked tiles are the answer
+            // to "what would I have to wait for".
+            if (!widget.onThisPhone)
+              const Positioned(
+                left: 4,
+                bottom: 4,
+                child: Icon(
+                  CupertinoIcons.cloud,
+                  size: 13,
+                  color: CupertinoColors.white,
+                  shadows: [Shadow(blurRadius: 3, color: Color(0x99000000))],
+                ),
               ),
-            ),
-          if (widget.selecting)
-            Positioned(
-              right: 4,
-              top: 4,
-              child: Icon(
-                widget.selected
-                    ? CupertinoIcons.checkmark_circle_fill
-                    : CupertinoIcons.circle,
-                size: 20,
-                color: widget.selected
-                    ? CupertinoColors.activeBlue
-                    : CupertinoColors.white,
-                shadows: const [
-                  Shadow(blurRadius: 3, color: Color(0x99000000)),
-                ],
+            if (widget.selecting)
+              Positioned(
+                right: 4,
+                top: 4,
+                child: Icon(
+                  widget.selected
+                      ? CupertinoIcons.checkmark_circle_fill
+                      : CupertinoIcons.circle,
+                  size: 20,
+                  color: widget.selected
+                      ? CupertinoColors.activeBlue
+                      : CupertinoColors.white,
+                  shadows: const [
+                    Shadow(blurRadius: 3, color: Color(0x99000000)),
+                  ],
+                ),
               ),
-            ),
-          if (widget.selecting && widget.selected)
-            const DecoratedBox(
-              decoration: BoxDecoration(color: Color(0x330A84FF)),
-              child: SizedBox.expand(),
-            ),
-        ],
+            if (widget.selecting && widget.selected)
+              const DecoratedBox(
+                decoration: BoxDecoration(color: Color(0x330A84FF)),
+                child: SizedBox.expand(),
+              ),
+          ],
+        ),
       ),
     );
   }

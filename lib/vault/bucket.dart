@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
@@ -5,6 +6,7 @@ import 'package:http/http.dart' as http;
 import '../backup/bucket_backup.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
+import '../upload/s3_uploader.dart';
 import '../upload/signing.dart';
 import 'album_index.dart';
 import 'carrier.dart';
@@ -26,13 +28,19 @@ class VaultBucket {
     Future<http.Response> Function(Uri url, {Object? body})? put,
     Future<http.Response> Function(Uri url, {Map<String, String>? headers})?
     get,
+    S3Uploader? uploader,
   }) : _targetsStore = targetsStore ?? BackupTargetsStore(),
        _cipher = cipher ?? PlatformCipher(),
        _store = store ?? VaultStore(),
        _put = put ?? http.put,
-       _get = get ?? _defaultGet;
+       _get = get ?? _defaultGet,
+       _uploaderOverride = uploader;
 
   final BackupTargetsStore _targetsStore;
+
+  /// Carriers go up on the background transfer, like every other upload.
+  final S3Uploader? _uploaderOverride;
+  late final S3Uploader _uploader = _uploaderOverride ?? S3Uploader();
   final VaultCipher _cipher;
 
   /// The local mirror. Read when no bucket answers, and — this is the part
@@ -92,21 +100,54 @@ class VaultBucket {
   }
 
   /// Writes [index] to every target. Every install writes one, always the
-  /// same size, whether or not anything is hidden.
+  /// same size, whether or not anything is hidden. True only when every
+  /// target took it: one that missed would hand back the older copy.
   Future<bool> saveIndex(Uint8List index) async {
-    var wrote = false;
-    for (final target in await _targetsStore.loadAll()) {
+    final targets = await _targetsStore.loadAll();
+    var wrote = 0;
+    for (final target in targets) {
       try {
         final response = await _put(
           await presignPutUrl(target: target, key: _indexKey(target)),
           body: index,
         );
-        wrote = wrote || response.statusCode == 200;
+        if (response.statusCode == 200) wrote++;
       } catch (_) {
         // Next target.
       }
     }
-    return wrote;
+    return targets.isNotEmpty && wrote == targets.length;
+  }
+
+  /// Lands [index] here, marked newer than the buckets' copy until
+  /// [pushIndex] gets it into every one.
+  Future<void> keepIndex(Uint8List index) async {
+    await _store.writeIndex(index);
+    await _store.setIndexUnpublished(true);
+  }
+
+  /// Offers [index] to every bucket, clearing the mark only if it is still
+  /// what this phone holds — a newer write since stays marked.
+  Future<bool> pushIndex(Uint8List index) async {
+    if (!await saveIndex(index)) return false;
+    final local = await _store.readIndex();
+    if (local != null && _sameBytes(local, index)) {
+      await _store.setIndexUnpublished(false);
+    }
+    return true;
+  }
+
+  Future<bool> publishIndex(Uint8List index) async {
+    await keepIndex(index);
+    return pushIndex(index);
+  }
+
+  static bool _sameBytes(Uint8List a, Uint8List b) {
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
+    }
+    return true;
   }
 
   /// The index as it stands: the bucket's copy when one answers, mirrored
@@ -116,7 +157,19 @@ class VaultBucket {
   /// back to "no index" while offline would build a fresh one, and a fresh
   /// index is 32 sections of random bytes — every other album on the phone
   /// gone, silently, because the network was down.
+  ///
+  /// A local write the buckets never got wins over them: it is newer, and
+  /// adopting theirs would drop what was hidden offline. It is offered to
+  /// them again here. Another phone's edit made meanwhile loses — the
+  /// lesser loss, since this phone holds the carriers its own entries list.
   Future<Uint8List?> currentIndex() async {
+    if (await _store.isIndexUnpublished()) {
+      final local = await _store.readIndex();
+      if (local != null) {
+        await pushIndex(local);
+        return local;
+      }
+    }
     final remote = await loadIndex();
     if (remote != null) {
       await _store.writeIndex(remote);
@@ -176,8 +229,7 @@ class VaultBucket {
       passphrases: passphrases,
     );
     if (index == null) return false;
-    await _store.writeIndex(index);
-    return saveIndex(index);
+    return publishIndex(index);
   }
 
   /// The first [thumbnailPrefixBytes] of a carrier — enough for its
@@ -202,6 +254,49 @@ class VaultBucket {
       }
     }
     return null;
+  }
+
+  /// A whole carrier, or [absent] when every bucket answered 404 (or none is
+  /// configured). Unreachable is neither: a caller deciding "there is no
+  /// such object" must not mistake a dead network for it.
+  Future<({Uint8List? bytes, bool absent})> fetch(String objectKey) async {
+    var missing = 0;
+    final targets = await _targetsStore.loadAll();
+    for (final target in targets) {
+      try {
+        final response = await _get(
+          await presignGetUrl(
+            target: target,
+            key: resolveKey(target, objectKey),
+          ),
+        );
+        if (response.statusCode == 200) {
+          return (bytes: response.bodyBytes, absent: false);
+        }
+        if (response.statusCode == 404) missing++;
+      } catch (_) {
+        // Next target.
+      }
+    }
+    return (bytes: null, absent: missing == targets.length);
+  }
+
+  /// Puts a local carrier into every bucket. True only when every one took
+  /// it, and false with none configured — there is nowhere it has gone.
+  Future<bool> putEverywhere(File carrier, String objectKey) async {
+    final targets = await _targetsStore.loadAll();
+    if (targets.isEmpty) return false;
+    var wrote = 0;
+    for (final target in targets) {
+      if (await _uploader.put(
+        filePath: carrier.path,
+        key: resolveKey(target, objectKey),
+        target: target,
+      )) {
+        wrote++;
+      }
+    }
+    return wrote == targets.length;
   }
 
   /// A whole carrier, for opening the photo itself.

@@ -186,6 +186,57 @@ void main() {
       );
     });
 
+    test('a Live Photo missing its motion half is missing', () async {
+      final store = FakeAssetRecordStore();
+      await _uploaded(
+        store,
+        localId: 'photo:live',
+        key: 'photos/originals/live.heic',
+        isLivePhoto: true,
+        motionKey: 'photos/originals/live.mov',
+      );
+      final verifier = BackupVerifier(
+        targetsStore: await _targets(),
+        recordStore: store,
+        list: ({required target, prefix = '', continuationToken}) async =>
+            _listing(['photos/originals/live.heic']),
+      );
+
+      final report = await verifier.reconcile();
+
+      expect(report.missingLocalIds, ['photo:live']);
+      expect(await verifier.requeueMissing(report), 1);
+      final requeued = (await store.getByLocalId('photo:live'))!;
+      expect(
+        requeued.stateOf(DerivativeKind.livePhoto).status,
+        UploadStatus.pending,
+      );
+    });
+
+    test('a present motion half is neither missing nor an orphan', () async {
+      final store = FakeAssetRecordStore();
+      await _uploaded(
+        store,
+        key: 'photos/originals/live.heic',
+        isLivePhoto: true,
+        motionKey: 'photos/originals/live.mov',
+      );
+      final verifier = BackupVerifier(
+        targetsStore: await _targets(),
+        recordStore: store,
+        list: ({required target, prefix = '', continuationToken}) async =>
+            _listing([
+              'photos/originals/live.heic',
+              'photos/originals/live.mov',
+            ]),
+      );
+
+      final report = await verifier.reconcile();
+
+      expect(report.isClean, isTrue);
+      expect(report.unreferencedKeys, isEmpty);
+    });
+
     test('an object no record claims is reported, never deleted', () async {
       final store = FakeAssetRecordStore();
       await _uploaded(store, key: 'photos/originals/a');

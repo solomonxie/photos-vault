@@ -64,14 +64,29 @@ Design and the reasoning behind each choice:
 
 Rules worth not rediscovering:
 
-- **Nothing about the private side goes in sqlite.** The database is in the
-  daily app-data snapshot, which is in the bucket next to the carriers. A
-  hidden photo's row is deleted the moment its carrier is filed; the album
-  index is the only thing that describes it after that.
+- **Nothing about the private side goes in sqlite in the clear.** The
+  database is in the daily app-data snapshot, which is in the bucket next to
+  the carriers. A hidden photo's row is deleted the moment its carrier is
+  filed; the album index is the only thing that describes it after that.
+  Album notes (`hidden_notes.dart`) are rows, but sealed with the album key
+  and tagged by a keyed hash, not the passcode hash.
+- **Deleting a hidden photo is permanent** (`hidden_removal.dart`): index
+  first, then this phone's files, then the bucket via `PendingDeletes`.
+  Never the library's Recently Deleted, which opens without a code.
 - **A rewrite merges into the index as it stands, local or remote.** Falling
   back to "no index" while offline builds a fresh one — 32 sections of random
   bytes — and every other album on the phone is gone. `VaultBucket.currentIndex`
   is the one place that decides which index a rewrite is based on.
+- **No bucket still means encrypted.** Hidden photos are carried and filed
+  without one (`hidden_filing.dart`); the carrier is marked unsent
+  (`VaultStore.setUnsent`), its object key sealed under the outbox key —
+  derived from the master key alone, so the sync sends it with no album
+  open. Markers from older builds wait for their album to open.
+- **The index records motion** (`IndexEntry.hasMotion`), so a still un-hides
+  offline. Entries filed before that ask the buckets.
+- **Un-hiding a filed photo** (`hidden_restore.dart`): Photos takes it back
+  first, then `HiddenRemoval.release` unlists it. The bucket's carriers
+  wait in `DeferredDeletes` until the plain copy is in every bucket.
 - **A wrong 4-digit code is never an error.** It derives a different album
   key, which matches no index section and no carrier MAC, so the album is
   simply empty. There is no code path that could report "wrong passcode".

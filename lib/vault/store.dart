@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter/services.dart';
@@ -48,6 +49,8 @@ class BackupExclusion {
 /// ```text
 /// <Application Support>/vault/          ← excluded from the device backup
 /// ├── index.bin                 the album listing, so the grid opens offline
+/// ├── index.unpublished         present while index.bin is newer than the
+/// │                             buckets' copy
 /// ├── carriers/<hmac>           the whole carrier, byte-for-byte what the
 /// │                             bucket holds — so it is the local copy and
 /// │                             the upload body at once
@@ -73,8 +76,8 @@ class BackupExclusion {
 /// **Nothing here is evicted.** No TTL, no size cap: that is the difference
 /// between this and `VaultCache`, which exists to make re-fetching cheap and
 /// is free to throw anything away. A file leaves here when the user sends
-/// that photo back to the bucket, when the album is emptied, or when Remove
-/// All App Data runs.
+/// that photo back to the bucket, or when it or its album is deleted.
+/// Remove All App Data leaves it alone: it may be the only copy.
 class VaultStore {
   VaultStore({
     Future<Directory> Function()? directory,
@@ -88,14 +91,14 @@ class VaultStore {
   final VaultCipher _cipher;
   final BackupExclusion _exclusion;
 
-  /// The one directory this owns. Public because Remove All App Data has to
-  /// delete it, and a second spelling of 'vault' is a directory that quietly
-  /// survives the wipe.
+  /// The one directory this owns.
   static const root = 'vault';
 
   static const carriersDir = 'carriers';
   static const thumbnailsDir = 'thumbnails';
+  static const unsentDir = 'unsent';
   static const indexFileName = 'index.bin';
+  static const unpublishedFileName = 'index.unpublished';
 
   Future<Directory> _root() async {
     final dir = Directory(p.join((await _directory()).path, root));
@@ -147,6 +150,31 @@ class VaultStore {
       await file.writeAsBytes(index, flush: true);
     } catch (_) {
       // The bucket's copy still stands; the album just won't open offline.
+    }
+  }
+
+  /// Marks the local index as newer than any bucket's: written here, not
+  /// yet in every bucket. While set, the bucket's copy is older and must
+  /// not replace it.
+  Future<void> setIndexUnpublished(bool value) async {
+    try {
+      final file = File(p.join((await _root()).path, unpublishedFileName));
+      if (value) {
+        await file.writeAsBytes(const [1], flush: true);
+      } else if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (_) {
+      // Unwritable root: the index write above failed the same way.
+    }
+  }
+
+  Future<bool> isIndexUnpublished() async {
+    try {
+      return await File(p.join((await _root()).path, unpublishedFileName))
+          .exists();
+    } catch (_) {
+      return false;
     }
   }
 
@@ -239,6 +267,116 @@ class VaultStore {
     }
   }
 
+  // ---------------------------------------------------------- not yet sent
+
+  /// Marks a carrier filed with no bucket to hold it, so it goes up once
+  /// one exists. Named like the carrier: a listing says nothing new.
+  ///
+  /// Holds the object key sealed under the outbox key, which is what lets
+  /// [sendUnsent] work with no album open. Markers from before that hold a
+  /// bare byte and wait for their album, as they always did.
+  Future<void> setUnsent(AlbumKeys keys, String objectKey, bool value) async {
+    try {
+      final file = File(
+        p.join((await _pool(unsentDir)).path, _fileName(keys, objectKey)),
+      );
+      if (value) {
+        final outbox = keys.outboxKey;
+        await file.writeAsBytes(
+          outbox == null
+              ? const [1]
+              : _sealName(keys.entry.id, outbox, objectKey),
+          flush: true,
+        );
+      } else if (await file.exists()) {
+        await file.delete();
+      }
+    } catch (_) {
+      // Unmarked: the carrier still opens here, it just isn't offered up.
+    }
+  }
+
+  List<int> _sealName(String entryId, Uint8List key, String objectKey) {
+    final iv = randomBytes(16);
+    final sealed = _cipher.transform(
+      key: key,
+      iv: iv,
+      data: Uint8List.fromList(utf8.encode(objectKey)),
+    );
+    return utf8.encode(
+      jsonEncode({
+        'e': entryId,
+        'iv': base64Encode(iv),
+        'c': base64Encode(sealed),
+        'm': base64Encode(vaultHmac(key, [...iv, ...sealed])),
+      }),
+    );
+  }
+
+  /// Sends every sealed unsent carrier with [put], album open or not, and
+  /// unmarks what every bucket took. Returns how many went.
+  Future<int> sendUnsent({
+    required Future<Uint8List?> Function(String entryId) outboxKey,
+    required Future<bool> Function(File carrier, String objectKey) put,
+  }) async {
+    var sent = 0;
+    try {
+      final carriers = await _pool(carriersDir);
+      await for (final marker in (await _pool(unsentDir)).list()) {
+        if (marker is! File) continue;
+        final objectKey = await _openName(marker, outboxKey);
+        if (objectKey == null) continue;
+        final carrier = File(p.join(carriers.path, p.basename(marker.path)));
+        if (!await carrier.exists()) continue;
+        if (!await put(carrier, objectKey)) continue;
+        try {
+          await marker.delete();
+        } catch (_) {
+          // The album's own send got there first.
+        }
+        sent++;
+      }
+    } catch (_) {
+      // Still marked; the next sync tries again.
+    }
+    return sent;
+  }
+
+  Future<String?> _openName(
+    File marker,
+    Future<Uint8List?> Function(String entryId) outboxKey,
+  ) async {
+    try {
+      final json = jsonDecode(
+        utf8.decode(await marker.readAsBytes()),
+      ) as Map<String, dynamic>;
+      final key = await outboxKey(json['e'] as String);
+      if (key == null) return null;
+      final iv = base64Decode(json['iv'] as String);
+      final sealed = base64Decode(json['c'] as String);
+      if (!bytesMatch(
+        base64Decode(json['m'] as String),
+        vaultHmac(key, [...iv, ...sealed]),
+      )) {
+        return null;
+      }
+      return utf8.decode(_cipher.transform(key: key, iv: iv, data: sealed));
+    } catch (_) {
+      // A bare legacy marker, or not ours to read.
+      return null;
+    }
+  }
+
+  Future<bool> isUnsent(AlbumKeys keys, String objectKey) async {
+    try {
+      return await File(
+        p.join((await _pool(unsentDir)).path, _fileName(keys, objectKey)),
+      ).exists();
+    } catch (_) {
+      return false;
+    }
+  }
+
   // --------------------------------------------------------- the thumbnail
 
   /// Encrypted, unlike the carrier, because a thumbnail on its own is not a
@@ -310,7 +448,7 @@ class VaultStore {
     );
   }
 
-  /// Everything, for Remove All App Data and for a forgotten passphrase.
+  /// Everything, for a forgotten passphrase.
   Future<void> clear() async {
     try {
       final dir = Directory(p.join((await _directory()).path, root));
@@ -332,6 +470,7 @@ class VaultStore {
           p.join((await _pool(thumbnailsDir)).path, _fileName(keys, objectKey)),
         );
         if (await thumbnail.exists()) await thumbnail.delete();
+        await setUnsent(keys, objectKey, false);
       } catch (_) {
         // Next one.
       }

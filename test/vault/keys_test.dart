@@ -98,4 +98,21 @@ void main() {
     expect(entry.verifier.length, 32);
     expect(entry.verifier, isNot(equals(Uint8List(32))));
   });
+
+  test(
+    'the outbox key needs no code, and is the same for every album',
+    () async {
+      final keys = VaultKeys(store: _MemoryStore());
+      final entry = await keys.add('correct horse battery');
+
+      final a = (await keys.albumKeys('1234')).single;
+      final b = (await keys.albumKeys('9999')).single;
+
+      expect(a.outboxKey, isNotNull);
+      expect(a.outboxKey, b.outboxKey);
+      expect(await keys.outboxKey(entry.id), a.outboxKey);
+      expect(a.outboxKey, isNot(a.albumKey));
+      expect(await keys.outboxKey('nobody'), isNull);
+    },
+  );
 }

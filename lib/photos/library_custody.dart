@@ -50,9 +50,18 @@ class LibraryCustody {
       required DateTime createdAt,
     })?
     saveToLibrary,
+    Future<File?> Function(AssetRecord record)? liveVideo,
+    Future<AssetEntity?> Function(
+      File still,
+      File video, {
+      required DateTime createdAt,
+    })?
+    saveLiveToLibrary,
   }) : _library = library ?? PhotoLibraryService(store: store),
        _directory = directory ?? getApplicationSupportDirectory,
-       _saveToLibrary = saveToLibrary ?? _defaultSaveToLibrary;
+       _saveToLibrary = saveToLibrary ?? _defaultSaveToLibrary,
+       _liveVideo = liveVideo ?? PhotoLibraryService.resolveLivePhotoVideo,
+       _saveLiveToLibrary = saveLiveToLibrary ?? _defaultSaveLiveToLibrary;
 
   final AssetRecordStore store;
   final PhotoLibraryService _library;
@@ -63,6 +72,35 @@ class LibraryCustody {
     required DateTime createdAt,
   })
   _saveToLibrary;
+  final Future<File?> Function(AssetRecord record) _liveVideo;
+  final Future<AssetEntity?> Function(
+    File still,
+    File video, {
+    required DateTime createdAt,
+  })
+  _saveLiveToLibrary;
+
+  /// PhotoKit's Live Photo save takes no date, so it is set straight after;
+  /// a failure there leaves the photo back, moving, wearing today's date.
+  static Future<AssetEntity?> _defaultSaveLiveToLibrary(
+    File still,
+    File video, {
+    required DateTime createdAt,
+  }) async {
+    final saved = await PhotoManager.editor.darwin.saveLivePhoto(
+      imageFile: still,
+      videoFile: video,
+      title: p.basenameWithoutExtension(still.path),
+    );
+    try {
+      return await PhotoManager.editor.darwin.updateCreationDate(
+        entity: saved,
+        creationDate: createdAt,
+      );
+    } catch (_) {
+      return saved;
+    }
+  }
 
   /// Hands the file to Photos **with its original date**.
   ///
@@ -162,11 +200,28 @@ class LibraryCustody {
       return false;
     }
 
+    // A Live Photo's motion is a second file, and deleting from Photos takes
+    // both. No `.mov`, no hiding: a silent still is a lost photo.
+    File? motion;
+    if (record.isLivePhoto) {
+      try {
+        motion = await _liveVideo(record);
+      } catch (_) {
+        motion = null;
+      }
+      if (motion == null || !await motion.exists()) return false;
+    }
+
     try {
       final dir = await _directory();
       final copy = File(p.join(dir.path, _fileNameFor(record, source)));
       await source.copy(copy.path);
       if (!await copy.exists() || await copy.length() == 0) return false;
+      if (motion != null) {
+        final held = File(PhotoLibraryService.heldLiveVideoPath(copy.path));
+        await motion.copy(held.path);
+        if (!await held.exists() || await held.length() == 0) return false;
+      }
       await store.setSourcePath(record.localId, copy.path);
       return true;
     } catch (_) {
@@ -199,19 +254,41 @@ class LibraryCustody {
     if (path == null) return CustodyResult.returned;
     final file = File(path);
     if (!await file.exists()) return CustodyResult.failed;
+    final motion = File(PhotoLibraryService.heldLiveVideoPath(path));
     try {
-      final saved = await _saveToLibrary(
-        file,
-        isVideo: record.isVideo,
-        // This app's own date, which survived the round trip: the record
-        // kept it while the photo was out of Photos.
-        createdAt: record.createdAt,
-      );
+      final saved = record.isLivePhoto && await motion.exists()
+          ? await _saveLiveToLibrary(file, motion, createdAt: record.createdAt)
+          : await _saveToLibrary(
+              file,
+              isVideo: record.isVideo,
+              // This app's own date, which survived the round trip: the
+              // record kept it while the photo was out of Photos.
+              createdAt: record.createdAt,
+            );
       if (saved == null) return CustodyResult.failed;
       await store.setLibraryId(record.localId, saved.id);
       return CustodyResult.returned;
     } catch (_) {
       return CustodyResult.failed;
+    }
+  }
+
+  /// Hands Photos a photo that exists only as files — a hidden photo opened
+  /// out of its carrier. With its original date, and moving when [motion]
+  /// is there. The Photos asset id, or null when it was refused.
+  Future<String?> saveFiles({
+    required File still,
+    File? motion,
+    required bool isVideo,
+    required DateTime createdAt,
+  }) async {
+    try {
+      final saved = motion != null
+          ? await _saveLiveToLibrary(still, motion, createdAt: createdAt)
+          : await _saveToLibrary(still, isVideo: isVideo, createdAt: createdAt);
+      return saved?.id;
+    } catch (_) {
+      return null;
     }
   }
 

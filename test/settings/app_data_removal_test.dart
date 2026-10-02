@@ -17,6 +17,7 @@ import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/upload/sync_job.dart';
 import 'package:photos_vault/vault/cache.dart';
 import 'package:photos_vault/vault/keys.dart';
+import 'package:photos_vault/vault/store.dart';
 
 import '../support/fake_album_store.dart';
 import '../support/fake_asset_record_store.dart';
@@ -238,6 +239,23 @@ void main() {
     await s.removal.run();
 
     expect(backedUp.existsSync(), isFalse);
+  });
+
+  test('hidden photos kept on this phone survive the wipe', () async {
+    final s = _subject();
+    final vault = Directory(p.join(s.support.path, VaultStore.root));
+    final carrier = File(p.join(vault.path, VaultStore.carriersDir, 'f00d'))
+      ..createSync(recursive: true)
+      ..writeAsBytesSync(const [1, 2, 3]);
+    final index = File(p.join(vault.path, VaultStore.indexFileName))
+      ..writeAsBytesSync(const [4]);
+
+    await s.removal.run();
+
+    // Possibly the only copy, and which ones a bucket holds can't be told
+    // without the album key.
+    expect(carrier.existsSync(), isTrue);
+    expect(index.existsSync(), isTrue);
   });
 
   test('a hidden photo with no carrier keeps its bytes', () async {

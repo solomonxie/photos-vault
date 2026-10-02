@@ -50,20 +50,28 @@ class CarrierBuilder {
   /// The carrier for [record], written to a temp file the caller owns, or
   /// null when there is no decoy to wear — in which case the upload is
   /// refused rather than sent as something conspicuous.
+  ///
+  /// [motionOf] is set for a Live Photo's `.mov` half — the path of its
+  /// still, which gives the poster. It goes up as a video carrier, so it is
+  /// named `.mov` beside the still's `.jpg` rather than over it.
   Future<File?> build({
     required AssetRecord record,
     required String filePath,
     required AlbumKeys keys,
     required List<DecoyCandidate> candidates,
+    String? motionOf,
   }) async {
     final original = await File(filePath).readAsBytes();
-    final thumbnail = await _thumbnailFor(record, original);
+    final asVideo = record.countsAsVideo || motionOf != null;
+    final thumbnail = motionOf != null
+        ? await _stillThumbnail(motionOf)
+        : await _thumbnailFor(record, original);
     if (thumbnail == null) return null;
 
     final chosen = chooseDecoy(
       candidates: [for (final c in candidates) c.source],
       payloadBytes: original.length,
-      wantVideo: record.countsAsVideo,
+      wantVideo: asVideo,
       usedCounts: _decoyUses,
       random: _random,
     );
@@ -75,7 +83,7 @@ class CarrierBuilder {
     final dir = await _temporaryDirectory();
     final extension = p.extension(filePath).replaceFirst('.', '').toLowerCase();
 
-    final carrier = record.countsAsVideo
+    final carrier = asVideo
         ? await _videoCarrier(
             keys: keys,
             candidate: candidate,
@@ -180,6 +188,15 @@ class CarrierBuilder {
   ) async {
     if (record.countsAsVideo) return _posterFrame(record);
     return Isolate.run(() => encodeThumbnail(original));
+  }
+
+  Future<Uint8List?> _stillThumbnail(String stillPath) async {
+    try {
+      final still = await File(stillPath).readAsBytes();
+      return await Isolate.run(() => encodeThumbnail(still));
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<Duration?> durationOf(AssetRecord record) => _videoDuration(record);

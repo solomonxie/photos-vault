@@ -122,4 +122,93 @@ void main() {
     expect(called, isTrue);
     expect(result, isNull);
   });
+
+  testWidgets('hiding asks for its code twice, with a warning', (tester) async {
+    String? result = 'unset';
+    await tester.pumpWidget(
+      _wrap(
+        Builder(
+          builder: (context) => CupertinoButton(
+            onPressed: () async => result = await askHideCode(context),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Hidden Album Code'), findsOneWidget);
+    expect(find.byKey(const ValueKey('hideCodeWarning')), findsOneWidget);
+    await _tapDigits(tester, '1234');
+    await tester.pumpAndSettle();
+
+    expect(find.text('Enter It Again'), findsOneWidget);
+    await _tapDigits(tester, '1234');
+    await tester.pumpAndSettle();
+
+    expect(result, '1234');
+  });
+
+  testWidgets('two different codes hide nothing', (tester) async {
+    String? result = 'unset';
+    await tester.pumpWidget(
+      _wrap(
+        Builder(
+          builder: (context) => CupertinoButton(
+            onPressed: () async => result = await askHideCode(context),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    await _tapDigits(tester, '1234');
+    await tester.pumpAndSettle();
+    await _tapDigits(tester, '1235');
+    await tester.pumpAndSettle();
+
+    expect(
+      find.text("The two codes didn't match, so nothing was hidden."),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    expect(result, isNull);
+  });
+
+  testWidgets(
+    'fast typing: each key counts on touch-down, overlapping or not',
+    (tester) async {
+      String? result;
+      await tester.pumpWidget(
+        _wrap(
+          Builder(
+            builder: (context) => CupertinoButton(
+              onPressed: () async =>
+                  result = await showPrivateAlbumPasscodeSheet(context),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      // Each finger lands before the previous one lifts, and one slides.
+      final one = await tester.startGesture(tester.getCenter(find.text('1')));
+      final two = await tester.startGesture(tester.getCenter(find.text('2')));
+      await one.up();
+      await two.moveBy(const Offset(30, 0));
+      final again = await tester.startGesture(tester.getCenter(find.text('2')));
+      await two.up();
+      final four = await tester.startGesture(tester.getCenter(find.text('4')));
+      await again.up();
+      await four.up();
+      await tester.pumpAndSettle();
+
+      expect(result, '1224');
+    },
+  );
 }

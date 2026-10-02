@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import '../settings/backup_targets_store.dart';
@@ -90,6 +91,7 @@ class AssetRemoval {
   /// rule or one upload that reported a success it didn't have all look
   /// identical from inside the database, and all three cost the photo.
   Future<RemovalOutcome> removeFromDevice(AssetRecord record) async {
+    if (record.isLocked) return RemovalOutcome.failed;
     switch (await verifier.proveOriginal(record)) {
       case CopyProof.present:
         break;
@@ -145,8 +147,15 @@ class AssetRemoval {
   /// is the one that survives a lost phone. It's purged only when the bin
   /// is emptied.
   Future<bool> deleteEverywhere(AssetRecord record) async {
+    // The lock's promise holds on every screen, not just the library's.
+    if (record.isLocked) return false;
+    // Only when the library still has it. A photo taken out of Photos
+    // (hidden, or restored with no library entry) has no library id, and
+    // the library answers "nothing deleted" for it — which used to fail the
+    // whole delete, so nothing happened at all.
     if (record.sourceType == AssetSourceType.photoManager &&
         !record.localDeleted &&
+        PhotoLibraryService.libraryIdOf(record) != null &&
         !await _deleteFromLibrary(record)) {
       return false;
     }
@@ -158,6 +167,26 @@ class AssetRemoval {
     }
     await store.softDelete(record.localId);
     return true;
+  }
+
+  /// The last of a photo on this phone: its own files and its row. For a
+  /// permanent delete, once the bucket has already let go of it.
+  ///
+  /// The row first: a file left behind by a crash is an orphan on disk, a
+  /// row left pointing at deleted files is a broken tile.
+  Future<void> purge(AssetRecord record) async {
+    await store.remove(record.localId);
+    for (final path in [record.sourcePath, record.thumbnailPath]) {
+      if (path != null) unawaited(_deleteQuietly(path));
+    }
+  }
+
+  static Future<void> _deleteQuietly(String path) async {
+    try {
+      await File(path).delete();
+    } catch (_) {
+      // Already gone.
+    }
   }
 
   /// Drops bin entries with nothing behind them and returns what's left to
