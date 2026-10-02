@@ -60,10 +60,17 @@ class PassphraseEntry {
 }
 
 class AlbumKeys {
-  const AlbumKeys({required this.albumKey, required this.entry});
+  const AlbumKeys({
+    required this.albumKey,
+    required this.entry,
+    this.outboxKey,
+  });
 
   final Uint8List albumKey;
   final PassphraseEntry entry;
+
+  /// [entry]'s outbox key — see [VaultKeys.outboxKey].
+  final Uint8List? outboxKey;
 
   CarrierKeys get carrier => CarrierKeys.forAlbum(albumKey);
 
@@ -177,11 +184,30 @@ class VaultKeys {
             32,
           ),
           entry: entry,
+          outboxKey: _outboxKeyFrom(master),
         ),
       );
     }
     return out;
   }
+
+  /// Seals the names of carriers still owed to the buckets, so the sync can
+  /// send them with no album open. From the master key alone, which is no
+  /// new exposure: anyone holding it can already try all 10,000 codes.
+  Future<Uint8List?> outboxKey(String entryId) async {
+    for (final entry in await entries()) {
+      if (entry.id != entryId) continue;
+      final master = await _masterKey(entry);
+      return master == null ? null : _outboxKeyFrom(master);
+    }
+    return null;
+  }
+
+  static Uint8List _outboxKeyFrom(Uint8List master) => Uint8List.sublistView(
+    hkdf(key: master, info: utf8.encode('outbox')),
+    0,
+    32,
+  );
 
   /// The active entry — what new carriers are encrypted with. The newest,
   /// which is the one the user most recently typed.

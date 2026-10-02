@@ -51,7 +51,10 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
   Future<void> _reload() async {
     final all = await widget.assetRecordStore.listAll();
     final binned = await _removal.purgeVanished(
-      all.where((r) => r.isDeleted).toList(),
+      // A hidden photo never shows here: this page opens without a
+      // passcode. Hidden deletes are permanent (`HiddenRemoval`); this only
+      // catches one binned before that existed.
+      all.where((r) => r.isDeleted && r.passcodeHash == null).toList(),
     );
     if (!mounted) return;
     setState(
@@ -91,7 +94,9 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
       if (mounted) await _showBackupDeleteFailed(l10n);
       return false;
     }
-    await widget.assetRecordStore.remove(record.localId);
+    // Files too: the row alone left this app's copy and thumbnail on disk
+    // with nothing pointing at them.
+    await _removal.purge(record);
     await _reload();
     return true;
   }

@@ -3,6 +3,23 @@
 Newest first. Only the ones whose *cause* was surprising — a log of
 mistakes to not make twice, not a changelog.
 
+## 2026-10-01 — Delete did nothing in the hidden album
+
+**Symptom.** Delete on a hidden photo: the sheet confirms, nothing happens.
+
+**Cause.** Hiding takes the photo out of Photos, so its record keeps
+`sourceType: photoManager` but loses its `libraryId`.
+`AssetRemoval.deleteEverywhere` still asked the library to delete it;
+`deleteManyFromLibrary` skips records with no library id and answers "nothing
+went", which read as "declined at the OS prompt", so the whole delete was
+abandoned. Same trap in the library's batch delete for any photoManager record
+without a library id.
+
+**Fix.** Only ask the library when it has the photo. Hidden photos now delete
+through `HiddenRemoval`: permanent (Recently Deleted opens without a code),
+index first, then files, then the bucket. Filed hidden photos, which had no
+delete at all, go the same way.
+
 ## 2026-09-22 — The app froze for three seconds after dismissing a photo
 
 **Symptom.** Drag a photo down to dismiss; the dismissal drags out for

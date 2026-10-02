@@ -1,8 +1,11 @@
+import 'dart:io';
+
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/library_custody.dart';
 import '../settings/backup_targets_store.dart';
+import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/passcode_hash.dart';
@@ -20,6 +23,8 @@ import 'private_album_screen.dart';
 Future<String?> showPrivateAlbumPasscodeSheet(
   BuildContext context, {
   String? note,
+  String? title,
+  String? warning,
 }) {
   final l10n = AppLocalizations.of(context)!;
   var passcode = '';
@@ -37,70 +42,126 @@ Future<String?> showPrivateAlbumPasscodeSheet(
         ),
         child: SafeArea(
           top: false,
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              const SizedBox(height: 10),
-              Container(
-                width: 36,
-                height: 5,
-                decoration: BoxDecoration(
-                  color: CupertinoColors.systemGrey,
-                  borderRadius: BorderRadius.circular(3),
-                ),
-              ),
-              const SizedBox(height: 18),
-              Text(
-                l10n.privateAlbumGateTitle,
-                style: const TextStyle(
-                  color: CupertinoColors.white,
-                  fontSize: 17,
-                  fontWeight: FontWeight.w600,
-                ),
-              ),
-              const SizedBox(height: 6),
-              Padding(
-                padding: const EdgeInsets.symmetric(horizontal: 32),
-                child: Text(
-                  note ?? l10n.privateAlbumGateBody,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(
-                    fontSize: 13,
+          // Scrolls only when it must: the hide prompt's warning makes it
+          // taller than a small phone's screen.
+          child: SingleChildScrollView(
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                const SizedBox(height: 10),
+                Container(
+                  width: 36,
+                  height: 5,
+                  decoration: BoxDecoration(
                     color: CupertinoColors.systemGrey,
+                    borderRadius: BorderRadius.circular(3),
                   ),
                 ),
-              ),
-              const SizedBox(height: 22),
-              _PasscodeDots(length: passcode.length),
-              const SizedBox(height: 26),
-              _PasscodeKeypad(
-                onDigit: (digit) {
-                  if (passcode.length >= 4) return;
-                  final next = passcode + digit;
-                  setState(() => passcode = next);
-                  if (next.length == 4) Navigator.of(context).pop(next);
-                },
-                onBackspace: passcode.isEmpty
-                    ? null
-                    : () => setState(
-                        () => passcode = passcode.substring(
-                          0,
-                          passcode.length - 1,
-                        ),
+                const SizedBox(height: 18),
+                Text(
+                  title ?? l10n.privateAlbumGateTitle,
+                  style: const TextStyle(
+                    color: CupertinoColors.white,
+                    fontSize: 17,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+                const SizedBox(height: 6),
+                Padding(
+                  padding: const EdgeInsets.symmetric(horizontal: 32),
+                  child: Text(
+                    note ?? l10n.privateAlbumGateBody,
+                    textAlign: TextAlign.center,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: CupertinoColors.systemGrey,
+                    ),
+                  ),
+                ),
+                if (warning != null)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(32, 10, 32, 0),
+                    child: Text(
+                      warning,
+                      key: const ValueKey('hideCodeWarning'),
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: CupertinoColors.systemOrange,
                       ),
-              ),
-              const SizedBox(height: 8),
-              CupertinoButton(
-                onPressed: () => Navigator.of(context).pop(),
-                child: Text(l10n.actionCancel),
-              ),
-              const SizedBox(height: 4),
-            ],
+                    ),
+                  ),
+                const SizedBox(height: 22),
+                _PasscodeDots(length: passcode.length),
+                const SizedBox(height: 26),
+                _PasscodeKeypad(
+                  onDigit: (digit) {
+                    if (passcode.length >= 4) return;
+                    final next = passcode + digit;
+                    setState(() => passcode = next);
+                    if (next.length == 4) Navigator.of(context).pop(next);
+                  },
+                  onBackspace: passcode.isEmpty
+                      ? null
+                      : () => setState(
+                          () => passcode = passcode.substring(
+                            0,
+                            passcode.length - 1,
+                          ),
+                        ),
+                ),
+                const SizedBox(height: 8),
+                CupertinoButton(
+                  onPressed: () => Navigator.of(context).pop(),
+                  child: Text(l10n.actionCancel),
+                ),
+                const SizedBox(height: 4),
+              ],
+            ),
           ),
         ),
       ),
     ),
   );
+}
+
+/// The code that hiding asks for. Its own kind of prompt, not the one that
+/// opens the album: every code opens *an* album, so a mistyped code here
+/// hides photos somewhere nobody will ever look. So it says what this code
+/// is, warns plainly, and takes it twice. Null if cancelled or the two
+/// entries differ.
+Future<String?> askHideCode(BuildContext context) async {
+  final l10n = AppLocalizations.of(context)!;
+  final first = await showPrivateAlbumPasscodeSheet(
+    context,
+    title: l10n.hideCodeTitle,
+    note: l10n.hideCodeBody,
+    warning: l10n.hideCodeWarning,
+  );
+  if (first == null || !context.mounted) return null;
+  final second = await showPrivateAlbumPasscodeSheet(
+    context,
+    title: l10n.hideCodeConfirmTitle,
+    note: l10n.hideCodeConfirmBody,
+    warning: l10n.hideCodeWarning,
+  );
+  if (second == null) return null;
+  if (second == first) return first;
+  if (context.mounted) {
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        content: Text(l10n.hideCodeMismatch),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(l10n.actionOk),
+          ),
+        ],
+      ),
+    );
+  }
+  return null;
 }
 
 /// Four dots, filled left-to-right as digits are entered — same affordance
@@ -157,27 +218,28 @@ class _PasscodeKeypad extends StatelessWidget {
     String? label,
     IconData? icon,
     VoidCallback? onPressed,
-  }) => SizedBox(
-    width: size,
-    height: size,
-    child: CupertinoButton(
-      padding: EdgeInsets.zero,
-      borderRadius: BorderRadius.circular(size / 2),
-      // The digits sit on a face; backspace is bare, because it isn't one
-      // of the ten and shouldn't look like it.
-      color: icon == null ? const Color(0xFF3A3A3C) : null,
-      onPressed: onPressed,
-      child: icon != null
-          ? Icon(icon, size: 26, color: CupertinoColors.white)
-          : Text(
-              label!,
-              style: TextStyle(
-                fontSize: size * 0.42,
-                fontWeight: FontWeight.w400,
-                color: CupertinoColors.white,
-              ),
-            ),
+  }) => _KeypadKey(
+    size: size,
+    // The gaps belong to the keys: a fast thumb lands between circles as
+    // often as on them, and a dead gap swallows the digit.
+    reach: const EdgeInsets.symmetric(
+      horizontal: _gap / 2,
+      vertical: _gap * 0.3,
     ),
+    // The digits sit on a face; backspace is bare, because it isn't one
+    // of the ten and shouldn't look like it.
+    filled: icon == null,
+    onPressed: onPressed,
+    child: icon != null
+        ? Icon(icon, size: 26, color: CupertinoColors.white)
+        : Text(
+            label!,
+            style: TextStyle(
+              fontSize: size * 0.42,
+              fontWeight: FontWeight.w400,
+              color: CupertinoColors.white,
+            ),
+          ),
   );
 
   @override
@@ -188,38 +250,23 @@ class _PasscodeKeypad extends StatelessWidget {
       return Column(
         mainAxisSize: MainAxisSize.min,
         children: [
-          for (final row in _rows) ...[
+          for (final row in _rows)
             Row(
               mainAxisAlignment: MainAxisAlignment.center,
               children: [
                 for (final digit in row)
-                  Padding(
-                    padding: EdgeInsets.symmetric(horizontal: _gap / 2),
-                    child: _key(
-                      size,
-                      label: digit,
-                      onPressed: () => onDigit(digit),
-                    ),
-                  ),
+                  _key(size, label: digit, onPressed: () => onDigit(digit)),
               ],
             ),
-            SizedBox(height: _gap * 0.6),
-          ],
           Row(
             mainAxisAlignment: MainAxisAlignment.center,
             children: [
               SizedBox(width: size + _gap),
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: _gap / 2),
-                child: _key(size, label: '0', onPressed: () => onDigit('0')),
-              ),
-              Padding(
-                padding: EdgeInsets.symmetric(horizontal: _gap / 2),
-                child: _key(
-                  size,
-                  icon: CupertinoIcons.delete_left,
-                  onPressed: onBackspace,
-                ),
+              _key(size, label: '0', onPressed: () => onDigit('0')),
+              _key(
+                size,
+                icon: CupertinoIcons.delete_left,
+                onPressed: onBackspace,
               ),
             ],
           ),
@@ -236,12 +283,19 @@ Future<void> openPrivateAlbums(
   required AssetRecordStore assetRecordStore,
   LibraryCustody? custody,
   VaultKeys? vaultKeys,
+  int? libraryCount,
 }) async {
   final keys = vaultKeys ?? VaultKeys();
   // Set up at the moment it first matters, rather than behind a switch in
   // Settings. A switch reading "Hidden - ON" answers, to anyone holding the
   // phone, the one question this whole thing exists not to answer.
   if ((await keys.entries()).isEmpty) {
+    if (!context.mounted) return;
+    if (libraryCount != null &&
+        libraryCount < fewDecoysThreshold &&
+        !await _acceptFewDecoys(context)) {
+      return;
+    }
     if (!context.mounted) return;
     if (await showVaultSetupSheet(context, keys: keys) == null) return;
   }
@@ -264,6 +318,95 @@ Future<void> openPrivateAlbums(
       ),
     ),
   );
+}
+
+/// Below this many photos the decoys repeat and stand out.
+const fewDecoysThreshold = 100;
+
+Future<bool> _acceptFewDecoys(BuildContext context) async {
+  final l10n = AppLocalizations.of(context)!;
+  final ok = await showCupertinoDialog<bool>(
+    context: context,
+    builder: (dialogContext) => CupertinoAlertDialog(
+      title: Text(l10n.privateAlbumFewDecoysTitle),
+      content: Text(l10n.privateAlbumFewDecoysBody),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(dialogContext).pop(false),
+          child: Text(l10n.actionCancel),
+        ),
+        CupertinoDialogAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.of(dialogContext).pop(true),
+          child: Text(l10n.privateAlbumFewDecoysContinue),
+        ),
+      ],
+    ),
+  );
+  return ok ?? false;
+}
+
+/// Un-hiding's half of [_retractFromBuckets]: what the buckets hold of a
+/// hidden photo is its disguised carrier, not the photo, so the record is
+/// set back to never-uploaded and the next sync sends it in the clear.
+///
+/// Only with the file here to send. Without it the carrier is the only
+/// copy, and forgetting its key would leave the record pointing at nothing.
+///
+/// The carriers it forgets are not left in the buckets: they go to
+/// [DeferredDeletes], released once the plain copy is in every bucket.
+///
+/// A copy recorded without its bucket (rows older than per-bucket tracking,
+/// or only the record's own key) is queued against every bucket configured
+/// now: deleting a key a bucket never had is a harmless 404.
+Future<void> resetBackupAfterUnhide(
+  AssetRecord record,
+  AssetRecordStore store, {
+  DeferredDeletes? deferred,
+  Future<List<S3BackupTarget>> Function()? loadTargets,
+}) async {
+  final path = record.sourcePath;
+  if (path == null || !await File(path).exists()) return;
+  final carriers = <PendingDelete>{};
+  final unplaced = <String>{};
+  for (final kind in DerivativeKind.values) {
+    final holding = await store.targetsHolding(record.localId, kind);
+    for (final MapEntry(key: targetId, value: key) in holding.entries) {
+      if (targetId.isEmpty) {
+        unplaced.add(key);
+      } else {
+        carriers.add(PendingDelete(objectKey: key, targetId: targetId));
+      }
+    }
+    final own = record.stateOf(kind).destinationKey;
+    if (own != null && !holding.containsValue(own)) unplaced.add(own);
+  }
+  if (unplaced.isNotEmpty) {
+    for (final target in await _targetsOrNone(loadTargets)) {
+      for (final key in unplaced) {
+        carriers.add(PendingDelete(objectKey: key, targetId: target.id));
+      }
+    }
+  }
+  await (deferred ?? DeferredDeletes(store: store)).add(
+    record.localId,
+    carriers,
+  );
+  await store.forgetUploads(record.localId);
+  for (final kind in DerivativeKind.values) {
+    await store.updateDerivative(record.localId, kind, const DerivativeState());
+  }
+}
+
+Future<List<S3BackupTarget>> _targetsOrNone(
+  Future<List<S3BackupTarget>> Function()? load,
+) async {
+  try {
+    return await (load ?? BackupTargetsStore().loadAll)();
+  } catch (_) {
+    // No keychain: nothing can be named, and nothing is lost by waiting.
+    return const [];
+  }
 }
 
 /// Hides [records]: tags each with a passcode hash — no separate album to
@@ -302,6 +445,9 @@ Future<void> _retractFromBuckets({
 
 /// out of the OS photo library, which is the half that makes "hidden" mean
 /// anything. Returns `false` (no-op) if the passcode popup was cancelled.
+///
+/// Never opens the album afterwards: somebody hiding a photo in front of
+/// others wants it gone from the screen, not shown full-size.
 ///
 /// Both halves live here rather than at the call sites. They were split
 /// once, with the library grid doing the taking-out and the three other
@@ -359,26 +505,37 @@ Future<bool> hideIntoPrivateAlbum(
   var hash = passcodeHash;
   if (hash == null) {
     if (!context.mounted) return false;
-    final passcode = await showPrivateAlbumPasscodeSheet(context);
+    final passcode = await askHideCode(context);
     if (passcode == null) return false;
     hash = hashPasscode(passcode);
   }
   final keeper = custody ?? LibraryCustody(store: assetRecordStore);
+  // Cloud-only or shrunk here: the full original is only in the bucket,
+  // and hiding retracts the bucket copy. Refused rather than lost.
+  final refused = [
+    for (final r in records)
+      if (r.localDeleted || r.localOptimized) r,
+  ];
+  records = [
+    for (final r in records)
+      if (!refused.contains(r)) r,
+  ];
   for (final record in records) {
     await assetRecordStore.setPasscodeHash(record.localId, hash);
   }
   final results = await keeper.takeOutMany(records);
 
   var stillInLibrary = 0;
-  var failed = 0;
+  var failed = refused.length;
   for (final record in records) {
     switch (results[record.localId] ?? CustodyResult.failed) {
       case CustodyResult.failed:
         // Nothing was copied out, so nothing should have been hidden
         // either — a hidden photo this app doesn't hold is a photo nobody
-        // holds.
+        // holds. And its bucket copy stays: it may be the only one.
         await assetRecordStore.setPasscodeHash(record.localId, null);
         failed++;
+        continue;
       case CustodyResult.takenButStillInLibrary:
         stillInLibrary++;
       case CustodyResult.taken || CustodyResult.returned:
@@ -411,7 +568,7 @@ Future<bool> hideIntoPrivateAlbum(
       ),
     );
   }
-  return failed < records.length;
+  return failed < records.length + refused.length;
 }
 
 /// Zero rather than throwing when the keychain can't be read: the warning
@@ -421,5 +578,67 @@ Future<int> _bucketCount(BackupTargetsStore store) async {
     return (await store.loadAll()).length;
   } catch (_) {
     return 0;
+  }
+}
+
+/// Fires on touch-down, like the lock screen's keys. A tap button waits for
+/// the finger to lift and loses the press when the next finger lands first
+/// or the thumb slides — which is exactly how a code is typed fast.
+class _KeypadKey extends StatefulWidget {
+  const _KeypadKey({
+    required this.size,
+    required this.reach,
+    required this.filled,
+    required this.onPressed,
+    required this.child,
+  });
+
+  final double size;
+  final EdgeInsets reach;
+  final bool filled;
+  final VoidCallback? onPressed;
+  final Widget child;
+
+  @override
+  State<_KeypadKey> createState() => _KeypadKeyState();
+}
+
+class _KeypadKeyState extends State<_KeypadKey> {
+  bool _down = false;
+
+  void _set(bool down) {
+    if (_down != down) setState(() => _down = down);
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final enabled = widget.onPressed != null;
+    final face = widget.filled
+        ? (_down ? const Color(0xFF636366) : const Color(0xFF3A3A3C))
+        : (_down ? const Color(0x33FFFFFF) : const Color(0x00000000));
+    return Listener(
+      behavior: HitTestBehavior.opaque,
+      onPointerDown: enabled
+          ? (_) {
+              _set(true);
+              widget.onPressed!();
+            }
+          : null,
+      onPointerUp: (_) => _set(false),
+      onPointerCancel: (_) => _set(false),
+      child: Padding(
+        padding: widget.reach,
+        child: Opacity(
+          opacity: enabled ? 1 : 0.35,
+          child: Container(
+            width: widget.size,
+            height: widget.size,
+            alignment: Alignment.center,
+            decoration: BoxDecoration(color: face, shape: BoxShape.circle),
+            child: widget.child,
+          ),
+        ),
+      ),
+    );
   }
 }

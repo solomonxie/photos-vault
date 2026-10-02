@@ -4,6 +4,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:photo_manager/photo_manager.dart';
 
+import '../demo/demo_flag.dart';
 import '../storage/asset_record.dart';
 import 'manual_add.dart' show isGifPath;
 import 'photo_library_change.dart';
@@ -44,10 +45,25 @@ class PhotoLibraryService {
     Future<AssetEntity?> Function(String id)? loadEntity,
     Future<List<String>> Function(List<String> ids)? deleteAssets,
   }) : _requestPermission =
-           requestPermission ?? (() => PhotoManager.requestPermissionExtend()),
-       _listAssetPage = listAssetPage ?? _defaultListAssetPage,
-       _loadEntity = loadEntity ?? AssetEntity.fromId,
-       _deleteAssets = deleteAssets ?? _defaultDeleteAssets;
+           requestPermission ??
+           // Demo mode never reaches the real camera roll: an empty,
+           // authorised library, so nothing asks and nothing is read.
+           (() => DemoFlag.active
+               ? Future.value(PermissionState.authorized)
+               : PhotoManager.requestPermissionExtend()),
+       _listAssetPage =
+           listAssetPage ??
+           ((page, size) => DemoFlag.active
+               ? Future.value(const <AssetEntity>[])
+               : _defaultListAssetPage(page, size)),
+       _loadEntity =
+           loadEntity ??
+           ((id) => DemoFlag.active ? Future.value() : AssetEntity.fromId(id)),
+       _deleteAssets =
+           deleteAssets ??
+           ((ids) => DemoFlag.active
+               ? Future.value(const <String>[])
+               : _defaultDeleteAssets(ids));
 
   final AssetRecordStore store;
   final Future<PermissionState> Function() _requestPermission;
@@ -94,7 +110,9 @@ class PhotoLibraryService {
 
   static const _idPrefix = 'photo:';
 
-  static String localIdFor(AssetEntity entity) => '$_idPrefix${entity.id}';
+  static String localIdFor(AssetEntity entity) => localIdForAssetId(entity.id);
+
+  static String localIdForAssetId(String id) => '$_idPrefix$id';
 
   static String? entityIdFrom(String localId) => localId.startsWith(_idPrefix)
       ? localId.substring(_idPrefix.length)
@@ -567,6 +585,7 @@ class PhotoLibraryService {
   }
 
   static Future<AssetEntity?> _entityOf(AssetRecord record) async {
+    if (DemoFlag.active) return null;
     if (record.sourceType != AssetSourceType.photoManager) return null;
     final id = libraryIdOf(record);
     if (id == null) return null;
@@ -590,12 +609,22 @@ class PhotoLibraryService {
       final file = await entity?.originFileWithSubtype;
       if (file != null) return file;
     }
+    // Taken out of Photos by hiding: the `.mov` was copied beside the still.
+    final still = record.sourcePath;
+    if (still != null) {
+      final held = File(heldLiveVideoPath(still));
+      if (await held.exists()) return held;
+    }
     // Nothing in the photo library — removed from the device, or restored
     // onto a fresh install. The `.mov` that came back down from the bucket
     // is named after its object key (`OriginalRestore`), so a restored
     // Live Photo still moves and still has its sound.
     return restoredLivePhotoVideo(record);
   }
+
+  /// Where this app keeps a Live Photo's `.mov` once it holds the still at
+  /// [stillPath] — see `LibraryCustody`.
+  static String heldLiveVideoPath(String stillPath) => '$stillPath.live.mov';
 
   /// The re-downloaded `.mov`, if one has been pulled back.
   static Future<File?> restoredLivePhotoVideo(AssetRecord record) async {

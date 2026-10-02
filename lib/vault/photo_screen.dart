@@ -18,10 +18,14 @@ class VaultPhotoScreen extends StatefulWidget {
     super.key,
     required this.gallery,
     required this.entry,
+    this.onDelete,
   });
 
   final VaultGallery gallery;
   final IndexEntry entry;
+
+  /// Returns whether the photo went; the screen closes when it did.
+  final Future<bool> Function()? onDelete;
 
   @override
   State<VaultPhotoScreen> createState() => _VaultPhotoScreenState();
@@ -85,6 +89,10 @@ class _VaultPhotoScreenState extends State<VaultPhotoScreen>
     );
   }
 
+  Future<void> _delete() async {
+    if (await widget.onDelete!() && mounted) Navigator.of(context).pop();
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -95,11 +103,23 @@ class _VaultPhotoScreenState extends State<VaultPhotoScreen>
         navigationBar: CupertinoNavigationBar(
           middle: Text(widget.entry.name),
           backgroundColor: const Color(0xFF1C1C1E),
-          trailing: CupertinoButton(
-            padding: EdgeInsets.zero,
-            minimumSize: Size.zero,
-            onPressed: _showShareSheet,
-            child: const Icon(CupertinoIcons.share, size: 22),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              CupertinoButton(
+                padding: EdgeInsets.zero,
+                minimumSize: Size.zero,
+                onPressed: _showShareSheet,
+                child: const Icon(CupertinoIcons.share, size: 22),
+              ),
+              if (widget.onDelete != null)
+                CupertinoButton(
+                  padding: const EdgeInsets.only(left: 16),
+                  minimumSize: Size.zero,
+                  onPressed: _delete,
+                  child: const Icon(CupertinoIcons.delete, size: 22),
+                ),
+            ],
           ),
         ),
         child: SafeArea(
