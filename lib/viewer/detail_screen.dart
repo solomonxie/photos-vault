@@ -65,7 +65,7 @@ enum _ExportFormat { jpg, png, webp }
 /// What the share sheet offers. The last two only once the photo has an
 /// object in a bucket — sharing is "where else can this go", and by then
 /// it is already somewhere else.
-enum _ShareChoice { original, exportAs, hide, showInBucket, openInBrowser }
+enum _ShareChoice { original, exportAs, showInBucket, openInBrowser }
 
 enum _EditChoice { crop, rotate, resize, aiTouchUp }
 
@@ -95,7 +95,6 @@ class DetailScreen extends StatefulWidget {
     required this.onDelete,
     required this.onToggleFavorite,
     required this.assetRecordStore,
-    this.onHide,
     this.onReplaceOriginals,
     this.personStore,
     this.albumStore,
@@ -115,10 +114,6 @@ class DetailScreen extends StatefulWidget {
   /// cancelled the confirmation, in which case nothing here should change.
   final Future<bool> Function(AssetRecord record) onDelete;
   final Future<void> Function(AssetRecord record) onToggleFavorite;
-
-  /// Hides the photo; returns whether it went. Absent where hiding makes
-  /// no sense (already hidden, the bin).
-  final Future<bool> Function(AssetRecord record)? onHide;
 
   /// Bins originals a resize replaced, without asking again. Absent: the
   /// viewer's own [onDelete], which does ask.
@@ -288,13 +283,6 @@ class _DetailScreenState extends State<DetailScreen> {
     _dropCurrent();
   }
 
-  Future<void> _hide() async {
-    final record = _records[_index];
-    final hidden = await widget.onHide!(record);
-    if (!hidden || !mounted) return;
-    _dropCurrent();
-  }
-
   void _dropCurrent() {
     if (_records.length <= 1) {
       Navigator.of(context).pop();
@@ -384,11 +372,6 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ],
           ],
-          if (widget.onHide != null)
-            CupertinoActionSheetAction(
-              onPressed: () => Navigator.of(context).pop(_ShareChoice.hide),
-              child: Text(l10n.libraryHide),
-            ),
           if (objectKey != null) ...[
             CupertinoActionSheetAction(
               onPressed: () =>
@@ -414,8 +397,6 @@ class _DetailScreenState extends State<DetailScreen> {
         await SharePlus.instance.share(ShareParams(files: [XFile(path!)]));
       case _ShareChoice.exportAs:
         await _exportAndShare(path!);
-      case _ShareChoice.hide:
-        await _hide();
       case _ShareChoice.showInBucket:
         await showObjectInBucketBrowser(context, objectKey: objectKey!);
       case _ShareChoice.openInBrowser:

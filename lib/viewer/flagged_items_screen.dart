@@ -103,7 +103,9 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
         _busy = false;
         _notes[item.object.key] = result.outcome == FixOutcome.needsAlbum
             ? l10n.flaggedNeedsAlbum
-            : l10n.flaggedFailed;
+            : result.detail == null
+            ? l10n.flaggedFailed
+            : '${l10n.flaggedFailed} (${result.detail})';
       });
     }
   }

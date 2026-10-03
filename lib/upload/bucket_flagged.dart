@@ -106,10 +106,13 @@ enum FixOutcome {
 }
 
 class FixResult {
-  const FixResult(this.outcome, {this.localId});
+  const FixResult(this.outcome, {this.localId, this.detail});
 
   final FixOutcome outcome;
   final String? localId;
+
+  /// Why it failed, in a few words.
+  final String? detail;
 
   bool get ok =>
       outcome != FixOutcome.failed && outcome != FixOutcome.needsAlbum;
@@ -172,16 +175,20 @@ class BucketFixer {
       return const FixResult(FixOutcome.failed);
     }
     final target = await _target(f.object.targetId);
-    if (target == null) return const FixResult(FixOutcome.failed);
+    if (target == null) {
+      return const FixResult(FixOutcome.failed, detail: 'no such bucket');
+    }
 
     final carrier = await _carrierIn(target, f);
+    // Anything that looks like a hidden photo is only ever renamed into the
+    // hidden format, and only when the header says it is ours and carries a
+    // name. Otherwise it is left alone: an album's index may point at it,
+    // and a rename would leave that entry with nothing behind it.
     final hidden =
         carrier != null &&
         carrier.header.isV2 &&
         isKnownSalt(carrier.header, await passphrases());
-    if (carrier != null &&
-        !carrier.header.isV2 &&
-        isKnownSalt(carrier.header, await passphrases())) {
+    if (carrier != null && !hidden) {
       return const FixResult(FixOutcome.needsAlbum);
     }
 
@@ -193,7 +200,7 @@ class BucketFixer {
     final newKey = '${target.prefix}originals/$base.$ext';
 
     if (!await _copy(target, f.object.key, newKey, f.object.size)) {
-      return const FixResult(FixOutcome.failed);
+      return FixResult(FixOutcome.failed, detail: _ops.lastError);
     }
     if (hidden) {
       await _ops.delete(target, f.object.key);

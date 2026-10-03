@@ -303,7 +303,7 @@
   "flaggedRename": "Rename",
   "flaggedReformat": "Re-format",
   "flaggedRemove": "Remove",
-  "flaggedNeedsAlbum": "Open its album to restore this one",
+  "flaggedNeedsAlbum": "Looks like a hidden photo. Open its album and it will be tidied there.",
   "flaggedFailed": "Couldn't finish. Nothing was changed.",
   "flaggedReformatTitle": "Re-format this photo?",
   "flaggedReformatBody": "Downloads {size} MB, converts it and uploads the smaller copy. The original is removed once the copy is checked.",

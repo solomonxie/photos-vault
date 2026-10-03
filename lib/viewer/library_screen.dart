@@ -1986,7 +1986,6 @@ class LibraryScreenState extends State<LibraryScreen>
           records: records,
           initialIndex: index >= 0 ? index : 0,
           onDelete: _softDelete,
-          onHide: (record) => _hideRecords([record]),
           onReplaceOriginals: (originals) =>
               _batchDelete(only: originals, ask: false),
           onToggleFavorite: _toggleFavorite,
