@@ -19,8 +19,7 @@ LibraryScreen                                          library_screen.dart
   │                       hold · loop · freeze, one setting for both
   │                       live_photo_view.dart · gif_view.dart
   │                    Edit ──► crop/rotate  PhotoEditScreen  photo_edit_screen.dart
-  │                          └─ AI Touch Up  ../photos/ai_touch_up_queue.dart
-  │                             (background; result filed by createDerivedAsset)
+  │                          └─ resize (HEIF)  resize_photos.dart
   │     hold tile ──► selection mode + batch bar (tag / place / date)
   │
   ├─ "Collections" → Places row ──► AssetGroupScreen        asset_group_screen.dart
@@ -29,8 +28,6 @@ LibraryScreen                                          library_screen.dart
   ├─ "Collections" → People row ──► PeopleScreen            people_screen.dart
   │     named Person profiles, then the faces nobody has named yet
   │       (../photos/ai_analysis_store.dart's stored face boxes)
-  │     "AI Suggestions" ──► SmartCollectionScreen   smart_collection_screen.dart
-  │       groups the library by how many people a vendor call counted
   │     "Import & export profiles" ──► ProfileTransferScreen
   │       profile_transfer_screen.dart — the registry as a CSV, one row per
   │       person, reviewed before anything is written

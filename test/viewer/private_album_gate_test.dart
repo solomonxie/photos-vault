@@ -17,6 +17,12 @@ Future<void> _tapDigits(WidgetTester tester, String digits) async {
 }
 
 void main() {
+  test('a person folder is its own album, apart from Utilities and others', () {
+    expect(personAlbumCode('p1', '1234'), isNot('1234'));
+    expect(personAlbumCode('p1', '1234'), isNot(personAlbumCode('p2', '1234')));
+    expect(personAlbumCode('p1', '1234'), personAlbumCode('p1', '1234'));
+  });
+
   testWidgets(
     'the 4th digit submits automatically — no Enter/Create/Cancel to tap',
     (tester) async {

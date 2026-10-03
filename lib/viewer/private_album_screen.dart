@@ -5,7 +5,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
 import '../photos/derived_asset.dart';
-import '../photos/library_metadata.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/library_custody.dart';
 import '../storage/asset_record.dart';
@@ -23,14 +22,15 @@ import '../vault/private_lifecycle.dart';
 import '../upload/bucket_import.dart';
 import '../vault/hidden_bucket_scan.dart';
 import '../vault/hidden_migration.dart';
-import '../vault/store.dart';
 import '../vault/keys.dart';
+import '../vault/store.dart';
 import '../vault/photo_screen.dart';
 import 'asset_grid.dart';
 import 'asset_grid_view.dart';
 import 'asset_picker_screen.dart';
 import 'detail_screen.dart';
 import 'resize_photos.dart';
+import 'select_all.dart';
 import 'select_sweep.dart';
 import 'private_album_gate.dart';
 import 'zoom_page_route.dart';
@@ -51,9 +51,13 @@ class PrivateAlbumScreen extends StatefulWidget {
     this.albumKeys,
     this.vaultKeys,
     this.targetsStore,
+    this.title,
   });
 
   final String passcodeHash;
+
+  /// A person's folder names itself; the Utilities album doesn't.
+  final String? title;
   final AssetRecordStore assetRecordStore;
 
   /// Overridable for tests so they never touch the real photo library.
@@ -507,6 +511,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
   }) async {
     final count = records.length + entries.length;
     if (count == 0 || !await _confirmHiddenDelete(count)) return false;
+    _dropFromView(records: records, entries: entries);
     final done = await _removal.delete(
       keys: widget.albumKeys,
       records: records,
@@ -515,11 +520,37 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     );
     if (!mounted) return done;
     await _reload();
-    await _refreshCloud();
+    // The bucket-side listing only changes when a filed photo went.
+    if (entries.isNotEmpty) await _refreshCloud();
     if (!done && mounted) {
       await _say(AppLocalizations.of(context)!.hiddenDeleteFailed);
     }
     return done;
+  }
+
+  /// Off the grid and out of the selection at once — the delete itself
+  /// reaches the bucket index, and a tile that sits there selected while
+  /// it does reads as a delete that did nothing.
+  void _dropFromView({
+    List<AssetRecord> records = const [],
+    List<IndexEntry> entries = const [],
+  }) {
+    final ids = {for (final r in records) r.localId};
+    final keys = {for (final e in entries) e.objectKey};
+    setState(() {
+      _records = [
+        for (final r in _records)
+          if (!ids.contains(r.localId)) r,
+      ];
+      _cloudEntries = [
+        for (final e in _cloudEntries)
+          if (!keys.contains(e.objectKey)) e,
+      ];
+      _selectedIds = _selectedIds.difference(ids);
+      _selectedCloudKeys = _selectedCloudKeys.difference(keys);
+      if (_selectedIds.isEmpty) _selecting = false;
+      if (_selectedCloudKeys.isEmpty) _cloudSelecting = false;
+    });
   }
 
   Future<bool> _confirmHiddenDelete(int count) async {
@@ -582,17 +613,20 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
         final path = r.sourcePath;
         return path == null ? null : File(path).readAsBytes();
       },
-      saveCopy: (source, bytes) => createDerivedAsset(
+      saveCopy: (source, bytes, extension) => createDerivedAsset(
         source: source,
         bytes: bytes,
-        extension: '.jpg',
+        extension: extension,
         store: widget.assetRecordStore,
       ),
-      replaceOriginals: (originals) => _removal.delete(
-        keys: widget.albumKeys,
-        records: originals,
-        passphrases: _passphrases,
-      ),
+      replaceOriginals: (originals) {
+        _dropFromView(records: originals);
+        return _removal.delete(
+          keys: widget.albumKeys,
+          records: originals,
+          passphrases: _passphrases,
+        );
+      },
       replaceNote: l10n.resizeBodyHidden,
     );
     if (created.isEmpty || !mounted) return;
@@ -613,7 +647,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       readBytes: gallery.original,
       // A filed photo has no record left; the copy is a new one in this
       // album, filed the usual way.
-      saveCopy: (entry, bytes) => createDerivedAsset(
+      saveCopy: (entry, bytes, extension) => createDerivedAsset(
         source: AssetRecord(
           localId: 'vault:${entry.objectKey}',
           contentHash: entry.objectKey,
@@ -623,14 +657,17 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
           passcodeHash: widget.passcodeHash,
         ),
         bytes: bytes,
-        extension: '.jpg',
+        extension: extension,
         store: widget.assetRecordStore,
       ),
-      replaceOriginals: (originals) => _removal.delete(
-        keys: widget.albumKeys,
-        entries: originals,
-        passphrases: _passphrases,
-      ),
+      replaceOriginals: (originals) {
+        _dropFromView(entries: originals);
+        return _removal.delete(
+          keys: widget.albumKeys,
+          entries: originals,
+          passphrases: _passphrases,
+        );
+      },
       replaceNote: l10n.resizeBodyHidden,
     );
     if (created.isEmpty || !mounted) return;
@@ -697,31 +734,27 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     if (mounted) Navigator.of(context).pop();
   }
 
-  Future<void> _toggleFavorite(AssetRecord record) async {
-    await setFavoriteEverywhere(
-      widget.assetRecordStore,
-      record,
-      !record.isFavorite,
-    );
-    await _reload();
-  }
-
   void _open(AssetRecord record) {
     if (_selecting) {
       _toggleSelected(record);
       return;
     }
-    Navigator.of(context).push(
-      ZoomPageRoute(
-        builder: (_) => DetailScreen(
-          records: _records,
-          initialIndex: _records.indexOf(record),
-          assetRecordStore: widget.assetRecordStore,
-          onDelete: _delete,
-          onToggleFavorite: _toggleFavorite,
-        ),
-      ),
-    );
+    // Reloaded on the way back: a resize or edit in the viewer adds photos
+    // this grid hasn't read.
+    Navigator.of(context)
+        .push(
+          ZoomPageRoute(
+            builder: (_) => DetailScreen(
+              records: _records,
+              initialIndex: _records.indexOf(record),
+              assetRecordStore: widget.assetRecordStore,
+              onDelete: _delete,
+            ),
+          ),
+        )
+        .then((_) {
+          if (mounted) unawaited(_reload());
+        });
   }
 
   /// The two things you can do to a selection of hidden photos: send the
@@ -1282,7 +1315,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     return withPrivacyCover(
       CupertinoPageScaffold(
         navigationBar: CupertinoNavigationBar(
-          middle: Text(l10n.privateAlbumScreenTitle),
+          middle: Text(widget.title ?? l10n.privateAlbumScreenTitle),
           leading: _selecting || _cloudSelecting
               ? CupertinoButton(
                   padding: EdgeInsets.zero,
@@ -1296,8 +1329,30 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
           // across the top read as a toolbar of unrelated verbs — with
           // "Delete Private Album" sitting in red next to "Add", a tap away
           // from each other.
-          trailing: _selecting || _cloudSelecting
-              ? null
+          trailing: _selecting
+              ? SelectAllButton(
+                  total: _records.length,
+                  selectedCount: _selectedIds.length,
+                  onSelectNext: () => setState(
+                    () => _selectedIds = selectNextBatch(
+                      _records.reversed.map((r) => r.localId),
+                      _selectedIds,
+                    ),
+                  ),
+                  onDeselectAll: () => setState(() => _selectedIds = {}),
+                )
+              : _cloudSelecting
+              ? SelectAllButton(
+                  total: _cloudEntries.length,
+                  selectedCount: _selectedCloudKeys.length,
+                  onSelectNext: () => setState(
+                    () => _selectedCloudKeys = selectNextBatch(
+                      _cloudEntries.reversed.map((e) => e.objectKey),
+                      _selectedCloudKeys,
+                    ),
+                  ),
+                  onDeselectAll: () => setState(() => _selectedCloudKeys = {}),
+                )
               : Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
@@ -1399,15 +1454,6 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                     _howItWorks(l10n),
                   ],
                   actionsFor: (r) => [
-                    TileAction(
-                      icon: r.isFavorite
-                          ? CupertinoIcons.heart_slash
-                          : CupertinoIcons.heart,
-                      label: r.isFavorite
-                          ? l10n.libraryUnfavorite
-                          : l10n.libraryFavorite,
-                      onPressed: () => _toggleFavorite(r),
-                    ),
                     TileAction(
                       icon: CupertinoIcons.eye,
                       label: l10n.privateAlbumRemove,

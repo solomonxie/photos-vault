@@ -211,23 +211,24 @@ class AssetRecord {
 
   bool get isDeleted => deletedAt != null;
 
-  /// Nothing of this photo survives here: no file of its own, no cached
-  /// thumbnail, and nothing in the bucket. Only ever true once the OS
-  /// library has let go of it too — until then the library still has the
-  /// pixels, and this says nothing.
+  /// Nothing of this photo could be given back: no file of its own and no
+  /// original in a bucket. Only ever true once the OS library has let go of
+  /// it too — until then the library still has the pixels, and this says
+  /// nothing.
   ///
-  /// A record like this draws an empty tile and has nothing to give back,
-  /// so the bin doesn't keep it.
+  /// A cached thumbnail, or one in the bucket, doesn't count: it is a
+  /// preview, and Recover can't make a photo out of it. A record like this
+  /// has nothing to give back, so the bin doesn't keep it.
   ///
-  /// A derivative with a key counts even when not `uploaded`: that is one
+  /// An original with a key counts even when not `uploaded`: that is one
   /// that reached some buckets and not all, or is being sent again — either
   /// way a bucket holds a copy.
-  bool get hasNothingLeft =>
-      sourcePath == null &&
-      thumbnailPath == null &&
-      !derivatives.values.any(
-        (d) => d.status == UploadStatus.uploaded || d.destinationKey != null,
-      );
+  bool get hasNothingLeft {
+    final original = stateOf(DerivativeKind.original);
+    return sourcePath == null &&
+        original.status != UploadStatus.uploaded &&
+        original.destinationKey == null;
+  }
 
   DerivativeState stateOf(DerivativeKind kind) =>
       derivatives[kind] ?? const DerivativeState();

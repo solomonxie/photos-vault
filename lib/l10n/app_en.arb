@@ -66,7 +66,6 @@
   "detailEditNotInLibrary": "This photo isn't in your Photos library, so it can't be edited in Photos.",
   "detailEditCropOption": "Crop",
   "detailEditRotateOption": "Rotate",
-  "detailEditAiOption": "AI Touch Up",
   "detailEditVideoUnsupported": "Only photos can be edited.",
   "editSaveButton": "Save",
   "editResetButton": "Reset",
@@ -81,21 +80,6 @@
       }
     }
   },
-  "aiTouchUpTitle": "AI Touch Up",
-  "aiTouchUpPromptPlaceholder": "Describe the edit, e.g. \"Brighten it and remove the fence\"",
-  "aiTouchUpStart": "Start",
-  "aiTouchUpWorking": "AI working…",
-  "aiTouchUpDone": "AI touch-up added to your library.",
-  "aiTouchUpFailed": "AI touch-up failed: {error}",
-  "@aiTouchUpFailed": {
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
-  },
-  "aiTouchUpNoKey": "Add an AI key in Settings first.",
-  "aiTouchUpNote": "The photo and your prompt are sent to your AI provider. The result is saved as a new photo, and the original is unchanged.",
   "detailInfoStatus": "Backup status",
   "detailInfoDimensions": "Dimensions",
   "detailInfoFileSize": "File Size",
@@ -105,8 +89,6 @@
   "detailInfoDuration": "Duration",
   "detailEditDateTimeTitle": "Date & Time",
   "detailDescriptionPlaceholder": "Add a description",
-  "detailSuggestAi": "AI Suggest",
-  "detailSuggestNoKey": "Add an AI key in AI Settings to use this.",
   "detailSuggestNothing": "No suggestions for this photo.",
   "detailFindFaces": "Find Faces",
   "@detailFindFaces": {
@@ -160,37 +142,6 @@
       }
     }
   },
-  "smartCollectionsAnalyzeButton": "{count, plural, one{Analyze 1 Photo} other{Analyze {count} Photos}}",
-  "@smartCollectionsAnalyzeButton": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "smartCollectionsAnalyzing": "Analyzing… {done} of {total}",
-  "@smartCollectionsAnalyzing": {
-    "placeholders": {
-      "done": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
-  "smartCollectionsEmpty": "No photos to analyze yet.",
-  "smartCollectionsCardLabel": "Tap to Analyze",
-  "smartCollectionsNoPeople": "No People",
-  "smartCollectionsOnePerson": "1 Person",
-  "smartCollectionsPeopleCount": "{count} People",
-  "@smartCollectionsPeopleCount": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "selectionTitle": "{count, plural, one{1 Selected} other{{count} Selected}}",
   "selectionAddTag": "Add Tag",
   "selectionSetPlace": "Set Place",
@@ -213,7 +164,27 @@
       }
     }
   },
+  "selectionRemoveFromDevice": "{count, plural, one{Remove 1 from Device} other{Remove {count} from Device}}",
+  "@selectionRemoveFromDevice": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "selectionRemovedFromDevice": "{count, plural, =0{Nothing was removed from this device.} one{Removed 1 from this device. It stays in your library and your backup.} other{Removed {count} from this device. They stay in your library and your backup.}}",
+  "@selectionRemovedFromDevice": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
   "selectionDone": "Done",
+  "selectionSelectAll": "Select All",
+  "selectionDeselectAll": "Deselect All",
+  "selectionSelectBatch": "Select {count}",
+  "@selectionSelectBatch": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
   "selectionHint": "Touch and hold a photo to select more.",
   "@selectionTitle": {
     "placeholders": {
@@ -290,6 +261,35 @@
   "settingsSyncSpeedRow": "Upload speed",
   "settingsSyncFrequencyHeading": "Sync Frequency",
   "settingsSyncFrequencyHint": "Sync only runs while the app is open. Background sync isn't supported yet.",
+  "settingsSyncFrequencyManual": "Manual Only",
+  "settingsSyncFrequencyEvery15Minutes": "Every 15 Minutes",
+  "settingsSyncFrequencyEveryHour": "Every Hour",
+  "settingsSyncFrequencyEvery6Hours": "Every 6 Hours",
+  "settingsSyncFrequencyDaily": "Daily",
+  "settingsSyncNowButton": "Sync Now",
+  "settingsSyncNowMessage": "{count, plural, =0{Nothing to sync} one{Backed up 1 photo} other{Backed up {count} photos}}",
+  "@settingsSyncNowMessage": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsCloudVendorLabel": "Cloud vendor",
+  "settingsCloudVendorHint": "The provider that hosts your bucket: Amazon S3, Tencent COS or Alibaba OSS. Google Cloud Storage, Azure Blob and Backblaze B2 are coming soon.",
+  "settingsBackupFormatHint": "What gets uploaded for each photo.",
+  "settingsBackupFormatHeading": "Backup Format",
+  "settingsBackupFormatOriginal": "Original",
+  "settingsBackupFormatOriginalDescription": "Full quality, exactly as stored on your device. Larger uploads and more storage used.",
+  "settingsBackupFormatOptimized": "HEIF",
+  "settingsBackupFormatOptimizedDescription": "Stores photos as HEIF at full resolution: about half the space of a JPEG, with no visible loss. Photos already in HEIF and Live Photos go as they are.",
+  "settingsBackupFormatVideoNote": "Videos are always backed up at original quality. Video conversion isn't supported yet.",
+  "settingsBackupFormatFolderNote": "Both formats are stored in the same \"originals/\" folder in your bucket. Converted uploads simply have a .heif extension instead of the original one.",
+  "settingsAppDataHeading": "App Data",
+  "settingsAppDataHint": "Albums, people, tags, captions and places — everything except the photos themselves. On in both places by default: a copy is saved once a day when something has changed, and restored automatically if you reinstall the app. Each copy carries an index.csv listing every photo by date, album and person, so it opens without this app. This isn't sync between devices, and your bucket keys are never included.",
+  "settingsICloudRow": "iCloud Drive",
+  "settingsBucketDataRow": "Your Cloud Bucket",
+  "settingsBucketDataPath": "Saved as app-data/YYYYMMDD.zip in every bucket",
   "privateAlbumFindInBucket": "Find Hidden Photos in Bucket",
   "privateAlbumFindInBucketDone": "{count, plural, =0{Nothing new found} =1{Added 1 photo} other{Added {count} photos}}",
   "@privateAlbumFindInBucketDone": {"placeholders": {"count": {"type": "int"}}},
@@ -317,35 +317,6 @@
   "settingsBucketImportUnreachable": "Couldn't reach the bucket",
   "settingsBucketImportDone": "{count, plural, =0{Nothing new in the bucket} =1{Imported 1 item} other{Imported {count} items}}",
   "@settingsBucketImportDone": {"placeholders": {"count": {"type": "int"}}},
-  "settingsSyncFrequencyManual": "Manual Only",
-  "settingsSyncFrequencyEvery15Minutes": "Every 15 Minutes",
-  "settingsSyncFrequencyEveryHour": "Every Hour",
-  "settingsSyncFrequencyEvery6Hours": "Every 6 Hours",
-  "settingsSyncFrequencyDaily": "Daily",
-  "settingsSyncNowButton": "Sync Now",
-  "settingsSyncNowMessage": "{count, plural, =0{Nothing to sync} one{Backed up 1 photo} other{Backed up {count} photos}}",
-  "@settingsSyncNowMessage": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "settingsCloudVendorLabel": "Cloud vendor",
-  "settingsCloudVendorHint": "The provider that hosts your bucket: Amazon S3, Tencent COS or Alibaba OSS. Google Cloud Storage, Azure Blob and Backblaze B2 are coming soon.",
-  "settingsBackupFormatHint": "What gets uploaded for each photo.",
-  "settingsBackupFormatHeading": "Backup Format",
-  "settingsBackupFormatOriginal": "Original",
-  "settingsBackupFormatOriginalDescription": "Full quality, exactly as stored on your device. Larger uploads and more storage used.",
-  "settingsBackupFormatOptimized": "Optimized (WebP)",
-  "settingsBackupFormatOptimizedDescription": "Converts photos to WebP for smaller uploads and less storage, with a small, usually unnoticeable loss in quality.",
-  "settingsBackupFormatVideoNote": "Videos are always backed up at original quality. Video conversion isn't supported yet.",
-  "settingsBackupFormatFolderNote": "Both formats are stored in the same \"originals/\" folder in your bucket. Optimized uploads simply have a .webp extension instead of the original one.",
-  "settingsAppDataHeading": "App Data",
-  "settingsAppDataHint": "Albums, people, tags, captions and places — everything except the photos themselves. On in both places by default: a copy is saved once a day when something has changed, and restored automatically if you reinstall the app. Each copy carries an index.csv listing every photo by date, album and person, so it opens without this app. This isn't sync between devices, and your bucket keys are never included.",
-  "settingsICloudRow": "iCloud Drive",
-  "settingsBucketDataRow": "Your Cloud Bucket",
-  "settingsBucketDataPath": "Saved as app-data/YYYYMMDD.zip in every bucket",
   "settingsBucketDataNoBucket": "Add a bucket below first",
   "settingsICloudPath": "Files → iCloud Drive → Photos Vault",
   "settingsICloudNever": "No backup yet",
@@ -467,7 +438,6 @@
   "settingsBrowseFilesAction": "Browse Files",
   "settingsDeleteConnectionAction": "Remove Bucket",
   "backupQueueHiddenItem": "Hidden photo",
-  "collectionsBackupQueueRow": "Backup Queue",
   "collectionsAnalyzeQueueRow": "Analyze Queue",
   "analyzeQueueRemaining": "{count, plural, =0{Nothing left to analyze} one{1 photo to analyze} other{{count} photos to analyze}}",
   "@analyzeQueueRemaining": {
@@ -477,7 +447,6 @@
       }
     }
   },
-  "backupQueueListHeading": "IN THE QUEUE",
   "analyzeQueueListHeading": "IN THE QUEUE",
   "analyzeQueueRescanButton": "Rescan All",
   "analyzeQueueRescanConfirmTitle": "Rescan all photos?",
@@ -584,12 +553,6 @@
   "settingsAddAiKeyLink": "Add AI Key",
   "settingsAiVendorLabel": "Vendor",
   "settingsAiGetKeyLink": "Get one",
-  "settingsAiTextOnly": "{vendor} answers questions but can't analyze photos. Add a second vendor for photo analysis.",
-  "@settingsAiTextOnly": {
-    "placeholders": {
-      "vendor": {"type": "String"}
-    }
-  },
   "settingsAiKeyCheckFailed": "Couldn't verify this key: {error}",
   "@settingsAiKeyCheckFailed": {
     "placeholders": {
@@ -883,6 +846,13 @@
   "faceGroupTitle": "Who is this?",
   "faceGroupNamePlaceholder": "Enter a name, or search people you've already named",
   "faceGroupSave": "Save",
+  "personPageHidden": "Hidden",
+  "personPageHiddenTitle": "{name} · Hidden",
+  "@personPageHiddenTitle": {
+    "placeholders": {
+      "name": {"type": "String"}
+    }
+  },
   "personPageFindMore": "Find More Photos",
   "faceGroupNoneForPerson": "No other matching faces found yet.",
   "faceGroupMoreTitle": "More photos of {name}",
@@ -928,7 +898,6 @@
   "peopleUnnamedHeading": "Faces to Name",
   "peopleEmpty": "No people yet. Tap + to add someone.",
   "peopleSearchEmpty": "No people match your search.",
-  "peopleAiAnalysisRow": "Find People with AI",
   "personPageAddPhotos": "Add Photos",
   "personPagePhotosEmpty": "No photos tagged yet.",
   "personPageRemoveFromPerson": "Remove from Person",
@@ -1153,6 +1122,7 @@
   "personProfileLocationRelocation": "Relocation",
   "personProfileDeletePerson": "Delete Person",
   "personProfileDeleteConfirmTitle": "Delete this person?",
+  "personProfileDeleteHiddenWarning": "If this person has a hidden folder, its photos can no longer be opened.",
   "personProfileDeleteConfirmBody": "This deletes their profile and relationships. Photos stay in your library.",
   "personHistoryStartLabel": "Start",
   "personHistoryEndLabel": "End",
@@ -1565,6 +1535,15 @@
   "hiddenNotesPlaceholder": "Write something only this album's code opens",
   "hiddenNotesEmpty": "No notes yet. Notes are encrypted with this album's key.",
   "albumsRecentlyAddedName": "Recently Added",
+  "hideHeifTitle": "Save Space with HEIF?",
+  "hideHeifBody": "{count, plural, one{1 photo can be stored as HEIF: same size and quality, about half the space.} other{{count} photos can be stored as HEIF: same size and quality, about half the space.}} Videos, Live Photos and photos already in HEIF stay as they are.",
+  "@hideHeifBody": {
+    "placeholders": {
+      "count": {"type": "int"}
+    }
+  },
+  "hideHeifConvert": "Convert",
+  "hideHeifKeep": "Keep Originals",
   "hideCodeTitle": "Hidden Album Code",
   "hideCodeBody": "Choose the 4 digits for the hidden album these photos go into. This is not your iPhone passcode.",
   "hideCodeWarning": "Every code opens an album, so there is no \"wrong code\" and no reset. Forget this code and these photos can't be found again.",
@@ -1578,15 +1557,16 @@
       "count": {"type": "int"}
     }
   },
-  "resizeBody": "Saved as JPEG at the size you pick. A replaced original goes to Recently Deleted.",
+  "resizeBody": "Saved as HEIF, about half the space of a JPEG, at the size you pick. A replaced original goes to Recently Deleted.",
   "resizeReplace": "{count, plural, one{Replace Original} other{Replace Originals}}",
   "@resizeReplace": {
     "placeholders": {
       "count": {"type": "int"}
     }
   },
+  "resizeSameSize": "Same Size",
   "resizeSaveNew": "Save as New",
-  "resizeBodyHidden": "Saved as JPEG at the size you pick, in this album. A replaced original is deleted for good — hidden photos have no Recently Deleted.",
+  "resizeBodyHidden": "Saved as HEIF, about half the space of a JPEG, at the size you pick, in this album. A replaced original is deleted for good — hidden photos have no Recently Deleted.",
   "resizeCopyLimit": "Save as New is for up to {limit} photos, so the library doesn't fill with duplicates.",
   "@resizeCopyLimit": {
     "placeholders": {
@@ -1628,11 +1608,9 @@
   },
   "demoModeEnterRow": "Demo Mode",
   "demoModeExitRow": "Exit Demo Mode",
-  "demoModeEnterBody": "Opens a separate library filled with sample photos, albums, people and notes. Your real photos, buckets and settings are not touched, and nothing from the demo is mixed into them.",
   "demoModeExitBody": "Back to your own library. The demo library stays as it is for next time.",
   "demoModeEnterAction": "Open Demo",
   "demoModeExitAction": "Exit Demo",
-  "settingsDemoHeading": "Demo",
   "settingsDemoResetRow": "Reset Demo Data",
   "settingsDemoResetTitle": "Reset demo data?",
   "settingsDemoResetBody": "The demo library goes back to its sample photos, albums, people and notes. Your own library isn't touched.",

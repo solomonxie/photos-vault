@@ -36,8 +36,9 @@ class _RecordingCustody implements LibraryCustody {
 
   @override
   Future<Map<String, CustodyResult>> takeOutMany(
-    List<AssetRecord> records,
-  ) async {
+    List<AssetRecord> records, {
+    Future<bool> Function(int count)? askHeif,
+  }) async {
     takeOutCalls++;
     for (final record in records) {
       takenOut.add(record.localId);
