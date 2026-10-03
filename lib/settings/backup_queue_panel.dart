@@ -44,7 +44,7 @@ class BackupQueuePanel extends StatefulWidget {
 }
 
 class _BackupQueuePanelState extends State<BackupQueuePanel> {
-  BackupFormat _format = BackupFormat.original;
+  BackupFormat _format = BackupFormat.optimized;
   SyncFrequency _frequency = SyncFrequency.manual;
   DateTime? _lastSyncAt;
   bool _syncing = false;

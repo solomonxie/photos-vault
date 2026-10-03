@@ -87,14 +87,14 @@ void main() {
     expect(await store.getOrderStrategy(), BackupOrderStrategy.bucketByBucket);
   });
 
-  test('backup format defaults to original and persists once set', () async {
+  test('backup format defaults to HEIF and persists once set', () async {
     final store = BackupTargetsStore(store: FakeSecureStore());
 
-    expect(await store.getBackupFormat(), BackupFormat.original);
-
-    await store.setBackupFormat(BackupFormat.optimized);
-
     expect(await store.getBackupFormat(), BackupFormat.optimized);
+
+    await store.setBackupFormat(BackupFormat.original);
+
+    expect(await store.getBackupFormat(), BackupFormat.original);
   });
 
   test(

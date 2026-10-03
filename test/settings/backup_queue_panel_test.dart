@@ -245,18 +245,19 @@ void main() {
       find.textContaining('Full quality, exactly as stored'),
       findsNothing,
     );
-    await tester.tap(find.text('Original'));
+    // HEIF is the default.
+    await tester.tap(find.text('HEIF'));
     await tester.pumpAndSettle();
 
     expect(
       find.textContaining('Full quality, exactly as stored'),
       findsOneWidget,
     );
-    expect(find.textContaining('Converts photos to WebP'), findsOneWidget);
-    await tester.tap(find.text('Optimized (WebP)'));
+    expect(find.textContaining('Stores photos as HEIF'), findsOneWidget);
+    await tester.tap(find.text('Original'));
     await tester.pumpAndSettle();
 
-    expect(await store.getBackupFormat(), BackupFormat.optimized);
-    expect(find.text('Optimized (WebP)'), findsOneWidget);
+    expect(await store.getBackupFormat(), BackupFormat.original);
+    expect(find.text('Original'), findsOneWidget);
   });
 }

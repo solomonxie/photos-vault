@@ -64,6 +64,41 @@ void main() {
     return (await store.getByLocalId('photo:$libraryId'))!;
   }
 
+  test('HEIF is offered only for what is not HEIF already', () async {
+    final store = FakeAssetRecordStore();
+    final custody = LibraryCustody(
+      store: store,
+      library: _FakeLibrary(original: await originalFile('IMG_1.HEIC')),
+      directory: () async => dir,
+    );
+    var asked = 0;
+    await custody.takeOutMany(
+      [await tracked(store)],
+      askHeif: (_) async {
+        asked++;
+        return true;
+      },
+    );
+    expect(asked, 0, reason: 'already HEIF: nothing to ask');
+
+    final jpeg = LibraryCustody(
+      store: store,
+      library: _FakeLibrary(original: await originalFile('IMG_2.jpg')),
+      directory: () async => dir,
+    );
+    int? offered;
+    final results = await jpeg.takeOutMany(
+      [await tracked(store, libraryId: 'PH2')],
+      askHeif: (count) async {
+        offered = count;
+        return true;
+      },
+    );
+    expect(offered, 1);
+    // No encoder in tests: the original is kept rather than lost.
+    expect(results['photo:PH2'], CustodyResult.taken);
+  });
+
   test(
     'hiding copies the original out before Photos is asked to let go',
     () async {

@@ -259,13 +259,16 @@ class BackupVerifier {
     );
   }
 
-  /// `null` rather than `false` for an optimized upload: `backedUpHash` is
-  /// the hash of the file *on the phone*, and an optimized upload re-encoded
-  /// it to WebP on the way, so the object is supposed to differ. Reporting
-  /// that as a mismatch would fail every drill on the default format.
+  /// `null` rather than `false` for a re-encoded upload: `backedUpHash` is
+  /// the hash of the file *on the phone*, and the HEIF format (or WebP, from
+  /// older builds) re-encodes a JPEG or PNG on the way, so the object is
+  /// supposed to differ. Reporting that as a mismatch would fail every
+  /// drill on the default format. Converted uploads are `.heif`; a HEIC
+  /// sent as it was keeps `.heic` and must match.
   static bool? _identical(Uint8List bytes, String? backedUpHash, String key) {
     if (backedUpHash == null) return null;
-    if (key.toLowerCase().endsWith('.webp')) return null;
+    final lower = key.toLowerCase();
+    if (lower.endsWith('.webp') || lower.endsWith('.heif')) return null;
     return sha256.convert(bytes).toString() == backedUpHash;
   }
 

@@ -1,79 +1,79 @@
-import 'dart:isolate';
-import 'dart:math' as math;
-import 'dart:typed_data';
-import 'dart:ui' as ui;
+import 'package:flutter/services.dart';
 
-import 'package:image/image.dart' as img;
-
-/// How small "Export Smaller" makes a photo: the longest edge, in pixels.
+/// How small a resize makes a photo: the longest edge, in pixels, or null
+/// to keep it — still re-encoded as HEIF, which is where most of the
+/// saving is.
 enum ExportSize {
+  original(null),
   large(2048),
   medium(1280),
   small(640);
 
   const ExportSize(this.maxEdge);
 
-  final int maxEdge;
+  final int? maxEdge;
 }
 
 const _quality = 82;
 
-/// [bytes] as a JPEG no longer than [size] on its longest edge, or null when
-/// they aren't a still the platform can decode.
-///
-/// Decoded by the engine (ImageIO on iOS, so HEIC works — the `image`
-/// package has never read it), downsampled *during* the decode rather than
-/// after, then JPEG-encoded on an isolate: CLAUDE.md, nothing heavy on the
-/// UI isolate.
-Future<Uint8List?> shrinkPhoto(Uint8List bytes, ExportSize size) async {
-  ui.ImageDescriptor? descriptor;
-  ui.Codec? codec;
-  ui.Image? image;
+const _encodeChannel = MethodChannel('byo.photos/image_encode');
+
+/// [bytes] re-encoded by ImageIO (`ImageEncodeChannel.swift`) as `heic` or
+/// `jpeg`, shrunk to [maxEdge] when given; EXIF and GPS kept. Null when the
+/// platform refuses or has no such channel (tests).
+Future<Uint8List?> encodeNatively(
+  Uint8List bytes, {
+  required String format,
+  int? maxEdge,
+}) async {
   try {
-    final buffer = await ui.ImmutableBuffer.fromUint8List(bytes);
-    descriptor = await ui.ImageDescriptor.encoded(buffer);
-    final (w, h) = fitWithin(descriptor.width, descriptor.height, size.maxEdge);
-    codec = await descriptor.instantiateCodec(targetWidth: w, targetHeight: h);
-    image = (await codec.getNextFrame()).image;
-    final rgba = await image.toByteData(format: ui.ImageByteFormat.rawRgba);
-    if (rgba == null) return null;
-    final width = image.width;
-    final height = image.height;
-    final pixels = rgba.buffer.asUint8List();
-    return await Isolate.run(
-      () => encodeRgbaAsJpeg(pixels, width: width, height: height),
-    );
+    return await _encodeChannel.invokeMethod<Uint8List>('encode', {
+      'bytes': bytes,
+      'format': format,
+      'maxEdge': ?maxEdge,
+      'quality': _quality / 100,
+    });
   } catch (_) {
+    // No channel (tests), or the platform refused.
     return null;
-  } finally {
-    image?.dispose();
-    codec?.dispose();
-    descriptor?.dispose();
   }
 }
 
-/// The size [width]×[height] scales to so its longest edge is at most
-/// [maxEdge]; unchanged when it already is.
-(int, int) fitWithin(int width, int height, int maxEdge) {
-  final longest = math.max(width, height);
-  if (longest <= maxEdge || longest == 0) return (width, height);
-  final scale = maxEdge / longest;
-  return (
-    math.max(1, (width * scale).round()),
-    math.max(1, (height * scale).round()),
-  );
+/// [input] re-encoded by ImageIO into [output], file to file — a full-size
+/// photo never crosses the channel. True only when [output] was written,
+/// which by default means it came out smaller.
+Future<bool> encodeFileNatively({
+  required String input,
+  required String output,
+  required String format,
+  bool onlyIfSmaller = true,
+}) async {
+  try {
+    return await _encodeChannel.invokeMethod<bool>('encodeFile', {
+          'input': input,
+          'output': output,
+          'format': format,
+          'onlyIfSmaller': onlyIfSmaller,
+          'quality': _quality / 100,
+        }) ??
+        false;
+  } catch (_) {
+    // No channel (tests), or the platform refused.
+    return false;
+  }
 }
 
-Uint8List encodeRgbaAsJpeg(
-  Uint8List rgba, {
-  required int width,
-  required int height,
-}) {
-  final image = img.Image.fromBytes(
-    width: width,
-    height: height,
-    bytes: rgba.buffer,
-    numChannels: 4,
+/// [bytes] as HEIF no longer than [size] on its longest edge, from iOS's
+/// own encoder. Null when they aren't a still the platform can decode — no
+/// other format: a resize is HEIF or nothing.
+Future<({Uint8List bytes, String extension})?> shrinkPhoto(
+  Uint8List bytes,
+  ExportSize size,
+) async {
+  final heic = await encodeNatively(
+    bytes,
+    format: 'heic',
+    maxEdge: size.maxEdge,
   );
-  return Uint8List.fromList(img.encodeJpg(image, quality: _quality));
+  return heic == null ? null : (bytes: heic, extension: '.heic');
 }

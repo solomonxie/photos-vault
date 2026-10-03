@@ -14,11 +14,13 @@ import 'secure_store.dart';
 /// one bucket is fully redundant as early as possible.
 enum BackupOrderStrategy { fileByFile, bucketByBucket }
 
-/// What [BackupCoordinator] actually uploads for a photo. [original]
-/// (default) sends the file's bytes as-is. [optimized] re-encodes it as
-/// WebP first (see `photos/image_pipeline.dart`) to cut upload/storage
-/// size, falling back to the original bytes if the re-encode fails.
-/// Videos always upload as original either way — no bundled transcoder.
+/// What [BackupCoordinator] actually uploads for a photo. [optimized]
+/// (default, shown as "HEIF") re-encodes a still as HEIF with iOS's own
+/// encoder — full resolution, about half a JPEG — and sends the original
+/// whenever that isn't smaller or isn't possible. [original] sends the
+/// file's bytes as-is. Videos, Live Photo stills (re-encoding drops the tag
+/// that pairs them with their `.mov`) and photos already in HEIF always go
+/// as they are.
 enum BackupFormat { original, optimized }
 
 /// How often [LibraryScreen] retries pending/failed backups on its own,
@@ -73,7 +75,7 @@ class BackupTargetsStore {
 
   Future<BackupFormat> getBackupFormat() async {
     final raw = await _store.read(_formatKey);
-    return raw == 'optimized' ? BackupFormat.optimized : BackupFormat.original;
+    return raw == 'original' ? BackupFormat.original : BackupFormat.optimized;
   }
 
   Future<void> setBackupFormat(BackupFormat value) =>
