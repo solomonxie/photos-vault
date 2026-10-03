@@ -17,6 +17,9 @@ import '../photos/person_store.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/bucket_import.dart';
+import '../upload/library_restore.dart';
+import '../upload/original_restore.dart';
 import '../upload/sync_queue.dart';
 import 'add_backup_screen.dart';
 import 'backup_queue_panel.dart';
@@ -129,6 +132,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   bool _bucketDataEnabled = false;
   DateTime? _bucketDataLastBackupAt;
   bool _bucketDataBusy = false;
+  bool _importing = false;
 
   List<S3BackupTarget>? _targets;
   List<AssetRecord> _records = const [];
@@ -478,6 +482,18 @@ class _SettingsScreenState extends State<SettingsScreen>
                   onChanged: targets.isEmpty ? null : _toggleBucketData,
                 ),
         ),
+        const SettingsHairline(indent: settingsRowIndent),
+        SettingsRow(
+          leading: const SettingsIconTile(
+            icon: CupertinoIcons.cloud_download_fill,
+          ),
+          title: l10n.settingsBucketImportRow,
+          subtitle: l10n.settingsBucketImportHint,
+          trailing: _importing
+              ? const CupertinoActivityIndicator(radius: 9)
+              : null,
+          onTap: targets.isEmpty || _importing ? null : _importFromBucket,
+        ),
         const SizedBox(height: 14),
         _appDataFileControls(l10n),
       ],
@@ -626,6 +642,34 @@ class _SettingsScreenState extends State<SettingsScreen>
         l10n.settingsAppDataRestoreSummaryPeople(summary.people),
         l10n.settingsAppDataRestoreSummaryAlbums(summary.albums),
       ].join(' \u00b7 ');
+
+  Future<void> _importFromBucket() async {
+    final l10n = AppLocalizations.of(context)!;
+    setState(() => _importing = true);
+    String message;
+    try {
+      final result = await BucketImport(
+        targetsStore: _store,
+        recordStore: _assetRecordStore,
+      ).run();
+      await LibraryRestore(
+        recordStore: _assetRecordStore,
+        originals: OriginalRestore(
+          targetsStore: _store,
+          recordStore: _assetRecordStore,
+        ),
+      ).run();
+      message = result.unreachable && result.imported == 0
+          ? l10n.settingsBucketImportUnreachable
+          : l10n.settingsBucketImportDone(result.imported);
+    } catch (_) {
+      message = l10n.settingsBucketImportUnreachable;
+    }
+    if (!mounted) return;
+    setState(() => _importing = false);
+    await _tell(message);
+    await _reload();
+  }
 
   Future<void> _tell(String message) => showCupertinoDialog<void>(
     context: context,
