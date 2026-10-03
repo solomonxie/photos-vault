@@ -55,3 +55,6 @@ ios/Flutter/Store.xcconfig
 
 # Demo-mode credentials (see .env.demo.example)
 .env.demo
+
+# Bucket credentials for scripts/import-to-bucket.sh
+.env.bucket
