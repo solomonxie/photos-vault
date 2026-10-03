@@ -36,6 +36,11 @@ See `DESIGN.md` for why, `UIUX_DESIGN.md` for what it looks like.
 ## Phase 6: Hide a cloud-only photo
 - [ ] T6.1 Replace the refusal with: confirm, download, normal carrier build, verify, retract the plain copy; any failure keeps the cloud copy - see `lib/viewer/private_album_gate.dart` - depends: T2.2
 
-## Phase 7: Close out
-- [ ] T7.1 Full tests, format, analyze, release build, size check (`du -sh Runner.app`)
-- [ ] T7.2 Docs: `lib/upload/README.md`, `lib/vault/README.md`, `docs/design/uiux/storage.md`
+## Phase 7: Name migration
+- [ ] T7.1 Resumable ordinary-photo migration: copy, update `destinationKey`, verify, delete; batched, background - see `lib/upload/` - depends: T2.1, T5.2
+- [ ] T7.2 Hidden-carrier migration per unlocked album: new name from the header, update index entry - see `lib/vault/` - depends: T2.3, T5.2
+- [ ] T7.3 Flagging waits for the app-data snapshot restore - depends: T3.1
+
+## Phase 8: Close out
+- [ ] T8.1 Full tests, format, analyze, release build, size check (`du -sh Runner.app`)
+- [ ] T8.2 Docs: `lib/upload/README.md`, `lib/vault/README.md`, `docs/design/uiux/storage.md`
