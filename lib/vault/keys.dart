@@ -219,7 +219,11 @@ class VaultKeys {
   /// Album keys for codes typed this session, kept under the same hash the
   /// records carry so the upload path can find them without ever holding
   /// the digits. Dropped when the app dies; nothing writes them down.
-  final Map<String, AlbumKeys> _ring = {};
+  ///
+  /// One ring for the app, not per instance: an album opened from a
+  /// person's page has to be as open to the library's uploads as one opened
+  /// from Utilities.
+  static final Map<String, AlbumKeys> _ring = {};
 
   /// Called when the gate opens an album. Returns the keys for [passcode],
   /// or null when this phone has no passphrase yet — the upload path then

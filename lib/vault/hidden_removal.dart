@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import '../photos/photo_library_service.dart';
@@ -62,8 +63,10 @@ class HiddenRemoval {
     List<IndexEntry> entries = const [],
     List<PassphraseEntry> passphrases = const [],
   }) async {
-    final carrierKeys = <String>{
+    final filedKeys = <String>{
       for (final e in entries) ...siblingKeys(e.objectKey),
+    };
+    final recordCarrierKeys = <String>{
       if (keys != null)
         for (final r in records) ...[
           vaultCarrierKey(r, keys.carrier),
@@ -71,15 +74,27 @@ class HiddenRemoval {
         ],
     };
 
-    if (keys != null && carrierKeys.isNotEmpty) {
-      // Unwritable index: stop before a filed photo's bytes go, so nothing
-      // is left listed without them. An unfiled record was never listed,
-      // so it can still go.
-      if (!await _unlist(keys, carrierKeys, passphrases) &&
-          entries.isNotEmpty) {
+    // What a bucket actually holds: filed carriers that went up, and a
+    // record's uploads by their recorded keys. A photo never backed up has
+    // nothing remote, so nothing is asked of the network for it. Read
+    // before the local files go: removing them clears the unsent marks.
+    final sentKeys = <String>{};
+    if (keys != null) {
+      for (final e in entries) {
+        if (!await _vaultStore.isUnsent(keys, e.objectKey)) {
+          sentKeys.addAll(siblingKeys(e.objectKey));
+        }
+      }
+    }
+
+    if (keys != null) {
+      // Only a filed photo is listed in the index. An unfiled record was
+      // never in it, so its delete never reads or writes the index.
+      if (filedKeys.isNotEmpty &&
+          !await _unlist(keys, filedKeys, passphrases)) {
         return false;
       }
-      await _vaultStore.removeAll(keys, carrierKeys);
+      await _vaultStore.removeAll(keys, {...filedKeys, ...recordCarrierKeys});
     }
 
     for (final record in records) {
@@ -110,7 +125,7 @@ class HiddenRemoval {
       for (final target in targets) ...[
         for (final key in objectKeys)
           PendingDelete(objectKey: key, targetId: target.id),
-        for (final key in carrierKeys)
+        for (final key in sentKeys)
           PendingDelete(
             objectKey: VaultBucket.resolveKey(target, key),
             targetId: target.id,
@@ -119,12 +134,19 @@ class HiddenRemoval {
     ];
     if (tasks.isEmpty) return true;
     await _pendingDeletes.add(tasks);
+    // Queued is enough to answer: the photo is already gone from the
+    // album and this phone, and a screen waiting on one round trip per
+    // object looked like a delete that did nothing.
+    unawaited(_drain(targets));
+    return true;
+  }
+
+  Future<void> _drain(List<S3BackupTarget> targets) async {
     try {
       await _pendingDeletes.drain(targets);
     } catch (_) {
       // Queued; the next sync retries.
     }
-    return true;
   }
 
   /// Un-hiding filed photos, once Photos holds each again: [plainIds] maps
@@ -175,7 +197,10 @@ class HiddenRemoval {
         passphrases: passphrases.isEmpty ? album.passphrases : passphrases,
       );
       if (index == null) return false;
-      await _bucket.publishIndex(index);
+      // Landed here and marked unpublished; the buckets get it in the
+      // background, and every read offers it again until they have.
+      await _bucket.keepIndex(index);
+      unawaited(_bucket.pushIndex(index));
       return true;
     } catch (_) {
       return false;

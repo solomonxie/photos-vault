@@ -98,6 +98,46 @@ Future<bool> confirmSoftDelete(
   return confirmed ?? false;
 }
 
+/// The delete sheet for a selection. With [removable] of them backed up,
+/// it offers what a single photo's sheet does: free the space and keep the
+/// cloud copy for those, or delete the lot. With none, a plain confirm.
+Future<DeleteChoice> chooseBatchDelete(
+  BuildContext context, {
+  required int count,
+  required int removable,
+}) async {
+  final l10n = AppLocalizations.of(context)!;
+  final choice = await showCupertinoModalPopup<DeleteChoice>(
+    context: context,
+    builder: (context) => CupertinoActionSheet(
+      title: Text(l10n.selectionDeleteConfirmTitle(count)),
+      message: Text(
+        removable > 0
+            ? l10n.libraryDeleteFromDeviceNote
+            : l10n.libraryDeleteConfirmBody,
+      ),
+      actions: [
+        if (removable > 0)
+          CupertinoActionSheetAction(
+            key: const ValueKey('batchRemoveFromDevice'),
+            onPressed: () => Navigator.of(context).pop(DeleteChoice.fromDevice),
+            child: Text(l10n.selectionRemoveFromDevice(removable)),
+          ),
+        CupertinoActionSheetAction(
+          isDestructiveAction: true,
+          onPressed: () => Navigator.of(context).pop(DeleteChoice.everywhere),
+          child: Text(l10n.selectionDeleteAction(count)),
+        ),
+      ],
+      cancelButton: CupertinoActionSheetAction(
+        onPressed: () => Navigator.of(context).pop(DeleteChoice.cancel),
+        child: Text(l10n.actionCancel),
+      ),
+    ),
+  );
+  return choice ?? DeleteChoice.cancel;
+}
+
 /// What a [deleteAsset] actually did.
 enum DeleteOutcome {
   /// Cancelled, or declined at the OS's own prompt. Nothing to say.
@@ -158,34 +198,4 @@ Future<DeleteOutcome> deleteAsset(
           ? DeleteOutcome.binned
           : DeleteOutcome.none;
   }
-}
-
-/// One confirmation for a whole selection, naming the count — "delete 40
-/// photos" is a different decision from "delete this photo", and by the
-/// time the sheet is up the selection has usually scrolled out of sight.
-/// Asking once per photo wouldn't be a safeguard, just a wall to click
-/// through.
-Future<bool> confirmDeleteSelection(
-  BuildContext context, {
-  required int count,
-}) async {
-  final l10n = AppLocalizations.of(context)!;
-  final confirmed = await showCupertinoModalPopup<bool>(
-    context: context,
-    builder: (context) => CupertinoActionSheet(
-      message: Text(l10n.libraryDeleteConfirmBody),
-      actions: [
-        CupertinoActionSheetAction(
-          isDestructiveAction: true,
-          onPressed: () => Navigator.of(context).pop(true),
-          child: Text(l10n.selectionDeleteAction(count)),
-        ),
-      ],
-      cancelButton: CupertinoActionSheetAction(
-        onPressed: () => Navigator.of(context).pop(false),
-        child: Text(l10n.actionCancel),
-      ),
-    ),
-  );
-  return confirmed ?? false;
 }

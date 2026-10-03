@@ -18,6 +18,7 @@ import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'person_avatar.dart';
 import 'person_profile_screen.dart';
+import 'private_album_gate.dart';
 import 'zoom_page_route.dart';
 
 /// One person's page: avatar, name (the whole name line opens the full
@@ -205,6 +206,39 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     );
   }
 
+  Future<void> _showMenu() async {
+    final l10n = AppLocalizations.of(context)!;
+    final choice = await showCupertinoModalPopup<VoidCallback>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        actions: [
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(sheetContext).pop(_addPhotos),
+            child: Text(l10n.personPageAddPhotos),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(sheetContext).pop(_openHidden),
+            child: Text(l10n.personPageHidden),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    choice?.call();
+  }
+
+  /// This person's own hidden folder — see [personAlbumCode]. Photos go in
+  /// by hand only, never by face recognition, and they show nowhere else.
+  Future<void> _openHidden() => openPrivateAlbums(
+    context,
+    assetRecordStore: widget.assetRecordStore,
+    codeFor: (digits) => personAlbumCode(_person.id, digits),
+    title: AppLocalizations.of(context)!.personPageHiddenTitle(_person.name),
+  );
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -212,9 +246,10 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
       navigationBar: CupertinoNavigationBar(
         middle: Text(_person.name),
         trailing: CupertinoButton(
+          key: const ValueKey('personPageMenu'),
           padding: EdgeInsets.zero,
-          onPressed: _addPhotos,
-          child: const Icon(CupertinoIcons.add),
+          onPressed: _showMenu,
+          child: const Icon(CupertinoIcons.ellipsis_circle),
         ),
       ),
       child: SafeArea(

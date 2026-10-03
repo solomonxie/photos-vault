@@ -279,12 +279,23 @@ class _PasscodeKeypad extends StatelessWidget {
 
 /// Utilities' "Hidden" row: prompts for a passcode, then opens whatever's
 /// currently tagged with its hash — an empty list if nothing is.
+/// A person's own hidden folder: an album like any other, whose code is the
+/// digits namespaced by the person. The same four digits open a different
+/// album per person and a different one again from Utilities, and nothing
+/// stored links a person to a hidden photo — only the key derivation does.
+String personAlbumCode(String personId, String digits) =>
+    'person:$personId:$digits';
+
+/// [codeFor] turns the typed digits into the album's code — see
+/// [personAlbumCode]; [title] names the album screen.
 Future<void> openPrivateAlbums(
   BuildContext context, {
   required AssetRecordStore assetRecordStore,
   LibraryCustody? custody,
   VaultKeys? vaultKeys,
   int? libraryCount,
+  String Function(String digits)? codeFor,
+  String? title,
 }) async {
   final keys = vaultKeys ?? VaultKeys();
   // Set up at the moment it first matters, rather than behind a switch in
@@ -301,8 +312,9 @@ Future<void> openPrivateAlbums(
     if (await showVaultSetupSheet(context, keys: keys) == null) return;
   }
   if (!context.mounted) return;
-  final passcode = await showPrivateAlbumPasscodeSheet(context);
-  if (passcode == null) return;
+  final digits = await showPrivateAlbumPasscodeSheet(context, title: title);
+  if (digits == null) return;
+  final passcode = codeFor?.call(digits) ?? digits;
   // Fills the key ring for this session, so the upload path can find this
   // album's key by the hash the records carry without ever holding the
   // digits itself. Dropped when the app dies.
@@ -316,6 +328,7 @@ Future<void> openPrivateAlbums(
         custody: custody,
         albumKeys: album,
         vaultKeys: keys,
+        title: title,
       ),
     ),
   );
@@ -444,6 +457,31 @@ Future<void> _retractFromBuckets({
   if (tasks.isNotEmpty) await deletes.add(tasks);
 }
 
+/// Whether to store the photos being hidden as HEIF. Asked, not assumed:
+/// it rewrites the file the hidden album keeps. Dismissed is "keep".
+Future<bool> _askHeif(BuildContext context, int count) async {
+  final l10n = AppLocalizations.of(context)!;
+  final convert = await showCupertinoDialog<bool>(
+    context: context,
+    builder: (context) => CupertinoAlertDialog(
+      title: Text(l10n.hideHeifTitle),
+      content: Text(l10n.hideHeifBody(count)),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(l10n.hideHeifKeep),
+        ),
+        CupertinoDialogAction(
+          isDefaultAction: true,
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(l10n.hideHeifConvert),
+        ),
+      ],
+    ),
+  );
+  return convert ?? false;
+}
+
 /// out of the OS photo library, which is the half that makes "hidden" mean
 /// anything. Returns `false` (no-op) if the passcode popup was cancelled.
 ///
@@ -565,7 +603,10 @@ Future<bool> hideIntoPrivateAlbum(
   for (final record in records) {
     await assetRecordStore.setPasscodeHash(record.localId, hash);
   }
-  final results = await keeper.takeOutMany(records);
+  final results = await keeper.takeOutMany(
+    records,
+    askHeif: (count) async => context.mounted && await _askHeif(context, count),
+  );
 
   var stillInLibrary = 0;
   var failed = refused.length;

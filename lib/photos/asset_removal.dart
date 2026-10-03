@@ -159,10 +159,10 @@ class AssetRemoval {
         !await _deleteFromLibrary(record)) {
       return false;
     }
-    if (record.hasNothingLeft) {
+    if (!await isRecoverable(record)) {
       // Never backed up, and the library copy has just gone — there is
       // nothing left to restore, so the bin doesn't pretend otherwise.
-      await store.remove(record.localId);
+      await purge(record);
       return true;
     }
     await store.softDelete(record.localId);
@@ -189,23 +189,36 @@ class AssetRemoval {
     }
   }
 
-  /// Drops bin entries with nothing behind them and returns what's left to
+  /// Drops bin entries that can't be given back and returns what's left to
   /// show. Kept here rather than in the bin screen because "is there
   /// anything left of this photo" is a question about the photo.
-  ///
-  /// The library is asked again per record: a record can only be called
-  /// empty once the OS has let go of it too, and an unreadable answer
-  /// (no plugin, a permission withdrawn) keeps the record.
   Future<List<AssetRecord>> purgeVanished(List<AssetRecord> records) async {
     final kept = <AssetRecord>[];
     for (final record in records) {
-      if (record.hasNothingLeft && await _goneFromLibrary(record)) {
-        await store.remove(record.localId);
-      } else {
+      if (await isRecoverable(record)) {
         kept.add(record);
+      } else {
+        await purge(record);
       }
     }
     return kept;
+  }
+
+  /// Whether Recover would bring the photo back: the original in a bucket,
+  /// its own file on this phone, or Photos still holding it. A thumbnail
+  /// alone is a preview, not the photo.
+  ///
+  /// An unreadable answer from the library (no plugin, a permission
+  /// withdrawn) counts as still there: dropping a photo on a guess is the
+  /// worse mistake.
+  Future<bool> isRecoverable(AssetRecord record) async {
+    final original = record.stateOf(DerivativeKind.original);
+    if (original.status == UploadStatus.uploaded ||
+        original.destinationKey != null) {
+      return true;
+    }
+    if (record.sourcePath != null && !record.localDeleted) return true;
+    return !await _goneFromLibrary(record);
   }
 
   Future<bool> _goneFromLibrary(AssetRecord record) async {

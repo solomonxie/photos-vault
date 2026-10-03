@@ -238,6 +238,22 @@ void main() {
     expect(await store.getByLocalId('photo:2'), isNull);
   });
 
+  test('a cached thumbnail alone does not keep a photo in the bin', () async {
+    final store = FakeAssetRecordStore();
+    await store.upsert(
+      localId: 'photo:t',
+      contentHash: 't',
+      platform: 'ios',
+      libraryId: 'lib-t',
+    );
+    await store.setThumbnailPath('photo:t', '/tmp/thumb-t.jpg');
+    await store.softDelete('photo:t');
+    final binned = [(await store.getByLocalId('photo:t'))!];
+
+    expect(await removalOver(store).purgeVanished(binned), isEmpty);
+    expect(await store.getByLocalId('photo:t'), isNull);
+  });
+
   test('a bin entry the library still holds is left alone', () async {
     final store = FakeAssetRecordStore();
     await store.upsert(
