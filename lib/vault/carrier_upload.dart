@@ -11,6 +11,7 @@ import 'carrier.dart';
 import 'cipher.dart';
 import 'decoy.dart';
 import 'keys.dart';
+import 'object_key.dart';
 import 'still_video.dart';
 
 /// Turns a hidden photo into the one object it becomes: somebody else's
@@ -82,6 +83,14 @@ class CarrierBuilder {
 
     final dir = await _temporaryDirectory();
     final extension = p.extension(filePath).replaceFirst('.', '').toLowerCase();
+    final nonce = hiddenNonce(keys.carrier, record);
+    final meta = CarrierMeta(
+      takenAt: record.createdAt,
+      width: record.width ?? 0,
+      height: record.height ?? 0,
+      isVideo: record.countsAsVideo,
+    );
+    final baseName = hiddenBaseName(keys.carrier, record);
 
     final carrier = asVideo
         ? await _videoCarrier(
@@ -92,6 +101,9 @@ class CarrierBuilder {
             original: original,
             extension: extension,
             directory: dir,
+            nonce: nonce,
+            meta: meta,
+            baseName: baseName,
           )
         : await _photoCarrier(
             keys: keys,
@@ -101,6 +113,9 @@ class CarrierBuilder {
             original: original,
             extension: extension,
             directory: dir,
+            nonce: nonce,
+            meta: meta,
+            baseName: baseName,
           );
     if (carrier == null) return null;
     _decoyUses[chosen.id] = (_decoyUses[chosen.id] ?? 0) + 1;
@@ -115,6 +130,9 @@ class CarrierBuilder {
     required Uint8List original,
     required String extension,
     required Directory directory,
+    required Uint8List nonce,
+    required CarrierMeta meta,
+    required String baseName,
   }) async {
     final source = candidate.source;
     final decoy = await Isolate.run(
@@ -134,9 +152,11 @@ class CarrierBuilder {
       thumbnail: thumbnail,
       original: original,
       extension: extension,
+      nonce: nonce,
+      meta: meta,
     );
     if (bytes == null) return null;
-    final file = File(p.join(directory.path, 'carrier.jpg'));
+    final file = File(p.join(directory.path, '$baseName.jpg'));
     await file.writeAsBytes(bytes, flush: true);
     return file;
   }
@@ -152,6 +172,9 @@ class CarrierBuilder {
     required Uint8List original,
     required String extension,
     required Directory directory,
+    required Uint8List nonce,
+    required CarrierMeta meta,
+    required String baseName,
   }) async {
     final duration = candidate.duration;
     if (duration == null || duration <= Duration.zero) return null;
@@ -172,10 +195,12 @@ class CarrierBuilder {
       poster: thumbnail,
       original: original,
       extension: extension,
+      nonce: nonce,
+      meta: meta,
     );
     await decoyFile.delete();
     if (bytes == null) return null;
-    final file = File(p.join(directory.path, 'carrier.mov'));
+    final file = File(p.join(directory.path, '$baseName.mov'));
     await file.writeAsBytes(bytes, flush: true);
     return file;
   }

@@ -9,7 +9,9 @@ keys.dart        passphrase ─PBKDF2─▶ masterKey ─HKDF+4 digits─▶ alb
 cipher.dart      AES-256-CTR + PBKDF2 via dart:ffi → CommonCrypto (system,
                  so nothing ships); HMAC-SHA256 from `crypto`; HKDF here
    ▼
-carrier.dart     header · encrypted thumbnail · encrypted original
+carrier.dart     header · encrypted thumbnail · encrypted original.
+                 v2 header adds a nonce and 8-byte locator, and the photo's
+                 date/size/kind inside the encrypted thumbnail section
    ├── jpeg_segments.dart   payload in APP7 segments, before the image data
    └── mp4_boxes.dart       payload in a `free` box, after `moov`
    ▲
@@ -20,9 +22,14 @@ still_video.dart the video decoy — one frame held for a real duration,
 
 album_index.dart app-data/index.bin — every install writes one, same size
                  always, 32 padded sections, yours found by a keyed tag
-object_key.dart  what a carrier is called, everywhere — relative, so one
-                 index reads against every bucket and a photo has a name
-                 before any bucket exists
+object_key.dart  what every object is called: `<date>_<32 hex>`. Ordinary =
+                 hash of the id; hidden = nonce + HMAC locator, so the album
+                 whose key made it recognises it by name. Relative, so one
+                 index reads against every bucket
+carrier_probe.dart  is this object a carrier? a JPEG's first 64 KB, or an
+                 MP4's top-level boxes by tiny ranged reads. Never a download
+hidden_bucket_scan.dart  adds carriers of this album found in the bucket
+hidden_migration.dart    gives old carrier names protocol names, album open
 store.dart       <AppSupport>/vault — the carriers themselves, durable and
                  out of the device backup. **The local copy.**
 cache.dart       Library/Caches, encrypted, TTL + LRU per pool — for what

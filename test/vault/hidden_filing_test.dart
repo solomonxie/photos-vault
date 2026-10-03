@@ -77,7 +77,7 @@ void main() {
   test('with no bucket, a hidden photo is still filed and its plaintext '
       'goes', () async {
     final record = (await records.getByLocalId('manual:one'))!;
-    final key = vaultCarrierKey(record);
+    final key = vaultCarrierKey(record, keys.carrier);
     await store.putCarrierBytes(keys, key, Uint8List.fromList([9, 9, 9]));
 
     expect(await filing.file(record, name: 'Hidden'), isTrue);
@@ -115,7 +115,7 @@ void main() {
     final record = (await records.getByLocalId('manual:one'))!;
     await store.putCarrierBytes(
       keys,
-      vaultCarrierKey(record),
+      vaultCarrierKey(record, keys.carrier),
       Uint8List.fromList([9]),
     );
 

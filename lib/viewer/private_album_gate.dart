@@ -9,6 +9,7 @@ import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/passcode_hash.dart';
+import '../upload/original_restore.dart';
 import '../vault/keys.dart';
 import '../vault/passphrase_sheet.dart';
 import '../upload/pending_deletes.dart';
@@ -510,16 +511,57 @@ Future<bool> hideIntoPrivateAlbum(
     hash = hashPasscode(passcode);
   }
   final keeper = custody ?? LibraryCustody(store: assetRecordStore);
-  // Cloud-only or shrunk here: the full original is only in the bucket,
-  // and hiding retracts the bucket copy. Refused rather than lost.
-  final refused = [
+  // Cloud-only or shrunk here: the full original is only in the bucket, and
+  // hiding retracts the bucket copy. So it comes down first, after asking;
+  // one that cannot be fetched is refused rather than lost.
+  final cloudOnly = [
     for (final r in records)
       if (r.localDeleted || r.localOptimized) r,
   ];
-  records = [
-    for (final r in records)
-      if (!refused.contains(r)) r,
-  ];
+  final refused = <AssetRecord>[];
+  if (cloudOnly.isNotEmpty) {
+    if (!context.mounted) return false;
+    final proceed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: Text(l10n.privateAlbumHideDownloadTitle),
+        content: Text(l10n.privateAlbumHideDownloadBody(cloudOnly.length)),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.privateAlbumHideDownloadContinue),
+          ),
+        ],
+      ),
+    );
+    if (proceed != true) return false;
+    final restorer = OriginalRestore(
+      targetsStore: buckets,
+      recordStore: assetRecordStore,
+    );
+    final fetched = <String, AssetRecord>{};
+    for (final record in cloudOnly) {
+      if (await restorer.restore(record) == null) {
+        refused.add(record);
+        continue;
+      }
+      final fresh = await assetRecordStore.getByLocalId(record.localId);
+      if (fresh == null) {
+        refused.add(record);
+      } else {
+        fetched[record.localId] = fresh;
+      }
+    }
+    records = [
+      for (final r in records)
+        if (!refused.contains(r)) fetched[r.localId] ?? r,
+    ];
+  }
   for (final record in records) {
     await assetRecordStore.setPasscodeHash(record.localId, hash);
   }

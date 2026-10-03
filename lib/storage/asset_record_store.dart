@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart'
 
 import '../backup/change_log.dart';
 import 'asset_record.dart';
+import 'bucket_object.dart';
 
 /// Local `sqflite` store for per-asset backup state — the single source of
 /// truth for what's been uploaded, so a restart or a killed background task
@@ -46,13 +47,14 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 17,
+        version: 18,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createPlaceNameTableSql);
           await db.execute(_createAppStateTableSql);
           await db.execute(_createDerivativeTargetTableSql);
           await db.execute(_createHiddenNoteTableSql);
+          await db.execute(_createBucketObjectTableSql);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -151,6 +153,9 @@ class AssetRecordStore {
             // library new.
             await db.execute('ALTER TABLE $_table ADD COLUMN added_at INTEGER');
             await db.execute(_createHiddenNoteTableSql);
+          }
+          if (oldVersion < 18) {
+            await db.execute(_createBucketObjectTableSql);
           }
           if (oldVersion < 10) {
             await db.execute('ALTER TABLE $_table ADD COLUMN latitude REAL');
@@ -355,6 +360,82 @@ class AssetRecordStore {
   /// be given it again without re-sending to the one that already has it.
   static const _derivativeTargetTable = 'derivative_target';
 
+  static const _bucketObjectTable = 'bucket_object';
+
+  static const _createBucketObjectTableSql =
+      '''
+    CREATE TABLE $_bucketObjectTable (
+      target_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      last_modified INTEGER NOT NULL,
+      PRIMARY KEY (target_id, key)
+    )
+  ''';
+
+  /// Makes the table say what [targetId]'s bucket holds right now: rows for
+  /// objects that are gone are dropped, the rest are upserted. One
+  /// transaction, so a half-written listing is never read.
+  Future<void> replaceBucketObjects(
+    String targetId,
+    List<BucketObject> objects,
+  ) async {
+    final db = await _open();
+    await db.transaction((txn) async {
+      await txn.delete(
+        _bucketObjectTable,
+        where: 'target_id = ?',
+        whereArgs: [targetId],
+      );
+      final batch = txn.batch();
+      for (final o in objects) {
+        batch.insert(_bucketObjectTable, {
+          'target_id': o.targetId,
+          'key': o.key,
+          'size': o.size,
+          'last_modified': o.lastModified.millisecondsSinceEpoch,
+        });
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  Future<List<BucketObject>> listBucketObjects() async {
+    final db = await _open();
+    final rows = await db.query(_bucketObjectTable);
+    return [
+      for (final row in rows)
+        BucketObject(
+          targetId: row['target_id'] as String,
+          key: row['key'] as String,
+          size: row['size'] as int,
+          lastModified: DateTime.fromMillisecondsSinceEpoch(
+            row['last_modified'] as int,
+          ),
+        ),
+    ];
+  }
+
+  /// Every remote key some record points at - the "known" set a bucket
+  /// object is held against.
+  Future<Set<String>> referencedKeys() async {
+    final db = await _open();
+    final keys = <String>{};
+    for (final row in await db.query(
+      _derivativeTargetTable,
+      columns: ['destination_key'],
+    )) {
+      keys.add(row['destination_key'] as String);
+    }
+    for (final record in await listAll()) {
+      for (final kind in DerivativeKind.values) {
+        final key = record.stateOf(kind).destinationKey;
+        if (key != null) keys.add(key);
+      }
+    }
+    return keys;
+  }
+
   static const _createDerivativeTargetTableSql =
       '''
     CREATE TABLE $_derivativeTargetTable (
@@ -537,6 +618,23 @@ class AssetRecordStore {
       'source_hash': sourceHash,
       'uploaded_at': DateTime.now().millisecondsSinceEpoch,
     }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+  }
+
+  /// Points an existing upload row at a new key, leaving its hash and time
+  /// alone - a rename is not a new upload, and must not read as an edit.
+  Future<void> renameUploadKey({
+    required String localId,
+    required DerivativeKind kind,
+    required String targetId,
+    required String destinationKey,
+  }) async {
+    final db = await _open();
+    await db.update(
+      _derivativeTargetTable,
+      {'destination_key': destinationKey},
+      where: 'local_id = ? AND kind = ? AND target_id = ?',
+      whereArgs: [localId, kind.name, targetId],
+    );
   }
 
   /// Forgets where a photo's derivatives went — what hiding one does, so

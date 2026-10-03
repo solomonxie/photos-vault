@@ -64,10 +64,11 @@ class HiddenRemoval {
   }) async {
     final carrierKeys = <String>{
       for (final e in entries) ...siblingKeys(e.objectKey),
-      for (final r in records) ...[
-        vaultCarrierKey(r),
-        if (r.isLivePhoto) vaultLiveCarrierKey(r),
-      ],
+      if (keys != null)
+        for (final r in records) ...[
+          vaultCarrierKey(r, keys.carrier),
+          if (r.isLivePhoto) vaultLiveCarrierKey(r, keys.carrier),
+        ],
     };
 
     if (keys != null && carrierKeys.isNotEmpty) {

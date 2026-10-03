@@ -54,13 +54,16 @@ class HiddenFiling {
 
     // The key the coordinator filed the carrier under — worked out from the
     // record, because with no bucket there is no destination key to read.
-    final key = vaultCarrierKey(record);
+    final key = vaultCarrierKey(record, keys.carrier);
     if (!await vaultStore.hasCarrier(keys, key)) return false;
     // Both halves, for a Live Photo. Settling on the still alone would
     // delete the plaintext while the motion and the sound were still only in
     // the photo library this has just taken the photo out of.
     if (record.isLivePhoto &&
-        !await vaultStore.hasCarrier(keys, vaultLiveCarrierKey(record))) {
+        !await vaultStore.hasCarrier(
+          keys,
+          vaultLiveCarrierKey(record, keys.carrier),
+        )) {
       return false;
     }
 
@@ -96,7 +99,11 @@ class HiddenFiling {
     if (record.isLivePhoto &&
         record.stateOf(DerivativeKind.livePhoto).status !=
             UploadStatus.uploaded) {
-      await vaultStore.setUnsent(keys, vaultLiveCarrierKey(record), true);
+      await vaultStore.setUnsent(
+        keys,
+        vaultLiveCarrierKey(record, keys.carrier),
+        true,
+      );
     }
     await bucket.keepIndex(index);
     // Best-effort, and deliberately after: a bucket that is unreachable

@@ -70,3 +70,15 @@ from the bucket, and it's reached from exactly one place: emptying this app's
 Recently Deleted (`BackupCoordinator.deleteBackup`). Everything short of that
 — including an ordinary delete — leaves the backup alone, because it's the
 copy that outlives the phone.
+
+## Bucket import and flagged objects
+
+`bucket_import.dart` lists each bucket into `bucket_object` (`BucketIndexer`),
+and "Import from Bucket" renames every flagged plain file. `bucket_flagged.dart`
+decides what is flagged (not pointed at by a record, not named like ours) and
+holds the fixes: Rename (server-side copy, size check, then delete), Re-format
+(download, HEIF, upload; only for files proven not to be carriers) and Remove
+orphan. `bucket_ops.dart` is the bucket side: flat listing, ranged reads, copy,
+size. `name_migration.dart` renames old `photo_<id>` backups in batches.
+`scripts/import-to-bucket.sh` puts a folder in the bucket. Design:
+`docs/design/bucket-import/`.

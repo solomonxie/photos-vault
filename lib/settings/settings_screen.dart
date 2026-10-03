@@ -21,6 +21,7 @@ import '../upload/bucket_import.dart';
 import '../upload/library_restore.dart';
 import '../upload/original_restore.dart';
 import '../upload/sync_queue.dart';
+import '../vault/keys.dart';
 import 'add_backup_screen.dart';
 import 'backup_queue_panel.dart';
 import 'backup_storage_type.dart';
@@ -651,6 +652,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       final result = await BucketImport(
         targetsStore: _store,
         recordStore: _assetRecordStore,
+        passphrases: VaultKeys().entries,
       ).run();
       await LibraryRestore(
         recordStore: _assetRecordStore,
