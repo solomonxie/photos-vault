@@ -81,8 +81,13 @@ Future<void> openObjectInSystemBrowser(
       expiresIn: const Duration(hours: 1),
     );
     if (!await open(url)) throw const FormatException('no handler');
-  } catch (_) {
-    if (context.mounted) await _note(context, l10n.bucketObjectUnreachable);
+  } catch (e) {
+    if (context.mounted) {
+      await _note(
+        context,
+        '${l10n.bucketObjectUnreachable} (${e.runtimeType})',
+      );
+    }
   }
 }
 
@@ -108,7 +113,13 @@ Future<S3BackupTarget?> _locate(
   final target = await locate(objectKey);
   if (navigator.canPop()) navigator.pop();
   if (target == null && context.mounted) {
-    await _note(context, l10n.bucketObjectUnreachable);
+    final why = lastLookupDetail;
+    await _note(
+      context,
+      why == null
+          ? l10n.bucketObjectUnreachable
+          : '${l10n.bucketObjectUnreachable} ($why)',
+    );
   }
   return target;
 }

@@ -14,13 +14,21 @@ import 'signing.dart';
 /// A one-byte ranged GET rather than a HEAD — it is the same presigned GET
 /// the rest of the app uses, and S3-compatible endpoints differ on whether
 /// a GET signature is accepted for a HEAD.
+/// Why the last [targetHolding] found nothing: what each bucket answered.
+/// Shown under the "couldn't reach" message so it says which step failed.
+String? lastLookupDetail;
+
 Future<S3BackupTarget?> targetHolding(
   String objectKey, {
   BackupTargetsStore? targetsStore,
   Future<http.Response> Function(Uri url, {Map<String, String>? headers})? get,
 }) async {
   final fetch = get ?? http.get;
-  for (final target in await (targetsStore ?? BackupTargetsStore()).loadAll()) {
+  final answers = <String>[];
+  lastLookupDetail = null;
+  final targets = await (targetsStore ?? BackupTargetsStore()).loadAll();
+  if (targets.isEmpty) lastLookupDetail = 'no bucket saved';
+  for (final target in targets) {
     try {
       final response = await fetch(
         await presignGetUrl(target: target, key: objectKey),
@@ -29,9 +37,12 @@ Future<S3BackupTarget?> targetHolding(
       if (response.statusCode == 206 || response.statusCode == 200) {
         return target;
       }
-    } catch (_) {
+      answers.add('${response.statusCode}');
+    } catch (e) {
       // Unreachable bucket, expired credentials — the next one may hold it.
+      answers.add(e.runtimeType.toString());
     }
   }
+  if (answers.isNotEmpty) lastLookupDetail = answers.join(', ');
   return null;
 }
