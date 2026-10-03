@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:flutter/foundation.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/scheduler.dart';
@@ -14,6 +16,16 @@ Future<void> main() async {
     await DemoMode.init();
   } catch (_) {
     // Demo plumbing must never be why the real app doesn't open.
+  }
+  // Simulator screenshots only: /tmp/pv-screenshot ("<screen> <lang>") can't exist on a phone.
+  final shot = screenshotRequest();
+  if (shot != null) {
+    await DemoMode.setActive(true);
+    final lang = shot.$2;
+    if (lang.isNotEmpty) {
+      AppStoreRegion.languageChosen = true;
+      AppStoreRegion.language.value = lang;
+    }
   }
   runApp(const App());
 }
@@ -35,4 +47,11 @@ void _reportJank() {
       );
     }
   });
+}
+
+(String, String)? screenshotRequest() {
+  final file = File('/tmp/pv-screenshot');
+  if (!file.existsSync()) return null;
+  final parts = file.readAsStringSync().trim().split(' ');
+  return (parts[0], parts.length > 1 ? parts[1] : '');
 }

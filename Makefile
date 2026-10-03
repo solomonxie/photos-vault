@@ -84,9 +84,9 @@ size: ## Measure the archived app against the 33 MB budget
 	    echo "over the $(BUDGET) MB budget by $$(($$mb - $(BUDGET))) MB — see CLAUDE.md"; exit 1; \
 	  else echo "inside the $(BUDGET) MB budget, $$(($(BUDGET) - $$mb)) MB spare"; fi
 
-screenshots: ## Convert a folder of iPhone shots to the store sizes: make screenshots FROM=~/Desktop/shots
+screenshots: ## Convert iPhone shots to store sizes: make screenshots FROM=~/Desktop/shots [OUT=docs/release/screenshots/zh]
 	@test -n "$(FROM)" || { echo "usage: make screenshots FROM=<dir-of-shots>"; exit 1; }
-	./scripts/store-screenshots.sh $(FROM)
+	./scripts/store-screenshots.sh $(FROM) $(OUT)
 
 clean: ## Drop build output
 	$(FLUTTER) clean
