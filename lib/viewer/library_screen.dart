@@ -3013,7 +3013,8 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Future<void> _confirmRemoveAppData() async {
     final l10n = AppLocalizations.of(context)!;
-    final confirmed = await showCupertinoDialog<bool>(
+    // true = hidden photos go too; false = they are kept; null = cancelled.
+    final includeHidden = await showCupertinoDialog<bool>(
       context: context,
       builder: (dialogContext) => CupertinoAlertDialog(
         title: Text(l10n.settingsRemoveAllAppDataTitle),
@@ -3021,24 +3022,29 @@ class LibraryScreenState extends State<LibraryScreen>
         actions: [
           CupertinoDialogAction(
             isDestructiveAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.settingsRemoveAllAppDataKeepHidden),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(l10n.settingsRemoveAllAppDataConfirm),
+            child: Text(l10n.settingsRemoveAllAppDataWithHidden),
           ),
           CupertinoDialogAction(
             isDefaultAction: true,
-            onPressed: () => Navigator.of(dialogContext).pop(false),
+            onPressed: () => Navigator.of(dialogContext).pop(),
             child: Text(l10n.actionCancel),
           ),
         ],
       ),
     );
-    if (confirmed != true || !mounted) return;
+    if (includeHidden == null || !mounted) return;
     setState(() => _removingAppData = true);
     try {
       // No prompt, no share sheet: the copies are simply taken, and then
       // everything goes — rows, files, queue, credentials. See
       // `../settings/app_data_removal.dart` for why the order is what it is.
-      await _appDataRemoval.run();
+      await _appDataRemoval.run(includeHidden: includeHidden);
     } finally {
       if (mounted) setState(() => _removingAppData = false);
     }
