@@ -6,6 +6,7 @@ import 'package:url_launcher/url_launcher.dart';
 import '../l10n/app_localizations.dart';
 import '../upload/object_location.dart';
 import '../upload/signing.dart' as signing;
+import '../vault/bucket.dart';
 import 'bucket_browser_screen.dart';
 import 's3_backup_target.dart';
 
@@ -41,7 +42,7 @@ Future<void> showObjectInBucketBrowser(
     CupertinoPageRoute(
       builder: (_) => BucketBrowserScreen(
         target: target,
-        prefix: folderPrefixOf(objectKey),
+        prefix: folderPrefixOf(VaultBucket.resolveKey(target, objectKey)),
       ),
     ),
   );
@@ -77,7 +78,7 @@ Future<void> openObjectInSystemBrowser(
   try {
     final url = await presign(
       target: target,
-      key: objectKey,
+      key: VaultBucket.resolveKey(target, objectKey),
       expiresIn: const Duration(hours: 1),
     );
     if (!await open(url)) throw const FormatException('no handler');

@@ -2,6 +2,7 @@ import 'package:http/http.dart' as http;
 
 import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
+import '../vault/bucket.dart';
 import 'signing.dart';
 
 /// Which configured target actually holds [objectKey].
@@ -10,6 +11,9 @@ import 'signing.dart';
 /// target, each under its own prefix, and a record only remembers one key.
 /// So the object is asked for, target by target, before anything claims to
 /// know where it is.
+///
+/// [objectKey] may be relative to a bucket's prefix (a hidden photo's index
+/// entry is), so it is resolved against each target before it is asked for.
 ///
 /// A one-byte ranged GET rather than a HEAD — it is the same presigned GET
 /// the rest of the app uses, and S3-compatible endpoints differ on whether
@@ -31,7 +35,10 @@ Future<S3BackupTarget?> targetHolding(
   for (final target in targets) {
     try {
       final response = await fetch(
-        await presignGetUrl(target: target, key: objectKey),
+        await presignGetUrl(
+          target: target,
+          key: VaultBucket.resolveKey(target, objectKey),
+        ),
         headers: {'Range': 'bytes=0-0'},
       );
       if (response.statusCode == 206 || response.statusCode == 200) {
