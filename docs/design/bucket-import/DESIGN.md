@@ -12,7 +12,7 @@
 - Sorts by date; no iOS `_L0_001` suffix; same on Android.
 - Ordinary: hex is random.
 - Hidden: date is the **decoy's** (never the real taken date); hex is `nonce(8) | locator(8)`, both copied from the carrier's own header.
-- Old names (`photo_<UUID>_L0_001.*`) stay valid while a record or index entry points at them. Only new uploads use the scheme.
+- Old names (`photo_<UUID>_L0_001.*`) are migrated in the app (section 9). Until migrated they are known because a record or index entry points at them; code has no legacy branch.
 - Keys are read from the stored record / index entry, never recomputed from the record id.
 - Live Photo halves share a base name, differ by extension.
 - Filing writes a new carrier under a new name (S3 cannot rename; filing creates the object anyway). Un-hiding deletes the carrier.
@@ -57,6 +57,14 @@ Re-format is offered only after a positive check that the file is **not** a carr
 
 ### 7. Parking a foreign carrier
 Filing it as an ordinary photo keeps its foreign payload intact inside our carrier (`CarrierBuilder.build` encrypts the file bytes verbatim). Hiding a cloud-only photo is **refused today** (`private_album_gate.dart`), so this needs a new path: download, build carrier, verify, then retract the plain copy, keeping the cloud copy if any step fails.
+
+### 9. One-time in-app name migration
+Every object is renamed by the same steps, ordinary or hidden: copy to the new name, update the reference (record `destinationKey` or index entry), HEAD-verify, delete the old.
+- Ordinary photos: runs in the background after sync, in small batches, resumable (the reference changes only after the copy verifies).
+- Hidden carriers: per album, only while unlocked; the new name is built from the carrier's header.
+- Not done on the Mac: references live in the phone db and the encrypted index.
+- Classification stays uniform: an object is known if something points at it, else protocol-shaped (album may claim), else flagged. Migration just makes every name protocol-shaped.
+- Flagging waits until the app-data snapshot is restored, or a fresh install sees every object as unreferenced.
 
 ### 8. Not needed
 - A name-to-path mapping table does not help discovery (unknown files are by definition absent). It remains useful for multiple destinations; separate task.
