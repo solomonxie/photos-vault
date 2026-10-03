@@ -19,6 +19,9 @@ class BucketOps {
 
   final http.Client? _client;
 
+  /// Why the last [copy] failed, for the line shown under a failed fix.
+  String? lastError;
+
   /// Every object directly under [dir] (e.g. `originals/`) in [target]'s own
   /// prefix, all pages. Null when the bucket cannot be listed.
   Future<List<S3Object>?> listFolder(S3BackupTarget target, String dir) async {
@@ -99,10 +102,18 @@ class BucketOps {
       );
       final response = await client.put(signed.uri, headers: signed.headers);
       if (response.statusCode != 200 || response.body.contains('<Error>')) {
+        final code = RegExp(r'<Code>([^<]+)</Code>').firstMatch(response.body);
+        lastError = 'copy ${response.statusCode} ${code?[1] ?? ''}'.trim();
         return false;
       }
-      return await sizeOf(target, to) == expectedSize;
-    } catch (_) {
+      final landed = await sizeOf(target, to);
+      if (landed != expectedSize) {
+        lastError = 'copy landed $landed of $expectedSize bytes';
+        return false;
+      }
+      return true;
+    } catch (e) {
+      lastError = 'copy ${e.runtimeType}';
       return false;
     } finally {
       if (_client == null) client.close();

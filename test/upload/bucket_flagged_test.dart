@@ -195,7 +195,7 @@ void main() {
       },
     );
 
-    test('a carrier with a foreign salt stays an ordinary photo', () async {
+    test('a carrier with a foreign salt is left alone', () async {
       bucket.objects['photos-vault/originals/odd.jpg'] = carrier(
         salt: Uint8List(16),
       );
@@ -204,7 +204,9 @@ void main() {
 
       final result = await fixer().rename(item);
 
-      expect(result.outcome, FixOutcome.imported);
+      expect(result.outcome, FixOutcome.needsAlbum);
+      expect(bucket.objects.keys.single, endsWith('odd.jpg'));
+      expect(await store.listAll(), isEmpty);
     });
 
     test('a v1 carrier of ours waits for its album', () async {

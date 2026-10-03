@@ -207,7 +207,7 @@
   "flaggedRename": "重命名",
   "flaggedReformat": "转换格式",
   "flaggedRemove": "移除",
-  "flaggedNeedsAlbum": "请打开对应相册来恢复",
+  "flaggedNeedsAlbum": "疑似隐藏照片，请打开对应相册，会在那里整理。",
   "flaggedFailed": "未能完成，没有做任何更改。",
   "flaggedReformatTitle": "转换这张照片的格式？",
   "flaggedReformatBody": "将下载 {size} MB，转换后上传更小的副本，确认无误后移除原文件。",
