@@ -1,15 +1,10 @@
 # Bucket import: UI/UX
 
 ## Cloud Settings
-New row under Your Cloud Bucket: **Import from Bucket**.
-- Tap: scan, import, fetch thumbnails, then a result dialog ("Imported N items", "Nothing new in the bucket", "Couldn't reach the bucket").
-- Spinner in the row while running; disabled with no bucket.
-- Shipped: `lib/settings/settings_screen.dart`.
+Row under Your Cloud Bucket: **Import from Bucket**. Tap scans, imports, fetches thumbnails, then reports ("Imported N items", "Nothing new in the bucket", "Couldn't reach the bucket"). Spinner while running; disabled with no bucket. Shipped in `lib/settings/settings_screen.dart`.
 
-## Utility menu: Flagged items
-Optimize Storage becomes **Flagged items** (entry in the same place). Two sections:
-1. Storage: the existing "free up space" list, unchanged.
-2. Bucket: objects needing attention.
+## Utility menu: Flagged Items
+Optimize Storage becomes **Flagged Items**, same place in the menu. Chips: All, Storage, Bucket. Badge on the entry counts both.
 
 ```
  ‹ Library              Flagged Items
@@ -19,24 +14,27 @@ Optimize Storage becomes **Flagged items** (entry in the same place). Two sectio
  │ ┌───┐  IMG_0012.mp4                         │
  │ │ ▶ │  Name doesn't follow the app's scheme │
  │ └───┘  12 MB · 3 Oct 2026                   │
- │              [[ Rename and import ]]        │
+ │                       [[ Rename ]]          │
  └─────────────────────────────────────────────┘
  ┌─────────────────────────────────────────────┐
- │ ┌───┐  Possible hidden item                 │
- │ │ ? │  Looks like a private photo           │
- │ └───┘  Unlock an album to restore it        │
- │           [[ Restore to hidden album ]]     │
+ │ ┌───┐  scan-0043.png                        │
+ │ │▣  │  Name doesn't follow the app's scheme │
+ │ └───┘  41 MB · 3 Oct 2026                   │
+ │              [ Rename ]  [[ Re-format ]]    │
  └─────────────────────────────────────────────┘
 ```
 
-- Each row: thumbnail (placeholder for suspected carriers), why it is flagged, one primary fix.
-- Select mode bulk-applies one fix to many rows, like the storage page.
-- Restore to hidden album asks for the passphrase and PIN first; a code that opens no matching album says "No match" and changes nothing.
-- Result line after each fix: "Renamed", "Added to <album>", or the failure reason; a failed fix leaves the row.
-- The badge count on the menu entry covers both sections.
+- One job per button. **Rename** has no warning beyond the first-use note ("Changes the file's name in your bucket"). **Re-format** confirms first: "Downloads 41 MB, uploads about 9 MB" plus the format choice.
+- Re-format appears only on files known to be ordinary stills; never on videos or unverified files.
+- Select mode applies one fix to many rows; the confirm sums the transfer.
+- Result line after each fix ("Renamed", "Imported", or the failure reason); a failed fix leaves the row and the original object.
+- Rows never reveal why a name matters to a hidden album, and suspected carriers look like any other row.
 
 ## Private album screen
-**Find hidden photos in bucket**, in the album's menu, only while unlocked. Local check against `bucket_object`; shows "Found N" before adopting, then adds them to this album.
+**Find hidden photos in bucket** in the album menu, only while unlocked. Local check against `bucket_object`, "Found N" then adds them.
+
+## Hiding a cloud-only photo
+Today it is refused with the generic "hide failed" dialog. New: a confirm "Downloads 12 MB to hide this photo", then the normal hide flow.
 
 ## Copy rules
-Calm, one sentence, no jargon ("carrier", "tag", "nonce" never appear).
+One calm sentence. "Carrier", "locator", "nonce", "tag" never appear.
