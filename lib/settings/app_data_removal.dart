@@ -13,6 +13,7 @@ import '../upload/pending_deletes.dart';
 import '../upload/sync_job_store.dart';
 import '../vault/cache.dart';
 import '../vault/keys.dart';
+import '../vault/store.dart';
 import 'ai_settings_store.dart';
 import 'backup_targets_store.dart';
 import 's3_target_drafts_store.dart';
@@ -47,6 +48,7 @@ class AppDataRemoval {
     S3TargetDraftsStore? draftsStore,
     AiSettingsStore? aiSettingsStore,
     VaultKeys? vaultKeys,
+    VaultStore? vaultStore,
 
     this.supportDirectory = getApplicationSupportDirectory,
     this.cacheDirectory = getApplicationCacheDirectory,
@@ -54,7 +56,8 @@ class AppDataRemoval {
        _pendingDeletes = pendingDeletes ?? PendingDeletes(store: settings),
        _draftsStore = draftsStore ?? S3TargetDraftsStore(),
        _aiSettingsStore = aiSettingsStore ?? AiSettingsStore(),
-       _vaultKeys = vaultKeys ?? VaultKeys();
+       _vaultKeys = vaultKeys ?? VaultKeys(),
+       _vaultStore = vaultStore ?? VaultStore(directory: supportDirectory);
 
   final AppSnapshotIo snapshots;
 
@@ -72,6 +75,7 @@ class AppDataRemoval {
   final S3TargetDraftsStore _draftsStore;
   final AiSettingsStore _aiSettingsStore;
   final VaultKeys _vaultKeys;
+  final VaultStore _vaultStore;
 
   /// Overridable so tests never reach a real container. `null` skips the
   /// on-disk pass, which is what a widget test wants: in `testWidgets`'
@@ -80,10 +84,15 @@ class AppDataRemoval {
   final Future<Directory> Function()? supportDirectory;
   final Future<Directory> Function()? cacheDirectory;
 
-  Future<void> run() async {
+  /// [includeHidden] is the second option the dialog offers. Off, hidden
+  /// photos on this phone are kept, encrypted. On, they go too: the vault
+  /// store, the passphrase entries and master keys, and any hidden photo's
+  /// plaintext file. Carriers already in a bucket are never touched either
+  /// way - the wipe has never deleted from a bucket.
+  Future<void> run({bool includeHidden = false}) async {
     // Before the rows go, because afterwards there is nothing left to ask
     // which files are the only copy of anything.
-    final keep = await _onlyCopies();
+    final keep = await _onlyCopies(includeHidden: includeHidden);
 
     // Likewise, and for a stronger reason: these are the only thing in
     // `app_state` that is an obligation to somebody else's storage rather
@@ -104,6 +113,10 @@ class AppDataRemoval {
     await _attempt(() => deleteOwnedFiles(keeping: keep));
     await _attempt(() => _carryDeletionsOver(owed));
     await _attempt(forgetCredentials);
+    if (includeHidden) {
+      await _attempt(_vaultStore.clear);
+      await _attempt(_vaultKeys.eraseOnThisDevice);
+    }
     await _attempt(sealAgainstRestore);
   }
 
@@ -149,11 +162,14 @@ class AppDataRemoval {
   /// [AssetRecord.isFullyBackedUp] is the codebase's existing answer to
   /// "is it safe to remove the local copy?" — it accounts for the moving
   /// half of a Live Photo, which the original's status alone does not.
-  Future<Set<String>> _onlyCopies() async {
+  Future<Set<String>> _onlyCopies({bool includeHidden = false}) async {
     try {
       return {
         for (final record in await settings.listAll())
-          if (!record.isFullyBackedUp) ?record.sourcePath,
+          // Removing hidden photos too means their only copies go as well.
+          if (!record.isFullyBackedUp &&
+              !(includeHidden && record.passcodeHash != null))
+            ?record.sourcePath,
       };
     } catch (_) {
       // Unreadable database. Keeping everything is the safe way to be

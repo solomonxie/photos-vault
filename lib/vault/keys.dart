@@ -259,4 +259,13 @@ class VaultKeys {
     _unlocked.clear();
     _ring.clear();
   }
+
+  /// [forgetOnThisDevice], and the passphrase entries too: for removing
+  /// the hidden photos along with everything else, when there is nothing
+  /// left on the phone for the entries to open. A bucket's `index.bin` still
+  /// carries them in its plaintext header, so a later restore finds them.
+  Future<void> eraseOnThisDevice() async {
+    await forgetOnThisDevice();
+    await _store.delete(_entriesKey);
+ 
 }

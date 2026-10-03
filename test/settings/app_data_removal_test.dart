@@ -258,6 +258,60 @@ void main() {
     expect(index.existsSync(), isTrue);
   });
 
+  group('including hidden photos', () {
+    test('the vault store, entries and master keys all go', () async {
+      final s = _subject();
+      final vault = Directory(p.join(s.support.path, VaultStore.root));
+      final carrier = File(p.join(vault.path, VaultStore.carriersDir, 'f00d'))
+        ..createSync(recursive: true)
+        ..writeAsBytesSync(const [1, 2, 3]);
+      final keys = VaultKeys(store: s.keychain);
+      final entry = await keys.add('correct horse', hint: 'the usual');
+
+      await s.removal.run(includeHidden: true);
+
+      expect(carrier.existsSync(), isFalse);
+      expect(vault.existsSync(), isFalse);
+      expect(await s.keychain.read('vault_master_${entry.id}'), isNull);
+      expect(await keys.entries(), isEmpty);
+    });
+
+    test('a hidden photo with no carrier loses its bytes too', () async {
+      final s = _subject();
+      final hidden = File(p.join(s.support.path, '${'d' * 64}.jpg'))
+        ..writeAsBytesSync(const [1, 2, 3]);
+      await s.assets.upsert(
+        localId: 'manual:${'d' * 64}',
+        contentHash: 'd' * 64,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: hidden.path,
+      );
+      await s.assets.setPasscodeHash('manual:${'d' * 64}', 'hash');
+
+      await s.removal.run(includeHidden: true);
+
+      expect(hidden.existsSync(), isFalse);
+    });
+
+    test('an ordinary photo with no backup is still spared', () async {
+      final s = _subject();
+      final mine = File(p.join(s.support.path, '${'e' * 64}.jpg'))
+        ..writeAsBytesSync(const [1, 2, 3]);
+      await s.assets.upsert(
+        localId: 'manual:${'e' * 64}',
+        contentHash: 'e' * 64,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: mine.path,
+      );
+
+      await s.removal.run(includeHidden: true);
+
+      expect(mine.existsSync(), isTrue);
+    });
+  });
+
   test('a hidden photo with no carrier keeps its bytes', () async {
     final s = _subject();
     final hidden = File(p.join(s.support.path, '${'c' * 64}.jpg'))
