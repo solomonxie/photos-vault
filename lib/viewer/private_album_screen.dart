@@ -20,6 +20,10 @@ import '../vault/hidden_removal.dart';
 import '../vault/hidden_restore.dart';
 import '../vault/passphrase_sheet.dart';
 import '../vault/private_lifecycle.dart';
+import '../upload/bucket_import.dart';
+import '../vault/hidden_bucket_scan.dart';
+import '../vault/hidden_migration.dart';
+import '../vault/store.dart';
 import '../vault/keys.dart';
 import '../vault/photo_screen.dart';
 import 'asset_grid.dart';
@@ -284,6 +288,19 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     if (!mounted) {
       gallery.dispose();
       return;
+    }
+    final vault = widget.vaultKeys;
+    if (vault != null) {
+      // Once per open album, in the background: old carrier names become
+      // protocol names. Nothing here waits on it.
+      unawaited(
+        HiddenMigration(
+          targetsStore: widget.targetsStore ?? BackupTargetsStore(),
+          vaultStore: VaultStore(),
+          bucket: VaultBucket(),
+          passphrases: vault.entries,
+        ).run(keys),
+      );
     }
     setState(() {
       _gallery = gallery;
@@ -1024,6 +1041,14 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
               },
               child: Text(l10n.vaultAddPassphraseTitle),
             ),
+            if (widget.albumKeys != null)
+              CupertinoActionSheetAction(
+                onPressed: () {
+                  Navigator.of(sheetContext).pop();
+                  _findInBucket();
+                },
+                child: Text(l10n.privateAlbumFindInBucket),
+              ),
             CupertinoActionSheetAction(
               isDestructiveAction: true,
               onPressed: () {
@@ -1049,6 +1074,40 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
         ),
       ),
     );
+  }
+
+  /// Lists the bucket once, then holds every name against this album's key.
+  /// Anything that matches is added to the album; nothing else is touched.
+  Future<void> _findInBucket() async {
+    final keys = widget.albumKeys;
+    final vault = widget.vaultKeys;
+    if (keys == null || vault == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    final targets = widget.targetsStore ?? BackupTargetsStore();
+    await BucketIndexer(
+      targetsStore: targets,
+      recordStore: widget.assetRecordStore,
+    ).refresh();
+    final found = await HiddenBucketScan(
+      store: widget.assetRecordStore,
+      targetsStore: targets,
+      bucket: VaultBucket(),
+      passphrases: vault.entries,
+    ).run(keys);
+    if (!mounted) return;
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        content: Text(l10n.privateAlbumFindInBucketDone(found)),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.actionOk),
+          ),
+        ],
+      ),
+    );
+    if (found > 0) await _loadFromBucket();
   }
 
   Future<void> _addPassphrase() async {

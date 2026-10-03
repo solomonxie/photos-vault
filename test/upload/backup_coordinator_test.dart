@@ -6,6 +6,7 @@ import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:photos_vault/upload/backup_cancel_token.dart';
 import 'package:photos_vault/upload/backup_coordinator.dart';
+import 'package:photos_vault/vault/object_key.dart';
 import 'package:photos_vault/upload/s3_uploader.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
@@ -46,6 +47,9 @@ class _RecordingS3Uploader implements S3Uploader {
     return _resultFor(filePath, key, target);
   }
 }
+
+Future<String> _base(AssetRecordStore store, String localId) async =>
+    ordinaryBaseName((await store.getByLocalId(localId))!);
 
 void main() {
   setUpAll(sqfliteFfiInit);
@@ -112,7 +116,8 @@ void main() {
 
         // Same prefix, same base name, differing only by extension — a
         // bucket listing shows them as the pair they are.
-        expect(keys, ['originals/photo_live.HEIC', 'originals/photo_live.mov']);
+        final base = await _base(recordStore, 'photo:live');
+        expect(keys, ['originals/$base.HEIC', 'originals/$base.mov']);
       },
     );
 
@@ -250,7 +255,7 @@ void main() {
     );
 
     expect(succeeded, 1);
-    expect(fakeUploader.keys.single, 'p/originals/manual_abc.jpg');
+    expect(fakeUploader.keys.single, 'p/originals/${await _base(recordStore, 'manual:abc')}.jpg');
     final updated = await recordStore.getByLocalId('manual:abc');
     expect(
       updated!.stateOf(DerivativeKind.original).status,
@@ -258,7 +263,7 @@ void main() {
     );
     expect(
       updated.stateOf(DerivativeKind.original).destinationKey,
-      'p/originals/manual_abc.jpg',
+      'p/originals/${await _base(recordStore, 'manual:abc')}.jpg',
     );
   });
 
@@ -304,7 +309,7 @@ void main() {
     expect(after!.stateOf(DerivativeKind.original).status, UploadStatus.failed);
     expect(
       await recordStore.targetsHolding('manual:abc', DerivativeKind.original),
-      {good.id: 'good/originals/manual_abc.jpg'},
+      {good.id: 'good/originals/${await _base(recordStore, 'manual:abc')}.jpg'},
     );
   });
 
@@ -357,9 +362,9 @@ void main() {
     // Three attempts, not four: the bucket that already had it is skipped.
     // On a video that saving is minutes and somebody's data plan.
     expect(keys, [
-      'good/originals/manual_abc.jpg',
-      'bad/originals/manual_abc.jpg',
-      'bad/originals/manual_abc.jpg',
+      'good/originals/${await _base(recordStore, 'manual:abc')}.jpg',
+      'bad/originals/${await _base(recordStore, 'manual:abc')}.jpg',
+      'bad/originals/${await _base(recordStore, 'manual:abc')}.jpg',
     ]);
     final after = await recordStore.getByLocalId('manual:abc');
     expect(
@@ -434,7 +439,7 @@ void main() {
         filePath: '/tmp/a-thumb.jpg',
       );
 
-      expect(fakeUploader.keys.single, 'p/thumbnails/manual_abc.jpg');
+      expect(fakeUploader.keys.single, 'p/thumbnails/${await _base(recordStore, 'manual:abc')}.jpg');
       final updated = await recordStore.getByLocalId('manual:abc');
       expect(
         updated!.stateOf(DerivativeKind.thumbnail).status,
@@ -618,10 +623,10 @@ void main() {
       // Every record's pair of targets uploaded before moving to the next
       // record: a→one, a→two, b→one, b→two.
       expect(fakeUploader.keys, [
-        'originals/manual_a.jpg',
-        'originals/manual_a.jpg',
-        'originals/manual_b.jpg',
-        'originals/manual_b.jpg',
+        'originals/${await _base(recordStore, 'manual:a')}.jpg',
+        'originals/${await _base(recordStore, 'manual:a')}.jpg',
+        'originals/${await _base(recordStore, 'manual:b')}.jpg',
+        'originals/${await _base(recordStore, 'manual:b')}.jpg',
       ]);
       expect(
         (await recordStore.getByLocalId('manual:a'))!
@@ -759,7 +764,7 @@ void main() {
         // The good bucket has it: the record still points there.
         expect(
           partial.stateOf(DerivativeKind.original).destinationKey,
-          'originals/manual_a.jpg',
+          'originals/${await _base(recordStore, 'manual:a')}.jpg',
         );
         expect(partial.hasNothingLeft, isFalse);
 
@@ -1018,7 +1023,7 @@ void main() {
         );
 
         expect(succeeded, 1);
-        expect(fakeUploader.keys.single, 'originals/manual_vid.mp4');
+        expect(fakeUploader.keys.single, 'originals/${await _base(recordStore, 'manual:vid')}.mp4');
       },
     );
 
@@ -1056,7 +1061,7 @@ void main() {
         );
 
         expect(succeeded, 1);
-        expect(fakeUploader.keys.single, 'originals/manual_bad.jpg');
+        expect(fakeUploader.keys.single, 'originals/${await _base(recordStore, 'manual:bad')}.jpg');
       },
     );
   });

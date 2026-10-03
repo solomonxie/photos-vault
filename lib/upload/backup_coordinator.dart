@@ -120,8 +120,23 @@ class BackupCoordinator {
 
   /// Public because `../vault/object_key.dart` has to produce the same name
   /// without a file in hand, and a second sanitiser is a second answer.
-  static String safeFileName(AssetRecord record, String filePath) =>
-      '${vaultSafeName(record.localId)}${p.extension(filePath)}';
+  ///
+  /// An already-uploaded derivative keeps its stem ([previousKey]), so an
+  /// edit overwrites the object instead of orphaning it under a new name.
+  /// A carrier arrives already named; anything else gets the protocol name
+  /// (`object_key.dart`).
+  static String safeFileName(
+    AssetRecord record,
+    String filePath, {
+    String? previousKey,
+  }) {
+    final base = p.basename(filePath);
+    if (fitsProtocol(base)) return base;
+    final stem = previousKey == null
+        ? ordinaryBaseName(record)
+        : p.basenameWithoutExtension(previousKey);
+    return '$stem${p.extension(filePath)}';
+  }
 
   /// If [format] is [BackupFormat.optimized] and [record] is a still photo,
   /// re-encodes the file at [filePath] to WebP in a fresh temp file and
@@ -289,7 +304,11 @@ class BackupCoordinator {
       );
       return 0;
     }
-    final fileName = safeFileName(record, uploadPath);
+    final fileName = safeFileName(
+      record,
+      uploadPath,
+      previousKey: previousKey,
+    );
     final derivativeDir = _derivativeDirs[kind]!;
 
     // The local copy first, before a single byte goes anywhere. A hidden
@@ -511,7 +530,11 @@ class BackupCoordinator {
           );
         }
         try {
-          final fileName = safeFileName(record, path);
+          final fileName = safeFileName(
+            record,
+            path,
+            previousKey: previousKeys[id],
+          );
           final key = derivativeKey(
             prefix: target.prefix,
             derivativeDir: derivativeDir,

@@ -44,6 +44,8 @@ import '../settings/ai_settings_screen.dart';
 import '../settings/app_data_removal.dart';
 import '../settings/app_store_region.dart';
 import '../settings/backup_targets_store.dart';
+import '../upload/bucket_import.dart';
+import '../upload/name_migration.dart';
 import '../upload/original_restore.dart';
 import '../settings/settings_screen.dart';
 import '../storage/album.dart';
@@ -84,7 +86,7 @@ import 'private_album_gate.dart';
 import 'recently_deleted_screen.dart';
 import 'safety_screen.dart';
 import 'search_picker_sheet.dart';
-import 'storage_optimization_screen.dart';
+import 'flagged_items_screen.dart';
 import 'zoom_page_route.dart';
 
 /// The whole app, one page — matches real Photos: no separate "Library" vs
@@ -478,6 +480,7 @@ class LibraryScreenState extends State<LibraryScreen>
       unawaited(_vault.keepDailyCopy());
       unawaited(_icloudBackup.backUpIfEnabled());
       unawaited(_bucketBackup.backUpIfEnabled());
+      unawaited(_refreshBucketListing());
       return;
     }
     if (state != AppLifecycleState.resumed || !mounted) return;
@@ -646,6 +649,33 @@ class LibraryScreenState extends State<LibraryScreen>
     // other natural "app came to the foreground" moment, alongside
     // returning to this screen from Cloud Backups (see `_openCloudBackups`).
     unawaited(_runScheduledSyncIfDue());
+  }
+
+  DateTime? _bucketListedAt;
+
+  /// One listing of every bucket into `bucket_object`, at most twice a day
+  /// and never over an empty library: a fresh install has not restored its
+  /// records yet, and would see every object in the bucket as unknown.
+  Future<void> _refreshBucketListing() async {
+    if (_all.isEmpty) return;
+    final last = _bucketListedAt;
+    if (last != null &&
+        DateTime.now().difference(last) < const Duration(hours: 12)) {
+      return;
+    }
+    _bucketListedAt = DateTime.now();
+    try {
+      await BucketIndexer(
+        targetsStore: _backupTargetsStore,
+        recordStore: assetRecordStore,
+      ).refresh();
+      await NameMigration(
+        store: assetRecordStore,
+        targetsStore: _backupTargetsStore,
+      ).run();
+    } catch (_) {
+      // Offline or unreadable: the old listing stands.
+    }
   }
 
   Future<void> _restoreAppDataThenReload() async {
@@ -2892,7 +2922,10 @@ class LibraryScreenState extends State<LibraryScreen>
             color: CupertinoColors.systemOrange,
             title: l10n.collectionsStorageRow,
             onTap: () => _push(
-              StorageOptimizationScreen(
+              FlaggedItemsScreen(
+                store: assetRecordStore,
+                targetsStore: _backupTargetsStore,
+                passphrases: _vaultKeys.entries,
                 advisor: _storageAdvisor,
                 optimizer: _storageOptimizer,
                 onOpenAsset: _openById,

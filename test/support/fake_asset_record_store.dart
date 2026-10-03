@@ -2,6 +2,7 @@ import 'dart:io';
 
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
+import 'package:photos_vault/storage/bucket_object.dart';
 
 /// Pure-Dart, in-memory stand-in for [AssetRecordStore] — for widget tests.
 ///
@@ -336,6 +337,43 @@ class FakeAssetRecordStore implements AssetRecordStore {
       key: destinationKey,
       hash: sourceHash,
     );
+  }
+
+  final bucketObjects = <String, List<BucketObject>>{};
+
+  @override
+  Future<void> replaceBucketObjects(
+    String targetId,
+    List<BucketObject> objects,
+  ) async => bucketObjects[targetId] = objects;
+
+  @override
+  Future<List<BucketObject>> listBucketObjects() async => [
+    for (final list in bucketObjects.values) ...list,
+  ];
+
+  @override
+  Future<Set<String>> referencedKeys() async => {
+    for (final r in _records.values)
+      for (final kind in DerivativeKind.values) ?r.stateOf(kind).destinationKey,
+    for (final upload in uploads.values)
+      for (final entry in upload.values) entry.key,
+  };
+
+  @override
+  Future<void> renameUploadKey({
+    required String localId,
+    required DerivativeKind kind,
+    required String targetId,
+    required String destinationKey,
+  }) async {
+    final row = uploads['$localId/${kind.name}']?[targetId];
+    if (row != null) {
+      uploads['$localId/${kind.name}']![targetId] = (
+        key: destinationKey,
+        hash: row.hash,
+      );
+    }
   }
 
   @override
