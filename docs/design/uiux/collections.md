@@ -160,21 +160,6 @@ a toolbar of unrelated verbs, with `Delete Private Album` in red one tap
 from `Add`. `Add` moved to the end of the grid, where you are when you want
 another photo.
 
-## Smart collections  `lib/viewer/smart_collection_screen.dart`
-
-AI-guessed groupings, opt-in, spends the user's own credit.
-
-```
- ‹              People
- [[ Analyze 42 Photos ]]      ⟳ Analyzing… 12 of 42
- ┌────────┐ ┌────────┐ ┌────────┐
- │ cover  │ │ cover  │ │  ⊞     │
- └────────┘ └────────┘ └────────┘
- 2 People    1 Person    Tap to Analyze     ← the not-yet-analyzed card
- No People
- empty  No photos to analyze yet.
-```
-
 ## Photo picker  `lib/viewer/asset_picker_screen.dart`
 
 ```

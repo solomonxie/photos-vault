@@ -423,14 +423,6 @@ class _AddAiKeySheetState extends State<_AddAiKeySheet> {
                   ],
                 ),
               ),
-              if (!_meta.readsPhotos)
-                Padding(
-                  padding: fieldPadding,
-                  child: Text(
-                    l10n.settingsAiTextOnly(_meta.name),
-                    style: settingsHintStyle,
-                  ),
-                ),
               Padding(
                 padding: fieldPadding,
                 child: CupertinoTextField(

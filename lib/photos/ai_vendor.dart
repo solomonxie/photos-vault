@@ -27,7 +27,6 @@ class AiVendorMeta {
     required this.keyHint,
     required this.docsUrl,
     this.region = AppStoreRegion.us,
-    this.readsPhotos = true,
   });
 
   final AiVendor vendor;
@@ -38,10 +37,6 @@ class AiVendorMeta {
   /// The only storefront that offers it: China allows only vendors
   /// licensed there, and those endpoints are China-region.
   final AppStoreRegion region;
-
-  /// False for a text-only model: it answers questions but can't analyze
-  /// photos, so analysis falls through to the next key.
-  final bool readsPhotos;
 }
 
 /// Use [aiVendorsFor] for anything shown or called: the storefront decides
@@ -89,7 +84,6 @@ const aiVendors = <AiVendorMeta>[
     keyHint: 'sk-...',
     docsUrl: 'https://platform.deepseek.com/api_keys',
     region: AppStoreRegion.cn,
-    readsPhotos: false,
   ),
   AiVendorMeta(
     vendor: AiVendor.qwen,
@@ -114,11 +108,21 @@ const aiVendors = <AiVendorMeta>[
   ),
 ];
 
+/// Off in China for now (2026-10): App Review there asks generative-AI
+/// apps for local permits, and this is a bring-your-own-key extra. The
+/// licensed vendors above stay listed for when it comes back.
+const aiInChina = false;
+
+/// Whether this storefront gets AI at all — every entry point checks it.
+bool get aiOffered => AppStoreRegion.current != AppStoreRegion.cn || aiInChina;
+
 List<AiVendorMeta> aiVendorsFor(AppStoreRegion region) =>
-    aiVendors.where((v) => v.region == region).toList();
+    region == AppStoreRegion.cn && !aiInChina
+    ? const []
+    : aiVendors.where((v) => v.region == region).toList();
 
 bool aiVendorAllowed(AiVendor vendor, AppStoreRegion region) =>
-    aiVendors.any((v) => v.vendor == vendor && v.region == region);
+    aiVendorsFor(region).any((v) => v.vendor == vendor);
 
 String aiVendorName(AiVendor vendor) =>
     aiVendors.firstWhere((v) => v.vendor == vendor).name;

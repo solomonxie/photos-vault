@@ -14,33 +14,30 @@ import 'package:photos_vault/photos/ai_chat.dart';
 import 'fake_secure_store.dart';
 
 void main() {
-  test('the China storefront offers only China vendors', () {
-    expect(aiVendorsFor(AppStoreRegion.cn).map((v) => v.vendor), [
-      AiVendor.deepseek,
-      AiVendor.qwen,
-      AiVendor.zhipu,
-      AiVendor.moonshot,
-    ]);
+  test('the China storefront offers no AI at all, for now', () {
+    expect(aiVendorsFor(AppStoreRegion.cn), isEmpty);
     expect(
       aiVendorsFor(AppStoreRegion.us).map((v) => v.vendor),
       isNot(contains(AiVendor.qwen)),
     );
   });
 
-  test('keys for the other storefront are kept but never used', () async {
+  test('in China, stored keys are kept but never used', () async {
     final secure = FakeSecureStore();
     await AiSettingsStore(
       store: secure,
       fixedRegion: AppStoreRegion.us,
     ).addKey(AiVendor.openai, 'sk-us');
     final cn = AiSettingsStore(store: secure, fixedRegion: AppStoreRegion.cn);
-    await cn.addKey(AiVendor.qwen, 'sk-cn');
 
-    expect((await cn.listKeys()).length, 2);
-    expect((await cn.usableKeys()).single.vendor, AiVendor.qwen);
+    expect((await cn.listKeys()).length, 1);
+    expect(await cn.usableKeys(), isEmpty);
     final used = <String>[];
-    await cn.runWithKeys((k) async => used.add(k.secret));
-    expect(used, ['sk-cn']);
+    await expectLater(
+      cn.runWithKeys((k) async => used.add(k.secret)),
+      throwsA(anything),
+    );
+    expect(used, isEmpty);
   });
 
   test('a key for a vendor this build no longer has is skipped', () async {

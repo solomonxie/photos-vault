@@ -23,13 +23,9 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
   re-encoded in the source's own format.
 - `derived_asset.dart` — files edited bytes as a *new* library item carrying
   the source's date, description, tags, place, people and private-album
-  membership. Every edit path (crop, rotate, AI touch-up) ends
+  membership. Every edit path (crop, rotate, resize) ends
   here, so the photo that was edited — and its backed-up copy — is never
   overwritten.
-- `ai_image_edit_service.dart` / `ai_touch_up_queue.dart` — prompt + photo out
-  to OpenAI/Google (the only configured vendors that return an image; others
-  throw, so `runWithKeys` falls through to the next key), result back in as a
-  derived asset. The queue outlives the screen that started the job.
 - `person.dart` / `person_store.dart` — named `Person` profiles (bio fields,
   tagged photos, relationships, location history) behind
   `../viewer/people_screen.dart`; see DESIGN.md's "People profiles" section.
@@ -59,7 +55,7 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
   viewer's People heading ("Find Faces"). Vision also classifies scenes;
   that half was tried against a real library and dropped, because the
   labels were wrong often enough that checking them cost more than typing
-  the right tag. Tagging is `ai_vision_service.dart`'s job now.
+  the right tag. Tags are typed by hand; no photo goes to an AI vendor.
 - `thumbnail_cache.dart` — app-owned thumbnails, `thumbnailOption` (always
   *fitted* on iOS: PhotoKit centre-crops to a square by default, and a
   square shown full-screen is a different photo from the one that was

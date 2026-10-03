@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'dart:io';
 
+import '../main.dart' show screenshotRequest;
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/gestures.dart' show HitTestResult;
 import 'package:flutter/rendering.dart' show RenderMetaData;
@@ -12,14 +14,13 @@ import 'package:path/path.dart' as p;
 import '../l10n/app_localizations.dart';
 import '../demo/demo_flag.dart';
 import '../demo/demo_mode.dart';
+import '../photos/ai_vendor.dart';
 import '../photos/derived_asset.dart';
 import '../photos/asset_removal.dart';
 import '../photos/library_metadata.dart';
 import '../photos/library_scanner.dart';
 import '../photos/ai_analysis_store.dart';
-import '../photos/ai_vision_service.dart';
 import '../photos/analyze_queue.dart';
-import '../photos/ai_touch_up_queue.dart';
 import '../photos/file_hash.dart' as file_hash;
 import '../photos/image_pipeline.dart';
 import '../photos/manual_add.dart';
@@ -76,6 +77,7 @@ import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'favorites_screen.dart';
 import 'resize_photos.dart';
+import 'select_all.dart';
 import 'people_screen.dart';
 import 'photo_grid_layout.dart';
 import 'face_group_screen.dart';
@@ -118,7 +120,6 @@ class LibraryScreen extends StatefulWidget {
     this.thumbnailCache,
     this.syncJobStore,
     this.onDeviceAnalysis,
-    this.aiVisionService,
     this.analyzeQueue,
     this.restoreOriginal,
   });
@@ -199,10 +200,6 @@ class LibraryScreen extends StatefulWidget {
 
   /// Overridable for tests so they never reach the Vision platform channel.
   final OnDeviceAnalysisService? onDeviceAnalysis;
-
-  /// The paid half of the analyze pass. Overridable for tests so they
-  /// never make a vendor call.
-  final AiVisionService? aiVisionService;
 
   /// Overridable for tests, which would otherwise have a background pass
   /// walking a fake library while the test is trying to assert on it.
@@ -560,7 +557,6 @@ class LibraryScreenState extends State<LibraryScreen>
     _missingDebounce?.cancel();
     syncQueue.draining.removeListener(_onDrainingChanged);
     _analyzeQueue.remaining.removeListener(_onReviewCountChanged);
-    AiTouchUpQueue.instance.removeListener(_onAiTouchUpChanged);
     syncQueue.dispose();
     if (widget.analyzeQueue == null) _analyzeQueue.dispose();
     _libraryScanner.dispose();
@@ -575,21 +571,34 @@ class LibraryScreenState extends State<LibraryScreen>
     _watchPhotoLibrary();
     syncQueue.draining.addListener(_onDrainingChanged);
     _analyzeQueue.remaining.addListener(_onReviewCountChanged);
-    AiTouchUpQueue.instance.addListener(_onAiTouchUpChanged);
     _init();
+    _screenshotHook();
+  }
+
+  /// Simulator screenshots: `/tmp/pv-screenshot` names the screen; it can't exist on a phone.
+  Future<void> _screenshotHook() async {
+    final screen = screenshotRequest()?.$1;
+    if (screen == null) return;
+    await Future<void>.delayed(const Duration(seconds: 5));
+    if (!mounted) return;
+    switch (screen) {
+      case 'people':
+        _openPeopleScreen();
+      case 'cloud':
+        await _openCloudBackups();
+      case 'detail':
+        if (_active.isNotEmpty) await _openRecord(_active.first);
+      case 'favorites':
+        _push(FavoritesScreen(assetRecordStore: assetRecordStore));
+      case 'album':
+        if (_albums.isNotEmpty) _openAlbum(_albums.first);
+    }
   }
 
   /// The Utilities badge counts what's left to look at, and that number
   /// moves while the pass runs rather than when anyone asks.
   void _onReviewCountChanged() {
     if (mounted) setState(() {});
-  }
-
-  /// A touch-up started from the detail screen finishes on its own time —
-  /// pick its result up whenever it lands, even if the user has since come
-  /// back here.
-  void _onAiTouchUpChanged() {
-    if (mounted) unawaited(reload());
   }
 
   /// One refresh when a drain finishes rather than one per job — a queue of
@@ -1227,8 +1236,11 @@ class LibraryScreenState extends State<LibraryScreen>
     if (r.isDeleted || _unresolvable.contains(r.localId)) return false;
     // Hidden, with its album locked. Queueing it again would be a loop:
     // the job takes, does nothing, finishes, and the refill hands it
-    // straight back. It gets picked up when the album is next opened.
-    if (_heldUntilUnlocked.contains(r.localId)) return false;
+    // straight back. It gets picked up when the album is next opened —
+    // from Utilities or from a person's page, whichever unlocked its key.
+    if (_heldUntilUnlocked.contains(r.localId) && !_coordinator.canUpload(r)) {
+      return false;
+    }
     // A Live Photo whose still went up but whose `.mov` didn't is still
     // owed to the bucket — what's up there is a silent still.
     return !r.isFullyBackedUp;
@@ -1822,10 +1834,10 @@ class LibraryScreenState extends State<LibraryScreen>
         final path = await _filePathFor(r);
         return path == null ? null : File(path).readAsBytes();
       },
-      saveCopy: (source, bytes) => createDerivedAsset(
+      saveCopy: (source, bytes, extension) => createDerivedAsset(
         source: source,
         bytes: bytes,
-        extension: '.jpg',
+        extension: extension,
         store: assetRecordStore,
         personStore: _personStore,
       ),
@@ -2109,8 +2121,18 @@ class LibraryScreenState extends State<LibraryScreen>
     }
     final capped = records.length > limit;
     final batch = capped ? records.take(limit).toList() : records;
-    if (ask && !await confirmDeleteSelection(context, count: batch.length)) {
-      return;
+    if (ask) {
+      final removable = batch.where(_removal.canRemoveFromDevice).toList();
+      final choice = await chooseBatchDelete(
+        context,
+        count: batch.length,
+        removable: removable.length,
+      );
+      if (choice == DeleteChoice.cancel) return;
+      if (choice == DeleteChoice.fromDevice) {
+        await _batchRemoveFromDevice(removable);
+        return;
+      }
     }
     setState(() => _busy = true);
     try {
@@ -2145,6 +2167,44 @@ class LibraryScreenState extends State<LibraryScreen>
     setState(() => _selection = left.isEmpty ? null : left);
     await reload();
     if (capped && mounted) _showResult(l10n.libraryDeleteBatchCapped(limit));
+  }
+
+  /// Frees the device copy of each of [records] and keeps it in the library
+  /// and the bucket. The bucket is asked once for the lot, and Photos
+  /// prompts once — see [StorageOptimizer.apply]. Only backed-up photos get
+  /// here; the rest of a selection is left as it was.
+  Future<void> _batchRemoveFromDevice(List<AssetRecord> records) async {
+    final l10n = AppLocalizations.of(context)!;
+    setState(() => _busy = true);
+    StorageFixResult result;
+    try {
+      result = await _storageOptimizer.apply([
+        for (final r in records)
+          StorageItem(
+            record: r,
+            bytes: 0,
+            name: '',
+            appOwned: r.sourcePath != null,
+            issues: const {},
+            fix: StorageFix.removeFromDevice,
+          ),
+      ]);
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (!mounted) return;
+    setState(() => _selection = null);
+    await reload();
+    if (!mounted) return;
+    final removed = records.length - result.skipped - result.unverified;
+    _showResult(
+      [
+        l10n.selectionRemovedFromDevice(removed),
+        if (result.skipped > 0) l10n.storageResultSkipped(result.skipped),
+        if (result.unverified > 0)
+          l10n.storageResultUnverified(result.unverified),
+      ].join('\n'),
+    );
   }
 
   /// Pick an album, or make one on the way — the same sheet the rest of
@@ -2595,6 +2655,17 @@ class LibraryScreenState extends State<LibraryScreen>
                     bottom: 0,
                     child: _SelectionBar(
                       count: selection.length,
+                      selectAll: SelectAllButton(
+                        total: filtered.length,
+                        selectedCount: selection.length,
+                        onSelectNext: () => setState(
+                          () => _selection = selectNextBatch(
+                            filtered.reversed.map((r) => r.localId),
+                            selection,
+                          ),
+                        ),
+                        onDeselectAll: () => setState(() => _selection = {}),
+                      ),
                       onAddTag: _batchAddTag,
                       onAddToAlbum: _batchAddToAlbum,
                       onSetPlace: _batchSetPlace,
@@ -2714,26 +2785,6 @@ class LibraryScreenState extends State<LibraryScreen>
                   : const Icon(CupertinoIcons.search, size: 24),
             ),
         ],
-      ),
-    ),
-    SliverToBoxAdapter(
-      child: AnimatedBuilder(
-        animation: AiTouchUpQueue.instance,
-        builder: (context, _) => AiTouchUpQueue.instance.running.isEmpty
-            ? const SizedBox.shrink()
-            : Padding(
-                padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-                child: Row(
-                  children: [
-                    const CupertinoActivityIndicator(radius: 8),
-                    const SizedBox(width: 8),
-                    Text(
-                      l10n.aiTouchUpWorking,
-                      style: const TextStyle(color: CupertinoColors.systemGrey),
-                    ),
-                  ],
-                ),
-              ),
       ),
     ),
   ];
@@ -2911,12 +2962,13 @@ class LibraryScreenState extends State<LibraryScreen>
               AnalyzeQueueScreen(queue: _analyzeQueue, onOpenAsset: _openById),
             ),
           ),
-          _row(
-            icon: CupertinoIcons.sparkles,
-            color: CupertinoColors.systemIndigo,
-            title: l10n.collectionsAiSettingsRow,
-            onTap: () => _push(const AiSettingsScreen()),
-          ),
+          if (aiOffered)
+            _row(
+              icon: CupertinoIcons.sparkles,
+              color: CupertinoColors.systemIndigo,
+              title: l10n.collectionsAiSettingsRow,
+              onTap: () => _push(const AiSettingsScreen()),
+            ),
           _row(
             icon: CupertinoIcons.chart_pie_fill,
             color: CupertinoColors.systemOrange,
@@ -3456,6 +3508,7 @@ class _SubsectionHeader extends StatelessWidget {
 class _SelectionBar extends StatelessWidget {
   const _SelectionBar({
     required this.count,
+    required this.selectAll,
     required this.onAddTag,
     required this.onAddToAlbum,
     required this.onSetPlace,
@@ -3467,6 +3520,7 @@ class _SelectionBar extends StatelessWidget {
   });
 
   final int count;
+  final Widget selectAll;
   final VoidCallback onAddTag;
   final VoidCallback onAddToAlbum;
   final VoidCallback onSetPlace;
@@ -3510,6 +3564,8 @@ class _SelectionBar extends StatelessWidget {
                         : l10n.selectionTitle(count),
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
+                  const Spacer(),
+                  selectAll,
                   CupertinoButton(
                     padding: EdgeInsets.zero,
                     onPressed: onDone,

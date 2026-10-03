@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/ai_vendor.dart';
 import '../photos/person.dart';
 import '../photos/face_identity.dart';
 import '../photos/person_detail.dart';
@@ -724,7 +725,12 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       context: context,
       builder: (context) => CupertinoAlertDialog(
         title: Text(l10n.personProfileDeleteConfirmTitle),
-        content: Text(l10n.personProfileDeleteConfirmBody),
+        // Always said, never checked: whether this person has a hidden
+        // folder is exactly what the app can't know without the code.
+        content: Text(
+          '${l10n.personProfileDeleteConfirmBody}\n\n'
+          '${l10n.personProfileDeleteHiddenWarning}',
+        ),
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(context).pop(false),
@@ -1637,34 +1643,36 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
         backgroundColor: _cardBackground,
         decoration: _cardDecoration,
         children: [
-          CupertinoListTile(
-            key: const ValueKey('utility-ask-ai'),
-            leading: const Icon(
-              CupertinoIcons.sparkles,
-              color: CupertinoColors.systemIndigo,
+          if (aiOffered) ...[
+            CupertinoListTile(
+              key: const ValueKey('utility-ask-ai'),
+              leading: const Icon(
+                CupertinoIcons.sparkles,
+                color: CupertinoColors.systemIndigo,
+              ),
+              title: Text(l10n.askAiProfileOption),
+              trailing: const Icon(
+                CupertinoIcons.chevron_forward,
+                size: 18,
+                color: CupertinoColors.systemGrey2,
+              ),
+              onTap: _askAboutPerson,
             ),
-            title: Text(l10n.askAiProfileOption),
-            trailing: const Icon(
-              CupertinoIcons.chevron_forward,
-              size: 18,
-              color: CupertinoColors.systemGrey2,
+            CupertinoListTile(
+              key: const ValueKey('utility-autofill'),
+              leading: const Icon(
+                CupertinoIcons.doc_text_search,
+                color: CupertinoColors.systemIndigo,
+              ),
+              title: Text(l10n.autofillOption),
+              trailing: const Icon(
+                CupertinoIcons.chevron_forward,
+                size: 18,
+                color: CupertinoColors.systemGrey2,
+              ),
+              onTap: _autofillFromFile,
             ),
-            onTap: _askAboutPerson,
-          ),
-          CupertinoListTile(
-            key: const ValueKey('utility-autofill'),
-            leading: const Icon(
-              CupertinoIcons.doc_text_search,
-              color: CupertinoColors.systemIndigo,
-            ),
-            title: Text(l10n.autofillOption),
-            trailing: const Icon(
-              CupertinoIcons.chevron_forward,
-              size: 18,
-              color: CupertinoColors.systemGrey2,
-            ),
-            onTap: _autofillFromFile,
-          ),
+          ],
           CupertinoListTile(
             key: const ValueKey('utility-this-is-me'),
             title: Text(l10n.ownerThisIsMe),

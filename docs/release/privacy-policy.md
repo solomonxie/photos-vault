@@ -24,9 +24,9 @@ grouping and search all run on the device. Deleting the app deletes all of it.
 - **Your iCloud Drive** — optional. A copy of the app's own records (albums,
   people, tags, captions — not the photos) can be written to your iCloud
   account, under your quota.
-- **AI analysis and AI touch-up** — off by default, and only after you add
-  your own API key. When enabled, a photo and your prompt go to the vendor
-  whose key you configured (OpenAI, Anthropic, Google, Groq, Mistral, xAI)
+- **AI for person profiles** — off by default, and only after you add
+  your own API key. When used, the text you ask about goes to the vendor
+  whose key you configured
   under your own account with them, billed to you and governed by their
   privacy policy. The key is stored in the iOS Keychain and is never sent to
   the developer.

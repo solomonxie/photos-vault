@@ -17,7 +17,7 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
  LibraryScreen ── one page: day grid, then collections, then utilities
    │  + add files ──▶ [Files picker · OS]
    │  🔍 search ──▶ filters the grid in place
-   │  tile ──▶ DetailScreen ──▶ [Edit ▸ Crop | Rotate | AI Touch Up]
+   │  tile ──▶ DetailScreen ──▶ [Edit ▸ Crop | Rotate | Resize]
    │                        └──▶ [Share ▸ Original | Export As…]
    │  hold tile ──▶ selection mode (bar at the bottom)
    │  Albums ──▶ AlbumScreen · FavoritesScreen · AssetGroupScreen
@@ -26,7 +26,6 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
    │                                            ├─▶ PersonHistoryDetail
    │                                            └─▶ PersonGraphScreen
    │  Places ──▶ AssetGroupScreen
-   │  People (AI Suggestions) ──▶ SmartCollectionScreen
    └─ More
         Where Your Photos Are ──▶ SafetyScreen
         Cloud Settings (+ Backup Queue) ──▶ SettingsScreen ──▶ BucketBrowser ─▶ (deeper)
@@ -50,5 +49,5 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
 | `safety.md` | where every copy is, checking it, getting it back without the app |
 | `queue.md` | sync queue sheet |
 | `storage.md` | optimize storage: problem filters, per-photo fixes, batch |
-| `ai.md` | AI settings and AI touch-up |
+| `ai.md` | AI settings |
 | `components.md` | tiles, rows, scrubber, section chrome |

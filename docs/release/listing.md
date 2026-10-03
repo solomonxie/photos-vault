@@ -184,8 +184,7 @@ latter, so it goes stale and quietly reports an older build's numbers.
 
 **Required slot: iPhone 6.9" — exactly `1320 × 2868`** (or `1290 × 2796`).
 Upload one set; App Store Connect scales it down for every smaller iPhone.
-The 6.5" set (`1284 × 2778`) is optional and only worth uploading if you want
-to control how older phones look. No iPad set — the app is iPhone-only.
+No iPad set — the app is iPhone-only.
 
 Nothing is tracked under `docs/release/screenshots/` — the three PNGs in the
 repo root are README art at ~840 px and upscale into mush. Capture a fresh set:
@@ -208,7 +207,7 @@ repo root are README art at ~840 px and upscale into mush. Capture a fresh set:
 make screenshots FROM=~/Desktop/shots
 ```
 
-Writes `docs/release/screenshots/{6.9,6.5}/`, JPEG, alpha stripped (App Store
+Writes `docs/release/screenshots/`, JPEG, alpha stripped (App Store
 Connect rejects anything with an alpha channel). Drag the `6.9` folder into
 the 6.9" slot.
 
@@ -250,10 +249,10 @@ second at cold start and Apple does not reject for it — worth a pass at
 | App Review → Attachment | none |
 | Version Release | **Manually release this version** |
 
-Promotional Text (168/170):
+Promotional Text (148/170 — no price words here, Guideline 2.3.7):
 
 ```
-Back up your camera roll to a bucket you own — S3, COS or OSS. Plain files, plus an index you can read without this app. No account, no subscription, no server in the middle.
+Back up your camera roll to a bucket you own — S3, COS or OSS. Plain files, plus an index you can read without this app. No account and no server in the middle.
 ```
 
 Description:
@@ -267,13 +266,13 @@ IF YOU EVER LOSE THIS APP
 • Check Now asks your bucket, object by object, whether it really holds what this app says it holds
 • Test Restore downloads photos back out of the bucket and checks them, so "backed up" is something you have watched work rather than a number on a screen
 • Nothing on the phone is deleted on the strength of an unverified backup
-• This app cannot delete from your bucket — only you can
+• A bucket copy is removed only when you delete that photo for good
 
 BACKUP TO STORAGE YOU OWN
 • Add a bucket by name — the region is detected for you, and access is verified before anything is saved
 • Automatic backup of new and changed photos, resumable, surviving a lock screen or a dropped connection
 • More than one bucket at once: mirror every photo to each, or fill one completely before the next
-• Upload originals byte-for-byte, or re-encode to WebP to cut storage
+• Upload as HEIF to cut storage by about half, or originals byte-for-byte
 • Separate key prefixes so your own bucket Lifecycle Rules can tier storage however you like
 • Browse what is actually in the bucket, from inside the app
 
@@ -281,7 +280,7 @@ A GALLERY, NOT A BACKUP TOOL
 • Day-grouped grid built to scroll like Photos does, on libraries of tens of thousands
 • Albums, favorites, tags, captions and places
 • Live Photos, GIFs, videos, bursts
-• Crop, rotate, and an optional AI touch-up — always saved as a new photo
+• Crop, rotate and resize — always saved as a new photo
 • Lock a photo and nothing can delete it, edit it, or shrink it to save space
 
 PEOPLE AND FACES, ON THE DEVICE
@@ -292,15 +291,16 @@ PEOPLE AND FACES, ON THE DEVICE
 
 PRIVATE ALBUMS
 • A four-digit code opens a hidden album, and every code is valid — a wrong one opens an empty album, never an error, so nothing confirms an album exists
-• Hidden photos leave the phone encrypted with your passphrase, stored in your bucket disguised as ordinary pictures
-• Nothing about them stays on the phone — no file, no thumbnail, no record
+• Hidden photos are encrypted with your passphrase and disguised as ordinary pictures — on the phone, and in your bucket
+• No readable trace stays on the phone — no plain file, no thumbnail, no record
+• A person can have a hidden folder of their own, opened from their page
 
 FREE UP SPACE
 • See what the library is costing you, per photo: large files, oversized resolutions, formats that could be smaller
 • Drop the full-resolution copy of anything already backed up — the photo stays in your library and comes back on demand
 
 OPTIONAL AI
-Bring your own API key from OpenAI, Anthropic, Google, Groq, Mistral or xAI and let it tag, caption and sort photos into the People collection. The key is yours, the usage is billed to your account with that vendor, and the feature is off until you turn it on. Skip it and the app works the same — faces and search never needed it.
+Add your own AI key to help fill in people's profiles from text you provide. The key is yours, usage is billed to your own account with that provider, and nothing is sent until you add one. No photo is ever sent to an AI service. Skip it and the app works the same — faces and search never needed it. Not available in China mainland.
 
 YOUR DATA
 • Library, records and faces live in a database on this iPhone and are worked out here
@@ -349,9 +349,17 @@ DELETING FROM PHOTOS: hiding a photo, or freeing up space, asks iOS to remove
 the original from the Photos library. That always goes through the system
 confirmation sheet — the app cannot and does not delete anything silently.
 
-AI: off by default and unusable until the user adds their own API key from
-OpenAI, Anthropic, Google, Groq, Mistral or xAI. Face recognition is a model
-running on the device and needs no key.
+AI: off by default and unusable until the user adds their own API key. It is
+used only to help fill in person profiles from text the user provides; no
+photo is ever sent to an AI service.
+
+CHINA MAINLAND: all AI functionality, including ChatGPT/OpenAI, is
+deactivated in the China mainland storefront. The app reads the App Store
+account's country at launch (StoreKit storefront) and, for China mainland,
+removes AI Settings and every AI option from the app and blocks all AI
+requests, even if a key were stored. No metadata mentions ChatGPT or OpenAI.
+
+Face recognition is a model running on the device and needs no key.
 
 We operate no server and receive no user data. Photos go only to the bucket
 the user configures.
@@ -473,78 +481,85 @@ distribution in France.
 
 ---
 
-## Optional: 简体中文 localization
+## 简体中文 localization (China mainland storefront)
 
-The app ships `zh`. App Store Connect → App Information → language dropdown
-(top right) → **Add Chinese (Simplified)**, then switch the `1.0.0` page to it.
+App Store Connect → App Information → language dropdown (top right) →
+**Add Chinese (Simplified)**, then switch the `1.0.0` page to it. Written as
+native copy, not a translation. No AI feature or vendor is mentioned anywhere
+(AI is off in China mainland, see `docs/release/README.md`).
 
 | Field | Value |
 |---|---|
 | Name | `Photos Vault 照片保险库` |
-| Subtitle | `你的照片，随时找得回` |
-| Keywords | `照片,备份,存储桶,相册,人脸,隐私,离线,加密,私密,归档,对象存储,图库` |
+| Subtitle | `照片存进自己的桶，丢不了` |
+| Keywords | `照片,备份,存储桶,相册,人脸,隐私,私密,加密,对象存储,图库,云备份,相机胶卷,整理,离线` |
 | Privacy Policy URL | same |
-| Screenshots | reuse the English ones (App Store Connect falls back automatically) |
+| Screenshots | own set in Chinese UI, `docs/release/screenshots/zh/` (steps below) |
 
 Promotional Text:
 
 ```
-把相机胶卷备份到你自己的存储桶——S3、腾讯 COS 或阿里云 OSS。存的是普通文件，还附一份不用本应用也能读的索引。无需账号，无订阅，中间没有任何服务器。
+照片备份到你自己的存储桶，支持 S3、腾讯云 COS、阿里云 OSS。存下来的就是普通文件，还附带一份表格索引，不装这个 App 也能查。不用注册账号，中间也没有别人的服务器。
 ```
 
 Description:
 
 ```
-Photos Vault 把你的照片和视频备份到你自己的对象存储——Amazon S3、腾讯云 COS 或阿里云 OSS，用你自己的密钥，走你自己的账单。没有 Photos Vault 账号，没有订阅，从相机胶卷到存储桶之间没有任何服务器。
+Photos Vault 把手机里的照片和视频备份到你自己的对象存储里，可以是 Amazon S3、腾讯云 COS 或阿里云 OSS。用的是你自己的密钥，花的是你自己的钱。不用注册账号，不收订阅费，照片从手机到存储桶，中间不经过任何第三方服务器。
 
-万一这个应用不在了
-• 你的照片就是你自己存储桶里的普通文件，不是私有格式的归档包
-• 旁边还有一份 index.csv，按日期、相册、人物、描述和地点列出每一张照片——用任意表格应用打开就能重新找到任何一张，不需要账号，也不用装任何东西
-• “立即核对”会逐个对象询问存储桶：它是否真的存着本应用声称已备份的内容
-• “试试恢复”会把照片从存储桶下载回来并校验，让“已备份”成为你亲眼见过的事实，而不是屏幕上的一个数字
-• 未经核实的备份，绝不会成为删除本机照片的理由
-• 本应用无权从你的存储桶删除任何内容——只有你可以
+万一哪天这个 App 不用了，照片也丢不了
+• 备份出来的就是普通文件，直接躺在你自己的存储桶里，不是什么只有本 App 才能打开的压缩包
+• 每个备份旁边都有一份 index.csv，按日期、相册、人物、备注和地点列好了每一张照片，用 Excel 或 WPS 打开就能找，不用账号，也不用装任何软件
+• 「立即核对」会逐个文件去问存储桶：App 说备份了的，你桶里是不是真的有
+• 「试试恢复」会把照片从存储桶下载回来并校验，“已备份”不再只是屏幕上一个数字，而是你亲眼看过的结果
+• 没确认备份成功之前，手机上的照片一张都不会被删
+• 只有你自己彻底删除某张照片时，存储桶里的那份才会跟着删
 
-备份到你自己的存储
-• 只填存储桶名字——区域自动识别，保存前先验证访问权限
-• 新照片和有改动的照片自动备份，可续传，锁屏或断网都不会前功尽弃
-• 可同时配置多个存储桶：每张照片都发往全部存储桶，或先把一个装满再开始下一个
-• 原图逐字节上传，或转成 WebP 以节省空间
-• 缩略图/中图/原图分前缀存放，你自己的生命周期规则想怎么分层都行
-• 在应用内直接浏览存储桶里真正有什么
+备份到自己的存储桶
+• 只要填桶的名字，地域自动识别，保存之前先帮你验证权限
+• 新拍的、改过的照片自动备份，断网、锁屏都能接着传
+• 可以同时接多个桶：每张照片都发到每个桶，或者先把一个装满再用下一个
+• 可存为 HEIF，大约省一半空间；也可以原图原样上传
+• 缩略图、中图、原图分前缀存放，想用桶的生命周期规则做冷热分层，随你
+• 在 App 里就能翻看桶里到底存了什么
 
-它首先是一个图库
-• 按天分组的网格，为几万张照片的滑动流畅度而写
-• 相册、收藏、标签、描述、地点、事件
-• 实况照片、GIF、视频、连拍
-• 裁剪、旋转，以及可选的 AI 修图——永远另存为新照片
-• 锁定一张照片，它就不会被删除、被编辑，也不会为了省空间被压缩
+先是个好用的相册，然后才是备份工具
+• 按天分组的网格，几万张照片也滑得顺，手感向系统相册看齐
+• 相册、收藏、标签、备注、地点
+• 实况照片、GIF、视频、连拍都支持
+• 裁剪、旋转、缩小尺寸，改完都是另存一张新的，原图不动
+• 给照片加锁，就不会被删、被改，也不会被“释放空间”压缩
 
-人脸识别在本机完成
-• 由手机上运行的人脸模型查找并匹配人脸
-• 给一个人命名一次，下一张照片就会主动建议这个名字
-• 每个人都有完整档案：简介、亲友关系、关系图谱、迁居轨迹
-• 全程不上传，也不产生任何费用
+人脸识别，全在手机上完成
+• 人脸的查找和比对都由手机上的模型完成
+• 给某个人起一次名字，之后再有他的照片，就会主动提示
+• 每个人都有一页档案：简介、亲友关系、关系图、搬家轨迹
+• 全程不联网上传，也不花一分钱
 
 私密相册
-• 四位数字打开隐藏相册，而且每一个都是有效的——输错只会打开一个空相册，永远不会报错，所以没有任何信息能证实某个相册存在
-• 隐藏的照片先用你的口令加密再离开手机，伪装成普通图片存进你的存储桶
-• 本机不留任何痕迹——没有文件，没有缩略图，没有记录
+• 输入四位数字打开隐藏相册，输任何四位数都能进：输错了只会打开一个空相册，不会提示错误，别人也就看不出这里有没有藏东西
+• 隐藏的照片用你设的口令加密，还会伪装成普通图片，手机上是这样，存储桶里也是这样
+• 手机上不留任何看得出来的痕迹：没有明文文件，没有缩略图，没有记录
+• 每个人物还可以有自己的隐藏文件夹，从他的主页进入
 
-释放空间
-• 逐张看清照片库占了多少：大文件、过高分辨率、可以更小的格式
-• 已备份的照片可以删掉本机原图——它仍在图库里，需要时再下载回来
+腾出手机空间
+• 逐张看清哪些照片最占地方：体积大的、分辨率过高的、格式可以更省的
+• 已经备份的照片，可以只删掉手机里的原图，照片仍留在相册里，要看的时候再下载回来
 
-可选 AI
-使用你自己的 OpenAI、Anthropic、Google、Groq、Mistral 或 xAI 密钥，自动打标签、写描述，并归入"人物"和"事件"智能合集。密钥属于你，用量计入你在该服务商的账户，默认关闭。完全不用它也一样好用——人脸识别和搜索从来不需要它。
+数据都在你自己手里
+• 照片库、各项记录和人脸数据都存在这台 iPhone 本机的数据库里，也都在本机计算
+• 相册、人物、标签和备注，在有改动的当天会同步到你的 iCloud 云盘和存储桶，默认开启，重装后自动恢复
+• 每份副本都带着可直接阅读的 index.csv，不用本 App 也能打开
+• 随时可以导出、导入成普通文件
+• 密钥存在系统钥匙串里，不会进入任何备份
+• 卸载 App，本机数据也一并清除
 
-你的数据
-• 照片库、各项记录与人脸都存在这台 iPhone 的数据库里，也都在本机算出
-• 相册、人物、标签和描述会在有变动的日子复制到你的 iCloud 云盘和你的存储桶——默认开启，重装后自动取回
-• 每一份副本都带着那份可读的 index.csv，因此不用本应用也能打开备份
-• 随时导出导入为普通文件
-• 密钥保存在钥匙串中，任何备份都不包含
-• 删除应用，本机数据一并消失
-
-免费。无广告，无统计分析，无内购推销。
+免费，没有广告，不做数据统计，也没有内购。
 ```
+
+### Chinese screenshots
+
+1. `make install-ios STOREFRONT=CHN` (forces China mode: no AI anywhere), phone language set to 简体中文, demo mode on.
+2. Same 8 shots, same order, as the English set; skip any that shows AI.
+3. AirDrop to `~/Desktop/shots-zh/`, then `make screenshots FROM=~/Desktop/shots-zh OUT=docs/release/screenshots/zh`.
+4. Upload the `zh` folder to the 6.9" slot of the Chinese (Simplified) page.

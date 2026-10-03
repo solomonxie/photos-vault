@@ -1053,12 +1053,11 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.byKey(const ValueKey('detailEditButton')));
     await tester.pumpAndSettle();
 
     expect(find.text('Crop'), findsOneWidget);
     expect(find.text('Rotate'), findsOneWidget);
-    expect(find.text('AI Touch Up'), findsOneWidget);
   });
 
   testWidgets('a locked photo says why instead of opening the editor', (
@@ -1078,13 +1077,12 @@ void main() {
     );
     await tester.pump();
 
-    await tester.tap(find.text('Edit'));
+    await tester.tap(find.byKey(const ValueKey('detailEditButton')));
     await tester.pumpAndSettle();
 
     expect(find.text('This photo is locked. Unlock it to edit it.'), findsOne);
     expect(find.text('Crop'), findsNothing);
     expect(find.text('Rotate'), findsNothing);
-    expect(find.text('AI Touch Up'), findsNothing);
   });
 
   group('cloud-only', () {
@@ -1503,9 +1501,7 @@ void main() {
     });
   });
 
-  testWidgets('AI Suggest sits above Tags, and Find Faces is on People', (
-    tester,
-  ) async {
+  testWidgets('no AI Suggest, and Find Faces is on People', (tester) async {
     await tester.pumpWidget(
       _wrap(
         DetailScreen(
@@ -1521,13 +1517,9 @@ void main() {
     await tester.pumpAndSettle();
     await _scrollToInfoPanel(tester);
 
-    // Tagging is the vendor models' job, so its button leads the Tags
-    // section; finding faces fills in People, so it sits under that
-    // heading.
-    expect(
-      tester.getTopLeft(find.text('AI Suggest')).dy,
-      lessThan(tester.getTopLeft(find.text('Tags')).dy),
-    );
+    // No photo goes to an AI vendor; finding faces fills in People, so it
+    // sits under that heading.
+    expect(find.text('AI Suggest'), findsNothing);
     expect(
       tester.getTopLeft(find.text('Find Faces')).dy,
       greaterThan(tester.getTopLeft(find.text('Tags')).dy),

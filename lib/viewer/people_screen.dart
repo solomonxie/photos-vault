@@ -18,7 +18,6 @@ import 'face_group_screen.dart';
 import 'person_picker_sheet.dart';
 import 'person_profile_screen.dart';
 import 'profile_transfer_screen.dart';
-import 'smart_collection_screen.dart';
 
 /// Collections' "People" row: named [Person] profiles (T7.1-T7.3), each with
 /// a photo count, plus a link down to the older AI people-*count* grouping
@@ -543,17 +542,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
         .then((_) => _reload());
   }
 
-  void _openAiAnalysis() {
-    Navigator.of(context).push(
-      CupertinoPageRoute(
-        builder: (_) => SmartCollectionScreen(
-          assetRecordStore: widget.assetRecordStore,
-          aiAnalysisStore: widget.aiAnalysisStore,
-        ),
-      ),
-    );
-  }
-
   /// Reloads on the way back: an import adds people to the list behind it.
   Future<void> _openProfileTransfer() async {
     await Navigator.of(context).push(
@@ -668,22 +656,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
             if (_unnamedFaces.isNotEmpty && query.isEmpty)
               ..._unnamedFaceRows(l10n),
             const SizedBox(height: 16),
-            CupertinoListTile(
-              leading: const Icon(
-                CupertinoIcons.sparkles,
-                color: CupertinoColors.systemIndigo,
-              ),
-              title: Text(l10n.peopleAiAnalysisRow),
-              trailing: const Icon(
-                CupertinoIcons.chevron_forward,
-                size: 18,
-                color: CupertinoColors.systemGrey2,
-              ),
-              onTap: _openAiAnalysis,
-            ),
-            // Under it, and last: the two rows here act on the whole
-            // registry rather than on anybody in the list, and this one is
-            // the registry as a file.
+            // Last: it acts on the whole registry rather than on anybody in
+            // the list — the registry as a file.
             CupertinoListTile(
               leading: const Icon(
                 CupertinoIcons.person_2_square_stack,

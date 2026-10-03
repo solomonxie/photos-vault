@@ -323,9 +323,8 @@ app cached thumb ──found──▶  draw it
   - **The backed-up copy is purged only when the app's own bin is emptied.** Anything short of that must leave the bucket alone, or "Recently Deleted" is a lie — there'd be nothing left to restore from. If the purge fails (offline, credentials rotated), keep the record: dropping it locally orphans objects with nothing left pointing at them.
   - **An edit that belongs to the photo goes back to the OS photo library too.** This app isn't a second library: hearting a photo here and finding it un-hearted in Photos means keeping two mental copies of one collection. Favourite and creation date are writable through PhotoKit and are mirrored both ways — a heart added in Photos shows up here on the next scan. Caption, description and tags have no public write API on iOS, so those stay the app's own; say so rather than letting the user assume they synced.
   - **The keyboard must not relayout the page under it.** A full-bleed media page sized to the viewport shrinks when the scaffold resizes, which shoves the photo and everything below it upward the moment a caption takes focus. Freeze the layout and give the scrolling panel keyboard-height padding instead, so the focused field scrolls clear on its own.
-- "Edit" sits top-right in the nav bar and opens a menu: Crop, Rotate, AI Touch Up.
+- "Edit" sits in the bottom bar, right of ⓘ, and opens a menu: Crop, Rotate, Resize. Delete is at the foot of the info panel, not in the bar.
   - Crop and rotate are local and instant; rotate is a **full 360° dial** you spin, not four preset buttons.
-  - AI Touch Up asks for a prompt, then runs in the background — the Edit button becomes "AI working…" and the library shows the same line, so leaving the photo doesn't cancel anything.
   - Every edit **lands as a new photo** carrying the original's date, description, tags, place and people. Editing in place would silently overwrite what's already backed up under that key.
 - **Video gets a real transport, not just tap-to-play**: a persistent bar under the frame with play/pause, elapsed and remaining time, a draggable timeline and mute. Dragging it seeks *live* — the frame under your thumb is the frame you see — and playback pauses for the drag, then resumes if it was running.
 - **A Live Photo plays while held**, like Photos: press and hold the still, release to stop. The paired video is fetched on the first hold, never on open — pre-loading it would pull a video file (and maybe an iCloud download) for every photo swiped past. A small LIVE badge marks the photo both in the grid and in the viewer.
@@ -836,8 +835,7 @@ Can support multiple model selections under each vendor, if confirmed by design 
 - **Never overwrite what the user wrote.** Machine tags merge with the ones they typed; a second pass that quietly drops a hand-written tag makes the whole feature untrustworthy.
 - **A guess below the confidence line isn't a tag, and neither is a word true of half the library.** Vision scores all ~1,300 of its labels, most near zero, and its vaguest ones ("outdoor", "plant") match everything — without a cut-off and a blocklist you get noise, not search.
 - Expensive analysis is **opt-in per run** ("Analyze"), never automatic, and results are cached locally.
-- Image editing is a narrower capability than vision — a key that can only *read* images must fail over to one that can *return* one, not error the whole request.
-- Long AI work runs detached from the screen that started it: an inline "AI working…" status, the result filed into the library when it lands, and the source photo untouched either way.
+- No AI image editing (removed 2026-10): AI is for reading, never for rewriting someone's photos.
 
 Layout follows the standard section anatomy at the top of this doc — key rows in a flat list, `+ Add AI Key` as a centred accent link closing it, and **adding one is a half sheet**, not a form parked permanently under the list. Two fields don't need a page, and a page-wide input box sitting under the keys is paid for on every visit including the ones where nobody is adding anything.
 
