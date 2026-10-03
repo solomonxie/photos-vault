@@ -8,20 +8,16 @@
 # The build number is a timestamp so every upload is higher than the last.
 # The user-visible version is `version:` in pubspec.yaml.
 #
-# Usage: [STOREFRONT=USA|CAN|CHN] scripts/release-ios.sh [build-number]
+# Usage: scripts/release-ios.sh [build-number]
 set -e
 cd "$(dirname "$0")/.."
 
 FLUTTER=.tools/flutter/bin/flutter
 [ -x "$FLUTTER" ] || FLUTTER=flutter
 
-# Storefront (App Store country code) -> Info.plist AppStoreRegion.
-case "${STOREFRONT:-USA}" in
-  USA | CAN) REGION=us ;;
-  CHN) REGION=cn ;;
-  *) echo "STOREFRONT must be USA, CAN or CHN"; exit 1 ;;
-esac
-echo "APP_STORE_REGION = $REGION" > ios/Flutter/Store.xcconfig
+# One binary for every storefront: the app reads the App Store country at
+# launch. A forced `cn` (STOREFRONT=CHN, for testing) must never ship.
+echo "APP_STORE_REGION = us" > ios/Flutter/Store.xcconfig
 
 # Demo-mode credentials, if present (see .env.demo.example).
 DEFINES=
