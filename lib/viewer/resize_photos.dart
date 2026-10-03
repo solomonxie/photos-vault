@@ -49,7 +49,12 @@ Future<List<AssetRecord>> resizePhotos<T>(
   BuildContext context, {
   required List<T> records,
   required Future<Uint8List?> Function(T record) readBytes,
-  required Future<AssetRecord> Function(T source, Uint8List bytes) saveCopy,
+  required Future<AssetRecord> Function(
+    T source,
+    Uint8List bytes,
+    String extension,
+  )
+  saveCopy,
   required Future<void> Function(List<T> originals) replaceOriginals,
   String? replaceNote,
 }) async {
@@ -69,7 +74,7 @@ Future<List<AssetRecord>> resizePhotos<T>(
     final small = bytes == null ? null : await shrinkPhoto(bytes, size);
     if (small == null) continue;
     try {
-      created.add(await saveCopy(record, small));
+      created.add(await saveCopy(record, small.bytes, small.extension));
       done.add(record);
     } catch (_) {
       // Left as it is; counted as skipped below.
@@ -98,7 +103,7 @@ class _ResizeSheet extends StatefulWidget {
 }
 
 class _ResizeSheetState extends State<_ResizeSheet> {
-  ExportSize _size = ExportSize.medium;
+  ExportSize _size = ExportSize.original;
 
   @override
   Widget build(BuildContext context) {
@@ -124,11 +129,16 @@ class _ResizeSheetState extends State<_ResizeSheet> {
                   size: Padding(
                     padding: const EdgeInsets.symmetric(vertical: 6),
                     child: Text(switch (size) {
-                      ExportSize.large => l10n.exportSmallerLarge(size.maxEdge),
-                      ExportSize.medium => l10n.exportSmallerMedium(
-                        size.maxEdge,
+                      ExportSize.original => l10n.resizeSameSize,
+                      ExportSize.large => l10n.exportSmallerLarge(
+                        size.maxEdge!,
                       ),
-                      ExportSize.small => l10n.exportSmallerSmall(size.maxEdge),
+                      ExportSize.medium => l10n.exportSmallerMedium(
+                        size.maxEdge!,
+                      ),
+                      ExportSize.small => l10n.exportSmallerSmall(
+                        size.maxEdge!,
+                      ),
                     }, style: const TextStyle(fontSize: 12)),
                   ),
               },

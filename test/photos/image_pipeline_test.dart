@@ -5,30 +5,6 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 
 void main() {
-  test('reencodeAsWebP re-encodes a decodable still image as WebP', () {
-    final png = Uint8List.fromList(
-      img.encodePng(img.Image(width: 4, height: 4)),
-    );
-
-    final webp = reencodeAsWebP(png);
-
-    expect(webp, isNotNull);
-    // WebP's RIFF container: bytes 0-3 "RIFF", bytes 8-11 "WEBP".
-    expect(String.fromCharCodes(webp!.sublist(0, 4)), 'RIFF');
-    expect(String.fromCharCodes(webp.sublist(8, 12)), 'WEBP');
-  });
-
-  test(
-    'reencodeAsWebP returns null for bytes that are not a decodable image',
-    () {
-      final notAnImage = Uint8List.fromList(
-        'this is a video file, not a photo'.codeUnits,
-      );
-
-      expect(reencodeAsWebP(notAnImage), isNull);
-    },
-  );
-
   group('encodeThumbnail', () {
     test(
       'scales an oversized image down to the max edge, preserving aspect',

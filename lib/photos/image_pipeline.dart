@@ -34,20 +34,6 @@ img.Image? decodePhoto(Uint8List bytes) {
   return null;
 }
 
-/// Decodes [bytes] as a still image and re-encodes it as lossy WebP —
-/// smaller than the equivalent JPEG at similar visual quality, powering
-/// the "Optimized" [BackupFormat](../settings/backup_targets_store.dart).
-/// Returns null if [bytes] isn't a decodable still image (e.g. it's a
-/// video file); the caller falls back to the original bytes in that case.
-/// Pure Dart, no Flutter dependency, so it can run on `Isolate.run` off
-/// the calling isolate — decode+encode of a full-size photo is heavy
-/// enough to jank a frame otherwise.
-Uint8List? reencodeAsWebP(Uint8List bytes) {
-  final decoded = decodePhoto(bytes);
-  if (decoded == null) return null;
-  return Uint8List.fromList(img.encodeWebP(decoded));
-}
-
 /// Longest edge, in pixels, of a generated thumbnail. A 4-across grid tile
 /// is ~100pt, so 320px still covers 3x retina with room to spare — and at
 /// [_thumbnailQuality] that lands around 15-30 KB a photo rather than the

@@ -255,7 +255,10 @@ void main() {
     );
 
     expect(succeeded, 1);
-    expect(fakeUploader.keys.single, 'p/originals/${await _base(recordStore, 'manual:abc')}.jpg');
+    expect(
+      fakeUploader.keys.single,
+      'p/originals/${await _base(recordStore, 'manual:abc')}.jpg',
+    );
     final updated = await recordStore.getByLocalId('manual:abc');
     expect(
       updated!.stateOf(DerivativeKind.original).status,
@@ -439,7 +442,10 @@ void main() {
         filePath: '/tmp/a-thumb.jpg',
       );
 
-      expect(fakeUploader.keys.single, 'p/thumbnails/${await _base(recordStore, 'manual:abc')}.jpg');
+      expect(
+        fakeUploader.keys.single,
+        'p/thumbnails/${await _base(recordStore, 'manual:abc')}.jpg',
+      );
       final updated = await recordStore.getByLocalId('manual:abc');
       expect(
         updated!.stateOf(DerivativeKind.thumbnail).status,
@@ -953,7 +959,7 @@ void main() {
     setUp(() => tempDir = Directory.systemTemp.createTempSync('byop_test_'));
     tearDown(() => tempDir.delete(recursive: true));
 
-    test('re-encodes a photo to WebP and uploads it under a .webp key', () async {
+    test('with no HEIF encoder (tests), the original goes up as it is', () async {
       final targetsStore = BackupTargetsStore(store: FakeSecureStore());
       await targetsStore.add(
         accessKeyId: 'a',
@@ -985,7 +991,10 @@ void main() {
       );
 
       expect(succeeded, 1);
-      expect(fakeUploader.keys.single, 'originals/manual_abc.webp');
+      expect(
+        fakeUploader.keys.single,
+        'originals/${await _base(recordStore, 'manual:abc')}.jpg',
+      );
       // The original file itself is untouched — only a temp copy is re-encoded.
       expect(photoFile.existsSync(), isTrue);
     });
@@ -1023,7 +1032,10 @@ void main() {
         );
 
         expect(succeeded, 1);
-        expect(fakeUploader.keys.single, 'originals/${await _base(recordStore, 'manual:vid')}.mp4');
+        expect(
+          fakeUploader.keys.single,
+          'originals/${await _base(recordStore, 'manual:vid')}.mp4',
+        );
       },
     );
 
@@ -1061,7 +1073,10 @@ void main() {
         );
 
         expect(succeeded, 1);
-        expect(fakeUploader.keys.single, 'originals/${await _base(recordStore, 'manual:bad')}.jpg');
+        expect(
+          fakeUploader.keys.single,
+          'originals/${await _base(recordStore, 'manual:bad')}.jpg',
+        );
       },
     );
   });

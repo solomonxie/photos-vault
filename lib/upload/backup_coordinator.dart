@@ -1,10 +1,9 @@
 import 'dart:io';
-import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 
 import '../photos/file_hash.dart' as file_hash;
-import '../photos/image_pipeline.dart';
+import '../photos/smaller_export.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
@@ -164,17 +163,29 @@ class BackupCoordinator {
     // identifier, the still-image-time marker — doesn't survive a trip
     // through an image encoder. See `docs/design/uiux/detail.md`.
     if (kind == DerivativeKind.livePhoto) return filePath;
-    if (format != BackupFormat.optimized || record.isVideo) return filePath;
+    if (format != BackupFormat.optimized ||
+        record.isVideo ||
+        record.isLivePhoto) {
+      return filePath;
+    }
+    final ext = p.extension(filePath).toLowerCase();
+    if (ext == '.heic' || ext == '.heif') return filePath;
     try {
-      final bytes = await File(filePath).readAsBytes();
-      final webp = await Isolate.run(() => reencodeAsWebP(bytes));
-      if (webp == null) return filePath;
-      final tempDir = await Directory.systemTemp.createTemp('byop_webp_');
-      final tempFile = File(
-        p.join(tempDir.path, '${p.basenameWithoutExtension(filePath)}.webp'),
+      // `.heif`, not `.heic`: marks a converted upload, so a restore drill
+      // knows these bytes were never the phone's — a HEIC sent as it was
+      // keeps `.heic` and is checked byte for byte. Named, not created: the
+      // encoder writes it, and nothing here touches the disk first.
+      final converted = p.join(
+        Directory.systemTemp.path,
+        'byop_heif_${DateTime.now().microsecondsSinceEpoch}_'
+        '${p.basenameWithoutExtension(filePath)}.heif',
       );
-      await tempFile.writeAsBytes(webp);
-      return tempFile.path;
+      final wrote = await encodeFileNatively(
+        input: filePath,
+        output: converted,
+        format: 'heic',
+      );
+      return wrote ? converted : filePath;
     } catch (_) {
       return filePath;
     }
@@ -304,11 +315,7 @@ class BackupCoordinator {
       );
       return 0;
     }
-    final fileName = safeFileName(
-      record,
-      uploadPath,
-      previousKey: previousKey,
-    );
+    final fileName = safeFileName(record, uploadPath, previousKey: previousKey);
     final derivativeDir = _derivativeDirs[kind]!;
 
     // The local copy first, before a single byte goes anywhere. A hidden

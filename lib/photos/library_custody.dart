@@ -7,6 +7,7 @@ import 'package:photo_manager/photo_manager.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'photo_library_service.dart';
+import 'smaller_export.dart';
 
 /// Who is holding the photo: the OS photo library, or this app.
 ///
@@ -150,20 +151,54 @@ class LibraryCustody {
   /// confirmation. It is also the only prompt in this flow: the photos are
   /// already selected, so asking again first would be asking a question
   /// already answered.
+  ///
+  /// [askHeif] is offered how many of the photos could be stored as HEIF —
+  /// same pixels, about half the space — once their files are in hand, so
+  /// the count leaves out what is HEIF already. Not asked when that's none.
+  /// A photo whose encode fails, or comes out no smaller, is kept as it was.
   Future<Map<String, CustodyResult>> takeOutMany(
-    List<AssetRecord> records,
-  ) async {
+    List<AssetRecord> records, {
+    Future<bool> Function(int count)? askHeif,
+  }) async {
     final results = <String, CustodyResult>{};
-    final copied = <AssetRecord>[];
+    final held = <AssetRecord>[];
+    final resolved = <AssetRecord, (File, File?)>{};
 
     for (final record in records) {
       if (record.sourceType != AssetSourceType.photoManager ||
           PhotoLibraryService.libraryIdOf(record) == null) {
         // Already ours: imported by hand, or taken out before.
+        held.add(record);
         results[record.localId] = CustodyResult.taken;
         continue;
       }
-      if (await _copyOut(record)) {
+      final files = await _resolve(record);
+      if (files == null) {
+        results[record.localId] = CustodyResult.failed;
+      } else {
+        resolved[record] = files;
+      }
+    }
+
+    var toHeif = false;
+    if (askHeif != null) {
+      final count =
+          held.where((r) => _heifCandidate(r, r.sourcePath)).length +
+          resolved.entries
+              .where((e) => _heifCandidate(e.key, e.value.$1.path))
+              .length;
+      if (count > 0) toHeif = await askHeif(count);
+    }
+    if (toHeif) {
+      for (final record in held) {
+        await _convertHeld(record);
+      }
+    }
+
+    final copied = <AssetRecord>[];
+    for (final MapEntry(key: record, value: (source, motion))
+        in resolved.entries) {
+      if (await _copyOut(record, source, motion, toHeif: toHeif)) {
         copied.add(record);
       } else {
         results[record.localId] = CustodyResult.failed;
@@ -186,22 +221,20 @@ class LibraryCustody {
     return results;
   }
 
-  /// Copies [record]'s original into this app's own storage and points the
-  /// record at it. A photo is only ever deleted from Photos once there is
-  /// another copy of it on disk, so this always happens first.
-  Future<bool> _copyOut(AssetRecord record) async {
+  /// [record]'s original and, for a Live Photo, its `.mov` — or null when
+  /// either can't be had. A Live Photo's motion is a second file, and
+  /// deleting from Photos takes both: no `.mov`, no hiding, since a silent
+  /// still is a lost photo.
+  Future<(File, File?)?> _resolve(AssetRecord record) async {
     final File source;
     try {
-      final resolved = await _library.fileFor(record);
-      if (resolved == null || !await resolved.exists()) return false;
-      source = resolved;
+      final file = await _library.fileFor(record);
+      if (file == null || !await file.exists()) return null;
+      source = file;
     } catch (_) {
       // An iCloud original that wouldn't come down, or no plugin at all.
-      return false;
+      return null;
     }
-
-    // A Live Photo's motion is a second file, and deleting from Photos takes
-    // both. No `.mov`, no hiding: a silent still is a lost photo.
     File? motion;
     if (record.isLivePhoto) {
       try {
@@ -209,13 +242,37 @@ class LibraryCustody {
       } catch (_) {
         motion = null;
       }
-      if (motion == null || !await motion.exists()) return false;
+      if (motion == null || !await motion.exists()) return null;
     }
+    return (source, motion);
+  }
 
+  /// Copies [source] (and [motion]) into this app's own storage and points
+  /// the record at it. A photo is only ever deleted from Photos once there
+  /// is another copy of it on disk, so this always happens first.
+  Future<bool> _copyOut(
+    AssetRecord record,
+    File source,
+    File? motion, {
+    bool toHeif = false,
+  }) async {
     try {
       final dir = await _directory();
-      final copy = File(p.join(dir.path, _fileNameFor(record, source)));
-      await source.copy(copy.path);
+      var copy = File(
+        p.join(dir.path, p.setExtension(_fileNameFor(record, source), '.heic')),
+      );
+      final converted =
+          toHeif &&
+          _heifCandidate(record, source.path) &&
+          await encodeFileNatively(
+            input: source.path,
+            output: copy.path,
+            format: 'heic',
+          );
+      if (!converted) {
+        copy = File(p.join(dir.path, _fileNameFor(record, source)));
+        await source.copy(copy.path);
+      }
       if (!await copy.exists() || await copy.length() == 0) return false;
       if (motion != null) {
         final held = File(PhotoLibraryService.heldLiveVideoPath(copy.path));
@@ -296,6 +353,39 @@ class LibraryCustody {
   /// goes back to Photos goes back as `IMG_4934.HEIC` rather than as this
   /// app's internal id. Prefixed with the record's id to stay unique in a
   /// flat directory.
+  /// A still at [path] that isn't HEIF already. Not a video, and not a
+  /// Live Photo: its still and `.mov` are a pair Photos matches up, and a
+  /// re-encoded still loses the tag that pairs them.
+  static bool _heifCandidate(AssetRecord record, String? path) {
+    if (path == null || record.countsAsVideo || record.isLivePhoto) {
+      return false;
+    }
+    final ext = p.extension(path).toLowerCase();
+    return ext != '.heic' && ext != '.heif';
+  }
+
+  /// A photo this app already holds, re-encoded in place: the HEIF lands
+  /// beside it and the record moves over before the old file goes.
+  Future<void> _convertHeld(AssetRecord record) async {
+    final path = record.sourcePath;
+    if (!_heifCandidate(record, path)) return;
+    final converted = p.setExtension(path!, '.heic');
+    if (converted == path) return;
+    if (!await encodeFileNatively(
+      input: path,
+      output: converted,
+      format: 'heic',
+    )) {
+      return;
+    }
+    try {
+      await store.setSourcePath(record.localId, converted);
+      await File(path).delete();
+    } catch (_) {
+      // Left as it was.
+    }
+  }
+
   static String _fileNameFor(AssetRecord record, File source) {
     final safeId = record.localId.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_');
     return '$safeId-${p.basename(source.path)}';

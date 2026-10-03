@@ -39,6 +39,11 @@ import UIKit
       BackupExclusionChannel.register(with: registrar)
     }
     if let registrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "ImageEncodeChannel"
+    ) {
+      ImageEncodeChannel.register(with: registrar)
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(
       forPlugin: "PrivacyCoverChannel"
     ) {
       PrivacyCoverChannel.register(with: registrar)

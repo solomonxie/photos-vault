@@ -27,7 +27,7 @@ void main() {
               context,
               records: [for (var i = 0; i < count; i++) _record(i)],
               readBytes: (_) async => null,
-              saveCopy: (source, bytes) async => source,
+              saveCopy: (source, bytes, extension) async => source,
               replaceOriginals: (originals) async => replaced.add(originals),
             ),
           ),
