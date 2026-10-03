@@ -267,5 +267,5 @@ class VaultKeys {
   Future<void> eraseOnThisDevice() async {
     await forgetOnThisDevice();
     await _store.delete(_entriesKey);
- 
+  }
 }
