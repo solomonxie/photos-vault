@@ -38,31 +38,4 @@ a key is a half sheet rather than a form parked under the list.
  → API key saved
 ```
 
-## AI Touch Up  (from the viewer's Edit menu)
-
-```
- ┌──────────────────────────────────────────────┐
- │ AI Touch Up                                  │
- │ ┌──────────────────────────────────────────┐ │
- │ │ Describe the edit — "brighten it and     │ │
- │ │ remove the fence"                        │ │
- │ └──────────────────────────────────────────┘ │
- │ The photo and your prompt are sent to your   │
- │ AI vendor, and the result comes back as a    │
- │ new photo — this one stays as it is.         │
- │        ( Cancel )        [[ Start ]]         │
- └──────────────────────────────────────────────┘
- running  ⟳ AI working…        ← on the library page, under the nav bar,
-                                 not a blocking spinner: it takes a while
- done     AI touch-up added to your library.
- failed   AI touch-up failed: <vendor's words>
- no key   Add an AI key in Settings first.
-```
-
-## AI Suggest (info panel)
-
-```
- Add a description                          ✨ AI Suggest
- no key    Add an AI key in AI Settings to use this.
- nothing   Nothing to suggest for this photo.
-```
+AI is used only for person profiles, text in and text out (2026-10). No photo is sent to a vendor: AI Touch Up and AI photo analysis were removed.

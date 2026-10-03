@@ -38,7 +38,7 @@ scroller.
  │                                          │    photo
  │ [ Keep ]   ( No thanks )                 │
  └──────────────────────────────────────────┘
- Add a description                          ✨ AI Suggest
+ Add a description
  Tags                                             ⊕
  ( sunset ⊗ ) ( kyoto ⊗ )
  People                                           ⊕
@@ -70,7 +70,7 @@ up behind, so the photo is being dragged *towards* something.
  ┌─────────────────────────────┐
  │ Crop                        │ → photo_edit_screen.dart
  │ Rotate                      │ → same screen, dial mode
- │ AI Touch Up                 │ → prompt sheet, see ai.md
+ │ Resize                      │ → HEIF, same size / L / M / S
  │ ( Cancel )                  │
  └─────────────────────────────┘
  "This isn't in your Photos library, so it can't be edited there."

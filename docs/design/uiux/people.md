@@ -14,7 +14,6 @@
  ◯  Nina?                                   [✓] ›    the picker
  ◯  Who's this?                                  ›  ← no guess
  ─────────────────────────────────────────────────
- ✨ Find People with AI Analysis                  ›   → smart collection
  empty        No people yet. Tap + to add someone.
  no matches   No people match your search.
  ＋ ⇒ alert: New Person · [ name ] · ( Cancel ) ( Add )

@@ -284,7 +284,17 @@ void main() {
       await tester.pump(const Duration(milliseconds: 400));
       expect(find.byType(DetailScreen), findsOneWidget);
 
-      await tester.tap(find.byIcon(CupertinoIcons.trash));
+      await tester.tap(find.byIcon(CupertinoIcons.info_circle));
+
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('detailDeleteButton')),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('detailDeleteButton')));
       await tester.pumpAndSettle();
       // A sheet at the bottom, the way Photos asks.
       expect(find.byType(CupertinoActionSheet), findsOneWidget);
@@ -299,7 +309,17 @@ void main() {
       expect(find.byType(DetailScreen), findsOneWidget);
       expect((await recordStore.listAll()).single.isDeleted, isFalse);
 
-      await tester.tap(find.byIcon(CupertinoIcons.trash));
+      await tester.tap(find.byIcon(CupertinoIcons.info_circle));
+
+      await tester.pumpAndSettle();
+
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('detailDeleteButton')),
+      );
+
+      await tester.pumpAndSettle();
+
+      await tester.tap(find.byKey(const ValueKey('detailDeleteButton')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete Photo'));
       await tester.pumpAndSettle();
@@ -601,7 +621,13 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('manual:abc')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byIcon(CupertinoIcons.trash));
+    await tester.tap(find.byIcon(CupertinoIcons.info_circle));
+    await tester.pumpAndSettle();
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('detailDeleteButton')),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('detailDeleteButton')));
     await tester.pumpAndSettle();
 
     expect(find.text('Remove from Device'), findsOneWidget);
@@ -623,7 +649,13 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('manual:abc')));
       await tester.pumpAndSettle();
-      await tester.tap(find.byIcon(CupertinoIcons.trash));
+      await tester.tap(find.byIcon(CupertinoIcons.info_circle));
+      await tester.pumpAndSettle();
+      await tester.ensureVisible(
+        find.byKey(const ValueKey('detailDeleteButton')),
+      );
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('detailDeleteButton')));
       await tester.pumpAndSettle();
 
       expect(find.text('Remove from Device'), findsNothing);

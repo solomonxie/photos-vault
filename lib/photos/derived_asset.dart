@@ -12,7 +12,7 @@ import 'person_store.dart';
 /// Files [bytes] as a new library item that inherits everything about
 /// [source] except its pixels — same timestamp, description, tags, place,
 /// people, and private-album membership, but its own hash-named
-/// file. Every edit (crop, rotate, AI touch-up) lands this way, so the
+/// file. Every edit (crop, rotate, resize) lands this way, so the
 /// photo that was edited — and whatever is already backed up under its
 /// key — is never overwritten.
 Future<AssetRecord> createDerivedAsset({

@@ -1,3 +1,4 @@
+import 'dart:math' as math;
 import 'dart:async';
 import 'dart:io';
 import 'dart:ui' as ui;
@@ -18,13 +19,11 @@ import 'package:video_player/video_player.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/library_metadata.dart';
-import '../photos/ai_touch_up_queue.dart';
 import '../photos/derived_asset.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/ai_analysis.dart';
 import '../photos/ai_analysis_store.dart';
-import '../photos/ai_vision_service.dart';
 import '../photos/face_crops.dart';
 import '../photos/face_identity.dart';
 import '../photos/on_device_analysis.dart';
@@ -33,7 +32,6 @@ import '../photos/photo_location.dart';
 import '../photos/suggestion_review.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/bucket_location.dart';
-import '../settings/app_store_region.dart';
 import 'ask_ai_screen.dart';
 import 'asset_grid.dart';
 import '../storage/album.dart';
@@ -43,6 +41,7 @@ import '../storage/asset_record_store.dart';
 import '../upload/original_restore.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
+import '../photos/smaller_export.dart';
 import 'resize_photos.dart';
 import 'gif_view.dart';
 import 'live_photo_view.dart';
@@ -60,14 +59,24 @@ const _screenBackground = Color(0xFF1C1C1E);
 /// re-encoding is pure Dart (the `image` package), so this only ever
 /// touches still images; videos share their original file as-is (no
 /// bundled transcoder).
-enum _ExportFormat { jpg, png, webp }
+enum _ExportFormat {
+  heic('HEIF', 'heic'),
+  jpg('JPEG', 'jpg'),
+  png('PNG', 'png'),
+  webp('WebP', 'webp');
+
+  const _ExportFormat(this.label, this.extension);
+
+  final String label;
+  final String extension;
+}
 
 /// What the share sheet offers. The last two only once the photo has an
 /// object in a bucket — sharing is "where else can this go", and by then
 /// it is already somewhere else.
 enum _ShareChoice { original, exportAs, showInBucket, openInBrowser }
 
-enum _EditChoice { crop, rotate, resize, aiTouchUp }
+enum _EditChoice { crop, rotate, resize }
 
 /// Runs off the UI isolate via [compute] — decode+encode of a full-size
 /// photo is heavy enough to jank a frame otherwise.
@@ -75,6 +84,8 @@ Uint8List? _reencode((Uint8List bytes, _ExportFormat format) args) {
   final decoded = decodePhoto(args.$1);
   if (decoded == null) return null;
   return switch (args.$2) {
+    // Native first (see [_exportAndShare]); these are the fallbacks.
+    _ExportFormat.heic => null,
     _ExportFormat.jpg => Uint8List.fromList(img.encodeJpg(decoded)),
     _ExportFormat.png => Uint8List.fromList(img.encodePng(decoded)),
     _ExportFormat.webp => Uint8List.fromList(img.encodeWebP(decoded)),
@@ -93,7 +104,7 @@ class DetailScreen extends StatefulWidget {
     required this.records,
     required this.initialIndex,
     required this.onDelete,
-    required this.onToggleFavorite,
+    this.onToggleFavorite,
     required this.assetRecordStore,
     this.onReplaceOriginals,
     this.personStore,
@@ -104,7 +115,6 @@ class DetailScreen extends StatefulWidget {
     this.restoreOriginal,
     this.restoreThumbnail,
     this.onDeviceAnalysis,
-    this.aiVisionService,
   });
 
   final List<AssetRecord> records;
@@ -113,7 +123,10 @@ class DetailScreen extends StatefulWidget {
   /// Returns whether the delete actually happened — `false` if the user
   /// cancelled the confirmation, in which case nothing here should change.
   final Future<bool> Function(AssetRecord record) onDelete;
-  final Future<void> Function(AssetRecord record) onToggleFavorite;
+
+  /// Absent for hidden photos: a heart there would file a hidden photo in
+  /// the library's Favorites, and means nothing inside the album.
+  final Future<void> Function(AssetRecord record)? onToggleFavorite;
 
   /// Bins originals a resize replaced, without asking again. Absent: the
   /// viewer's own [onDelete], which does ask.
@@ -160,7 +173,6 @@ class DetailScreen extends StatefulWidget {
   /// themselves on first use, so a test that doesn't tap them never
   /// constructs a database or a platform channel.
   final OnDeviceAnalysisService? onDeviceAnalysis;
-  final AiVisionService? aiVisionService;
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -296,7 +308,7 @@ class _DetailScreenState extends State<DetailScreen> {
 
   Future<void> _toggleFavorite() async {
     final record = _records[_index];
-    await widget.onToggleFavorite(record);
+    await widget.onToggleFavorite?.call(record);
     if (!mounted) return;
     setState(
       () =>
@@ -312,7 +324,7 @@ class _DetailScreenState extends State<DetailScreen> {
         message: Text(message),
         cancelButton: CupertinoActionSheetAction(
           onPressed: () => Navigator.of(context).pop(),
-          child: Text(AppLocalizations.of(context)!.actionCancel),
+          child: Text(AppLocalizations.of(context)!.actionOk),
         ),
       ),
     );
@@ -414,7 +426,7 @@ class _DetailScreenState extends State<DetailScreen> {
           for (final format in _ExportFormat.values)
             CupertinoActionSheetAction(
               onPressed: () => Navigator.of(context).pop(format),
-              child: Text(format.name.toUpperCase()),
+              child: Text(format.label),
             ),
         ],
         cancelButton: CupertinoActionSheetAction(
@@ -426,12 +438,22 @@ class _DetailScreenState extends State<DetailScreen> {
     if (format == null || !mounted) return;
     try {
       final bytes = await File(path).readAsBytes();
-      final encoded = await compute(_reencode, (bytes, format));
+      // HEIF and JPEG through ImageIO: it reads a HEIC original, which
+      // the `image` package can't, and keeps the date and place.
+      final encoded =
+          switch (format) {
+            _ExportFormat.heic || _ExportFormat.jpg => await encodeNatively(
+              bytes,
+              format: format == _ExportFormat.heic ? 'heic' : 'jpeg',
+            ),
+            _ => null,
+          } ??
+          await compute(_reencode, (bytes, format));
       if (encoded == null) throw const FormatException('decode failed');
       final dir = await getTemporaryDirectory();
       final outPath = p.join(
         dir.path,
-        '${p.basenameWithoutExtension(path)}.${format.name}',
+        '${p.basenameWithoutExtension(path)}.${format.extension}',
       );
       await File(outPath).writeAsBytes(encoded);
       if (!mounted) return;
@@ -441,8 +463,7 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
-  /// Crop/rotate run locally; AI Touch Up goes out to the user's AI vendor.
-  /// All three land as a *new* library item ([createDerivedAsset]) — the
+  /// Crop, rotate and resize all run on the phone, and all land as a *new* library item ([createDerivedAsset]) — the
   /// photo being edited, and whatever is already backed up under its key,
   /// stays as it is.
   Future<void> _showEditMenu() async {
@@ -475,12 +496,6 @@ class _DetailScreenState extends State<DetailScreen> {
             onPressed: () => Navigator.of(context).pop(_EditChoice.resize),
             child: Text(l10n.resizeOption),
           ),
-          // Image editing is OpenAI/Google only, neither offered in China.
-          if (AppStoreRegion.current != AppStoreRegion.cn)
-            CupertinoActionSheetAction(
-              onPressed: () => Navigator.of(context).pop(_EditChoice.aiTouchUp),
-              child: Text(l10n.detailEditAiOption),
-            ),
         ],
         cancelButton: CupertinoActionSheetAction(
           onPressed: () => Navigator.of(context).pop(),
@@ -496,8 +511,6 @@ class _DetailScreenState extends State<DetailScreen> {
         await _runLocalEdit(PhotoEditMode.rotate);
       case _EditChoice.resize:
         await _resize();
-      case _EditChoice.aiTouchUp:
-        await _runAiTouchUp();
     }
   }
 
@@ -552,9 +565,10 @@ class _DetailScreenState extends State<DetailScreen> {
     SaveMode mode,
     String copiedMessage,
   ) async {
+    // The copy on screen is the confirmation; a sheet saying so on top of
+    // it was one more thing to dismiss.
     if (mode == SaveMode.copy) {
       _showEdited(created);
-      _showMessage(copiedMessage);
       return;
     }
     await _replaceOriginals([original]);
@@ -580,34 +594,23 @@ class _DetailScreenState extends State<DetailScreen> {
       _showMessage(l10n.detailFileUnavailable);
       return;
     }
-    var replaced = false;
     final created = await resizePhotos(
       context,
       records: [record],
       readBytes: (_) => File(path).readAsBytes(),
-      saveCopy: (source, bytes) => createDerivedAsset(
+      saveCopy: (source, bytes, extension) => createDerivedAsset(
         source: source,
         bytes: bytes,
-        extension: '.jpg',
+        extension: extension,
         store: widget.assetRecordStore,
         personStore: _personStore,
       ),
-      replaceOriginals: (originals) async {
-        await _replaceOriginals(originals);
-        replaced = true;
-      },
+      replaceOriginals: _replaceOriginals,
     );
     if (created.isEmpty || !mounted) return;
-    if (replaced) {
-      final at = _records.indexWhere((r) => r.localId == record.localId);
-      setState(() {
-        _records = [..._records];
-        if (at >= 0) _records[at] = created.single;
-      });
-    } else {
-      _showEdited(created.single);
-      _showMessage(l10n.editSavedAsCopy);
-    }
+    // Back to the grid it was opened from, which shows the result where it
+    // sits — a resize is a file chore, not something to look at.
+    Navigator.of(context).pop();
   }
 
   /// Swipes to the freshly created photo, so the edit is what's on screen.
@@ -622,82 +625,24 @@ class _DetailScreenState extends State<DetailScreen> {
     );
   }
 
-  Future<void> _runAiTouchUp() async {
-    final l10n = AppLocalizations.of(context)!;
-    final record = _records[_index];
-    final path = await _resolvePath(record);
-    if (!mounted) return;
-    if (path == null) {
-      _showMessage(l10n.detailFileUnavailable);
-      return;
-    }
-    final prompt = await _askAiPrompt();
-    if (prompt == null || prompt.isEmpty || !mounted) return;
-    final saveMode = await askSaveMode(context);
-    if (saveMode == null || !mounted) return;
-    final created = await AiTouchUpQueue.instance.submit(
-      source: record,
-      file: File(path),
-      prompt: prompt,
-      store: widget.assetRecordStore,
-      personStore: _personStore,
-    );
-    if (!mounted) return;
-    if (created == null) {
-      _showMessage(
-        l10n.aiTouchUpFailed(AiTouchUpQueue.instance.lastError ?? ''),
-      );
-      return;
-    }
-    await _finishEdit(record, created, saveMode, l10n.aiTouchUpDone);
-  }
-
-  Future<String?> _askAiPrompt() async {
-    final l10n = AppLocalizations.of(context)!;
-    final controller = TextEditingController();
-    final prompt = await showCupertinoDialog<String>(
-      context: context,
-      builder: (context) => StatefulBuilder(
-        builder: (context, setState) => CupertinoAlertDialog(
-          title: Text(l10n.aiTouchUpTitle),
-          content: Column(
-            crossAxisAlignment: CrossAxisAlignment.stretch,
-            children: [
-              const SizedBox(height: 12),
-              CupertinoTextField(
-                controller: controller,
-                autofocus: true,
-                maxLines: 3,
-                minLines: 2,
-                placeholder: l10n.aiTouchUpPromptPlaceholder,
-                onChanged: (_) => setState(() {}),
-              ),
-              const SizedBox(height: 12),
-              Text(
-                l10n.aiTouchUpNote,
-                style: const TextStyle(fontSize: 12),
-                textAlign: TextAlign.start,
-              ),
-            ],
-          ),
-          actions: [
-            CupertinoDialogAction(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(l10n.actionCancel),
-            ),
-            CupertinoDialogAction(
-              onPressed: controller.text.trim().isEmpty
-                  ? null
-                  : () => Navigator.of(context).pop(controller.text.trim()),
-              child: Text(l10n.aiTouchUpStart),
-            ),
-          ],
-        ),
+  Widget _barButton(
+    IconData icon,
+    VoidCallback onPressed, {
+    Key? key,
+    String? label,
+  }) => Expanded(
+    child: Semantics(
+      label: label,
+      button: true,
+      child: CupertinoButton(
+        key: key,
+        padding: EdgeInsets.zero,
+        minimumSize: const Size.fromHeight(52),
+        onPressed: onPressed,
+        child: Icon(icon, size: 30, color: CupertinoColors.white),
       ),
-    );
-    controller.dispose();
-    return prompt;
-  }
+    ),
+  );
 
   @override
   Widget build(BuildContext context) {
@@ -717,7 +662,10 @@ class _DetailScreenState extends State<DetailScreen> {
         resizeToAvoidBottomInset: false,
         child: child!,
       ),
+      // The bar sits partly in the home-indicator inset, like Photos: the
+      // full inset under it was dead space a thumb had to reach over.
       child: SafeArea(
+        bottom: false,
         child: Column(
           children: [
             _ChromeFade(
@@ -725,7 +673,6 @@ class _DetailScreenState extends State<DetailScreen> {
               child: Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 8),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     CupertinoButton(
                       padding: EdgeInsets.zero,
@@ -733,41 +680,6 @@ class _DetailScreenState extends State<DetailScreen> {
                       child: Text(
                         l10n.detailDoneButton,
                         style: const TextStyle(color: CupertinoColors.white),
-                      ),
-                    ),
-                    AnimatedBuilder(
-                      animation: AiTouchUpQueue.instance,
-                      builder: (context, child) =>
-                          AiTouchUpQueue.instance.isRunning(
-                            _records[_index].localId,
-                          )
-                          ? Padding(
-                              padding: const EdgeInsets.symmetric(
-                                horizontal: 16,
-                              ),
-                              child: Row(
-                                children: [
-                                  const CupertinoActivityIndicator(
-                                    color: CupertinoColors.white,
-                                  ),
-                                  const SizedBox(width: 8),
-                                  Text(
-                                    l10n.aiTouchUpWorking,
-                                    style: const TextStyle(
-                                      color: CupertinoColors.white,
-                                    ),
-                                  ),
-                                ],
-                              ),
-                            )
-                          : child!,
-                      child: CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: _showEditMenu,
-                        child: Text(
-                          l10n.detailEditButton,
-                          style: const TextStyle(color: CupertinoColors.white),
-                        ),
                       ),
                     ),
                   ],
@@ -801,10 +713,10 @@ class _DetailScreenState extends State<DetailScreen> {
                   restoreOriginal: widget.restoreOriginal,
                   restoreThumbnail: widget.restoreThumbnail,
                   onDeviceAnalysis: widget.onDeviceAnalysis,
-                  aiVisionService: widget.aiVisionService,
                   assetRecordStore: widget.assetRecordStore,
                   personStore: _personStore,
                   onRecordChanged: _updateRecord,
+                  onDelete: _delete,
                   scrollController: _scrollControllerFor(_records[i]),
                   onZoomChanged: (zoomed) {
                     if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
@@ -814,44 +726,33 @@ class _DetailScreenState extends State<DetailScreen> {
             ),
             _ChromeFade(
               pull: _pull,
+              // Same height as before, bigger targets: each button spans
+              // its whole share of the bar, and the icon grows into the
+              // padding that used to sit around it.
               child: Padding(
-                padding: const EdgeInsets.symmetric(vertical: 4),
+                padding: EdgeInsets.only(
+                  bottom: math.max(
+                    0,
+                    MediaQuery.paddingOf(context).bottom - 16,
+                  ),
+                ),
                 child: Row(
-                  mainAxisAlignment: MainAxisAlignment.spaceEvenly,
                   children: [
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: _showShareSheet,
-                      child: const Icon(
-                        CupertinoIcons.share,
-                        color: CupertinoColors.white,
-                      ),
-                    ),
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: _toggleFavorite,
-                      child: Icon(
+                    _barButton(CupertinoIcons.share, _showShareSheet),
+                    if (widget.onToggleFavorite != null &&
+                        _records[_index].passcodeHash == null)
+                      _barButton(
                         _records[_index].isFavorite
                             ? CupertinoIcons.heart_fill
                             : CupertinoIcons.heart,
-                        color: CupertinoColors.white,
+                        _toggleFavorite,
                       ),
-                    ),
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: _revealInfoPanel,
-                      child: const Icon(
-                        CupertinoIcons.info_circle,
-                        color: CupertinoColors.white,
-                      ),
-                    ),
-                    CupertinoButton(
-                      padding: EdgeInsets.zero,
-                      onPressed: _delete,
-                      child: const Icon(
-                        CupertinoIcons.trash,
-                        color: CupertinoColors.white,
-                      ),
+                    _barButton(CupertinoIcons.info_circle, _revealInfoPanel),
+                    _barButton(
+                      CupertinoIcons.slider_horizontal_3,
+                      _showEditMenu,
+                      key: const ValueKey('detailEditButton'),
+                      label: l10n.detailEditButton,
                     ),
                   ],
                 ),
@@ -897,6 +798,7 @@ class _MediaPage extends StatefulWidget {
     required this.assetRecordStore,
     required this.personStore,
     required this.onRecordChanged,
+    required this.onDelete,
     required this.scrollController,
     required this.albumStore,
     required this.onPull,
@@ -904,7 +806,6 @@ class _MediaPage extends StatefulWidget {
     required this.onZoomChanged,
     required this.motionPlayback,
     this.onDeviceAnalysis,
-    this.aiVisionService,
     this.resolveFile,
     this.resolveLiveVideo,
     this.resolvePlaceName,
@@ -913,6 +814,7 @@ class _MediaPage extends StatefulWidget {
   });
 
   final AssetRecord record;
+  final VoidCallback onDelete;
   final Future<File?> Function(AssetRecord record)? resolveFile;
 
   /// See [DetailScreen.resolveLivePhotoVideo].
@@ -957,7 +859,6 @@ class _MediaPage extends StatefulWidget {
 
   /// See [DetailScreen.onDeviceAnalysis].
   final OnDeviceAnalysisService? onDeviceAnalysis;
-  final AiVisionService? aiVisionService;
 
   /// How Live Photos and GIFs behave, shared by every page in the pager
   /// and remembered between launches.
@@ -1612,7 +1513,6 @@ class _MediaPageState extends State<_MediaPage>
                   restoring: _restoring,
                   onRestoreOriginal: _restoreOriginal,
                   onDeviceAnalysis: widget.onDeviceAnalysis,
-                  aiVisionService: widget.aiVisionService,
                   resolvePlaceName: widget.resolvePlaceName,
                   resolvedPath: _path,
                   videoController: _videoController,
@@ -1620,6 +1520,7 @@ class _MediaPageState extends State<_MediaPage>
                   personStore: widget.personStore,
                   albumStore: widget.albumStore,
                   onRecordChanged: widget.onRecordChanged,
+                  onDelete: widget.onDelete,
                 ),
               ),
             ],
@@ -1825,7 +1726,6 @@ class _InfoPanel extends StatefulWidget {
     required this.restoring,
     required this.onRestoreOriginal,
     required this.onDeviceAnalysis,
-    required this.aiVisionService,
     required this.resolvePlaceName,
     required this.resolvedPath,
     required this.videoController,
@@ -1833,9 +1733,15 @@ class _InfoPanel extends StatefulWidget {
     required this.personStore,
     required this.albumStore,
     required this.onRecordChanged,
+    required this.onDelete,
   });
 
   final AssetRecord record;
+
+  /// At the foot of the panel, not in the bar: the bar is what a thumb hits
+  /// while flicking through photos, and delete is the one tap there that
+  /// costs something.
+  final VoidCallback onDelete;
 
   /// Whether the original is gone and only the bucket has it. Read from
   /// `_MediaPage` rather than [record] because a restore that has just
@@ -1853,7 +1759,6 @@ class _InfoPanel extends StatefulWidget {
 
   /// See [DetailScreen.onDeviceAnalysis].
   final OnDeviceAnalysisService? onDeviceAnalysis;
-  final AiVisionService? aiVisionService;
 
   final VideoPlayerController? videoController;
   final AssetRecordStore assetRecordStore;
@@ -2059,8 +1964,6 @@ class _InfoPanelState extends State<_InfoPanel> {
   late final OnDeviceAnalysisService _onDeviceAnalysis =
       widget.onDeviceAnalysis ??
       OnDeviceAnalysisService(analysisStore: AiAnalysisStore());
-  late final AiVisionService _aiVision =
-      widget.aiVisionService ?? AiVisionService();
 
   /// Remembers a face once it's named, and reads back what the analyze
   /// pass guessed. Resolves to the file already open on screen — this
@@ -2152,46 +2055,6 @@ class _InfoPanelState extends State<_InfoPanel> {
       _faceGuesses = List.filled(crops.length, null);
     });
     await _loadGuesses();
-  }
-
-  Future<void> _suggestWithAi() async {
-    final path = widget.resolvedPath;
-    if (path == null) return;
-    final l10n = AppLocalizations.of(context)!;
-    setState(() {
-      _suggesting = true;
-      _suggestNote = null;
-    });
-    try {
-      final analysis = await _aiVision.analyze(
-        localId: widget.record.localId,
-        imageFile: File(path),
-      );
-      final merged = {...widget.record.tags, ...analysis.tags}.toList();
-      if (merged.length != widget.record.tags.length) {
-        await widget.assetRecordStore.setTags(widget.record.localId, merged);
-        if (mounted) widget.onRecordChanged(widget.record.withTags(merged));
-      }
-      if (!mounted) return;
-      setState(() {
-        _suggesting = false;
-        _suggestNote = analysis.tags.isEmpty ? l10n.detailSuggestNothing : null;
-      });
-    } on AiAnalysisException {
-      if (!mounted) return;
-      // Nearly always "no key configured" — which is a setup step, not a
-      // failure, so it points at where to do it.
-      setState(() {
-        _suggesting = false;
-        _suggestNote = l10n.detailSuggestNoKey;
-      });
-    } catch (_) {
-      if (!mounted) return;
-      setState(() {
-        _suggesting = false;
-        _suggestNote = l10n.detailSuggestNothing;
-      });
-    }
   }
 
   /// A face with a name on it is a person; until then it's a question.
@@ -2723,23 +2586,6 @@ class _InfoPanelState extends State<_InfoPanel> {
             ),
           ),
           const SizedBox(height: 20),
-          Row(
-            children: [
-              _SuggestButton(
-                label: l10n.detailSuggestAi,
-                icon: CupertinoIcons.sparkles,
-                onPressed: _suggesting || widget.resolvedPath == null
-                    ? null
-                    : _suggestWithAi,
-              ),
-              if (_suggesting) ...[
-                const SizedBox(width: 12),
-                const CupertinoActivityIndicator(radius: 8),
-              ],
-            ],
-          ),
-          // Only when there's something to say — a standing explanation
-          // under two self-describing buttons is just noise.
           if (_suggestNote != null)
             Padding(
               padding: const EdgeInsets.only(top: 6),
@@ -2890,6 +2736,29 @@ class _InfoPanelState extends State<_InfoPanel> {
               ],
             ),
           ],
+          const SizedBox(height: 32),
+          SizedBox(
+            width: double.infinity,
+            child: CupertinoButton(
+              key: const ValueKey('detailDeleteButton'),
+              color: const Color(0xFF2C2C2E),
+              onPressed: widget.onDelete,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(
+                    CupertinoIcons.trash,
+                    color: CupertinoColors.systemRed,
+                  ),
+                  const SizedBox(width: 8),
+                  Text(
+                    l10n.actionDelete,
+                    style: const TextStyle(color: CupertinoColors.systemRed),
+                  ),
+                ],
+              ),
+            ),
+          ),
         ],
       ),
     );
@@ -3053,53 +2922,6 @@ class _SectionHeader extends StatelessWidget {
       ],
     );
   }
-}
-
-/// One of the two "fill this in for me" buttons. Deliberately a pair and
-/// deliberately labelled: free-and-on-your-phone versus billed-to-your-key
-/// is a choice the user should make per photo, not a setting they forget
-/// they turned on.
-class _SuggestButton extends StatelessWidget {
-  const _SuggestButton({
-    required this.label,
-    required this.icon,
-    required this.onPressed,
-  });
-
-  final String label;
-  final IconData icon;
-  final VoidCallback? onPressed;
-
-  @override
-  Widget build(BuildContext context) => CupertinoButton(
-    padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 8),
-    minimumSize: Size.zero,
-    borderRadius: BorderRadius.circular(18),
-    color: const Color(0xFF2C2C2E),
-    onPressed: onPressed,
-    child: Row(
-      mainAxisSize: MainAxisSize.min,
-      children: [
-        Icon(
-          icon,
-          size: 15,
-          color: onPressed == null
-              ? CupertinoColors.systemGrey
-              : CupertinoColors.white,
-        ),
-        const SizedBox(width: 6),
-        Text(
-          label,
-          style: TextStyle(
-            fontSize: 13,
-            color: onPressed == null
-                ? CupertinoColors.systemGrey
-                : CupertinoColors.white,
-          ),
-        ),
-      ],
-    ),
-  );
 }
 
 class _Chip extends StatelessWidget {
