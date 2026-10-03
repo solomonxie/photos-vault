@@ -29,13 +29,12 @@ Formats, analyses, tests, archives an obfuscated Release build and uploads it
 to App Store Connect — no Xcode, no Product ▸ Archive ▸ Distribute. `make`
 on its own lists the rest.
 
-Storefront: every build/install/release takes an App Store country code,
-`STOREFRONT=USA|CAN|CHN` (default `USA`), e.g. `make install-ios STOREFRONT=CHN`.
-USA/CAN → `us`, CHN → `cn`, into Info.plist `AppStoreRegion` (via gitignored
-`ios/Flutter/Store.xcconfig`); Dart reads it as `AppStoreRegion.current`
-(`lib/settings/app_store_region.dart`). `cn` defaults the language to
-Simplified Chinese unless a language was picked for the app in iOS Settings.
-Same bundle id for every storefront: `install-ios` upgrades in place, data kept.
+Storefront: read at launch from the App Store account's country (StoreKit) —
+China mainland → `cn`, else `us` — as `AppStoreRegion.current`
+(`lib/settings/app_store_region.dart`). One binary for every storefront.
+`make install-ios STOREFRONT=CHN` forces `cn` on a local build for testing;
+release/archive never do. `cn` defaults the language to Simplified Chinese
+unless a language was picked for the app in iOS Settings.
 
 ## The backup has to open without this app
 

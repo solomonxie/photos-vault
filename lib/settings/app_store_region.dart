@@ -1,9 +1,11 @@
 import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 
-/// Storefront the build was made for: `make <build> STOREFRONT=USA|CAN|CHN`
-/// (USA/CAN -> us, CHN -> cn), read from Info.plist `AppStoreRegion`. For
-/// vendor gating (docs/release) and the default language.
+/// The App Store storefront this phone's Apple ID is in — China mainland is
+/// [cn], everywhere else [us]. Read at launch from StoreKit, because one
+/// binary ships to every storefront. `make <build> STOREFRONT=CHN` forces
+/// [cn] for testing. For vendor gating (docs/release) and the default
+/// language.
 enum AppStoreRegion {
   us,
   cn;

@@ -14,10 +14,10 @@ DEVICE ?= $(shell xcrun devicectl list devices 2>/dev/null | awk '/physical/ { f
 APP     := build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app
 BUDGET  := 33
 
-# Storefront baked into every build, as an App Store country code:
-# make install-ios STOREFRONT=CHN. Default USA; USA/CAN -> us, CHN -> cn,
-# into Info.plist AppStoreRegion via Store.xcconfig. Same bundle id either
-# way, so switching storefronts keeps the phone's data.
+# The app reads its App Store country at launch (StoreKit); one binary
+# ships everywhere. STOREFRONT=CHN on a local build forces China mode, to
+# test it with any Apple ID: make install-ios STOREFRONT=CHN. Release and
+# archive always build the normal binary.
 STOREFRONT ?= USA
 REGION  := $(if $(filter CHN,$(STOREFRONT)),cn,$(if $(filter USA CAN,$(STOREFRONT)),us))
 # Demo-mode credentials, if present (copy .env.demo.example).
@@ -62,7 +62,8 @@ install-ios: build install ## Build and install on the paired iPhone, keeping it
 
 run: install-ios ## Same as install-ios
 
-archive: storefront ## Archive a Release build without uploading it (STOREFRONT=...)
+archive: ## Archive a Release build without uploading it (never forced to China)
+	@echo "APP_STORE_REGION = us" > ios/Flutter/Store.xcconfig
 	$(FLUTTER) build ipa --release --build-number=$$(date +%Y%m%d%H%M) \
 	  --obfuscate --split-debug-info=build/symbols/$$(date +%Y%m%d%H%M) $(DEFINES)
 
@@ -72,8 +73,8 @@ upload: ## Upload the archive that already exists, without rebuilding
 	  -exportOptionsPlist ios/ExportOptions.plist \
 	  -exportPath build/ios/ipa -allowProvisioningUpdates
 
-release: check storefront ## Test, archive and upload to App Store Connect (STOREFRONT=...)
-	STOREFRONT=$(STOREFRONT) ./scripts/release-ios.sh
+release: check ## Test, archive and upload to App Store Connect
+	./scripts/release-ios.sh
 
 size: ## Measure the archived app against the 33 MB budget
 	@test -d $(APP) || { echo "No archive yet — run 'make archive'."; exit 1; }

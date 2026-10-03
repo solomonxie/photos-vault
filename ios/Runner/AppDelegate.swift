@@ -1,4 +1,5 @@
 import Flutter
+import StoreKit
 import UIKit
 
 @main
@@ -45,16 +46,22 @@ import UIKit
     if let registrar = engineBridge.pluginRegistry.registrar(
       forPlugin: "AppStoreRegionChannel"
     ) {
-      // Info.plist AppStoreRegion (`make ... STOREFRONT=CHN`), whether a
-      // language was picked for this app in iOS Settings, and the one
-      // picked inside the app.
+      // The App Store account's country decides the region: one binary
+      // ships to every storefront, so it can't be a build setting. Info.plist
+      // AppStoreRegion (`make ... STOREFRONT=CHN`) can only force `cn`, to
+      // test the China build on a phone with any Apple ID. Also: whether a
+      // language was picked for this app in iOS Settings, and the one picked
+      // inside the app.
       FlutterMethodChannel(
         name: "byo.photos/app_store",
         binaryMessenger: registrar.messenger()
       ).setMethodCallHandler { call, result in
         switch call.method {
         case "region":
-          result(Bundle.main.object(forInfoDictionaryKey: "AppStoreRegion"))
+          let forced =
+            Bundle.main.object(forInfoDictionaryKey: "AppStoreRegion") as? String
+          let country = SKPaymentQueue.default().storefront?.countryCode
+          result(forced == "cn" || country == "CHN" ? "cn" : "us")
         case "languageChosen":
           let domain = UserDefaults.standard.persistentDomain(
             forName: Bundle.main.bundleIdentifier ?? ""
