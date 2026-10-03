@@ -304,6 +304,72 @@ void main() {
     );
   });
 
+  test(
+    'a key under a retired prefix is re-pointed at the live object',
+    () async {
+      bucket.objects['photos-vault/originals/photo_A_L0_001.webp'] = video;
+      await relist();
+      await store.upsert(localId: 'a', contentHash: 'a', platform: 'ios');
+      const dead = 'photos-vault2/originals/photo_A_L0_001.webp';
+      await store.updateDerivative(
+        'a',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: dead,
+        ),
+      );
+      await store.recordUpload(
+        localId: 'a',
+        kind: DerivativeKind.original,
+        targetId: target.id,
+        destinationKey: dead,
+      );
+
+      final healed = await NameMigration(
+        store: store,
+        targetsStore: targets,
+        ops: bucket,
+      ).healPrefixes();
+
+      expect(healed, 1);
+      expect(
+        (await store.getByLocalId('a'))!
+            .stateOf(DerivativeKind.original)
+            .destinationKey,
+        'photos-vault/originals/photo_A_L0_001.webp',
+      );
+      expect(
+        await BucketFlags(store: store).detect(),
+        isEmpty,
+        reason: 'the object is now known, so it is not flagged either',
+      );
+    },
+  );
+
+  test('a key with no live object under this prefix is left alone', () async {
+    await relist();
+    await store.upsert(localId: 'a', contentHash: 'a', platform: 'ios');
+    const dead = 'photos-vault2/originals/photo_gone.webp';
+    await store.updateDerivative(
+      'a',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: dead,
+      ),
+    );
+
+    expect(
+      await NameMigration(
+        store: store,
+        targetsStore: targets,
+        ops: bucket,
+      ).healPrefixes(),
+      0,
+    );
+  });
+
   test('migration skips hidden photos and runs out of work', () async {
     await store.upsert(localId: 'h', contentHash: 'h', platform: 'ios');
     await store.setPasscodeHash('h', 'pin');

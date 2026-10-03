@@ -23,10 +23,65 @@ class NameMigration {
   final BackupTargetsStore targetsStore;
   final BucketOps _ops;
 
+  static final _tail = RegExp(
+    r'^(.*?)((?:originals|thumbnails|medium)/[^/]+)$',
+  );
+
+  /// Re-points a record whose key names another prefix (the bucket's folder
+  /// was renamed, or the connection moved) at the object that really is in
+  /// the listing under this target's prefix. Only ever to an object seen in
+  /// the listing, so it can only turn a dead key into a live one. Returns
+  /// how many keys were repaired.
+  Future<int> healPrefixes() async {
+    final targets = {for (final t in await targetsStore.loadAll()) t.id: t};
+    if (targets.isEmpty) return 0;
+    final listed = <String, Set<String>>{};
+    for (final o in await store.listBucketObjects()) {
+      (listed[o.targetId] ??= {}).add(o.key);
+    }
+    if (listed.isEmpty) return 0;
+    var healed = 0;
+    for (final record in await store.listAll()) {
+      if (record.passcodeHash != null) continue;
+      for (final kind in DerivativeKind.values) {
+        final state = record.stateOf(kind);
+        final key = state.destinationKey;
+        if (key == null) continue;
+        final held = await store.targetsHolding(record.localId, kind);
+        final firstTarget = held.isNotEmpty
+            ? held.keys.first
+            : targets.keys.first;
+        final target = targets[firstTarget];
+        final seen = listed[firstTarget];
+        if (target == null || seen == null || seen.contains(key)) continue;
+        final tail = _tail.firstMatch(key)?[2];
+        if (tail == null) continue;
+        final rebased = '${target.prefix}$tail';
+        if (rebased == key || !seen.contains(rebased)) continue;
+        for (final entry in held.entries) {
+          await store.renameUploadKey(
+            localId: record.localId,
+            kind: kind,
+            targetId: entry.key,
+            destinationKey: rebased,
+          );
+        }
+        await store.updateDerivative(
+          record.localId,
+          kind,
+          state.copyWith(destinationKey: rebased),
+        );
+        healed++;
+      }
+    }
+    return healed;
+  }
+
   /// Records migrated this run; zero means there is nothing left to do.
   Future<int> run({int limit = 25}) async {
     final targets = {for (final t in await targetsStore.loadAll()) t.id: t};
     if (targets.isEmpty) return 0;
+    await healPrefixes();
     var done = 0;
     for (final record in await store.listAll()) {
       if (done >= limit) break;

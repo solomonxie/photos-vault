@@ -489,6 +489,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // newest photos first and on their own lane — what changed over there
     // is almost always at that end, and a full pass already walking
     // through 2014 would otherwise take minutes to reach it.
+    unawaited(_refreshBucketListing());
     unawaited(_libraryScanner.runRecent());
     unawaited(_libraryScanner.run(force: true));
     unawaited(_analyzeQueue.startIfDue());
