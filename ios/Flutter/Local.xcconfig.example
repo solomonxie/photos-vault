@@ -1,0 +1,5 @@
+// Copy to Local.xcconfig (gitignored) and fill in your own values.
+// Apple Developer Team ID (developer.apple.com → Membership):
+LOCAL_DEVELOPMENT_TEAM = XXXXXXXXXX
+// Bundle id registered on that account; the iCloud container is iCloud.<this>:
+APP_BUNDLE_ID = com.example.photosVault

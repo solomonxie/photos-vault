@@ -1,0 +1,15 @@
+// Account-specific identity, as placeholders. The real values live in
+// Local.xcconfig (gitignored, see Local.xcconfig.example) so the repo
+// carries no account identifiers. A clone without it still builds for
+// the simulator under com.example.
+LOCAL_DEVELOPMENT_TEAM =
+APP_BUNDLE_ID = com.example.photosVault
+
+// Info.plist dictionary keys don't expand $(...), so the NSUbiquitousContainers
+// key is written as iCloud.APP_BUNDLE_ID and filled in by the preprocessor.
+// -traditional keeps `//` in the DOCTYPE/URLs from being read as comments.
+INFOPLIST_PREPROCESS = YES
+INFOPLIST_PREPROCESSOR_DEFINITIONS = APP_BUNDLE_ID=$(APP_BUNDLE_ID)
+INFOPLIST_OTHER_PREPROCESSOR_FLAGS = -traditional -Wno-invalid-pp-token
+
+#include? "Local.xcconfig"

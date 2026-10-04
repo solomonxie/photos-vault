@@ -81,7 +81,7 @@ It's a lock against someone borrowing your phone, not encryption at rest.
 ## iCloud backup and the app's container
 
 iCloud Drive backup needs a container registered against this app's App ID —
-it lives on the developer account, not in the repo. `iCloud.com.example.photosVault`
+it lives on the developer account, not in the repo. `iCloud.` + your `APP_BUNDLE_ID` (`ios/Flutter/Local.xcconfig`)
 is registered, `CODE_SIGN_ENTITLEMENTS` is wired into the Runner target, and
 iCloud works.
 

@@ -50,7 +50,7 @@
 	<string>Used to back up your photos and videos to your own S3 bucket.</string>
 	<key>NSUbiquitousContainers</key>
 	<dict>
-		<key>iCloud.com.example.photosVault</key>
+		<key>iCloud.APP_BUNDLE_ID</key>
 		<dict>
 			<key>NSUbiquitousContainerIsDocumentScopePublic</key>
 			<true/>
