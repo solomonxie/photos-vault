@@ -444,7 +444,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(BackupQueuePanel), findsOneWidget);
-    expect(find.text('Sync Now'), findsOneWidget);
+    expect(find.text('Back Up Now'), findsOneWidget);
   });
 
   testWidgets('demo mode is not in cloud settings', (tester) async {

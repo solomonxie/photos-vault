@@ -483,18 +483,6 @@ class _SettingsScreenState extends State<SettingsScreen>
                   onChanged: targets.isEmpty ? null : _toggleBucketData,
                 ),
         ),
-        const SettingsHairline(indent: settingsRowIndent),
-        SettingsRow(
-          leading: const SettingsIconTile(
-            icon: CupertinoIcons.cloud_download_fill,
-          ),
-          title: l10n.settingsBucketImportRow,
-          subtitle: l10n.settingsBucketImportHint,
-          trailing: _importing
-              ? const CupertinoActivityIndicator(radius: 9)
-              : null,
-          onTap: targets.isEmpty || _importing ? null : _importFromBucket,
-        ),
         const SizedBox(height: 14),
         _appDataFileControls(l10n),
       ],
@@ -730,6 +718,20 @@ class _SettingsScreenState extends State<SettingsScreen>
             ),
           ],
         if (targets.isNotEmpty) _orderControl(l10n, targets.length > 1),
+        if (targets.isNotEmpty) ...[
+          const SettingsHairline(indent: settingsRowIndent),
+          SettingsRow(
+            leading: const SettingsIconTile(
+              icon: CupertinoIcons.cloud_download_fill,
+            ),
+            title: l10n.settingsBucketImportRow,
+            subtitle: l10n.settingsBucketImportHint,
+            trailing: _importing
+                ? const CupertinoActivityIndicator(radius: 9)
+                : null,
+            onTap: targets.isEmpty || _importing ? null : _importFromBucket,
+          ),
+        ],
       ],
     );
   }

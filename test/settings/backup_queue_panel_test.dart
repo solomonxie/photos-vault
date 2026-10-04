@@ -180,7 +180,7 @@ void main() {
     expect(await store.getSyncFrequency(), SyncFrequency.everyHour);
   });
 
-  testWidgets('Sync Now is present but dead when there is nothing behind it', (
+  testWidgets('Back Up Now is present but dead when there is nothing behind it', (
     tester,
   ) async {
     await tester.pumpWidget(_wrap(_screen(newQueue())));
@@ -190,14 +190,14 @@ void main() {
     // never be a silent no-op.
     final syncNow = tester.widget<CupertinoButton>(
       find.ancestor(
-        of: find.text('Sync Now'),
+        of: find.text('Back Up Now'),
         matching: find.byType(CupertinoButton),
       ),
     );
     expect(syncNow.onPressed, isNull);
   });
 
-  testWidgets('Sync Now runs the sync and stamps the time', (tester) async {
+  testWidgets('Back Up Now runs the sync and stamps the time', (tester) async {
     final store = BackupTargetsStore(store: FakeSecureStore());
     var ran = 0;
     await tester.pumpWidget(
@@ -211,7 +211,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Sync Now'));
+    await tester.tap(find.text('Back Up Now'));
     await tester.pumpAndSettle();
 
     expect(ran, 1);
