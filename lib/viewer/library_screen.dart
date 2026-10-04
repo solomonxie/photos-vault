@@ -70,7 +70,6 @@ import '../upload/sync_queue.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
 import 'built_in_album.dart';
-import 'analyze_queue_screen.dart';
 import 'asset_grid_view.dart';
 import 'asset_group_screen.dart';
 import 'delete_confirmation.dart';
@@ -1177,10 +1176,6 @@ class LibraryScreenState extends State<LibraryScreen>
       assetRecordStore: assetRecordStore,
     ),
   );
-
-  /// What the analyze pass still has to get through — see the Analyze
-  /// Queue row.
-  int get _toAnalyzeCount => _analyzeQueue.remaining.value;
 
   /// What the automatic refill is allowed to pick up: everything owed,
   /// minus what has already been tried and didn't work.
@@ -2583,6 +2578,8 @@ class LibraryScreenState extends State<LibraryScreen>
       assetRecordStore: assetRecordStore,
       aiAnalysisStore: _aiAnalysisStore,
       faceIdentity: _faceIdentity,
+      analyzeQueue: _analyzeQueue,
+      onOpenAsset: _openById,
     ),
   );
 
@@ -2953,15 +2950,6 @@ class LibraryScreenState extends State<LibraryScreen>
             title: l10n.collectionsCloudSettingsRow,
             onTap: _openCloudBackups,
           ),
-          _row(
-            icon: CupertinoIcons.wand_stars,
-            color: CupertinoColors.systemIndigo,
-            title: l10n.collectionsAnalyzeQueueRow,
-            count: _toAnalyzeCount == 0 ? null : _toAnalyzeCount,
-            onTap: () => _push(
-              AnalyzeQueueScreen(queue: _analyzeQueue, onOpenAsset: _openById),
-            ),
-          ),
           if (aiOffered)
             _row(
               icon: CupertinoIcons.sparkles,
@@ -2983,12 +2971,6 @@ class LibraryScreenState extends State<LibraryScreen>
                 onOpenAsset: _openById,
               ),
             ),
-          ),
-          _row(
-            icon: CupertinoIcons.folder_fill,
-            color: CupertinoColors.systemBlue,
-            title: l10n.collectionsImportFilesRow,
-            onTap: _busy ? null : addFiles,
           ),
           _row(
             icon: CupertinoIcons.globe,
