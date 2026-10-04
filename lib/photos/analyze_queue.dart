@@ -74,10 +74,9 @@ class AnalyzeJob {
   );
 }
 
-/// The slow pass over the library: look for faces in whatever hasn't been
-/// looked at, and — only if asked — pay a vendor to suggest tags and a
-/// caption. Finding the photos in the first place is
-/// `library_scanner.dart`'s job, not this one's.
+/// The slow pass over the library for face recognition: find faces, learn
+/// named people, match the rest. Nothing else runs here. Finding the photos
+/// in the first place is `library_scanner.dart`'s job, not this one's.
 ///
 /// A queue of its own rather than more rows in the sync queue. The two are
 /// unlike in every way that matters: uploads are owed to a bucket and want

@@ -10,7 +10,9 @@ import '../photos/face_identity.dart';
 import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
 import '../photos/unnamed_faces.dart';
+import '../photos/analyze_queue.dart';
 import '../storage/asset_record_store.dart';
+import 'analyze_queue_screen.dart';
 import 'person_avatar.dart';
 import 'profile_chip.dart';
 import 'person_page_screen.dart';
@@ -29,6 +31,8 @@ class PeopleScreen extends StatefulWidget {
     required this.assetRecordStore,
     this.aiAnalysisStore,
     this.faceIdentity,
+    this.analyzeQueue,
+    this.onOpenAsset,
   });
 
   final PersonStore personStore;
@@ -38,6 +42,10 @@ class PeopleScreen extends StatefulWidget {
   /// Remembers a face once it's named, so the next photo of them can be
   /// guessed. Absent, naming still works — it just teaches nothing.
   final FaceIdentityService? faceIdentity;
+
+  /// The face-finding pass; its entry shows here, where its results land.
+  final AnalyzeQueue? analyzeQueue;
+  final Future<void> Function(String localId)? onOpenAsset;
 
   @override
   State<PeopleScreen> createState() => _PeopleScreenState();
@@ -656,6 +664,43 @@ class _PeopleScreenState extends State<PeopleScreen> {
             if (_unnamedFaces.isNotEmpty && query.isEmpty)
               ..._unnamedFaceRows(l10n),
             const SizedBox(height: 16),
+            if (widget.analyzeQueue case final queue?)
+              ValueListenableBuilder<int>(
+                valueListenable: queue.remaining,
+                builder: (context, remaining, _) => CupertinoListTile(
+                  leading: const Icon(
+                    CupertinoIcons.wand_stars,
+                    color: CupertinoColors.systemIndigo,
+                  ),
+                  title: Text(l10n.collectionsAnalyzeQueueRow),
+                  trailing: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (remaining > 0)
+                        Text(
+                          '$remaining',
+                          style: const TextStyle(
+                            color: CupertinoColors.systemGrey,
+                          ),
+                        ),
+                      const SizedBox(width: 4),
+                      const Icon(
+                        CupertinoIcons.chevron_forward,
+                        size: 18,
+                        color: CupertinoColors.systemGrey2,
+                      ),
+                    ],
+                  ),
+                  onTap: () => Navigator.of(context).push(
+                    CupertinoPageRoute<void>(
+                      builder: (_) => AnalyzeQueueScreen(
+                        queue: queue,
+                        onOpenAsset: widget.onOpenAsset,
+                      ),
+                    ),
+                  ),
+                ),
+              ),
             // Last: it acts on the whole registry rather than on anybody in
             // the list — the registry as a file.
             CupertinoListTile(
