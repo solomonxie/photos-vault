@@ -43,8 +43,8 @@ venv/
 __pycache__/
 *.pyc
 
-# Local signing (Apple Developer Team ID) — never committed
-ios/Flutter/Signing.xcconfig
+# Local signing (Apple Developer Team ID, bundle id) — never committed
+ios/Flutter/Local.xcconfig
 
 # Store screenshots — captured off the phone at submission time, regenerated
 # by `make screenshots FROM=<dir>`. Megabytes of derived art, not source.

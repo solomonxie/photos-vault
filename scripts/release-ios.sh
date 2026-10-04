@@ -2,7 +2,7 @@
 # Archive a Release build and upload it to App Store Connect in one go.
 #
 # Needs: Xcode → Settings → Accounts signed in to the developer Apple ID,
-# and ios/Flutter/Signing.xcconfig holding LOCAL_DEVELOPMENT_TEAM (see the
+# and ios/Flutter/Local.xcconfig holding LOCAL_DEVELOPMENT_TEAM + APP_BUNDLE_ID (see the
 # README — that file is gitignored, the team ID is not in the repo).
 #
 # The build number is a timestamp so every upload is higher than the last.

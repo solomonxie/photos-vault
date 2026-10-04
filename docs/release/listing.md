@@ -5,7 +5,7 @@ App Store Connect paths start at **Apps → Photos Vault →**.
 
 | | |
 |---|---|
-| Bundle ID | `com.example.photosVault` |
+| Bundle ID | `com.example.photosVault` (your `APP_BUNDLE_ID`) |
 | SKU | `photosvault-ios` |
 | Version | `1.0.0` (`version:` in `pubspec.yaml`) |
 | Build | timestamp, set by `make release` |
@@ -25,9 +25,10 @@ App Store Connect paths start at **Apps → Photos Vault →**.
 ## 2. Xcode and signing
 
 - [ ] Xcode → Settings → **Accounts** → signed in with the developer Apple ID; the team shows under it.
-- [ ] `ios/Flutter/Signing.xcconfig` exists with your team ID. It is gitignored on purpose — the repo carries no account identifiers:
+- [ ] `ios/Flutter/Local.xcconfig` exists with your team ID and bundle id (copy `Local.xcconfig.example`). It is gitignored on purpose — the repo carries no account identifiers:
   ```
   LOCAL_DEVELOPMENT_TEAM = XXXXXXXXXX
+  APP_BUNDLE_ID = com.example.photosVault
   ```
 - [ ] No CocoaPods step — this project uses Swift Package Manager, there is no `Podfile`.
 
@@ -35,7 +36,7 @@ App Store Connect paths start at **Apps → Photos Vault →**.
 
 Both already exist (automatic signing created the App ID, the container was registered by hand — see the README). Verify at developer.apple.com → Certificates, Identifiers & Profiles:
 
-- [ ] Identifiers → `com.example.photosVault` → **iCloud** checked, container `iCloud.com.example.photosVault` assigned.
+- [ ] Identifiers → `com.example.photosVault` (your `APP_BUNDLE_ID`) → **iCloud** checked, container `iCloud.com.example.photosVault` assigned.
 - [ ] `ios/ExportOptions.plist` sets `iCloudContainerEnvironment = Production` — the shipped build must not point at the Development container.
 
 ## 4. Run on the iPhone
@@ -60,7 +61,7 @@ Smoke-test on the device: grid scroll, add a bucket, Sync Now, a photo's detail,
 | Platforms | iOS |
 | Name | `Photos Vault — Your Bucket` |
 | Primary Language | English (U.S.) |
-| Bundle ID | `com.example.photosVault` (dropdown) |
+| Bundle ID | your `APP_BUNDLE_ID` (dropdown) |
 | SKU | `photosvault-ios` |
 | User Access | Full Access |
 
