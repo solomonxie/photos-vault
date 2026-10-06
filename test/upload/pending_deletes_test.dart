@@ -1,5 +1,6 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/settings/s3_backup_target.dart';
+import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/upload/pending_deletes.dart';
 
 import '../support/fake_asset_record_store.dart';
@@ -125,5 +126,47 @@ void main() {
     expect(await deletes.pending(), const [
       PendingDelete(objectKey: 'originals/late.jpg', targetId: 't1'),
     ]);
+  });
+
+  test('many adds at once are all kept', () async {
+    final deletes = PendingDeletes(store: FakeAssetRecordStore());
+
+    await Future.wait([
+      for (var i = 0; i < 20; i++)
+        deletes.add([PendingDelete(objectKey: 'k$i', targetId: 't1')]),
+    ]);
+
+    expect(await deletes.count(), 20);
+  });
+
+  test('a key its photo\'s own upload holds again is not deleted', () async {
+    final store = FakeAssetRecordStore();
+    await store.upsert(localId: 'photo:a', contentHash: 'a', platform: 'ios');
+    await store.recordUpload(
+      localId: 'photo:a',
+      kind: DerivativeKind.original,
+      targetId: 't1',
+      destinationKey: 'originals/a.jpg',
+    );
+    final tried = <String>[];
+    final deletes = PendingDeletes(
+      store: store,
+      delete: ({required target, required key}) async {
+        tried.add(key);
+        return true;
+      },
+    );
+    await deletes.add(const [
+      PendingDelete(
+        objectKey: 'originals/a.jpg',
+        targetId: 't1',
+        localId: 'photo:a',
+      ),
+    ]);
+
+    await deletes.drain([_target]);
+
+    expect(tried, isEmpty);
+    expect(await deletes.count(), 0);
   });
 }

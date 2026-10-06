@@ -31,6 +31,7 @@ void main() {
   Future<BackupVerifier> verifierOver(
     FakeAssetRecordStore store, {
     int answer = 200,
+    int? thumbnailAnswer,
     bool configured = true,
   }) async {
     final targets = BackupTargetsStore(store: FakeSecureStore());
@@ -46,7 +47,10 @@ void main() {
     return BackupVerifier(
       targetsStore: targets,
       recordStore: store,
-      head: (_) async => http.Response('', answer),
+      head: (url) async => http.Response(
+        '',
+        url.path.contains('/thumbnails/') ? thumbnailAnswer ?? answer : answer,
+      ),
     );
   }
 
@@ -96,6 +100,14 @@ void main() {
         // A key is what the bucket can be asked about; a row claiming to be
         // uploaded without one is not verifiable and is refused.
         destinationKey: 'photos/originals/photo_1.mov',
+      ),
+    );
+    await store.updateDerivative(
+      'photo:1',
+      DerivativeKind.thumbnail,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'photos/thumbnails/photo_1.jpg',
       ),
     );
     return (await store.getByLocalId('photo:1'))!;
@@ -184,6 +196,38 @@ void main() {
     // And the row that claimed to be backed up doesn't get to keep saying so.
     final saved = (await store.getByLocalId('photo:1'))!;
     expect(saved.stateOf(DerivativeKind.original).status, UploadStatus.pending);
+  });
+
+  test('a thumbnail the bucket lost keeps the local copy', () async {
+    final store = FakeAssetRecordStore();
+    final record = await backedUp(store, isVideo: true);
+
+    final went = await removalOver(
+      store,
+      verifier: await verifierOver(store, thumbnailAnswer: 404),
+    ).removeFromDevice(record);
+
+    expect(went, RemovalOutcome.backupMissing);
+    expect(deleted, isEmpty);
+    final saved = (await store.getByLocalId('photo:1'))!;
+    expect(saved.localDeleted, isFalse);
+    expect(
+      saved.stateOf(DerivativeKind.thumbnail).status,
+      UploadStatus.pending,
+    );
+  });
+
+  test('an un-uploaded thumbnail is not offered cloud-only', () async {
+    final store = FakeAssetRecordStore();
+    var record = await backedUp(store, isVideo: true);
+    await store.updateDerivative(
+      'photo:1',
+      DerivativeKind.thumbnail,
+      const DerivativeState(status: UploadStatus.pending),
+    );
+    record = (await store.getByLocalId('photo:1'))!;
+
+    expect(removalOver(store).canRemoveFromDevice(record), isFalse);
   });
 
   test('a bucket nobody can reach is not permission to delete', () async {

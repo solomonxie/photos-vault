@@ -13,20 +13,9 @@ import '../vault/carrier_upload.dart';
 import '../vault/keys.dart';
 import '../vault/store.dart';
 import 'backup_cancel_token.dart';
-import 's3_object_delete.dart' as s3_object_delete;
+import 'object_keys.dart';
 import 's3_uploader.dart';
 import 'signing.dart';
-
-const _derivativeDirs = {
-  DerivativeKind.thumbnail: 'thumbnails',
-  DerivativeKind.medium: 'medium',
-  DerivativeKind.original: 'originals',
-  // Beside the still it belongs to, not in a folder of its own: the two
-  // halves are one photo. They share a base name and differ only by
-  // extension (`…HEIC` / `….mov`), so a bucket listing shows them as the
-  // pair they are.
-  DerivativeKind.livePhoto: 'originals',
-};
 
 /// Fans one derivative file out to every configured S3 target.
 ///
@@ -45,20 +34,9 @@ class BackupCoordinator {
     Future<List<DecoyCandidate>> Function()? decoyCandidates,
     S3Uploader? s3Uploader,
     Future<String> Function(String path)? hashFile,
-    Future<bool> Function({
-      required S3BackupTarget target,
-      required String key,
-    })?
-    deleteObject,
   }) : _s3Uploader = s3Uploader ?? S3Uploader(),
        _hashFile = hashFile ?? file_hash.hashFile,
-       _decoyCandidates = decoyCandidates ?? (() async => const []),
-       _deleteObject = deleteObject ?? _defaultDeleteObject;
-
-  static Future<bool> _defaultDeleteObject({
-    required S3BackupTarget target,
-    required String key,
-  }) => s3_object_delete.deleteObject(target: target, key: key);
+       _decoyCandidates = decoyCandidates ?? (() async => const []);
 
   final BackupTargetsStore targetsStore;
   final AssetRecordStore recordStore;
@@ -81,41 +59,6 @@ class BackupCoordinator {
   /// Overridable for tests so they never touch the real filesystem just to
   /// exercise the change-detection bookkeeping.
   final Future<String> Function(String path) _hashFile;
-
-  /// Overridable for tests so they never make a real network call.
-  final Future<bool> Function({
-    required S3BackupTarget target,
-    required String key,
-  })
-  _deleteObject;
-
-  /// Removes every derivative this record has in the bucket — the last step
-  /// of a permanent delete, and the only thing in the app that reaches for
-  /// [s3_object_delete.deleteObject].
-  ///
-  /// Returns whether everything it tried came away clean. A partial failure
-  /// (offline, credentials rotated) is reported rather than swallowed, so
-  /// the caller can leave the record in place and let the user try again —
-  /// dropping it locally would orphan the objects with nothing left
-  /// pointing at them.
-  Future<bool> deleteBackup(AssetRecord record) async {
-    final targets = await targetsStore.loadAll();
-    if (targets.isEmpty) return true;
-    var allGone = true;
-    for (final kind in DerivativeKind.values) {
-      // Each target's own key: the record's single key carries the first
-      // target's prefix, and in any other bucket it is a 404 that reads as
-      // "gone" while the real object stays.
-      final held = await recordStore.targetsHolding(record.localId, kind);
-      for (final target in targets) {
-        final keys = {?held[target.id], ?record.stateOf(kind).destinationKey};
-        for (final key in keys) {
-          if (!await _deleteObject(target: target, key: key)) allGone = false;
-        }
-      }
-    }
-    return allGone;
-  }
 
   /// Public because `../vault/object_key.dart` has to produce the same name
   /// without a file in hand, and a second sanitiser is a second answer.
@@ -316,7 +259,7 @@ class BackupCoordinator {
       return 0;
     }
     final fileName = safeFileName(record, uploadPath, previousKey: previousKey);
-    final derivativeDir = _derivativeDirs[kind]!;
+    final derivativeDir = derivativeDirs[kind]!;
 
     // The local copy first, before a single byte goes anywhere. A hidden
     // photo has been taken out of Photos, so between the copy-out and the
@@ -507,7 +450,7 @@ class BackupCoordinator {
     final held = <String, Map<String, String>>{};
     final sourceHashes = <String, String?>{};
     final previousKeys = <String, String?>{};
-    final derivativeDir = _derivativeDirs[kind]!;
+    final derivativeDir = derivativeDirs[kind]!;
     outer:
     for (final target in targets) {
       for (final record in records) {

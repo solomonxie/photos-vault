@@ -7,6 +7,7 @@ import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/object_keys.dart';
 import '../upload/pending_deletes.dart';
 import 'album_index.dart';
 import 'bucket.dart';
@@ -97,6 +98,20 @@ class HiddenRemoval {
       await _vaultStore.removeAll(keys, {...filedKeys, ...recordCarrierKeys});
     }
 
+    // Before the rows go: removing one takes with it the per-bucket upload
+    // rows that say which key each bucket holds.
+    final targets = await _loadTargets();
+    final recordTasks = <PendingDelete>[];
+    for (final record in records) {
+      recordTasks.addAll(
+        deletionTasksFor(
+          record,
+          targets,
+          await heldKeysOf(store, record.localId),
+        ),
+      );
+    }
+
     for (final record in records) {
       final path = record.sourcePath;
       if (path != null) {
@@ -115,22 +130,14 @@ class HiddenRemoval {
       await store.remove(record.localId);
     }
 
-    final objectKeys = <String>{
-      for (final r in records)
-        for (final kind in DerivativeKind.values)
-          ?r.stateOf(kind).destinationKey,
-    };
-    final targets = await _loadTargets();
     final tasks = [
-      for (final target in targets) ...[
-        for (final key in objectKeys)
-          PendingDelete(objectKey: key, targetId: target.id),
+      ...recordTasks,
+      for (final target in targets)
         for (final key in sentKeys)
           PendingDelete(
             objectKey: VaultBucket.resolveKey(target, key),
             targetId: target.id,
           ),
-      ],
     ];
     if (tasks.isEmpty) return true;
     await _pendingDeletes.add(tasks);

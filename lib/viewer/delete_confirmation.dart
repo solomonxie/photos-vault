@@ -16,6 +16,9 @@ enum DeleteChoice {
   /// The ordinary Photos-style delete — into Recently Deleted, from where
   /// it can still be restored.
   everywhere,
+
+  /// Gone from this phone and from every bucket, with no bin in between.
+  permanent,
 }
 
 /// The delete action sheet. [canRemoveFromDevice] gates the cloud-only
@@ -26,29 +29,44 @@ Future<DeleteChoice> chooseDelete(
   BuildContext context, {
   required bool canRemoveFromDevice,
   bool recoverable = true,
+  bool cloudOnly = false,
 }) async {
   final l10n = AppLocalizations.of(context)!;
-  if (!canRemoveFromDevice) {
-    return await confirmSoftDelete(context, recoverable: recoverable)
-        ? DeleteChoice.everywhere
-        : DeleteChoice.cancel;
-  }
   final choice = await showCupertinoModalPopup<DeleteChoice>(
     context: context,
     builder: (context) => CupertinoActionSheet(
-      title: Text(l10n.libraryDeleteConfirmTitle),
+      title: canRemoveFromDevice ? Text(l10n.libraryDeleteConfirmTitle) : null,
+      // A photo only the bucket holds: the bin's 30 days are the last 30
+      // days of it anywhere, which is worth saying before, not after.
+      message: Text(
+        cloudOnly
+            ? l10n.libraryDeleteCloudOnlyBody
+            : canRemoveFromDevice
+            ? l10n.libraryDeleteFromDeviceNote
+            : recoverable
+            ? l10n.libraryDeleteConfirmBody
+            : l10n.libraryDeleteConfirmBodyGone,
+      ),
       actions: [
-        CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(context).pop(DeleteChoice.fromDevice),
-          child: Text(l10n.libraryDeleteFromDevice),
-        ),
+        if (canRemoveFromDevice)
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(DeleteChoice.fromDevice),
+            child: Text(l10n.libraryDeleteFromDevice),
+          ),
         CupertinoActionSheetAction(
           isDestructiveAction: true,
           onPressed: () => Navigator.of(context).pop(DeleteChoice.everywhere),
           child: Text(l10n.libraryDeleteEverywhere),
         ),
+        // With nothing of the photo anywhere else the line above already
+        // deletes for good; a second button would say the same thing twice.
+        if (recoverable)
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop(DeleteChoice.permanent),
+            child: Text(l10n.libraryDeletePermanentlyAction),
+          ),
       ],
-      message: Text(l10n.libraryDeleteFromDeviceNote),
       cancelButton: CupertinoActionSheetAction(
         onPressed: () => Navigator.of(context).pop(DeleteChoice.cancel),
         child: Text(l10n.actionCancel),
@@ -56,6 +74,30 @@ Future<DeleteChoice> chooseDelete(
     ),
   );
   return choice ?? DeleteChoice.cancel;
+}
+
+/// The last question before a permanent delete: nothing can bring it back.
+Future<bool> confirmPermanentDelete(BuildContext context) async {
+  final l10n = AppLocalizations.of(context)!;
+  final confirmed = await showCupertinoDialog<bool>(
+    context: context,
+    builder: (context) => CupertinoAlertDialog(
+      title: Text(l10n.libraryDeletePermanentlyTitle),
+      content: Text(l10n.libraryDeletePermanentlyEverywhereBody),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(context).pop(false),
+          child: Text(l10n.actionCancel),
+        ),
+        CupertinoDialogAction(
+          isDestructiveAction: true,
+          onPressed: () => Navigator.of(context).pop(true),
+          child: Text(l10n.actionDelete),
+        ),
+      ],
+    ),
+  );
+  return confirmed ?? false;
 }
 
 /// Confirms a soft-delete — the one-choice case, for a photo with no
@@ -105,6 +147,7 @@ Future<DeleteChoice> chooseBatchDelete(
   BuildContext context, {
   required int count,
   required int removable,
+  int cloudOnly = 0,
 }) async {
   final l10n = AppLocalizations.of(context)!;
   final choice = await showCupertinoModalPopup<DeleteChoice>(
@@ -112,9 +155,12 @@ Future<DeleteChoice> chooseBatchDelete(
     builder: (context) => CupertinoActionSheet(
       title: Text(l10n.selectionDeleteConfirmTitle(count)),
       message: Text(
-        removable > 0
-            ? l10n.libraryDeleteFromDeviceNote
-            : l10n.libraryDeleteConfirmBody,
+        [
+          removable > 0
+              ? l10n.libraryDeleteFromDeviceNote
+              : l10n.libraryDeleteConfirmBody,
+          if (cloudOnly > 0) l10n.selectionDeleteCloudOnlyNote(cloudOnly),
+        ].join('\n\n'),
       ),
       actions: [
         if (removable > 0)
@@ -150,6 +196,9 @@ enum DeleteOutcome {
   /// In this app's Recently Deleted, and out of the caller's list.
   binned,
 
+  /// Gone for good; the buckets' copies are queued for deletion.
+  deleted,
+
   /// Asked for and couldn't be done — no thumbnail could be made, so
   /// dropping the original would have left nothing to draw.
   failed,
@@ -163,7 +212,8 @@ enum DeleteOutcome {
   /// nothing was deleted. Try again online.
   backupUnverifiable;
 
-  bool get leftTheList => this == DeleteOutcome.binned;
+  bool get leftTheList =>
+      this == DeleteOutcome.binned || this == DeleteOutcome.deleted;
 }
 
 /// The whole two-choice delete for one asset: ask, carry it out, say what
@@ -182,6 +232,7 @@ Future<DeleteOutcome> deleteAsset(
     context,
     canRemoveFromDevice: removal.canRemoveFromDevice(record),
     recoverable: !record.hasNothingLeft,
+    cloudOnly: record.localDeleted,
   );
   switch (choice) {
     case DeleteChoice.cancel:
@@ -196,6 +247,13 @@ Future<DeleteOutcome> deleteAsset(
     case DeleteChoice.everywhere:
       return await removal.deleteEverywhere(record)
           ? DeleteOutcome.binned
+          : DeleteOutcome.none;
+    case DeleteChoice.permanent:
+      if (!context.mounted || !await confirmPermanentDelete(context)) {
+        return DeleteOutcome.none;
+      }
+      return await removal.deletePermanently(record)
+          ? DeleteOutcome.deleted
           : DeleteOutcome.none;
   }
 }

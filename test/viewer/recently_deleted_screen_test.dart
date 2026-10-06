@@ -4,7 +4,11 @@ import 'package:photos_vault/viewer/asset_grid.dart';
 import 'package:photos_vault/viewer/recently_deleted_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/photos/asset_removal.dart';
+import 'package:photos_vault/settings/backup_targets_store.dart';
+import 'package:photos_vault/upload/pending_deletes.dart';
 
+import '../settings/fake_secure_store.dart';
 import '../support/fake_asset_record_store.dart';
 
 Widget _wrap(Widget child) => CupertinoApp(
@@ -77,48 +81,30 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    testWidgets('takes the backed-up copy with it', (tester) async {
-      final store = await storeWithDeleted();
-      AssetRecord? purged;
-
-      await tester.pumpWidget(
-        _wrap(
-          RecentlyDeletedScreen(
-            assetRecordStore: store,
-            deleteBackup: (record) async {
-              purged = record;
-              return true;
-            },
-          ),
-        ),
-      );
-      await tester.pumpAndSettle();
-      await deletePermanently(tester);
-
-      expect(purged?.localId, 'manual:gone');
-      expect(await store.getByLocalId('manual:gone'), isNull);
-    });
-
-    testWidgets('keeps the record when the bucket cannot be reached', (
+    testWidgets('drops the row and leaves bucket deletes to the queue', (
       tester,
     ) async {
       final store = await storeWithDeleted();
+      final targets = BackupTargetsStore(store: FakeSecureStore());
 
       await tester.pumpWidget(
         _wrap(
           RecentlyDeletedScreen(
             assetRecordStore: store,
-            deleteBackup: (record) async => false,
+            removal: AssetRemoval(
+              store: store,
+              targetsStore: targets,
+              pendingDeletes: PendingDeletes(store: store),
+            ),
+            pendingDeletes: PendingDeletes(store: store),
+            targetsStore: targets,
           ),
         ),
       );
       await tester.pumpAndSettle();
       await deletePermanently(tester);
 
-      // Dropping it locally would orphan the objects with nothing left
-      // pointing at them.
-      expect(await store.getByLocalId('manual:gone'), isNotNull);
-      expect(find.textContaining("Couldn't delete"), findsOneWidget);
+      expect(await store.getByLocalId('manual:gone'), isNull);
     });
   });
 }
