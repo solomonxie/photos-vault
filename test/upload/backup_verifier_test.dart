@@ -280,6 +280,12 @@ void main() {
         targetsStore: await _targets(),
         recordStore: store,
         list: ({required target, prefix = '', continuationToken}) async {
+          if (!prefix.endsWith('originals/')) {
+            return const S3ListingResult(
+              S3ListingOutcome.ok,
+              page: S3ListingPage(folders: [], objects: []),
+            );
+          }
           page++;
           return S3ListingResult(
             S3ListingOutcome.ok,

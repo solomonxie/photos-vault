@@ -76,6 +76,7 @@ class _SafetyScreenState extends State<SafetyScreen> {
   ReconcileReport? _check;
   DrillReport? _drill;
   int _requeued = 0;
+  int _lost = 0;
 
   /// Whether an iCloud row belongs on screen at all. An unsigned build or
   /// a non-iOS shell can't offer it and the user can't fix that, so the row
@@ -156,12 +157,15 @@ class _SafetyScreenState extends State<SafetyScreen> {
     });
     ReconcileReport? report;
     var requeued = 0;
+    var lost = 0;
     try {
       report = await widget.verifier.reconcile();
       // Finding out is only half of it: a photo the bucket hasn't got goes
       // back in the queue, so the next sync makes the record true.
-      if (report.reachedBucket && report.missingLocalIds.isNotEmpty) {
-        requeued = await widget.verifier.requeueMissing(report);
+      if (report.reachedBucket && !report.isClean) {
+        final repair = await widget.verifier.repair(report);
+        requeued = repair.requeued;
+        lost = repair.lost;
       }
     } catch (_) {
       report = null;
@@ -170,10 +174,11 @@ class _SafetyScreenState extends State<SafetyScreen> {
     setState(() {
       _check = report;
       _requeued = requeued;
+      _lost = lost;
       _checking = false;
       _verifiedAt = report?.reachedBucket == true ? report?.at : _verifiedAt;
     });
-    if (requeued > 0) await _load();
+    if (requeued > 0 || lost > 0) await _load();
   }
 
   Future<void> _testRestore() async {
@@ -245,8 +250,13 @@ class _SafetyScreenState extends State<SafetyScreen> {
     final check = _check;
     if (check != null) {
       if (!check.reachedBucket) return l10n.safetyCheckUnreachable;
+      if (_lost > 0) return l10n.safetyCheckLost(_lost, _requeued);
       if (check.missingLocalIds.isEmpty) {
-        return l10n.safetyCheckAllPresent(check.present);
+        return check.missingThumbnailIds.isEmpty
+            ? l10n.safetyCheckAllPresent(check.present)
+            : l10n.safetyCheckThumbnailsMissing(
+                check.missingThumbnailIds.length,
+              );
       }
       return l10n.safetyCheckMissing(check.missingLocalIds.length, _requeued);
     }
