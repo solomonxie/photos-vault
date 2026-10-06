@@ -1,6 +1,9 @@
+import 'dart:typed_data';
+
 import 'package:flutter/cupertino.dart';
 import 'package:url_launcher/url_launcher.dart';
 
+import '../demo/demo_bucket.dart';
 import '../l10n/app_localizations.dart';
 import '../upload/signing.dart' as signing;
 import 's3_backup_target.dart';
@@ -45,6 +48,7 @@ class BucketObjectPreviewScreen extends StatefulWidget {
 
 class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
   Uri? _url;
+  Uint8List? _demoBytes;
   String? _error;
 
   @override
@@ -55,6 +59,15 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
 
   Future<void> _load() async {
     try {
+      if (DemoBucket.owns(widget.target)) {
+        final bytes = await DemoBucket.bytesOf(widget.objectKey);
+        if (!mounted) return;
+        setState(() {
+          _demoBytes = bytes;
+          if (bytes == null) _error = widget.objectKey;
+        });
+        return;
+      }
       final url = await widget.presignGetUrl(
         target: widget.target,
         key: widget.objectKey,
@@ -80,6 +93,7 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final url = _url;
+    final demo = _demoBytes;
     return CupertinoPageScaffold(
       backgroundColor: CupertinoColors.black,
       navigationBar: CupertinoNavigationBar(
@@ -92,6 +106,8 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
                 _error!,
                 style: const TextStyle(color: CupertinoColors.white),
               )
+            : demo != null
+            ? InteractiveViewer(child: Image.memory(demo))
             : url == null
             ? const CupertinoActivityIndicator()
             : _isImage

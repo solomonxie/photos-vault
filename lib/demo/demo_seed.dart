@@ -19,6 +19,7 @@ import '../storage/asset_record_store.dart';
 import '../storage/passcode_hash.dart';
 import '../vault/hidden_notes.dart';
 import '../vault/keys.dart';
+import 'demo_bucket.dart';
 import 'demo_flag.dart';
 import 'demo_images.dart';
 
@@ -214,7 +215,15 @@ class DemoSeed {
     try {
       const bucket = String.fromEnvironment('DEMO_S3_BUCKET');
       final targets = BackupTargetsStore();
-      if (bucket.isNotEmpty && (await targets.loadAll()).isEmpty) {
+      if ((await targets.loadAll()).isEmpty && bucket.isEmpty) {
+        await targets.add(
+          accessKeyId: 'DEMO',
+          secretAccessKey: 'DEMO',
+          region: 'us-west-2',
+          bucket: DemoBucket.bucket,
+          prefix: DemoBucket.prefix,
+        );
+      } else if (bucket.isNotEmpty && (await targets.loadAll()).isEmpty) {
         const provider = String.fromEnvironment(
           'DEMO_S3_PROVIDER',
           defaultValue: 's3',
