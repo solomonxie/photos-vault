@@ -1,8 +1,8 @@
 import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/settings/backup_queue_screen.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/upload/sync_job.dart';
 import 'package:photos_vault/upload/sync_queue.dart';
-import 'package:photos_vault/settings/backup_queue_panel.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 
@@ -12,15 +12,20 @@ import '../support/fake_sync_job_store.dart';
 Widget _wrap(Widget child) => CupertinoApp(
   localizationsDelegates: AppLocalizations.localizationsDelegates,
   supportedLocales: AppLocalizations.supportedLocales,
-  home: CupertinoPageScaffold(child: ListView(children: [child])),
+  home: child,
 );
 
-Widget _screen(SyncQueue queue, {Future<int> Function()? syncEverything}) =>
-    BackupQueuePanel(
-      queue: queue,
-      settingsStore: BackupTargetsStore(store: FakeSecureStore()),
-      syncEverything: syncEverything,
-    );
+Widget _screen(
+  SyncQueue queue, {
+  Future<int> Function()? syncEverything,
+  Future<void> Function(String localId)? onOpenAsset,
+  BackupTargetsStore? store,
+}) => BackupQueueScreen(
+  queue: queue,
+  settingsStore: store ?? BackupTargetsStore(store: FakeSecureStore()),
+  syncEverything: syncEverything,
+  onOpenAsset: onOpenAsset,
+);
 
 void main() {
   // The in-memory fake, not the real ffi-backed store: its isolate
@@ -35,6 +40,23 @@ void main() {
     );
   }
 
+  Future<void> useTallSurface(WidgetTester tester) async {
+    await tester.binding.setSurfaceSize(const Size(800, 4000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+  }
+
+  Future<SyncJob> enqueue(
+    SyncQueue queue,
+    String id,
+    String name, {
+    SyncJobKind kind = SyncJobKind.uploadOriginal,
+  }) => queue.store.enqueue(
+    localId: id,
+    kind: kind,
+    displayName: name,
+    assetCreatedAt: DateTime(2024),
+  );
+
   testWidgets('shows the empty state when nothing is queued', (tester) async {
     await tester.pumpWidget(_wrap(_screen(newQueue())));
     await tester.pumpAndSettle();
@@ -43,36 +65,20 @@ void main() {
       find.text("The queue is empty. Everything is backed up."),
       findsOneWidget,
     );
+    expect(find.text('Backup Queue'), findsOneWidget);
   });
 
-  testWidgets('lists every kind of work, labelled, not just uploads', (
-    tester,
-  ) async {
+  testWidgets('lists every kind of work, labelled, in Up next', (tester) async {
     final queue = newQueue();
-    await queue.store.enqueue(
-      localId: 'a',
-      kind: SyncJobKind.uploadOriginal,
-      displayName: 'beach.jpg',
-      assetCreatedAt: DateTime(2024),
-    );
-    await queue.store.enqueue(
-      localId: 'a',
-      kind: SyncJobKind.uploadThumbnail,
-      displayName: 'beach.jpg',
-      assetCreatedAt: DateTime(2024),
-    );
-    await queue.store.enqueue(
-      localId: 'b',
-      kind: SyncJobKind.checkChanges,
-      displayName: 'sunset.jpg',
-      assetCreatedAt: DateTime(2024),
-    );
+    await enqueue(queue, 'a', 'beach.jpg');
+    await enqueue(queue, 'a', 'beach.jpg', kind: SyncJobKind.uploadThumbnail);
+    await enqueue(queue, 'b', 'sunset.jpg', kind: SyncJobKind.checkChanges);
     await queue.refresh();
 
     await tester.pumpWidget(_wrap(_screen(queue)));
     await tester.pumpAndSettle();
 
-    expect(find.text('Queue (3)'), findsOneWidget);
+    expect(find.text('UP NEXT · 3'), findsOneWidget);
     expect(find.text('Backing up original'), findsOneWidget);
     expect(find.text('Backing up thumbnail'), findsOneWidget);
     expect(find.text('Checking for changes'), findsOneWidget);
@@ -80,22 +86,18 @@ void main() {
     expect(find.text('Waiting'), findsNWidgets(3));
   });
 
-  testWidgets('a failed job shows its error and can be retried', (
+  testWidgets('a failed job sits under Needs attention and can be retried', (
     tester,
   ) async {
     final queue = newQueue();
-    final job = await queue.store.enqueue(
-      localId: 'a',
-      kind: SyncJobKind.uploadOriginal,
-      displayName: 'beach.jpg',
-      assetCreatedAt: DateTime(2024),
-    );
+    final job = await enqueue(queue, 'a', 'beach.jpg');
     await queue.store.markFailed(job.id, 'Access denied');
     await queue.refresh();
 
     await tester.pumpWidget(_wrap(_screen(queue)));
     await tester.pumpAndSettle();
 
+    expect(find.text('NEEDS ATTENTION · 1'), findsOneWidget);
     expect(find.text('Access denied'), findsOneWidget);
 
     await tester.tap(find.byIcon(CupertinoIcons.arrow_clockwise_circle_fill));
@@ -108,14 +110,30 @@ void main() {
     );
   });
 
-  testWidgets('pausing is reflected in the toggle', (tester) async {
+  testWidgets('Retry All retries every failed job', (tester) async {
     final queue = newQueue();
-    await queue.store.enqueue(
-      localId: 'a',
-      kind: SyncJobKind.uploadOriginal,
-      displayName: 'beach.jpg',
-      assetCreatedAt: DateTime(2024),
+    for (final name in ['a', 'b']) {
+      final job = await enqueue(queue, name, '$name.jpg');
+      await queue.store.markFailed(job.id, 'boom');
+    }
+    await queue.refresh();
+
+    await tester.pumpWidget(_wrap(_screen(queue)));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Retry All'));
+    await tester.pumpAndSettle();
+
+    expect(
+      (await queue.store.all()).every((j) => j.status == SyncJobStatus.done),
+      isTrue,
     );
+  });
+
+  testWidgets('pausing is reflected in the bar and the summary', (
+    tester,
+  ) async {
+    final queue = newQueue();
+    await enqueue(queue, 'a', 'beach.jpg');
     await queue.refresh();
 
     await tester.pumpWidget(_wrap(_screen(queue)));
@@ -126,28 +144,23 @@ void main() {
 
     expect(queue.paused.value, isTrue);
     expect(find.byIcon(CupertinoIcons.play_fill), findsOneWidget);
+    expect(find.text('Paused'), findsOneWidget);
   });
 
-  testWidgets('Empty Queue clears the list outright', (tester) async {
+  testWidgets('Empty Queue, from the menu, clears the list outright', (
+    tester,
+  ) async {
     final queue = newQueue();
-    await queue.store.enqueue(
-      localId: 'a',
-      kind: SyncJobKind.uploadOriginal,
-      displayName: 'beach.jpg',
-      assetCreatedAt: DateTime(2024),
-    );
-    final done = await queue.store.enqueue(
-      localId: 'b',
-      kind: SyncJobKind.uploadOriginal,
-      displayName: 'sunset.jpg',
-      assetCreatedAt: DateTime(2024),
-    );
+    await enqueue(queue, 'a', 'beach.jpg');
+    final done = await enqueue(queue, 'b', 'sunset.jpg');
     await queue.store.markDone(done.id);
     await queue.refresh();
 
     await tester.pumpWidget(_wrap(_screen(queue)));
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byIcon(CupertinoIcons.ellipsis_circle));
+    await tester.pumpAndSettle();
     await tester.tap(find.text('Empty Queue'));
     await tester.pumpAndSettle();
 
@@ -160,56 +173,52 @@ void main() {
     );
   });
 
-  testWidgets('the schedule and the format are pills of their values', (
+  testWidgets('Clear on the Done section drops only finished rows', (
     tester,
   ) async {
-    final store = BackupTargetsStore(store: FakeSecureStore());
-    await tester.pumpWidget(
-      _wrap(BackupQueuePanel(queue: newQueue(), settingsStore: store)),
-    );
+    final queue = newQueue();
+    await enqueue(queue, 'a', 'beach.jpg');
+    final done = await enqueue(queue, 'b', 'sunset.jpg');
+    await queue.store.markDone(done.id);
+    await queue.refresh();
+
+    await tester.pumpWidget(_wrap(_screen(queue)));
+    await tester.pumpAndSettle();
+    expect(find.text('DONE · 1'), findsOneWidget);
+
+    await tester.tap(find.text('Clear Done'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Manual Only'), findsOneWidget);
-    expect(find.text('Never synced'), findsOneWidget);
-
-    await tester.tap(find.text('Manual Only'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Every Hour'));
-    await tester.pumpAndSettle();
-
-    expect(await store.getSyncFrequency(), SyncFrequency.everyHour);
+    expect(find.text('DONE · 1'), findsNothing);
+    expect((await queue.store.all()).single.localId, 'a');
   });
 
-  testWidgets('Back Up Now is present but dead when there is nothing behind it', (
-    tester,
-  ) async {
-    await tester.pumpWidget(_wrap(_screen(newQueue())));
-    await tester.pumpAndSettle();
+  testWidgets(
+    'Back Up Now is present but dead when there is nothing behind it',
+    (tester) async {
+      await tester.pumpWidget(_wrap(_screen(newQueue())));
+      await tester.pumpAndSettle();
 
-    // Present but disabled rather than missing — a manual action must
-    // never be a silent no-op.
-    final syncNow = tester.widget<CupertinoButton>(
-      find.ancestor(
-        of: find.text('Back Up Now'),
-        matching: find.byType(CupertinoButton),
-      ),
-    );
-    expect(syncNow.onPressed, isNull);
-  });
+      final button = tester.widget<CupertinoButton>(
+        find.ancestor(
+          of: find.text('Back Up Now'),
+          matching: find.byType(CupertinoButton),
+        ),
+      );
+      expect(button.onPressed, isNull);
+    },
+  );
 
   testWidgets('Back Up Now runs the sync and stamps the time', (tester) async {
     final store = BackupTargetsStore(store: FakeSecureStore());
     var ran = 0;
     await tester.pumpWidget(
       _wrap(
-        BackupQueuePanel(
-          queue: newQueue(),
-          settingsStore: store,
-          syncEverything: () async => ++ran,
-        ),
+        _screen(newQueue(), store: store, syncEverything: () async => ++ran),
       ),
     );
     await tester.pumpAndSettle();
+    expect(find.text('Never synced'), findsOneWidget);
 
     await tester.tap(find.text('Back Up Now'));
     await tester.pumpAndSettle();
@@ -218,11 +227,15 @@ void main() {
     expect(await store.getLastSyncAt(), isNotNull);
   });
 
-  testWidgets('the speed stepper steps the queue concurrency', (tester) async {
+  testWidgets('the speed stepper in the menu steps the concurrency', (
+    tester,
+  ) async {
     final queue = newQueue();
     await tester.pumpWidget(_wrap(_screen(queue)));
     await tester.pumpAndSettle();
 
+    await tester.tap(find.byIcon(CupertinoIcons.ellipsis_circle));
+    await tester.pumpAndSettle();
     expect(find.text('2 at a time'), findsOneWidget);
     await tester.tap(find.byIcon(CupertinoIcons.plus));
     await tester.pumpAndSettle();
@@ -231,33 +244,37 @@ void main() {
     expect(find.text('3 at a time'), findsOneWidget);
   });
 
-  testWidgets('the backup format is one pill, and what each costs is in the '
-      'sheet where it is chosen', (tester) async {
-    final store = BackupTargetsStore(store: FakeSecureStore());
+  testWidgets('tapping a row opens that photo', (tester) async {
+    final queue = newQueue();
+    await enqueue(queue, 'photo-1', 'beach.jpg');
+    await queue.refresh();
+    String? opened;
+
     await tester.pumpWidget(
-      _wrap(BackupQueuePanel(queue: newQueue(), settingsStore: store)),
+      _wrap(_screen(queue, onOpenAsset: (id) async => opened = id)),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.text('beach.jpg'));
 
-    // The page carries the current answer, not both answers and their
-    // reasons laid out permanently.
-    expect(
-      find.textContaining('Full quality, exactly as stored'),
-      findsNothing,
-    );
-    // HEIF is the default.
-    await tester.tap(find.text('HEIF'));
+    expect(opened, 'photo-1');
+  });
+
+  testWidgets('a long section is capped, and Show more reveals the rest', (
+    tester,
+  ) async {
+    await useTallSurface(tester);
+    final queue = newQueue();
+    for (var i = 0; i < 55; i++) {
+      await enqueue(queue, 'id$i', 'photo$i.jpg');
+    }
+    await queue.refresh();
+
+    await tester.pumpWidget(_wrap(_screen(queue)));
     await tester.pumpAndSettle();
 
-    expect(
-      find.textContaining('Full quality, exactly as stored'),
-      findsOneWidget,
-    );
-    expect(find.textContaining('Stores photos as HEIF'), findsOneWidget);
-    await tester.tap(find.text('Original'));
+    expect(find.text('Show 5 more'), findsOneWidget);
+    await tester.tap(find.text('Show 5 more'));
     await tester.pumpAndSettle();
-
-    expect(await store.getBackupFormat(), BackupFormat.original);
-    expect(find.text('Original'), findsOneWidget);
+    expect(find.text('Show 5 more'), findsNothing);
   });
 }

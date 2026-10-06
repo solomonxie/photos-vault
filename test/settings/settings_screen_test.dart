@@ -3,11 +3,12 @@ import 'package:photos_vault/backup/bucket_backup.dart';
 import 'package:photos_vault/backup/snapshot_archive.dart';
 import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/settings/add_backup_screen.dart';
-import 'package:photos_vault/settings/backup_queue_panel.dart';
+import 'package:photos_vault/settings/backup_queue_screen.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/bucket_browser_screen.dart';
 import 'package:photos_vault/settings/settings_screen.dart';
 import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/upload/sync_job.dart';
 import 'package:photos_vault/upload/sync_queue.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -329,9 +330,7 @@ void main() {
     expect(find.text('my-bucket'), findsOneWidget);
   });
 
-  testWidgets('stats ride on one footer line under the bucket list', (
-    tester,
-  ) async {
+  testWidgets('the status card carries the backed-up count', (tester) async {
     await _useTallSurface(tester);
     final store = await _storeWithBucket();
     final recordStore = FakeAssetRecordStore();
@@ -355,10 +354,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('1 bucket · 1 of 2 photos backed up'), findsOneWidget);
+    expect(find.text('1 of 2 photos · 1 bucket'), findsOneWidget);
   });
 
-  testWidgets('one bucket shows the order, dimmed, and says when it counts', (
+  testWidgets('one bucket has no Fill Order row: it could change nothing', (
     tester,
   ) async {
     await _useTallSurface(tester);
@@ -367,18 +366,8 @@ void main() {
     await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
     await tester.pumpAndSettle();
 
-    // Visible so it can be found before the second bucket exists — but
-    // not a live choice between two identical outcomes.
-    expect(find.text('Photo by Photo'), findsOneWidget);
-    expect(
-      find.text('This only matters once you have more than one bucket.'),
-      findsOneWidget,
-    );
-
-    await tester.tap(find.text('Photo by Photo'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Bucket by Bucket'), findsNothing);
+    expect(find.text('Fill Order'), findsNothing);
+    expect(find.text('Photo by Photo'), findsNothing);
   });
 
   testWidgets('a second bucket brings the order menu, and it sticks', (
@@ -397,13 +386,9 @@ void main() {
     await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
     await tester.pumpAndSettle();
 
-    // The pill carries the current value, like the queue's own settings,
-    // and the one-bucket note is gone with the reason for it.
+    // The row carries the current value.
+    expect(find.text('Fill Order'), findsOneWidget);
     expect(find.text('Photo by Photo'), findsOneWidget);
-    expect(
-      find.text('This only matters once you have more than one bucket.'),
-      findsNothing,
-    );
 
     await tester.tap(find.text('Photo by Photo'));
     await tester.pumpAndSettle();
@@ -422,15 +407,15 @@ void main() {
     expect(await store.getOrderStrategy(), BackupOrderStrategy.bucketByBucket);
   });
 
-  testWidgets('cloud settings carries the backup queue under the buckets', (
-    tester,
-  ) async {
+  SyncQueue newQueue() => SyncQueue(
+    store: FakeSyncJobStore(),
+    settings: BackupTargetsStore(store: FakeSecureStore()),
+    process: (_) async {},
+  );
+
+  testWidgets('the status card opens the backup queue page', (tester) async {
     await _useTallSurface(tester);
-    final queue = SyncQueue(
-      store: FakeSyncJobStore(),
-      settings: BackupTargetsStore(store: FakeSecureStore()),
-      process: (_) async {},
-    );
+    final queue = newQueue();
 
     await tester.pumpWidget(
       _wrap(
@@ -443,8 +428,170 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byType(BackupQueuePanel), findsOneWidget);
+    expect(find.text('Queue · 0'), findsOneWidget);
+    await tester.tap(find.text('Queue · 0'));
+    await tester.pumpAndSettle();
+    expect(find.byType(BackupQueueScreen), findsOneWidget);
+    expect(find.text('Backup Queue'), findsOneWidget);
+  });
+
+  testWidgets('status card: no bucket says so, with no button to press', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final store = BackupTargetsStore(store: FakeSecureStore());
+    await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Not backed up yet'), findsOneWidget);
+    expect(find.text('Back Up Now'), findsNothing);
+  });
+
+  testWidgets('status card: nothing owed reads All backed up', (tester) async {
+    await _useTallSurface(tester);
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(
+          store: await _storeWithBucket(),
+          assetRecordStore: FakeAssetRecordStore(),
+          syncQueue: newQueue(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('All backed up'), findsOneWidget);
     expect(find.text('Back Up Now'), findsOneWidget);
+  });
+
+  testWidgets('status card: a failed upload outranks everything but loss', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final queue = newQueue();
+    final job = await queue.store.enqueue(
+      localId: 'a',
+      kind: SyncJobKind.uploadOriginal,
+      displayName: 'a.jpg',
+      assetCreatedAt: DateTime(2024),
+    );
+    await queue.store.markFailed(job.id, 'boom');
+    await queue.store.enqueue(
+      localId: 'b',
+      kind: SyncJobKind.uploadOriginal,
+      displayName: 'b.jpg',
+      assetCreatedAt: DateTime(2024),
+    );
+    await queue.refresh();
+
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(
+          store: await _storeWithBucket(),
+          assetRecordStore: FakeAssetRecordStore(),
+          syncQueue: queue,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 upload failed'), findsOneWidget);
+    expect(find.text('Queue · 2'), findsOneWidget);
+  });
+
+  testWidgets('status card: paused offers Resume', (tester) async {
+    await _useTallSurface(tester);
+    final queue = newQueue();
+    await queue.store.enqueue(
+      localId: 'a',
+      kind: SyncJobKind.uploadOriginal,
+      displayName: 'a.jpg',
+      assetCreatedAt: DateTime(2024),
+    );
+    await queue.refresh();
+    await queue.setPaused(true);
+
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(
+          store: await _storeWithBucket(),
+          assetRecordStore: FakeAssetRecordStore(),
+          syncQueue: queue,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Paused · 1 waiting'), findsOneWidget);
+    await tester.tap(find.text('Resume'));
+    await tester.pumpAndSettle();
+    expect(queue.paused.value, isFalse);
+  });
+
+  testWidgets('Back Up Now on the status card runs the sync and stamps it', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final store = await _storeWithBucket();
+    var ran = 0;
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(
+          store: store,
+          assetRecordStore: FakeAssetRecordStore(),
+          syncQueue: newQueue(),
+          syncEverything: () async => ++ran,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Back Up Now'));
+    await tester.pumpAndSettle();
+
+    expect(ran, 1);
+    expect(await store.getLastSyncAt(), isNotNull);
+  });
+
+  testWidgets('the Sync row carries the schedule and the sheet changes it', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final store = await _storeWithBucket();
+    await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Manual Only'), findsOneWidget);
+    await tester.tap(find.text('Manual Only'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Every Hour'));
+    await tester.pumpAndSettle();
+
+    expect(await store.getSyncFrequency(), SyncFrequency.everyHour);
+    expect(find.text('Every Hour'), findsOneWidget);
+  });
+
+  testWidgets('Upload Quality shows the value; what each costs is in the '
+      'sheet', (tester) async {
+    await _useTallSurface(tester);
+    final store = await _storeWithBucket();
+    await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
+    await tester.pumpAndSettle();
+
+    expect(
+      find.textContaining('Full quality, exactly as stored'),
+      findsNothing,
+    );
+    await tester.tap(find.text('HEIF'));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Full quality, exactly as stored'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.text('Original'));
+    await tester.pumpAndSettle();
+    expect(await store.getBackupFormat(), BackupFormat.original);
   });
 
   testWidgets('demo mode is not in cloud settings', (tester) async {

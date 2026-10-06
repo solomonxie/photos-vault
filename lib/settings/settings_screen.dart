@@ -15,27 +15,26 @@ import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/person_store.dart';
 import '../storage/album_store.dart';
-import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/bucket_import.dart';
 import '../upload/library_restore.dart';
+import '../upload/lost_originals.dart';
 import '../upload/original_restore.dart';
+import '../upload/sync_job.dart';
 import '../upload/sync_queue.dart';
 import '../vault/keys.dart';
 import 'add_backup_screen.dart';
-import 'backup_queue_panel.dart';
-import 'backup_storage_type.dart';
+import 'backup_queue_screen.dart';
 import 'backup_targets_store.dart';
 import 'bucket_browser_screen.dart';
 import 'bucket_endpoint.dart';
 import 's3_backup_target.dart';
 import 'settings_section.dart';
 
-/// "Cloud Settings" — one flat page: the bucket list up top, then the
-/// settings that govern syncing it. Nothing here pushes a sub-page that
-/// only holds connections: where the copies go, and how to add another.
-/// What the upload is *doing* — the queue, the schedule, Sync Now — sits
-/// right under the connections it uploads to ([BackupQueuePanel]).
+/// "Cloud Settings": a status card that answers "is my library safe?", then
+/// the buckets, the upload settings and the app-data copies, each in its own
+/// inset group. The queue is a page of its own ([BackupQueueScreen]), opened
+/// from the status card. See `docs/design/uiux/cloud-redesign.md`.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({
     super.key,
@@ -50,11 +49,11 @@ class SettingsScreen extends StatefulWidget {
     this.onOpenAsset,
   });
 
-  /// The backup queue shown under the connections. Absent in tests that
+  /// Feeds the status card and opens the queue page. Absent in tests that
   /// are only about the connections.
   final SyncQueue? syncQueue;
 
-  /// See [BackupQueuePanel].
+  /// What Back Up Now does; see [BackupQueueScreen].
   final Future<int> Function()? syncEverything;
   final Future<void> Function(String localId)? onOpenAsset;
 
@@ -136,8 +135,17 @@ class _SettingsScreenState extends State<SettingsScreen>
   bool _importing = false;
 
   List<S3BackupTarget>? _targets;
-  List<AssetRecord> _records = const [];
   BackupOrderStrategy _orderStrategy = BackupOrderStrategy.fileByFile;
+  BackupFormat _format = BackupFormat.optimized;
+  SyncFrequency _frequency = SyncFrequency.manual;
+  DateTime? _lastSyncAt;
+  bool _syncing = false;
+
+  /// Counted once per [_reload], never per build: the library is tens of
+  /// thousands of records.
+  int _backedUpCount = 0;
+  int _trackedCount = 0;
+  int _lostCount = 0;
 
   @override
   void initState() {
@@ -162,10 +170,14 @@ class _SettingsScreenState extends State<SettingsScreen>
     if (state == AppLifecycleState.resumed) _reloadICloud();
   }
 
+  ImportOffer _importOffer = ImportOffer.none;
+
   Future<void> _reloadBucketData() async {
     var enabled = false;
     DateTime? lastBackupAt;
+    var offer = ImportOffer.none;
     try {
+      offer = await ImportOffer.read(_assetRecordStore);
       enabled = await _bucketBackup.isEnabled();
       lastBackupAt = await _bucketBackup.lastBackupAt();
     } catch (_) {
@@ -176,6 +188,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     setState(() {
       _bucketDataEnabled = enabled;
       _bucketDataLastBackupAt = lastBackupAt;
+      _importOffer = offer;
     });
   }
 
@@ -244,18 +257,40 @@ class _SettingsScreenState extends State<SettingsScreen>
     } catch (_) {
       // Same secure storage as the targets — fall back to the default.
     }
-    List<AssetRecord> records = const [];
+    var backedUp = 0;
+    var tracked = 0;
+    var lost = 0;
     try {
-      records = await _assetRecordStore.listAll();
+      for (final r in await _assetRecordStore.listAll()) {
+        if (r.isDeleted) continue;
+        tracked++;
+        if (r.isFullyBackedUp) backedUp++;
+      }
+      lost = (await LostOriginals(_assetRecordStore).current()).length;
     } catch (_) {
       // Asset store unavailable (e.g. no platform channel in a test) — the
-      // stats line just reads zero rather than crashing the screen.
+      // status card just reads zero rather than crashing the screen.
+    }
+    var format = BackupFormat.optimized;
+    var frequency = SyncFrequency.manual;
+    DateTime? lastSyncAt;
+    try {
+      format = await _store.getBackupFormat();
+      frequency = await _store.getSyncFrequency();
+      lastSyncAt = await _store.getLastSyncAt();
+    } catch (_) {
+      // Same secure storage — the defaults are a working page.
     }
     if (!mounted) return;
     setState(() {
       _targets = targets;
-      _records = records;
+      _backedUpCount = backedUp;
+      _trackedCount = tracked;
+      _lostCount = lost;
       _orderStrategy = order;
+      _format = format;
+      _frequency = frequency;
+      _lastSyncAt = lastSyncAt;
     });
   }
 
@@ -355,12 +390,133 @@ class _SettingsScreenState extends State<SettingsScreen>
   String _targetPath(S3BackupTarget target) =>
       '${bucketUriScheme(target.provider)}://${target.bucket}/${target.prefix}';
 
-  // ------------------------------------------------------------------ stats
+  // ------------------------------------------------------------------ build
 
-  int get _backedUpCount =>
-      _records.where((r) => !r.isDeleted && r.isFullyBackedUp).length;
+  String _frequencyLabel(AppLocalizations l10n, SyncFrequency f) => switch (f) {
+    SyncFrequency.manual => l10n.settingsSyncFrequencyManual,
+    SyncFrequency.every15Minutes => l10n.settingsSyncFrequencyEvery15Minutes,
+    SyncFrequency.everyHour => l10n.settingsSyncFrequencyEveryHour,
+    SyncFrequency.every6Hours => l10n.settingsSyncFrequencyEvery6Hours,
+    SyncFrequency.daily => l10n.settingsSyncFrequencyDaily,
+  };
 
-  int get _trackedCount => _records.where((r) => !r.isDeleted).length;
+  String _formatLabel(AppLocalizations l10n, BackupFormat f) => switch (f) {
+    BackupFormat.original => l10n.settingsBackupFormatOriginal,
+    BackupFormat.optimized => l10n.settingsBackupFormatOptimized,
+  };
+
+  Future<void> _pickFrequency() async {
+    final l10n = AppLocalizations.of(context)!;
+    final picked = await showCupertinoModalPopup<SyncFrequency>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: Text(l10n.settingsSyncFrequencyHeading),
+        message: Text(l10n.settingsSyncFrequencyHint),
+        actions: [
+          for (final f in SyncFrequency.values)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(sheetContext).pop(f),
+              child: Text(
+                f == _frequency
+                    ? '${_frequencyLabel(l10n, f)}  ✓'
+                    : _frequencyLabel(l10n, f),
+              ),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (picked == null) return;
+    setState(() => _frequency = picked);
+    await _store.setSyncFrequency(picked);
+  }
+
+  /// Two choices and a sentence about each is a sheet's worth of content,
+  /// not half a page of radio rows under a setting changed once.
+  Future<void> _pickFormat() async {
+    final l10n = AppLocalizations.of(context)!;
+    final picked = await showCupertinoModalPopup<BackupFormat>(
+      context: context,
+      builder: (sheetContext) => CupertinoActionSheet(
+        title: Text(l10n.settingsBackupFormatHeading),
+        message: Text(
+          '${l10n.settingsBackupFormatOriginal}: '
+          '${l10n.settingsBackupFormatOriginalDescription}\n\n'
+          '${l10n.settingsBackupFormatOptimized}: '
+          '${l10n.settingsBackupFormatOptimizedDescription}\n\n'
+          '${l10n.settingsBackupFormatVideoNote}\n'
+          '${l10n.settingsBackupFormatFolderNote}',
+        ),
+        actions: [
+          for (final f in BackupFormat.values)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(sheetContext).pop(f),
+              child: Text(
+                f == _format
+                    ? '${_formatLabel(l10n, f)}  ✓'
+                    : _formatLabel(l10n, f),
+              ),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheetContext).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (picked == null) return;
+    setState(() => _format = picked);
+    await _store.setBackupFormat(picked);
+  }
+
+  Future<void> _syncNow() async {
+    final syncEverything = widget.syncEverything;
+    if (syncEverything == null || _syncing) return;
+    setState(() => _syncing = true);
+    try {
+      await syncEverything();
+      await _store.setLastSyncAt(DateTime.now());
+    } finally {
+      if (mounted) setState(() => _syncing = false);
+    }
+    await _reload();
+    await widget.syncQueue?.refresh();
+  }
+
+  void _openQueue() {
+    final queue = widget.syncQueue;
+    if (queue == null) return;
+    Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => BackupQueueScreen(
+          queue: queue,
+          settingsStore: _store,
+          syncEverything: widget.syncEverything,
+          onOpenAsset: widget.onOpenAsset,
+        ),
+      ),
+    );
+  }
+
+  Future<void> _explainAppData() {
+    final l10n = AppLocalizations.of(context)!;
+    return showCupertinoDialog<void>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(l10n.settingsAppDataHeading),
+        content: Text(l10n.settingsAppDataHint),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(),
+            child: Text(l10n.actionOk),
+          ),
+        ],
+      ),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -377,66 +533,231 @@ class _SettingsScreenState extends State<SettingsScreen>
           ? const Center(child: CupertinoActivityIndicator())
           : SafeArea(
               child: ListView(
-                padding: const EdgeInsets.only(top: 8, bottom: 32),
-                // App data first: it needs no setup, and it's the part
-                // that decides whether a reinstall starts from nothing.
-                // Then the photos — the buckets and the settings that
-                // govern them, which are one subject and now one section.
+                padding: const EdgeInsets.only(top: 8, bottom: 40),
                 children: [
-                  _appDataSection(l10n, targets),
-                  const SettingsSectionDivider(),
-                  _cloudSection(l10n, targets),
-                  if (widget.syncQueue != null)
-                    BackupQueuePanel(
-                      queue: widget.syncQueue!,
-                      settingsStore: _store,
-                      syncEverything: widget.syncEverything,
-                      onOpenAsset: widget.onOpenAsset,
-                    ),
+                  _statusCard(l10n, targets),
+                  const SizedBox(height: 28),
+                  SettingsGroupHeading(title: l10n.settingsCloudBucketsHeading),
+                  _bucketsGroup(l10n, targets),
+                  const SizedBox(height: 28),
+                  SettingsGroupHeading(title: l10n.cloudUploadsHeading),
+                  _uploadsGroup(l10n, targets),
+                  const SizedBox(height: 28),
+                  SettingsGroupHeading(
+                    title: l10n.settingsAppDataHeading,
+                    onInfo: _explainAppData,
+                  ),
+                  _appDataGroup(l10n, targets),
                 ],
               ),
             ),
     );
   }
 
+  // ------------------------------------------------------------ status card
+
+  /// Answers "am I safe?" before anything else on the page. When several
+  /// things are true the worst one wins: lost > failed > paused > syncing >
+  /// waiting > all done.
+  Widget _statusCard(AppLocalizations l10n, List<S3BackupTarget> targets) {
+    if (targets.isEmpty) {
+      return SettingsStatusCard(
+        color: settingsTertiary,
+        title: l10n.cloudStatusNone,
+        subtitle: l10n.settingsEmptyNote,
+      );
+    }
+    final queue = widget.syncQueue;
+    if (queue == null) return _statusFor(l10n, targets, 0, 0, false, false);
+    return ValueListenableBuilder<List<SyncJob>>(
+      valueListenable: queue.jobs,
+      builder: (context, jobs, _) => ValueListenableBuilder<bool>(
+        valueListenable: queue.paused,
+        builder: (context, paused, _) => ValueListenableBuilder<bool>(
+          valueListenable: queue.draining,
+          builder: (context, draining, _) {
+            var waiting = 0;
+            var failed = 0;
+            for (final job in jobs) {
+              switch (job.status) {
+                case SyncJobStatus.pending || SyncJobStatus.running:
+                  waiting++;
+                case SyncJobStatus.failed:
+                  failed++;
+                case SyncJobStatus.done:
+                  break;
+              }
+            }
+            return _statusFor(l10n, targets, waiting, failed, paused, draining);
+          },
+        ),
+      ),
+    );
+  }
+
+  Widget _statusFor(
+    AppLocalizations l10n,
+    List<S3BackupTarget> targets,
+    int waiting,
+    int failed,
+    bool paused,
+    bool draining,
+  ) {
+    final syncing = _syncing || (draining && !paused);
+    final lastSync = _lastSyncAt == null
+        ? l10n.settingsLastSyncedNever
+        : l10n.settingsLastSyncedAt(_formatWhen(_lastSyncAt!));
+    final canSync = widget.syncEverything != null && !_syncing;
+    final String title;
+    final Color color;
+    if (_lostCount > 0) {
+      title = l10n.cloudStatusLost(_lostCount);
+      color = CupertinoColors.systemRed;
+    } else if (failed > 0) {
+      title = l10n.cloudStatusFailed(failed);
+      color = CupertinoColors.systemOrange;
+    } else if (paused) {
+      title = l10n.cloudStatusPaused(waiting);
+      color = CupertinoColors.systemOrange;
+    } else if (syncing) {
+      title = l10n.cloudStatusSyncing(waiting);
+      color = settingsAccent;
+    } else if (waiting > 0) {
+      title = l10n.cloudStatusWaiting(waiting);
+      color = settingsAccent;
+    } else {
+      title = l10n.cloudStatusAllDone;
+      color = CupertinoColors.systemGreen;
+    }
+    final unfinished = waiting + failed;
+    return SettingsStatusCard(
+      color: color,
+      busy: syncing && _lostCount == 0 && failed == 0,
+      title: title,
+      subtitle: l10n.cloudStatusProgress(
+        _backedUpCount,
+        _trackedCount,
+        targets.length,
+      ),
+      progress: _trackedCount == 0 ? null : _backedUpCount / _trackedCount,
+      footnote: lastSync,
+      primaryLabel: paused
+          ? l10n.backupQueueResumeAction
+          : _syncing
+          ? l10n.settingsSyncingMessage
+          : l10n.settingsSyncNowButton,
+      onPrimary: paused
+          ? () => widget.syncQueue?.setPaused(false)
+          : canSync
+          ? _syncNow
+          : null,
+      linkLabel: widget.syncQueue == null
+          ? null
+          : l10n.cloudQueueLink(unfinished),
+      onLink: widget.syncQueue == null ? null : _openQueue,
+    );
+  }
+
+  // ----------------------------------------------------------------- groups
+
+  Widget _bucketsGroup(AppLocalizations l10n, List<S3BackupTarget> targets) =>
+      SettingsGroup(
+        children: [
+          for (final target in targets)
+            SettingsGroupRow(
+              leading: const SettingsIconTile(icon: CupertinoIcons.cloud_fill),
+              title: target.bucket,
+              subtitle: _targetPath(target),
+              value: target.region,
+              chevron: true,
+              onTap: () => _browse(target),
+            ),
+          SettingsGroupRow(
+            title: l10n.settingsAddButton,
+            accent: true,
+            leading: const Icon(
+              CupertinoIcons.add_circled,
+              size: 22,
+              color: settingsAccent,
+            ),
+            onTap: _addBackup,
+          ),
+        ],
+      );
+
+  Widget _uploadsGroup(AppLocalizations l10n, List<S3BackupTarget> targets) =>
+      SettingsGroup(
+        children: [
+          SettingsGroupRow(
+            title: l10n.cloudSyncRow,
+            value: _frequencyLabel(l10n, _frequency),
+            chevron: true,
+            onTap: _pickFrequency,
+          ),
+          SettingsGroupRow(
+            title: l10n.cloudQualityRow,
+            value: _formatLabel(l10n, _format),
+            chevron: true,
+            onTap: _pickFormat,
+          ),
+          // With one bucket both orders are the same upload in the same
+          // order: a row for a choice that changes nothing is clutter.
+          if (targets.length > 1)
+            SettingsGroupRow(
+              title: l10n.cloudFillOrderRow,
+              value: _orderLabel(l10n, _orderStrategy),
+              chevron: true,
+              onTap: _pickOrderStrategy,
+            ),
+          if (targets.isNotEmpty)
+            ValueListenableBuilder<({int done, int total})?>(
+              valueListenable: BucketImport.running,
+              builder: (context, running, _) => SettingsGroupRow(
+                title: l10n.cloudFindNewRow,
+                subtitle: running == null
+                    ? null
+                    : l10n.cloudFindNewRunning(running.done, running.total),
+                value: running == null && _importOffer.importable > 0
+                    ? l10n.cloudFindNewValue(_importOffer.importable)
+                    : null,
+                trailing: running != null || _importing
+                    ? const CupertinoActivityIndicator(radius: 9)
+                    : null,
+                chevron: running == null,
+                onTap: running != null || _importing ? null : _importFromBucket,
+              ),
+            ),
+        ],
+      );
+
   /// One switch per destination and nothing else. "Back up here" and "do
-  /// it automatically" as separate toggles, plus a Sync Now beside them, is
-  /// three controls for one decision and nobody can predict what any
-  /// combination does.
-  ///
-  /// Two destinations, not a choice between them: iCloud needs no setup,
-  /// the bucket is already paid for, and a copy in both is the whole point
-  /// of offering both.
+  /// it automatically" as separate toggles is three controls for one
+  /// decision and nobody can predict what any combination does.
   ///
   /// A container that can't work *right now* still shows its row: hiding it
   /// makes the feature invisible to exactly the person who needs telling
   /// about it. What changes is the line under the title — and only the one
   /// state the user can actually fix gets told how.
-  Widget _appDataSection(AppLocalizations l10n, List<S3BackupTarget> targets) {
+  Widget _appDataGroup(AppLocalizations l10n, List<S3BackupTarget> targets) {
     final blocked = switch (_icloudState) {
       ICloudState.notEntitled => l10n.settingsICloudNotEntitled,
       ICloudState.driveOff => l10n.settingsICloudDriveOff,
       ICloudState.notReady => l10n.settingsICloudNotReady,
       ICloudState.available || ICloudState.unsupported => null,
     };
-    final lastBackupAt = _icloudLastBackupAt;
-    return SettingsSection(
-      heading: l10n.settingsAppDataHeading,
-      primary: false,
-      hint: l10n.settingsAppDataHint,
+    final iCloudAt = _icloudLastBackupAt;
+    final bucketAt = _bucketDataLastBackupAt;
+    return SettingsGroup(
+      footer: l10n.cloudLocalCopiesFooter,
       children: [
         if (_icloudState != ICloudState.unsupported)
-          SettingsRow(
-            leading: const SettingsIconTile(icon: CupertinoIcons.cloud_upload),
+          SettingsGroupRow(
             title: l10n.settingsICloudRow,
-            // Says it once: a blocked row's reason *replaces* the location
-            // line rather than being appended to it.
-            subtitle: blocked ?? l10n.settingsICloudPath,
-            detail: blocked != null
-                ? null
-                : lastBackupAt == null
-                ? l10n.settingsICloudNever
-                : l10n.settingsICloudLastBackup(_formatWhen(lastBackupAt)),
+            subtitle:
+                blocked ??
+                (iCloudAt == null
+                    ? l10n.settingsICloudNever
+                    : l10n.settingsICloudLastBackup(_formatWhen(iCloudAt))),
             trailing: _icloudBusy
                 ? const CupertinoActivityIndicator(radius: 9)
                 : CupertinoSwitch(
@@ -446,36 +767,16 @@ class _SettingsScreenState extends State<SettingsScreen>
                         : null,
                   ),
           ),
-        if (_icloudState == ICloudState.driveOff)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(
-              settingsPagePadding,
-              0,
-              settingsPagePadding,
-              8,
-            ),
-            child: Text(
-              l10n.settingsICloudDriveOffFix,
-              style: const TextStyle(fontSize: 12, color: settingsAccent),
-            ),
-          ),
-        if (_icloudState != ICloudState.unsupported)
-          const SettingsHairline(indent: settingsRowIndent),
-        SettingsRow(
-          leading: const SettingsIconTile(icon: CupertinoIcons.archivebox_fill),
+        if (_icloudState == ICloudState.driveOff) const _FixLine(),
+        SettingsGroupRow(
           title: l10n.settingsBucketDataRow,
-          // Nothing to back up to says so where the switch is, rather
-          // than letting a dead toggle explain itself.
+          // Nothing to back up to says so where the switch is, rather than
+          // letting a dead toggle explain itself.
           subtitle: targets.isEmpty
               ? l10n.settingsBucketDataNoBucket
-              : l10n.settingsBucketDataPath,
-          detail: targets.isEmpty
-              ? null
-              : _bucketDataLastBackupAt == null
+              : bucketAt == null
               ? l10n.settingsICloudNever
-              : l10n.settingsICloudLastBackup(
-                  _formatWhen(_bucketDataLastBackupAt!),
-                ),
+              : l10n.settingsICloudLastBackup(_formatWhen(bucketAt)),
           trailing: _bucketDataBusy
               ? const CupertinoActivityIndicator(radius: 9)
               : CupertinoSwitch(
@@ -483,47 +784,27 @@ class _SettingsScreenState extends State<SettingsScreen>
                   onChanged: targets.isEmpty ? null : _toggleBucketData,
                 ),
         ),
-        const SizedBox(height: 14),
-        _appDataFileControls(l10n),
+        SettingsGroupRow(
+          title: l10n.settingsAppDataExportButton,
+          trailing: Icon(
+            CupertinoIcons.square_arrow_up,
+            size: 20,
+            color: _exporting ? settingsTertiary : settingsAccent,
+          ),
+          onTap: _exporting ? null : _exportFile,
+        ),
+        SettingsGroupRow(
+          title: l10n.settingsAppDataRestoreButton,
+          trailing: Icon(
+            CupertinoIcons.square_arrow_down,
+            size: 20,
+            color: _restoring ? settingsTertiary : settingsAccent,
+          ),
+          onTap: _restoring ? null : _restoreFile,
+        ),
       ],
     );
   }
-
-  /// The manual door, as pills under the switches rather than as two more
-  /// rows with switches of their own: these are things you press once, not
-  /// arrangements you leave standing.
-  ///
-  /// The copy in the app's own container is a footer line, not a third
-  /// switch. It shares the app's sandbox — deleting the app takes it and
-  /// the library together — so listing it as a destination beside two that
-  /// outlive the app would promise something it can't keep. What it can
-  /// promise is the folder, so the folder is what the line names.
-  Widget _appDataFileControls(AppLocalizations l10n) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: settingsPagePadding),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        Wrap(
-          spacing: 8,
-          runSpacing: 8,
-          children: [
-            SettingsPillButton(
-              icon: CupertinoIcons.square_arrow_up,
-              label: l10n.settingsAppDataExportButton,
-              onPressed: _exporting ? null : _exportFile,
-            ),
-            SettingsPillButton(
-              icon: CupertinoIcons.square_arrow_down,
-              label: l10n.settingsAppDataRestoreButton,
-              onPressed: _restoring ? null : _restoreFile,
-            ),
-          ],
-        ),
-        const SizedBox(height: 8),
-        Text(l10n.settingsAppDataLocalCopies, style: settingsFooterStyle),
-      ],
-    ),
-  );
 
   String _formatWhen(DateTime at) =>
       DateFormat.yMMMd().add_jm().format(at.toLocal());
@@ -632,33 +913,76 @@ class _SettingsScreenState extends State<SettingsScreen>
         l10n.settingsAppDataRestoreSummaryAlbums(summary.albums),
       ].join(' \u00b7 ');
 
+  /// A plain `ls` of the buckets and a diff against what the library
+  /// knows, then a question. Nothing is fetched object by object until the
+  /// user says import, and then only for the files found.
   Future<void> _importFromBucket() async {
     final l10n = AppLocalizations.of(context)!;
     setState(() => _importing = true);
-    String message;
+    String? message;
     try {
-      final result = await BucketImport(
+      final import = BucketImport(
         targetsStore: _store,
         recordStore: _assetRecordStore,
         passphrases: VaultKeys().entries,
-      ).run();
-      await LibraryRestore(
-        recordStore: _assetRecordStore,
-        originals: OriginalRestore(
-          targetsStore: _store,
-          recordStore: _assetRecordStore,
-        ),
-      ).run();
-      message = result.unreachable && result.imported == 0
-          ? l10n.settingsBucketImportUnreachable
-          : l10n.settingsBucketImportDone(result.imported);
+      );
+      final offer = await import.scan(refresh: true);
+      if (!mounted) return;
+      if (offer.importable == 0) {
+        message = [
+          l10n.settingsBucketImportDone(0),
+          if (offer.duplicates > 0)
+            l10n.settingsBucketImportDuplicates(offer.duplicates),
+        ].join('\n');
+      } else if (await _confirmImport(offer.importable)) {
+        final result = await import.run(relist: false);
+        if (result.imported > 0) {
+          // Not awaited: tiles fill in behind the result, and only the
+          // files just imported are fetched, not the whole library.
+          unawaited(
+            LibraryRestore(
+              recordStore: _assetRecordStore,
+              originals: OriginalRestore(
+                targetsStore: _store,
+                recordStore: _assetRecordStore,
+              ),
+            ).run(only: result.importedIds.toSet()),
+          );
+        }
+        message = [
+          l10n.settingsBucketImportDone(result.imported),
+          if (result.duplicates > 0)
+            l10n.settingsBucketImportDuplicates(result.duplicates),
+        ].join('\n');
+      }
     } catch (_) {
       message = l10n.settingsBucketImportUnreachable;
     }
     if (!mounted) return;
     setState(() => _importing = false);
-    await _tell(message);
+    if (message != null) await _tell(message);
     await _reload();
+  }
+
+  Future<bool> _confirmImport(int count) async {
+    final l10n = AppLocalizations.of(context)!;
+    return await showCupertinoDialog<bool>(
+          context: context,
+          builder: (dialogContext) => CupertinoAlertDialog(
+            title: Text(l10n.cloudFindNewValue(count)),
+            actions: [
+              CupertinoDialogAction(
+                onPressed: () => Navigator.of(dialogContext).pop(false),
+                child: Text(l10n.actionCancel),
+              ),
+              CupertinoDialogAction(
+                onPressed: () => Navigator.of(dialogContext).pop(true),
+                child: Text(l10n.flaggedImport),
+              ),
+            ],
+          ),
+        ) ??
+        false;
   }
 
   Future<void> _tell(String message) => showCupertinoDialog<void>(
@@ -673,136 +997,24 @@ class _SettingsScreenState extends State<SettingsScreen>
       ],
     ),
   );
+}
 
-  /// Buckets and the settings that govern them, in one section. They were
-  /// two headings for one subject, and the settings half had nothing to
-  /// stand on without the list of places it was talking about.
-  Widget _cloudSection(AppLocalizations l10n, List<S3BackupTarget> targets) {
-    return SettingsSection(
-      heading: l10n.settingsCloudHeading,
-      hint: l10n.settingsCloudHint,
-      action: CupertinoButton(
-        padding: EdgeInsets.zero,
-        minimumSize: Size.zero,
-        onPressed: _addBackup,
-        child: const Icon(
-          CupertinoIcons.add_circled_solid,
-          size: 24,
-          color: settingsAccent,
-        ),
-      ),
-      footer: targets.isEmpty ? null : _cloudFooter(l10n, targets),
-      children: [
-        if (targets.isEmpty)
-          _emptyState(l10n)
-        else
-          for (var i = 0; i < targets.length; i++) ...[
-            if (i > 0) const SettingsHairline(indent: settingsRowIndent),
-            SettingsRow(
-              leading: const SettingsIconTile(icon: CupertinoIcons.cloud_fill),
-              title: targets[i].bucket,
-              subtitle: _targetPath(targets[i]),
-              detail:
-                  '${backupStorageTypeMeta(targets[i].provider).shortName} · ${targets[i].region}',
-              onTap: () => _browse(targets[i]),
-              // No second tap target beside the row. The menu it used to
-              // open held Sync Now and Sync Queue, which are both on this
-              // page already, and Browse Files, which is what tapping the
-              // row does — leaving one real action, Delete Connection,
-              // which now lives on the connection's own screen.
-              trailing: const Icon(
-                CupertinoIcons.chevron_forward,
-                size: 14,
-                color: settingsSecondary,
-              ),
-            ),
-          ],
-        if (targets.isNotEmpty) _orderControl(l10n, targets.length > 1),
-        if (targets.isNotEmpty) ...[
-          const SettingsHairline(indent: settingsRowIndent),
-          SettingsRow(
-            leading: const SettingsIconTile(
-              icon: CupertinoIcons.cloud_download_fill,
-            ),
-            title: l10n.settingsBucketImportRow,
-            subtitle: l10n.settingsBucketImportHint,
-            trailing: _importing
-                ? const CupertinoActivityIndicator(radius: 9)
-                : null,
-            onTap: targets.isEmpty || _importing ? null : _importFromBucket,
-          ),
-        ],
-      ],
-    );
-  }
+/// The one fix the user can make themselves, in the accent colour, under
+/// the iCloud row it belongs to.
+class _FixLine extends StatelessWidget {
+  const _FixLine();
 
-  /// The one thing about the list that isn't a single connection: which
-  /// way it's worked through. It sits under the buckets it's talking
-  /// about rather than with the queue's pills, because it's a property of
-  /// having more than one bucket.
-  ///
-  /// With one bucket both orders are the same upload in the same order, so
-  /// the pill is dimmed rather than hidden: a setting nobody can find
-  /// until they've already built the situation it governs is a setting
-  /// nobody knows to look for. What it can't do is offer a live choice
-  /// that changes nothing — hence the line saying when it starts to count.
-  Widget _orderControl(AppLocalizations l10n, bool enabled) => Padding(
-    padding: const EdgeInsets.fromLTRB(settingsPagePadding, 12, 12, 0),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        SettingsPillButton(
-          icon: CupertinoIcons.arrow_2_squarepath,
-          label: _orderLabel(l10n, _orderStrategy),
-          onPressed: enabled ? _pickOrderStrategy : null,
-        ),
-        if (!enabled) ...[
-          const SizedBox(height: 6),
-          Text(
-            l10n.settingsBucketOrderOneBucketNote,
-            style: settingsFooterStyle,
-          ),
-        ],
-      ],
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(
+      settingsPagePadding,
+      0,
+      settingsPagePadding,
+      10,
+    ),
+    child: Text(
+      AppLocalizations.of(context)!.settingsICloudDriveOffFix,
+      style: const TextStyle(fontSize: 12, color: settingsAccent),
     ),
   );
-
-  Widget _cloudFooter(AppLocalizations l10n, List<S3BackupTarget> targets) {
-    return SettingsFooterLine(
-      text: l10n.settingsCloudBucketsFooter(
-        targets.length,
-        _backedUpCount,
-        _trackedCount,
-      ),
-    );
-  }
-
-  Widget _emptyState(AppLocalizations l10n) {
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(
-        settingsPagePadding,
-        4,
-        settingsPagePadding,
-        0,
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Text(
-            l10n.settingsEmptyNote,
-            style: const TextStyle(fontSize: 13, color: settingsSecondary),
-          ),
-          const SizedBox(height: 4),
-          // The empty state carries the next action, not just a message.
-          Align(
-            alignment: Alignment.centerLeft,
-            child: SettingsAccentButton(
-              label: l10n.settingsAddButton,
-              onPressed: _addBackup,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 }
