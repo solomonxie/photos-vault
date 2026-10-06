@@ -44,12 +44,6 @@ const thumbnailMaxEdge = 320;
 /// visibly block up.
 const _thumbnailQuality = 70;
 
-/// At or below this, a file is already thumbnail-sized: it still gets a
-/// local cache copy (so the grid can draw it once the original is deleted
-/// locally) but no separate `thumbnails/` upload, since the `originals/`
-/// copy is no bigger.
-const thumbnailSizeThresholdBytes = 64 * 1024;
-
 /// Decodes [bytes] and re-encodes a [thumbnailMaxEdge]-bounded JPEG, or
 /// returns the bytes unchanged when the image is already within that bound
 /// (no point re-compressing something small). Null if [bytes] isn't a

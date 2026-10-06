@@ -1116,6 +1116,7 @@ class _MediaPageState extends State<_MediaPage>
   /// tried — see [_fetchThumbnail].
   String? _thumbnailPath;
   bool _fetchedThumbnail = false;
+  bool _fetchingThumbnail = false;
 
   @override
   void initState() {
@@ -1186,6 +1187,7 @@ class _MediaPageState extends State<_MediaPage>
   Future<void> _fetchThumbnail() async {
     if (_fetchedThumbnail) return;
     _fetchedThumbnail = true;
+    _fetchingThumbnail = true;
     final restore =
         widget.restoreThumbnail ??
         (record) => OriginalRestore(
@@ -1198,7 +1200,12 @@ class _MediaPageState extends State<_MediaPage>
     } catch (_) {
       path = null;
     }
-    if (path == null || !mounted) return;
+    _fetchingThumbnail = false;
+    if (!mounted) return;
+    if (path == null) {
+      setState(() {});
+      return;
+    }
     setState(() => _thumbnailPath = path);
     widget.onRecordChanged(widget.record.withThumbnailPath(path));
   }
@@ -1266,11 +1273,15 @@ class _MediaPageState extends State<_MediaPage>
             filterQuality: FilterQuality.medium,
             errorBuilder: (context, error, stackTrace) {
               unawaited(_fetchThumbnail());
-              return _MissingFileNote(message: l10n.detailCloudOnlyNote);
+              return _fetchingThumbnail
+                  ? const Center(child: CupertinoActivityIndicator())
+                  : _MissingFileNote(message: l10n.detailNoThumbnailNote);
             },
           )
+        else if (_fetchingThumbnail)
+          const Center(child: CupertinoActivityIndicator())
         else
-          _MissingFileNote(message: l10n.detailCloudOnlyNote),
+          _MissingFileNote(message: l10n.detailNoThumbnailNote),
       ],
     );
   }

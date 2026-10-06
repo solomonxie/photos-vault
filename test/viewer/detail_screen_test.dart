@@ -1225,10 +1225,7 @@ void main() {
         1,
         reason: 'a request per rebuild would be a request per frame',
       );
-      expect(
-        find.text('Only the backed-up copy in your bucket remains.'),
-        findsOneWidget,
-      );
+      expect(find.textContaining('lives in the cloud only'), findsOneWidget);
     });
 
     testWidgets('a failed download leaves the offer up to try again', (

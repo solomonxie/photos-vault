@@ -458,18 +458,23 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
 
   /// Holding a photo starts selecting it; the same finger then sweeps.
   void _startSelecting(AssetRecord record) {
+    final before = _selectedIds;
     setState(() {
       _selecting = true;
       _selectedIds = {..._selectedIds, record.localId};
     });
-    _sweep.begin(record.localId);
+    _sweep.begin(record.localId, base: before);
   }
 
   void _onSweep(Offset globalPosition) {
     if (!_selecting) return;
     final record = metaDataUnder<AssetRecord>(context, globalPosition);
     if (record == null) return;
-    final next = _sweep.over(record.localId, _selectedIds);
+    final next = _sweep.over(
+      record.localId,
+      _selectedIds,
+      () => [for (final r in _records) r.localId],
+    );
     if (next != null) setState(() => _selectedIds = next);
   }
 
@@ -477,7 +482,11 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     if (!_cloudSelecting) return;
     final entry = metaDataUnder<IndexEntry>(context, globalPosition);
     if (entry == null) return;
-    final next = _cloudSweep.over(entry.objectKey, _selectedCloudKeys);
+    final next = _cloudSweep.over(
+      entry.objectKey,
+      _selectedCloudKeys,
+      () => [for (final e in _cloudEntries) e.objectKey],
+    );
     if (next != null) setState(() => _selectedCloudKeys = next);
   }
 

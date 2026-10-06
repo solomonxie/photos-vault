@@ -69,10 +69,9 @@ List<AssetRecord> needingThumbnails(
 /// App-owned thumbnails, one per photo, kept in their own directory under
 /// application support.
 ///
-/// Every backed-up photo gets one — not just the big ones. A file small
-/// enough to skip the separate `thumbnails/` upload still needs a local
-/// copy here, because that's what grids draw once
-/// [AssetRecord.localDeleted] takes the full-resolution original away.
+/// Every backed-up photo gets one, and one in the bucket too — that's what
+/// grids draw once [AssetRecord.localDeleted] takes the full-resolution
+/// original away.
 class ThumbnailCache {
   ThumbnailCache({
     required this.store,
