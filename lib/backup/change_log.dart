@@ -1,6 +1,6 @@
 import 'dart:convert';
 
-import 'package:sqflite/sqflite.dart' show Database;
+import 'package:sqflite/sqflite.dart' show Database, DatabaseExecutor;
 
 /// Every write to a user-authored row, kept in order and never edited.
 ///
@@ -30,7 +30,13 @@ const changeLogTable = 'change_log';
 /// caches (`place_name`) are deliberately left out: logging the row that
 /// records "backed up at 3pm" would move the high-water mark every time a
 /// backup finished, and the gate would never see an unchanged library.
-Future<void> installChangeLog(Database db, List<String> tables) async {
+Future<void> installChangeLog(Database db, List<String> tables) =>
+    // One transaction: two stores opening the same file at once would
+    // otherwise interleave their DROP and CREATE, and the loser throws
+    // "trigger already exists" out of `open` — and the library never loads.
+    db.transaction((txn) => _installChangeLog(txn, tables));
+
+Future<void> _installChangeLog(DatabaseExecutor db, List<String> tables) async {
   await db.execute('''
     CREATE TABLE IF NOT EXISTS $changeLogTable (
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -86,6 +92,32 @@ Future<void> installChangeLog(Database db, List<String> tables) async {
         END
       ''');
     }
+  }
+}
+
+/// Drops all but the newest [keep] entries. The log was never trimmed, and
+/// each entry carries the whole row twice: a few reinstalls re-pointing
+/// thumbnail paths made a 300 MB database that every open had to page
+/// through. The zip only ever ships the last 5000, and the mark is the
+/// highest `seq`, which this leaves alone.
+///
+/// In slices, so a first trim of a huge log never holds the connection long
+/// enough to stall the grid's own queries behind it.
+Future<void> pruneChangeLog(Database db, {int keep = 20000}) async {
+  try {
+    while (true) {
+      final deleted = await db.rawDelete(
+        'DELETE FROM $changeLogTable WHERE seq IN ('
+        'SELECT seq FROM $changeLogTable WHERE seq <= '
+        '(SELECT MAX(seq) FROM $changeLogTable) - ? '
+        'ORDER BY seq LIMIT 2000)',
+        [keep],
+      );
+      if (deleted == 0) return;
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    }
+  } catch (_) {
+    // A log that can't be trimmed is only a bigger file.
   }
 }
 

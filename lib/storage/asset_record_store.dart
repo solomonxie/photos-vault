@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -38,16 +39,30 @@ class AssetRecordStore {
 
   static const _table = 'asset_record';
 
+  Future<Database>? _opening;
+
+  /// One open at a time per store: concurrent callers share it rather than
+  /// each running the migrations and the path pass.
   Future<Database> _open() async {
     final existing = _db;
     if (existing != null) return existing;
+    final opening = _opening ??= _openOnce();
+    try {
+      return await opening;
+    } catch (_) {
+      _opening = null;
+      rethrow;
+    }
+  }
+
+  Future<Database> _openOnce() async {
     final path =
         _path ??
         p.join(await _databaseFactory.getDatabasesPath(), 'photos_vault.db');
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 18,
+        version: 19,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createPlaceNameTableSql);
@@ -55,6 +70,8 @@ class AssetRecordStore {
           await db.execute(_createDerivativeTargetTableSql);
           await db.execute(_createHiddenNoteTableSql);
           await db.execute(_createBucketObjectTableSql);
+          await db.execute(_createBucketScanTableSql);
+          await db.execute(_createBucketScanObjectTableSql);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -157,6 +174,10 @@ class AssetRecordStore {
           if (oldVersion < 18) {
             await db.execute(_createBucketObjectTableSql);
           }
+          if (oldVersion < 19) {
+            await db.execute(_createBucketScanTableSql);
+            await db.execute(_createBucketScanObjectTableSql);
+          }
           if (oldVersion < 10) {
             await db.execute('ALTER TABLE $_table ADD COLUMN latitude REAL');
             await db.execute('ALTER TABLE $_table ADD COLUMN longitude REAL');
@@ -173,6 +194,14 @@ class AssetRecordStore {
     await _rehomePaths(db);
     await _dropSquareThumbnails(db);
     _db = db;
+    // After the grid has what it needs: a first trim of a bloated log is a
+    // lot of rows to delete.
+    unawaited(
+      Future<void>.delayed(
+        const Duration(seconds: 30),
+        () => pruneChangeLog(db),
+      ),
+    );
     return db;
   }
 
@@ -247,6 +276,7 @@ class AssetRecordStore {
           '(thumbnail_path IS NOT NULL AND thumbnail_path NOT LIKE ?)',
       whereArgs: [under, under],
     );
+    final updates = <(String, Map<String, Object?>)>[];
     for (final row in rows) {
       final values = <String, Object?>{};
       final source = await _rehomed(row['source_path'] as String?, root.path);
@@ -258,13 +288,23 @@ class AssetRecordStore {
       if (thumbnail != null) values['thumbnail_path'] = thumbnail;
       if (values.isEmpty) continue;
       values['updated_at'] = DateTime.now().millisecondsSinceEpoch;
-      await db.update(
-        _table,
-        values,
-        where: 'local_id = ?',
-        whereArgs: [row['local_id']],
-      );
+      updates.add((row['local_id'] as String, values));
     }
+    if (updates.isEmpty) return;
+    // One transaction: after a reinstall this is hundreds of rows, and one
+    // commit each was a second of the grid waiting on every launch.
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final (localId, values) in updates) {
+        batch.update(
+          _table,
+          values,
+          where: 'local_id = ?',
+          whereArgs: [localId],
+        );
+      }
+      await batch.commit(noResult: true);
+    });
   }
 
   /// [path] as it would be under the current container, or null if it
@@ -372,6 +412,128 @@ class AssetRecordStore {
       PRIMARY KEY (target_id, key)
     )
   ''';
+
+  static const _bucketScanTable = 'bucket_scan';
+  static const _bucketScanObjectTable = 'bucket_scan_object';
+
+  static const _createBucketScanTableSql =
+      '''
+    CREATE TABLE $_bucketScanTable (
+      target_id TEXT NOT NULL,
+      dir TEXT NOT NULL,
+      token TEXT,
+      started_at INTEGER NOT NULL,
+      PRIMARY KEY (target_id, dir)
+    )
+  ''';
+
+  static const _createBucketScanObjectTableSql =
+      '''
+    CREATE TABLE $_bucketScanObjectTable (
+      target_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      size INTEGER NOT NULL,
+      last_modified INTEGER NOT NULL,
+      PRIMARY KEY (target_id, key)
+    )
+  ''';
+
+  /// A half-done listing older than this is dropped rather than resumed:
+  /// keys added behind the saved position would be missed.
+  static const bucketScanMaxAge = Duration(minutes: 30);
+
+  /// Where an interrupted listing of [dir] stopped, so a restart carries on
+  /// from there instead of listing the bucket from the beginning. Null when
+  /// there is nothing (or nothing fresh) to resume; `done` when that folder
+  /// was fully listed and is only waiting on its sibling.
+  Future<({String? token, bool done})?> bucketScanProgress(
+    String targetId,
+    String dir,
+  ) async {
+    final db = await _open();
+    final rows = await db.query(
+      _bucketScanTable,
+      where: 'target_id = ? AND dir = ?',
+      whereArgs: [targetId, dir],
+    );
+    if (rows.isEmpty) return null;
+    final startedAt = DateTime.fromMillisecondsSinceEpoch(
+      rows.first['started_at'] as int,
+    );
+    if (DateTime.now().difference(startedAt) > bucketScanMaxAge) {
+      await discardBucketScan(targetId);
+      return null;
+    }
+    final token = rows.first['token'] as String?;
+    return (token: token, done: token == null);
+  }
+
+  /// One listed page and the token that continues after it, in one
+  /// transaction: a kill between the two can't lose or repeat a page.
+  Future<void> stageBucketPage(
+    String targetId,
+    String dir,
+    String? nextToken,
+    List<BucketObject> objects,
+  ) async {
+    final db = await _open();
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final o in objects) {
+        batch.insert(_bucketScanObjectTable, {
+          'target_id': o.targetId,
+          'key': o.key,
+          'size': o.size,
+          'last_modified': o.lastModified.millisecondsSinceEpoch,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      batch.rawInsert(
+        'INSERT INTO $_bucketScanTable (target_id, dir, token, started_at) '
+        'VALUES (?, ?, ?, ?) ON CONFLICT(target_id, dir) '
+        'DO UPDATE SET token = excluded.token',
+        [targetId, dir, nextToken, DateTime.now().millisecondsSinceEpoch],
+      );
+      await batch.commit(noResult: true);
+    });
+  }
+
+  /// Both folders listed: publish the staged rows as the bucket's contents
+  /// and clear the scan state.
+  Future<void> commitBucketScan(String targetId) async {
+    final db = await _open();
+    await db.transaction((txn) async {
+      await txn.delete(
+        _bucketObjectTable,
+        where: 'target_id = ?',
+        whereArgs: [targetId],
+      );
+      await txn.rawInsert(
+        'INSERT INTO $_bucketObjectTable '
+        'SELECT target_id, key, size, last_modified '
+        'FROM $_bucketScanObjectTable WHERE target_id = ?',
+        [targetId],
+      );
+      await txn.delete(
+        _bucketScanObjectTable,
+        where: 'target_id = ?',
+        whereArgs: [targetId],
+      );
+      await txn.delete(
+        _bucketScanTable,
+        where: 'target_id = ?',
+        whereArgs: [targetId],
+      );
+    });
+  }
+
+  Future<void> discardBucketScan(String targetId) async {
+    final db = await _open();
+    await db.transaction((txn) async {
+      for (final table in [_bucketScanObjectTable, _bucketScanTable]) {
+        await txn.delete(table, where: 'target_id = ?', whereArgs: [targetId]);
+      }
+    });
+  }
 
   /// Makes the table say what [targetId]'s bucket holds right now: rows for
   /// objects that are gone are dropped, the rest are upserted. One
@@ -602,6 +764,13 @@ class AssetRecordStore {
     };
   }
 
+  /// Every per-bucket upload row, for the backup snapshot and for bulk
+  /// deletes that would otherwise ask once per photo.
+  Future<List<Map<String, Object?>>> uploadRows() async {
+    final db = await _open();
+    return db.query(_derivativeTargetTable);
+  }
+
   Future<void> recordUpload({
     required String localId,
     required DerivativeKind kind,
@@ -632,6 +801,39 @@ class AssetRecordStore {
     await db.update(
       _derivativeTargetTable,
       {'destination_key': destinationKey},
+      where: 'local_id = ? AND kind = ? AND target_id = ?',
+      whereArgs: [localId, kind.name, targetId],
+    );
+  }
+
+  /// Every upload row at once, `localId` → kind → `targetId` →
+  /// `destinationKey`: one query for a pass over the library, not one per
+  /// photo.
+  Future<Map<String, Map<DerivativeKind, Map<String, String>>>>
+  allHoldings() async {
+    final db = await _open();
+    final rows = await db.query(_derivativeTargetTable);
+    final out = <String, Map<DerivativeKind, Map<String, String>>>{};
+    for (final row in rows) {
+      final kind = DerivativeKind.values.asNameMap()[row['kind']];
+      if (kind == null) continue;
+      ((out[row['local_id'] as String] ??= {})[kind] ??= {})[row['target_id']
+              as String] =
+          row['destination_key'] as String;
+    }
+    return out;
+  }
+
+  /// Forgets that one target holds [kind] of [localId] — the object is gone
+  /// from it, so the next sync uploads it there again.
+  Future<void> forgetTargetUpload(
+    String localId,
+    DerivativeKind kind,
+    String targetId,
+  ) async {
+    final db = await _open();
+    await db.delete(
+      _derivativeTargetTable,
       where: 'local_id = ? AND kind = ? AND target_id = ?',
       whereArgs: [localId, kind.name, targetId],
     );
