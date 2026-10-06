@@ -12,6 +12,7 @@ import '../storage/passcode_hash.dart';
 import '../upload/original_restore.dart';
 import '../vault/keys.dart';
 import '../vault/passphrase_sheet.dart';
+import '../upload/object_keys.dart';
 import '../upload/pending_deletes.dart';
 import 'private_album_screen.dart';
 
@@ -370,9 +371,9 @@ Future<bool> _acceptFewDecoys(BuildContext context) async {
 /// The carriers it forgets are not left in the buckets: they go to
 /// [DeferredDeletes], released once the plain copy is in every bucket.
 ///
-/// A copy recorded without its bucket (rows older than per-bucket tracking,
-/// or only the record's own key) is queued against every bucket configured
-/// now: deleting a key a bucket never had is a harmless 404.
+/// Each bucket gets its own key (`deletionTasksFor`), whether or not a row
+/// recorded it: the record's one key carries the first bucket's prefix and
+/// would 404 against any other.
 Future<void> resetBackupAfterUnhide(
   AssetRecord record,
   AssetRecordStore store, {
@@ -381,27 +382,11 @@ Future<void> resetBackupAfterUnhide(
 }) async {
   final path = record.sourcePath;
   if (path == null || !await File(path).exists()) return;
-  final carriers = <PendingDelete>{};
-  final unplaced = <String>{};
-  for (final kind in DerivativeKind.values) {
-    final holding = await store.targetsHolding(record.localId, kind);
-    for (final MapEntry(key: targetId, value: key) in holding.entries) {
-      if (targetId.isEmpty) {
-        unplaced.add(key);
-      } else {
-        carriers.add(PendingDelete(objectKey: key, targetId: targetId));
-      }
-    }
-    final own = record.stateOf(kind).destinationKey;
-    if (own != null && !holding.containsValue(own)) unplaced.add(own);
-  }
-  if (unplaced.isNotEmpty) {
-    for (final target in await _targetsOrNone(loadTargets)) {
-      for (final key in unplaced) {
-        carriers.add(PendingDelete(objectKey: key, targetId: target.id));
-      }
-    }
-  }
+  final carriers = deletionTasksFor(
+    record,
+    await _targetsOrNone(loadTargets),
+    await heldKeysOf(store, record.localId),
+  );
   await (deferred ?? DeferredDeletes(store: store)).add(
     record.localId,
     carriers,
@@ -437,17 +422,18 @@ Future<void> _retractFromBuckets({
   required BackupTargetsStore targetsStore,
 }) async {
   final targets = await targetsStore.loadAll();
-  // The per-target rows go with the aggregate status below. Left behind,
-  // the next sync would read them as "every target already has this" and
-  // upload nothing, for a photo whose plain copies were just retracted.
+  // Read before the per-target rows go: they are what says which key each
+  // bucket holds. Forgotten after, or the next sync would read them as
+  // "every target already has this" and upload nothing, for a photo whose
+  // plain copies were just retracted.
+  final tasks = deletionTasksFor(
+    record,
+    targets,
+    await heldKeysOf(store, record.localId),
+  );
   await store.forgetUploads(record.localId);
-  final tasks = <PendingDelete>[];
   for (final kind in DerivativeKind.values) {
-    final key = record.stateOf(kind).destinationKey;
-    if (key == null) continue;
-    for (final target in targets) {
-      tasks.add(PendingDelete(objectKey: key, targetId: target.id));
-    }
+    if (record.stateOf(kind).destinationKey == null) continue;
     await store.updateDerivative(
       record.localId,
       kind,

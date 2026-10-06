@@ -117,6 +117,7 @@ void main() {
     final album = await bucket.readAlbum(keys);
     expect(album.entries.map((e) => e.objectKey), [kept]);
     expect(await store.hasCarrier(keys, gone), isFalse);
+    await pumpEventQueue();
     expect(deleted, contains('photos/$gone'));
   });
 
@@ -139,6 +140,7 @@ void main() {
     final record = (await records.getByLocalId('photo:x'))!;
 
     await removal.delete(keys: keys, records: [record]);
+    await pumpEventQueue();
 
     expect(await records.getByLocalId('photo:x'), isNull);
     expect(deleted, contains('photos/originals/photo_x.jpg'));

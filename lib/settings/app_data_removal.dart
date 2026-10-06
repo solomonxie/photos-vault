@@ -54,6 +54,10 @@ class AppDataRemoval {
     this.cacheDirectory = getApplicationCacheDirectory,
   }) : _syncJobStore = syncJobStore ?? SyncJobStore(),
        _pendingDeletes = pendingDeletes ?? PendingDeletes(store: settings),
+       _deferredDeletes = DeferredDeletes(
+         store: settings,
+         pending: pendingDeletes ?? PendingDeletes(store: settings),
+       ),
        _draftsStore = draftsStore ?? S3TargetDraftsStore(),
        _aiSettingsStore = aiSettingsStore ?? AiSettingsStore(),
        _vaultKeys = vaultKeys ?? VaultKeys(),
@@ -72,6 +76,7 @@ class AppDataRemoval {
 
   final SyncJobStore _syncJobStore;
   final PendingDeletes _pendingDeletes;
+  final DeferredDeletes _deferredDeletes;
   final S3TargetDraftsStore _draftsStore;
   final AiSettingsStore _aiSettingsStore;
   final VaultKeys _vaultKeys;
@@ -101,6 +106,10 @@ class AppDataRemoval {
       _pendingDeletes.pending,
       const <PendingDelete>[],
     );
+    final deferred = await _attemptValue(
+      _deferredDeletes.waiting,
+      const <String, List<PendingDelete>>{},
+    );
 
     // On this phone first: it cannot fail to reach a network, and it is
     // the copy people come back for.
@@ -111,7 +120,7 @@ class AppDataRemoval {
     await _attempt(snapshots.clearAll);
     await _attempt(_syncJobStore.clearQueue);
     await _attempt(() => deleteOwnedFiles(keeping: keep));
-    await _attempt(() => _carryDeletionsOver(owed));
+    await _attempt(() => _carryDeletionsOver(owed, deferred));
     await _attempt(forgetCredentials);
     if (includeHidden) {
       await _attempt(_vaultStore.clear);
@@ -133,9 +142,18 @@ class AppDataRemoval {
   /// The credentials go in the same pass, so these come back dormant —
   /// which is exactly what a task whose target has been removed is meant to
   /// be. Re-add that bucket and they run.
-  Future<void> _carryDeletionsOver(List<PendingDelete> owed) async {
-    if (owed.isEmpty) return;
-    await _pendingDeletes.add(owed);
+  ///
+  /// The deferred ones too — carriers an un-hidden photo left behind,
+  /// waiting for its plain copy to land. They are keyed by that photo's
+  /// `localId`, which the pre-deletion copy brings back on restore.
+  Future<void> _carryDeletionsOver(
+    List<PendingDelete> owed,
+    Map<String, List<PendingDelete>> deferred,
+  ) async {
+    if (owed.isNotEmpty) await _pendingDeletes.add(owed);
+    for (final MapEntry(key: localId, value: tasks) in deferred.entries) {
+      await _deferredDeletes.add(localId, tasks);
+    }
   }
 
   static Future<T> _attemptValue<T>(

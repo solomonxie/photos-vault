@@ -2,9 +2,12 @@ import 'dart:async';
 import 'dart:io';
 
 import '../settings/backup_targets_store.dart';
+import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/backup_verifier.dart';
+import '../upload/object_keys.dart';
+import '../upload/pending_deletes.dart';
 import 'photo_library_service.dart';
 import 'thumbnail_cache.dart';
 
@@ -49,18 +52,30 @@ class AssetRemoval {
     ThumbnailCache? thumbnails,
     PhotoLibraryService? library,
     BackupVerifier? verifier,
+    BackupTargetsStore? targetsStore,
+    PendingDeletes? pendingDeletes,
   }) : thumbnails = thumbnails ?? ThumbnailCache(store: store),
        library = library ?? PhotoLibraryService(store: store),
+       _targets = targetsStore ?? BackupTargetsStore(),
+       pendingDeletes = pendingDeletes ?? PendingDeletes(store: store),
        verifier =
            verifier ??
            BackupVerifier(
-             targetsStore: BackupTargetsStore(),
+             targetsStore: targetsStore ?? BackupTargetsStore(),
              recordStore: store,
            );
 
   final AssetRecordStore store;
   final ThumbnailCache thumbnails;
   final PhotoLibraryService library;
+  final BackupTargetsStore _targets;
+
+  /// Where a permanent delete leaves what the buckets still owe it: queued,
+  /// so a delete made offline, or against a dead bucket, still ends.
+  final PendingDeletes pendingDeletes;
+
+  /// How long a photo stays in Recently Deleted before it is purged.
+  static const binRetention = Duration(days: 30);
 
   /// Asked before the last local copy of anything goes. [canRemoveFromDevice]
   /// reads this app's own row, which is a claim; this asks the bucket, which
@@ -75,10 +90,20 @@ class AssetRemoval {
   /// Removing one whose `.mov` never went up would drop the motion and the
   /// sound with nothing holding them, which is exactly the loss this
   /// option claims not to be.
+  ///
+  /// And the bucket has to hold a thumbnail too: with the original gone and
+  /// no cached picture left (a reinstall, a wiped cache), it is the only
+  /// thing a cloud-only tile can be drawn from. Hidden photos draw from the
+  /// encrypted vault cache instead.
   bool canRemoveFromDevice(AssetRecord record) =>
       !record.localDeleted &&
       record.isFullyBackedUp &&
+      _thumbnailBackedUp(record) &&
       ThumbnailCache.canThumbnail(record);
+
+  static bool _thumbnailBackedUp(AssetRecord record) =>
+      record.passcodeHash != null ||
+      record.stateOf(DerivativeKind.thumbnail).status == UploadStatus.uploaded;
 
   /// Frees the device storage and keeps the asset in the library: cache a
   /// thumbnail first (that's what the grid draws from now on), then drop
@@ -113,6 +138,23 @@ class AssetRemoval {
         return RemovalOutcome.backupMissing;
       case CopyProof.unreachable:
         return RemovalOutcome.backupUnverifiable;
+    }
+    if (record.passcodeHash == null) {
+      switch (await verifier.proveThumbnail(record)) {
+        case CopyProof.present:
+          break;
+        case CopyProof.missing || CopyProof.notRecorded:
+          await store.updateDerivative(
+            record.localId,
+            DerivativeKind.thumbnail,
+            record
+                .stateOf(DerivativeKind.thumbnail)
+                .copyWith(status: UploadStatus.pending),
+          );
+          return RemovalOutcome.backupMissing;
+        case CopyProof.unreachable:
+          return RemovalOutcome.backupUnverifiable;
+      }
     }
     try {
       // A video's poster frame comes from the library itself, so there's
@@ -159,14 +201,123 @@ class AssetRemoval {
         !await _deleteFromLibrary(record)) {
       return false;
     }
-    if (!await isRecoverable(record)) {
-      // Never backed up, and the library copy has just gone — there is
-      // nothing left to restore, so the bin doesn't pretend otherwise.
-      await purge(record);
-      return true;
-    }
-    await store.softDelete(record.localId);
+    await binOrPurge(record);
     return true;
+  }
+
+  /// Into the bin, or straight out of existence when nothing of the photo
+  /// is anywhere else — the bin doesn't pretend otherwise. The one place
+  /// that decides, so a batch delete can't bin what a single one purges.
+  Future<void> binOrPurge(AssetRecord record) async {
+    if (await isRecoverable(record)) {
+      await store.softDelete(record.localId);
+    } else {
+      await _discard(record, await _loadTargets(), null);
+    }
+  }
+
+  /// The permanent delete: the photo is gone from this phone at once and
+  /// what it left in the buckets is queued for deletion, retried on every
+  /// sync until each bucket has let go.
+  ///
+  /// Queued rather than attempted inline, because the old inline delete
+  /// kept the photo on screen for as long as any one bucket was dead, and
+  /// orphaned its objects when none was configured.
+  ///
+  /// Out of the OS photo library too, unless it is in the bin already —
+  /// that delete was made then. False when the OS prompt was declined, or
+  /// the photo is locked or hidden (hidden ones have their own,
+  /// `HiddenRemoval`).
+  Future<bool> deletePermanently(AssetRecord record) async {
+    if (record.isLocked || record.passcodeHash != null) return false;
+    if (record.deletedAt == null &&
+        record.sourceType == AssetSourceType.photoManager &&
+        !record.localDeleted &&
+        PhotoLibraryService.libraryIdOf(record) != null &&
+        !await _deleteFromLibrary(record)) {
+      return false;
+    }
+    await _discard(record, await _loadTargets(), null);
+    unawaited(_drain());
+    return true;
+  }
+
+  /// Everything in the bin, for good. Returns how many went.
+  Future<int> emptyBin() =>
+      _purgeBinned((r) => r.isDeleted && r.passcodeHash == null && !r.isLocked);
+
+  /// Purges what has sat in the bin for [binRetention]. Run on every sync.
+  Future<int> expireBin() {
+    final cutoff = DateTime.now().subtract(binRetention);
+    return _purgeBinned(
+      (r) =>
+          r.deletedAt != null &&
+          r.deletedAt!.isBefore(cutoff) &&
+          r.passcodeHash == null &&
+          !r.isLocked,
+    );
+  }
+
+  Future<int> _purgeBinned(bool Function(AssetRecord) test) async {
+    final victims = [
+      for (final r in await store.listAll())
+        if (test(r)) r,
+    ];
+    if (victims.isEmpty) return 0;
+    final targets = await _loadTargets();
+    final held = groupUploads(await store.uploadRows());
+    for (final record in victims) {
+      await _discard(record, targets, held[record.localId] ?? const {});
+    }
+    unawaited(_drain());
+    return victims.length;
+  }
+
+  /// Queues the bucket deletions, then drops the row — in that order,
+  /// because the row removal takes the per-bucket upload rows with it.
+  Future<void> _discard(
+    AssetRecord record,
+    List<S3BackupTarget> targets,
+    HeldKeys? held,
+  ) async {
+    final tasks = deletionTasksFor(
+      record,
+      targets,
+      held ?? await heldKeysOf(store, record.localId),
+    );
+    if (tasks.isNotEmpty) await pendingDeletes.add(tasks);
+    await purge(record);
+  }
+
+  Future<void> _drain() async {
+    try {
+      await pendingDeletes.drain(await _targets.loadAll());
+    } catch (_) {
+      // Queued; the next sync retries.
+    }
+  }
+
+  Future<List<S3BackupTarget>> _loadTargets() async {
+    try {
+      return await _targets.loadAll();
+    } catch (_) {
+      return const [];
+    }
+  }
+
+  /// Brings a binned photo back. One that was backed up and has since left
+  /// the OS library comes back cloud-only straight away, rather than as a
+  /// blank tile until a scan notices; this app has no way to put a photo
+  /// back into Photos, so Download is how it returns.
+  Future<void> recover(AssetRecord record) async {
+    await store.restore(record.localId);
+    if (record.sourceType == AssetSourceType.photoManager &&
+        !record.localDeleted &&
+        record.isFullyBackedUp &&
+        record.sourcePath == null &&
+        await _goneFromLibrary(record)) {
+      await store.setLocalDeleted(record.localId, true);
+    }
   }
 
   /// The last of a photo on this phone: its own files and its row. For a
@@ -194,11 +345,12 @@ class AssetRemoval {
   /// anything left of this photo" is a question about the photo.
   Future<List<AssetRecord>> purgeVanished(List<AssetRecord> records) async {
     final kept = <AssetRecord>[];
+    List<S3BackupTarget>? targets;
     for (final record in records) {
       if (await isRecoverable(record)) {
         kept.add(record);
       } else {
-        await purge(record);
+        await _discard(record, targets ??= await _loadTargets(), null);
       }
     }
     return kept;

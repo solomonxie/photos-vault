@@ -8,10 +8,10 @@ import '../settings/s3_backup_target.dart';
 /// Deletes one object from the bucket — signed `DELETE`, same credentials
 /// and signing as every other call this app makes.
 ///
-/// Only ever reached from a *permanent* delete. Everything short of that
-/// leaves the bucket alone: the backed-up copy is the one that survives a
-/// lost phone, so it outlives the local record on purpose, and emptying
-/// this app's Recently Deleted is the one action that says otherwise.
+/// Only ever reached through `PendingDeletes`, from a *permanent* delete or
+/// a hide's retraction. Everything short of that leaves the bucket alone:
+/// the backed-up copy is the one that survives a lost phone, so it outlives
+/// the local record on purpose.
 ///
 /// Returns whether the object is gone, which includes it never having been
 /// there: S3 answers a delete for a missing key with `204` anyway, and a

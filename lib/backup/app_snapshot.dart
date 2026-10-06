@@ -180,6 +180,15 @@ class AppSnapshotIo {
 
   Future<AppSnapshot> export() async {
     final records = await assetRecordStore.listAll();
+    final uploads = <String, List<Map<String, Object?>>>{};
+    for (final row in await assetRecordStore.uploadRows()) {
+      (uploads[row['local_id'] as String] ??= []).add({
+        'kind': row['kind'],
+        'targetId': row['target_id'],
+        'key': row['destination_key'],
+        'sourceHash': row['source_hash'],
+      });
+    }
     final albums = <Map<String, Object?>>[];
     final albumMembers = await albumStore.allMemberships();
     for (final album in await albumStore.listAll()) {
@@ -205,7 +214,9 @@ class AppSnapshotIo {
     return AppSnapshot(
       version: AppSnapshot.currentVersion,
       exportedAt: DateTime.now(),
-      assets: records.map(_assetRow).toList(),
+      assets: [
+        for (final r in records) _assetRow(r, uploads[r.localId] ?? const []),
+      ],
       albums: albums,
       people: people,
     );
@@ -245,7 +256,10 @@ class AppSnapshotIo {
 
   // ----------------------------------------------------------------- assets
 
-  static Map<String, Object?> _assetRow(AssetRecord record) => {
+  static Map<String, Object?> _assetRow(
+    AssetRecord record,
+    List<Map<String, Object?>> uploads,
+  ) => {
     'localId': record.localId,
     'libraryId': record.libraryId,
     'contentHash': record.contentHash,
@@ -269,6 +283,11 @@ class AppSnapshotIo {
     'longitude': record.longitude,
     'width': record.width,
     'height': record.height,
+    // Which bucket holds which key. The record's one key carries the first
+    // bucket's prefix; without these rows a restored library can't tell
+    // another bucket's copy from a guess, and a delete against it is a 404
+    // that reads as "gone" while the object stays.
+    'uploads': uploads,
     // Where each derivative landed. Not user-authored, and by the letter of
     // "don't back up what a sync rebuilds" it doesn't belong — except that
     // rebuilding it means uploading the whole library a second time, which
@@ -348,6 +367,20 @@ class AppSnapshotIo {
           destinationKey: state['destinationKey'] as String?,
           backedUpHash: state['backedUpHash'] as String?,
         ),
+      );
+    }
+    for (final upload
+        in (row['uploads'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, Object?>>()) {
+      final kind = DerivativeKind.values.asNameMap()[upload['kind']];
+      final key = upload['key'] as String?;
+      if (kind == null || key == null) continue;
+      await assetRecordStore.recordUpload(
+        localId: localId,
+        kind: kind,
+        targetId: upload['targetId'] as String? ?? '',
+        destinationKey: key,
+        sourceHash: upload['sourceHash'] as String?,
       );
     }
     return true;

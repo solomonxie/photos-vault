@@ -3,8 +3,10 @@ import 'package:flutter/cupertino.dart';
 import '../photos/asset_removal.dart';
 import '../photos/library_metadata.dart';
 import '../l10n/app_localizations.dart';
+import '../settings/backup_targets_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/pending_deletes.dart';
 import 'asset_grid.dart';
 import 'asset_grid_view.dart';
 import 'detail_screen.dart';
@@ -14,20 +16,20 @@ class RecentlyDeletedScreen extends StatefulWidget {
   const RecentlyDeletedScreen({
     super.key,
     required this.assetRecordStore,
-    this.deleteBackup,
+    this.removal,
+    this.pendingDeletes,
+    this.targetsStore,
   });
 
   final AssetRecordStore assetRecordStore;
 
-  /// Purges a record's objects from the bucket. This is the one place in
-  /// the app that does — everything short of emptying this bin leaves the
-  /// backup alone, because it's the copy that outlives the phone.
-  ///
-  /// Returns whether the bucket came away clean; `false` keeps the record
-  /// so the user can try again rather than orphaning objects with nothing
-  /// left pointing at them. Absent (standalone/test use) nothing remote is
-  /// touched.
-  final Future<bool> Function(AssetRecord record)? deleteBackup;
+  /// What a permanent delete and Recover go through. A permanent delete
+  /// leaves the bucket's copies on the durable queue (`PendingDeletes`)
+  /// rather than attempting them here: the photo is gone from this phone
+  /// at once and each bucket lets go whenever it can be reached.
+  final AssetRemoval? removal;
+  final PendingDeletes? pendingDeletes;
+  final BackupTargetsStore? targetsStore;
 
   @override
   State<RecentlyDeletedScreen> createState() => _RecentlyDeletedScreenState();
@@ -35,12 +37,14 @@ class RecentlyDeletedScreen extends StatefulWidget {
 
 class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
   List<AssetRecord> _records = const [];
+  List<BlockedTarget> _blocked = const [];
 
-  /// Only ever used here to drop what's left of a photo that is gone
-  /// everywhere — see [AssetRemoval.purgeVanished].
-  late final AssetRemoval _removal = AssetRemoval(
-    store: widget.assetRecordStore,
-  );
+  late final AssetRemoval _removal =
+      widget.removal ?? AssetRemoval(store: widget.assetRecordStore);
+  late final PendingDeletes _pending =
+      widget.pendingDeletes ?? PendingDeletes(store: widget.assetRecordStore);
+  late final BackupTargetsStore _targets =
+      widget.targetsStore ?? BackupTargetsStore();
 
   @override
   void initState() {
@@ -49,6 +53,7 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
   }
 
   Future<void> _reload() async {
+    await _removal.expireBin();
     final all = await widget.assetRecordStore.listAll();
     final binned = await _removal.purgeVanished(
       // A hidden photo never shows here: this page opens without a
@@ -57,14 +62,23 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
       all.where((r) => r.isDeleted && r.passcodeHash == null).toList(),
     );
     if (!mounted) return;
-    setState(
-      () =>
-          _records = binned..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
-    );
+    setState(() {
+      _records = binned..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    });
+    final blocked = await _loadBlocked();
+    if (mounted) setState(() => _blocked = blocked);
+  }
+
+  Future<List<BlockedTarget>> _loadBlocked() async {
+    try {
+      return await _pending.blocked(await _targets.loadAll());
+    } catch (_) {
+      return const [];
+    }
   }
 
   Future<void> _recover(AssetRecord record) async {
-    await widget.assetRecordStore.restore(record.localId);
+    await _removal.recover(record);
     await _reload();
   }
 
@@ -89,32 +103,61 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
       ),
     );
     if (confirmed != true) return false;
-    final deleteBackup = widget.deleteBackup;
-    if (deleteBackup != null && !await deleteBackup(record)) {
-      if (mounted) await _showBackupDeleteFailed(l10n);
-      return false;
-    }
-    // Files too: the row alone left this app's copy and thumbnail on disk
-    // with nothing pointing at them.
-    await _removal.purge(record);
+    final gone = await _removal.deletePermanently(record);
     await _reload();
-    return true;
+    return gone;
   }
 
-  Future<void> _showBackupDeleteFailed(AppLocalizations l10n) =>
-      showCupertinoDialog<void>(
-        context: context,
-        builder: (context) => CupertinoAlertDialog(
-          title: Text(l10n.libraryDeletePermanentlyTitle),
-          content: Text(l10n.libraryDeleteBackupFailed),
-          actions: [
-            CupertinoDialogAction(
-              onPressed: () => Navigator.of(context).pop(),
-              child: Text(l10n.actionOk),
-            ),
-          ],
-        ),
-      );
+  Future<void> _emptyBin() async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: Text(l10n.libraryEmptyBinTitle),
+        content: Text(l10n.libraryEmptyBinBody),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.libraryEmptyBin),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _removal.emptyBin();
+    await _reload();
+  }
+
+  Future<void> _forget(BlockedTarget blocked) async {
+    final l10n = AppLocalizations.of(context)!;
+    final name = blocked.target.bucket;
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: Text(l10n.pendingDeletesForgetTitle(name)),
+        content: Text(l10n.pendingDeletesForgetBody),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.pendingDeletesForget),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true) return;
+    await _pending.forgetTarget(blocked.target.id);
+    await _reload();
+  }
 
   Future<void> _toggleFavorite(AssetRecord record) async {
     await setFavoriteEverywhere(
@@ -145,32 +188,78 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(l10n.collectionsRecentlyDeletedRow),
+        trailing: _records.isEmpty
+            ? null
+            : CupertinoButton(
+                padding: EdgeInsets.zero,
+                onPressed: _emptyBin,
+                child: Text(l10n.libraryEmptyBin),
+              ),
       ),
       child: SafeArea(
-        child: _records.isEmpty
-            ? Center(
+        child: Column(
+          children: [
+            for (final blocked in _blocked)
+              CupertinoButton(
+                padding: const EdgeInsets.all(12),
+                onPressed: () => _forget(blocked),
                 child: Text(
-                  l10n.libraryRecentlyDeletedEmpty,
-                  style: const TextStyle(color: CupertinoColors.systemGrey),
+                  l10n.pendingDeletesBlocked(
+                    blocked.waiting,
+                    blocked.target.bucket,
+                  ),
+                  style: const TextStyle(
+                    color: CupertinoColors.systemOrange,
+                    fontSize: 13,
+                  ),
                 ),
-              )
-            : AssetGridView(
-                records: _records,
-                onTap: _open,
-                actionsFor: (r) => [
-                  TileAction(
-                    icon: CupertinoIcons.arrow_uturn_left,
-                    label: l10n.libraryRecover,
-                    onPressed: () => _recover(r),
-                  ),
-                  TileAction(
-                    icon: CupertinoIcons.delete,
-                    label: l10n.libraryDeletePermanentlyAction,
-                    isDestructive: true,
-                    onPressed: () => _deletePermanently(r),
-                  ),
-                ],
               ),
+            Expanded(
+              child: _records.isEmpty
+                  ? Center(
+                      child: Text(
+                        l10n.libraryRecentlyDeletedEmpty,
+                        style: const TextStyle(
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ),
+                    )
+                  : Column(
+                      children: [
+                        Padding(
+                          padding: const EdgeInsets.all(8),
+                          child: Text(
+                            l10n.libraryRecentlyDeletedNote,
+                            style: const TextStyle(
+                              color: CupertinoColors.systemGrey,
+                              fontSize: 12,
+                            ),
+                          ),
+                        ),
+                        Expanded(
+                          child: AssetGridView(
+                            records: _records,
+                            onTap: _open,
+                            actionsFor: (r) => [
+                              TileAction(
+                                icon: CupertinoIcons.arrow_uturn_left,
+                                label: l10n.libraryRecover,
+                                onPressed: () => _recover(r),
+                              ),
+                              TileAction(
+                                icon: CupertinoIcons.delete,
+                                label: l10n.libraryDeletePermanentlyAction,
+                                isDestructive: true,
+                                onPressed: () => _deletePermanently(r),
+                              ),
+                            ],
+                          ),
+                        ),
+                      ],
+                    ),
+            ),
+          ],
+        ),
       ),
     );
   }
