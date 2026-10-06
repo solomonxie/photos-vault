@@ -1,12 +1,14 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter/widgets.dart';
 import 'package:flutter/scheduler.dart';
 
 import 'app.dart';
 import 'demo/demo_mode.dart';
 import 'settings/app_store_region.dart';
+import 'upload/background_sync.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
@@ -28,6 +30,27 @@ Future<void> main() async {
     }
   }
   runApp(const App());
+}
+
+/// Entry point of the headless engine `ios/Runner/BackgroundSync.swift`
+/// starts when iOS hands the app a processing task. Not a screen: it runs
+/// one sync pass and reports back, whatever happens.
+@pragma('vm:entry-point')
+Future<void> backgroundSync() async {
+  WidgetsFlutterBinding.ensureInitialized();
+  const channel = MethodChannel('byo.photos/background_sync');
+  final sync = BackgroundSync();
+  channel.setMethodCallHandler((call) async {
+    if (call.method == 'expire') sync.cancel();
+  });
+  var completed = false;
+  try {
+    completed = await sync.run();
+  } catch (_) {
+    // Nothing to show anyone; the work stays pending for the next run.
+  } finally {
+    await channel.invokeMethod<void>('done', completed);
+  }
 }
 
 /// TEMPORARY — profile builds only. Which half of a slow frame is slow:

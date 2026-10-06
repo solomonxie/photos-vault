@@ -31,7 +31,7 @@ class SyncJobStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onCreate: (db, version) => db.execute('''
           CREATE TABLE $_table (
             id TEXT PRIMARY KEY,
@@ -42,7 +42,8 @@ class SyncJobStore {
             error_message TEXT,
             created_at INTEGER NOT NULL,
             updated_at INTEGER NOT NULL,
-            asset_created_at INTEGER NOT NULL DEFAULT 0
+            asset_created_at INTEGER NOT NULL DEFAULT 0,
+            priority INTEGER NOT NULL DEFAULT 0
           )
         '''),
         // Rows queued before the drain went newest-first keep the epoch,
@@ -53,6 +54,12 @@ class SyncJobStore {
             await db.execute(
               'ALTER TABLE $_table '
               'ADD COLUMN asset_created_at INTEGER NOT NULL DEFAULT 0',
+            );
+          }
+          if (from < 3) {
+            await db.execute(
+              'ALTER TABLE $_table '
+              'ADD COLUMN priority INTEGER NOT NULL DEFAULT 0',
             );
           }
         },
@@ -80,6 +87,7 @@ class SyncJobStore {
     required SyncJobKind kind,
     required String displayName,
     required DateTime assetCreatedAt,
+    int priority = 0,
   }) async {
     final db = await _open();
     final existing = await db.query(
@@ -96,6 +104,14 @@ class SyncJobStore {
     );
     if (existing.isNotEmpty) {
       final job = _fromRow(existing.first);
+      if ((existing.first['priority'] as int? ?? 0) < priority) {
+        await db.update(
+          _table,
+          {'priority': priority},
+          where: 'id = ?',
+          whereArgs: [job.id],
+        );
+      }
       if (job.status != SyncJobStatus.failed) return job;
       await retry(job.id);
       return SyncJob(
@@ -121,7 +137,7 @@ class SyncJobStore {
       updatedAt: now,
       assetCreatedAt: assetCreatedAt,
     );
-    await db.insert(_table, _toRow(job));
+    await db.insert(_table, {..._toRow(job), 'priority': priority});
     return job;
   }
 
@@ -149,14 +165,19 @@ class SyncJobStore {
   /// years deep, and the picture someone wants safe is the one they just
   /// took. Ties (same capture date, or rows from before the column
   /// existed) fall back to queue order.
-  Future<SyncJob?> dequeueNextPending() async {
+  ///
+  /// [kinds] narrows it to the work the caller can do: the background run
+  /// has no screen, so it leaves analysis and change checks for the app.
+  Future<SyncJob?> dequeueNextPending({Set<SyncJobKind>? kinds}) async {
     final db = await _open();
     return db.transaction((txn) async {
       final rows = await txn.query(
         _table,
-        where: 'status = ?',
-        whereArgs: [SyncJobStatus.pending.name],
-        orderBy: 'asset_created_at DESC, created_at ASC',
+        where: kinds == null
+            ? 'status = ?'
+            : 'status = ? AND kind IN (${List.filled(kinds.length, '?').join(',')})',
+        whereArgs: [SyncJobStatus.pending.name, ...?kinds?.map((k) => k.name)],
+        orderBy: 'priority DESC, asset_created_at DESC, created_at ASC',
         limit: 1,
       );
       if (rows.isEmpty) return null;

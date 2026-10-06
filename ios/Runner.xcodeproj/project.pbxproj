@@ -25,6 +25,7 @@
 		A1B2C3D40001000000000020 /* StillVideoChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40001000000000021 /* StillVideoChannel.swift */; };
 		A1B2C3D40001000000000030 /* BackupExclusionChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40001000000000031 /* BackupExclusionChannel.swift */; };
 		A1B2C3D40001000000000050 /* ImageEncodeChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40001000000000051 /* ImageEncodeChannel.swift */; };
+		A1B2C3D40001000000000090 /* BackgroundSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40001000000000091 /* BackgroundSync.swift */; };
 		A1B2C3D40001000000000040 /* PrivacyCoverChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40001000000000041 /* PrivacyCoverChannel.swift */; };
 /* End PBXBuildFile section */
 
@@ -79,6 +80,7 @@
 		A1B2C3D40001000000000021 /* StillVideoChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StillVideoChannel.swift; sourceTree = "<group>"; };
 		A1B2C3D40001000000000031 /* BackupExclusionChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackupExclusionChannel.swift; sourceTree = "<group>"; };
 		A1B2C3D40001000000000051 /* ImageEncodeChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageEncodeChannel.swift; sourceTree = "<group>"; };
+		A1B2C3D40001000000000091 /* BackgroundSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundSync.swift; sourceTree = "<group>"; };
 		A1B2C3D40001000000000041 /* PrivacyCoverChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PrivacyCoverChannel.swift; sourceTree = "<group>"; };
 		AF733F2311E2BAB4A6300847 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 /* End PBXFileReference section */
@@ -154,6 +156,7 @@
 				A1B2C3D40001000000000031 /* BackupExclusionChannel.swift */,
 				A1B2C3D40001000000000051 /* ImageEncodeChannel.swift */,
 				A1B2C3D40001000000000041 /* PrivacyCoverChannel.swift */,
+				A1B2C3D40001000000000091 /* BackgroundSync.swift */,
 				A1B2C3D40001000000000005 /* Runner.entitlements */,
 				A1B2C3D40001000000000010 /* SFace.mlmodelc */,
 				74858FAD1ED2DC5600515810 /* Runner-Bridging-Header.h */,
@@ -328,6 +331,7 @@
 				A1B2C3D40001000000000030 /* BackupExclusionChannel.swift in Sources */,
 				A1B2C3D40001000000000050 /* ImageEncodeChannel.swift in Sources */,
 				A1B2C3D40001000000000040 /* PrivacyCoverChannel.swift in Sources */,
+				A1B2C3D40001000000000090 /* BackgroundSync.swift in Sources */,
 			);
 			runOnlyForDeploymentPostprocessing = 0;
 		};

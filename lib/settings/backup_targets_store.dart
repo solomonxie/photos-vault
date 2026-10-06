@@ -26,9 +26,10 @@ enum BackupFormat { original, optimized }
 /// How often [LibraryScreen] retries pending/failed backups on its own,
 /// beyond the explicit "Sync Now" button. [manual] (default) never
 /// auto-triggers. Checked opportunistically whenever the app comes to the
-/// foreground (launch, or returning to the library) — there's no real iOS
-/// background-execution hookup (`BGTaskScheduler`) yet, so a frequency set
-/// while the app is closed only actually runs the next time it's opened.
+/// foreground (launch, or returning to the library), and by an iOS
+/// background pass (`upload/background_sync.dart`) when iOS grants one —
+/// typically overnight, on power and Wi-Fi, never on a schedule you can
+/// count on.
 enum SyncFrequency { manual, every15Minutes, everyHour, every6Hours, daily }
 
 const _syncIntervals = {

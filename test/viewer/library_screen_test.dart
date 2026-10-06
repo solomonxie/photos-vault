@@ -364,12 +364,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.scrollUntilVisible(
-      find.text('Import from Files'),
-      300,
-      scrollable: find.byType(Scrollable).first,
-    );
-    await tester.tap(find.text('Import from Files'));
+    await tester.tap(find.text('Add Files'));
     await tester.pumpAndSettle();
 
     expect(find.text('Added 0 files, 0 backed up.'), findsOneWidget);
@@ -617,6 +612,14 @@ void main() {
         destinationKey: 'originals/manual_abc.jpg',
       ),
     );
+    await recordStore.updateDerivative(
+      'manual:abc',
+      DerivativeKind.thumbnail,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'thumbnails/manual_abc.jpg',
+      ),
+    );
     await pumpWithRecord(tester, recordStore);
 
     await tester.tap(find.byKey(const ValueKey('manual:abc')));
@@ -833,7 +836,8 @@ void main() {
       expect(find.text('Recently Deleted'), findsOneWidget);
       // The backup queue lives on Cloud Settings, with the buckets.
       expect(find.text('Backup Queue'), findsNothing);
-      expect(find.text('Analyze Queue'), findsOneWidget);
+      // The analyze queue lives under People.
+      expect(find.text('Analyze Queue'), findsNothing);
       expect(find.text('Cloud Settings'), findsOneWidget);
 
       await tester.tap(find.text('Favorites'));
