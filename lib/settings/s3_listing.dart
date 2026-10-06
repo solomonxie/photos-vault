@@ -4,6 +4,7 @@ import 'package:aws_common/aws_common.dart';
 import 'package:aws_signature_v4/aws_signature_v4.dart';
 import 'package:http/http.dart' as http;
 
+import '../demo/demo_bucket.dart';
 import 'bucket_endpoint.dart';
 import 's3_xml.dart' as sx;
 import 's3_backup_target.dart';
@@ -61,6 +62,7 @@ Future<S3ListingResult> listBucket({
   String prefix = '',
   String? continuationToken,
 }) async {
+  if (DemoBucket.owns(target)) return DemoBucket.list(prefix);
   final signer = AWSSigV4Signer(
     credentialsProvider: AWSCredentialsProvider(
       AWSCredentials(target.accessKeyId, target.secretAccessKey),
