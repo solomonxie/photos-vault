@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
@@ -8,9 +10,11 @@ import '../settings/backup_targets_store.dart';
 import '../settings/settings_section.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/bucket_flagged.dart';
+import '../upload/bucket_leftovers.dart';
 import '../upload/bucket_import.dart';
 import '../upload/s3_uploader.dart';
 import '../vault/keys.dart';
+import '../vault/object_key.dart' show fitsProtocol;
 import 'storage_optimization_screen.dart';
 
 /// Everything the app wants a person to look at: space it could free on
@@ -53,6 +57,12 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   final Map<String, bool> _reformatable = {};
   final Map<String, String> _notes = {};
   bool _busy = false;
+  String? _batchNote;
+  int _batchDone = 0;
+  int _batchTotal = 0;
+  bool _batchStop = false;
+
+  bool get _batching => _batchTotal > 0;
 
   @override
   void initState() {
@@ -67,7 +77,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
         recordStore: widget.store,
       ).refresh();
     }
-    final items = await _flags.detect();
+    final items = await _flags.detect(inspect: _fixer.inspect);
     if (!mounted) return;
     setState(() => _items = items);
     for (final item in items) {
@@ -78,8 +88,19 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
     }
   }
 
+  /// Library-side only: the bucket keeps the file, this page stops listing
+  /// it, and no scan offers it again.
+  Future<void> _ignore(FlaggedObject item) async {
+    await IgnoredBucketKeys(widget.store).addAll([item.object.key]);
+    if (!mounted) return;
+    setState(() => _items = [..._items]..remove(item));
+  }
+
   Future<void> _rescan() async {
-    setState(() => _busy = true);
+    setState(() {
+      _busy = true;
+      _batchNote = null;
+    });
     await BucketIndexer(
       targetsStore: widget.targetsStore,
       recordStore: widget.store,
@@ -108,6 +129,144 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
             : '${l10n.flaggedFailed} (${result.detail})';
       });
     }
+  }
+
+  Future<void> _fixAll(
+    List<FlaggedObject> items,
+    String body,
+    String confirm,
+    Future<FixResult> Function(FlaggedObject) run,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    final go = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        content: Text(body),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(confirm),
+          ),
+        ],
+      ),
+    );
+    if (go != true || !mounted) return;
+    unawaited(_runBatch(items, run));
+  }
+
+  /// Runs in the background of the screen: the list stays scrollable, each
+  /// fixed item drops out as it lands, and Stop ends it after the one in
+  /// flight. Nothing is lost by stopping or leaving the app: every fix is
+  /// done and recorded per item, so a rescan lists exactly what is left.
+  Future<void> _runBatch(
+    List<FlaggedObject> items,
+    Future<FixResult> Function(FlaggedObject) run,
+  ) async {
+    final l10n = AppLocalizations.of(context)!;
+    setState(() {
+      _batchDone = 0;
+      _batchTotal = items.length;
+      _batchStop = false;
+      _batchNote = null;
+    });
+    var left = 0;
+    for (final item in items) {
+      if (_batchStop || !mounted) break;
+      final ok = (await run(item)).ok;
+      if (!mounted) return;
+      setState(() {
+        _batchDone++;
+        if (ok) {
+          _items = [
+            for (final i in _items)
+              if (i.object.key != item.object.key) i,
+          ];
+        } else {
+          left++;
+        }
+      });
+    }
+    if (!mounted) return;
+    setState(() => _batchTotal = 0);
+    await _rescan();
+    if (left > 0 && mounted) {
+      setState(() => _batchNote = l10n.flaggedBatchLeft(left));
+    }
+  }
+
+  Widget _batchBar(AppLocalizations l10n) {
+    // Likely duplicates stay out of the batch: one at a time, with the
+    // reason shown on the card.
+    final renamable = [
+      for (final i in _items)
+        if (i.kind == FlagKind.offProtocol && i.likelyDuplicateOf == null) i,
+    ];
+    final orphans = [
+      for (final i in _items)
+        if (i.kind == FlagKind.orphanThumbnail) i,
+    ];
+    if (_batching) {
+      return Padding(
+        padding: const EdgeInsets.fromLTRB(settingsPagePadding, 0, 8, 6),
+        child: Row(
+          children: [
+            const CupertinoActivityIndicator(radius: 8),
+            const SizedBox(width: 10),
+            Expanded(
+              child: Text(
+                l10n.flaggedBatchProgress(_batchDone, _batchTotal),
+                style: settingsRowSubtitleStyle,
+              ),
+            ),
+            CupertinoButton(
+              padding: const EdgeInsets.symmetric(horizontal: 12),
+              minimumSize: const Size(0, 32),
+              onPressed: _batchStop
+                  ? null
+                  : () => setState(() => _batchStop = true),
+              child: Text(l10n.flaggedBatchStop),
+            ),
+          ],
+        ),
+      );
+    }
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(settingsPagePadding, 0, 8, 6),
+      child: Wrap(
+        children: [
+          if (renamable.length > 1)
+            _button(
+              l10n.flaggedRenameAll(renamable.length),
+              () => _fixAll(
+                renamable,
+                l10n.flaggedBatchRenameBody(renamable.length),
+                l10n.flaggedRename,
+                _fixer.rename,
+              ),
+            ),
+          if (orphans.length > 1)
+            _button(
+              l10n.flaggedRemoveAll(orphans.length),
+              () => _fixAll(
+                orphans,
+                l10n.flaggedBatchRemoveBody(orphans.length),
+                l10n.flaggedRemove,
+                _fixer.removeOrphan,
+              ),
+            ),
+          if (_batchNote != null)
+            Padding(
+              padding: const EdgeInsets.symmetric(vertical: 8),
+              child: Text(_batchNote!, style: settingsErrorStyle),
+            ),
+        ],
+      ),
+    );
   }
 
   Future<void> _reformat(FlaggedObject item) async {
@@ -197,6 +356,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
                   ),
                 ),
               ),
+            _batchBar(l10n),
             for (final item in _items) _card(l10n, item),
           ],
         ),
@@ -207,6 +367,8 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   Widget _card(AppLocalizations l10n, FlaggedObject item) {
     final key = item.object.key;
     final orphan = item.kind == FlagKind.orphanThumbnail;
+    final unclaimed = item.kind == FlagKind.unclaimed;
+    final leftover = item.kind == FlagKind.likelyLeftover;
     final megabytes = (item.object.size / 1048576).toStringAsFixed(1);
     final date = DateFormat.yMMMd().format(item.object.lastModified);
     return Container(
@@ -227,9 +389,22 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
           Text(item.name, style: settingsRowTitleStyle, maxLines: 1),
           const SizedBox(height: 2),
           Text(
-            orphan ? l10n.flaggedOrphanReason : l10n.flaggedOffProtocolReason,
+            orphan
+                ? l10n.flaggedOrphanReason
+                : unclaimed
+                ? l10n.flaggedUnclaimedReason
+                : leftover
+                ? l10n.flaggedLeftoverReason
+                : l10n.flaggedOffProtocolReason,
             style: settingsRowSubtitleStyle,
           ),
+          if (item.likelyDuplicateOf != null)
+            Text(
+              l10n.flaggedLikelyDuplicate(
+                item.likelyDuplicateOf!.split('/').last,
+              ),
+              style: settingsRowDetailStyle,
+            ),
           Text('$megabytes MB · $date', style: settingsRowDetailStyle),
           if (_notes[key] != null)
             Text(_notes[key]!, style: settingsErrorStyle),
@@ -242,7 +417,23 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
                   l10n.flaggedRemove,
                   () => _fix(item, () => _fixer.removeOrphan(item)),
                 )
-              else ...[
+              else if (unclaimed)
+                _button(
+                  l10n.flaggedImport,
+                  () => _fix(item, () => _fixer.adopt(item)),
+                )
+              else if (leftover) ...[
+                _button(l10n.flaggedIgnore, () => _ignore(item)),
+                _button(
+                  l10n.flaggedImportAnyway,
+                  () => _fix(
+                    item,
+                    () => fitsProtocol(item.name)
+                        ? _fixer.adopt(item)
+                        : _fixer.rename(item),
+                  ),
+                ),
+              ] else ...[
                 if (_reformatable[key] == true)
                   _button(l10n.flaggedReformat, () => _reformat(item)),
                 _button(
@@ -260,7 +451,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   Widget _button(String label, VoidCallback onPressed) => CupertinoButton(
     padding: const EdgeInsets.symmetric(horizontal: 12),
     minimumSize: const Size(0, 32),
-    onPressed: _busy ? null : onPressed,
+    onPressed: _busy || _batching ? null : onPressed,
     child: Text(label),
   );
 }

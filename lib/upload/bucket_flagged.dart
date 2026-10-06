@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
@@ -13,10 +14,13 @@ import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/bucket_object.dart';
+import '../vault/carrier.dart' show thumbnailPrefixBytes;
 import '../vault/carrier_probe.dart';
 import '../vault/keys.dart';
 import '../vault/object_key.dart';
+import 'bucket_leftovers.dart';
 import 'bucket_ops.dart';
+import 'capture_date.dart';
 import 's3_uploader.dart';
 import 'signing.dart';
 
@@ -26,13 +30,41 @@ enum FlagKind {
 
   /// A thumbnail whose original is gone.
   orphanThumbnail,
+
+  /// Named like ours but no record claims it, and not a hidden carrier:
+  /// a photo that came from another device, a reinstall, or a deleted
+  /// record. Only found when the caller can tell carriers apart.
+  unclaimed,
+
+  /// Not in the library, no capture date of its own, and dated only by a
+  /// stamp written when it was uploaded or renamed: most likely an old copy
+  /// of a photo already here. Listed, never offered as new.
+  likelyLeftover,
 }
 
+/// What a header read says about an object: whether it is a hidden photo's
+/// carrier, and the camera's own date if the file carries one.
+typedef ObjectInspection = ({bool carrier, DateTime? takenAt});
+
 class FlaggedObject {
-  const FlaggedObject({required this.object, required this.kind});
+  const FlaggedObject({
+    required this.object,
+    required this.kind,
+    this.likelyDuplicateOf,
+    this.takenAt,
+  });
 
   final BucketObject object;
   final FlagKind kind;
+
+  /// The capture date read from the file's own metadata, when the scan read
+  /// its header and found one.
+  final DateTime? takenAt;
+
+  /// Key of an already-known original of the same size in the same bucket.
+  /// A guess — sizes can collide — so it only keeps the object out of
+  /// batch imports and says why; nothing is ever deleted on its strength.
+  final String? likelyDuplicateOf;
 
   bool get isVideo => BucketFlags.videoExtensions.contains(_ext(object.key));
 
@@ -63,30 +95,108 @@ class BucketFlags {
     'gif',
   };
 
-  Future<List<FlaggedObject>> detect() async {
+  /// [isCarrier] tells a hidden photo's carrier from an ordinary file when
+  /// both are named like ours; without it protocol-named objects are left
+  /// alone, since an album may own them.
+  static const probeConcurrency = 8;
+
+  /// [inspect] reads an object's header once for both questions; without
+  /// it, [isCarrier] alone answers the first and no dates are read.
+  Future<List<FlaggedObject>> detect({
+    Future<bool> Function(BucketObject object)? isCarrier,
+    Future<ObjectInspection> Function(BucketObject object)? inspect,
+    int probeLimit = 200,
+  }) async {
+    final look =
+        inspect ??
+        (isCarrier == null
+            ? null
+            : (BucketObject o) async =>
+                  (carrier: await isCarrier(o), takenAt: null));
     final objects = await store.listBucketObjects();
     final referenced = await store.referencedKeys();
+    final ignored = await IgnoredBucketKeys(store).read();
     final originalStems = <String>{
       for (final o in objects)
         if (o.directory == 'originals') '${o.targetId}|${_stem(o.key)}',
     };
+    final knownBySize = <String, String>{
+      for (final o in objects)
+        if (o.directory == 'originals' && referenced.contains(o.key))
+          '${o.targetId}|${o.size}': o.key,
+    };
+    FlaggedObject media(BucketObject o, FlagKind kind, [DateTime? takenAt]) =>
+        FlaggedObject(
+          object: o,
+          kind: kind,
+          likelyDuplicateOf: knownBySize['${o.targetId}|${o.size}'],
+          takenAt: takenAt,
+        );
     final out = <FlaggedObject>[];
+    final toProbe = <BucketObject>[];
     for (final o in objects) {
-      if (referenced.contains(o.key)) continue;
+      if (referenced.contains(o.key) || ignored.contains(o.key)) continue;
       final ext = _ext(o.key);
       if (o.directory == 'originals') {
-        final media =
+        final isMedia =
             videoExtensions.contains(ext) || stillExtensions.contains(ext);
-        if (media && !fitsProtocol(o.fileName)) {
-          out.add(FlaggedObject(object: o, kind: FlagKind.offProtocol));
+        if (!isMedia) continue;
+        final protocol = fitsProtocol(o.fileName);
+        // An off-protocol name needs its header read only when its stamp
+        // could be an upload stamp; otherwise the name is evidence enough.
+        final suspect = _stampNearArrival(o);
+        if (look != null &&
+            (protocol || suspect) &&
+            toProbe.length < probeLimit) {
+          toProbe.add(o);
+        } else if (!protocol) {
+          out.add(media(o, FlagKind.offProtocol));
         }
       } else if (o.directory == 'thumbnails' &&
           !originalStems.contains('${o.targetId}|${_stem(o.key)}')) {
         out.add(FlaggedObject(object: o, kind: FlagKind.orphanThumbnail));
       }
     }
+    // The only per-object requests in a scan, so they go a batch at a time
+    // rather than one after another.
+    for (var i = 0; i < toProbe.length; i += probeConcurrency) {
+      final batch = toProbe.skip(i).take(probeConcurrency).toList();
+      final looks = await Future.wait(batch.map(look!));
+      for (var j = 0; j < batch.length; j++) {
+        final o = batch[j];
+        final protocol = fitsProtocol(o.fileName);
+        // A carrier is an album's business; an off-protocol one is still
+        // offered for the rename that files it.
+        if (looks[j].carrier && protocol) continue;
+        final takenAt = looks[j].takenAt;
+        final leftover =
+            !looks[j].carrier &&
+            isLikelyLeftover(
+              nameStamp: takenAtFromName(o.fileName),
+              reference: o.lastModified,
+              captureDate: takenAt,
+            );
+        out.add(
+          media(
+            o,
+            leftover
+                ? FlagKind.likelyLeftover
+                : protocol
+                ? FlagKind.unclaimed
+                : FlagKind.offProtocol,
+            takenAt,
+          ),
+        );
+      }
+    }
     return out;
   }
+
+  static bool _stampNearArrival(BucketObject o) => isLikelyLeftover(
+    nameStamp: takenAtFromName(o.fileName),
+    reference: o.lastModified,
+    captureDate: null,
+  );
 }
 
 String _stem(String key) => p.basenameWithoutExtension(key);
@@ -157,6 +267,87 @@ class BucketFixer {
         isVideo: f.isVideo,
       );
 
+  /// One look at [object]'s header: carrier or not, and its capture date.
+  /// The first 64 KB are fetched once and shared by both questions.
+  Future<ObjectInspection> inspect(BucketObject object) async {
+    final target = await _target(object.targetId);
+    if (target == null) return (carrier: true, takenAt: null);
+    final read = _headCached(_ops.rangeReader(target, object.key), object.size);
+    final isVideo = BucketFlags.videoExtensions.contains(_ext(object.key));
+    final carrier =
+        await _probe.probe(read: read, size: object.size, isVideo: isVideo) !=
+        null;
+    return (
+      carrier: carrier,
+      takenAt: carrier ? null : await _captureDateFrom(read, object, isVideo),
+    );
+  }
+
+  static Future<DateTime?> _captureDateFrom(
+    RangeReader read,
+    BucketObject object,
+    bool isVideo,
+  ) async {
+    if (isVideo) return videoCaptureDate(read, object.size);
+    final head = await read(0, _headLength(object.size));
+    return head == null ? null : stillCaptureDate(head);
+  }
+
+  static int _headLength(int size) =>
+      size < thumbnailPrefixBytes ? size : thumbnailPrefixBytes;
+
+  /// Serves any read inside the first [thumbnailPrefixBytes] from one fetch.
+  static RangeReader _headCached(RangeReader read, int size) {
+    final length = _headLength(size);
+    Future<Uint8List?>? head;
+    return (start, end) async {
+      if (end > length) return read(start, end);
+      final bytes = await (head ??= read(0, length));
+      if (bytes == null) return null;
+      final stop = end < bytes.length ? end : bytes.length;
+      return start >= stop
+          ? Uint8List(0)
+          : Uint8List.sublistView(bytes, start, stop);
+    };
+  }
+
+  /// Whether [object] is a hidden photo's carrier, by its header.
+  Future<bool> isCarrier(BucketObject object) async {
+    final target = await _target(object.targetId);
+    if (target == null) return true;
+    return await _probe.probe(
+          read: _ops.rangeReader(target, object.key),
+          size: object.size,
+          isVideo: BucketFlags.videoExtensions.contains(_ext(object.key)),
+        ) !=
+        null;
+  }
+
+  /// An unclaimed object that already has a protocol name: it becomes a
+  /// cloud-only record as it is, with nothing moved or renamed.
+  Future<FixResult> adopt(FlaggedObject f) async {
+    final leftover =
+        f.kind == FlagKind.likelyLeftover && fitsProtocol(f.object.fileName);
+    if (f.kind != FlagKind.unclaimed && !leftover) {
+      return const FixResult(FixOutcome.failed);
+    }
+    final target = await _target(f.object.targetId);
+    if (target == null) {
+      return const FixResult(FixOutcome.failed, detail: 'no such bucket');
+    }
+    final base = _stem(f.object.key);
+    final thumb = await _thumbnailOf(f);
+    final localId = await _importRecord(
+      target: target,
+      base: base,
+      key: f.object.key,
+      thumbnailKey: thumb?.key,
+      isVideo: f.isVideo,
+      created: await _dateOf(target, f),
+    );
+    return FixResult(FixOutcome.imported, localId: localId);
+  }
+
   /// Whether the file is known not to be a carrier, which is the only case
   /// where changing its bytes is safe.
   Future<bool> canReformat(FlaggedObject f) async {
@@ -171,7 +362,9 @@ class BucketFixer {
   /// Server-side: a copy to a protocol name, a size check, then the old
   /// name goes. No photo data crosses the phone.
   Future<FixResult> rename(FlaggedObject f) async {
-    if (f.kind != FlagKind.offProtocol) {
+    final leftover =
+        f.kind == FlagKind.likelyLeftover && !fitsProtocol(f.object.fileName);
+    if (f.kind != FlagKind.offProtocol && !leftover) {
       return const FixResult(FixOutcome.failed);
     }
     final target = await _target(f.object.targetId);
@@ -192,7 +385,7 @@ class BucketFixer {
       return const FixResult(FixOutcome.needsAlbum);
     }
 
-    final date = _dateOf(f);
+    final date = await _dateOf(target, f);
     final ext = _ext(f.object.key);
     final base = hidden
         ? hiddenBaseNameFromHeader(date, carrier.header)
@@ -243,7 +436,7 @@ class BucketFixer {
 
     final dir = await _temporaryDirectory();
     try {
-      final date = _dateOf(f);
+      final date = await _dateOf(target, f);
       final base = _ordinaryBase(date, f.object.key);
       final input = File(p.join(dir.path, 'in.${_ext(f.object.key)}'));
       final response = await http.get(
@@ -344,8 +537,17 @@ class BucketFixer {
     return null;
   }
 
-  DateTime _dateOf(FlaggedObject f) =>
-      takenAtFromName(f.name) ?? f.object.lastModified.toLocal();
+  /// The camera's date from the file itself, then a date in its name, then
+  /// when it reached the bucket.
+  Future<DateTime> _dateOf(S3BackupTarget target, FlaggedObject f) async =>
+      f.takenAt ??
+      await _captureDateFrom(
+        _headCached(_ops.rangeReader(target, f.object.key), f.object.size),
+        f.object,
+        f.isVideo,
+      ).catchError((_) => null) ??
+      takenAtFromName(f.name) ??
+      f.object.lastModified.toLocal();
 
   String _ordinaryBase(DateTime date, String oldKey) {
     final hash = sha256.convert(utf8.encode(oldKey)).bytes;

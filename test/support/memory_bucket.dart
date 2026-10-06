@@ -22,6 +22,18 @@ class MemoryBucket extends BucketOps {
   ];
 
   @override
+  Future<bool> listFolderPages(
+    S3BackupTarget target,
+    String dir, {
+    String? startToken,
+    required Future<void> Function(List<S3Object> page, String? nextToken)
+    onPage,
+  }) async {
+    await onPage((await listFolder(target, dir))!, null);
+    return true;
+  }
+
+  @override
   RangeReader rangeReader(S3BackupTarget target, String key) =>
       (start, end) async {
         final bytes = objects[key];
