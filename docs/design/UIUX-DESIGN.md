@@ -40,8 +40,8 @@ Two heading tiers, and only two:
 ```
 Cloud                                                ⊕   ← 20 · 700 · white
 Photos upload to storage you own. Credentials stay       (one control, right)
-on this device. Syncing runs only while the app is    ← hint: 11 muted
-open — there's no background-sync permission yet.
+on this device. Syncing runs while the app is open,   ← hint: 11 muted
+and iOS may run it overnight on power and Wi-Fi.
 ┌────┐  slmx-archives2                               ›
 │ ☁  │  s3://slmx-archives2/photos/                      ← 15/w600 · 11 muted
 └────┘  ca-central-1                                     ← 12 muted detail
@@ -56,7 +56,7 @@ Last synced Sep 15 4:26 PM                               ← 12 muted
                                                             progress rides inline
 ```
 
-Be honest in copy about limitations. If background sync isn't registered with the OS, say "only while the app is open" rather than implying otherwise.
+Be honest in copy about limitations. Background sync is the OS's to grant (a processing task, usually overnight on power and Wi-Fi): say "may", never "every hour" or "always".
 
 
 ## Languages
