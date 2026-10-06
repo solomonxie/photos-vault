@@ -256,6 +256,28 @@ class VaultBucket {
     return null;
   }
 
+  /// True only when every bucket answered 404 for [objectKey] — a one-byte
+  /// ranged read, so a dead network is not mistaken for a deleted carrier.
+  Future<bool> isAbsent(String objectKey) async {
+    final targets = await _targetsStore.loadAll();
+    if (targets.isEmpty) return false;
+    for (final target in targets) {
+      try {
+        final response = await _get(
+          await presignGetUrl(
+            target: target,
+            key: resolveKey(target, objectKey),
+          ),
+          headers: {'Range': 'bytes=0-0'},
+        );
+        if (response.statusCode != 404) return false;
+      } catch (_) {
+        return false;
+      }
+    }
+    return true;
+  }
+
   /// A whole carrier, or [absent] when every bucket answered 404 (or none is
   /// configured). Unreachable is neither: a caller deciding "there is no
   /// such object" must not mistake a dead network for it.

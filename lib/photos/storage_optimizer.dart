@@ -153,7 +153,17 @@ class StorageOptimizer {
     try {
       final report = await verifier.reconcile();
       if (!report.reachedBucket) return atRisk;
-      return atRisk.intersection(report.missingLocalIds.toSet());
+      // A removal leaves the bucket's thumbnail as the only picture once the
+      // cache is gone, so a missing one blocks it too; the re-encodes keep a
+      // local file and don't care.
+      final removing = {
+        for (final item in items)
+          if (item.fix == StorageFix.removeFromDevice) item.record.localId,
+      };
+      return {
+        ...atRisk.intersection(report.missingLocalIds.toSet()),
+        ...removing.intersection(report.missingThumbnailIds.toSet()),
+      };
     } catch (_) {
       return atRisk;
     }

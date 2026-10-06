@@ -35,6 +35,7 @@ class _VaultPhotoScreenState extends State<VaultPhotoScreen>
     with WidgetsBindingObserver, PrivateScreenLifecycle {
   Uint8List? _bytes;
   var _tried = false;
+  var _lost = false;
 
   @override
   void initState() {
@@ -44,9 +45,12 @@ class _VaultPhotoScreenState extends State<VaultPhotoScreen>
 
   Future<void> _load() async {
     final bytes = await widget.gallery.original(widget.entry);
+    final lost =
+        bytes == null && await widget.gallery.isLostFromBucket(widget.entry);
     if (!mounted) return;
     setState(() {
       _bytes = bytes;
+      _lost = lost;
       _tried = true;
     });
   }
@@ -133,7 +137,7 @@ class _VaultPhotoScreenState extends State<VaultPhotoScreen>
                 ? Padding(
                     padding: const EdgeInsets.all(32),
                     child: Text(
-                      l10n.vaultNeedsNetwork,
+                      _lost ? l10n.vaultCarrierMissing : l10n.vaultNeedsNetwork,
                       textAlign: TextAlign.center,
                       style: const TextStyle(color: CupertinoColors.systemGrey),
                     ),

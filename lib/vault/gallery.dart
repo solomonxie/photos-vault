@@ -165,6 +165,11 @@ class VaultGallery {
     return opened.original;
   }
 
+  /// Whether the bucket has lost [entry]'s carrier, as opposed to being
+  /// unreachable.
+  Future<bool> isLostFromBucket(IndexEntry entry) =>
+      _bucket.isAbsent(entry.objectKey);
+
   /// Fetches [entry]'s carrier back from the bucket and keeps it, so the
   /// photo is on this phone again. The opposite of [sendBackToBucket].
   Future<bool> download(IndexEntry entry) async {

@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
@@ -8,6 +9,7 @@ import '../settings/s3_backup_target.dart';
 import '../settings/s3_listing.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import 'lost_originals.dart';
 import 'signing.dart';
 
 /// What a bucket said when asked whether it really has a copy.
@@ -73,6 +75,8 @@ class ReconcileReport {
     required this.missingLocalIds,
     required this.unreferencedKeys,
     required this.reachedBucket,
+    this.missingThumbnailIds = const [],
+    this.losses = const {},
   });
 
   final DateTime at;
@@ -96,7 +100,52 @@ class ReconcileReport {
   /// is meaningless and must not be shown as a result.
   final bool reachedBucket;
 
-  bool get isClean => reachedBucket && missingLocalIds.isEmpty;
+  /// Photos whose `thumbnails/` object is missing from a bucket that
+  /// should hold it. Not a lost photo, but a cloud-only tile with no
+  /// cached picture is blank without it.
+  final List<String> missingThumbnailIds;
+
+  /// What is missing where, per photo — what [BackupVerifier.repair] acts on.
+  final Map<String, RecordLoss> losses;
+
+  bool get isClean =>
+      reachedBucket && missingLocalIds.isEmpty && missingThumbnailIds.isEmpty;
+}
+
+/// Which buckets lack one photo's derivatives. Judged per bucket: a photo
+/// present in A and gone from B is still a loss, and still repairable.
+class RecordLoss {
+  RecordLoss();
+
+  /// Kind → targets that should hold it and don't.
+  final Map<DerivativeKind, Set<String>> missingAt = {};
+
+  /// Kinds no bucket holds any more.
+  final Set<DerivativeKind> goneEverywhere = {};
+}
+
+/// What [BackupVerifier.repair] did with a [ReconcileReport].
+class RepairResult {
+  const RepairResult({
+    this.requeued = 0,
+    this.lost = 0,
+    this.thumbnailsRequeued = 0,
+  });
+
+  /// Missing, with a local copy to upload again.
+  final int requeued;
+
+  /// Gone from every bucket with nothing on this phone to upload again.
+  final int lost;
+  final int thumbnailsRequeued;
+}
+
+/// One round of [BackupVerifier.spotCheck].
+class SpotCheckResult {
+  const SpotCheckResult({this.checked = 0, this.lost = 0});
+
+  final int checked;
+  final int lost;
 }
 
 /// Asks the bucket, instead of asking the database.
@@ -188,6 +237,11 @@ class BackupVerifier {
     return motion == CopyProof.notRecorded ? proof : motion;
   }
 
+  /// Whether some bucket holds [record]'s `thumbnails/` object — what a
+  /// cloud-only photo is drawn from once its original has left the phone.
+  Future<CopyProof> proveThumbnail(AssetRecord record) =>
+      _prove(record, DerivativeKind.thumbnail);
+
   Future<CopyProof> _prove(AssetRecord record, DerivativeKind kind) async {
     final key = record.stateOf(kind).destinationKey;
     if (key == null) return CopyProof.notRecorded;
@@ -195,19 +249,54 @@ class BackupVerifier {
     if (targets.isEmpty) return CopyProof.unreachable;
     var answered = false;
     for (final target in targets) {
-      try {
-        final response = await _head(
-          await presignHeadUrl(target: target, key: key),
-        );
-        if (response.statusCode == 200) return CopyProof.present;
-        // 403 on a bucket without HeadObject permission is not "absent" —
-        // only a 404 is the bucket saying it hasn't got it.
-        if (response.statusCode == 404) answered = true;
-      } catch (_) {
-        // Network, DNS, a target that no longer exists — next one.
+      switch (await _proveAt(target, key)) {
+        case CopyProof.present:
+          return CopyProof.present;
+        case CopyProof.missing:
+          answered = true;
+        case _:
       }
     }
     return answered ? CopyProof.missing : CopyProof.unreachable;
+  }
+
+  Future<CopyProof> _proveAt(S3BackupTarget target, String key) async {
+    try {
+      final response = await _head(
+        await presignHeadUrl(target: target, key: key),
+      );
+      if (response.statusCode == 200) return CopyProof.present;
+      // 403 on a bucket without HeadObject permission is not "absent" —
+      // only a 404 is the bucket saying it hasn't got it.
+      if (response.statusCode == 404) return CopyProof.missing;
+    } catch (_) {
+      // Network, DNS, a target that no longer exists.
+    }
+    return CopyProof.unreachable;
+  }
+
+  /// [kind] of [record] against each bucket that holds it, on its own: the
+  /// answer per bucket rather than "somewhere". A row with no per-bucket
+  /// record (written before the table existed) is asked of every bucket.
+  Future<Map<String, CopyProof>> _proveEach(
+    AssetRecord record,
+    DerivativeKind kind,
+  ) async {
+    final fallback = record.stateOf(kind).destinationKey;
+    if (fallback == null) return const {};
+    final targets = await _targets();
+    final held = await recordStore.targetsHolding(record.localId, kind);
+    if (held.isEmpty || held.keys.every((id) => id.isEmpty)) {
+      return {
+        for (final target in targets)
+          target.id: await _proveAt(target, fallback),
+      };
+    }
+    return {
+      for (final target in targets)
+        if (held[target.id] != null)
+          target.id: await _proveAt(target, held[target.id]!),
+    };
   }
 
   // ---------------------------------------------------------------- drill
@@ -284,67 +373,141 @@ class BackupVerifier {
 
   // ------------------------------------------------------------ reconcile
 
-  /// Lists every object under each target's `originals/` and compares it
-  /// against what this app believes is up there.
+  /// Lists every object under each target's `originals/` and `thumbnails/`
+  /// and compares it, bucket by bucket, against what this app believes is
+  /// up there.
   ///
   /// One listing per thousand keys rather than one HEAD per photo: a
   /// library of thirty thousand is thirty requests this way and thirty
-  /// thousand the other.
+  /// thousand the other. Per bucket, not the union: a photo in A and gone
+  /// from B is not backed up twice.
   Future<ReconcileReport> reconcile() async {
     final records = [
       for (final record in await recordStore.listAll())
         if (!record.isDeleted) record,
     ];
-    final expected = <String, String>{}; // key -> localId
-    // A Live Photo's `.mov` sits beside its still under `originals/`, and a
-    // missing one makes the photo missing — the bulk Remove from Device
-    // trusts this list.
-    final motion = <String, String>{};
-    for (final record in records) {
-      final key = record.stateOf(DerivativeKind.original).destinationKey;
-      if (key != null) expected[key] = record.localId;
-      final live = record.isLivePhoto
-          ? record.stateOf(DerivativeKind.livePhoto).destinationKey
-          : null;
-      if (live != null) motion[live] = record.localId;
-    }
+    final holdings = await recordStore.allHoldings();
 
-    final seen = <String>{};
-    var reached = false;
+    final originals = <String, Set<String>>{};
+    final thumbnails = <String, Set<String>>{};
     for (final target in await _targets()) {
-      final prefix = _originalsPrefix(target);
-      String? token;
-      do {
-        final result = await _list(
-          target: target,
-          prefix: prefix,
-          continuationToken: token,
-        );
-        if (!result.isOk || result.page == null) break;
-        reached = true;
-        for (final object in result.page!.objects) {
-          if (object.size > 0) seen.add(object.key);
+      final o = await _listKeys(target, _originalsPrefix(target));
+      final t = await _listKeys(
+        target,
+        _derivativePrefix(target, 'thumbnails'),
+      );
+      if (o != null) originals[target.id] = o;
+      if (t != null) thumbnails[target.id] = t;
+    }
+    final reached = originals.isNotEmpty;
+
+    final known = <String>{};
+    final losses = <String, RecordLoss>{};
+    var expected = 0;
+    var present = 0;
+    for (final record in records) {
+      var expectsOriginal = false;
+      var originalMissing = false;
+      for (final kind in [
+        DerivativeKind.original,
+        if (record.isLivePhoto) DerivativeKind.livePhoto,
+        DerivativeKind.thumbnail,
+      ]) {
+        final state = record.stateOf(kind);
+        final key = state.destinationKey;
+        if (key == null) continue;
+        final isThumb = kind == DerivativeKind.thumbnail;
+        if (isThumb && state.status != UploadStatus.uploaded) continue;
+        final seen = isThumb ? thumbnails : originals;
+        final held = holdings[record.localId]?[kind] ?? const {};
+        known.addAll(held.values);
+        known.add(key);
+        if (kind == DerivativeKind.original) expectsOriginal = true;
+
+        final checked = <String>[];
+        final missing = <String>{};
+        if (held.isEmpty || held.keys.every((id) => id.isEmpty)) {
+          if (seen.isEmpty) continue;
+          if (!seen.values.any((keys) => keys.contains(key))) {
+            missing.addAll(seen.keys);
+          }
+          checked.addAll(seen.keys);
+        } else {
+          for (final entry in held.entries) {
+            final keys = seen[entry.key];
+            if (keys == null) continue;
+            checked.add(entry.key);
+            if (!keys.contains(entry.value)) missing.add(entry.key);
+          }
         }
-        token = result.page!.nextToken;
-      } while (token != null);
+        if (missing.isEmpty) continue;
+        final loss = losses.putIfAbsent(record.localId, RecordLoss.new);
+        loss.missingAt[kind] = missing;
+        // Gone everywhere only when every holder answered and none has it.
+        final holders = held.isEmpty || held.keys.every((id) => id.isEmpty)
+            ? seen.length
+            : held.keys.where(seen.containsKey).length;
+        if (missing.length == checked.length && checked.length == holders) {
+          loss.goneEverywhere.add(kind);
+        }
+        if (kind == DerivativeKind.original) originalMissing = true;
+      }
+      if (expectsOriginal) {
+        expected++;
+        if (!originalMissing) present++;
+      }
     }
 
+    final seenOriginals = {for (final keys in originals.values) ...keys};
+    bool lost(RecordLoss l, Set<DerivativeKind> kinds) =>
+        kinds.any((k) => (l.missingAt[k] ?? const {}).isNotEmpty);
     final report = ReconcileReport(
       at: DateTime.now(),
-      expected: expected.length,
-      present: expected.keys.where(seen.contains).length,
-      missingLocalIds: {
-        for (final entry in [...expected.entries, ...motion.entries])
-          if (!seen.contains(entry.key)) entry.value,
-      }.toList(),
+      expected: expected,
+      present: present,
+      missingLocalIds: [
+        for (final e in losses.entries)
+          if (lost(e.value, {
+            DerivativeKind.original,
+            DerivativeKind.livePhoto,
+          }))
+            e.key,
+      ],
+      missingThumbnailIds: [
+        for (final e in losses.entries)
+          if (lost(e.value, {DerivativeKind.thumbnail})) e.key,
+      ],
+      losses: losses,
       unreferencedKeys: [
-        for (final key in seen)
-          if (!expected.containsKey(key) && !motion.containsKey(key)) key,
+        for (final key in seenOriginals)
+          if (!known.contains(key)) key,
       ],
       reachedBucket: reached,
     );
     if (reached) await _record(report);
     return report;
+  }
+
+  /// Every non-empty key under [prefix] in [target], or null when the
+  /// bucket didn't answer — a bucket that wasn't reached has no opinion.
+  Future<Set<String>?> _listKeys(S3BackupTarget target, String prefix) async {
+    final keys = <String>{};
+    String? token;
+    var reached = false;
+    do {
+      final result = await _list(
+        target: target,
+        prefix: prefix,
+        continuationToken: token,
+      );
+      if (!result.isOk || result.page == null) break;
+      reached = true;
+      for (final object in result.page!.objects) {
+        if (object.size > 0) keys.add(object.key);
+      }
+      token = result.page!.nextToken;
+    } while (token != null);
+    return reached && token == null ? keys : null;
   }
 
   /// Empty rather than throwing when the keychain can't be read — no
@@ -359,43 +522,221 @@ class BackupVerifier {
     }
   }
 
-  static String _originalsPrefix(S3BackupTarget target) {
+  static String _originalsPrefix(S3BackupTarget target) =>
+      _derivativePrefix(target, 'originals');
+
+  static String _derivativePrefix(S3BackupTarget target, String folder) {
     final prefix = target.prefix;
     final normalized = prefix.isEmpty || prefix.endsWith('/')
         ? prefix
         : '$prefix/';
-    return '${normalized}originals/';
+    return '$normalized$folder/';
   }
 
-  /// Puts every photo [report] found missing back in the upload queue, and
-  /// returns how many moved.
+  /// Acts on what [report] found, and says honestly what it could not fix.
   ///
-  /// The point of finding out is fixing it. A report that only counted
-  /// would leave the user holding a number and no way to act on it, and the
-  /// records would go on claiming to be backed up — which is what let the
-  /// local copy be deleted in the first place.
-  Future<int> requeueMissing(ReconcileReport report) async {
+  /// With a local copy, a missing derivative goes back in the upload queue
+  /// (for the buckets that lack it only). With none and no bucket holding
+  /// it, nothing can ever re-upload it: the photo is **lost**, its original
+  /// is marked failed so the grid draws it that way, and it is counted as
+  /// lost, never as requeued.
+  Future<RepairResult> repair(ReconcileReport report) async {
+    final lostIds = LostOriginals(recordStore);
     var requeued = 0;
-    for (final localId in report.missingLocalIds) {
-      final record = await recordStore.getByLocalId(localId);
+    var lost = 0;
+    var thumbnails = 0;
+    for (final entry in report.losses.entries) {
+      final record = await recordStore.getByLocalId(entry.key);
       if (record == null) continue;
-      var touched = false;
+      final hasLocal = !record.localDeleted;
+      var requeuedThis = false;
+      var lostThis = false;
       for (final kind in [
         DerivativeKind.original,
         if (record.isLivePhoto) DerivativeKind.livePhoto,
       ]) {
+        final missing = entry.value.missingAt[kind];
+        if (missing == null || missing.isEmpty) continue;
         final state = record.stateOf(kind);
-        if (state.status == UploadStatus.pending) continue;
-        await recordStore.updateDerivative(
-          localId,
-          kind,
-          state.copyWith(status: UploadStatus.pending),
-        );
-        touched = true;
+        if (hasLocal) {
+          await _forget(record.localId, kind, missing);
+          if (state.status != UploadStatus.pending) {
+            await recordStore.updateDerivative(
+              record.localId,
+              kind,
+              state.copyWith(status: UploadStatus.pending),
+            );
+          }
+          requeuedThis = true;
+        } else if (entry.value.goneEverywhere.contains(kind)) {
+          await recordStore.updateDerivative(
+            record.localId,
+            kind,
+            state.copyWith(status: UploadStatus.failed),
+          );
+          lostThis = true;
+        }
       }
-      if (touched) requeued++;
+      final thumbMissing = entry.value.missingAt[DerivativeKind.thumbnail];
+      if (thumbMissing != null &&
+          thumbMissing.isNotEmpty &&
+          (hasLocal || record.thumbnailPath != null)) {
+        await _forget(record.localId, DerivativeKind.thumbnail, thumbMissing);
+        await recordStore.updateDerivative(
+          record.localId,
+          DerivativeKind.thumbnail,
+          record
+              .stateOf(DerivativeKind.thumbnail)
+              .copyWith(status: UploadStatus.pending),
+        );
+        thumbnails++;
+      }
+      if (lostThis) {
+        await lostIds.add(record.localId);
+        lost++;
+      } else if (requeuedThis) {
+        requeued++;
+      }
     }
-    return requeued;
+    return RepairResult(
+      requeued: requeued,
+      lost: lost,
+      thumbnailsRequeued: thumbnails,
+    );
+  }
+
+  Future<int> requeueMissing(ReconcileReport report) async =>
+      (await repair(report)).requeued;
+
+  Future<void> _forget(String localId, DerivativeKind kind, Set<String> ids) =>
+      Future.wait([
+        for (final id in ids) recordStore.forgetTargetUpload(localId, kind, id),
+      ]);
+
+  // ------------------------------------------------------------ spot check
+
+  static const spotCheckRanAtKey = 'spot_check_ran_at';
+  static const _spotCheckedKey = 'spot_checked_at';
+
+  /// A few cloud-only photos asked of the bucket, oldest-checked first —
+  /// the bucket can lose an object any day, and a cloud-only photo is the
+  /// one place nothing else would notice. Run on every sync; throttled to
+  /// once per [every], and bounded to [limit] photos whatever the library.
+  ///
+  /// Photos queued by [ProofQueue] (an OS-side delete called them cloud-only
+  /// on the row's word) go first.
+  Future<SpotCheckResult> spotCheck({
+    int limit = 4,
+    Duration every = const Duration(minutes: 10),
+  }) async {
+    final now = DateTime.now();
+    final ranAt = DateTime.tryParse(
+      await recordStore.getAppState(spotCheckRanAtKey) ?? '',
+    );
+    if (ranAt != null && now.difference(ranAt) < every) {
+      return const SpotCheckResult();
+    }
+    await recordStore.setAppState(spotCheckRanAtKey, now.toIso8601String());
+
+    final checkedAt = await _spotCheckedAt();
+    final records = await recordStore.listAll();
+    final byId = {for (final r in records) r.localId: r};
+    final queue = ProofQueue(recordStore);
+    final picked = <AssetRecord>[
+      for (final id in await queue.take(limit))
+        if (byId[id] != null) byId[id]!,
+    ];
+    final candidates =
+        [
+          for (final r in records)
+            if (r.localDeleted &&
+                !r.isDeleted &&
+                r.passcodeHash == null &&
+                r.isFullyBackedUp &&
+                !picked.any((p) => p.localId == r.localId))
+              r,
+        ]..sort(
+          (a, b) =>
+              (checkedAt[a.localId] ?? 0).compareTo(checkedAt[b.localId] ?? 0),
+        );
+    picked.addAll(candidates.take(limit - picked.length));
+
+    final lostIds = LostOriginals(recordStore);
+    var checked = 0;
+    var lost = 0;
+    for (final record in picked) {
+      var answered = true;
+      var gone = false;
+      for (final kind in [
+        DerivativeKind.original,
+        if (record.isLivePhoto) DerivativeKind.livePhoto,
+      ]) {
+        final proofs = await _proveEach(record, kind);
+        if (proofs.isEmpty) continue;
+        if (proofs.values.contains(CopyProof.unreachable)) answered = false;
+        final everyMissing = proofs.values.every((p) => p == CopyProof.missing);
+        if (everyMissing) {
+          gone = true;
+          await recordStore.updateDerivative(
+            record.localId,
+            kind,
+            record.stateOf(kind).copyWith(status: UploadStatus.failed),
+          );
+        }
+      }
+      if (gone) {
+        await lostIds.add(record.localId);
+        lost++;
+      }
+      if (answered) {
+        checkedAt[record.localId] = now.millisecondsSinceEpoch;
+        checked++;
+      }
+      await _spotCheckThumbnail(record);
+    }
+    await recordStore.setAppState(
+      _spotCheckedKey,
+      jsonEncode({
+        for (final e in checkedAt.entries)
+          if (byId.containsKey(e.key)) e.key: e.value,
+      }),
+    );
+    return SpotCheckResult(checked: checked, lost: lost);
+  }
+
+  /// A thumbnail gone from every bucket is put back from the cached picture
+  /// while this phone still has one.
+  Future<void> _spotCheckThumbnail(AssetRecord record) async {
+    final state = record.stateOf(DerivativeKind.thumbnail);
+    if (state.status != UploadStatus.uploaded || record.thumbnailPath == null) {
+      return;
+    }
+    final proofs = await _proveEach(record, DerivativeKind.thumbnail);
+    if (proofs.isEmpty || !proofs.values.every((p) => p == CopyProof.missing)) {
+      return;
+    }
+    await recordStore.updateDerivative(
+      record.localId,
+      DerivativeKind.thumbnail,
+      state.copyWith(status: UploadStatus.pending),
+    );
+    for (final id in proofs.keys) {
+      await recordStore.forgetTargetUpload(
+        record.localId,
+        DerivativeKind.thumbnail,
+        id,
+      );
+    }
+  }
+
+  Future<Map<String, int>> _spotCheckedAt() async {
+    final raw = await recordStore.getAppState(_spotCheckedKey);
+    if (raw == null || raw.isEmpty) return {};
+    try {
+      return (jsonDecode(raw) as Map).cast<String, int>();
+    } catch (_) {
+      return {};
+    }
   }
 
   // --------------------------------------------------------------- marking

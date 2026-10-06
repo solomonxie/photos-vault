@@ -9,6 +9,7 @@ import '../storage/asset_record.dart';
 import 'manual_add.dart' show isGifPath;
 import 'photo_library_change.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/lost_originals.dart';
 
 enum PhotoLibraryAccess { granted, limited, denied }
 
@@ -452,6 +453,9 @@ class PhotoLibraryService {
     // and sound are gone.
     if (record.isFullyBackedUp) {
       await store.setLocalDeleted(record.localId, true);
+      // The row says it is backed up; the bucket hasn't been asked. The next
+      // sync proves it, and flags the photo Lost if the bucket has let go.
+      await ProofQueue(store).add(record.localId);
     } else if (record.hasNothingLeft) {
       // Deleted over in Photos before it was ever backed up: no bytes here,
       // none in the bucket, and none left in the library. Binning it would
