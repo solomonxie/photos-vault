@@ -24,12 +24,23 @@
   "libraryDeletePermanentlyTitle": "永久删除?",
   "libraryDeletePermanentlyBody": "此操作无法撤销。",
   "libraryDeletePermanentlyAction": "永久删除",
+  "libraryDeletePermanentlyEverywhereBody": "将从本机和所有存储桶中删除这张照片，无法恢复。",
+  "libraryEmptyBin": "清空",
+  "libraryEmptyBinTitle": "清空最近删除？",
+  "libraryEmptyBinBody": "这里的所有项目将从本机和所有存储桶中删除，无法恢复。",
+  "libraryRecentlyDeletedNote": "项目将在 30 天后永久删除。",
+  "pendingDeletesBlocked": "无法从 {bucket} 删除 {count} 个项目。请检查访问权限，或放弃删除。",
+  "pendingDeletesForget": "放弃",
+  "pendingDeletesForgetTitle": "停止从 {bucket} 删除？",
+  "pendingDeletesForgetBody": "这些对象会保留在该存储桶中，你可以自行移除。",
   "libraryDeleteConfirmTitle": "删除此项目?",
   "libraryDeleteFromDevice": "从本机移除",
   "libraryDeleteFromDeviceNote": "从本机移除可释放空间,同时保留云端备份——照片仍会显示在图库中,随时可以重新下载原图。",
   "libraryDeleteEverywhere": "删除照片",
   "libraryDeleteFromDeviceFailed": "无法从本机移除该照片。",
   "libraryDeleteConfirmBody": "将移至“最近删除”。",
+  "libraryDeleteCloudOnlyBody": "这张照片只存在于你的存储桶中。它会移到“最近删除”，30 天后将从存储桶中永久删除。",
+  "selectionDeleteCloudOnlyNote": "其中 {count} 项只存在于你的存储桶中，在“最近删除”中保留 30 天后将从存储桶中永久删除。",
   "libraryDeleteConfirmBodyGone": "该项目尚未备份，删除后无法恢复。",
   "libraryAlbumEmpty": "该相册暂无照片。",
   "libraryRemoveFromAlbum": "从相册中移除",
@@ -41,6 +52,7 @@
   "detailFileUnavailable": "该文件已不可用。",
   "detailRestoreOriginal": "下载原图",
   "detailCloudOnlyNote": "只剩存储桶里的那份副本了。",
+  "detailNoThumbnailNote": "这张照片或视频只存在于云端，且未找到缩略图。可能是不小心从本机删除了。",
   "detailRestoringOriginal": "正在下载…",
   "detailDoneButton": "完成",
   "detailEditButton": "编辑",
@@ -171,7 +183,7 @@
   "settingsBackupFormatRow": "格式",
   "settingsSyncSpeedRow": "上传速度",
   "settingsSyncFrequencyHeading": "同步频率",
-  "settingsSyncFrequencyHint": "仅在应用打开时才会择机检查——目前还没有后台同步权限,应用未打开时不会自动同步。",
+  "settingsSyncFrequencyHint": "应用打开时会同步；iOS 也可能在后台运行一次，通常是夜间充电并连接 Wi-Fi 时。何时运行由系统决定，不保证。",
   "settingsSyncFrequencyManual": "仅手动",
   "settingsSyncFrequencyEvery15Minutes": "每 15 分钟",
   "settingsSyncFrequencyEveryHour": "每小时",
@@ -196,7 +208,13 @@
   "settingsBucketDataPath": "每个存储桶中的 app-data/YYYYMMDD.zip",
   "privateAlbumFindInBucket": "在存储桶中查找隐藏照片",
   "privateAlbumFindInBucketDone": "{count, plural, =0{没有发现新内容} other{已添加 {count} 张照片}}",
-  "@privateAlbumFindInBucketDone": {"placeholders": {"count": {"type": "int"}}},
+  "@privateAlbumFindInBucketDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "flaggedTitle": "待处理项目",
   "flaggedRescan": "重新扫描",
   "flaggedStorageRow": "释放手机空间",
@@ -207,20 +225,119 @@
   "flaggedRename": "重命名",
   "flaggedReformat": "转换格式",
   "flaggedRemove": "移除",
+  "flaggedBatchProgress": "正在修复 {done}/{total}…",
+  "@flaggedBatchProgress": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedBatchStop": "停止",
+  "flaggedRenameAll": "全部重命名({count})",
+  "@flaggedRenameAll": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedRemoveAll": "全部移除({count})",
+  "@flaggedRemoveAll": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedBatchRenameBody": "将 {count} 个对象重命名为应用的目录结构并导入。无法修复的会继续保留在列表中。",
+  "@flaggedBatchRenameBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedBatchRemoveBody": "从存储桶删除 {count} 个孤立缩略图，无法撤销。",
+  "@flaggedBatchRemoveBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedBatchLeft": "{count} 个无法修复，仍在列表中。",
+  "@flaggedBatchLeft": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "flaggedNeedsAlbum": "疑似隐藏照片，请打开对应相册，会在那里整理。",
   "flaggedFailed": "未能完成，没有做任何更改。",
   "flaggedReformatTitle": "转换这张照片的格式？",
   "flaggedReformatBody": "将下载 {size} MB，转换后上传更小的副本，确认无误后移除原文件。",
-  "@flaggedReformatBody": {"placeholders": {"size": {"type": "String"}}},
+  "@flaggedReformatBody": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "privateAlbumHideDownloadTitle": "下载后隐藏？",
   "privateAlbumHideDownloadBody": "{count, plural, other{这 {count} 张照片只保存在存储桶中。将先下载并隐藏，然后从存储桶中移除明文副本。}}",
-  "@privateAlbumHideDownloadBody": {"placeholders": {"count": {"type": "int"}}},
+  "@privateAlbumHideDownloadBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "privateAlbumHideDownloadContinue": "下载并隐藏",
   "settingsBucketImportRow": "扫描存储桶中的新文件",
   "settingsBucketImportHint": "扫描直接放入存储桶的照片和视频",
   "settingsBucketImportUnreachable": "无法连接存储桶",
   "settingsBucketImportDone": "{count, plural, =0{存储桶中没有新内容} other{已导入 {count} 项}}",
-  "@settingsBucketImportDone": {"placeholders": {"count": {"type": "int"}}},
+  "@settingsBucketImportDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsBucketImportOffer": "存储桶中发现 {count} 个新文件，点按导入",
+  "@settingsBucketImportOffer": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsBucketImportDuplicates": "有 {count} 个文件看起来与已有的重复，已保留不动，可在“标记项目”中查看。",
+  "@settingsBucketImportDuplicates": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedUnclaimedReason": "在存储桶中，但不在你的图库里",
+  "flaggedLeftoverReason": "可能是已有照片的旧副本：它没有自己的拍摄日期，只有上传那天的日期",
+  "flaggedIgnore": "忽略",
+  "flaggedImportAnyway": "仍然导入",
+  "flaggedImport": "导入",
+  "flaggedLikelyDuplicate": "与已有的 {name} 大小相同，已保留不动。",
+  "@flaggedLikelyDuplicate": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "settingsBucketDataNoBucket": "请先在下方添加存储桶",
   "settingsICloudPath": "文件 → iCloud 云盘 → Photos Vault",
   "settingsICloudNever": "尚未备份",
@@ -295,7 +412,7 @@
   "settingsICloudNotReady": "iCloud 尚未就绪，请稍后再试",
   "settingsCloudBucketsHeading": "云存储桶",
   "settingsCloudHeading": "云端",
-  "settingsCloudHint": "照片会上传到你自己的存储空间。凭据只保存在本机,直接发往存储桶。仅在应用打开时同步——目前还没有后台同步权限。",
+  "settingsCloudHint": "照片会上传到你自己的存储空间。凭据只保存在本机,直接发往存储桶。应用打开时会同步，iOS 也可能在后台运行，通常是夜间充电并连接 Wi-Fi 时。",
   "settingsBucketOrderHeading": "存储桶顺序",
   "settingsBucketOrderHint": "无论哪种方式,每张照片最终都会进入每个桶——这里只决定写入的顺序。",
   "settingsBucketOrderOneBucketNote": "添加第二个桶后才会起作用。",
@@ -489,6 +606,7 @@
   "vaultForgetOnThisPhone": "在这部手机上忘记密语",
   "vaultLockedItem": "已锁定",
   "vaultNeedsNetwork": "隐藏照片只存在于你的存储桶。没有网络时，此相册是空的。",
+  "vaultCarrierMissing": "这张照片已不在你的存储桶里，很可能是在应用之外被删除了，本机也没有副本。",
   "vaultNoBucket": "尚未配置存储桶，隐藏照片会以未加密的形式留在本机。",
   "vaultHeldUpload": "{count} 张将在此相册打开后上传",
   "peopleScreenTitle": "人物",
@@ -931,6 +1049,25 @@
       }
     }
   },
+  "safetyCheckLost": "{count, plural, other{有 {count} 张照片已从存储桶中消失，且本机没有副本，无法通过同步恢复。}}另有 {requeued} 张缺失的已重新加入同步队列。",
+  "@safetyCheckLost": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "requeued": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyCheckThumbnailsMissing": "{count, plural, other{存储桶中缺少 {count} 张预览图，对应照片本身是安全的。}}",
+  "@safetyCheckThumbnailsMissing": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "safetyCheckUnreachable": "无法连接存储桶，因此未能确认任何结果。请在联网后重试。",
   "safetyDrillVerified": "{count, plural, other{已从存储桶取回 {count} 张照片并校验通过。备份是真实可用的。}}",
   "@safetyDrillVerified": {
@@ -1098,22 +1235,22 @@
   "profileCsvColumns": "列：name、birthdate、gender、bio、hair、eyes、height、build、handed、languages、diet、contact、fields、groups、education、jobs、places、tags。仅 name 为必填，未识别的列会被忽略。同一格内多项用“;”分隔，各部分用“|”分隔——例如工作写作 Acme Ltd|Engineer|2015-01-01|2019-06-30。",
   "profileCsvExported": "{count, plural, other{已将 {count} 份档案写入 profiles.csv}}",
   "@profileCsvExported": {
-      "placeholders": {
-          "count": {
-              "type": "int"
-          }
+    "placeholders": {
+      "count": {
+        "type": "int"
       }
+    }
   },
   "profileCsvImported": "{created, plural, =0{} other{新增 {created} 人}}{updated, plural, =0{} other{，更新 {updated} 人}}",
   "@profileCsvImported": {
-      "placeholders": {
-          "created": {
-              "type": "int"
-          },
-          "updated": {
-              "type": "int"
-          }
+    "placeholders": {
+      "created": {
+        "type": "int"
+      },
+      "updated": {
+        "type": "int"
       }
+    }
   },
   "profileCsvNobodyToExport": "还没有已命名的人物可以导出。",
   "profileCsvNoRows": "该文件的表头之下没有数据行。",
@@ -1121,37 +1258,37 @@
   "profileCsvNoNameColumn": "该文件没有“name”列，无法对应到任何人。",
   "profileCsvMissingName": "第 {line} 行没有名字，已跳过。",
   "@profileCsvMissingName": {
-      "placeholders": {
-          "line": {
-              "type": "int"
-          }
+    "placeholders": {
+      "line": {
+        "type": "int"
       }
+    }
   },
   "profileCsvReviewHeading": "{count, plural, other{文件中有 {count} 人}}",
   "@profileCsvReviewHeading": {
-      "placeholders": {
-          "count": {
-              "type": "int"
-          }
+    "placeholders": {
+      "count": {
+        "type": "int"
       }
+    }
   },
   "profileCsvRowItems": "{count, plural, =0{仅姓名} other{{count} 项资料}}",
   "@profileCsvRowItems": {
-      "placeholders": {
-          "count": {
-              "type": "int"
-          }
+    "placeholders": {
+      "count": {
+        "type": "int"
       }
+    }
   },
   "profileCsvSelectAll": "全选",
   "profileCsvSelectNone": "全不选",
   "profileCsvApply": "{count, plural, =0{未选择任何人} other{导入 {count} 人}}",
   "@profileCsvApply": {
-      "placeholders": {
-          "count": {
-              "type": "int"
-          }
+    "placeholders": {
+      "count": {
+        "type": "int"
       }
+    }
   },
   "hiddenDeleteConfirmTitle": "{count, plural, other{删除 {count} 张隐藏照片?}}",
   "hiddenDeleteConfirmBody": "隐藏照片不会进入“最近删除”。它们会从本机和您的存储桶中移除,且无法恢复。",
@@ -1193,5 +1330,32 @@
   "settingsDemoResetRow": "重置演示数据",
   "settingsDemoResetTitle": "要重置演示数据吗？",
   "settingsDemoResetBody": "演示资料库将恢复为示例照片、相簿、人物和笔记。你自己的资料库不受影响。",
-  "settingsDemoResetConfirm": "重置"
+  "settingsDemoResetConfirm": "重置",
+  "cloudStatusAllDone": "已全部备份",
+  "cloudStatusNone": "尚未备份",
+  "cloudStatusSyncing": "正在备份…还剩 {count} 项",
+  "cloudStatusPaused": "已暂停 · {count} 项等待中",
+  "cloudStatusFailed": "{count} 项上传失败",
+  "cloudStatusWaiting": "{count} 项上传等待中",
+  "cloudStatusLost": "{count} 张照片已从存储桶中丢失",
+  "cloudStatusProgress": "已备份 {backedUp}/{total} 张照片 · {buckets} 个存储桶",
+  "cloudQueueLink": "队列 · {count}",
+  "cloudUploadsHeading": "上传",
+  "cloudSyncRow": "同步",
+  "cloudQualityRow": "上传画质",
+  "cloudFillOrderRow": "填充顺序",
+  "cloudFindNewRow": "查找存储桶中的新文件",
+  "cloudFindNewValue": "{count} 个新文件",
+  "cloudFindNewRunning": "正在导入 {done} / {total}…",
+  "cloudLocalCopiesFooter": "本机也保留 7 天的副本，位于“文件”→“我的 iPhone”→ Photos Vault。",
+  "queueTitle": "备份队列",
+  "queueBacking": "正在备份…",
+  "queueCountsLine": "{waiting} 项等待 · {failed} 项失败 · 同时 {speed} 项",
+  "queueAttention": "需要处理",
+  "queueUpNext": "接下来",
+  "queueDone": "已完成",
+  "queueRetryAll": "全部重试",
+  "queueShowMore": "再显示 {count} 项",
+  "queueFullNote": "队列已满 — 其余的会随队列清空陆续加入",
+  "queueMenuTitle": "队列"
 }

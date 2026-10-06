@@ -37,12 +37,47 @@
   "libraryDeletePermanentlyTitle": "Delete Permanently?",
   "libraryDeletePermanentlyBody": "This can't be undone.",
   "libraryDeletePermanentlyAction": "Delete Permanently",
+  "libraryDeletePermanentlyEverywhereBody": "This deletes the photo from this phone and from every bucket. This can't be undone.",
+  "libraryEmptyBin": "Empty",
+  "libraryEmptyBinTitle": "Empty Recently Deleted?",
+  "libraryEmptyBinBody": "Everything here is deleted from this phone and from every bucket. This can't be undone.",
+  "libraryRecentlyDeletedNote": "Items are deleted for good after 30 days.",
+  "pendingDeletesBlocked": "{count, plural, =1{Can't delete 1 item from {bucket}.} other{Can't delete {count} items from {bucket}.}} Check its access, or forget them.",
+  "@pendingDeletesBlocked": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "bucket": {
+        "type": "String"
+      }
+    }
+  },
+  "pendingDeletesForget": "Forget",
+  "pendingDeletesForgetTitle": "Stop deleting from {bucket}?",
+  "@pendingDeletesForgetTitle": {
+    "placeholders": {
+      "bucket": {
+        "type": "String"
+      }
+    }
+  },
+  "pendingDeletesForgetBody": "The objects stay in that bucket. You can remove them there yourself.",
   "libraryDeleteConfirmTitle": "Delete this item?",
   "libraryDeleteFromDevice": "Remove from Device",
   "libraryDeleteFromDeviceNote": "This frees up space on your device. The photo stays in your library and in your backup, and you can download the full-resolution version again at any time.",
   "libraryDeleteEverywhere": "Delete Photo",
   "libraryDeleteFromDeviceFailed": "Couldn't remove this from the device.",
   "libraryDeleteConfirmBody": "It will be moved to Recently Deleted.",
+  "libraryDeleteCloudOnlyBody": "This photo is only in your bucket. It moves to Recently Deleted, and after 30 days it is deleted from your bucket for good.",
+  "selectionDeleteCloudOnlyNote": "{count, plural, =1{1 of them is only in your bucket and will be deleted from it for good after 30 days in Recently Deleted.} other{{count} of them are only in your bucket and will be deleted from it for good after 30 days in Recently Deleted.}}",
+  "@selectionDeleteCloudOnlyNote": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "libraryDeleteConfirmBodyGone": "This item isn't backed up, so it will be deleted permanently.",
   "libraryAlbumEmpty": "No photos in this album.",
   "libraryRemoveFromAlbum": "Remove from Album",
@@ -57,6 +92,7 @@
   "detailFileUnavailable": "This file is no longer available.",
   "detailRestoreOriginal": "Download Full Resolution",
   "detailCloudOnlyNote": "Only the backed-up copy in your bucket remains.",
+  "detailNoThumbnailNote": "This photo or video lives in the cloud only, and no thumbnail was found. It may have been deleted from this phone by accident.",
   "detailRestoringOriginal": "Downloading…",
   "detailDoneButton": "Done",
   "detailEditButton": "Edit",
@@ -167,13 +203,17 @@
   "selectionRemoveFromDevice": "{count, plural, one{Remove 1 from Device} other{Remove {count} from Device}}",
   "@selectionRemoveFromDevice": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "selectionRemovedFromDevice": "{count, plural, =0{Nothing was removed from this device.} one{Removed 1 from this device. It stays in your library and your backup.} other{Removed {count} from this device. They stay in your library and your backup.}}",
   "@selectionRemovedFromDevice": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "selectionDone": "Done",
@@ -182,7 +222,9 @@
   "selectionSelectBatch": "Select {count}",
   "@selectionSelectBatch": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "selectionHint": "Touch and hold a photo to select more.",
@@ -260,7 +302,7 @@
   "settingsBackupFormatRow": "Format",
   "settingsSyncSpeedRow": "Upload speed",
   "settingsSyncFrequencyHeading": "Sync Frequency",
-  "settingsSyncFrequencyHint": "Sync only runs while the app is open. Background sync isn't supported yet.",
+  "settingsSyncFrequencyHint": "Syncs while the app is open. iOS may also run a pass in the background, usually overnight on power and Wi-Fi. It chooses when, so it isn't guaranteed.",
   "settingsSyncFrequencyManual": "Manual Only",
   "settingsSyncFrequencyEvery15Minutes": "Every 15 Minutes",
   "settingsSyncFrequencyEveryHour": "Every Hour",
@@ -292,7 +334,13 @@
   "settingsBucketDataPath": "Saved as app-data/YYYYMMDD.zip in every bucket",
   "privateAlbumFindInBucket": "Find Hidden Photos in Bucket",
   "privateAlbumFindInBucketDone": "{count, plural, =0{Nothing new found} =1{Added 1 photo} other{Added {count} photos}}",
-  "@privateAlbumFindInBucketDone": {"placeholders": {"count": {"type": "int"}}},
+  "@privateAlbumFindInBucketDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "flaggedTitle": "Flagged Items",
   "flaggedRescan": "Rescan",
   "flaggedStorageRow": "Free up space on this phone",
@@ -303,20 +351,119 @@
   "flaggedRename": "Rename",
   "flaggedReformat": "Re-format",
   "flaggedRemove": "Remove",
+  "flaggedBatchProgress": "Fixing {done} of {total}…",
+  "@flaggedBatchProgress": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedBatchStop": "Stop",
+  "flaggedRenameAll": "Rename all ({count})",
+  "@flaggedRenameAll": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedRemoveAll": "Remove all ({count})",
+  "@flaggedRemoveAll": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedBatchRenameBody": "Rename {count} objects into the app's layout and import them. Ones that can't be fixed stay listed.",
+  "@flaggedBatchRenameBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedBatchRemoveBody": "Delete {count} orphan thumbnails from the bucket. This can't be undone.",
+  "@flaggedBatchRemoveBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedBatchLeft": "{count} could not be fixed and are still listed.",
+  "@flaggedBatchLeft": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "flaggedNeedsAlbum": "Looks like a hidden photo. Open its album and it will be tidied there.",
   "flaggedFailed": "Couldn't finish. Nothing was changed.",
   "flaggedReformatTitle": "Re-format this photo?",
   "flaggedReformatBody": "Downloads {size} MB, converts it and uploads the smaller copy. The original is removed once the copy is checked.",
-  "@flaggedReformatBody": {"placeholders": {"size": {"type": "String"}}},
+  "@flaggedReformatBody": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
   "privateAlbumHideDownloadTitle": "Download to hide?",
   "privateAlbumHideDownloadBody": "{count, plural, =1{This photo is only in your bucket. It will be downloaded, hidden, and its plain copy removed from the bucket.} other{These {count} photos are only in your bucket. They will be downloaded, hidden, and their plain copies removed from the bucket.}}",
-  "@privateAlbumHideDownloadBody": {"placeholders": {"count": {"type": "int"}}},
+  "@privateAlbumHideDownloadBody": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "privateAlbumHideDownloadContinue": "Download and Hide",
   "settingsBucketImportRow": "Scan bucket for new files",
   "settingsBucketImportHint": "Scan for photos and videos added straight to the bucket",
   "settingsBucketImportUnreachable": "Couldn't reach the bucket",
   "settingsBucketImportDone": "{count, plural, =0{Nothing new in the bucket} =1{Imported 1 item} other{Imported {count} items}}",
-  "@settingsBucketImportDone": {"placeholders": {"count": {"type": "int"}}},
+  "@settingsBucketImportDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsBucketImportOffer": "{count, plural, =1{1 new file found in the bucket — tap to import} other{{count} new files found in the bucket — tap to import}}",
+  "@settingsBucketImportOffer": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "settingsBucketImportDuplicates": "{count, plural, =1{1 file looks like a copy of one you already have and was left alone. See Flagged Items.} other{{count} files look like copies of ones you already have and were left alone. See Flagged Items.}}",
+  "@settingsBucketImportDuplicates": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedUnclaimedReason": "In the bucket, but not in your library",
+  "flaggedLeftoverReason": "Probably an old copy of a photo you already have: it has no date of its own, only the day it was uploaded",
+  "flaggedIgnore": "Ignore",
+  "flaggedImportAnyway": "Import anyway",
+  "flaggedImport": "Import",
+  "flaggedLikelyDuplicate": "Same size as {name}, which you already have. Left alone.",
+  "@flaggedLikelyDuplicate": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "settingsBucketDataNoBucket": "Add a bucket below first",
   "settingsICloudPath": "Files → iCloud Drive → Photos Vault",
   "settingsICloudNever": "No backup yet",
@@ -398,7 +545,7 @@
   "settingsICloudNotReady": "iCloud isn't ready yet. Try again in a moment.",
   "settingsCloudBucketsHeading": "Cloud Buckets",
   "settingsCloudHeading": "Cloud",
-  "settingsCloudHint": "Photos are uploaded to storage you own. Your credentials stay on this device and are sent only to the bucket. Sync only runs while the app is open; background sync isn't supported yet.",
+  "settingsCloudHint": "Photos are uploaded to storage you own. Your credentials stay on this device and are sent only to the bucket. Sync runs while the app is open, and iOS may run it in the background, usually overnight on power and Wi-Fi.",
   "settingsBucketOrderHeading": "Bucket Order",
   "settingsBucketOrderHint": "Every photo is backed up to every bucket either way. This only changes the order the buckets are filled in.",
   "settingsBucketOrderOneBucketNote": "This only matters once you have more than one bucket.",
@@ -556,7 +703,9 @@
   "settingsAiKeyCheckFailed": "Couldn't verify this key: {error}",
   "@settingsAiKeyCheckFailed": {
     "placeholders": {
-      "error": {"type": "String"}
+      "error": {
+        "type": "String"
+      }
     }
   },
   "settingsAiSaveAnyway": "Save Anyway",
@@ -831,6 +980,7 @@
   "vaultForgetOnThisPhone": "Forget this passphrase on this phone",
   "vaultLockedItem": "Locked",
   "vaultNeedsNetwork": "Hidden photos are stored in your bucket. This album needs an internet connection.",
+  "vaultCarrierMissing": "This photo is no longer in your bucket. It was probably deleted from the bucket outside the app, and no copy is left on this phone.",
   "vaultNoBucket": "Without a bucket, hidden photos stay on this phone unencrypted.",
   "vaultHeldUpload": "{count} will upload once this album is opened",
   "@vaultHeldUpload": {
@@ -850,7 +1000,9 @@
   "personPageHiddenTitle": "{name} · Hidden",
   "@personPageHiddenTitle": {
     "placeholders": {
-      "name": {"type": "String"}
+      "name": {
+        "type": "String"
+      }
     }
   },
   "personPageFindMore": "Find More Photos",
@@ -1297,6 +1449,25 @@
       }
     }
   },
+  "safetyCheckLost": "{count, plural, one{1 photo is gone from your bucket and has no copy on this phone, so it can't be restored by syncing.} other{{count} photos are gone from your bucket and have no copy on this phone, so they can't be restored by syncing.}} {requeued} other missing put back in the sync queue.",
+  "@safetyCheckLost": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "requeued": {
+        "type": "int"
+      }
+    }
+  },
+  "safetyCheckThumbnailsMissing": "{count, plural, one{1 preview is missing from your bucket. Its photo is safe.} other{{count} previews are missing from your bucket. Their photos are safe.}}",
+  "@safetyCheckThumbnailsMissing": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "safetyCheckUnreachable": "Couldn't reach your bucket, so nothing was confirmed either way. Try again when you're online.",
   "safetyDrillVerified": "{count, plural, one{Downloaded 1 photo back out of your bucket and checked it. The backup is real.} other{Downloaded {count} photos back out of your bucket and checked them. The backup is real.}}",
   "@safetyDrillVerified": {
@@ -1464,22 +1635,22 @@
   "profileCsvColumns": "Columns: name, birthdate, gender, bio, hair, eyes, height, build, handed, languages, diet, contact, fields, groups, education, jobs, places, tags. Only name is required; unknown columns are ignored. Repeating cells are separated by “;” and their parts by “|” — a job reads Acme Ltd|Engineer|2015-01-01|2019-06-30.",
   "profileCsvExported": "{count, plural, one{1 profile written to profiles.csv} other{{count} profiles written to profiles.csv}}",
   "@profileCsvExported": {
-      "placeholders": {
-          "count": {
-              "type": "int"
-          }
+    "placeholders": {
+      "count": {
+        "type": "int"
       }
+    }
   },
   "profileCsvImported": "{created, plural, =0{} one{1 person added} other{{created} people added}}{updated, plural, =0{} one{, 1 updated} other{, {updated} updated}}",
   "@profileCsvImported": {
-      "placeholders": {
-          "created": {
-              "type": "int"
-          },
-          "updated": {
-              "type": "int"
-          }
+    "placeholders": {
+      "created": {
+        "type": "int"
+      },
+      "updated": {
+        "type": "int"
       }
+    }
   },
   "profileCsvNobodyToExport": "There are no named people to export yet.",
   "profileCsvNoRows": "That file has no rows under its header.",
@@ -1487,37 +1658,37 @@
   "profileCsvNoNameColumn": "That file has no “name” column, so there is nobody to match it to.",
   "profileCsvMissingName": "Line {line} has no name — skipped.",
   "@profileCsvMissingName": {
-      "placeholders": {
-          "line": {
-              "type": "int"
-          }
+    "placeholders": {
+      "line": {
+        "type": "int"
       }
+    }
   },
   "profileCsvReviewHeading": "{count, plural, one{1 person in this file} other{{count} people in this file}}",
   "@profileCsvReviewHeading": {
-      "placeholders": {
-          "count": {
-              "type": "int"
-          }
+    "placeholders": {
+      "count": {
+        "type": "int"
       }
+    }
   },
   "profileCsvRowItems": "{count, plural, =0{Name only} one{1 detail} other{{count} details}}",
   "@profileCsvRowItems": {
-      "placeholders": {
-          "count": {
-              "type": "int"
-          }
+    "placeholders": {
+      "count": {
+        "type": "int"
       }
+    }
   },
   "profileCsvSelectAll": "Select all",
   "profileCsvSelectNone": "None",
   "profileCsvApply": "{count, plural, =0{Nothing selected} one{Import 1 person} other{Import {count} people}}",
   "@profileCsvApply": {
-      "placeholders": {
-          "count": {
-              "type": "int"
-          }
+    "placeholders": {
+      "count": {
+        "type": "int"
       }
+    }
   },
   "hiddenDeleteConfirmTitle": "{count, plural, one{Delete 1 hidden photo?} other{Delete {count} hidden photos?}}",
   "@hiddenDeleteConfirmTitle": {
@@ -1539,7 +1710,9 @@
   "hideHeifBody": "{count, plural, one{1 photo can be stored as HEIF: same size and quality, about half the space.} other{{count} photos can be stored as HEIF: same size and quality, about half the space.}} Videos, Live Photos and photos already in HEIF stay as they are.",
   "@hideHeifBody": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "hideHeifConvert": "Convert",
@@ -1554,14 +1727,18 @@
   "resizeTitle": "{count, plural, one{Resize 1 photo} other{Resize {count} photos}}",
   "@resizeTitle": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "resizeBody": "Saved as HEIF, about half the space of a JPEG, at the size you pick. A replaced original goes to Recently Deleted.",
   "resizeReplace": "{count, plural, one{Replace Original} other{Replace Originals}}",
   "@resizeReplace": {
     "placeholders": {
-      "count": {"type": "int"}
+      "count": {
+        "type": "int"
+      }
     }
   },
   "resizeSameSize": "Same Size",
@@ -1570,7 +1747,9 @@
   "resizeCopyLimit": "Save as New is for up to {limit} photos, so the library doesn't fill with duplicates.",
   "@resizeCopyLimit": {
     "placeholders": {
-      "limit": {"type": "int"}
+      "limit": {
+        "type": "int"
+      }
     }
   },
   "resizeFailed": "None of these could be resized, so nothing changed.",
@@ -1614,5 +1793,124 @@
   "settingsDemoResetRow": "Reset Demo Data",
   "settingsDemoResetTitle": "Reset demo data?",
   "settingsDemoResetBody": "The demo library goes back to its sample photos, albums, people and notes. Your own library isn't touched.",
-  "settingsDemoResetConfirm": "Reset"
+  "settingsDemoResetConfirm": "Reset",
+  "cloudStatusAllDone": "All backed up",
+  "cloudStatusNone": "Not backed up yet",
+  "cloudStatusSyncing": "Backing up… {count} left",
+  "@cloudStatusSyncing": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudStatusPaused": "Paused · {count} waiting",
+  "@cloudStatusPaused": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudStatusFailed": "{count, plural, one{1 upload failed} other{{count} uploads failed}}",
+  "@cloudStatusFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudStatusWaiting": "{count, plural, one{1 upload waiting} other{{count} uploads waiting}}",
+  "@cloudStatusWaiting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudStatusLost": "{count, plural, one{1 photo is missing from the bucket} other{{count} photos are missing from the bucket}}",
+  "@cloudStatusLost": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudStatusProgress": "{backedUp} of {total} photos · {buckets, plural, one{1 bucket} other{{buckets} buckets}}",
+  "@cloudStatusProgress": {
+    "placeholders": {
+      "backedUp": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      },
+      "buckets": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudQueueLink": "Queue · {count}",
+  "@cloudQueueLink": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudUploadsHeading": "Uploads",
+  "cloudSyncRow": "Sync",
+  "cloudQualityRow": "Upload Quality",
+  "cloudFillOrderRow": "Fill Order",
+  "cloudFindNewRow": "Find New Files in Buckets",
+  "cloudFindNewValue": "{count, plural, one{1 new file} other{{count} new files}}",
+  "@cloudFindNewValue": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudFindNewRunning": "Importing {done} of {total}…",
+  "@cloudFindNewRunning": {
+    "placeholders": {
+      "done": {
+        "type": "int"
+      },
+      "total": {
+        "type": "int"
+      }
+    }
+  },
+  "cloudLocalCopiesFooter": "Also kept on this iPhone for 7 days, in Files → On My iPhone → Photos Vault.",
+  "queueTitle": "Backup Queue",
+  "queueBacking": "Backing up…",
+  "queueCountsLine": "{waiting} waiting · {failed} failed · {speed} at a time",
+  "@queueCountsLine": {
+    "placeholders": {
+      "waiting": {
+        "type": "int"
+      },
+      "failed": {
+        "type": "int"
+      },
+      "speed": {
+        "type": "int"
+      }
+    }
+  },
+  "queueAttention": "Needs attention",
+  "queueUpNext": "Up next",
+  "queueDone": "Done",
+  "queueRetryAll": "Retry All",
+  "queueShowMore": "Show {count} more",
+  "@queueShowMore": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "queueFullNote": "Queue is full — the rest follows as it drains",
+  "queueMenuTitle": "Queue"
 }

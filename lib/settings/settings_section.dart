@@ -845,3 +845,347 @@ class SettingsErrorLine extends StatelessWidget {
     );
   }
 }
+
+// ----------------------------------------------------------- grouped lists
+
+/// Small uppercase heading over an inset group, with an optional ⓘ that
+/// opens the explanation the page doesn't have room to carry inline.
+class SettingsGroupHeading extends StatelessWidget {
+  const SettingsGroupHeading({super.key, required this.title, this.onInfo});
+
+  final String title;
+  final VoidCallback? onInfo;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.fromLTRB(
+      settingsPagePadding + 16,
+      0,
+      settingsPagePadding,
+      6,
+    ),
+    child: Row(
+      children: [
+        Text(title.toUpperCase(), style: settingsSubheadingStyle),
+        if (onInfo != null)
+          CupertinoButton(
+            padding: const EdgeInsets.only(left: 6),
+            minimumSize: Size.zero,
+            onPressed: onInfo,
+            child: const Icon(
+              CupertinoIcons.info_circle,
+              size: 15,
+              color: settingsSecondary,
+            ),
+          ),
+      ],
+    ),
+  );
+}
+
+/// An inset rounded card of rows with hairlines between them.
+class SettingsGroup extends StatelessWidget {
+  const SettingsGroup({super.key, required this.children, this.footer});
+
+  final List<Widget> children;
+
+  /// One muted line under the card.
+  final String? footer;
+
+  @override
+  Widget build(BuildContext context) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      Padding(
+        padding: const EdgeInsets.symmetric(horizontal: settingsPagePadding),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(12),
+          child: ColoredBox(
+            color: settingsControlFill,
+            child: Column(
+              children: [
+                for (var i = 0; i < children.length; i++) ...[
+                  if (i > 0)
+                    const SettingsHairline(indent: settingsPagePadding),
+                  children[i],
+                ],
+              ],
+            ),
+          ),
+        ),
+      ),
+      if (footer != null)
+        Padding(
+          padding: const EdgeInsets.fromLTRB(
+            settingsPagePadding + 16,
+            8,
+            settingsPagePadding + 16,
+            0,
+          ),
+          child: Text(footer!, style: settingsFooterStyle),
+        ),
+    ],
+  );
+}
+
+/// `title … value ›` — one row of a [SettingsGroup].
+class SettingsGroupRow extends StatelessWidget {
+  const SettingsGroupRow({
+    super.key,
+    required this.title,
+    this.subtitle,
+    this.value,
+    this.leading,
+    this.trailing,
+    this.chevron = false,
+    this.accent = false,
+    this.onTap,
+  });
+
+  final String title;
+  final String? subtitle;
+
+  /// The current answer, muted, right-aligned before the chevron.
+  final String? value;
+  final Widget? leading;
+
+  /// Replaces the value and chevron — a switch, a spinner.
+  final Widget? trailing;
+  final bool chevron;
+
+  /// An action row ("Add a Bucket"): the title is accent-coloured.
+  final bool accent;
+  final VoidCallback? onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final row = ConstrainedBox(
+      constraints: const BoxConstraints(minHeight: 48),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(
+          horizontal: settingsPagePadding,
+          vertical: 8,
+        ),
+        child: Row(
+          children: [
+            if (leading != null) ...[leading!, const SizedBox(width: 12)],
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: TextStyle(
+                      fontSize: 16,
+                      color: accent ? settingsAccent : CupertinoColors.white,
+                    ),
+                  ),
+                  if (subtitle != null) ...[
+                    const SizedBox(height: 2),
+                    Text(
+                      subtitle!,
+                      maxLines: 2,
+                      overflow: TextOverflow.ellipsis,
+                      style: settingsRowSubtitleStyle,
+                    ),
+                  ],
+                ],
+              ),
+            ),
+            if (trailing != null) ...[
+              const SizedBox(width: 8),
+              trailing!,
+            ] else ...[
+              if (value != null) ...[
+                const SizedBox(width: 8),
+                Flexible(
+                  child: Text(
+                    value!,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: settingsRowValueStyle,
+                  ),
+                ),
+              ],
+              if (chevron) ...[
+                const SizedBox(width: 6),
+                const Icon(
+                  CupertinoIcons.chevron_forward,
+                  size: 14,
+                  color: settingsTertiary,
+                ),
+              ],
+            ],
+          ],
+        ),
+      ),
+    );
+    if (onTap == null) return row;
+    return GestureDetector(
+      behavior: HitTestBehavior.opaque,
+      onTap: onTap,
+      child: row,
+    );
+  }
+}
+
+/// The card at the top of a page that answers "is it working?" before
+/// anything else: a state line, a detail line, an optional progress bar, and
+/// the one primary action.
+class SettingsStatusCard extends StatelessWidget {
+  const SettingsStatusCard({
+    super.key,
+    required this.color,
+    required this.title,
+    this.busy = false,
+    this.subtitle,
+    this.progress,
+    this.footnote,
+    this.primaryLabel,
+    this.onPrimary,
+    this.linkLabel,
+    this.onLink,
+  });
+
+  /// The state's colour: green done, orange needs a look, red lost.
+  final Color color;
+  final String title;
+  final bool busy;
+  final String? subtitle;
+
+  /// 0..1; absent draws no bar.
+  final double? progress;
+  final String? footnote;
+  final String? primaryLabel;
+  final VoidCallback? onPrimary;
+  final String? linkLabel;
+  final VoidCallback? onLink;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    padding: const EdgeInsets.symmetric(horizontal: settingsPagePadding),
+    child: DecoratedBox(
+      decoration: BoxDecoration(
+        color: settingsControlFill,
+        borderRadius: BorderRadius.circular(14),
+      ),
+      child: Padding(
+        padding: const EdgeInsets.all(16),
+        child: Column(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Row(
+              children: [
+                if (busy)
+                  const CupertinoActivityIndicator(radius: 8)
+                else
+                  DecoratedBox(
+                    decoration: BoxDecoration(
+                      color: color,
+                      shape: BoxShape.circle,
+                    ),
+                    child: const SizedBox(width: 10, height: 10),
+                  ),
+                const SizedBox(width: 10),
+                Expanded(
+                  child: Text(
+                    title,
+                    style: const TextStyle(
+                      fontSize: 19,
+                      fontWeight: FontWeight.w700,
+                      color: CupertinoColors.white,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+            if (subtitle != null) ...[
+              const SizedBox(height: 6),
+              Text(subtitle!, style: settingsRowValueStyle),
+            ],
+            if (progress != null) ...[
+              const SizedBox(height: 12),
+              ClipRRect(
+                borderRadius: BorderRadius.circular(3),
+                child: SizedBox(
+                  height: 6,
+                  child: Stack(
+                    children: [
+                      const Positioned.fill(
+                        child: ColoredBox(color: settingsPageBackground),
+                      ),
+                      FractionallySizedBox(
+                        widthFactor: progress!.clamp(0.0, 1.0),
+                        child: ColoredBox(color: color),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ],
+            if (footnote != null) ...[
+              const SizedBox(height: 8),
+              Text(footnote!, style: settingsFooterStyle),
+            ],
+            if (primaryLabel != null || linkLabel != null) ...[
+              const SizedBox(height: 14),
+              Row(
+                children: [
+                  if (primaryLabel != null)
+                    CupertinoButton(
+                      padding: const EdgeInsets.symmetric(
+                        horizontal: 18,
+                        vertical: 8,
+                      ),
+                      minimumSize: const Size(0, 36),
+                      borderRadius: BorderRadius.circular(18),
+                      color: settingsAccent,
+                      disabledColor: settingsPageBackground,
+                      onPressed: onPrimary,
+                      child: Text(
+                        primaryLabel!,
+                        style: TextStyle(
+                          fontSize: 15,
+                          fontWeight: FontWeight.w600,
+                          color: onPrimary == null
+                              ? settingsTertiary
+                              : CupertinoColors.white,
+                        ),
+                      ),
+                    ),
+                  const Spacer(),
+                  if (linkLabel != null)
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      minimumSize: Size.zero,
+                      onPressed: onLink,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            linkLabel!,
+                            style: const TextStyle(
+                              fontSize: 15,
+                              color: settingsAccent,
+                            ),
+                          ),
+                          const SizedBox(width: 2),
+                          const Icon(
+                            CupertinoIcons.chevron_forward,
+                            size: 13,
+                            color: settingsAccent,
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ],
+          ],
+        ),
+      ),
+    ),
+  );
+}
