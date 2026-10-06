@@ -1,37 +1,68 @@
 import 'package:flutter/rendering.dart';
 import 'package:flutter/widgets.dart';
 
-/// One hold-then-sweep (or sideways drag) across a grid: every tile it
-/// passes gets the same treatment, decided by the first — sweeping off a
-/// selected tile deselects, so a sweep is undone by sweeping back.
+/// One hold-then-sweep (or sideways drag) across a grid, as Photos does
+/// it: the tile it started on and the tile under the finger now are the two
+/// ends of a range, and everything between them in grid order takes the
+/// treatment the first tile decided — sweeping off a selected tile
+/// deselects. Moving back shrinks the range and puts back what was there
+/// before the sweep began.
 class SelectSweep<K> {
   bool _active = false;
   bool _selects = true;
-  Set<K> _seen = {};
+  K? _anchor;
+  Set<K> _base = {};
+  Map<K, int>? _index;
+  List<K> _order = const [];
+  int? _lastEnd;
 
-  /// A hold that just selected [first].
-  void begin(K first) {
+  /// A hold that just selected [first]; [base] is what was selected before.
+  void begin(K first, {Set<K> base = const {}}) {
+    _reset();
     _active = true;
     _selects = true;
-    _seen = {first};
+    _anchor = first;
+    _base = {...base};
   }
 
-  /// [selection] with [key] swept over, or null when nothing changed.
-  Set<K>? over(K key, Set<K> selection) {
+  /// [selection] with the range from the sweep's start to [key], or null
+  /// when nothing changed. [order] is the grid's order, read once a sweep.
+  Set<K>? over(K key, Set<K> selection, List<K> Function() order) {
     if (!_active) {
+      _reset();
       _active = true;
+      _anchor = key;
       _selects = !selection.contains(key);
-      _seen = {};
+      _base = {...selection};
     }
-    if (!_seen.add(key)) return null;
-    final next = {...selection};
-    _selects ? next.add(key) : next.remove(key);
-    return next.length == selection.length ? null : next;
+    final index = _index ??= {
+      for (final (i, k) in (_order = order()).indexed) k: i,
+    };
+    final start = index[_anchor];
+    final end = index[key];
+    if (start == null || end == null || end == _lastEnd) return null;
+    _lastEnd = end;
+    final range = _order.sublist(
+      start < end ? start : end,
+      (start < end ? end : start) + 1,
+    );
+    final next = _selects
+        ? {..._base, ...range}
+        : ({..._base}..removeAll(range));
+    return next.length == selection.length && next.containsAll(selection)
+        ? null
+        : next;
   }
 
-  void end() {
+  void end() => _reset();
+
+  void _reset() {
     _active = false;
-    _seen = {};
+    _anchor = null;
+    _base = {};
+    _index = null;
+    _order = const [];
+    _lastEnd = null;
   }
 }
 

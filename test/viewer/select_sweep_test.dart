@@ -2,24 +2,33 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/viewer/select_sweep.dart';
 
 void main() {
-  test('a sweep from a held tile selects everything it passes', () {
-    final sweep = SelectSweep<int>()..begin(1);
-    var selection = {1};
-    for (final key in [1, 2, 3, 3, 4]) {
-      selection = sweep.over(key, selection) ?? selection;
-    }
-    expect(selection, {1, 2, 3, 4});
+  final order = [1, 2, 3, 4, 5, 6, 7, 8];
+  List<int> grid() => order;
+
+  test('a sweep selects everything between where it began and the finger', () {
+    final sweep = SelectSweep<int>()..begin(2);
+    var selection = {2};
+    selection = sweep.over(7, selection, grid) ?? selection;
+    expect(selection, {2, 3, 4, 5, 6, 7});
   });
 
-  test('a fresh drag starting on a selected tile deselects', () {
+  test('moving back shrinks the range and keeps what was there before', () {
+    final sweep = SelectSweep<int>()..begin(3, base: {8});
+    var selection = {3, 8};
+    selection = sweep.over(6, selection, grid) ?? selection;
+    expect(selection, {3, 4, 5, 6, 8});
+    selection = sweep.over(4, selection, grid) ?? selection;
+    expect(selection, {3, 4, 8});
+  });
+
+  test('a drag starting on a selected tile deselects the range', () {
     final sweep = SelectSweep<int>();
-    var selection = {1, 2, 3};
-    for (final key in [2, 3]) {
-      selection = sweep.over(key, selection) ?? selection;
-    }
-    expect(selection, {1});
+    var selection = {1, 2, 3, 4, 5};
+    selection = sweep.over(2, selection, grid) ?? selection;
+    selection = sweep.over(4, selection, grid) ?? selection;
+    expect(selection, {1, 5});
     sweep.end();
-    selection = sweep.over(2, selection) ?? selection;
-    expect(selection, {1, 2});
+    selection = sweep.over(6, selection, grid) ?? selection;
+    expect(selection, {1, 5, 6});
   });
 }

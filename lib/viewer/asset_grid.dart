@@ -10,6 +10,7 @@ import '../l10n/app_localizations.dart';
 import '../photos/thumbnail_cache.dart';
 import '../photos/photo_library_service.dart';
 import '../storage/asset_record.dart';
+import '../upload/cloud_thumbnails.dart';
 import 'photo_grid_layout.dart';
 import 'photo_grid_sliver.dart';
 
@@ -197,12 +198,17 @@ Widget assetImage(
   VoidCallback? onMissing,
 }) {
   Widget cached() {
+    // A cloud-only photo with no picture on disk asks the bucket for one
+    // rather than staying grey until someone opens it.
+    Widget missing() => record.localDeleted && record.passcodeHash == null
+        ? _CloudThumbnail(record: record, fit: fit, placeholder: placeholder)
+        : placeholder();
     final thumbnail = record.thumbnailPath;
-    if (thumbnail == null) return placeholder();
+    if (thumbnail == null) return missing();
     return Image.file(
       File(thumbnail),
       fit: fit,
-      errorBuilder: (context, error, stackTrace) => placeholder(),
+      errorBuilder: (context, error, stackTrace) => missing(),
     );
   }
 
@@ -232,6 +238,37 @@ Widget assetImage(
     );
   }
   return cached();
+}
+
+class _CloudThumbnail extends StatelessWidget {
+  const _CloudThumbnail({
+    required this.record,
+    required this.fit,
+    required this.placeholder,
+  });
+
+  final AssetRecord record;
+  final BoxFit fit;
+  final Widget Function() placeholder;
+
+  @override
+  Widget build(BuildContext context) {
+    final fetcher = CloudThumbnails.instance;
+    if (fetcher == null) return placeholder();
+    fetcher.request(record);
+    return ValueListenableBuilder<Map<String, String>>(
+      valueListenable: fetcher.fetched,
+      builder: (context, fetched, _) {
+        final path = fetched[record.localId];
+        if (path == null) return placeholder();
+        return Image.file(
+          File(path),
+          fit: fit,
+          errorBuilder: (context, error, stackTrace) => placeholder(),
+        );
+      },
+    );
+  }
 }
 
 /// The same sources [assetImage] draws, most-preferred first, as image
@@ -546,7 +583,7 @@ enum BackupLine {
   /// rest.
   uploading,
 
-  /// Waiting its turn. Dashed yellow.
+  /// Waiting its turn. Solid yellow.
   pending,
 
   /// The last try failed. Dashed red: it won't fix itself by waiting.
@@ -586,7 +623,7 @@ enum BackupLine {
 /// and reads as "disabled", and it would be one colour too many next to the
 /// grey of a cloud-only tile. Green and yellow are one scale — the green
 /// length is how much is up — so an upload in progress is the same line
-/// filling in. Dashed vs solid carries the same answer without colour.
+/// filling in. Dashed red vs solid carries the failed answer without colour.
 /// Only an uploading line moves — a glint running along its yellow part,
 /// behind its own repaint boundary — so the cost is bounded by the few
 /// uploads in flight, not by the tiles on screen.
@@ -597,7 +634,7 @@ class BackupUnderline extends StatelessWidget {
 
   static const thickness = 2.5;
   static const green = Color(0xFF30D158);
-  static const yellow = Color(0xFFFFD60A);
+  static const yellow = Color(0xFFFFC53D);
   static const red = Color(0xFFFF453A);
 
   @override
@@ -701,10 +738,14 @@ class _UnderlinePainter extends CustomPainter {
             paint..color = const Color(0xFFFFFFFF).withValues(alpha: 0.85),
           );
         }
-      case BackupLine.pending || BackupLine.failed:
-        paint.color = line == BackupLine.pending
-            ? BackupUnderline.yellow
-            : BackupUnderline.red;
+      case BackupLine.pending:
+        canvas.drawLine(
+          Offset(0, y),
+          Offset(size.width, y),
+          paint..color = BackupUnderline.yellow,
+        );
+      case BackupLine.failed:
+        paint.color = BackupUnderline.red;
         const dash = 5.0;
         const gap = 4.0;
         for (var x = 0.0; x < size.width; x += dash + gap) {
