@@ -41,6 +41,32 @@ class BucketOps {
     return out;
   }
 
+  /// [listFolder] one page at a time: [onPage] gets each page and the token
+  /// that continues after it (null on the last), so a caller can persist its
+  /// place and pass it back as [startToken] after a restart. False when a
+  /// page could not be listed.
+  Future<bool> listFolderPages(
+    S3BackupTarget target,
+    String dir, {
+    String? startToken,
+    required Future<void> Function(List<S3Object> page, String? nextToken)
+    onPage,
+  }) async {
+    var token = startToken;
+    do {
+      final result = await listBucket(
+        target: target,
+        prefix: '${target.prefix}$dir',
+        continuationToken: token,
+      );
+      final page = result.page;
+      if (!result.isOk || page == null) return false;
+      token = page.nextToken;
+      await onPage(page.objects, token);
+    } while (token != null);
+    return true;
+  }
+
   RangeReader rangeReader(S3BackupTarget target, String key) =>
       (start, end) async {
         if (end <= start) return Uint8List(0);

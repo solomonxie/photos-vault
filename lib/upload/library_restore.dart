@@ -45,9 +45,10 @@ class LibraryRestore {
 
   /// Which records would be fetched. Separate from [run] so a screen can
   /// say how many before asking, and say nothing when the answer is none.
-  Future<List<AssetRecord>> owed() async => [
+  Future<List<AssetRecord>> owed({Set<String>? only}) async => [
     for (final record in await recordStore.listAll())
-      if (record.thumbnailPath == null &&
+      if ((only == null || only.contains(record.localId)) &&
+          record.thumbnailPath == null &&
           !record.isDeleted &&
           record.passcodeHash == null &&
           record.stateOf(DerivativeKind.thumbnail).destinationKey != null)
@@ -62,8 +63,9 @@ class LibraryRestore {
   /// thumbnail is thirty thousand rebuilds of a grid.
   Future<RestoreProgress> run({
     void Function(RestoreProgress progress)? onProgress,
+    Set<String>? only,
   }) async {
-    final records = await owed()
+    final records = await owed(only: only)
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     final total = records.length;
     var done = 0;
