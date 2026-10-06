@@ -28,85 +28,28 @@ Photos.
 
 # Backup queue
 
-`lib/settings/backup_queue_panel.dart` — part of Cloud Settings, under the
-list of connections: controls first, then the queue. Past 6 rows the list
-stops growing and scrolls inside a fixed 360pt box. Named *backup* rather
-than sync: what it does is put photos somewhere safe, and "sync" reads as
-two-way.
+`lib/settings/backup_queue_screen.dart` — a page, pushed from the status
+card's `Queue · N ›` on Cloud Settings. Full mocks: `cloud-redesign.md`.
 
 ```
- (Cloud Settings, under the connections)
- ┌───────────────────────────────────────────────┐
- │ [ ⟳ Sync Now ] [ ⏸ Pause ] [ 🕐 Manual Only ] │
- │ [ 🖼 Original ] [ ✓ Clear Done ] [ ⊗ Empty ]  │
- │ [ − 2 at a time + ]                           │
- ├───────────────────────────────────────────────┤
- │ Last synced Sep 19, 3:04 PM                   │
- └───────────────────────────────────────────────┘
- QUEUE (12)                                    ⟳   ← ⟳ only while draining
- IMG_4934.HEIC                                 ⟳
- Backing up original
- IMG_5001.MOV                             Waiting
- Backing up thumbnail
- Hidden photo                                  ✓   ← never named or previewed
- Backing up original
- IMG_4870.HEIC                                 ↻   ← failed keeps its row,
- Checking for changes                                ↻ retries it
- 403 SignatureDoesNotMatch
- empty   Nothing in the queue — everything's backed up.
+ ‹ Cloud           Backup Queue            ⏸   ⋯
+ ╭ ⟳ Backing up… ─────────────────────────────────╮
+ │ 12 waiting · 1 failed · 2 at a time            │
+ │ Last synced today, 3:04 PM                     │
+ ╰────────────────────────────────────────────────╯
+ NEEDS ATTENTION · 1                    ( Retry All )
+ UP NEXT · 12
+ DONE · 4                                ( Clear Done )
 ```
 
-```
- paused      Paused            ← replaces the last-synced line
- full        Queue is full     ← why nothing new is going in
- never run   Never synced
-```
-
-Loaded before it draws. The paused flag lives in secure storage, and a page
-that renders its default instead shows a stopped queue with a Pause button
-and a live look — which is how uploads go missing for a week.
-
-`Empty Queue` empties everything: waiting, failed, finished and in-flight.
-A file already uploading keeps going — a native transfer can't be called
-back — but its row is gone. A button that says Empty and leaves a dozen
-green ticks reads as one that didn't work.
-
-## The menus behind the pills
-
-```
- 🕐 Manual ▾                       ▣ Original ▾
- ┌─────────────────────────────┐   ┌──────────────────────────────────┐
- │ Sync Frequency              │   │ Backup Format                    │
- │ Runs only while the app is  │   │ Original: Full quality, byte-    │
- │ open — there's no           │   │ identical to your device —       │
- │ background-sync permission  │   │ larger uploads and more storage. │
- │ yet.                        │   │ Optimized (WebP): Re-encodes to  │
- │ ✓ Manual Only               │   │ cut upload and storage size, at  │
- │   Every 15 Minutes          │   │ a small, usually unnoticeable    │
- │   Every Hour                │   │ quality loss.                    │
- │   Every 6 Hours             │   │ Videos always back up at original│
- │   Daily                     │   │ quality…                         │
- │ ( Cancel )                  │   │ ✓ Original    Optimized (WebP)   │
- └─────────────────────────────┘   └──────────────────────────────────┘
-```
-
-Three kinds of work, each said plainly rather than hidden behind one
-spinner:
-
-```
- Checking for changes      re-hashes a local file to spot an edit
- Backing up original
- Backing up thumbnail
-```
-
-Tapping a row opens that photo in the viewer — the obvious question about a
-row, especially a failed one, is "which photo is that?". Without an opener,
-rows are simply not tappable rather than tappable and inert.
-
-Newest photo first, both in what gets queued and in what the drain claims
-next. A camera roll's backlog is years deep; the picture someone wants safe
-is the one they just took, and it shouldn't wait behind 2014.
-
+- Failed rows first, with the error inline and ↻ to retry one.
+- Each section shows 50 rows, then `Show N more`; built lazily.
+- ⏸/▶ in the bar; ⋯ holds speed, Back Up Now, Clear Finished, Empty Queue.
+- `Empty Queue` empties everything, in-flight rows too; a native transfer
+  already uploading keeps going.
+- Schedule and format live on Cloud Settings (Sync, Upload Quality).
+- A row tap opens that photo; hidden photos are never named.
+- Newest photo first, in what is queued and in what is claimed next.
 
 # Analyze queue
 

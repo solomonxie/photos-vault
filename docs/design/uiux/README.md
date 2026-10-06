@@ -28,7 +28,8 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
    │  Places ──▶ AssetGroupScreen
    └─ More
         Where Your Photos Are ──▶ SafetyScreen
-        Cloud Settings (+ Backup Queue) ──▶ SettingsScreen ──▶ BucketBrowser ─▶ (deeper)
+        Cloud Settings ──▶ SettingsScreen ──▶ BackupQueueScreen
+        │                        ├─▶ BucketBrowser ─▶ (deeper)
         │                        └─▶ [AddS3Backup]   └─▶ ObjectPreview
         Analyze Queue ──▶ AnalyzeQueueScreen
         AI Settings ──▶ AiSettingsScreen ──▶ [AddKey sheet]
@@ -45,9 +46,9 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
 | `detail.md` | media viewer, info panel, edit and share menus |
 | `people.md` | people list, person page, profile, history, graph |
 | `collections.md` | albums, favorites, groups, smart collections, hidden, deleted |
-| `cloud.md` | Cloud Settings, add bucket, bucket browser |
+| `cloud.md` | Cloud Settings, add bucket, bucket browser (`cloud-redesign.md`: full mocks) |
 | `safety.md` | where every copy is, checking it, getting it back without the app |
-| `queue.md` | sync queue sheet |
+| `queue.md` | backup queue page, analyze queue |
 | `storage.md` | optimize storage: problem filters, per-photo fixes, batch |
 | `ai.md` | AI settings |
 | `components.md` | tiles, rows, scrubber, section chrome |

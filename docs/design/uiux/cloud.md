@@ -1,175 +1,31 @@
 # Cloud Settings
 
-`lib/settings/settings_screen.dart` — one flat page. Nothing here pushes a
-sub-page that only holds controls: per-connection actions live in that row's
-own sheet, and the queue opens over this page.
+`lib/settings/settings_screen.dart` — status first, settings last. Full
+mocks, states and copy: `cloud-redesign.md`.
 
 ```
- ‹           Cloud Settings
- App Data
- Albums, people, tags, captions and places — everything that isn't the
- photo itself. Copied out once a day, on the days something changed,
- and pulled back automatically if you reinstall.
- ┌───┐ iCloud Drive                                        ─●
- │ ☁ │ Files → iCloud Drive → Photos Vault
- └───┘ Last copy 2 hours ago
- ┌───┐ Your Cloud Bucket                                   ─●
- │ ▣ │ app-data/YYYYMMDD.zip in every bucket
- └───┘ Nothing backed up yet
- [ ⇧ Export File ]  [ ⇩ Restore from File ]   ← press-once, so pills
- Also kept on this iPhone — Files → On My iPhone → Bring Your
- Own Photos. The last 7 days, plus a copy taken before anything
- that rewrites a lot at once. Deleting the app deletes those too.
- ══════════════════════════════════════════════════════════
- Cloud                                                    ⊕
- Photos upload to storage you own. Credentials stay on this device and go
- straight to the bucket. Syncing runs only while the app is open — there's
- no background-sync permission yet.
- ┌───┐ my-photos                                           ›
- │ ☁ │ s3://my-photos/photos-vault/
- └───┘ ca-central-1
- ┌───┐ cold-storage                                        ›
- │ ☁ │ cos://cold-storage-1250000000/vault/
- └───┘ ap-guangzhou
- [ ⇄ Photo by Photo ]        ← live once there's a second bucket
- 2 buckets · 184 of 210 photos backed up       ← footer line, tappable
- ⟳ Syncing…                                    ← rides on the same line
+ ‹ More                 Cloud
+ ╭ ◉ All backed up ───────────────────────────────╮
+ │ 184 of 210 photos · 2 buckets    ▓▓▓▓▓▓▓▓░░    │
+ │ Last synced today, 3:04 PM                     │
+ │ [[ Back Up Now ]]                Queue · 26 ›  │
+ ╰────────────────────────────────────────────────╯
+ CLOUD BUCKETS     ☁ my-photos ›  ☁ cold-storage ›  ⊕ Add Cloud Bucket
+ UPLOADS           Sync · Upload Quality · Fill Order (2+ buckets) ·
+                   Find New Files in Buckets (count)
+ APP DATA ⓘ        iCloud Drive ─● · Your Cloud Bucket ─● · Export · Restore
 ```
 
-Pills, not bare accent words, for the things you come here to press. A pill
-says where to put your thumb. Everything about the *upload* — Sync Now, the
-schedule, format, speed, the queue — is the Backup Queue's page (`queue.md`);
-what stays here is the list of connections and the one setting that is a
-property of the list itself.
-
-## Filling more than one bucket
-
-```
- [ ⇄ Photo by Photo ]
- ┌────────────────────────────────────────────────┐
- │ Bucket Order                                   │
- │ Every photo ends up in every bucket either     │
- │ way — this only changes the order they're      │
- │ filled in.                                     │
- │ Photo by Photo: each photo goes to every       │
- │ bucket before the next photo starts — every    │
- │ bucket stays equally up to date.               │
- │ Bucket by Bucket: one bucket gets the whole    │
- │ library before the next one starts — the first │
- │ complete copy exists sooner.                   │
- │ ✓ Photo by Photo      Bucket by Bucket         │
- │ ( Cancel )                                     │
- └────────────────────────────────────────────────┘
-```
-
-The message leads with what *doesn't* change. "Order" beside a list of
-buckets reads like splitting the library between them, and a user who picks
-one believing that has lost every copy but one. Neither option drops a
-copy; both are the same uploads, resequenced.
-
-With one bucket it is **dimmed, not hidden**, and carries the line that says
-when it starts to count:
-
-```
- ┌───┐ my-photos                                           ›
- │ ☁ │ s3://my-photos/photos-vault/
- └───┘ ca-central-1
- [ ⇄ Photo by Photo ]·       ← dimmed
- Matters once you add a second bucket.
- 1 bucket · 184 of 210 photos backed up
-```
-
-Hiding it entirely made it findable only *after* the user had built the
-situation it governs — which is the moment they'd have to go looking for a
-setting they'd never seen. Dimmed, it's part of what a second bucket means,
-read before it's needed. What it must not be is live: with one bucket both
-answers are the same upload in the same order, and a choice that changes
-nothing is worse than no choice at all.
-
-## Three tiers, two switches
-
-The copy in the app's own container is a **footer line, never a third
-switch**. It shares the app's sandbox — deleting the app takes it and the
-library together — so standing it beside two destinations that outlive the
-app would promise something it can't keep. What it *can* promise is a
-folder you can open, so the folder is what the line names.
-
-```
- tier          answers                        switch?
- ─────────────────────────────────────────────────────────────
- this iPhone   "that import was a mistake"    no — a footer line
- iCloud Drive  "I reinstalled"                yes
- your bucket   "what did March look like?"    yes
-```
-
-Nothing is a *choice* between destinations: two switches, both allowed on.
-A segmented "iCloud / bucket" would make the user pick when the answer is
-"both".
-
-## Export and restore
-
-```
- [ ⇧ Export File ]                    [ ⇩ Restore from File ]
-        │                                      │
-        ▼                                      ▼
- [ share sheet · OS ]                   [ Files picker · OS ]
- photos-vault-2026-09-18.zip          │
- AirDrop · Files · Mail                        ▼
-                                 ┌──────────────────────────────────┐
-                                 │ Restore this backup?             │
-                                 │ Adds the albums, people, tags    │
-                                 │ and captions from Sep 12.        │
-                                 │ Nothing already here is changed, │
-                                 │ and a copy of today is saved     │
-                                 │ first.                           │
-                                 │      ( Cancel )   ( Restore )    │
-                                 └──────────────────────────────────┘
-                                                │
-                                                ▼
-                                 "Restored 184 photos' details.
-                                  26 were already here and kept
-                                  what they had."
-```
-
-The confirmation sits at the point of action and restates what the thing
-about to happen does — not "are you sure", which tells the user nothing
-they didn't already know. What it adds is the date in the file and the two
-facts they can't see: nothing already here is overwritten, and a copy of
-today goes in the folder first.
-
-The result line reports what *didn't* land as well as what did. A file
-whose photos aren't on this phone yet still restores their captions and
-tags; saying only "184 restored" out of 210 reads as a half-failed import.
-
-The one restore with no confirmation is a fresh install pulling its own
-data back. There is nothing to overwrite and no context yet for the
-question — and getting the library's work back is the whole point of
-having taken the copy.
-
-## Blocked iCloud, all four
-
-```
- iCloud Drive                                           ·  ○─
- This build of the app isn't signed for iCloud
-
- iCloud Drive                                           ·  ○─
- iCloud Drive is off on this device
- Settings → your name → iCloud → Drive → turn on       ← accent, here only
-
- iCloud Drive                                           ·  ○─
- iCloud isn't ready yet — try again shortly
-
- Your Cloud Bucket                                      ·  ○─
- Add a bucket below first
-```
-
-## Empty
-
-```
- ▣  No Cloud Buckets Yet
-    Add one to start backing up your photos and videos.
-    [[ Add Cloud Bucket ]]
-```
+- One inset group per subject; `title … value ›` rows; sheets carry choices.
+- Status priority: lost > failed > paused > syncing > waiting > all done.
+- Fill Order only with a second bucket: with one, both orders are the same.
+- The copy in the app's own container is a footer line, never a third
+  switch: it dies with the app, so it can't sit beside two that don't.
+- A blocked iCloud row keeps its place; its reason replaces the subtitle
+  and only the fixable state gets the accent "how" line.
+- Export/Restore keep their confirmation: it states the file's date and
+  that nothing existing is overwritten and a copy of today is saved first.
+- Fresh-install restore has no confirmation: nothing to overwrite.
 
 ## Add a bucket  `lib/settings/add_backup_screen.dart`
 

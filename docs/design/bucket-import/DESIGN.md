@@ -80,6 +80,26 @@ Every object is renamed by the same steps, ordinary or hidden: copy to the new n
 - A per-album constant in the name: repetition groups the album.
 - Plaintext real date in a hidden name: leaks when the photo was taken.
 
+## Leftovers
+
+An unclaimed original is a **likely leftover**, not a new photo, when:
+- no capture date in its own header (EXIF DateTimeOriginal/DateTime in JPEG,
+  WebP `EXIF`, a HEIC Exif item inside the first 64 KB; MP4/MOV `mvhd`), and
+- its name stamp is within 72 h of its LastModified, i.e. written at upload
+  or rename time, not by a camera.
+
+- Read from the same 64 KB the carrier probe already fetches; videos walk
+  top-level boxes to `moov`.
+- Listed on Flagged Items (Ignore · Import anyway); never counted in the
+  Cloud row's offer, never imported by the batch.
+- Import date: header date › name stamp › LastModified.
+- Ignored keys live in `app_state` (`bucket_ignored_keys`); detection skips
+  them for good. The bucket keeps the files.
+- `LeftoverSweep` ran once on upgrade: untouched `bucket:` records matching
+  the rule (reference = earlier of LastModified and import time, since the
+  import's copy moved LastModified) left the library and their keys were
+  ignored. Favourites, tags, captions, places, albums, people, locks kept.
+
 ## Risks
 - Format change touches real hidden photos and the delete path. v1 stays; v2 sits beside it.
 - 64-bit locator: chance match is negligible; the carrier MAC settles it before anything is added.

@@ -66,10 +66,11 @@ the container, so it refills them from `thumbnails/`. Thumbnails only —
 originals stay in the bucket until something opens one.
 
 `s3_object_delete.dart` is the only thing in the app that removes an object
-from the bucket, and it's reached from exactly one place: emptying this app's
-Recently Deleted (`BackupCoordinator.deleteBackup`). Everything short of that
-— including an ordinary delete — leaves the backup alone, because it's the
-copy that outlives the phone.
+from the bucket, and only `PendingDeletes` calls it: a permanent delete, the
+bin emptying or expiring (30 days), or a hide retracting plain copies. Tasks
+are durable and retried on every sync; keys are resolved per bucket
+(`object_keys.dart`). Everything short of that — including an ordinary delete
+— leaves the backup alone, because it's the copy that outlives the phone.
 
 ## Bucket import and flagged objects
 
@@ -82,3 +83,18 @@ orphan. `bucket_ops.dart` is the bucket side: flat listing, ranged reads, copy,
 size. `name_migration.dart` renames old `photo_<id>` backups in batches.
 `scripts/import-to-bucket.sh` puts a folder in the bucket. Design:
 `docs/design/bucket-import/`.
+
+## Background run
+
+`background_sync.dart` is the headless pass behind an iOS `BGProcessingTask`
+(`ios/Runner/BackgroundSync.swift`): a second Flutter engine, no screen,
+running `SyncEngine` (`sync_engine.dart`, the same code the library screen
+drives). iOS decides when — typically overnight, on power and Wi-Fi — and
+whether at all; nothing here can promise a schedule.
+
+It exits early, in this order, when: demo mode is on, the sync frequency is
+Manual, no bucket is configured, the app was in the foreground in the last 5
+minutes (`ForegroundHeartbeat`), the frequency says it isn't due, or nothing
+is pending. While running it stops if the app returns to the foreground or
+iOS expires the task. Hidden photos, change-check re-hashing and the full
+camera-roll scan stay with the foreground app.
