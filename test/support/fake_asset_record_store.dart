@@ -19,6 +19,20 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<void> close() async {}
 
   @override
+  Future<List<Map<String, Object?>>> uploadRows() async => const [];
+
+  @override
+  Future<Map<String, Map<DerivativeKind, Map<String, String>>>>
+  allHoldings() async => const {};
+
+  @override
+  Future<void> forgetTargetUpload(
+    String localId,
+    DerivativeKind kind,
+    String targetId,
+  ) async {}
+
+  @override
   Future<AssetRecord> upsert({
     required String localId,
     required String contentHash,
@@ -346,6 +360,45 @@ class FakeAssetRecordStore implements AssetRecordStore {
     String targetId,
     List<BucketObject> objects,
   ) async => bucketObjects[targetId] = objects;
+
+  final bucketScans = <String, Map<String, String?>>{};
+  final bucketStaged = <String, Map<String, BucketObject>>{};
+
+  @override
+  Future<({String? token, bool done})?> bucketScanProgress(
+    String targetId,
+    String dir,
+  ) async {
+    final scan = bucketScans[targetId];
+    if (scan == null || !scan.containsKey(dir)) return null;
+    return (token: scan[dir], done: scan[dir] == null);
+  }
+
+  @override
+  Future<void> stageBucketPage(
+    String targetId,
+    String dir,
+    String? nextToken,
+    List<BucketObject> objects,
+  ) async {
+    (bucketScans[targetId] ??= {})[dir] = nextToken;
+    final staged = bucketStaged[targetId] ??= {};
+    for (final o in objects) {
+      staged[o.key] = o;
+    }
+  }
+
+  @override
+  Future<void> commitBucketScan(String targetId) async {
+    bucketObjects[targetId] = [...?bucketStaged[targetId]?.values];
+    await discardBucketScan(targetId);
+  }
+
+  @override
+  Future<void> discardBucketScan(String targetId) async {
+    bucketScans.remove(targetId);
+    bucketStaged.remove(targetId);
+  }
 
   @override
   Future<List<BucketObject>> listBucketObjects() async => [
