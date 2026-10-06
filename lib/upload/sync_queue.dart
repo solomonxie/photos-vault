@@ -15,7 +15,11 @@ class SyncQueue {
     required this.store,
     required this.settings,
     required this._process,
+    this.kinds,
   });
+
+  /// Only these kinds are drained; null is everything.
+  final Set<SyncJobKind>? kinds;
 
   final SyncJobStore store;
 
@@ -102,6 +106,7 @@ class SyncQueue {
     required SyncJobKind kind,
     required String displayName,
     required DateTime assetCreatedAt,
+    int priority = 0,
   }) async {
     await _loadSettings();
     // Paused means paused: a queue that keeps growing while stopped is
@@ -113,6 +118,7 @@ class SyncQueue {
       kind: kind,
       displayName: displayName,
       assetCreatedAt: assetCreatedAt,
+      priority: priority,
     );
     await refresh();
     return true;
@@ -200,7 +206,7 @@ class SyncQueue {
       while (!paused.value) {
         final batch = <Future<void>>[];
         for (var i = 0; i < concurrency.value; i++) {
-          final job = await store.dequeueNextPending();
+          final job = await store.dequeueNextPending(kinds: kinds);
           if (job == null) break;
           batch.add(_run(job));
         }

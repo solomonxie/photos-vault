@@ -14,12 +14,15 @@ class FakeSyncJobStore implements SyncJobStore {
   @override
   Future<void> close() async {}
 
+  final _priority = <String, int>{};
+
   @override
   Future<SyncJob> enqueue({
     required String localId,
     required SyncJobKind kind,
     required String displayName,
     required DateTime assetCreatedAt,
+    int priority = 0,
   }) async {
     final outstanding = _jobs.where(
       (j) => j.localId == localId && j.kind == kind && !j.isFinished,
@@ -37,6 +40,7 @@ class FakeSyncJobStore implements SyncJobStore {
       assetCreatedAt: assetCreatedAt,
     );
     _jobs.add(job);
+    _priority[job.id] = priority;
     return job;
   }
 
@@ -50,12 +54,17 @@ class FakeSyncJobStore implements SyncJobStore {
   /// Newest photo first, like the real store's `ORDER BY
   /// asset_created_at DESC`.
   @override
-  Future<SyncJob?> dequeueNextPending() async {
+  Future<SyncJob?> dequeueNextPending({Set<SyncJobKind>? kinds}) async {
     var index = -1;
     for (var i = 0; i < _jobs.length; i++) {
       if (_jobs[i].status != SyncJobStatus.pending) continue;
+      if (kinds != null && !kinds.contains(_jobs[i].kind)) continue;
+      final pi = _priority[_jobs[i].id] ?? 0;
+      final pIndex = index < 0 ? 0 : _priority[_jobs[index].id] ?? 0;
       if (index < 0 ||
-          _jobs[i].assetCreatedAt.isAfter(_jobs[index].assetCreatedAt)) {
+          pi > pIndex ||
+          (pi == pIndex &&
+              _jobs[i].assetCreatedAt.isAfter(_jobs[index].assetCreatedAt))) {
         index = i;
       }
     }

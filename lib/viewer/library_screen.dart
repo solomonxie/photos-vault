@@ -22,7 +22,6 @@ import '../photos/library_scanner.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/analyze_queue.dart';
 import '../photos/file_hash.dart' as file_hash;
-import '../photos/image_pipeline.dart';
 import '../photos/manual_add.dart';
 import '../photos/on_device_analysis.dart';
 import '../photos/person.dart';
@@ -55,6 +54,8 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/membership_sweep.dart';
 import '../upload/backup_coordinator.dart';
+import '../upload/background_sync.dart' show ForegroundHeartbeat;
+import '../upload/sync_engine.dart';
 import '../upload/backup_verifier.dart';
 import '../upload/library_restore.dart';
 import '../vault/bucket.dart';
@@ -64,11 +65,14 @@ import '../vault/hidden_filing.dart';
 import '../vault/keys.dart';
 import '../vault/store.dart';
 import '../upload/pending_deletes.dart';
-import '../upload/sync_job.dart';
 import '../upload/sync_job_store.dart';
 import '../upload/sync_queue.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
+import 'grid_skeleton.dart';
+import 'select_sweep.dart';
+import '../upload/bucket_leftovers.dart';
+import '../upload/cloud_thumbnails.dart';
 import 'built_in_album.dart';
 import 'asset_grid_view.dart';
 import 'asset_group_screen.dart';
@@ -329,13 +333,28 @@ class LibraryScreenState extends State<LibraryScreen>
       widget.onDeviceAnalysis ??
       OnDeviceAnalysisService(analysisStore: _aiAnalysisStore);
 
+  late final ForegroundHeartbeat _heartbeat = ForegroundHeartbeat(
+    assetRecordStore,
+  );
+
+  late final SyncEngine _engine = SyncEngine(
+    recordStore: assetRecordStore,
+    targetsStore: _backupTargetsStore,
+    coordinator: _coordinator,
+    thumbnailCache: _thumbnailCache,
+    library: _photoLibraryService,
+    syncJobStore: _syncJobStore,
+    pendingDeletes: _pendingDeletes,
+    records: () => _all,
+    displayName: _displayNameFor,
+    hashFile: _hashFile,
+    finishHidden: _finishHiddenUpload,
+    analyze: _onDeviceAnalysis.analyze,
+  );
+
   /// The one queue every unit of sync work goes through. Public so the
   /// Cloud Settings screen can show and control it.
-  late final SyncQueue syncQueue = SyncQueue(
-    store: _syncJobStore,
-    settings: _backupTargetsStore,
-    process: _processJob,
-  );
+  SyncQueue get syncQueue => _engine.syncQueue;
 
   /// Not a queue anybody can see: re-reading the camera roll is the app
   /// noticing what Photos did while it wasn't looking, not work the user
@@ -469,6 +488,10 @@ class LibraryScreenState extends State<LibraryScreen>
     // the right moment to write the copy, and the one moment that costs the
     // user nothing. (Once a day: the file is named for the day, so a second
     // write replaces the first rather than piling up.)
+    if (state == AppLifecycleState.paused ||
+        state == AppLifecycleState.resumed) {
+      unawaited(_heartbeat.beat().then((_) {}, onError: (_) {}));
+    }
     if (state == AppLifecycleState.paused) {
       // The copy in the app's own container first, and unconditionally —
       // it needs no switch, no network and no credentials, and it's the
@@ -489,6 +512,7 @@ class LibraryScreenState extends State<LibraryScreen>
     unawaited(_libraryScanner.runRecent());
     unawaited(_libraryScanner.run(force: true));
     unawaited(_analyzeQueue.startIfDue());
+    unawaited(_sweepLeftovers());
     unawaited(_runScheduledSyncIfDue());
     _startTrickle();
   }
@@ -566,6 +590,12 @@ class LibraryScreenState extends State<LibraryScreen>
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
+    CloudThumbnails.instance = CloudThumbnails(
+      fetch: OriginalRestore(
+        targetsStore: _backupTargetsStore,
+        recordStore: assetRecordStore,
+      ).restoreThumbnail,
+    );
     _searchFocus.addListener(_onSearchFocusChanged);
     _watchPhotoLibrary();
     syncQueue.draining.addListener(_onDrainingChanged);
@@ -634,13 +664,24 @@ class LibraryScreenState extends State<LibraryScreen>
     // this is a fresh install — a platform channel and, on a cold start,
     // a network round trip — so every launch spent that long showing "No
     // Photos Yet" over a library that was on disk the whole time.
+    unawaited(_heartbeat.beat().then((_) {}, onError: (_) {}));
     await reload();
     // A fresh install pulls its own work back from iCloud, once, without
     // asking: there's nothing to overwrite and no context yet for a
     // "restore from backup?" question. Safe behind the reload above — it
     // reads the database itself to decide whether the install is fresh,
     // and a read changed nothing.
-    unawaited(_restoreAppDataThenReload());
+    // On an empty library the restore goes *first*, capped: both restores
+    // refuse a library that already has rows, so a scan that got in ahead
+    // of the network would make a fresh install skip its own backup.
+    if (_all.isEmpty) {
+      await _restoreAppDataThenReload().timeout(
+        const Duration(seconds: 10),
+        onTimeout: () {},
+      );
+    } else {
+      unawaited(_restoreAppDataThenReload());
+    }
     // Picks up whatever a previous run left queued — including jobs left
     // `running` by a kill mid-sync. Whether it then *drains* is the sync
     // frequency's call: on "Manual" the jobs stay visible and nothing goes
@@ -662,6 +703,21 @@ class LibraryScreenState extends State<LibraryScreen>
 
   DateTime? _bucketListedAt;
 
+  /// Once ever: takes back out the bucket imports that were old copies.
+  /// See [LeftoverSweep].
+  Future<void> _sweepLeftovers() async {
+    try {
+      final removed = await LeftoverSweep(
+        store: assetRecordStore,
+        albumMemberships: _albumStore.allMemberships,
+        personMemberships: _personStore.allMemberships,
+      ).runOnce();
+      if (removed > 0 && mounted) await reload();
+    } catch (_) {
+      // Tried again next launch: the flag is only set once it finished.
+    }
+  }
+
   /// One listing of every bucket into `bucket_object`, at most twice a day
   /// and never over an empty library: a fresh install has not restored its
   /// records yet, and would see every object in the bucket as unknown.
@@ -682,6 +738,12 @@ class LibraryScreenState extends State<LibraryScreen>
         store: assetRecordStore,
         targetsStore: _backupTargetsStore,
       ).run();
+      // Only noted for the Cloud settings row — never imported unasked.
+      await BucketImport(
+        targetsStore: _backupTargetsStore,
+        recordStore: assetRecordStore,
+        passphrases: _vaultKeys.entries,
+      ).scan();
     } catch (_) {
       // Offline or unreadable: the old listing stands.
     }
@@ -1190,29 +1252,13 @@ class LibraryScreenState extends State<LibraryScreen>
       .where((r) => !_triedAndFailed.contains(r.localId))
       .toList();
 
-  /// Uploads that failed since the app opened. Cleared by an explicit sync,
-  /// so "try again" still means try again.
-  final _triedAndFailed = <String>{};
+  Set<String> get _triedAndFailed => _engine.triedAndFailed;
+  Set<String> get _unresolvable => _engine.unresolvable;
+  Set<String> get _heldUntilUnlocked => _engine.heldUntilUnlocked;
 
   /// Everything given up on gets another go — this is somebody deciding to
   /// retry, which is the whole point of the button.
-  void _forgetFailures() {
-    _triedAndFailed.clear();
-    _unresolvable.clear();
-  }
-
-  /// Photos whose file couldn't be found this session. Kept so the refill
-  /// stops offering them: a record still marked pending, whose file can't
-  /// be resolved, is picked up by every refill, dropped by every worker,
-  /// and picked up again — a loop that never uploads anything and never
-  /// ends. Cleared whenever the camera roll is re-read, so a photo that
-  /// comes back gets another go.
-  final _unresolvable = <String>{};
-
-  /// Hidden photos waiting for their album to be opened. Not a failure —
-  /// nothing is wrong and nothing needs fixing — so they are kept out of
-  /// the queue rather than shown in it as a red row.
-  final Set<String> _heldUntilUnlocked = {};
+  void _forgetFailures() => _engine.forgetFailures();
 
   /// Bucket objects a hide has to take back out. Drained on every sync,
   /// kept until they actually land.
@@ -1224,22 +1270,7 @@ class LibraryScreenState extends State<LibraryScreen>
   /// hash. Re-read on every [reload], which is what coming back from
   /// `PrivateAlbumScreen` does, so flipping the switch there takes effect
 
-  /// Everything still owed an upload — hidden photos included by default,
-  /// because they need it most: the app took them out of Photos, so the
-  /// bucket is the only other copy there is.
-  List<AssetRecord> get _pendingAndFailed => _all.where((r) {
-    if (r.isDeleted || _unresolvable.contains(r.localId)) return false;
-    // Hidden, with its album locked. Queueing it again would be a loop:
-    // the job takes, does nothing, finishes, and the refill hands it
-    // straight back. It gets picked up when the album is next opened —
-    // from Utilities or from a person's page, whichever unlocked its key.
-    if (_heldUntilUnlocked.contains(r.localId) && !_coordinator.canUpload(r)) {
-      return false;
-    }
-    // A Live Photo whose still went up but whose `.mov` didn't is still
-    // owed to the bucket — what's up there is a silent still.
-    return !r.isFullyBackedUp;
-  }).toList();
+  List<AssetRecord> get _pendingAndFailed => _engine.pendingAndFailed;
 
   /// Everything the queue shows per row — the filename where there is one.
   ///
@@ -1263,24 +1294,7 @@ class LibraryScreenState extends State<LibraryScreen>
     return DateFormat.yMMMd().add_jm().format(record.createdAt);
   }
 
-  Future<bool> _hasBackupTarget() async {
-    try {
-      return (await _backupTargetsStore.loadAll()).isNotEmpty;
-    } catch (_) {
-      // Secure storage unavailable — skip this round rather than queue
-      // work that can't land; the next sync-due check tries again.
-      return false;
-    }
-  }
-
-  /// Newest photo first, wherever a list of records turns into queued work.
-  ///
-  /// The queue is capped and a library is years deep, so the order this
-  /// list is walked in decides what gets backed up today and what waits for
-  /// a later refill. Last week's photos are the ones with no second copy
-  /// anywhere; 2014's have had a decade of chances.
-  static List<AssetRecord> _newestFirst(List<AssetRecord> records) =>
-      records.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  Future<bool> _hasBackupTarget() => _engine.hasBackupTarget();
 
   /// Queues [records] for backup rather than uploading them here: one job
   /// per derivative per asset, drained by [syncQueue] with real concurrency.
@@ -1384,234 +1398,14 @@ class LibraryScreenState extends State<LibraryScreen>
         pending: _pendingDeletes,
       ).release();
       await _pendingDeletes.drain(await _backupTargetsStore.loadAll());
+      await _removal.expireBin();
     } catch (_) {
       // Nothing to report — the tasks stay queued.
     }
   }
 
-  Future<int> _backUpRecords(List<AssetRecord> records) async {
-    // Nothing to upload *to* yet: queueing anyway would walk the whole
-    // camera roll resolving each asset's file — on a real library that's
-    // thousands of exports (and iCloud downloads) handed to a coordinator
-    // with nowhere to put them. Adding a target runs `_syncEverything`,
-    // which picks every pending asset up then.
-    //
-    // Except hidden photos: the job is also what encrypts and files them,
-    // and with no bucket that still has to happen — or they stay plain
-    // files for good. Their carriers go up once a bucket exists.
-    final work = await _hasBackupTarget()
-        ? records
-        : [
-            for (final r in records)
-              if (r.passcodeHash != null && _coordinator.canUpload(r)) r,
-          ];
-    if (work.isEmpty) return 0;
-    var queued = 0;
-    var enqueuedAny = false;
-    for (final record in _newestFirst(work)) {
-      final hash = record.passcodeHash;
-      final name = _displayNameFor(record);
-      // The thumbnail goes in *first*, and not for the bucket's sake:
-      // `uploadThumbnail` is also what puts the picture this app draws
-      // once the original is gone onto disk. Queued second, a full queue
-      // turned it away and nothing ever asked again — a record whose
-      // original is up is fully backed up, so the refill never looks at it
-      // twice, and the photo went cloud-only as a blank card. Queued
-      // first, the job a full queue turns away is the *original*, which is
-      // still pending and comes back on the next pass.
-      //
-      // A hidden photo gets no `thumbnails/` copy: the same picture at
-      // 320px in the folder built for cheap browsing — the private album's
-      // contents, legible to anyone who can read the bucket. A Live Photo's
-      // `.mov` does go, as a carrier of its own.
-      if (hash == null) {
-        final tookThumbnail = await syncQueue.enqueue(
-          localId: record.localId,
-          kind: SyncJobKind.uploadThumbnail,
-          displayName: name,
-          assetCreatedAt: record.createdAt,
-        );
-        if (!tookThumbnail) break;
-        enqueuedAny = true;
-      }
-      final taken = await syncQueue.enqueue(
-        localId: record.localId,
-        kind: SyncJobKind.uploadOriginal,
-        displayName: name,
-        assetCreatedAt: record.createdAt,
-      );
-      // Full or paused. Stop walking the list — on a real camera roll the
-      // rest is tens of thousands of records, and they're still pending on
-      // their own records for the next pass to find.
-      if (!taken) break;
-      enqueuedAny = true;
-      queued++;
-      // The other half of a Live Photo. A job of its own rather than part
-      // of the original's, so it shows in the queue by name and a failure
-      // to fetch the `.mov` doesn't take the still down with it.
-      if (record.isLivePhoto) {
-        await syncQueue.enqueue(
-          localId: record.localId,
-          kind: SyncJobKind.uploadLivePhoto,
-          displayName: name,
-          assetCreatedAt: record.createdAt,
-        );
-      }
-    }
-    // Only when there's something to drain: starting an empty drain would
-    // flip `draining` and bring `_onDrainingChanged` straight back here.
-    if (enqueuedAny) unawaited(syncQueue.start());
-    return queued;
-  }
-
-  /// The queue worker. One job is one asset and one kind of work, so a
-  /// stalled file blocks only itself, and "what is it doing" is always
-  /// answerable from the queue list.
-  Future<void> _processJob(SyncJob job) async {
-    final record = await assetRecordStore.getByLocalId(job.localId);
-    // Deleted out from under the queue — nothing left to do, and not worth
-    // reporting as a failure.
-    if (record == null) return;
-    switch (job.kind) {
-      case SyncJobKind.checkChanges:
-        await _checkOneForLocalChanges(record);
-      case SyncJobKind.uploadOriginal:
-        // A hidden photo whose album is closed: the key lives only in
-        // memory, and there is no version of this worth doing without it.
-        if (!_coordinator.canUpload(record)) {
-          _heldUntilUnlocked.add(record.localId);
-          return;
-        }
-        final path = await _filePathFor(record);
-        if (path == null) {
-          _unresolvable.add(record.localId);
-          return;
-        }
-        try {
-          await _coordinator.backUpDerivative(
-            record: record,
-            kind: DerivativeKind.original,
-            filePath: path,
-          );
-          final after = await assetRecordStore.getByLocalId(record.localId);
-          if (after?.stateOf(DerivativeKind.original).status ==
-              UploadStatus.failed) {
-            _triedAndFailed.add(record.localId);
-          } else if (after != null) {
-            await _finishHiddenUpload(after);
-            // Nothing landed and nothing was filed (no bucket and no
-            // carrier yet): not handed back by every refill.
-            if (after.stateOf(DerivativeKind.original).status ==
-                    UploadStatus.pending &&
-                await assetRecordStore.getByLocalId(record.localId) != null) {
-              _triedAndFailed.add(record.localId);
-            }
-          }
-        } catch (_) {
-          // Thrown or recorded, a failure is a failure: remembered either
-          // way, so the refill stops handing this one back to the queue.
-          // Rethrown so the queue still shows the row and its reason.
-          _triedAndFailed.add(record.localId);
-          rethrow;
-        }
-      case SyncJobKind.uploadLivePhoto:
-        // Straight from the photo library, with the subtype that makes
-        // PhotoKit hand back the `.mov` rather than the still frame.
-        final file = await _resolveLiveVideo(record);
-        if (file == null) {
-          // Not a Live Photo any more, or its video half isn't downloaded
-          // from iCloud. Nothing to upload and nothing to report.
-          return;
-        }
-        await _coordinator.backUpDerivative(
-          record: record,
-          kind: DerivativeKind.livePhoto,
-          filePath: file.path,
-        );
-        // The still may already be held, in which case this was the half
-        // the settle was waiting on.
-        final settled = await assetRecordStore.getByLocalId(record.localId);
-        if (settled != null) await _finishHiddenUpload(settled);
-      case SyncJobKind.uploadThumbnail:
-        final path = await _uploadableThumbnailFor(record);
-        if (path == null) return;
-        await _coordinator.backUpDerivative(
-          record: record,
-          kind: DerivativeKind.thumbnail,
-          filePath: path,
-        );
-      case SyncJobKind.analyzePhoto:
-        // Videos have no still to look at, and Vision only reads images.
-        if (record.isVideo) return;
-        final path = await _filePathFor(record);
-        if (path == null) {
-          _unresolvable.add(record.localId);
-          return;
-        }
-        await _onDeviceAnalysis.analyze(record, path);
-    }
-  }
-
-  /// Re-hashes one asset's local file and, if it's been edited since its
-  /// last successful backup, flips it back to pending and queues the
-  /// re-upload straight away rather than waiting for the next sync.
-  Future<void> _checkOneForLocalChanges(AssetRecord record) async {
-    final path = await _filePathFor(record);
-    if (path == null) {
-      _unresolvable.add(record.localId);
-      return;
-    }
-    final String hash;
-    try {
-      hash = await _hashFile(path);
-    } catch (_) {
-      // The file went between the check and the read — deleted in Photos
-      // mid-pass, most likely. "Is this photo different from the copy in
-      // the bucket?" has no answer when there's no photo to compare, and
-      // that is not a failure worth a red row in the queue: the backup
-      // that's already up there is still good.
-      _unresolvable.add(record.localId);
-      return;
-    }
-    final state = record.stateOf(DerivativeKind.original);
-    if (hash == state.backedUpHash) return;
-    await assetRecordStore.updateDerivative(
-      record.localId,
-      DerivativeKind.original,
-      DerivativeState(
-        status: UploadStatus.pending,
-        destinationKey: state.destinationKey,
-        backedUpHash: state.backedUpHash,
-      ),
-    );
-    await _backUpRecords([record]);
-  }
-
-  /// The thumbnail file to upload for [record], or null to skip it.
-  ///
-  /// Every photo still gets a local cache copy either way — that's what the
-  /// grid draws once [AssetRecord.localDeleted] takes the original away.
-  /// What's skipped is the *upload*: a photo already at or under
-  /// [thumbnailSizeThresholdBytes] doesn't warrant a second, near-identical
-  /// object in the bucket next to its `originals/` copy, so its `thumbnail`
-  /// derivative just stays `pending` — nothing was uploaded, and that's
-  /// exactly what it says. Videos have no thumbnail pipeline yet (T2.3).
-  Future<String?> _uploadableThumbnailFor(AssetRecord record) async {
-    // A video's poster frame comes from the photo library, so there's no
-    // need to export the whole movie to make one — and no size question
-    // either: no video is small enough to skip the separate upload.
-    if (record.isVideo) return _thumbnailCache.ensureFor(record);
-    final originalPath = await _filePathFor(record);
-    if (originalPath == null) return null;
-    final thumbnail = await _thumbnailCache.ensureFor(record, originalPath);
-    if (thumbnail == null) return null;
-    try {
-      final size = await File(originalPath).length();
-      return size > thumbnailSizeThresholdBytes ? thumbnail : null;
-    } catch (_) {
-      return null;
-    }
-  }
+  Future<int> _backUpRecords(List<AssetRecord> records) =>
+      _engine.backUpRecords(records);
 
   /// Whether work nobody asked for may start on its own. "Manual" is a
   /// promise: new photos still *arrive* (the scanner is not gated on
@@ -1631,10 +1425,9 @@ class LibraryScreenState extends State<LibraryScreen>
   Future<void> _resumeQueue() async =>
       syncQueue.resume(drain: await _autoSyncAllowed());
 
-  /// Opportunistic, foreground-only: there's no real iOS background-task
-  /// hookup (`BGTaskScheduler`) yet, so a configured frequency only
-  /// actually fires the next time the app (or this screen) is in the
-  /// foreground, not while backgrounded/closed.
+  /// Opportunistic: fires whenever the app (or this screen) comes to the
+  /// foreground. While backgrounded, iOS may also run a background pass —
+  /// see `../upload/background_sync.dart` — at a time of its own choosing.
   Future<void> _runScheduledSyncIfDue() async {
     try {
       final frequency = await _backupTargetsStore.getSyncFrequency();
@@ -1653,30 +1446,7 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  /// Queues a change check per already-backed-up asset. Each one re-hashes
-  /// that asset's local file to spot an edit since its last backup — real
-  /// work against a real file, so it's a queued job like any upload rather
-  /// than a silent pass, and shows up in the queue by name.
-  Future<int> _enqueueChangeChecks() async {
-    final uploaded = _all.where((r) {
-      // Cloud-only assets have no local file left to compare against, and
-      // neither has one whose file this pass already failed to find —
-      // asking again every sync is how one deleted photo becomes a
-      // permanent red row.
-      if (r.isDeleted || r.localDeleted) return false;
-      if (_unresolvable.contains(r.localId)) return false;
-      return r.stateOf(DerivativeKind.original).status == UploadStatus.uploaded;
-    }).toList();
-    for (final record in _newestFirst(uploaded)) {
-      await syncQueue.enqueue(
-        localId: record.localId,
-        kind: SyncJobKind.checkChanges,
-        displayName: _displayNameFor(record),
-        assetCreatedAt: record.createdAt,
-      );
-    }
-    return uploaded.length;
-  }
+  Future<int> _enqueueChangeChecks() => _engine.enqueueChangeChecks();
 
   /// The one entry point "Sync Now" and the scheduled due-check both go
   /// through. Queues the work and returns — nothing is uploaded on this
@@ -1692,6 +1462,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // in a bucket does not stop being a plain copy.
     unawaited(_drainPendingDeletes());
     unawaited(_sendUnsentCarriers());
+    unawaited(_backupVerifier.spotCheck().then((_) {}, onError: (_) {}));
     _forgetFailures();
     await _enqueueChangeChecks();
     await _backUpRecords(_pendingAndFailed);
@@ -1705,34 +1476,8 @@ class LibraryScreenState extends State<LibraryScreen>
     return syncQueue.jobs.value.where((job) => !job.isFinished).length;
   }
 
-  /// The `.mov` half of a Live Photo, or null when there isn't one to be
-  /// had. Overridable through the same seam the viewer uses.
-  Future<File?> _resolveLiveVideo(AssetRecord record) async {
-    try {
-      return await PhotoLibraryService.resolveLivePhotoVideo(record);
-    } catch (_) {
-      // No plugin, or gone from the library since.
-      return null;
-    }
-  }
-
-  /// [AssetRecord.sourcePath] direct for `manualFile`; for `photoManager`
-  /// it's resolved on demand via `photo_manager` — may trigger an iCloud
-  /// download on iOS, so can be slow the first time.
-  Future<String?> _filePathFor(AssetRecord record) async {
-    // Cloud-only by definition — there's no local original to back up,
-    // re-hash, or thumbnail, and `sourcePath` still points at the file
-    // that was deleted.
-    if (record.localDeleted) return null;
-    final path = record.sourcePath;
-    // Checked, not assumed: a job that hands the uploader a path to
-    // nothing fails loudly and stays failed, which is how one moved file
-    // turned into a permanent red row in the queue.
-    if (path != null && File(path).existsSync()) return path;
-    if (record.sourceType != AssetSourceType.photoManager) return null;
-    final file = await _photoLibraryService.fileFor(record);
-    return file?.path;
-  }
+  Future<String?> _filePathFor(AssetRecord record) =>
+      _engine.filePathFor(record);
 
   /// Backs up [records] (whatever this action just added) plus anything
   /// else still pending/failed from before — an import of content already
@@ -1875,6 +1620,7 @@ class LibraryScreenState extends State<LibraryScreen>
         case DeleteOutcome.none:
         case DeleteOutcome.cloudOnly:
         case DeleteOutcome.binned:
+        case DeleteOutcome.deleted:
           break;
       }
     }
@@ -2009,49 +1755,27 @@ class LibraryScreenState extends State<LibraryScreen>
 
   void _startSelecting(AssetRecord record) {
     setState(() => _selection = {record.localId});
-    // The finger is still down. Whatever it sweeps over next joins the
-    // selection rather than being dropped on the floor — see
-    // [_onSelectDragUpdate].
-    _dragSelecting = true;
-    _dragSelects = true;
-    _dragSeen = {record.localId};
+    // The finger is still down: dragging on from here selects the range
+    // between this photo and wherever the finger goes.
+    _sweep.begin(record.localId);
   }
 
-  /// A hold-then-sweep, or a sideways drag once selecting, is one gesture:
-  /// every tile it passes over gets the same treatment, and which treatment
-  /// that is was decided by the first one — sweeping off a selected photo
-  /// deselects, which is what makes a sweep undoable by sweeping back.
-  bool _dragSelecting = false;
-  bool _dragSelects = true;
-  Set<String> _dragSeen = const {};
+  final _sweep = SelectSweep<String>();
 
   void _onSelectDragUpdate(Offset globalPosition) {
     final selection = _selection;
     if (selection == null) return;
     final record = _recordUnder(globalPosition);
     if (record == null) return;
-    if (!_dragSelecting) {
-      // A sideways drag that started on a tile: its state decides whether
-      // this sweep is selecting or deselecting.
-      _dragSelecting = true;
-      _dragSelects = !selection.contains(record.localId);
-      _dragSeen = {};
-    }
-    if (!_dragSeen.add(record.localId)) return;
-    final next = {...selection};
-    if (_dragSelects) {
-      next.add(record.localId);
-    } else {
-      next.remove(record.localId);
-    }
-    if (next.length == selection.length) return;
-    setState(() => _selection = next);
+    final next = _sweep.over(
+      record.localId,
+      selection,
+      () => [for (final r in _filtered) r.localId],
+    );
+    if (next != null) setState(() => _selection = next);
   }
 
-  void _onSelectDragEnd() {
-    _dragSelecting = false;
-    _dragSeen = const {};
-  }
+  void _onSelectDragEnd() => _sweep.end();
 
   /// Which tile is under [globalPosition], asked of the tiles themselves:
   /// each one carries its record in a `MetaData` (see `AssetTile`), so this
@@ -2122,6 +1846,7 @@ class LibraryScreenState extends State<LibraryScreen>
         context,
         count: batch.length,
         removable: removable.length,
+        cloudOnly: batch.where((r) => r.localDeleted).length,
       );
       if (choice == DeleteChoice.cancel) return;
       if (choice == DeleteChoice.fromDevice) {
@@ -2152,7 +1877,7 @@ class LibraryScreenState extends State<LibraryScreen>
             !gone.contains(record.localId)) {
           continue;
         }
-        await assetRecordStore.softDelete(record.localId);
+        await _removal.binOrPurge(record);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -2635,7 +2360,9 @@ class LibraryScreenState extends State<LibraryScreen>
                   // empty `_all` is also what "hasn't loaded yet" looks
                   // like, and offering "No Photos Yet — Add Files" for a
                   // moment on every launch says the library is gone.
-                  emptySliver: _loaded && _all.isEmpty
+                  emptySliver: !_loaded
+                      ? const SliverToBoxAdapter(child: GridSkeleton())
+                      : _all.isEmpty
                       ? SliverToBoxAdapter(
                           child: _EmptyState(busy: _busy, onAddFiles: addFiles),
                         )
@@ -2994,10 +2721,7 @@ class LibraryScreenState extends State<LibraryScreen>
             title: l10n.collectionsRecentlyDeletedRow,
             count: _deletedCount,
             onTap: () => _push(
-              RecentlyDeletedScreen(
-                assetRecordStore: assetRecordStore,
-                deleteBackup: _coordinator.deleteBackup,
-              ),
+              RecentlyDeletedScreen(assetRecordStore: assetRecordStore),
             ),
           ),
         ],
