@@ -69,4 +69,11 @@ void main() {
     expect(bytesMatch([1, 2, 3], [1, 2, 4]), isFalse);
     expect(bytesMatch([1, 2, 3], [1, 2]), isFalse);
   });
+
+  test('vaultHmacParts matches vaultHmac over the joined bytes', () {
+    final key = Uint8List.fromList(List.generate(32, (i) => i));
+    final a = utf8.encode('header');
+    final b = Uint8List.fromList(List.generate(100000, (i) => i % 251));
+    expect(vaultHmacParts(key, [a, b]), equals(vaultHmac(key, [...a, ...b])));
+  });
 }

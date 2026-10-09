@@ -50,17 +50,41 @@ const _thumbnailQuality = 70;
 /// decodable still image — videos have no thumbnail pipeline yet (T2.3
 /// needs a frame extractor), so they keep the grid's play-icon placeholder.
 /// Pure Dart, no Flutter dependency, so it runs on `Isolate.run`.
-Uint8List? encodeThumbnail(Uint8List bytes) {
+Uint8List? encodeThumbnail(Uint8List bytes, {int? maxBytes}) {
   final decoded = decodePhoto(bytes);
   if (decoded == null) return null;
   final longestEdge = decoded.width > decoded.height
       ? decoded.width
       : decoded.height;
-  if (longestEdge <= thumbnailMaxEdge) return bytes;
-  final resized = decoded.width >= decoded.height
-      ? img.copyResize(decoded, width: thumbnailMaxEdge)
-      : img.copyResize(decoded, height: thumbnailMaxEdge);
-  return Uint8List.fromList(img.encodeJpg(resized, quality: _thumbnailQuality));
+  var out = longestEdge <= thumbnailMaxEdge
+      ? bytes
+      : _encodeAt(decoded, thumbnailMaxEdge, _thumbnailQuality);
+  if (maxBytes == null || out.length <= maxBytes) return out;
+  // A small photo is its own thumbnail above, bytes and all — and a
+  // 320px file can still be 100 KB. Where the caller has a byte budget
+  // (a carrier's first 64 KB), re-encode down until it fits.
+  for (final (edge, quality) in const [
+    (thumbnailMaxEdge, _thumbnailQuality),
+    (thumbnailMaxEdge, 50),
+    (240, 50),
+    (160, 40),
+  ]) {
+    out = _encodeAt(decoded, edge, quality);
+    if (out.length <= maxBytes) return out;
+  }
+  return null;
+}
+
+Uint8List _encodeAt(img.Image decoded, int edge, int quality) {
+  final longest = decoded.width > decoded.height
+      ? decoded.width
+      : decoded.height;
+  final sized = longest <= edge
+      ? decoded
+      : decoded.width >= decoded.height
+      ? img.copyResize(decoded, width: edge)
+      : img.copyResize(decoded, height: edge);
+  return Uint8List.fromList(img.encodeJpg(sized, quality: quality));
 }
 
 /// Re-encodes [bytes] as lossy WebP, first shrinking the image so its

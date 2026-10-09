@@ -50,4 +50,22 @@ void main() {
       );
     });
   });
+
+  test('a byte budget shrinks a small photo that is already its own size', () {
+    // 300px on a side, so untouched without a budget — but noisy, so at
+    // quality 100 it is far bigger than a carrier's prefix can hold.
+    final noisy = img.Image(width: 300, height: 300);
+    var seed = 7;
+    for (final px in noisy) {
+      seed = (seed * 1103515245 + 12345) & 0x7fffffff;
+      px.setRgb(seed & 255, (seed >> 8) & 255, (seed >> 16) & 255);
+    }
+    final bytes = Uint8List.fromList(img.encodeJpg(noisy, quality: 100));
+    expect(encodeThumbnail(bytes), same(bytes));
+
+    final budget = bytes.length ~/ 2;
+    final fitted = encodeThumbnail(bytes, maxBytes: budget)!;
+    expect(fitted.length, lessThanOrEqualTo(budget));
+    expect(img.decodeImage(fitted), isNotNull);
+  });
 }
