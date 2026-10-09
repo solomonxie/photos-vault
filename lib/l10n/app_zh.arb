@@ -206,6 +206,9 @@
   "settingsICloudRow": "iCloud 云盘",
   "settingsBucketDataRow": "你的云存储桶",
   "settingsBucketDataPath": "每个存储桶中的 app-data/YYYYMMDD.zip",
+  "privateAlbumBackUp": "备份",
+  "privateAlbumStopBackUp": "停止备份",
+  "privateAlbumBackUpProblems": "{count} 张照片未备份：{reason}",
   "privateAlbumFindInBucket": "在存储桶中查找隐藏照片",
   "privateAlbumFindInBucketDone": "{count, plural, =0{没有发现新内容} other{已添加 {count} 张照片}}",
   "@privateAlbumFindInBucketDone": {

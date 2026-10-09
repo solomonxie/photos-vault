@@ -531,4 +531,73 @@ void main() {
     expect(find.textContaining('Back up this album'), findsNothing);
     expect(find.byType(CupertinoSwitch), findsNothing);
   });
+
+  group('Back Up', () {
+    tearDown(() => PrivateAlbumScreen.backUpHidden = null);
+
+    Future<FakeAssetRecordStore> twoHidden() async {
+      final store = FakeAssetRecordStore();
+      for (final id in ['manual:new', 'manual:done']) {
+        await store.upsert(
+          localId: id,
+          contentHash: id,
+          platform: 'ios',
+          sourceType: AssetSourceType.manualFile,
+          sourcePath: '/tmp/$id.jpg',
+        );
+        await store.setPasscodeHash(id, _hash);
+      }
+      await store.updateDerivative(
+        'manual:done',
+        DerivativeKind.original,
+        const DerivativeState(status: UploadStatus.uploaded),
+      );
+      return store;
+    }
+
+    testWidgets('sends only what is not up yet, and the photos stay put', (
+      tester,
+    ) async {
+      final store = await twoHidden();
+      final sent = <String>[];
+      PrivateAlbumScreen.backUpHidden = (record) async {
+        sent.add(record.localId);
+        await store.updateDerivative(
+          record.localId,
+          DerivativeKind.original,
+          const DerivativeState(status: UploadStatus.uploaded),
+        );
+      };
+      await tester.pumpWidget(
+        _wrap(PrivateAlbumScreen(passcodeHash: _hash, assetRecordStore: store)),
+      );
+      await tester.pumpAndSettle();
+
+      await _openAlbumMenu(tester);
+      await tester.tap(find.text('Back Up'));
+      await tester.pumpAndSettle();
+
+      expect(sent, ['manual:new']);
+      expect(find.byKey(const ValueKey('manual:new')), findsOneWidget);
+      expect(find.byKey(const ValueKey('manual:done')), findsOneWidget);
+      expect((await store.getByLocalId('manual:new'))!.isFullyBackedUp, isTrue);
+    });
+
+    testWidgets('a failure is one message saying why', (tester) async {
+      final store = await twoHidden();
+      PrivateAlbumScreen.backUpHidden = (_) async =>
+          throw Exception('No bucket to back up to');
+      await tester.pumpWidget(
+        _wrap(PrivateAlbumScreen(passcodeHash: _hash, assetRecordStore: store)),
+      );
+      await tester.pumpAndSettle();
+
+      await _openAlbumMenu(tester);
+      await tester.tap(find.text('Back Up'));
+      await tester.pumpAndSettle();
+
+      expect(find.textContaining("1 photo wasn't backed up"), findsOneWidget);
+      expect(find.textContaining('No bucket to back up to'), findsOneWidget);
+    });
+  });
 }

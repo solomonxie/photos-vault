@@ -12,6 +12,15 @@ import 'sync_job.dart';
 import 'sync_job_store.dart';
 import 'sync_queue.dart';
 
+/// A failure worth showing to the user, in their words.
+class SyncJobProblem implements Exception {
+  const SyncJobProblem(this.message);
+  final String message;
+
+  @override
+  String toString() => message;
+}
+
 /// The sync machinery with no screen in it: what turns a pending record into
 /// queued jobs and a job into an upload. The library screen drives it with
 /// its own state and UI hooks; the background run (`background_sync.dart`)
@@ -28,7 +37,6 @@ class SyncEngine {
     required this.records,
     required this.displayName,
     required this.hashFile,
-    this.finishHidden,
     this.analyze,
     this.kinds,
   });
@@ -51,9 +59,6 @@ class SyncEngine {
   final String Function(AssetRecord record) displayName;
   final Future<String> Function(String path) hashFile;
 
-  /// Hidden photos need an open album; absent where none can be open.
-  final Future<void> Function(AssetRecord record)? finishHidden;
-
   /// `analyzePhoto` jobs belong to the screen's on-device analysis.
   final Future<void> Function(AssetRecord record, String path)? analyze;
 
@@ -74,9 +79,6 @@ class SyncEngine {
   /// ends. Cleared whenever the camera roll is re-read.
   final unresolvable = <String>{};
 
-  /// Hidden photos waiting for their album to be opened. Not a failure.
-  final heldUntilUnlocked = <String>{};
-
   /// Owed a thumbnail but with nothing to make one from this session.
   final thumbnailUnavailable = <String>{};
 
@@ -85,17 +87,12 @@ class SyncEngine {
     unresolvable.clear();
   }
 
-  /// Everything still owed an upload — hidden photos included by default,
-  /// because they need it most: the app took them out of Photos, so the
-  /// bucket is the only other copy there is.
+  /// Everything still owed an upload. Hidden photos never: they are backed
+  /// up from inside their open album ([backUpHidden]), so the queue and the
+  /// Cloud page never have to know they exist.
   List<AssetRecord> get pendingAndFailed => records().where((r) {
-    if (r.isDeleted || unresolvable.contains(r.localId)) return false;
-    // Hidden, with its album locked. Queueing it again would be a loop:
-    // the job takes, does nothing, finishes, and the refill hands it
-    // straight back.
-    if (heldUntilUnlocked.contains(r.localId) && !coordinator.canUpload(r)) {
-      return false;
-    }
+    if (r.isDeleted || r.passcodeHash != null) return false;
+    if (unresolvable.contains(r.localId)) return false;
     // A Live Photo whose still went up but whose `.mov` didn't is still
     // owed to the bucket — what's up there is a silent still.
     return !r.isFullyBackedUp;
@@ -146,53 +143,35 @@ class SyncEngine {
     // thousands of exports (and iCloud downloads) handed to a coordinator
     // with nowhere to put them. Adding a target runs a sync, which picks
     // every pending asset up then.
-    //
-    // Except hidden photos: the job is also what encrypts and files them,
-    // and with no bucket that still has to happen — or they stay plain
-    // files for good. Their carriers go up once a bucket exists.
-    final hasTarget = await hasBackupTarget();
-    final work = hasTarget
-        ? records
-        : [
-            for (final r in records)
-              if (r.passcodeHash != null && coordinator.canUpload(r)) r,
-          ];
+    if (!await hasBackupTarget()) return 0;
+    final work = [
+      for (final r in records)
+        if (r.passcodeHash == null) r,
+    ];
     var queued = 0;
     var enqueuedAny = false;
 
     /// Queues one photo's jobs; false when the queue is full or paused.
     Future<bool> queueRecord(AssetRecord record) async {
-      final hidden = record.passcodeHash != null;
-      // Hidden photos jump the queue: the app took them out of Photos, so
-      // until a carrier is up this phone holds the only copy.
-      final priority = hidden ? 1 : 0;
       final name = displayName(record);
       // The thumbnail goes in *first*, and not for the bucket's sake:
       // `uploadThumbnail` is also what puts the picture this app draws
       // once the original is gone onto disk. Queued first, the job a full
       // queue turns away is the *original*, which is still pending and
       // comes back on the next pass.
-      //
-      // A hidden photo gets no `thumbnails/` copy: the same picture at
-      // 320px in the folder built for cheap browsing — the private album's
-      // contents, legible to anyone who can read the bucket. A Live Photo's
-      // `.mov` does go, as a carrier of its own.
-      if (!hidden) {
-        final tookThumbnail = await syncQueue.enqueue(
-          localId: record.localId,
-          kind: SyncJobKind.uploadThumbnail,
-          displayName: name,
-          assetCreatedAt: record.createdAt,
-        );
-        if (!tookThumbnail) return false;
-        enqueuedAny = true;
-      }
+      final tookThumbnail = await syncQueue.enqueue(
+        localId: record.localId,
+        kind: SyncJobKind.uploadThumbnail,
+        displayName: name,
+        assetCreatedAt: record.createdAt,
+      );
+      if (!tookThumbnail) return false;
+      enqueuedAny = true;
       final taken = await syncQueue.enqueue(
         localId: record.localId,
         kind: SyncJobKind.uploadOriginal,
         displayName: name,
         assetCreatedAt: record.createdAt,
-        priority: priority,
       );
       if (!taken) return false;
       enqueuedAny = true;
@@ -206,40 +185,30 @@ class SyncEngine {
           kind: SyncJobKind.uploadLivePhoto,
           displayName: name,
           assetCreatedAt: record.createdAt,
-          priority: priority,
         );
       }
       return true;
     }
 
-    // Hidden first, then the owed thumbnails, then the library — so a
-    // full queue never turns a hidden photo away for library work.
+    // The owed thumbnails first, then the library.
     final ordered = newestFirst(work);
     var full = false;
-    for (final record in ordered.where((r) => r.passcodeHash != null)) {
-      if (!await queueRecord(record)) {
+    for (final record in newestFirst(thumbnailsOwed)) {
+      if (!await syncQueue.enqueue(
+        localId: record.localId,
+        kind: SyncJobKind.uploadThumbnail,
+        displayName: displayName(record),
+        assetCreatedAt: record.createdAt,
+      )) {
         full = true;
         break;
       }
-    }
-    if (hasTarget && !full) {
-      for (final record in newestFirst(thumbnailsOwed)) {
-        if (!await syncQueue.enqueue(
-          localId: record.localId,
-          kind: SyncJobKind.uploadThumbnail,
-          displayName: displayName(record),
-          assetCreatedAt: record.createdAt,
-        )) {
-          full = true;
-          break;
-        }
-        enqueuedAny = true;
-      }
+      enqueuedAny = true;
     }
     if (!full) {
       // Full or paused stops the walk — on a real camera roll the rest is
       // tens of thousands of records, still pending for the next pass.
-      for (final record in ordered.where((r) => r.passcodeHash == null)) {
+      for (final record in ordered) {
         if (!await queueRecord(record)) break;
       }
     }
@@ -282,16 +251,12 @@ class SyncEngine {
     // Deleted out from under the queue — nothing left to do, and not worth
     // reporting as a failure.
     if (record == null) return;
+    // Queued by an older build. Hidden photos go up from their album now.
+    if (record.passcodeHash != null) return;
     switch (job.kind) {
       case SyncJobKind.checkChanges:
         await _checkOneForLocalChanges(record);
       case SyncJobKind.uploadOriginal:
-        // A hidden photo whose album is closed: the key lives only in
-        // memory, and there is no version of this worth doing without it.
-        if (!coordinator.canUpload(record)) {
-          heldUntilUnlocked.add(record.localId);
-          return;
-        }
         final path = await filePathFor(record);
         if (path == null) {
           unresolvable.add(record.localId);
@@ -305,18 +270,10 @@ class SyncEngine {
           );
           final after = await recordStore.getByLocalId(record.localId);
           await _queueOrphanedKey(record, after);
-          if (after?.stateOf(DerivativeKind.original).status ==
-              UploadStatus.failed) {
+          // Failed, or nothing landed: not handed back by every refill.
+          if (after?.stateOf(DerivativeKind.original).status !=
+              UploadStatus.uploaded) {
             triedAndFailed.add(record.localId);
-          } else if (after != null) {
-            await finishHidden?.call(after);
-            // Nothing landed and nothing was filed (no bucket and no
-            // carrier yet): not handed back by every refill.
-            if (after.stateOf(DerivativeKind.original).status ==
-                    UploadStatus.pending &&
-                await recordStore.getByLocalId(record.localId) != null) {
-              triedAndFailed.add(record.localId);
-            }
           }
         } catch (_) {
           // Thrown or recorded, a failure is a failure: remembered either
@@ -339,10 +296,6 @@ class SyncEngine {
           kind: DerivativeKind.livePhoto,
           filePath: file.path,
         );
-        // The still may already be held, in which case this was the half
-        // the settle was waiting on.
-        final settled = await recordStore.getByLocalId(record.localId);
-        if (settled != null) await finishHidden?.call(settled);
       case SyncJobKind.uploadThumbnail:
         final path = await _uploadableThumbnailFor(record);
         if (path == null) {
@@ -363,6 +316,44 @@ class SyncEngine {
           return;
         }
         await analyze?.call(record, path);
+    }
+  }
+
+  /// One hidden photo, from inside its open album: an encrypted copy built
+  /// and sent to every bucket. The photo itself is not touched — same file,
+  /// same row, same tile — only its backup status changes. Throws a
+  /// [SyncJobProblem] saying why when it can't be done.
+  Future<void> backUpHidden(AssetRecord record) async {
+    if (!coordinator.canUpload(record)) {
+      throw const SyncJobProblem('Album is locked');
+    }
+    if (!await hasBackupTarget()) {
+      throw const SyncJobProblem('No bucket to back up to');
+    }
+    final path = await filePathFor(record);
+    if (path == null) {
+      throw const SyncJobProblem("This photo's file isn't on this iPhone");
+    }
+    await coordinator.backUpDerivative(
+      record: record,
+      kind: DerivativeKind.original,
+      filePath: path,
+      keepCarrierLocally: false,
+    );
+    if (record.isLivePhoto) {
+      final video = await _resolveLiveVideo(record);
+      if (video != null) {
+        await coordinator.backUpDerivative(
+          record: record,
+          kind: DerivativeKind.livePhoto,
+          filePath: video.path,
+          keepCarrierLocally: false,
+        );
+      }
+    }
+    final after = await recordStore.getByLocalId(record.localId);
+    if (after != null && !after.isFullyBackedUp) {
+      throw const SyncJobProblem("Couldn't upload it — try again");
     }
   }
 

@@ -332,6 +332,19 @@
   "settingsICloudRow": "iCloud Drive",
   "settingsBucketDataRow": "Your Cloud Bucket",
   "settingsBucketDataPath": "Saved as app-data/YYYYMMDD.zip in every bucket",
+  "privateAlbumBackUp": "Back Up",
+  "privateAlbumStopBackUp": "Stop Backup",
+  "privateAlbumBackUpProblems": "{count, plural, one{1 photo wasn't backed up: {reason}} other{{count} photos weren't backed up. First: {reason}}}",
+  "@privateAlbumBackUpProblems": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
   "privateAlbumFindInBucket": "Find Hidden Photos in Bucket",
   "privateAlbumFindInBucketDone": "{count, plural, =0{Nothing new found} =1{Added 1 photo} other{Added {count} photos}}",
   "@privateAlbumFindInBucketDone": {
