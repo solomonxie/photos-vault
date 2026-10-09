@@ -219,6 +219,7 @@ class BackupCoordinator {
     required DerivativeKind kind,
     required String filePath,
     List<S3BackupTarget>? targets,
+    bool keepCarrierLocally = true,
   }) async {
     // Left `pending`, deliberately: the queue will offer it again once the
     // album is open, and a `failed` here would read as something the user
@@ -266,11 +267,15 @@ class BackupCoordinator {
     // upload this app is the only thing holding it — and the carrier is the
     // form it is held in, which is why this is the same file the upload
     // reads rather than a second encryption of the same bytes.
-    await _keepCarrierLocally(
-      record: record,
-      carrierPath: uploadPath,
-      objectKey: vaultObjectKey(derivativeDir, fileName),
-    );
+    // Not when the plain photo stays on the phone as it is: a second,
+    // encrypted copy of it here would only double what it takes up.
+    if (keepCarrierLocally) {
+      await _keepCarrierLocally(
+        record: record,
+        carrierPath: uploadPath,
+        objectKey: vaultObjectKey(derivativeDir, fileName),
+      );
+    }
 
     // What each target already has, of this exact file. A retry after one
     // target failed must not re-send to the one that worked — on a video

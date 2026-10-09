@@ -96,5 +96,6 @@ It exits early, in this order, when: demo mode is on, the sync frequency is
 Manual, no bucket is configured, the app was in the foreground in the last 5
 minutes (`ForegroundHeartbeat`), the frequency says it isn't due, or nothing
 is pending. While running it stops if the app returns to the foreground or
-iOS expires the task. Hidden photos, change-check re-hashing and the full
-camera-roll scan stay with the foreground app.
+iOS expires the task. Change-check re-hashing and the full camera-roll scan
+stay with the foreground app. Hidden photos are never queued anywhere: they
+are backed up from inside their album (`../vault/README.md`).

@@ -14,7 +14,9 @@ import '../vault/album_index.dart';
 import '../vault/bucket.dart';
 import '../vault/cache.dart';
 import '../vault/gallery.dart';
+import '../vault/filed_photos.dart';
 import '../vault/hidden_notes.dart';
+import '../vault/object_key.dart';
 import '../vault/hidden_removal.dart';
 import '../vault/hidden_restore.dart';
 import '../vault/passphrase_sheet.dart';
@@ -73,6 +75,11 @@ class PrivateAlbumScreen extends StatefulWidget {
   /// have been uploaded.
   final AlbumKeys? albumKeys;
   final VaultKeys? vaultKeys;
+
+  /// Backs up one hidden photo — an encrypted copy to every bucket, the
+  /// photo itself untouched. Set by the library screen, which owns the
+  /// upload machinery; null where there is none (tests).
+  static Future<void> Function(AssetRecord record)? backUpHidden;
 
   @override
   State<PrivateAlbumScreen> createState() => _PrivateAlbumScreenState();
@@ -314,6 +321,113 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     await _reloadHoldings();
     // Filed while there was no bucket: offered up now one may exist.
     unawaited(gallery.sendUnsent(entries));
+    unawaited(_bringBackFiled());
+  }
+
+  late final FiledPhotos _filed = FiledPhotos(records: widget.assetRecordStore);
+
+  /// Photos older builds filed — plain file gone, only the carrier left —
+  /// made ordinary again from the carrier this phone holds, so every photo
+  /// here shows and opens the same way. Local only; a bucket-only one is
+  /// brought down when it is tapped.
+  Future<void> _bringBackFiled() async {
+    final keys = widget.albumKeys;
+    if (keys == null) return;
+    var changed = false;
+    for (final record in List.of(_records)) {
+      if (!mounted) return;
+      final path = record.sourcePath;
+      if (record.sourceType != AssetSourceType.manualFile) continue;
+      if (path != null && await File(path).exists()) continue;
+      if (await _filed.restoreRow(keys, record)) changed = true;
+    }
+    for (final entry in _entriesWithoutRows) {
+      if (!mounted) return;
+      final record = await _filed.adopt(keys, widget.passcodeHash, entry);
+      if (record != null) changed = true;
+    }
+    if (changed && mounted) {
+      await _reload();
+      await _reloadHoldings();
+    }
+  }
+
+  /// Every key a row here is known by in the bucket. An index entry with
+  /// one of them is that row's backup, not a second photo.
+  Set<String> _rowKeys = const {};
+
+  List<IndexEntry> get _entriesWithoutRows => [
+    for (final e in _cloudEntries)
+      if (!_rowKeys.contains(e.objectKey)) e,
+  ];
+
+  Set<String> _keysOf(List<AssetRecord> records) {
+    final keys = widget.albumKeys;
+    return {
+      for (final r in records) ...[
+        if (keys != null) vaultCarrierKey(r, keys.carrier),
+        ?_relativeKey(r.stateOf(DerivativeKind.original).destinationKey),
+      ],
+    };
+  }
+
+  /// `originals/<name>` from a key that may carry the bucket's prefix.
+  String? _relativeKey(String? key) {
+    if (key == null) return null;
+    final at = key.indexOf('originals/');
+    return at == -1 ? key : key.substring(at);
+  }
+
+  bool _backingUp = false;
+
+  /// Backs the album up one photo at a time. Nothing to watch but the
+  /// underlines: yellow waiting, moving while it goes, green when it's in
+  /// every bucket. The photos themselves don't change.
+  Future<void> _backUp() async {
+    final backUp = PrivateAlbumScreen.backUpHidden;
+    if (backUp == null || _backingUp) return;
+    final l10n = AppLocalizations.of(context)!;
+    setState(() => _backingUp = true);
+    final problems = <String>[];
+    try {
+      for (final record in List.of(_records)) {
+        if (!mounted || !_backingUp) return;
+        if (record.isDeleted || record.isFullyBackedUp) continue;
+        _showUploading(record);
+        try {
+          await backUp(record);
+        } catch (e) {
+          problems.add('$e');
+        }
+        await _reload();
+      }
+    } finally {
+      if (mounted) setState(() => _backingUp = false);
+    }
+    if (problems.isNotEmpty && mounted) {
+      await _showNote(
+        l10n.privateAlbumBackUpProblems(problems.length, problems.first),
+      );
+    }
+  }
+
+  /// The underline moves at once rather than after the first database write.
+  void _showUploading(AssetRecord record) {
+    final state = record.stateOf(DerivativeKind.original);
+    setState(() {
+      _records = [
+        for (final r in _records)
+          r.localId == record.localId
+              ? r.withDerivative(
+                  DerivativeKind.original,
+                  DerivativeState(
+                    status: UploadStatus.uploading,
+                    destinationKey: state.destinationKey,
+                  ),
+                )
+              : r,
+      ];
+    });
   }
 
   /// Which entries are held in full here, and what that weighs. Its own
@@ -386,6 +500,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     setState(() {
       _records = records;
+      _rowKeys = _keysOf(records);
       // Best-effort: only sums files already resolvable on disk
       // (`manualFile` records, or `photoManager` ones already downloaded) —
       // doesn't trigger an iCloud fetch just to render a header stat.
@@ -870,7 +985,8 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
   /// into the local one: these have no record on this phone to mix with.
   Widget _cloudSliver(AppLocalizations l10n) {
     final gallery = _gallery;
-    if (gallery == null || _cloudEntries.isEmpty) {
+    final shown = _entriesWithoutRows;
+    if (gallery == null || shown.isEmpty) {
       return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
     return SliverPadding(
@@ -882,7 +998,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
           crossAxisSpacing: 2,
         ),
         delegate: SliverChildBuilderDelegate((context, index) {
-          final entry = _cloudEntries[index];
+          final entry = shown[index];
           return VaultTile(
             gallery: gallery,
             entry: entry,
@@ -898,7 +1014,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
             onSelectDragUpdate: _onCloudSweep,
             onSelectDragEnd: _cloudSweep.end,
           );
-        }, childCount: _cloudEntries.length),
+        }, childCount: shown.length),
       ),
     );
   }
@@ -1039,6 +1155,26 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
   Future<void> _openCloud(IndexEntry entry) async {
     final gallery = _gallery;
     if (gallery == null) return;
+    // Brought down once and kept as an ordinary photo, then opened like one;
+    // never fetched again.
+    final keys = widget.albumKeys;
+    if (keys != null) {
+      final record = await _filed.adopt(
+        keys,
+        widget.passcodeHash,
+        entry,
+        download: true,
+      );
+      if (!mounted) return;
+      if (record != null) {
+        await _reload();
+        await _reloadHoldings();
+        if (!mounted) return;
+        final opened = _records.where((r) => r.localId == record.localId);
+        if (opened.isNotEmpty) _open(opened.first);
+        return;
+      }
+    }
     await Navigator.of(context).push(
       CupertinoPageRoute<void>(
         builder: (_) => VaultPhotoScreen(
@@ -1075,6 +1211,22 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                 style: const TextStyle(fontSize: 13),
               ),
         actions: [
+          if (PrivateAlbumScreen.backUpHidden != null && _records.isNotEmpty)
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.of(sheetContext).pop();
+                if (_backingUp) {
+                  setState(() => _backingUp = false);
+                } else {
+                  _backUp();
+                }
+              },
+              child: Text(
+                _backingUp
+                    ? l10n.privateAlbumStopBackUp
+                    : l10n.privateAlbumBackUp,
+              ),
+            ),
           if (keys != null) ...[
             CupertinoActionSheetAction(
               onPressed: () {
@@ -1404,7 +1556,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                       // records read as an empty album the moment the
                       // carriers were filed and the rows deleted.
                       Text(
-                        '${l10n.privateAlbumItemCount(_records.length + _cloudEntries.length)}'
+                        '${l10n.privateAlbumItemCount(_records.length + _entriesWithoutRows.length)}'
                         ' · ${_formatSize(_totalBytes + _localBytes)}',
                         style: const TextStyle(
                           color: CupertinoColors.systemGrey,

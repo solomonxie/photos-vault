@@ -63,7 +63,6 @@ import '../upload/library_restore.dart';
 import '../vault/bucket.dart';
 import '../vault/carrier_upload.dart';
 import '../vault/decoy.dart';
-import '../vault/hidden_filing.dart';
 import '../vault/keys.dart';
 import '../vault/store.dart';
 import '../upload/pending_deletes.dart';
@@ -91,6 +90,7 @@ import 'person_avatar.dart';
 import 'person_page_screen.dart';
 import 'unnamed_face_card.dart';
 import 'private_album_gate.dart';
+import 'private_album_screen.dart';
 import 'recently_deleted_screen.dart';
 import 'safety_screen.dart';
 import 'search_picker_sheet.dart';
@@ -369,7 +369,6 @@ class LibraryScreenState extends State<LibraryScreen>
     records: () => _all,
     displayName: _displayNameFor,
     hashFile: _hashFile,
-    finishHidden: _finishHiddenUpload,
     analyze: _onDeviceAnalysis.analyze,
   );
 
@@ -618,6 +617,7 @@ class LibraryScreenState extends State<LibraryScreen>
         recordStore: assetRecordStore,
       ).restoreThumbnail,
     );
+    PrivateAlbumScreen.backUpHidden = _engine.backUpHidden;
     _searchFocus.addListener(_onSearchFocusChanged);
     _watchPhotoLibrary();
     syncQueue.draining.addListener(_onDrainingChanged);
@@ -1291,7 +1291,6 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Set<String> get _triedAndFailed => _engine.triedAndFailed;
   Set<String> get _unresolvable => _engine.unresolvable;
-  Set<String> get _heldUntilUnlocked => _engine.heldUntilUnlocked;
 
   /// Everything given up on gets another go — this is somebody deciding to
   /// retry, which is the whole point of the button.
@@ -1332,25 +1331,6 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<bool> _hasBackupTarget() => _engine.hasBackupTarget();
-
-  /// Queues [records] for backup rather than uploading them here: one job
-  /// per derivative per asset, drained by [syncQueue] with real concurrency.
-  /// Returns how many assets were queued — not how many landed, which isn't
-  /// knowable until the queue gets to them, and not how many were *asked*
-  /// for: the queue is capped ([SyncQueue.capacity]) and refuses while
-  /// paused, so a big library goes up a queueful at a time.
-  /// See [HiddenFiling].
-  Future<void> _finishHiddenUpload(AssetRecord record) =>
-      _hiddenFiling.file(record, name: _displayNameFor(record));
-
-  late final HiddenFiling _hiddenFiling = HiddenFiling(
-    records: assetRecordStore,
-    vaultStore: _vaultStore,
-    bucket: _vaultBucket,
-    keysFor: _vaultKeys.ringKeysFor,
-    passphrases: _vaultKeys.entries,
-    removeThumbnail: _thumbnailCache.remove,
-  );
 
   /// What a carrier can pretend to be: ordinary photos this phone still
   /// holds, with their real file sizes.
@@ -2137,10 +2117,7 @@ class LibraryScreenState extends State<LibraryScreen>
       vaultKeys: _vaultKeys,
       libraryCount: _all.length,
     );
-    // Whatever was waiting on this album's key can go now.
-    _heldUntilUnlocked.clear();
     await reload();
-    unawaited(_backUpRecords(_pendingAndFailed));
   }
 
   /// Unlike a plain [_push], always syncs on return — regardless of the
