@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart'
     show ConflictAlgorithm, Database, DatabaseFactory, OpenDatabaseOptions;
 
 import '../backup/change_log.dart';
+import 'container_path.dart';
 import 'asset_record.dart';
 import 'bucket_object.dart';
 
@@ -1555,8 +1556,8 @@ class AssetRecordStore {
       sourceType:
           _sourceTypes[row['source_type'] as String] ??
           AssetSourceType.photoManager,
-      sourcePath: row['source_path'] as String?,
-      thumbnailPath: row['thumbnail_path'] as String?,
+      sourcePath: rebaseContainerPath(row['source_path'] as String?),
+      thumbnailPath: rebaseContainerPath(row['thumbnail_path'] as String?),
       localDeleted: (row['local_deleted'] as int? ?? 0) != 0,
       isVideo: (row['is_video'] as int? ?? 0) != 0,
       isLivePhoto: (row['is_live_photo'] as int? ?? 0) != 0,
