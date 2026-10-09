@@ -1,3 +1,5 @@
+import '../demo/demo_bucket.dart';
+
 import 'package:background_downloader/background_downloader.dart';
 import 'package:path/path.dart' as p;
 
@@ -18,6 +20,11 @@ class S3Uploader {
     required String key,
     required S3BackupTarget target,
   }) async {
+    // Demo mode's bucket exists only in the app; an upload to it lands.
+    if (DemoBucket.owns(target)) {
+      await Future<void>.delayed(const Duration(milliseconds: 600));
+      return true;
+    }
     try {
       final url = await presignPutUrl(target: target, key: key);
       final task = UploadTask(
