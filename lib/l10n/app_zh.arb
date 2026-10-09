@@ -217,8 +217,6 @@
   },
   "flaggedTitle": "待处理项目",
   "flaggedRescan": "重新扫描",
-  "flaggedStorageRow": "释放手机空间",
-  "flaggedBucketHeader": "存储桶中",
   "flaggedNone": "没有待处理项目",
   "flaggedOffProtocolReason": "文件名不符合应用的命名规则",
   "flaggedOrphanReason": "缩略图没有对应照片",
@@ -237,22 +235,6 @@
     }
   },
   "flaggedBatchStop": "停止",
-  "flaggedRenameAll": "全部重命名({count})",
-  "@flaggedRenameAll": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "flaggedRemoveAll": "全部移除({count})",
-  "@flaggedRemoveAll": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "flaggedBatchRenameBody": "将 {count} 个对象重命名为应用的目录结构并导入。无法修复的会继续保留在列表中。",
   "@flaggedBatchRenameBody": {
     "placeholders": {
@@ -279,15 +261,6 @@
   },
   "flaggedNeedsAlbum": "疑似隐藏照片，请打开对应相册，会在那里整理。",
   "flaggedFailed": "未能完成，没有做任何更改。",
-  "flaggedReformatTitle": "转换这张照片的格式？",
-  "flaggedReformatBody": "将下载 {size} MB，转换后上传更小的副本，确认无误后移除原文件。",
-  "@flaggedReformatBody": {
-    "placeholders": {
-      "size": {
-        "type": "String"
-      }
-    }
-  },
   "privateAlbumHideDownloadTitle": "下载后隐藏？",
   "privateAlbumHideDownloadBody": "{count, plural, other{这 {count} 张照片只保存在存储桶中。将先下载并隐藏，然后从存储桶中移除明文副本。}}",
   "@privateAlbumHideDownloadBody": {
@@ -891,15 +864,8 @@
   "collectionsImportFilesRow": "从“文件”导入",
   "collectionsLanguageRow": "语言",
   "languageSystem": "跟随系统",
-  "storageTitle": "优化存储",
-  "storageHint": "先备份。压缩或删除本地副本后，完整画质的那一份只存在于你的存储桶里。",
   "storageScanning": "正在统计 {done} / {total}…",
-  "storageSummary": "最多可释放 {size}",
-  "storageSummaryDetail": "{count, plural, other{{count} 项，在本机占用 {size}}}",
   "storageScannedAt": "扫描于 {when}",
-  "storageNeverScanned": "尚未扫描。",
-  "storageRescan": "重新扫描",
-  "storageEmpty": "没有可优化的内容。全部已备份，本地副本也都不算大。",
   "storageFilterAll": "全部",
   "storageIssueOnDevice": "占用本机",
   "storageIssueLargeFile": "大文件",
@@ -909,15 +875,7 @@
   "storageFixRemoveFromDevice": "从本机移除",
   "storageFixReduceResolution": "降低分辨率",
   "storageFixConvertFormat": "转为 WebP",
-  "storageSelect": "选择",
-  "storageSelectAll": "全选",
-  "storageSelected": "{count, plural, other{已选 {count} 项 · 最多可释放 {size}}}",
-  "storageFixSelected": "优化",
-  "storageOptimizeAction": "优化",
-  "storageConfirmTitle": "{count, plural, other{优化这 {count} 张照片？}}",
-  "storageConfirmBody": "每张照片按卡片上给出的方式处理。移除后照片仍在图库中，需要时再下载；降低分辨率或转换格式会替换本机副本，存储桶里保留原件。",
   "storageResultFreed": "已释放 {size}。",
-  "storageResultQueued": "{count, plural, other{{count} 项已加入备份队列。}}",
   "storageResultSkipped": "{count, plural, other{已跳过 {count} 项。}}",
   "storageResultUnverified": "{count, plural, one{1 项未处理——存储桶无法确认已保存其全画质副本。} other{{count} 项未处理——存储桶无法确认已保存它们的全画质副本。}}",
   "@storageResultUnverified": {
@@ -927,7 +885,6 @@
       }
     }
   },
-  "storageResultNothing": "没有任何改动。",
   "personGraphTitle": "关系图谱",
   "personGraphEmpty": "添加关系后即可查看图谱。",
   "privateAlbumHideNoBucketTitle": "本机将成为唯一副本",
@@ -1357,5 +1314,22 @@
   "queueRetryAll": "全部重试",
   "queueShowMore": "再显示 {count} 项",
   "queueFullNote": "队列已满 — 其余的会随队列清空陆续加入",
-  "queueMenuTitle": "队列"
+  "queueMenuTitle": "队列",
+  "flaggedHeading": "{count, plural, =0{没有待处理的项目} other{{count} 项待处理}}",
+  "flaggedFreesUpTo": "最多可释放本机 {size}",
+  "flaggedLooking": "正在查找问题…",
+  "flaggedProblemOffProtocol": "命名不规范",
+  "flaggedProblemOrphan": "孤立缩略图",
+  "flaggedProblemUnclaimed": "不在图库中",
+  "flaggedProblemLeftover": "可能是旧副本",
+  "flaggedRunDone": "已完成",
+  "flaggedRunHint": "离开此页面也会继续处理。",
+  "flaggedWaiting": "等待中",
+  "flaggedRetry": "重试",
+  "flaggedUnverified": "存储桶无法确认已保存原图，因此未做处理。",
+  "flaggedConfirmTitle": "{action}：{count} 项？",
+  "flaggedConfirmRemoveBody": "它们仍保留在图库和存储桶中，打开时会重新下载。",
+  "flaggedConfirmShrinkBody": "本机上的副本会被替换为更小的版本，存储桶保留原图。",
+  "flaggedConfirmReformatBody": "每张照片会被下载、转换并上传为更小的副本。副本校验无误后，存储桶中的原文件会被删除。",
+  "flaggedConfirmImportAnywayBody": "这看起来是已有照片的旧副本。"
 }

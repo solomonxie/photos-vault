@@ -343,8 +343,6 @@
   },
   "flaggedTitle": "Flagged Items",
   "flaggedRescan": "Rescan",
-  "flaggedStorageRow": "Free up space on this phone",
-  "flaggedBucketHeader": "IN YOUR BUCKET",
   "flaggedNone": "Nothing flagged",
   "flaggedOffProtocolReason": "Name doesn't follow the app's scheme",
   "flaggedOrphanReason": "Thumbnail without a photo",
@@ -363,22 +361,6 @@
     }
   },
   "flaggedBatchStop": "Stop",
-  "flaggedRenameAll": "Rename all ({count})",
-  "@flaggedRenameAll": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "flaggedRemoveAll": "Remove all ({count})",
-  "@flaggedRemoveAll": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "flaggedBatchRenameBody": "Rename {count} objects into the app's layout and import them. Ones that can't be fixed stay listed.",
   "@flaggedBatchRenameBody": {
     "placeholders": {
@@ -405,15 +387,6 @@
   },
   "flaggedNeedsAlbum": "Looks like a hidden photo. Open its album and it will be tidied there.",
   "flaggedFailed": "Couldn't finish. Nothing was changed.",
-  "flaggedReformatTitle": "Re-format this photo?",
-  "flaggedReformatBody": "Downloads {size} MB, converts it and uploads the smaller copy. The original is removed once the copy is checked.",
-  "@flaggedReformatBody": {
-    "placeholders": {
-      "size": {
-        "type": "String"
-      }
-    }
-  },
   "privateAlbumHideDownloadTitle": "Download to hide?",
   "privateAlbumHideDownloadBody": "{count, plural, =1{This photo is only in your bucket. It will be downloaded, hidden, and its plain copy removed from the bucket.} other{These {count} photos are only in your bucket. They will be downloaded, hidden, and their plain copies removed from the bucket.}}",
   "@privateAlbumHideDownloadBody": {
@@ -772,8 +745,6 @@
   "@collectionsStorageRow": {
     "description": "Utilities row and page title for the storage clean-up page"
   },
-  "storageTitle": "Optimize Storage",
-  "storageHint": "Back up first. Once a local copy is reduced or removed, the bucket holds the only full-quality version.",
   "storageScanning": "Measuring {done} of {total}…",
   "@storageScanning": {
     "placeholders": {
@@ -785,25 +756,6 @@
       }
     }
   },
-  "storageSummary": "Free up to {size}",
-  "storageSummaryDetail": "{count, plural, one{1 item, using {size} on this device} other{{count} items, using {size} on this device}}",
-  "@storageSummary": {
-    "placeholders": {
-      "size": {
-        "type": "String"
-      }
-    }
-  },
-  "@storageSummaryDetail": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      },
-      "size": {
-        "type": "String"
-      }
-    }
-  },
   "storageScannedAt": "Scanned {when}",
   "@storageScannedAt": {
     "placeholders": {
@@ -812,9 +764,6 @@
       }
     }
   },
-  "storageNeverScanned": "Not scanned yet.",
-  "storageRescan": "Rescan",
-  "storageEmpty": "Nothing to optimize. Everything is backed up and no local copy is larger than it needs to be.",
   "storageFilterAll": "All",
   "storageIssueOnDevice": "On device",
   "storageIssueLargeFile": "Large file",
@@ -824,43 +773,11 @@
   "storageFixRemoveFromDevice": "Remove from Device",
   "storageFixReduceResolution": "Reduce Resolution",
   "storageFixConvertFormat": "Convert to WebP",
-  "storageSelect": "Select",
-  "storageSelectAll": "All",
-  "storageSelected": "{count, plural, one{1 selected · frees up to {size}} other{{count} selected · frees up to {size}}}",
-  "@storageSelected": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      },
-      "size": {
-        "type": "String"
-      }
-    }
-  },
-  "storageFixSelected": "Optimize",
-  "storageOptimizeAction": "Optimize",
-  "storageConfirmTitle": "{count, plural, one{Optimize this photo?} other{Optimize {count} photos?}}",
-  "@storageConfirmTitle": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "storageConfirmBody": "Each photo is optimized using the action shown on its card. Removing keeps the photo in your library and downloads it again when needed. Reducing or converting replaces the copy on this device; the bucket keeps the original.",
   "storageResultFreed": "Freed {size}.",
   "@storageResultFreed": {
     "placeholders": {
       "size": {
         "type": "String"
-      }
-    }
-  },
-  "storageResultQueued": "{count, plural, one{1 queued for backup.} other{{count} queued for backup.}}",
-  "@storageResultQueued": {
-    "placeholders": {
-      "count": {
-        "type": "int"
       }
     }
   },
@@ -880,7 +797,6 @@
       }
     }
   },
-  "storageResultNothing": "Nothing changed.",
   "actionOk": "OK",
   "privateAlbumReturnFailed": "{count, plural, one{1 photo couldn't be returned to Photos. It's still in this album.} other{{count} photos couldn't be returned to Photos. They're still in this album.}}",
   "@privateAlbumReturnFailed": {
@@ -1912,5 +1828,46 @@
     }
   },
   "queueFullNote": "Queue is full — the rest follows as it drains",
-  "queueMenuTitle": "Queue"
+  "queueMenuTitle": "Queue",
+  "flaggedHeading": "{count, plural, =0{Nothing to fix} one{1 item to fix} other{{count} items to fix}}",
+  "@flaggedHeading": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedFreesUpTo": "Frees up to {size} on this phone",
+  "@flaggedFreesUpTo": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "flaggedLooking": "Looking for problems…",
+  "flaggedProblemOffProtocol": "Off-scheme name",
+  "flaggedProblemOrphan": "Orphan thumbnail",
+  "flaggedProblemUnclaimed": "Not in library",
+  "flaggedProblemLeftover": "Likely old copy",
+  "flaggedRunDone": "Done",
+  "flaggedRunHint": "Keeps going while you use the rest of the app.",
+  "flaggedWaiting": "Waiting",
+  "flaggedRetry": "Retry",
+  "flaggedUnverified": "Your bucket couldn't confirm it has the full-quality copy, so this was left alone.",
+  "flaggedConfirmTitle": "{action}: {count, plural, one{1 item} other{{count} items}}?",
+  "@flaggedConfirmTitle": {
+    "placeholders": {
+      "action": {
+        "type": "String"
+      },
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedConfirmRemoveBody": "They stay in your library and your bucket, and download again when opened.",
+  "flaggedConfirmShrinkBody": "The copy on this phone is replaced with a smaller one. Your bucket keeps the original.",
+  "flaggedConfirmReformatBody": "Each photo is downloaded, converted and uploaded as a smaller copy. The original is removed from the bucket once its copy is checked.",
+  "flaggedConfirmImportAnywayBody": "This looks like an old copy of a photo you already have."
 }

@@ -95,7 +95,10 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
   than binned — Recently Deleted would only hold an empty tile with
   nothing to recover.
 - `storage_advice.dart` / `storage_optimizer.dart` — what's costing space and
-  what to do about it, behind `../viewer/storage_optimization_screen.dart`.
+  what to do about it.
+- `fix_queue.dart` — the Flagged Items page's fixes, phone and bucket alike:
+  a persisted queue owned by the library screen, so a run outlives the page
+  and a kill. Behind `../viewer/flagged_items_screen.dart`.
   The scan is metadata-only for camera-roll assets (`AssetEntity.fileSize`
   reads `PHAssetResource.fileSize`), so sizing a ten-year library pulls
   nothing down from iCloud. The two re-encode fixes rewrite the local copy

@@ -35,7 +35,7 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
         AI Settings ──▶ AiSettingsScreen ──▶ [AddKey sheet]
         Hidden ──▶ [PrivateAlbumGate] ──▶ PrivateAlbumScreen
         Recently Deleted ──▶ RecentlyDeletedScreen
-        Optimize Storage ──▶ StorageOptimizationScreen
+        Flagged Items ──▶ FlaggedItemsScreen
 ```
 
 ## Files
@@ -49,6 +49,6 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
 | `cloud.md` | Cloud Settings, add bucket, bucket browser (`cloud-redesign.md`: full mocks) |
 | `safety.md` | where every copy is, checking it, getting it back without the app |
 | `queue.md` | backup queue page, analyze queue |
-| `storage.md` | optimize storage: problem filters, per-photo fixes, batch |
+| `storage.md` | flagged items: problem chips, solution buttons, the draining queue |
 | `ai.md` | AI settings |
 | `components.md` | tiles, rows, scrubber, section chrome |

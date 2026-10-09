@@ -34,6 +34,9 @@ class StorageFixResult {
   final int unverified;
 }
 
+/// How one item of an [StorageOptimizer.apply] round ended.
+enum StorageItemOutcome { freed, queued, skipped, unverified }
+
 /// Carries out what `storage_advice.dart` suggested.
 ///
 /// The two re-encodes replace the local copy in place. That is only safe
@@ -79,16 +82,28 @@ class StorageOptimizer {
     int? maxEdge,
   ) => Isolate.run(() => optimizeStill(bytes, maxEdge: maxEdge));
 
-  Future<StorageFixResult> apply(List<StorageItem> items) async {
+  /// [onItem] hears each item's own outcome as it lands, for a caller that
+  /// shows a queue draining rather than one answer at the end.
+  Future<StorageFixResult> apply(
+    List<StorageItem> items, {
+    void Function(String localId, StorageItemOutcome outcome)? onItem,
+  }) async {
     var freed = 0;
     var skipped = 0;
     var unverified = 0;
+    void report(StorageItem item, StorageItemOutcome outcome) =>
+        onItem?.call(item.record.localId, outcome);
 
     final toBackUp = [
       for (final item in items)
-        if (item.fix == StorageFix.backUpFirst) item.record,
+        if (item.fix == StorageFix.backUpFirst) item,
     ];
-    if (toBackUp.isNotEmpty) await backUp(toBackUp);
+    if (toBackUp.isNotEmpty) {
+      await backUp([for (final item in toBackUp) item.record]);
+      for (final item in toBackUp) {
+        report(item, StorageItemOutcome.queued);
+      }
+    }
 
     final unconfirmed = await _unconfirmed(items);
 
@@ -101,13 +116,16 @@ class StorageOptimizer {
       // while the bucket holds the full-quality copy they're throwing away.
       if (unconfirmed.contains(item.record.localId)) {
         unverified++;
+        report(item, StorageItemOutcome.unverified);
         continue;
       }
       final saved = await _rewrite(item);
       if (saved == null) {
         skipped++;
+        report(item, StorageItemOutcome.skipped);
       } else {
         freed += saved;
+        report(item, StorageItemOutcome.freed);
       }
     }
 
@@ -116,11 +134,12 @@ class StorageOptimizer {
       if (item.fix != StorageFix.removeFromDevice) continue;
       if (unconfirmed.contains(item.record.localId)) {
         unverified++;
+        report(item, StorageItemOutcome.unverified);
       } else {
         removable.add(item);
       }
     }
-    final removal = await _removeFromDevice(removable);
+    final removal = await _removeFromDevice(removable, report);
     freed += removal.freedBytes;
     skipped += removal.skipped;
 
@@ -227,7 +246,10 @@ class StorageOptimizer {
     }
   }
 
-  Future<StorageFixResult> _removeFromDevice(List<StorageItem> items) async {
+  Future<StorageFixResult> _removeFromDevice(
+    List<StorageItem> items,
+    void Function(StorageItem item, StorageItemOutcome outcome) report,
+  ) async {
     var freed = 0;
     var skipped = 0;
     final fromLibrary = <StorageItem>[];
@@ -237,6 +259,7 @@ class StorageOptimizer {
       // photo would vanish rather than go cloud-only.
       if (!await _hasThumbnail(item.record)) {
         skipped++;
+        report(item, StorageItemOutcome.skipped);
         continue;
       }
       final path = item.record.sourcePath;
@@ -248,10 +271,12 @@ class StorageOptimizer {
         await File(path).delete();
       } catch (_) {
         skipped++;
+        report(item, StorageItemOutcome.skipped);
         continue;
       }
       await store.setLocalDeleted(item.record.localId, true);
       freed += item.bytes;
+      report(item, StorageItemOutcome.freed);
     }
 
     if (fromLibrary.isNotEmpty) {
@@ -262,10 +287,12 @@ class StorageOptimizer {
       for (final item in fromLibrary) {
         if (!gone.contains(item.record.localId)) {
           skipped++;
+          report(item, StorageItemOutcome.skipped);
           continue;
         }
         await store.setLocalDeleted(item.record.localId, true);
         freed += item.bytes;
+        report(item, StorageItemOutcome.freed);
       }
     }
 
