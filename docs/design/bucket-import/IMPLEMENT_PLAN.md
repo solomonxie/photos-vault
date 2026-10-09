@@ -30,7 +30,7 @@ See `DESIGN.md` for why, `UIUX_DESIGN.md` for what it looks like.
 - [x] T5.2 Rename fix: classify with the recogniser, S3 copy, HEAD-verify, delete; hidden-format name from header for v2 carriers with a known salt; ordinary name otherwise; import record - depends: T1.3, T5.1
 - [x] T5.3 Re-format fix: only for verified non-carrier stills; download, convert via backup format, upload, verify, delete; size warning - depends: T5.1
 - [x] T5.4 Remove orphan (regenerate thumbnail not built) - depends: T5.1
-- [x] T5.5 Flagged Items page replacing Optimize Storage: chips, select mode, menu badge, en/zh strings - see `lib/viewer/storage_optimization_screen.dart`, `lib/viewer/library_screen.dart` - depends: T5.1
+- [x] T5.5 Flagged Items page replacing Optimize Storage: chips, solution buttons, persisted fix queue, en/zh strings - see `lib/viewer/flagged_items_screen.dart`, `lib/photos/fix_queue.dart`, `lib/viewer/library_screen.dart` - depends: T5.1
 - [x] T5.6 Wire fixes into the page - depends: T5.2, T5.3, T5.4, T5.5
 
 ## Phase 6: Hide a cloud-only photo

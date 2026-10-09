@@ -1,80 +1,97 @@
-# Optimize Storage
+# Flagged Items
 
-`lib/viewer/storage_optimization_screen.dart` — More → Optimize
-Storage. Where the space went, and one fix per photo.
+`lib/viewer/flagged_items_screen.dart` — More → Flagged Items. One list of
+everything worth a look: space this phone could give back, and bucket
+objects the app doesn't understand. "Not enough space" is just another flag.
 
-A page, not a sheet: the list is long, it's re-read after every change, and
-each row leads somewhere.
+Was two pages (Flagged Items with an Optimize Storage sub-page, which had
+its own select mode). Merged: a sub-page for one kind of flag, and checkboxes
+to pick what the chip had already picked, were two steps nobody needed.
 
-```
- ‹ Library            Optimize Storage            ( Select )
- ─────────────────────────────────────────────────────────
- Free up to 6.2 GB                        ← the answer, in bold
- 174 items, using 8.1 GB on this device   ← what's there now
- Back up first. Shrinking or removing a copy leaves the
- bucket holding the only full-quality one.
- Scanned 19 Sep 2026, 12:16              [ ⟳ Rescan ]
+## Stories
 
- ( All 174 ) ( On device 140 ) ( Large file 18 )     ← chips wrap
- ( High resolution 4 ) ( Optimizable format 2 )               selected = accent
- ─────────────────────────────────────────────────────────
- ┌───────────────────────────────────────────────────┐
- │ ┌───┐  IMG_4934.HEIC                              │
- │ │▣  │  14 Feb 2026 · 62.4 MB · 8064 × 6048        │
- │ └───┘                                             │
- │  On device   Large file   High resolution          │  grey tags
- │                        [[ 🗑 Remove from Device ]] │  filled pill
- └───────────────────────────────────────────────────┘
- ┌───────────────────────────────────────────────────┐
- │ ┌───┐  scan-0043.png                              │
- │ │▣  │  11 Feb 2026 · 41.0 MB · 6000 × 4000        │
- │ └───┘                                             │
- │  On device  Large file  High resolution  Optim…    │
- │                        [[ ⤡ Reduce Resolution ]]  │
- └───────────────────────────────────────────────────┘
- empty  Nothing to optimize. Everything is backed up, and no
-        local copy is bigger than it needs to be.
-```
+- I want to free space without picking photos one by one → a chip narrows
+  to a problem, one button fixes every listed item it applies to.
+- I want to fix one thing → its row's own button.
+- I want to see it working, and leave → the list drains as items are
+  fixed; the run keeps going on other screens and after a kill.
 
-"Free up to X" rather than "about X to reclaim": *reclaim* is a word about
-the app's bookkeeping, and the reader's question is "how much space do I
-get back?". **Up to**, because the two re-encodes can't know what the
-encoder will produce until it runs — a removal is exact, so the figure
-reported *afterwards* drops the hedge and says "Freed 1.4 GB".
-
-The second line is what makes the first mean anything: 6.2 GB out of 8.1
-is a different page from 6.2 out of 6.3.
-
-**Biggest file first.** The page is about where the space went, and the
-answer to that is the size on disk — not how much of it a particular fix
-happens to give back. Tapping a card opens the photo; the obvious question
-about a row is "which one is that?".
-
-The action is a filled pill sized to its words, at the end of the card. It
-was a full-width bordered box, which read as an empty text field rather
-than something to press.
-
-## Select mode
-
-`Select` in the nav bar, or a hold on any card. Cards become checkboxes,
-the fix button goes (the bar drives it now), `All` appears beside `Done`.
+## The page
 
 ```
- ‹ Library            Optimize Storage      ( All ) ( Done )
- ...
- ┌───────────────────────────────────────────────────┐
- │ ┌───┐  IMG_4934.HEIC                         ◉    │  accent ring
- ...
- ─────────────────────────────────────────────────────────
-  23 selected · frees up to 1.4 GB          [[ Optimize ]]
+ ‹ Library              Flagged Items                ( Rescan )
+ ─────────────────────────────────────────────────────────────
+ 23 items to fix                             ← count, bold
+ Frees up to 6.2 GB on this phone            ← only if any
+ Scanned 19 Sep 2026, 12:16
+ ( ALL 23 ) ( On device 14 ) ( Large file 6 ) ( Off-scheme… ▸   ← scrolls
+                                                   sideways
+ [[ 🗑 Remove from Device · 14 ]]  [ ⤒ Back Up First · 3 ]
+ [ ✎ Rename · 4 ]  [ ⦸ Remove · 2 ]           ← one per solution, for
+                                                 what the chip shows;
+                                                 first filled
+ ─────────────────────────────────────────────────────────────
+ ▣  IMG_4934.HEIC                          [ Remove from Device ]
+    62.4 MB · 14 Feb 2026
+    On device · Large file
+ ▤  holiday.jpg                                    [ Rename ] ⋯   ← ⋯ = other
+    3.1 MB · 2 Mar 2019                                         fixes, sheet
+    Name doesn't follow the app's scheme
+ empty   Nothing flagged
+ loading Looking for problems…    /   Measuring 400 of 3,812…
 ```
 
-Every item still applies **its own** fix. A mixed selection does the right
-thing per photo rather than the same blunt thing to all of them — which is
-also why there's no per-chip "fix all of these" button: the chip is a
-filter, `All` + `Optimize` is the bulk action.
+A solution button counts only what's listed under the current chip and not
+already queued. Destructive ones confirm once for the batch (`Remove from
+Device: 14 items?`); Back Up, Import and Ignore don't ask.
 
-## The four problems, and what each offers
+Kept out of the buttons, one at a time only: **Import anyway** on a likely
+old copy, and **Rename** on a file the same size as one already here — both
+are guesses a person should look at. A likely duplicate gets **Ignore** as
+its batchable fix instead.
+
+## Running: the list is the queue
+
+```
+ ╭─────────────────────────────────────────────────────────╮
+ │ ⟳ Fixing 12 of 40…                              ( Stop )│
+ │ [██████████░░░░░░░░░░░░░░░░░]                           │
+ │ Keeps going while you use the rest of the app.          │
+ ╰─────────────────────────────────────────────────────────╯
+ ▣  IMG_4934.HEIC                                       ⟳    ← running
+ ▣  IMG_4935.HEIC                                 Waiting
+ ▣  IMG_4936.HEIC                                [ Retry ]
+    Couldn't finish. Nothing was changed.                    ← stays, red
+```
+
+```
+ done
+ ╭─────────────────────────────────────────────────────────╮
+ │ ✓ Done                                            ( OK )│
+ │ [███████████████████████████]                           │
+ │ Freed 1.4 GB. 2 could not be fixed and are still listed.│
+ ╰─────────────────────────────────────────────────────────╯
+```
+
+- A fixed row folds away (height + fade, ~0.3 s), so the list visibly
+  shrinks rather than jumping. A failed one stays with its reason and a
+  Retry.
+- Stop ends the run after the item in flight; what hadn't started is
+  dropped and stays listed.
+- More → Flagged Items shows `⟳ 28` while a run is going, from anywhere.
+
+**Where it runs.** `FixQueue` (`lib/photos/fix_queue.dart`) is owned by the
+library screen, not the page: leaving the page changes nothing. Waiting
+jobs are filed in app state, so a kill or a crash resumes them on the next
+launch (bucket jobs after a fresh listing, so a rename that landed just
+before the kill isn't done twice). While iOS has the app suspended nothing
+runs; it carries on when the app comes back.
+
+Batches: a removal goes 100 at a time — one iOS confirmation and one bucket
+check per hundred, not per photo. Re-encodes go 10 at a time, so the list
+moves. Bucket fixes go one by one.
+
+## On this phone: the four problems, and the fix each gets
 
 | Tag | Raised when | Fix |
 |---|---|---|

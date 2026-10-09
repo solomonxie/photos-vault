@@ -47,7 +47,7 @@ LibraryScreen                                          library_screen.dart
         Hidden             ──► passcode sheet, then:        private_album_gate.dart
                                 PrivateAlbumScreen            private_album_screen.dart
         Recently Deleted   ──► RecentlyDeletedScreen        recently_deleted_screen.dart
-        Optimize Storage   ──► StorageOptimizationScreen   storage_optimization_screen.dart
+        Flagged Items      ──► FlaggedItemsScreen          flagged_items_screen.dart
                                 filter chips per problem, a card per photo
                                 carrying its own fix; Select ⇒ batch
         Backup Status      ──► BackupScreen                 backup_screen.dart

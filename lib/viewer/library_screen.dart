@@ -37,6 +37,7 @@ import '../backup/local_vault.dart';
 import '../photos/library_custody.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
+import '../photos/fix_queue.dart';
 import '../photos/storage_advice.dart';
 import '../photos/storage_optimizer.dart';
 import '../photos/thumbnail_cache.dart';
@@ -44,6 +45,7 @@ import '../settings/ai_settings_screen.dart';
 import '../settings/app_data_removal.dart';
 import '../settings/app_store_region.dart';
 import '../settings/backup_targets_store.dart';
+import '../upload/bucket_flagged.dart' show BucketFixer;
 import '../upload/bucket_import.dart';
 import '../upload/name_migration.dart';
 import '../upload/original_restore.dart';
@@ -66,6 +68,7 @@ import '../vault/keys.dart';
 import '../vault/store.dart';
 import '../upload/pending_deletes.dart';
 import '../upload/sync_job_store.dart';
+import '../upload/s3_uploader.dart';
 import '../upload/sync_queue.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
@@ -318,6 +321,24 @@ class LibraryScreenState extends State<LibraryScreen>
     library: _photoLibraryService,
     backUp: _backUpRecords,
     verifier: _backupVerifier,
+  );
+
+  /// Lives here rather than on the Flagged Items page, so leaving the page
+  /// doesn't stop a run.
+  late final FixQueue _fixQueue = FixQueue(
+    store: assetRecordStore,
+    advisor: _storageAdvisor,
+    optimizer: _storageOptimizer,
+    fixer: BucketFixer(
+      store: assetRecordStore,
+      targetsStore: _backupTargetsStore,
+      passphrases: _vaultKeys.entries,
+      uploader: S3Uploader(),
+    ),
+    refreshBucket: () => BucketIndexer(
+      targetsStore: _backupTargetsStore,
+      recordStore: assetRecordStore,
+    ).refresh(),
   );
 
   /// Deleting is the same decision on every screen: keep the cloud copy
@@ -580,6 +601,7 @@ class LibraryScreenState extends State<LibraryScreen>
     _missingDebounce?.cancel();
     syncQueue.draining.removeListener(_onDrainingChanged);
     _analyzeQueue.remaining.removeListener(_onReviewCountChanged);
+    _fixQueue.removeListener(_onFixQueueChanged);
     syncQueue.dispose();
     if (widget.analyzeQueue == null) _analyzeQueue.dispose();
     _libraryScanner.dispose();
@@ -600,6 +622,7 @@ class LibraryScreenState extends State<LibraryScreen>
     _watchPhotoLibrary();
     syncQueue.draining.addListener(_onDrainingChanged);
     _analyzeQueue.remaining.addListener(_onReviewCountChanged);
+    _fixQueue.addListener(_onFixQueueChanged);
     _init();
     _screenshotHook();
   }
@@ -622,6 +645,19 @@ class LibraryScreenState extends State<LibraryScreen>
       case 'album':
         if (_albums.isNotEmpty) _openAlbum(_albums.first);
     }
+  }
+
+  /// The Flagged Items row shows a run draining from anywhere in the app.
+  bool _fixRunning = false;
+  int _fixLeft = 0;
+
+  void _onFixQueueChanged() {
+    final running = _fixQueue.running;
+    final left = running ? _fixQueue.left : 0;
+    if (running == _fixRunning && left == _fixLeft) return;
+    _fixRunning = running;
+    _fixLeft = left;
+    if (mounted) setState(() {});
   }
 
   /// The Utilities badge counts what's left to look at, and that number
@@ -687,6 +723,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // frequency's call: on "Manual" the jobs stay visible and nothing goes
     // up until asked.
     unawaited(_resumeQueue());
+    unawaited(_fixQueue.resume().catchError((_) {}));
     // Fire-and-forget: a full camera-roll scan (and any iCloud downloads it
     // triggers for backup) can be slow, and must never block showing the
     // manually-added assets already on hand. Re-`reload()`s itself once
@@ -2688,13 +2725,14 @@ class LibraryScreenState extends State<LibraryScreen>
             icon: CupertinoIcons.chart_pie_fill,
             color: CupertinoColors.systemOrange,
             title: l10n.collectionsStorageRow,
+            count: _fixRunning ? _fixLeft : null,
+            busy: _fixRunning,
             onTap: () => _push(
               FlaggedItemsScreen(
                 store: assetRecordStore,
                 targetsStore: _backupTargetsStore,
-                passphrases: _vaultKeys.entries,
                 advisor: _storageAdvisor,
-                optimizer: _storageOptimizer,
+                queue: _fixQueue,
                 onOpenAsset: _openById,
               ),
             ),
@@ -2814,6 +2852,7 @@ class LibraryScreenState extends State<LibraryScreen>
     required Color color,
     required String title,
     int? count,
+    bool busy = false,
     VoidCallback? onTap,
   }) {
     return CupertinoListTile(
@@ -2830,6 +2869,10 @@ class LibraryScreenState extends State<LibraryScreen>
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (busy) ...[
+            const CupertinoActivityIndicator(radius: 7),
+            const SizedBox(width: 6),
+          ],
           if (count != null)
             Text(
               '$count',
