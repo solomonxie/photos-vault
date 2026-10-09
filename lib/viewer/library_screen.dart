@@ -1359,21 +1359,51 @@ class LibraryScreenState extends State<LibraryScreen>
   /// record to pick one decoy would be thousands of syscalls for a single
   /// upload. Sixty is plenty to find something within a few percent of any
   /// given size.
-  Future<List<DecoyCandidate>> _decoyCandidates() async {
+  ///
+  /// Only originals already on the phone, and drawn once per half hour
+  /// rather than per carrier: resolving sixty random camera-roll files
+  /// downloads whichever of them iCloud has offloaded, and doing that for
+  /// every hidden photo is what stalled the sync behind them.
+  Future<List<DecoyCandidate>> _decoyCandidates() {
+    final drawn = _decoyDrawnAt;
+    if (drawn != null &&
+        DateTime.now().difference(drawn) < const Duration(minutes: 30)) {
+      return _decoyPool!;
+    }
+    _decoyDrawnAt = DateTime.now();
+    return _decoyPool = _drawDecoyCandidates().catchError((Object _) {
+      _decoyDrawnAt = null;
+      return <DecoyCandidate>[];
+    });
+  }
+
+  Future<List<DecoyCandidate>>? _decoyPool;
+  DateTime? _decoyDrawnAt;
+
+  Future<String?> _localPathFor(AssetRecord record) async {
+    if (record.localDeleted) return null;
+    if (record.sourceType != AssetSourceType.photoManager) {
+      final path = record.sourcePath;
+      return path != null && await File(path).exists() ? path : null;
+    }
+    return (await _photoLibraryService.localFileFor(record))?.path;
+  }
+
+  Future<List<DecoyCandidate>> _drawDecoyCandidates() async {
     final pool = [
       for (final r in _all)
         if (r.passcodeHash == null &&
             r.deletedAt == null &&
             !r.localDeleted &&
-            r.thumbnailPath != null &&
             r.width != null &&
             r.height != null)
           r,
     ]..shuffle();
 
     final candidates = <DecoyCandidate>[];
-    for (final record in pool.take(60)) {
-      final path = await _filePathFor(record);
+    for (final record in pool.take(120)) {
+      if (candidates.length == 60) break;
+      final path = await _localPathFor(record);
       if (path == null) continue;
       int size;
       try {
@@ -1394,9 +1424,13 @@ class LibraryScreenState extends State<LibraryScreen>
           duration: record.countsAsVideo
               ? await _photoLibraryService.durationOf(record)
               : null,
+          // Made on demand for the one picked, if it has none cached yet.
           thumbnail: () async {
             try {
-              return await File(record.thumbnailPath!).readAsBytes();
+              final thumb =
+                  record.thumbnailPath ??
+                  await _thumbnailCache.ensureFor(record, path);
+              return thumb == null ? null : await File(thumb).readAsBytes();
             } catch (_) {
               return null;
             }

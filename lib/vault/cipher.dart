@@ -61,6 +61,20 @@ Uint8List hkdf({
 Uint8List vaultHmac(Uint8List key, List<int> data) =>
     Uint8List.fromList(Hmac(sha256, key).convert(data).bytes);
 
+/// [vaultHmac] over [parts] back to back, without joining them: a spread of
+/// a video's bytes into one `List<int>` is eight bytes per byte.
+Uint8List vaultHmacParts(Uint8List key, List<List<int>> parts) {
+  late Digest digest;
+  final sink = Hmac(sha256, key).startChunkedConversion(
+    ChunkedConversionSink<Digest>.withCallback((d) => digest = d.single),
+  );
+  for (final part in parts) {
+    sink.add(part);
+  }
+  sink.close();
+  return Uint8List.fromList(digest.bytes);
+}
+
 /// Constant-time compare, so a MAC check cannot be walked byte by byte.
 bool bytesMatch(List<int> a, List<int> b) {
   if (a.length != b.length) return false;

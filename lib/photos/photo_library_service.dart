@@ -499,6 +499,14 @@ class PhotoLibraryService {
     return entity?.file;
   }
 
+  /// [fileFor], but only when the original is already on this phone — null
+  /// rather than an iCloud download.
+  Future<File?> localFileFor(AssetRecord record) async {
+    final entity = await entityFor(record);
+    if (entity == null || !await entity.isLocallyAvailable()) return null;
+    return entity.file;
+  }
+
   /// Deletes [record] from the OS photo library itself — this app never
   /// keeps its own copy of a camera-roll asset, so this is the only way to
   /// reclaim its device storage. iOS prompts for confirmation and moves it

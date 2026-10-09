@@ -62,16 +62,19 @@ class CarrierBuilder {
     required List<DecoyCandidate> candidates,
     String? motionOf,
   }) async {
-    final original = await File(filePath).readAsBytes();
+    // The original is read inside the isolates that need it, never here: a
+    // video held on the UI heap, twice over while it is encrypted, is what
+    // iOS kills the app for.
+    final payloadBytes = await File(filePath).length();
     final asVideo = record.countsAsVideo || motionOf != null;
     final thumbnail = motionOf != null
         ? await _stillThumbnail(motionOf)
-        : await _thumbnailFor(record, original);
+        : await _thumbnailFor(record, filePath);
     if (thumbnail == null) return null;
 
     final chosen = chooseDecoy(
       candidates: [for (final c in candidates) c.source],
-      payloadBytes: original.length,
+      payloadBytes: payloadBytes,
       wantVideo: asVideo,
       usedCounts: _decoyUses,
       random: _random,
@@ -98,7 +101,7 @@ class CarrierBuilder {
             candidate: candidate,
             decoyThumbnail: decoyThumbnail,
             thumbnail: thumbnail,
-            original: original,
+            originalPath: filePath,
             extension: extension,
             directory: dir,
             nonce: nonce,
@@ -110,7 +113,7 @@ class CarrierBuilder {
             candidate: candidate,
             decoyThumbnail: decoyThumbnail,
             thumbnail: thumbnail,
-            original: original,
+            originalPath: filePath,
             extension: extension,
             directory: dir,
             nonce: nonce,
@@ -127,7 +130,7 @@ class CarrierBuilder {
     required DecoyCandidate candidate,
     required Uint8List decoyThumbnail,
     required Uint8List thumbnail,
-    required Uint8List original,
+    required String originalPath,
     required String extension,
     required Directory directory,
     required Uint8List nonce,
@@ -144,21 +147,27 @@ class CarrierBuilder {
       ),
     );
     if (decoy == null) return null;
-    final bytes = buildJpegCarrier(
-      cipher: _cipher,
-      keys: keys.carrier,
-      masterSalt: keys.entry.salt,
-      decoy: decoy,
-      thumbnail: thumbnail,
-      original: original,
-      extension: extension,
-      nonce: nonce,
-      meta: meta,
-    );
-    if (bytes == null) return null;
-    final file = File(p.join(directory.path, '$baseName.jpg'));
-    await file.writeAsBytes(bytes, flush: true);
-    return file;
+    final cipher = _cipher;
+    final carrierKeys = keys.carrier;
+    final salt = keys.entry.salt;
+    final out = p.join(directory.path, '$baseName.jpg');
+    final wrote = await Isolate.run(() async {
+      final bytes = buildJpegCarrier(
+        cipher: cipher,
+        keys: carrierKeys,
+        masterSalt: salt,
+        decoy: decoy,
+        thumbnail: thumbnail,
+        original: await File(originalPath).readAsBytes(),
+        extension: extension,
+        nonce: nonce,
+        meta: meta,
+      );
+      if (bytes == null) return false;
+      await File(out).writeAsBytes(bytes, flush: true);
+      return true;
+    });
+    return wrote ? File(out) : null;
   }
 
   /// The decoy runs for the decoy's own duration, which is what makes the
@@ -169,7 +178,7 @@ class CarrierBuilder {
     required DecoyCandidate candidate,
     required Uint8List decoyThumbnail,
     required Uint8List thumbnail,
-    required Uint8List original,
+    required String originalPath,
     required String extension,
     required Directory directory,
     required Uint8List nonce,
@@ -187,38 +196,60 @@ class CarrierBuilder {
       path: decoyPath,
     );
     if (decoyFile == null) return null;
-    final bytes = buildMp4Carrier(
-      cipher: _cipher,
-      keys: keys.carrier,
-      masterSalt: keys.entry.salt,
-      decoy: await decoyFile.readAsBytes(),
-      poster: thumbnail,
-      original: original,
-      extension: extension,
-      nonce: nonce,
-      meta: meta,
-    );
+    final cipher = _cipher;
+    final carrierKeys = keys.carrier;
+    final salt = keys.entry.salt;
+    final decoyFilePath = decoyFile.path;
+    final out = p.join(directory.path, '$baseName.mov');
+    // Still whole-file in memory, inside the isolate: original, its
+    // ciphertext and the carrier — about 3x the video. Bounded by the
+    // largest hidden video until the carrier is written as a stream.
+    final wrote = await Isolate.run(() async {
+      final bytes = buildMp4Carrier(
+        cipher: cipher,
+        keys: carrierKeys,
+        masterSalt: salt,
+        decoy: await File(decoyFilePath).readAsBytes(),
+        poster: thumbnail,
+        original: await File(originalPath).readAsBytes(),
+        extension: extension,
+        nonce: nonce,
+        meta: meta,
+      );
+      if (bytes == null) return false;
+      await File(out).writeAsBytes(bytes, flush: true);
+      return true;
+    });
     await decoyFile.delete();
-    if (bytes == null) return null;
-    final file = File(p.join(directory.path, '$baseName.mov'));
-    await file.writeAsBytes(bytes, flush: true);
-    return file;
+    return wrote ? File(out) : null;
   }
 
   /// The hidden photo's own thumbnail, made here and never written to disk
   /// in the clear — it goes straight into the carrier, encrypted.
-  Future<Uint8List?> _thumbnailFor(
-    AssetRecord record,
-    Uint8List original,
-  ) async {
-    if (record.countsAsVideo) return _posterFrame(record);
-    return Isolate.run(() => encodeThumbnail(original));
+  Future<Uint8List?> _thumbnailFor(AssetRecord record, String path) async {
+    if (record.countsAsVideo) {
+      final poster = await _posterFrame(record);
+      if (poster == null || poster.length <= carrierThumbnailBudget) {
+        return poster;
+      }
+      return Isolate.run(
+        () => encodeThumbnail(poster, maxBytes: carrierThumbnailBudget),
+      );
+    }
+    return Isolate.run(
+      () async => encodeThumbnail(
+        await File(path).readAsBytes(),
+        maxBytes: carrierThumbnailBudget,
+      ),
+    );
   }
 
   Future<Uint8List?> _stillThumbnail(String stillPath) async {
     try {
       final still = await File(stillPath).readAsBytes();
-      return await Isolate.run(() => encodeThumbnail(still));
+      return await Isolate.run(
+        () => encodeThumbnail(still, maxBytes: carrierThumbnailBudget),
+      );
     } catch (_) {
       return null;
     }

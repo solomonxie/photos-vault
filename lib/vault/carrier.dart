@@ -24,6 +24,11 @@ import 'mp4_boxes.dart';
 /// ```
 const thumbnailPrefixBytes = 64 * 1024;
 
+/// The most an encrypted thumbnail may be, so header, MACs and thumbnail
+/// all sit inside [thumbnailPrefixBytes] with room for the decoy's own
+/// leading segments. Past it, a tile drawn from the prefix has nothing.
+const carrierThumbnailBudget = 60 * 1024;
+
 const _version = 1;
 const _versionV2 = 2;
 const headerBytes = 69;
@@ -242,9 +247,9 @@ Uint8List buildPayload({
   );
   return (BytesBuilder()
         ..add(head)
-        ..add(vaultHmac(keys.macKey, [...head, ...encThumb]))
+        ..add(vaultHmacParts(keys.macKey, [head, encThumb]))
         ..add(encThumb)
-        ..add(vaultHmac(keys.macKey, [...head, ...encFull]))
+        ..add(vaultHmacParts(keys.macKey, [head, encFull]))
         ..add(encFull))
       .toBytes();
 }
@@ -357,7 +362,7 @@ Uint8List? openThumbnail({
   );
   if (!bytesMatch(
     Uint8List.sublistView(payloadPrefix, header.length, thumbAt),
-    vaultHmac(keys.macKey, [...head, ...encThumb]),
+    vaultHmacParts(keys.macKey, [head, encThumb]),
   )) {
     return null;
   }
@@ -390,7 +395,7 @@ CarrierMeta? openMeta({
   );
   if (!bytesMatch(
     Uint8List.sublistView(payloadPrefix, header.length, thumbAt),
-    vaultHmac(keys.macKey, [...head, ...encThumb]),
+    vaultHmacParts(keys.macKey, [head, encThumb]),
   )) {
     return null;
   }
@@ -425,7 +430,7 @@ OpenedCarrier? openCarrier({
   );
   if (!bytesMatch(
     Uint8List.sublistView(payload, fullMacAt, fullAt),
-    vaultHmac(keys.macKey, [...head, ...encFull]),
+    vaultHmacParts(keys.macKey, [head, encFull]),
   )) {
     return null;
   }
