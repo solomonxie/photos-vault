@@ -147,6 +147,10 @@ class _SettingsScreenState extends State<SettingsScreen>
   int _trackedCount = 0;
   int _lostCount = 0;
 
+  /// Not backed up and not in the queue either: what the card would
+  /// otherwise call "All backed up".
+  int _stuckCount = 0;
+
   @override
   void initState() {
     super.initState();
@@ -154,10 +158,13 @@ class _SettingsScreenState extends State<SettingsScreen>
     _reloadICloud();
     _reloadBucketData();
     WidgetsBinding.instance.addObserver(this);
+    widget.syncQueue?.jobs.addListener(_onJobsChanged);
   }
 
   @override
   void dispose() {
+    widget.syncQueue?.jobs.removeListener(_onJobsChanged);
+    _countsTimer?.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -243,7 +250,43 @@ class _SettingsScreenState extends State<SettingsScreen>
     await _reloadICloud();
   }
 
+  Timer? _countsTimer;
+
+  /// The count moves as uploads land, not when the page is reopened. At most
+  /// one recount per two seconds: each is a pass over the whole library.
+  void _onJobsChanged() {
+    if (_countsTimer?.isActive ?? false) return;
+    _countsTimer = Timer(const Duration(seconds: 2), _reloadCounts);
+  }
+
+  Future<void> _reloadCounts() async {
+    var backedUp = 0;
+    var tracked = 0;
+    var lost = 0;
+    try {
+      for (final r in await _assetRecordStore.listAll()) {
+        // Hidden ones aren't counted at all: this page opens without a
+        // passcode, and a count is enough to say a private album exists.
+        if (r.isDeleted || r.passcodeHash != null) continue;
+        tracked++;
+        if (r.isFullyBackedUp) backedUp++;
+      }
+      lost = (await LostOriginals(_assetRecordStore).current()).length;
+    } catch (_) {
+      // Asset store unavailable (e.g. no platform channel in a test) — the
+      // status card just reads zero rather than crashing the screen.
+    }
+    if (!mounted) return;
+    setState(() {
+      _backedUpCount = backedUp;
+      _trackedCount = tracked;
+      _lostCount = lost;
+      _stuckCount = tracked - backedUp;
+    });
+  }
+
   Future<void> _reload() async {
+    unawaited(_reloadCounts());
     List<S3BackupTarget> targets = const [];
     try {
       targets = await _store.loadAll();
@@ -256,20 +299,6 @@ class _SettingsScreenState extends State<SettingsScreen>
       order = await _store.getOrderStrategy();
     } catch (_) {
       // Same secure storage as the targets — fall back to the default.
-    }
-    var backedUp = 0;
-    var tracked = 0;
-    var lost = 0;
-    try {
-      for (final r in await _assetRecordStore.listAll()) {
-        if (r.isDeleted) continue;
-        tracked++;
-        if (r.isFullyBackedUp) backedUp++;
-      }
-      lost = (await LostOriginals(_assetRecordStore).current()).length;
-    } catch (_) {
-      // Asset store unavailable (e.g. no platform channel in a test) — the
-      // status card just reads zero rather than crashing the screen.
     }
     var format = BackupFormat.optimized;
     var frequency = SyncFrequency.manual;
@@ -284,9 +313,6 @@ class _SettingsScreenState extends State<SettingsScreen>
     if (!mounted) return;
     setState(() {
       _targets = targets;
-      _backedUpCount = backedUp;
-      _trackedCount = tracked;
-      _lostCount = lost;
       _orderStrategy = order;
       _format = format;
       _frequency = frequency;
@@ -625,6 +651,9 @@ class _SettingsScreenState extends State<SettingsScreen>
     } else if (waiting > 0) {
       title = l10n.cloudStatusWaiting(waiting);
       color = settingsAccent;
+    } else if (_stuckCount > 0) {
+      title = l10n.cloudStatusStuck(_stuckCount);
+      color = settingsAccent;
     } else {
       title = l10n.cloudStatusAllDone;
       color = CupertinoColors.systemGreen;
@@ -636,7 +665,7 @@ class _SettingsScreenState extends State<SettingsScreen>
       title: title,
       subtitle: l10n.cloudStatusProgress(
         _backedUpCount,
-        _trackedCount,
+        _trackedCount - _backedUpCount,
         targets.length,
       ),
       progress: _trackedCount == 0 ? null : _backedUpCount / _trackedCount,

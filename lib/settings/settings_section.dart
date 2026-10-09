@@ -1116,9 +1116,12 @@ class SettingsStatusCard extends StatelessWidget {
                       const Positioned.fill(
                         child: ColoredBox(color: settingsPageBackground),
                       ),
-                      FractionallySizedBox(
-                        widthFactor: progress!.clamp(0.0, 1.0),
-                        child: ColoredBox(color: color),
+                      Positioned.fill(
+                        child: FractionallySizedBox(
+                          alignment: AlignmentDirectional.centerStart,
+                          widthFactor: progress!.clamp(0.0, 1.0),
+                          child: ColoredBox(color: color),
+                        ),
                       ),
                     ],
                   ),

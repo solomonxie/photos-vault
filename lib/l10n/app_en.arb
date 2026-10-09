@@ -1757,6 +1757,14 @@
       }
     }
   },
+  "cloudStatusStuck": "{count, plural, one{1 photo not backed up yet} other{{count} photos not backed up yet}}",
+  "@cloudStatusStuck": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "cloudStatusLost": "{count, plural, one{1 photo is missing from the bucket} other{{count} photos are missing from the bucket}}",
   "@cloudStatusLost": {
     "placeholders": {
@@ -1765,13 +1773,13 @@
       }
     }
   },
-  "cloudStatusProgress": "{backedUp} of {total} photos · {buckets, plural, one{1 bucket} other{{buckets} buckets}}",
+  "cloudStatusProgress": "{backedUp} backed up · {left} to go · {buckets, plural, one{1 bucket} other{{buckets} buckets}}",
   "@cloudStatusProgress": {
     "placeholders": {
       "backedUp": {
         "type": "int"
       },
-      "total": {
+      "left": {
         "type": "int"
       },
       "buckets": {
