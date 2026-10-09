@@ -54,6 +54,7 @@ import '../storage/album.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/passcode_hash.dart';
 import '../storage/membership_sweep.dart';
 import '../upload/backup_coordinator.dart';
 import '../upload/background_sync.dart' show ForegroundHeartbeat;
@@ -644,6 +645,20 @@ class LibraryScreenState extends State<LibraryScreen>
         _push(FavoritesScreen(assetRecordStore: assetRecordStore));
       case 'album':
         if (_albums.isNotEmpty) _openAlbum(_albums.first);
+      case 'hidden' || 'hidden-backup' || 'hidden-detail':
+        // The demo seed's code, past the passcode sheet.
+        const code = '1234';
+        final keys = await _vaultKeys.unlockAlbum(code);
+        if (!mounted) return;
+        _push(
+          PrivateAlbumScreen(
+            passcodeHash: hashPasscode(code),
+            assetRecordStore: assetRecordStore,
+            custody: _custody,
+            albumKeys: keys,
+            vaultKeys: _vaultKeys,
+          ),
+        );
     }
   }
 

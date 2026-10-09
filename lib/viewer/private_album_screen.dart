@@ -14,6 +14,7 @@ import '../vault/album_index.dart';
 import '../vault/bucket.dart';
 import '../vault/cache.dart';
 import '../vault/gallery.dart';
+import '../main.dart' show screenshotRequest;
 import '../vault/filed_photos.dart';
 import '../vault/hidden_notes.dart';
 import '../vault/object_key.dart';
@@ -101,6 +102,17 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     _loadFromBucket();
     _loadTarget();
     _loadNotes();
+    _screenshotHook();
+  }
+
+  /// Simulator screenshots only — see `LibraryScreenState._screenshotHook`.
+  Future<void> _screenshotHook() async {
+    final screen = screenshotRequest()?.$1;
+    if (screen != 'hidden-backup' && screen != 'hidden-detail') return;
+    await Future<void>.delayed(const Duration(seconds: 2));
+    if (!mounted || _records.isEmpty) return;
+    if (screen == 'hidden-backup') unawaited(_backUp());
+    if (screen == 'hidden-detail') _open(_records.first);
   }
 
   late final HiddenNotes? _notesStore = widget.albumKeys == null
