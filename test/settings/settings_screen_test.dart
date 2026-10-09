@@ -354,7 +354,25 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('1 of 2 photos · 1 bucket'), findsOneWidget);
+    expect(find.text('1 backed up · 1 to go · 1 bucket'), findsOneWidget);
+  });
+
+  testWidgets('hidden photos are left out of the card entirely', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final store = await _storeWithBucket();
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(localId: 'h', contentHash: 'h', platform: 'ios');
+    await recordStore.setPasscodeHash('h', 'code');
+
+    await tester.pumpWidget(
+      _wrap(SettingsScreen(store: store, assetRecordStore: recordStore)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('0 backed up · 0 to go · 1 bucket'), findsOneWidget);
+    expect(find.text('All backed up'), findsOneWidget);
   });
 
   testWidgets('one bucket has no Fill Order row: it could change nothing', (
