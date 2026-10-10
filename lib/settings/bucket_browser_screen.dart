@@ -25,6 +25,7 @@ class BucketBrowserScreen extends StatefulWidget {
     super.key,
     required this.target,
     String? prefix,
+    this.highlightKey,
     this.listBucketFn = listBucket,
     this.deleteObjectFn = s3.deleteObject,
     this.onDeleteConnection,
@@ -32,6 +33,9 @@ class BucketBrowserScreen extends StatefulWidget {
 
   final S3BackupTarget target;
   final String prefix;
+
+  /// An object to scroll to and flash once listed — "Show in Bucket".
+  final String? highlightKey;
 
   /// Overridable for tests so they never make a real network call.
   final Future<S3ListingResult> Function({
@@ -71,10 +75,61 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
 
   bool get _isRoot => widget.prefix == widget.target.prefix;
 
+  final _scroll = ScrollController();
+  final _firstObjectRow = GlobalKey();
+  final _highlightRow = GlobalKey();
+  bool _flashing = false;
+
+  @override
+  void dispose() {
+    _scroll.dispose();
+    super.dispose();
+  }
+
+  /// Pages on until [BucketBrowserScreen.highlightKey] is listed — bounded,
+  /// since a folder can hold a hundred thousand objects — then scrolls to it.
+  /// The list is lazy, so the jump is estimated from one row's height and
+  /// then made exact once the row is built.
+  Future<void> _reveal() async {
+    final key = widget.highlightKey;
+    if (key == null) return;
+    for (var page = 0; page < 20; page++) {
+      if (_objects.any((o) => o.key == key) || _nextToken == null) break;
+      await _loadMore();
+      if (!mounted || _error != null) return;
+    }
+    final index = _objects.indexWhere((o) => o.key == key);
+    if (index == -1) return;
+    setState(() => _flashing = true);
+    await WidgetsBinding.instance.endOfFrame;
+    if (!mounted || !_scroll.hasClients) return;
+    final rowHeight = _firstObjectRow.currentContext?.size?.height;
+    if (rowHeight != null && _highlightRow.currentContext == null) {
+      final view = _scroll.position.viewportDimension;
+      _scroll.jumpTo(
+        ((_folders.length + index) * rowHeight - view * 0.3).clamp(
+          0,
+          _scroll.position.maxScrollExtent,
+        ),
+      );
+      await WidgetsBinding.instance.endOfFrame;
+    }
+    final row = _highlightRow.currentContext;
+    if (row != null && row.mounted) {
+      await Scrollable.ensureVisible(
+        row,
+        alignment: 0.3,
+        duration: const Duration(milliseconds: 250),
+      );
+    }
+    await Future<void>.delayed(const Duration(milliseconds: 1600));
+    if (mounted) setState(() => _flashing = false);
+  }
+
   @override
   void initState() {
     super.initState();
-    _load();
+    _load().then((_) => _reveal());
   }
 
   Future<void> _load() async {
@@ -340,6 +395,7 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
     return Stack(
       children: [
         ListView(
+          controller: _scroll,
           padding: const EdgeInsets.only(top: 8, bottom: 96),
           children: [
             if (_folders.isEmpty && _objects.isEmpty)
@@ -368,35 +424,46 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
               ),
               const SettingsHairline(indent: settingsPagePadding),
             ],
-            for (final object in _objects) ...[
-              SettingsRow(
-                leading: selection == null
-                    ? Icon(
-                        iconFor(object.key),
-                        color: settingsSecondary,
-                        size: 22,
-                      )
-                    : Icon(
-                        selection.contains(object.key)
-                            ? CupertinoIcons.checkmark_circle_fill
-                            : CupertinoIcons.circle,
-                        color: selection.contains(object.key)
-                            ? settingsAccent
-                            : settingsSecondary,
-                        size: 22,
-                      ),
-                title: _relativeName(object.key),
-                subtitle: formatBytes(object.size),
-                onTap: selection == null
-                    ? () => Navigator.of(context).push(
-                        CupertinoPageRoute(
-                          builder: (_) => BucketObjectPreviewScreen(
-                            target: widget.target,
-                            objectKey: object.key,
-                          ),
+            for (final (i, object) in _objects.indexed) ...[
+              AnimatedContainer(
+                key: object.key == widget.highlightKey
+                    ? _highlightRow
+                    : i == 0
+                    ? _firstObjectRow
+                    : null,
+                duration: const Duration(milliseconds: 600),
+                color: _flashing && object.key == widget.highlightKey
+                    ? settingsAccent.withValues(alpha: 0.22)
+                    : const Color(0x00000000),
+                child: SettingsRow(
+                  leading: selection == null
+                      ? Icon(
+                          iconFor(object.key),
+                          color: settingsSecondary,
+                          size: 22,
+                        )
+                      : Icon(
+                          selection.contains(object.key)
+                              ? CupertinoIcons.checkmark_circle_fill
+                              : CupertinoIcons.circle,
+                          color: selection.contains(object.key)
+                              ? settingsAccent
+                              : settingsSecondary,
+                          size: 22,
                         ),
-                      )
-                    : () => _toggleSelected(object.key),
+                  title: _relativeName(object.key),
+                  subtitle: formatBytes(object.size),
+                  onTap: selection == null
+                      ? () => Navigator.of(context).push(
+                          CupertinoPageRoute(
+                            builder: (_) => BucketObjectPreviewScreen(
+                              target: widget.target,
+                              objectKey: object.key,
+                            ),
+                          ),
+                        )
+                      : () => _toggleSelected(object.key),
+                ),
               ),
               const SettingsHairline(indent: settingsPagePadding),
             ],

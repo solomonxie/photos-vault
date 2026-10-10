@@ -1023,7 +1023,6 @@ void main() {
 
     await tester.tap(find.byIcon(CupertinoIcons.share));
     await tester.pumpAndSettle();
-    expect(find.text('Show in Bucket'), findsNothing);
     expect(find.text('Open in Browser'), findsNothing);
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
@@ -1032,7 +1031,6 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(CupertinoIcons.share));
     await tester.pumpAndSettle();
-    expect(find.text('Show in Bucket'), findsOneWidget);
     expect(find.text('Open in Browser'), findsOneWidget);
   });
 
@@ -1592,6 +1590,45 @@ void main() {
 
     // A pin that opens the wrong street is worse than no pin.
     expect(find.byIcon(CupertinoIcons.map_pin_ellipse), findsNothing);
+  });
+
+  testWidgets('Info shows where the photo sits in the bucket, once it is '
+      'there', (tester) async {
+    final store = FakeAssetRecordStore();
+    await store.upsert(
+      localId: 'up',
+      contentHash: 'up',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/up.jpg',
+    );
+    await store.updateDerivative(
+      'up',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'originals/up.jpg',
+      ),
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [(await store.getByLocalId('up'))!],
+          initialIndex: 0,
+          assetRecordStore: store,
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.drag(find.byType(DetailScreen), const Offset(0, -600));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Bucket Location'), findsOneWidget);
+    expect(find.text('originals/up.jpg'), findsOneWidget);
   });
 }
 

@@ -74,7 +74,7 @@ enum _ExportFormat {
 /// What the share sheet offers. The last two only once the photo has an
 /// object in a bucket — sharing is "where else can this go", and by then
 /// it is already somewhere else.
-enum _ShareChoice { original, exportAs, showInBucket, openInBrowser }
+enum _ShareChoice { original, exportAs, openInBrowser }
 
 enum _EditChoice { crop, rotate, resize }
 
@@ -384,18 +384,12 @@ class _DetailScreenState extends State<DetailScreen> {
               ),
             ],
           ],
-          if (objectKey != null) ...[
-            CupertinoActionSheetAction(
-              onPressed: () =>
-                  Navigator.of(context).pop(_ShareChoice.showInBucket),
-              child: Text(l10n.bucketShowInBucket),
-            ),
+          if (objectKey != null)
             CupertinoActionSheetAction(
               onPressed: () =>
                   Navigator.of(context).pop(_ShareChoice.openInBrowser),
               child: Text(l10n.bucketOpenInBrowser),
             ),
-          ],
         ],
         cancelButton: CupertinoActionSheetAction(
           onPressed: () => Navigator.of(context).pop(),
@@ -409,8 +403,6 @@ class _DetailScreenState extends State<DetailScreen> {
         await SharePlus.instance.share(ShareParams(files: [XFile(path!)]));
       case _ShareChoice.exportAs:
         await _exportAndShare(path!);
-      case _ShareChoice.showInBucket:
-        await showObjectInBucketBrowser(context, objectKey: objectKey!);
       case _ShareChoice.openInBrowser:
         await openObjectInSystemBrowser(context, objectKey: objectKey!);
     }
@@ -602,6 +594,7 @@ class _DetailScreenState extends State<DetailScreen> {
         source: source,
         bytes: bytes,
         extension: extension,
+        keepMotion: true,
         store: widget.assetRecordStore,
         personStore: _personStore,
       ),
@@ -1211,18 +1204,20 @@ class _MediaPageState extends State<_MediaPage>
   }
 
   Future<void> _restoreOriginal() async {
-    final restore =
-        widget.restoreOriginal ??
-        (record) => OriginalRestore(
-          targetsStore: BackupTargetsStore(),
-          recordStore: widget.assetRecordStore,
-        ).restore(record);
+    final fallback = OriginalRestore(
+      targetsStore: BackupTargetsStore(),
+      recordStore: widget.assetRecordStore,
+    );
+    final restore = widget.restoreOriginal ?? fallback.restore;
     setState(() => _restoring = true);
     String? restored;
+    String? problem;
     try {
       restored = await restore(widget.record);
-    } catch (_) {
+      problem = fallback.lastProblem;
+    } catch (e) {
       restored = null;
+      problem = '$e';
     }
     if (!mounted) return;
     setState(() {
@@ -1232,7 +1227,24 @@ class _MediaPageState extends State<_MediaPage>
         _localDeleted = false;
       }
     });
-    if (restored == null) return;
+    if (restored == null) {
+      // Said, not swallowed: a button that spins and stops reads as broken.
+      final l10n = AppLocalizations.of(context)!;
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (dialogContext) => CupertinoAlertDialog(
+          title: Text(l10n.detailRestoreFailedTitle),
+          content: Text(problem ?? l10n.detailRestoreFailedUnknown),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(l10n.actionOk),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
     widget.onRecordChanged(
       widget.record
           .withSourcePath(restored, DateTime.now())
@@ -1420,22 +1432,28 @@ class _MediaPageState extends State<_MediaPage>
       );
     }
 
-    final still = _ZoomableImage(
-      file: File(path),
-      onZoomChanged: _onZoomChanged,
-      errorBuilder: errorBuilder,
-    );
-    if (!widget.record.isLivePhoto) return still;
+    if (!widget.record.isLivePhoto) {
+      return _ZoomableImage(
+        file: File(path),
+        onZoomChanged: _onZoomChanged,
+        errorBuilder: errorBuilder,
+      );
+    }
     return _motion(
       label: l10n.detailLivePhotoBadge,
       icon: CupertinoIcons.smallcircle_circle,
-      child: (mode) => LivePhotoView(
-        still: still,
-        mode: mode,
-        onPlayingChanged: _onMotionPlayingChanged,
-        resolveVideo: () =>
-            (widget.resolveLiveVideo ??
-            PhotoLibraryService.resolveLivePhotoVideo)(widget.record),
+      child: (mode) => _ZoomableImage(
+        file: File(path),
+        onZoomChanged: _onZoomChanged,
+        errorBuilder: errorBuilder,
+        frame: (still) => LivePhotoView(
+          still: still,
+          mode: mode,
+          onPlayingChanged: _onMotionPlayingChanged,
+          resolveVideo: () =>
+              (widget.resolveLiveVideo ??
+              PhotoLibraryService.resolveLivePhotoVideo)(widget.record),
+        ),
       ),
     );
   }
@@ -1580,6 +1598,7 @@ class _ZoomableImage extends StatefulWidget {
     required this.errorBuilder,
     this.onZoomChanged,
     this.child,
+    this.frame,
   });
 
   final File file;
@@ -1589,6 +1608,10 @@ class _ZoomableImage extends StatefulWidget {
   /// own widget to be stoppable. Zooming and double-tap work the same
   /// either way.
   final Widget? child;
+
+  /// Wraps the still inside the zoom — a Live Photo's video over it, so
+  /// the two zoom as one.
+  final Widget Function(Widget still)? frame;
 
   /// Fires when the photo becomes zoomed, or stops being. Everything that
   /// scrolls around this image has to get out of the way while it is:
@@ -1710,6 +1733,8 @@ class _ZoomableImageState extends State<_ZoomableImage>
           ),
   );
 
+  static Widget _bare(Widget still) => still;
+
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
@@ -1720,7 +1745,9 @@ class _ZoomableImageState extends State<_ZoomableImage>
         minScale: 1,
         maxScale: _zoomedScale,
         panEnabled: _isZoomed,
-        child: Center(child: widget.child ?? _still(context)),
+        child: Center(
+          child: widget.child ?? (widget.frame ?? _bare)(_still(context)),
+        ),
       ),
     );
   }
@@ -1786,6 +1813,13 @@ class _InfoPanel extends StatefulWidget {
 }
 
 class _InfoPanelState extends State<_InfoPanel> {
+  static String? _bucketKey(AssetRecord record) {
+    final original = record.stateOf(DerivativeKind.original);
+    return original.status == UploadStatus.uploaded
+        ? original.destinationKey
+        : null;
+  }
+
   int? _bytes;
   int? _width;
   int? _height;
@@ -2535,6 +2569,22 @@ class _InfoPanelState extends State<_InfoPanel> {
                   ),
                 ),
               ),
+              if (_bucketKey(record) case final key?)
+                CupertinoListTile(
+                  key: const ValueKey('detail-info-bucket'),
+                  title: Text(l10n.detailInfoBucketLocation),
+                  additionalInfo: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 190),
+                    child: Text(
+                      key,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                    ),
+                  ),
+                  trailing: const CupertinoListTileChevron(),
+                  onTap: () =>
+                      showObjectInBucketBrowser(context, objectKey: key),
+                ),
             ],
           ),
           const SizedBox(height: 16),

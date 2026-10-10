@@ -39,15 +39,60 @@ class OriginalRestore {
   /// target still has it, writes it into app-owned storage, and clears the
   /// cloud-only flag. Returns the restored local path, or null if there's
   /// nothing to restore from or every target failed.
+  ///
+  /// Every key the photo was ever recorded under is tried in every bucket
+  /// set up now: a bucket since removed may have been a folder of the same
+  /// one. When none answers, [lastProblem] says what each one said.
   Future<String?> restore(AssetRecord record) async {
-    final key = record.stateOf(DerivativeKind.original).destinationKey;
-    if (key == null) return null;
+    lastProblem = null;
+    final keys = <String>{
+      ?record.stateOf(DerivativeKind.original).destinationKey,
+      ...(await recordStore.targetsHolding(
+        record.localId,
+        DerivativeKind.original,
+      )).values,
+    };
+    if (keys.isEmpty) {
+      lastProblem = 'never backed up';
+      return null;
+    }
+    final targets = await targetsStore.loadAll();
+    if (targets.isEmpty) {
+      lastProblem = 'no bucket set up';
+      return null;
+    }
+    final heard = <String>{};
+    for (final target in targets) {
+      for (final key in keys) {
+        final path = await _fetch(record, target, key, heard);
+        if (path != null) return path;
+      }
+    }
+    lastProblem = heard.join(', ');
+    return null;
+  }
 
-    for (final target in await targetsStore.loadAll()) {
+  /// Why the last [restore] got nothing, in a few words.
+  String? lastProblem;
+
+  Future<String?> _fetch(
+    AssetRecord record,
+    S3BackupTarget target,
+    String key,
+    Set<String> heard,
+  ) async {
+    {
       try {
         final url = await presignGetUrl(target: target, key: key);
         final response = await _get(url);
-        if (response.statusCode != 200) continue;
+        if (response.statusCode != 200) {
+          heard.add(
+            response.statusCode == 404
+                ? 'not in ${target.bucket}'
+                : '${target.bucket} said ${response.statusCode}',
+          );
+          return null;
+        }
 
         final dir = await _directory();
         final file = File(p.join(dir.path, p.basename(key)));
@@ -64,8 +109,9 @@ class OriginalRestore {
         // photo, so it must not lose the restore that already worked.
         await _restoreLiveHalf(record, target, dir);
         return file.path;
-      } catch (_) {
+      } catch (e) {
         // Wrong target, expired credentials, network — try the next one.
+        heard.add('${target.bucket}: ${e.runtimeType}');
       }
     }
     return null;
