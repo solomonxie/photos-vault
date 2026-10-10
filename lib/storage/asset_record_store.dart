@@ -563,6 +563,15 @@ class AssetRecordStore {
     });
   }
 
+  /// Buckets with a listing on file.
+  Future<Set<String>> bucketTargetIds() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT target_id FROM $_bucketObjectTable',
+    );
+    return {for (final r in rows) r['target_id'] as String};
+  }
+
   Future<List<BucketObject>> listBucketObjects() async {
     final db = await _open();
     final rows = await db.query(_bucketObjectTable);
@@ -1036,6 +1045,19 @@ class AssetRecordStore {
       _table,
       {
         'source_path': value,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  Future<void> setLivePhoto(String localId, bool value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {
+        'is_live_photo': value ? 1 : 0,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
       where: 'local_id = ?',

@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -8,6 +9,8 @@ import 'package:photos_vault/storage/bucket_object.dart';
 import 'package:photos_vault/upload/bucket_flagged.dart';
 import 'package:photos_vault/upload/bucket_import.dart';
 import 'package:photos_vault/upload/name_migration.dart';
+import 'package:photos_vault/upload/pending_deletes.dart';
+import 'package:photos_vault/upload/s3_uploader.dart';
 import 'package:photos_vault/vault/carrier.dart';
 import 'package:photos_vault/vault/cipher.dart';
 import 'package:photos_vault/vault/keys.dart';
@@ -91,6 +94,28 @@ void main() {
     bucket = MemoryBucket();
   });
 
+  test('a bucket no longer set up has its listing forgotten', () async {
+    bucket.objects['photos-vault/originals/odd.mp4'] = video;
+    await relist();
+    await store.replaceBucketObjects('removed', [
+      BucketObject(
+        targetId: 'removed',
+        key: 'old/originals/photo_X_L0_001.webp',
+        size: 1,
+        lastModified: DateTime(2026),
+      ),
+    ]);
+
+    await BucketIndexer(
+      targetsStore: targets,
+      recordStore: store,
+      ops: bucket,
+    ).forgetRemovedBuckets();
+
+    final flagged = await BucketFlags(store: store).detect();
+    expect(flagged.map((f) => f.object.targetId), [target.id]);
+  });
+
   test('takenAtFromName reads the camera timestamp', () {
     expect(
       takenAtFromName('import_20251228120340_179792A.mp4'),
@@ -134,6 +159,47 @@ void main() {
           destinationKey: 'photos-vault/originals/photo_OLD_L0_001.webp',
         ),
       );
+
+      expect(await BucketFlags(store: store).detect(), isEmpty);
+    });
+
+    test('an older upload of a photo backed up under its current name is an '
+        'old copy, and goes with its thumbnail', () async {
+      const old = 'photos-vault/originals/photo_ABC_L0_001.webp';
+      const oldThumb = 'photos-vault/thumbnails/photo_ABC_L0_001.webp';
+      const current = 'photos-vault/originals/20260101120000_abc.heic';
+      bucket.objects[old] = video;
+      bucket.objects[oldThumb] = video;
+      bucket.objects[current] = video;
+      await relist();
+      await store.upsert(
+        localId: 'photo:ABC/L0/001',
+        contentHash: 'a',
+        platform: 'ios',
+      );
+      await store.updateDerivative(
+        'photo:ABC/L0/001',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: current,
+        ),
+      );
+
+      final item = (await BucketFlags(store: store).detect()).single;
+      expect(item.kind, FlagKind.oldCopy);
+      expect(item.likelyDuplicateOf, current);
+
+      expect((await fixer().removeOldCopy(item)).ok, isTrue);
+      expect(bucket.objects.keys, [current]);
+    });
+
+    test('a file already queued for deletion is not offered', () async {
+      const key = 'photos-vault/originals/photo_GONE_L0_001.webp';
+      bucket.objects[key] = video;
+      await relist();
+      await PendingDeletes(store: store)
+          .add([PendingDelete(objectKey: key, targetId: target.id)]);
 
       expect(await BucketFlags(store: store).detect(), isEmpty);
     });
@@ -227,11 +293,32 @@ void main() {
       bucket.objects['photos-vault/originals/odd.mp4'] = video;
       await relist();
       final item = (await BucketFlags(store: store).detect()).single;
-      bucket.objects.clear();
+      bucket.refuseCopies = true;
 
       final result = await fixer().rename(item);
 
       expect(result.outcome, FixOutcome.failed);
+      expect(bucket.objects.keys, ['photos-vault/originals/odd.mp4']);
+    });
+
+    test('a file already looked at this session still renames', () async {
+      bucket.objects['photos-vault/originals/photo_X_L0_001.webp'] = video;
+      await relist();
+      final item = (await BucketFlags(store: store).detect()).single;
+      final f = fixer();
+      await f.canReformat(item);
+      await f.inspect(item.object);
+
+      expect((await f.rename(item)).ok, isTrue);
+    });
+
+    test('a file already gone is nothing left to fix', () async {
+      bucket.objects['photos-vault/originals/odd.mp4'] = video;
+      await relist();
+      final item = (await BucketFlags(store: store).detect()).single;
+      bucket.objects.clear();
+
+      expect((await fixer().rename(item)).ok, isTrue);
     });
   });
 
@@ -390,6 +477,93 @@ void main() {
 
     expect(await migration.run(), 0);
   });
+
+  test(
+    'byte-identical copies are duplicates; the one a record uses is kept',
+    () async {
+      const kept = 'photos-vault/originals/20260101120000_abc.jpg';
+      const copy = 'photos-vault/originals/IMG_0042.jpg';
+      const sameSizeOther = 'photos-vault/originals/IMG_0043.jpg';
+      bucket.objects[kept] = video;
+      bucket.objects[copy] = Uint8List.fromList(video);
+      bucket.objects[sameSizeOther] = Uint8List.fromList(
+        List.generate(video.length, (i) => (i * 7) % 251),
+      );
+      await relist();
+      await store.upsert(localId: 'a', contentHash: 'a', platform: 'ios');
+      await store.updateDerivative(
+        'a',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: kept,
+        ),
+      );
+      final f = fixer();
+
+      final flagged = await BucketFlags(store: store)
+          .detect(inspect: f.inspect, etag: f.etagOf);
+      final dup = flagged.singleWhere((o) => o.kind == FlagKind.duplicate);
+
+      expect(dup.object.key, copy);
+      expect(dup.likelyDuplicateOf, kept);
+      expect((await f.removeOldCopy(dup)).ok, isTrue);
+      expect(bucket.objects.containsKey(copy), isFalse);
+      expect(bucket.objects.containsKey(kept), isTrue);
+    },
+  );
+
+  test(
+    'optimizing in the bucket swaps the copy there and keeps the hash',
+    () async {
+      const oldKey = 'photos-vault/originals/20260101120000_abc.jpg';
+      bucket.objects[oldKey] = video;
+      await store.upsert(localId: 'a', contentHash: 'a', platform: 'ios');
+      await store.updateDerivative(
+        'a',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: oldKey,
+          backedUpHash: 'local-hash',
+        ),
+      );
+      await store.recordUpload(
+        localId: 'a',
+        kind: DerivativeKind.original,
+        targetId: target.id,
+        destinationKey: oldKey,
+        sourceHash: 'local-hash',
+      );
+      final smaller = File('${Directory.systemTemp.path}/pv_small.heic')
+        ..writeAsBytesSync([1, 2, 3]);
+      addTearDown(() => smaller.deleteSync());
+
+      final result = await BucketFixer(
+        store: store,
+        targetsStore: targets,
+        passphrases: () async => const [],
+        ops: bucket,
+        uploader: _BucketUploader(bucket),
+      ).replaceRemoteOriginal((await store.getByLocalId('a'))!, smaller);
+
+      expect(result.ok, isTrue);
+      const newKey = 'photos-vault/originals/20260101120000_abc.heic';
+      expect(bucket.objects.keys, [newKey]);
+      final state = (await store.getByLocalId('a'))!
+          .stateOf(DerivativeKind.original);
+      expect(state.destinationKey, newKey);
+      expect(state.backedUpHash, 'local-hash');
+      expect(
+        await store.targetsHolding(
+          'a',
+          DerivativeKind.original,
+          sourceHash: 'local-hash',
+        ),
+        {target.id: newKey},
+      );
+    },
+  );
 }
 
 AssetRecord _record(String id) => AssetRecord(
@@ -399,3 +573,18 @@ AssetRecord _record(String id) => AssetRecord(
   createdAt: DateTime(2026),
   updatedAt: DateTime(2026),
 );
+
+class _BucketUploader implements S3Uploader {
+  _BucketUploader(this.bucket);
+  final MemoryBucket bucket;
+
+  @override
+  Future<bool> put({
+    required String filePath,
+    required String key,
+    required S3BackupTarget target,
+  }) async {
+    bucket.objects[key] = File(filePath).readAsBytesSync();
+    return true;
+  }
+}

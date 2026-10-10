@@ -1,3 +1,4 @@
+import AVFoundation
 import Flutter
 import Foundation
 import ImageIO
@@ -21,6 +22,10 @@ class ImageEncodeChannel {
     channel.setMethodCallHandler { call, result in
       if call.method == "encodeFile" {
         encodeFile(call, result)
+        return
+      }
+      if call.method == "compressVideo" {
+        compressVideo(call, result)
         return
       }
       guard call.method == "encode",
@@ -77,6 +82,53 @@ class ImageEncodeChannel {
         wrote = FileManager.default.createFile(atPath: output, contents: out)
       }
       DispatchQueue.main.async { result(wrote) }
+    }
+  }
+
+  /// A video re-encoded to 1080p HEVC by AVFoundation, metadata (date,
+  /// place) carried over. True only when [output] came out smaller.
+  private static func compressVideo(
+    _ call: FlutterMethodCall,
+    _ result: @escaping FlutterResult
+  ) {
+    guard let args = call.arguments as? [String: Any],
+          let input = args["input"] as? String,
+          let output = args["output"] as? String
+    else {
+      result(false)
+      return
+    }
+    let asset = AVURLAsset(url: URL(fileURLWithPath: input))
+    guard let session = AVAssetExportSession(
+      asset: asset,
+      presetName: AVAssetExportPresetHEVC1920x1080
+    ) else {
+      result("no HEVC export for this video")
+      return
+    }
+    let out = URL(fileURLWithPath: output)
+    try? FileManager.default.removeItem(at: out)
+    session.outputURL = out
+    session.outputFileType = .mov
+    session.metadata = asset.metadata
+    // True, or why not, so a failure can say what went wrong.
+    session.exportAsynchronously {
+      var answer: Any = true
+      if session.status != .completed {
+        answer = session.error?.localizedDescription
+          ?? "export ended: \(session.status.rawValue)"
+      } else {
+        let size = { (path: String) -> Int in
+          ((try? FileManager.default.attributesOfItem(atPath: path))?[.size]
+            as? NSNumber)?.intValue ?? 0
+        }
+        let written = size(output)
+        if written == 0 || written >= size(input) {
+          answer = "not smaller (\(written) of \(size(input)) bytes)"
+          try? FileManager.default.removeItem(at: out)
+        }
+      }
+      DispatchQueue.main.async { result(answer) }
     }
   }
 

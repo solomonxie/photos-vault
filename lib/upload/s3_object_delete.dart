@@ -41,10 +41,9 @@ Future<bool> deleteObject({
       credentialScope: scope,
       serviceConfiguration: S3ServiceConfiguration(),
     );
-    final response = await httpClient.delete(
-      signed.uri,
-      headers: signed.headers,
-    );
+    final response = await httpClient
+        .delete(signed.uri, headers: signed.headers)
+        .timeout(const Duration(seconds: 20));
     return response.statusCode == 204 ||
         response.statusCode == 200 ||
         response.statusCode == 404;

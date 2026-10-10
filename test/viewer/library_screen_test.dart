@@ -846,88 +846,74 @@ void main() {
     },
   );
 
-  testWidgets(
-    'returning from Cloud Backups retries whatever is still pending/failed',
-    (tester) async {
-      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-      await targetsStore.add(
-        accessKeyId: 'a',
-        secretAccessKey: 'b',
-        region: 'us-east-1',
-        bucket: 'bucket',
-        prefix: '',
-      );
-      final recordStore = FakeAssetRecordStore();
-      // A file that's really there: the queue skips a photo whose path
-      // resolves to nothing, so a fake path would test the skip rather
-      // than the retry. Made synchronously — an awaited file operation
-      // inside `testWidgets` waits on a clock the test controls, and never
-      // comes back.
-      final dir = Directory.systemTemp.createTempSync('pending');
-      addTearDown(() => dir.deleteSync(recursive: true));
-      final file = File('${dir.path}/pending.jpg')..writeAsBytesSync([1, 2, 3]);
-      await recordStore.upsert(
-        localId: 'manual:pending',
-        contentHash: 'p',
-        platform: 'ios',
-        sourceType: AssetSourceType.manualFile,
-        sourcePath: file.path,
-      );
+  testWidgets('a pending photo backs up on its own once a bucket is set up', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    await targetsStore.add(
+      accessKeyId: 'a',
+      secretAccessKey: 'b',
+      region: 'us-east-1',
+      bucket: 'bucket',
+      prefix: '',
+    );
+    final recordStore = FakeAssetRecordStore();
+    // A file that's really there: the queue skips a photo whose path
+    // resolves to nothing, so a fake path would test the skip rather
+    // than the retry. Made synchronously — an awaited file operation
+    // inside `testWidgets` waits on a clock the test controls, and never
+    // comes back.
+    final dir = Directory.systemTemp.createTempSync('pending');
+    addTearDown(() => dir.deleteSync(recursive: true));
+    final file = File('${dir.path}/pending.jpg')..writeAsBytesSync([1, 2, 3]);
+    await recordStore.upsert(
+      localId: 'manual:pending',
+      contentHash: 'p',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: file.path,
+    );
 
-      // Wide enough that Cloud Backups' own "Cloud Buckets" row (heading +
-      // "+ Add Cloud Bucket" button) doesn't overflow once a target's
-      // configured.
-      await tester.binding.setSurfaceSize(const Size(800, 2000));
-      addTearDown(() => tester.binding.setSurfaceSize(null));
+    // Wide enough that Cloud Backups' own "Cloud Buckets" row (heading +
+    // "+ Add Cloud Bucket" button) doesn't overflow once a target's
+    // configured.
+    await tester.binding.setSurfaceSize(const Size(800, 2000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
 
-      await tester.pumpWidget(
-        _wrap(
-          LibraryScreen(
-            assetRecordStore: recordStore,
-            thumbnailCache: _noThumbnails(recordStore),
-            syncJobStore: FakeSyncJobStore(),
-            albumStore: FakeAlbumStore(),
-            personStore: FakePersonStore(),
-            backupTargetsStore: targetsStore,
-            // The screen and the coordinator have to agree on what a file
-            // hashes to. Give them different answers and every check for
-            // local changes finds one, flips the record back to pending,
-            // re-uploads, and finds one again — forever.
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          // The screen and the coordinator have to agree on what a file
+          // hashes to. Give them different answers and every check for
+          // local changes finds one, flips the record back to pending,
+          // re-uploads, and finds one again — forever.
+          hashFile: (path) async => 'fake-hash',
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _FakeS3Uploader(true),
             hashFile: (path) async => 'fake-hash',
-            backupCoordinator: BackupCoordinator(
-              targetsStore: targetsStore,
-              recordStore: recordStore,
-              s3Uploader: _FakeS3Uploader(true),
-              hashFile: (path) async => 'fake-hash',
-            ),
           ),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      // Nothing backs it up automatically just by rendering — the target
-      // was added to `targetsStore` directly (simulating "already
-      // configured"), not through the Cloud Backups UI itself.
-      expect(
-        (await recordStore.getByLocalId('manual:pending'))!
-            .stateOf(DerivativeKind.original)
-            .status,
-        UploadStatus.pending,
-      );
-
-      await tester.tap(find.text('Cloud Settings'));
-      await tester.pumpAndSettle();
-      await tester.pageBack();
-      await tester.pumpAndSettle();
-
-      expect(
-        (await recordStore.getByLocalId('manual:pending'))!
-            .stateOf(DerivativeKind.original)
-            .status,
-        UploadStatus.uploaded,
-      );
-    },
-  );
+    // Backup is always automatic: a configured bucket and a pending
+    // photo is all it takes.
+    expect(
+      (await recordStore.getByLocalId('manual:pending'))!
+          .stateOf(DerivativeKind.original)
+          .status,
+      UploadStatus.uploaded,
+    );
+  });
 
   testWidgets(
     'a local edit since backup is re-hashed and re-uploaded on the next sync',

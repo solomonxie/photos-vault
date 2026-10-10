@@ -21,6 +21,7 @@ import '../vault/object_key.dart';
 import 'bucket_leftovers.dart';
 import 'bucket_ops.dart';
 import 'capture_date.dart';
+import 'pending_deletes.dart';
 import 's3_uploader.dart';
 import 'signing.dart';
 
@@ -40,6 +41,16 @@ enum FlagKind {
   /// stamp written when it was uploaded or renamed: most likely an old copy
   /// of a photo already here. Listed, never offered as new.
   likelyLeftover,
+
+  /// An older build's upload of a photo the library still has, named after
+  /// its record (`photo_<id>_L0_001`), where the record has since gone up
+  /// again under its current name. A second copy of something already
+  /// backed up.
+  oldCopy,
+
+  /// The same bytes as another object in the same bucket (same size and
+  /// ETag), and no record points at it. The other one is kept.
+  duplicate,
 }
 
 /// What a header read says about an object: whether it is a hidden photo's
@@ -105,6 +116,7 @@ class BucketFlags {
   Future<List<FlaggedObject>> detect({
     Future<bool> Function(BucketObject object)? isCarrier,
     Future<ObjectInspection> Function(BucketObject object)? inspect,
+    Future<String?> Function(BucketObject object)? etag,
     int probeLimit = 200,
   }) async {
     final look =
@@ -116,6 +128,32 @@ class BucketFlags {
     final objects = await store.listBucketObjects();
     final referenced = await store.referencedKeys();
     final ignored = await IgnoredBucketKeys(store).read();
+    // Already on their way out; offering a fix for them races the delete.
+    final leaving = {
+      for (final d in await PendingDeletes(store: store).pending()) d.objectKey,
+    };
+    final present = {for (final o in objects) '${o.targetId}|${o.key}'};
+    final live = {
+      for (final r in await store.listAll())
+        if (!r.isDeleted) r.localId: r,
+    };
+    final holdings = await store.allHoldings();
+
+    /// The current key of the record an old-style name was written for, in
+    /// the same bucket, when that copy is there.
+    String? stillBackedUp(BucketObject o) {
+      final m = _oldStyleName.firstMatch(_stem(o.key));
+      if (m == null) return null;
+      final localId = 'photo:${m[1]}/L${m[2]}/${m[3]}';
+      final record = live[localId];
+      if (record == null) return null;
+      final current =
+          holdings[localId]?[DerivativeKind.original]?[o.targetId] ??
+          record.stateOf(DerivativeKind.original).destinationKey;
+      if (current == null || current == o.key) return null;
+      return present.contains('${o.targetId}|$current') ? current : null;
+    }
+
     final originalStems = <String>{
       for (final o in objects)
         if (o.directory == 'originals') '${o.targetId}|${_stem(o.key)}',
@@ -133,11 +171,44 @@ class BucketFlags {
           takenAt: takenAt,
         );
     final out = <FlaggedObject>[];
+    final copies = etag == null
+        ? const <String, String>{}
+        : await _duplicates(
+            objects.where(
+              (o) => o.directory == 'originals' && !leaving.contains(o.key),
+            ),
+            referenced,
+            etag,
+          );
     final toProbe = <BucketObject>[];
     for (final o in objects) {
-      if (referenced.contains(o.key) || ignored.contains(o.key)) continue;
+      if (referenced.contains(o.key) ||
+          ignored.contains(o.key) ||
+          leaving.contains(o.key)) {
+        continue;
+      }
       final ext = _ext(o.key);
       if (o.directory == 'originals') {
+        if (copies[o.key] case final kept?) {
+          out.add(
+            FlaggedObject(
+              object: o,
+              kind: FlagKind.duplicate,
+              likelyDuplicateOf: kept,
+            ),
+          );
+          continue;
+        }
+        if (stillBackedUp(o) case final current?) {
+          out.add(
+            FlaggedObject(
+              object: o,
+              kind: FlagKind.oldCopy,
+              likelyDuplicateOf: current,
+            ),
+          );
+          continue;
+        }
         final isMedia =
             videoExtensions.contains(ext) || stillExtensions.contains(ext);
         if (!isMedia) continue;
@@ -192,6 +263,58 @@ class BucketFlags {
     return out;
   }
 
+  /// Duplicate key → the key kept in its place. Only objects sharing a size
+  /// are asked for an ETag, a few at a time, so a bucket of unique files
+  /// costs no requests. The one kept: a record's, else a protocol name,
+  /// else the oldest. One a record points at is never offered.
+  static Future<Map<String, String>> _duplicates(
+    Iterable<BucketObject> originals,
+    Set<String> referenced,
+    Future<String?> Function(BucketObject object) etag,
+  ) async {
+    final bySize = <String, List<BucketObject>>{};
+    for (final o in originals) {
+      (bySize['${o.targetId}|${o.size}'] ??= []).add(o);
+    }
+    final candidates = [
+      for (final group in bySize.values)
+        if (group.length > 1) ...group,
+    ];
+    final tags = <BucketObject, String?>{};
+    for (var i = 0; i < candidates.length; i += probeConcurrency) {
+      final batch = candidates.skip(i).take(probeConcurrency).toList();
+      final got = await Future.wait(batch.map(etag));
+      for (var j = 0; j < batch.length; j++) {
+        tags[batch[j]] = got[j];
+      }
+    }
+    final same = <String, List<BucketObject>>{};
+    for (final MapEntry(key: o, value: tag) in tags.entries) {
+      if (tag == null) continue;
+      (same['${o.targetId}|${o.size}|$tag'] ??= []).add(o);
+    }
+    int rank(BucketObject o) => referenced.contains(o.key)
+        ? 0
+        : fitsProtocol(o.fileName)
+        ? 1
+        : 2;
+    final out = <String, String>{};
+    for (final group in same.values) {
+      if (group.length < 2) continue;
+      group.sort((a, b) {
+        final r = rank(a).compareTo(rank(b));
+        return r != 0 ? r : a.lastModified.compareTo(b.lastModified);
+      });
+      for (final o in group.skip(1)) {
+        if (!referenced.contains(o.key)) out[o.key] = group.first.key;
+      }
+    }
+    return out;
+  }
+
+  /// `photo_<asset id>_L0_001`: how older builds named an upload.
+  static final _oldStyleName = RegExp(r'^photo_(.+)_L(\d+)_(\d+)$');
+
   static bool _stampNearArrival(BucketObject o) => isLikelyLeftover(
     nameStamp: takenAtFromName(o.fileName),
     reference: o.lastModified,
@@ -239,6 +362,7 @@ class BucketFixer {
     BucketOps? ops,
     CarrierProbe? probe,
     this._uploader,
+    this._downloader,
     Future<Directory> Function()? temporaryDirectory,
   }) : _ops = ops ?? BucketOps(),
        _probe = probe ?? const CarrierProbe(),
@@ -251,36 +375,107 @@ class BucketFixer {
   final BucketOps _ops;
   final CarrierProbe _probe;
   final S3Uploader? _uploader;
+  final S3Downloader? _downloader;
   final Future<Directory> Function() _temporaryDirectory;
 
+  /// Read once a minute rather than per object: a batch of renames was a
+  /// keychain read each.
+  List<S3BackupTarget>? _targets;
+  DateTime _targetsAt = DateTime(0);
+
   Future<S3BackupTarget?> _target(String id) async {
-    for (final t in await targetsStore.loadAll()) {
+    final now = DateTime.now();
+    if (_targets == null || now.difference(_targetsAt) > _fresh) {
+      _targets = await targetsStore.loadAll();
+      _targetsAt = now;
+    }
+    for (final t in _targets!) {
       if (t.id == id) return t;
     }
     return null;
   }
 
-  Future<ProbedCarrier?> _carrierIn(S3BackupTarget target, FlaggedObject f) =>
-      _probe.probe(
-        read: _ops.rangeReader(target, f.object.key),
-        size: f.object.size,
-        isVideo: f.isVideo,
-      );
+  static const _looksKey = 'bucket_looks_v1';
+
+  /// Header answers already fetched, by bucket, key and size — an object
+  /// doesn't change under the same name and size, so the page doesn't
+  /// re-read every header each time it opens.
+  Map<String, dynamic>? _looks;
+  bool _looksDirty = false;
+
+  Future<Map<String, dynamic>> _loadLooks() async {
+    if (_looks != null) return _looks!;
+    try {
+      final raw = await store.getAppState(_looksKey);
+      _looks = raw == null
+          ? {}
+          : (jsonDecode(raw) as Map).cast<String, dynamic>();
+    } catch (_) {
+      _looks = {};
+    }
+    return _looks!;
+  }
+
+  static String _lookId(BucketObject o) => '${o.targetId}|${o.key}|${o.size}';
+
+  Future<Map<String, dynamic>?> _looked(BucketObject o) async =>
+      ((await _loadLooks())[_lookId(o)] as Map?)?.cast<String, dynamic>();
+
+  Future<void> _remember(BucketObject o, Map<String, dynamic> answer) async {
+    final looks = await _loadLooks();
+    looks[_lookId(o)] = <String, dynamic>{
+      ...?(looks[_lookId(o)] as Map?)?.cast<String, dynamic>(),
+      ...answer,
+    };
+    _looksDirty = true;
+  }
+
+  /// Files what [inspect] and [canReformat] learnt. Once per scan, not per
+  /// object.
+  Future<void> saveLooks() async {
+    if (!_looksDirty || _looks == null) return;
+    _looksDirty = false;
+    await store.setAppState(_looksKey, jsonEncode(_looks));
+  }
+
+  /// A reader that notes a failed read, so an offline answer isn't kept.
+  static (RangeReader, bool Function()) _watched(RangeReader read) {
+    var failed = false;
+    return (
+      (start, end) async {
+        final bytes = await read(start, end);
+        if (bytes == null) failed = true;
+        return bytes;
+      },
+      () => failed,
+    );
+  }
 
   /// One look at [object]'s header: carrier or not, and its capture date.
   /// The first 64 KB are fetched once and shared by both questions.
   Future<ObjectInspection> inspect(BucketObject object) async {
+    final known = await _looked(object);
+    if (known != null && known['c'] is bool) {
+      return (
+        carrier: known['c'] as bool,
+        takenAt: DateTime.tryParse(known['t'] as String? ?? ''),
+      );
+    }
     final target = await _target(object.targetId);
     if (target == null) return (carrier: true, takenAt: null);
-    final read = _headCached(_ops.rangeReader(target, object.key), object.size);
+    final (raw, failed) = _watched(_ops.rangeReader(target, object.key));
+    final read = _headCached(raw, object.size);
     final isVideo = BucketFlags.videoExtensions.contains(_ext(object.key));
     final carrier =
         await _probe.probe(read: read, size: object.size, isVideo: isVideo) !=
         null;
-    return (
-      carrier: carrier,
-      takenAt: carrier ? null : await _captureDateFrom(read, object, isVideo),
-    );
+    final takenAt = carrier
+        ? null
+        : await _captureDateFrom(read, object, isVideo);
+    if (!failed()) {
+      await _remember(object, {'c': carrier, 't': takenAt?.toIso8601String()});
+    }
+    return (carrier: carrier, takenAt: takenAt);
   }
 
   static Future<DateTime?> _captureDateFrom(
@@ -354,9 +549,20 @@ class BucketFixer {
     if (f.kind != FlagKind.offProtocol || f.isVideo) return false;
     final ext = _ext(f.object.key);
     if (ext == 'heic' || ext == 'heif' || ext == 'gif') return false;
+    final known = await _looked(f.object);
+    if (known != null && known['r'] is bool) return known['r'] as bool;
     final target = await _target(f.object.targetId);
     if (target == null) return false;
-    return await _carrierIn(target, f) == null;
+    final (read, failed) = _watched(_ops.rangeReader(target, f.object.key));
+    final ok =
+        await _probe.probe(
+          read: read,
+          size: f.object.size,
+          isVideo: f.isVideo,
+        ) ==
+        null;
+    if (!failed()) await _remember(f.object, {'r': ok});
+    return ok;
   }
 
   /// Server-side: a copy to a protocol name, a size check, then the old
@@ -372,7 +578,20 @@ class BucketFixer {
       return const FixResult(FixOutcome.failed, detail: 'no such bucket');
     }
 
-    final carrier = await _carrierIn(target, f);
+    // One header read for both questions, and none when the scan already
+    // found it isn't a carrier and knows its date.
+    final known = await _looked(f.object);
+    final read = _headCached(
+      _ops.rangeReader(target, f.object.key),
+      f.object.size,
+    );
+    final carrier = known?['c'] == false
+        ? null
+        : await _probe.probe(
+            read: read,
+            size: f.object.size,
+            isVideo: f.isVideo,
+          );
     // Anything that looks like a hidden photo is only ever renamed into the
     // hidden format, and only when the header says it is ours and carries a
     // name. Otherwise it is left alone: an album's index may point at it,
@@ -385,7 +604,7 @@ class BucketFixer {
       return const FixResult(FixOutcome.needsAlbum);
     }
 
-    final date = await _dateOf(target, f);
+    final date = await _dateOf(target, f, read);
     final ext = _ext(f.object.key);
     final base = hidden
         ? hiddenBaseNameFromHeader(date, carrier.header)
@@ -393,6 +612,10 @@ class BucketFixer {
     final newKey = '${target.prefix}originals/$base.$ext';
 
     if (!await _copy(target, f.object.key, newKey, f.object.size)) {
+      // Gone already — deleted since the listing — is nothing left to fix.
+      if (await _ops.sizeOf(target, f.object.key) == null) {
+        return const FixResult(FixOutcome.removed);
+      }
       return FixResult(FixOutcome.failed, detail: _ops.lastError);
     }
     if (hidden) {
@@ -507,6 +730,114 @@ class BucketFixer {
     }
   }
 
+  /// [record]'s original from whichever bucket holds it, to [toPath] — for
+  /// Optimize in the bucket when this phone has no copy of its own.
+  Future<File?> downloadOriginal(AssetRecord record, String toPath) async {
+    final downloader = _downloader;
+    if (downloader == null) return null;
+    final holding = await store.targetsHolding(
+      record.localId,
+      DerivativeKind.original,
+    );
+    for (final MapEntry(key: targetId, value: key) in holding.entries) {
+      final target = await _target(targetId);
+      if (target == null) continue;
+      if (await downloader.get(key: key, target: target, toPath: toPath)) {
+        return File(toPath);
+      }
+    }
+    return null;
+  }
+
+  /// Optimize in the bucket: [smaller] takes the original's place in every
+  /// bucket holding it, and the phone's copy is left alone. Same name, the
+  /// new format's extension. The rows are renamed with their hash kept, so
+  /// a change check doesn't send the original back up.
+  Future<FixResult> replaceRemoteOriginal(
+    AssetRecord record,
+    File smaller,
+  ) async {
+    final uploader = _uploader;
+    if (uploader == null) return const FixResult(FixOutcome.failed);
+    final holding = await store.targetsHolding(
+      record.localId,
+      DerivativeKind.original,
+    );
+    final size = await smaller.length();
+    final ext = p.extension(smaller.path).substring(1);
+    String? replaced;
+    for (final MapEntry(key: targetId, value: oldKey) in holding.entries) {
+      final target = await _target(targetId);
+      if (target == null) continue;
+      final newKey = '${p.withoutExtension(oldKey)}.$ext';
+      if (!await uploader.put(
+            filePath: smaller.path,
+            key: newKey,
+            target: target,
+          ) ||
+          await _ops.sizeOf(target, newKey) != size) {
+        return const FixResult(FixOutcome.failed, detail: 'upload failed');
+      }
+      if (newKey != oldKey) await _ops.delete(target, oldKey);
+      await store.renameUploadKey(
+        localId: record.localId,
+        kind: DerivativeKind.original,
+        targetId: targetId,
+        destinationKey: newKey,
+      );
+      replaced = newKey;
+    }
+    if (replaced == null) {
+      return const FixResult(FixOutcome.failed, detail: 'not in a bucket');
+    }
+    final state = record.stateOf(DerivativeKind.original);
+    await store.updateDerivative(
+      record.localId,
+      DerivativeKind.original,
+      DerivativeState(
+        status: state.status,
+        destinationKey: replaced,
+        backedUpHash: state.backedUpHash,
+      ),
+    );
+    return const FixResult(FixOutcome.removed);
+  }
+
+  /// The ETag, remembered with the other header answers.
+  Future<String?> etagOf(BucketObject object) async {
+    final known = await _looked(object);
+    if (known?['e'] case final String tag) return tag;
+    final target = await _target(object.targetId);
+    if (target == null) return null;
+    final tag = await _ops.etagOf(target, object.key);
+    if (tag != null) await _remember(object, {'e': tag});
+    return tag;
+  }
+
+  /// An [FlagKind.oldCopy] or [FlagKind.duplicate] and its thumbnail, once
+  /// the copy kept in its place is confirmed in the same bucket.
+  Future<FixResult> removeOldCopy(FlaggedObject f) async {
+    final current = f.likelyDuplicateOf;
+    final target = await _target(f.object.targetId);
+    if (current == null || target == null) {
+      return const FixResult(FixOutcome.failed);
+    }
+    if (await _ops.sizeOf(target, current) == null) {
+      return const FixResult(
+        FixOutcome.failed,
+        detail: 'current copy not found',
+      );
+    }
+    if (!await _ops.delete(target, f.object.key)) {
+      return FixResult(FixOutcome.failed, detail: _ops.lastError);
+    }
+    final thumb = await _thumbnailOf(f);
+    if (thumb != null && !(await store.referencedKeys()).contains(thumb.key)) {
+      await _ops.delete(target, thumb.key);
+    }
+    return const FixResult(FixOutcome.removed);
+  }
+
   Future<FixResult> removeOrphan(FlaggedObject f) async {
     final target = await _target(f.object.targetId);
     if (target == null) return const FixResult(FixOutcome.failed);
@@ -525,24 +856,36 @@ class BucketFixer {
     return _ops.copy(target: target, from: from, to: to, expectedSize: size);
   }
 
+  static const _fresh = Duration(minutes: 1);
+
+  /// Thumbnails by bucket and stem, built from one listing instead of a
+  /// pass over every object per rename.
+  Map<String, BucketObject>? _thumbnails;
+  DateTime _thumbnailsAt = DateTime(0);
+
   Future<BucketObject?> _thumbnailOf(FlaggedObject f) async {
-    final stem = _stem(f.object.key);
-    for (final o in await store.listBucketObjects()) {
-      if (o.targetId == f.object.targetId &&
-          o.directory == 'thumbnails' &&
-          _stem(o.key) == stem) {
-        return o;
-      }
+    final now = DateTime.now();
+    if (_thumbnails == null || now.difference(_thumbnailsAt) > _fresh) {
+      _thumbnails = {
+        for (final o in await store.listBucketObjects())
+          if (o.directory == 'thumbnails') '${o.targetId}|${_stem(o.key)}': o,
+      };
+      _thumbnailsAt = now;
     }
-    return null;
+    return _thumbnails!['${f.object.targetId}|${_stem(f.object.key)}'];
   }
 
   /// The camera's date from the file itself, then a date in its name, then
   /// when it reached the bucket.
-  Future<DateTime> _dateOf(S3BackupTarget target, FlaggedObject f) async =>
+  Future<DateTime> _dateOf(
+    S3BackupTarget target,
+    FlaggedObject f, [
+    RangeReader? read,
+  ]) async =>
       f.takenAt ??
       await _captureDateFrom(
-        _headCached(_ops.rangeReader(target, f.object.key), f.object.size),
+        read ??
+            _headCached(_ops.rangeReader(target, f.object.key), f.object.size),
         f.object,
         f.isVideo,
       ).catchError((_) => null) ??

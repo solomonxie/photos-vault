@@ -116,6 +116,7 @@
       }
     }
   },
+  "detailInfoBucketLocation": "Bucket Location",
   "detailInfoStatus": "Backup status",
   "detailInfoDimensions": "Dimensions",
   "detailInfoFileSize": "File Size",
@@ -247,7 +248,6 @@
   "privacyTitle": "Your photos always belong to you.",
   "privacyBody": "Your photos go to a bucket you own, as ordinary files. Alongside them sits an index.csv listing every photo by date, album, person, caption and place — so you can find any one of them again with a spreadsheet and nothing else. No account, no export tool, no us. This app has no permission to delete from your bucket; only you do.\n\nNothing is ever sent to the developer. There is no server and no account: your library, its records and its face data stay in a database on this iPhone, and all processing — grouping, search, face recognition — happens here. Photos go only where you send them: your own bucket, your own iCloud, your own AI key. Keys are kept in the Keychain and are never included in a backup.",
   "backupQueueTitle": "Sync Queue",
-  "backupQueueEmpty": "The queue is empty. Everything is backed up.",
   "backupQueueClearButton": "Empty Queue",
   "backupQueueRetryFailedButton": "Retry Failed",
   "backupQueueHeader": "Queue ({count})",
@@ -258,21 +258,11 @@
       }
     }
   },
-  "backupQueuePausedNote": "Paused",
-  "@backupQueuePausedNote": {
-    "description": "Muted suffix on the queue header while nothing is being taken or processed"
-  },
   "backupQueueFullNote": "Full",
   "@backupQueueFullNote": {
     "description": "Muted suffix on the queue header when the queue is at capacity"
   },
-  "backupQueueKindCheck": "Checking for changes",
-  "backupQueueKindOriginal": "Backing up original",
-  "backupQueueKindThumbnail": "Backing up thumbnail",
-  "backupQueueKindLivePhoto": "Backing up Live Photo motion",
-  "backupQueueKindAnalyze": "Analyzing photo",
   "backupQueueWaiting": "Waiting",
-  "backupQueueIdle": "Idle",
   "backupQueueSpeed": "{count} at a time",
   "@backupQueueSpeed": {
     "placeholders": {
@@ -285,10 +275,8 @@
   "backupQueueResumeAction": "Resume",
   "backupQueueSlowerShort": "Slower",
   "backupQueueFasterShort": "Faster",
-  "backupQueueClearSyncedShort": "Clear Done",
   "backupQueueSlower": "Slower (one fewer at a time)",
   "backupQueueFaster": "Faster (one more at a time)",
-  "backupQueueClearSynced": "Clear Finished",
   "backupQueueCheckingMessage": "{count, plural, one{Checking 1 photo for changes…} other{Checking {count} photos for changes…}}",
   "@backupQueueCheckingMessage": {
     "placeholders": {
@@ -308,7 +296,6 @@
   "settingsSyncFrequencyEveryHour": "Every Hour",
   "settingsSyncFrequencyEvery6Hours": "Every 6 Hours",
   "settingsSyncFrequencyDaily": "Daily",
-  "settingsSyncNowButton": "Back Up Now",
   "settingsSyncNowMessage": "{count, plural, =0{Nothing to sync} one{Backed up 1 photo} other{Backed up {count} photos}}",
   "@settingsSyncNowMessage": {
     "placeholders": {
@@ -332,8 +319,6 @@
   "settingsICloudRow": "iCloud Drive",
   "settingsBucketDataRow": "Your Cloud Bucket",
   "settingsBucketDataPath": "Saved as app-data/YYYYMMDD.zip in every bucket",
-  "privateAlbumBackUp": "Back Up",
-  "privateAlbumStopBackUp": "Stop Backup",
   "privateAlbumBackUpProblems": "{count, plural, one{1 photo wasn't backed up: {reason}} other{{count} photos weren't backed up. First: {reason}}}",
   "@privateAlbumBackUpProblems": {
     "placeholders": {
@@ -354,14 +339,137 @@
       }
     }
   },
+  "flaggedKeep": "Hide from List",
   "flaggedTitle": "Flagged Items",
   "flaggedRescan": "Rescan",
   "flaggedNone": "Nothing flagged",
   "flaggedOffProtocolReason": "Name doesn't follow the app's scheme",
   "flaggedOrphanReason": "Thumbnail without a photo",
-  "flaggedRename": "Rename",
-  "flaggedReformat": "Re-format",
-  "flaggedRemove": "Remove",
+  "flaggedGroupPhone": "On this iPhone",
+  "flaggedGroupBucket": "In your bucket",
+  "flaggedRemoveOldCopy": "Delete Old Copies",
+  "flaggedOldCopyReason": "An older upload of a photo now backed up as {name}.",
+  "@flaggedOldCopyReason": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "flaggedConfirmOldCopyBody": "These are older uploads of photos that are already backed up under their current names. Deleting them frees bucket space; the photos stay backed up.",
+  "flaggedHowBackUp": "Not in your bucket yet. Nothing else is offered until they are.",
+  "flaggedHowOptimize": "Replaces each with a smaller copy on this iPhone, and in your bucket on the next sync.",
+  "flaggedHowRemoveFromDevice": "Deletes them from this iPhone to free space. Full quality stays in your bucket, and a preview stays here.",
+  "flaggedHowImport": "In your bucket, but not shown in this app yet.",
+  "flaggedHowRename": "Named by another app or an older version. Renaming lets this app recognise them.",
+  "flaggedHowReformat": "Bulky formats like PNG or TIFF, converted to a smaller copy in your bucket.",
+  "flaggedHowRemoveThumbnail": "Previews whose photo is no longer in your bucket.",
+  "flaggedHowRemoveOldCopy": "Extra copies of photos that are already backed up.",
+  "flaggedHowIgnore": "Leaves these files alone and stops listing them.",
+  "flaggedHowImportAnyway": "Looks like an old copy. Adds it to the library anyway.",
+  "flaggedSavesAbout": "saves about {size}",
+  "@flaggedSavesAbout": {
+    "placeholders": {
+      "size": {
+        "type": "String"
+      }
+    }
+  },
+  "flaggedItemCount": "{count, plural, one{1 item} other{{count} items}}",
+  "@flaggedItemCount": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedPermanent": "They're deleted from your bucket for good.",
+  "flaggedSelectAll": "Select All",
+  "flaggedSelectNone": "Deselect All",
+  "flaggedActionFailed": "{count, plural, one{1 couldn't be done last time} other{{count} couldn't be done last time}}",
+  "@flaggedActionFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedRemoveDuplicates": "Delete Duplicates",
+  "flaggedHowRemoveDuplicate": "Exact copies of photos you already have. One of each is kept; the rest go to Recently Deleted.",
+  "flaggedHowRemoveBucketDuplicate": "Byte-for-byte copies of another file in your bucket. One of each is kept.",
+  "flaggedProblemDuplicate": "Duplicate",
+  "flaggedDuplicateOf": "Same file as {name}, which is kept.",
+  "@flaggedDuplicateOf": {
+    "placeholders": {
+      "name": {
+        "type": "String"
+      }
+    }
+  },
+  "flaggedHowOptimizeRemote": "Replaces the copy in your bucket with a smaller one. This iPhone keeps its full-quality original.",
+  "flaggedConfirmOptimizeRemoteBody": "In your bucket, photos become HEIF up to 2560 px and videos 1080p HEVC. The copy on this iPhone isn't touched.",
+  "flaggedGroupBackup": "Backup",
+  "flaggedBackupQueue": "Backup Queue",
+  "flaggedQueueClear": "Nothing waiting. New photos go up on their own.",
+  "flaggedQueueWaiting": "{count, plural, =0{Nothing waiting to upload.} one{1 item waiting to upload.} other{{count} items waiting to upload.}}",
+  "@flaggedQueueWaiting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedQueueFailed": "{count, plural, one{1 couldn't upload} other{{count} couldn't upload}}",
+  "@flaggedQueueFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedEtaSeconds": "a few seconds",
+  "flaggedEtaUnderMinute": "under a minute",
+  "flaggedEtaMinutes": "{minutes, plural, one{about 1 min} other{about {minutes} min}}",
+  "@flaggedEtaMinutes": {
+    "placeholders": {
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedEtaHours": "about {hours} h {minutes} min",
+  "@flaggedEtaHours": {
+    "placeholders": {
+      "hours": {
+        "type": "int"
+      },
+      "minutes": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedStepOptimizing": "Optimizing",
+  "flaggedStepDownloading": "Downloading",
+  "flaggedStepUploading": "Uploading",
+  "flaggedStepDeleting": "Deleting",
+  "flaggedStepRenaming": "Renaming",
+  "flaggedStepAdding": "Adding to library",
+  "flaggedStepConverting": "Converting",
+  "flaggedStepConfirming": "Waiting for your OK in the iOS prompt",
+  "flaggedHighResolution": "{width} × {height} → 2560 px",
+  "@flaggedHighResolution": {
+    "placeholders": {
+      "width": {
+        "type": "int"
+      },
+      "height": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedRename": "Fix Names",
+  "flaggedReformat": "Convert to HEIF",
+  "flaggedRemove": "Delete Thumbnails",
   "flaggedBatchProgress": "Fixing {done} of {total}…",
   "@flaggedBatchProgress": {
     "placeholders": {
@@ -412,15 +520,6 @@
   "privateAlbumHideDownloadContinue": "Download and Hide",
   "settingsBucketImportRow": "Scan bucket for new files",
   "settingsBucketImportHint": "Scan for photos and videos added straight to the bucket",
-  "settingsBucketImportUnreachable": "Couldn't reach the bucket",
-  "settingsBucketImportDone": "{count, plural, =0{Nothing new in the bucket} =1{Imported 1 item} other{Imported {count} items}}",
-  "@settingsBucketImportDone": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "settingsBucketImportOffer": "{count, plural, =1{1 new file found in the bucket — tap to import} other{{count} new files found in the bucket — tap to import}}",
   "@settingsBucketImportOffer": {
     "placeholders": {
@@ -429,19 +528,11 @@
       }
     }
   },
-  "settingsBucketImportDuplicates": "{count, plural, =1{1 file looks like a copy of one you already have and was left alone. See Flagged Items.} other{{count} files look like copies of ones you already have and were left alone. See Flagged Items.}}",
-  "@settingsBucketImportDuplicates": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "flaggedUnclaimedReason": "In the bucket, but not in your library",
   "flaggedLeftoverReason": "Probably an old copy of a photo you already have: it has no date of its own, only the day it was uploaded",
-  "flaggedIgnore": "Ignore",
-  "flaggedImportAnyway": "Import anyway",
-  "flaggedImport": "Import",
+  "flaggedIgnore": "Hide from List",
+  "flaggedImportAnyway": "Add Anyway",
+  "flaggedImport": "Add to Library",
   "flaggedLikelyDuplicate": "Same size as {name}, which you already have. Left alone.",
   "@flaggedLikelyDuplicate": {
     "placeholders": {
@@ -604,16 +695,6 @@
       }
     }
   },
-  "settingsLastSyncedAt": "Last synced {time}",
-  "@settingsLastSyncedAt": {
-    "placeholders": {
-      "time": {
-        "type": "String"
-      }
-    }
-  },
-  "settingsLastSyncedNever": "Never synced",
-  "settingsSyncingMessage": "Syncing…",
   "settingsAccessKeyIdLabel": "Access key ID",
   "settingsLengthHint": "{actual} characters. AWS keys are usually {expected}. Check that it was pasted correctly.",
   "@settingsLengthHint": {
@@ -758,7 +839,7 @@
   "@collectionsStorageRow": {
     "description": "Utilities row and page title for the storage clean-up page"
   },
-  "storageScanning": "Measuring {done} of {total}…",
+  "storageScanning": "Checking {done} of {total} new photos…",
   "@storageScanning": {
     "placeholders": {
       "done": {
@@ -782,10 +863,9 @@
   "storageIssueLargeFile": "Large file",
   "storageIssueHighResolution": "High resolution",
   "storageIssueOptimizableFormat": "Convertible format",
-  "storageFixBackUpFirst": "Back Up First",
-  "storageFixRemoveFromDevice": "Remove from Device",
-  "storageFixReduceResolution": "Reduce Resolution",
-  "storageFixConvertFormat": "Convert to WebP",
+  "storageFixBackUpFirst": "Back Up",
+  "storageFixRemoveFromDevice": "Remove from iPhone",
+  "storageFixOptimize": "Optimize Space",
   "storageResultFreed": "Freed {size}.",
   "@storageResultFreed": {
     "placeholders": {
@@ -1796,60 +1876,10 @@
     }
   },
   "cloudUploadsHeading": "Uploads",
-  "cloudSyncRow": "Sync",
+  "cloudAutoBackupFooter": "Backs up automatically: new photos go up while the app is open, and iOS may run a pass in the background, usually overnight on power and Wi-Fi.",
   "cloudQualityRow": "Upload Quality",
   "cloudFillOrderRow": "Fill Order",
-  "cloudFindNewRow": "Find New Files in Buckets",
-  "cloudFindNewValue": "{count, plural, one{1 new file} other{{count} new files}}",
-  "@cloudFindNewValue": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "cloudFindNewRunning": "Importing {done} of {total}…",
-  "@cloudFindNewRunning": {
-    "placeholders": {
-      "done": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
   "cloudLocalCopiesFooter": "Also kept on this iPhone for 7 days, in Files → On My iPhone → Photos Vault.",
-  "queueTitle": "Backup Queue",
-  "queueBacking": "Backing up…",
-  "queueCountsLine": "{waiting} waiting · {failed} failed · {speed} at a time",
-  "@queueCountsLine": {
-    "placeholders": {
-      "waiting": {
-        "type": "int"
-      },
-      "failed": {
-        "type": "int"
-      },
-      "speed": {
-        "type": "int"
-      }
-    }
-  },
-  "queueAttention": "Needs attention",
-  "queueUpNext": "Up next",
-  "queueDone": "Done",
-  "queueRetryAll": "Retry All",
-  "queueShowMore": "Show {count} more",
-  "@queueShowMore": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "queueFullNote": "Queue is full — the rest follows as it drains",
-  "queueMenuTitle": "Queue",
   "flaggedHeading": "{count, plural, =0{Nothing to fix} one{1 item to fix} other{{count} items to fix}}",
   "@flaggedHeading": {
     "placeholders": {
@@ -1872,7 +1902,7 @@
   "flaggedProblemUnclaimed": "Not in library",
   "flaggedProblemLeftover": "Likely old copy",
   "flaggedRunDone": "Done",
-  "flaggedRunHint": "Keeps going while you use the rest of the app.",
+  "flaggedRunHint": "Keeps going while you use the rest of the app. Large videos can take minutes each. When everything is done, iOS asks once to delete the originals.",
   "flaggedWaiting": "Waiting",
   "flaggedRetry": "Retry",
   "flaggedUnverified": "Your bucket couldn't confirm it has the full-quality copy, so this was left alone.",
@@ -1887,8 +1917,10 @@
       }
     }
   },
-  "flaggedConfirmRemoveBody": "They stay in your library and your bucket, and download again when opened.",
-  "flaggedConfirmShrinkBody": "The copy on this phone is replaced with a smaller one. Your bucket keeps the original.",
+  "flaggedConfirmRemoveBody": "Deletes the full photo from this iPhone to free space. Your bucket keeps the full-quality original, the iPhone keeps a small preview, and opening it downloads the original again.",
+  "flaggedConfirmOptimizeBody": "Photos become HEIF up to 2560 px and videos 1080p HEVC, replacing the original on this iPhone and in Photos. The smaller copy then replaces the one in your bucket too. Albums in the Photos app don't carry over.",
   "flaggedConfirmReformatBody": "Each photo is downloaded, converted and uploaded as a smaller copy. The original is removed from the bucket once its copy is checked.",
-  "flaggedConfirmImportAnywayBody": "This looks like an old copy of a photo you already have."
+  "flaggedConfirmImportAnywayBody": "This looks like an old copy of a photo you already have.",
+  "detailRestoreFailedTitle": "Couldn't download the full-resolution version",
+  "detailRestoreFailedUnknown": "No bucket answered."
 }

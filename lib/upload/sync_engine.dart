@@ -229,6 +229,9 @@ class SyncEngine {
       // asking again every sync is how one deleted photo becomes a
       // permanent red row.
       if (r.isDeleted || r.localDeleted) return false;
+      // Hidden ones are the album's to back up, never the queue's: a row
+      // here, even nameless, says on an open page that they exist.
+      if (r.passcodeHash != null || r.isHidden) return false;
       if (unresolvable.contains(r.localId)) return false;
       return r.stateOf(DerivativeKind.original).status == UploadStatus.uploaded;
     }).toList();
@@ -352,9 +355,14 @@ class SyncEngine {
       }
     }
     final after = await recordStore.getByLocalId(record.localId);
-    if (after != null && !after.isFullyBackedUp) {
-      throw const SyncJobProblem("Couldn't upload it — try again");
-    }
+    if (after == null || after.isFullyBackedUp) return;
+    // Pending: nothing was sent, so the encrypted copy was never made.
+    // Failed: it was, and the bucket turned it down.
+    throw SyncJobProblem(
+      after.stateOf(DerivativeKind.original).status == UploadStatus.pending
+          ? "Couldn't make its encrypted copy"
+          : "The bucket didn't accept the upload",
+    );
   }
 
   /// Re-hashes one asset's local file and, if it's been edited since its

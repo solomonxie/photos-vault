@@ -102,7 +102,7 @@ void main() {
         name: '$id.png',
         appOwned: true,
         issues: const {StorageIssue.onDevice},
-        fix: fix,
+        fixes: [fix],
       ),
     );
   }
@@ -131,6 +131,70 @@ void main() {
     expect(q.freedBytes, 1000);
     expect(q.finished, isTrue);
     expect(File('${tempDir.path}/a.png').existsSync(), isFalse);
+  });
+
+  test('Optimize keeps videos apart from photos, and counts copies as they '
+      'are made', () async {
+    final batches = <List<String>>[];
+    final seen = <int>[];
+    late FixQueue q;
+    final optimizer = _RecordingOptimizer(
+      store: store,
+      thumbnails: ThumbnailCache(store: store, directory: () async => tempDir),
+      library: PhotoLibraryService(store: FakeAssetRecordStore()),
+      backUp: (_) async {},
+      onApply: (items, onPrepared) {
+        batches.add([for (final i in items) i.record.localId]);
+        for (final i in items) {
+          onPrepared?.call(i.record.localId);
+        }
+        seen.add(q.progressed);
+      },
+    );
+    q = FixQueue(
+      store: store,
+      advisor: StorageAdvisor(store: store),
+      optimizer: optimizer,
+      fixer: BucketFixer(
+        store: store,
+        targetsStore: BackupTargetsStore(store: FakeSecureStore()),
+        passphrases: () async => const [],
+      ),
+      refreshBucket: () async {},
+    );
+    Future<Flag> item(String id, {bool video = false}) async {
+      await store.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.photoManager,
+        isVideo: video,
+      );
+      return Flag.storage(
+        StorageItem(
+          record: (await store.getByLocalId(id))!,
+          bytes: 1000,
+          name: id,
+          appOwned: false,
+          issues: const {StorageIssue.largeFile},
+          fixes: const [StorageFix.optimize],
+        ),
+      );
+    }
+
+    q.enqueue([
+      await item('v1', video: true),
+      await item('p1'),
+      await item('v2', video: true),
+      await item('p2'),
+    ], FlagSolution.optimize);
+    await drained(q);
+
+    expect(batches, [
+      ['v1', 'v2'],
+      ['p1', 'p2'],
+    ]);
+    expect(seen, [2, 4]);
   });
 
   test('a retry of a failed item counts it once', () async {
@@ -219,4 +283,35 @@ void main() {
     expect(flag.batchable(FlagSolution.ignore), isTrue);
     expect(flag.batchable(FlagSolution.rename), isFalse);
   });
+}
+
+class _RecordingOptimizer extends StorageOptimizer {
+  _RecordingOptimizer({
+    required super.store,
+    required super.thumbnails,
+    required super.library,
+    required super.backUp,
+    required this.onApply,
+  });
+
+  final void Function(
+    List<StorageItem> items,
+    void Function(String localId)? onPrepared,
+  )
+  onApply;
+
+  @override
+  Future<StorageFixResult> apply(
+    List<StorageItem> items, {
+    void Function(String localId, StorageItemOutcome outcome)? onItem,
+    void Function(String localId)? onPrepared,
+    void Function(String localId, FixAction action)? onStep,
+    bool deferDeletes = false,
+  }) async {
+    onApply(items, onPrepared);
+    for (final i in items) {
+      onItem?.call(i.record.localId, StorageItemOutcome.freed);
+    }
+    return const StorageFixResult();
+  }
 }

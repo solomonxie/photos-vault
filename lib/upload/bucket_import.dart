@@ -29,6 +29,7 @@ class BucketIndexer {
   /// folders are fully listed.
   Future<bool> refresh() async {
     final targets = await targetsStore.loadAll();
+    await _forgetRemoved(targets);
     // Every folder of every bucket at once: it is a plain `ls`, and the
     // pages inside one folder are what has to stay in order.
     final results = await Future.wait([
@@ -47,6 +48,24 @@ class BucketIndexer {
       }
     }
     return all;
+  }
+
+  /// Drops the listing of any bucket no longer set up. Its files can't be
+  /// fixed, imported or even read without its credentials, so offering
+  /// them only fails.
+  Future<void> forgetRemovedBuckets() async =>
+      _forgetRemoved(await targetsStore.loadAll());
+
+  Future<void> _forgetRemoved(List<S3BackupTarget> targets) async {
+    // An empty answer is as likely a keychain hiccup as no buckets at all;
+    // a listing left behind costs nothing, a lost one a full re-list.
+    if (targets.isEmpty) return;
+    final live = {for (final t in targets) t.id};
+    for (final id in await recordStore.bucketTargetIds()) {
+      if (live.contains(id)) continue;
+      await recordStore.replaceBucketObjects(id, const []);
+      await recordStore.discardBucketScan(id);
+    }
   }
 
   Future<bool> _listDir(S3BackupTarget target, String dir) async {

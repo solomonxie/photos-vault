@@ -8,20 +8,23 @@ import '../photos/fix_queue.dart';
 import '../photos/storage_advice.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/settings_section.dart';
+import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/bucket_flagged.dart';
 import '../upload/bucket_import.dart';
-import 'asset_grid.dart';
+import '../upload/lost_originals.dart';
+import 'flagged_action_screen.dart';
+import 'flagged_copy.dart';
 
-/// Everything the app wants a person to look at, as one list that drains:
-/// space this phone could give back, and bucket objects the app doesn't
-/// understand.
+/// What can be done about this phone's space and the bucket's odd files,
+/// as a list of actions rather than a list of files: each says what it
+/// will do, to how many, and what it saves, and opens onto the items it
+/// would touch. Grouped by where it acts: this iPhone, the bucket. Never
+/// offers to delete a local copy — what to keep on the phone is the
+/// person's call.
 ///
-/// A chip per problem, a button per solution. A solution button queues
-/// every listed item it applies to; a row's own button queues that one.
-/// The work runs in [FixQueue], not here, so the page can be left — each
-/// item drops out of the list as it is fixed, and a failure stays with its
-/// reason. See `docs/design/uiux/storage.md`.
+/// The work runs in [FixQueue], not here, so the page can be left. See
+/// `docs/design/uiux/storage.md`.
 class FlaggedItemsScreen extends StatefulWidget {
   const FlaggedItemsScreen({
     super.key,
@@ -38,6 +41,9 @@ class FlaggedItemsScreen extends StatefulWidget {
   final FixQueue queue;
   final Future<void> Function(String localId)? onOpenAsset;
 
+  /// Simulator screenshots only: opens the first action once it is known.
+  static bool demoOpenAction = false;
+
   @override
   State<FlaggedItemsScreen> createState() => _FlaggedItemsScreenState();
 }
@@ -47,34 +53,84 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
 
   List<Flag> _storage = const [];
   List<Flag> _bucket = const [];
+
+  /// Exact copies of another photo here. A copy's own size or format
+  /// flag gives way to this: it is going, not being shrunk.
+  List<Flag> _duplicates = const [];
+
+  /// Cloud-only photos whose bucket copy could be smaller.
+  List<Flag> _cloudOnly = const [];
   DateTime? _scannedAt;
   bool _scanning = false;
   int _scanned = 0;
   int _toScan = 0;
   bool _loadingBucket = true;
-  FlagProblem? _filter;
-
-  /// Rows on their way out: drawn collapsing, then dropped.
-  final Set<String> _leaving = {};
 
   // Derived once per change, not per build — the list can be the library.
-  List<Flag> _all = const [];
-  List<Flag> _visible = const [];
-  Map<FlagProblem, int> _counts = const {};
-  Map<FlagSolution, List<Flag>> _batches = const {};
+  int _problemCount = 0;
   int _saving = 0;
+  Map<FlagSolution, List<Flag>> _phone = const {};
+  Map<FlagSolution, List<Flag>> _inBucket = const {};
+
+  /// Per action: what it saves and how long it should take, worked out
+  /// with the groups rather than on every build.
+  Map<FlagSolution, (int, Duration)> _totals = const {};
 
   @override
   void initState() {
     super.initState();
-    _queue.addListener(_onQueue);
+    _queue.addListener(_derive);
     _loadStorage();
+    _loadDuplicates();
+    _loadLost();
     _loadBucket();
+  }
+
+  /// Photos the bucket turned out not to have — said under the heading,
+  /// the one place left that says so.
+  int _lost = 0;
+
+  Future<void> _loadLost() async {
+    try {
+      final lost = {...await LostOriginals(widget.store).current()};
+      // Also cloud-only photos whose every known copy is in a bucket no
+      // longer set up: nothing here can download them.
+      final listed = {
+        for (final o in await widget.store.listBucketObjects()) o.key,
+      };
+      if (listed.isNotEmpty) {
+        final holdings = await widget.store.allHoldings();
+        for (final r in await widget.store.listAll()) {
+          if (!r.localDeleted || r.isDeleted || r.passcodeHash != null) {
+            continue;
+          }
+          final keys = {
+            ?r.stateOf(DerivativeKind.original).destinationKey,
+            ...?holdings[r.localId]?[DerivativeKind.original]?.values,
+          };
+          if (keys.isNotEmpty && !keys.any(listed.contains)) {
+            lost.add(r.localId);
+          }
+        }
+      }
+      if (mounted) setState(() => _lost = lost.length);
+    } catch (_) {
+      // Unreadable: said nothing rather than something wrong.
+    }
+  }
+
+  Future<void> _loadDuplicates() async {
+    final found = await widget.advisor.duplicates();
+    final cloudOnly = await widget.advisor.cloudOnly();
+    if (!mounted) return;
+    _duplicates = [for (final item in found) Flag.storage(item)];
+    _cloudOnly = [for (final item in cloudOnly) Flag.storage(item)];
+    _derive();
   }
 
   @override
   void dispose() {
-    _queue.removeListener(_onQueue);
+    _queue.removeListener(_derive);
     super.dispose();
   }
 
@@ -116,239 +172,144 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
       targetsStore: widget.targetsStore,
       recordStore: widget.store,
     );
+    final fixer = _queue.fixer;
     try {
       if (refresh || (await widget.store.listBucketObjects()).isEmpty) {
         await indexer.refresh();
+      } else {
+        await indexer.forgetRemovedBuckets();
       }
-      final fixer = _queue.fixer;
       final objects = await BucketFlags(store: widget.store)
-          .detect(inspect: fixer.inspect);
+          .detect(inspect: fixer.inspect, etag: fixer.etagOf);
       if (!mounted) return;
       _bucket = [for (final o in objects) Flag.bucket(o)];
+      _loadingBucket = false;
       _derive();
       // Re-format is offered only once the header says the file isn't a
-      // hidden photo — a read per object, so it arrives after the list.
-      for (final o in objects) {
-        if (o.kind != FlagKind.offProtocol || o.isVideo) continue;
-        if (!await fixer.canReformat(o)) continue;
+      // hidden photo — a read per object, so it arrives after the list,
+      // a few at a time, and the page doesn't wait on it.
+      final candidates = [
+        for (final o in objects)
+          if (o.kind == FlagKind.offProtocol && !o.isVideo) o,
+      ];
+      for (var i = 0; i < candidates.length; i += 8) {
+        final chunk = candidates.skip(i).take(8).toList();
+        final ok = await Future.wait(chunk.map(fixer.canReformat));
         if (!mounted) return;
-        final id = bucketFlagId(o.object);
+        final yes = {
+          for (final (j, o) in chunk.indexed)
+            if (ok[j]) bucketFlagId(o.object): o,
+        };
+        if (yes.isEmpty) continue;
         _bucket = [
           for (final f in _bucket)
-            f.id == id ? Flag.bucket(o, reformatable: true) : f,
+            if (yes[f.id] case final o?)
+              Flag.bucket(o, reformatable: true)
+            else
+              f,
         ];
         _derive();
       }
     } catch (_) {
       // Offline: whatever the index already had stays listed.
     } finally {
+      // Saved even when the page was left mid-way: what was read stays read.
+      await fixer.saveLooks();
       if (mounted) setState(() => _loadingBucket = false);
     }
   }
 
   void _rescan() {
     _loadStorage(restart: true);
+    _loadDuplicates();
     _loadBucket(refresh: true);
   }
 
-  // ---------------------------------------------------------------- queue
+  // ---------------------------------------------------------------- derive
 
-  void _onQueue() {
-    for (final flag in _all) {
-      if (_queue.isResolved(flag) && _leaving.add(flag.id)) {
-        Timer(_collapse, () {
-          if (!mounted) return;
-          _leaving.remove(flag.id);
-          _derive();
+  void _derive() {
+    if (!mounted) return;
+    final copies = {for (final f in _duplicates) f.id};
+    final live = [
+      for (final f in [
+        ..._duplicates,
+        ..._storage.where((f) => !copies.contains(f.id)),
+        ..._cloudOnly,
+        ..._bucket,
+      ])
+        if (!_queue.isResolved(f)) f,
+    ];
+    // One waiting for its backup has nothing to do here but wait: the
+    // queue's row covers it.
+    final problems = [
+      for (final f in live)
+        if (f.solutions.any(
+          (s) => s != FlagSolution.backUp && s != FlagSolution.ignore,
+        ))
+          f,
+    ];
+    final groups = _groupsOf(problems);
+    final totals = {
+      for (final MapEntry(key: s, value: flags) in groups.entries)
+        s: (
+          flags.fold(0, (sum, f) => sum + f.saving),
+          _queue.estimate(s, flags),
+        ),
+    };
+    setState(() {
+      _totals = totals;
+      _problemCount = problems.length;
+      _saving = problems.fold(0, (sum, f) => sum + f.saving);
+      _phone = {
+        for (final e in groups.entries)
+          if (!e.key.inBucket) e.key: e.value,
+      };
+      _inBucket = {
+        for (final e in groups.entries)
+          if (e.key.inBucket) e.key: e.value,
+      };
+    });
+    if (FlaggedItemsScreen.demoOpenAction) {
+      final first = [..._phone.entries, ..._inBucket.entries];
+      if (first.isNotEmpty) {
+        FlaggedItemsScreen.demoOpenAction = false;
+        Timer(const Duration(seconds: 2), () {
+          if (mounted) _openAction(first.first.key, first.first.value);
         });
       }
     }
-    _derive();
   }
 
-  void _derive() {
-    final all = [
-      for (final f in [..._storage, ..._bucket])
-        if (!_queue.isResolved(f) || _leaving.contains(f.id)) f,
-    ];
-    final counts = <FlagProblem, int>{};
-    var saving = 0;
-    for (final f in all) {
-      for (final p in f.problems) {
-        counts[p] = (counts[p] ?? 0) + 1;
-      }
-      saving += f.saving;
-    }
-    final filter = counts.containsKey(_filter) ? _filter : null;
-    final visible = filter == null
-        ? all
-        : [
-            for (final f in all)
-              if (f.problems.contains(filter)) f,
-          ];
-    final batches = <FlagSolution, List<Flag>>{};
-    for (final f in visible) {
-      if (_leaving.contains(f.id)) continue;
-      final job = _queue.jobs[f.id];
-      if (job != null && job.state != FixJobState.failed) continue;
+  /// Every action and the items it applies to. An item with two possible
+  /// fixes is under both; doing either takes it out of the other.
+  static Map<FlagSolution, List<Flag>> _groupsOf(List<Flag> flags) {
+    final groups = <FlagSolution, List<Flag>>{};
+    for (final f in flags) {
       for (final s in f.solutions) {
-        if (f.batchable(s)) (batches[s] ??= []).add(f);
+        // Hiding is on every action's own page, not an action of its own;
+        // backing up is the queue's row.
+        if (s == FlagSolution.ignore || s == FlagSolution.backUp) continue;
+        (groups[s] ??= []).add(f);
       }
     }
-    setState(() {
-      _all = all;
-      _filter = filter;
-      _visible = visible;
-      _counts = counts;
-      _saving = saving;
-      _batches = Map.fromEntries(
-        FlagSolution.values
-            .where(batches.containsKey)
-            .map((s) => MapEntry(s, batches[s]!)),
-      );
-    });
-  }
-
-  Future<void> _fix(List<Flag> flags, FlagSolution solution) async {
-    if (!await _confirm(flags, solution) || !mounted) return;
-    _queue.enqueue(flags, solution);
-  }
-
-  Future<bool> _confirm(List<Flag> flags, FlagSolution solution) async {
-    final l10n = AppLocalizations.of(context)!;
-    final body = switch (solution) {
-      FlagSolution.removeFromDevice => l10n.flaggedConfirmRemoveBody,
-      FlagSolution.reduceResolution ||
-      FlagSolution.convertFormat => l10n.flaggedConfirmShrinkBody,
-      FlagSolution.removeThumbnail => l10n.flaggedBatchRemoveBody(flags.length),
-      FlagSolution.rename when flags.length > 1 => l10n.flaggedBatchRenameBody(
-        flags.length,
-      ),
-      FlagSolution.reformat => l10n.flaggedConfirmReformatBody,
-      FlagSolution.importAnyway => l10n.flaggedConfirmImportAnywayBody,
-      _ => null,
-    };
-    if (body == null) return true;
-    final label = _solutionLabel(l10n, solution);
-    final go = await showCupertinoDialog<bool>(
-      context: context,
-      builder: (dialogContext) => CupertinoAlertDialog(
-        title: Text(l10n.flaggedConfirmTitle(label, flags.length)),
-        content: Text(body),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(dialogContext).pop(false),
-            child: Text(l10n.actionCancel),
-          ),
-          CupertinoDialogAction(
-            isDefaultAction: true,
-            isDestructiveAction:
-                solution == FlagSolution.removeFromDevice ||
-                solution == FlagSolution.removeThumbnail,
-            onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(label),
-          ),
-        ],
-      ),
+    return Map.fromEntries(
+      FlagSolution.values
+          .where(groups.containsKey)
+          .map((s) => MapEntry(s, groups[s]!)),
     );
-    return go == true;
   }
 
-  Future<void> _moreFixes(Flag flag) async {
-    final l10n = AppLocalizations.of(context)!;
-    final picked = await showCupertinoModalPopup<FlagSolution>(
-      context: context,
-      builder: (sheetContext) => CupertinoActionSheet(
-        title: Text(flag.name),
-        actions: [
-          for (final s in flag.solutions)
-            CupertinoActionSheetAction(
-              isDestructiveAction: s == FlagSolution.removeThumbnail,
-              onPressed: () => Navigator.of(sheetContext).pop(s),
-              child: Text(_solutionLabel(l10n, s)),
-            ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(sheetContext).pop(),
-          child: Text(l10n.actionCancel),
+  Future<void> _openAction(FlagSolution solution, List<Flag> flags) =>
+      Navigator.of(context).push(
+        CupertinoPageRoute<void>(
+          builder: (_) => FlaggedActionScreen(
+            solution: solution,
+            flags: flags,
+            queue: _queue,
+            onOpenAsset: widget.onOpenAsset,
+          ),
         ),
-      ),
-    );
-    if (picked != null) await _fix([flag], picked);
-  }
-
-  // ----------------------------------------------------------------- copy
-
-  static String _problemLabel(AppLocalizations l10n, FlagProblem p) =>
-      switch (p) {
-        FlagProblem.onDevice => l10n.storageIssueOnDevice,
-        FlagProblem.largeFile => l10n.storageIssueLargeFile,
-        FlagProblem.highResolution => l10n.storageIssueHighResolution,
-        FlagProblem.optimizableFormat => l10n.storageIssueOptimizableFormat,
-        FlagProblem.offProtocol => l10n.flaggedProblemOffProtocol,
-        FlagProblem.orphanThumbnail => l10n.flaggedProblemOrphan,
-        FlagProblem.unclaimed => l10n.flaggedProblemUnclaimed,
-        FlagProblem.likelyLeftover => l10n.flaggedProblemLeftover,
-      };
-
-  static String _solutionLabel(AppLocalizations l10n, FlagSolution s) =>
-      switch (s) {
-        FlagSolution.backUp => l10n.storageFixBackUpFirst,
-        FlagSolution.removeFromDevice => l10n.storageFixRemoveFromDevice,
-        FlagSolution.reduceResolution => l10n.storageFixReduceResolution,
-        FlagSolution.convertFormat => l10n.storageFixConvertFormat,
-        FlagSolution.import => l10n.flaggedImport,
-        FlagSolution.rename => l10n.flaggedRename,
-        FlagSolution.reformat => l10n.flaggedReformat,
-        FlagSolution.removeThumbnail => l10n.flaggedRemove,
-        FlagSolution.ignore => l10n.flaggedIgnore,
-        FlagSolution.importAnyway => l10n.flaggedImportAnyway,
-      };
-
-  static IconData _solutionIcon(FlagSolution s) => switch (s) {
-    FlagSolution.backUp => CupertinoIcons.cloud_upload_fill,
-    FlagSolution.removeFromDevice => CupertinoIcons.trash_fill,
-    FlagSolution.reduceResolution =>
-      CupertinoIcons.arrow_down_right_arrow_up_left,
-    FlagSolution.convertFormat ||
-    FlagSolution.reformat => CupertinoIcons.arrow_2_squarepath,
-    FlagSolution.import ||
-    FlagSolution.importAnyway => CupertinoIcons.tray_arrow_down_fill,
-    FlagSolution.rename => CupertinoIcons.pencil,
-    FlagSolution.removeThumbnail => CupertinoIcons.delete_solid,
-    FlagSolution.ignore => CupertinoIcons.eye_slash_fill,
-  };
-
-  /// A storage row's tags explain its size; a bucket row needs the
-  /// sentence, since "Likely old copy" alone doesn't say why.
-  String _reason(AppLocalizations l10n, Flag flag) {
-    final bucket = flag.bucket;
-    if (bucket == null) {
-      return [for (final p in flag.problems) _problemLabel(l10n, p)]
-          .join(' · ');
-    }
-    if (bucket.likelyDuplicateOf case final key?) {
-      return l10n.flaggedLikelyDuplicate(key.split('/').last);
-    }
-    return switch (bucket.kind) {
-      FlagKind.offProtocol => l10n.flaggedOffProtocolReason,
-      FlagKind.orphanThumbnail => l10n.flaggedOrphanReason,
-      FlagKind.unclaimed => l10n.flaggedUnclaimedReason,
-      FlagKind.likelyLeftover => l10n.flaggedLeftoverReason,
-    };
-  }
-
-  String? _failureNote(AppLocalizations l10n, FixJob? job) {
-    if (job == null || job.state != FixJobState.failed) return null;
-    return switch (job.failure) {
-      FixFailure.needsAlbum => l10n.flaggedNeedsAlbum,
-      FixFailure.unverified => l10n.flaggedUnverified,
-      _ =>
-        job.detail == null
-            ? l10n.flaggedFailed
-            : '${l10n.flaggedFailed} (${job.detail})',
-    };
-  }
+      );
 
   // ---------------------------------------------------------------- build
 
@@ -359,6 +320,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final nothing = _phone.isEmpty && _inBucket.isEmpty && !_loading;
     return CupertinoPageScaffold(
       backgroundColor: settingsPageBackground,
       navigationBar: CupertinoNavigationBar(
@@ -372,123 +334,140 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
               ),
       ),
       child: SafeArea(
-        child: CustomScrollView(
-          slivers: [
-            SliverToBoxAdapter(child: _header(l10n)),
-            if (_visible.isEmpty && !_loading)
-              SliverFillRemaining(
-                hasScrollBody: false,
-                child: Center(
-                  child: Padding(
-                    padding: const EdgeInsets.all(32),
-                    child: Text(
-                      l10n.flaggedNone,
-                      textAlign: TextAlign.center,
-                      style: settingsHintStyle,
-                    ),
-                  ),
+        child: ListView(
+          padding: const EdgeInsets.fromLTRB(
+            settingsPagePadding,
+            12,
+            settingsPagePadding,
+            32,
+          ),
+          children: [
+            _header(l10n),
+            if (_phone.isNotEmpty)
+              ..._section(l10n.flaggedGroupPhone, null, _phone),
+            if (_inBucket.isNotEmpty)
+              ..._section(l10n.flaggedGroupBucket, null, _inBucket),
+            if (nothing)
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 48),
+                child: Text(
+                  l10n.flaggedNone,
+                  textAlign: TextAlign.center,
+                  style: settingsHintStyle,
                 ),
               ),
-            SliverList.builder(
-              itemCount: _visible.length,
-              itemBuilder: (context, index) => _row(l10n, _visible[index]),
-            ),
-            const SliverToBoxAdapter(child: SizedBox(height: 32)),
           ],
         ),
       ),
     );
   }
 
-  Widget _header(AppLocalizations l10n) {
-    final count = _all.length - _leaving.length;
-    return Padding(
-      padding: const EdgeInsets.fromLTRB(settingsPagePadding, 12, 12, 8),
+  Widget _header(AppLocalizations l10n) => Column(
+    crossAxisAlignment: CrossAxisAlignment.start,
+    children: [
+      // What the last scan found stays the heading; a pass over photos
+      // added since is a line under it, not a page that looks rescanned.
+      Text(
+        _loading && _problemCount == 0 && _scannedAt == null
+            ? l10n.flaggedLooking
+            : l10n.flaggedHeading(_problemCount),
+        style: settingsHeadingStyle,
+      ),
+      if (_scanning && _toScan > 0)
+        Text(l10n.storageScanning(_scanned, _toScan), style: settingsHintStyle),
+      if (_lost > 0)
+        Text(
+          l10n.cloudStatusLost(_lost),
+          style: const TextStyle(
+            fontSize: 13,
+            color: CupertinoColors.systemRed,
+          ),
+        ),
+      if (_saving > 0) ...[
+        const SizedBox(height: 4),
+        Text(
+          l10n.flaggedFreesUpTo(formatBytes(_saving)),
+          style: settingsFooterStyle,
+        ),
+      ],
+      if (_scannedAt != null)
+        Text(
+          l10n.storageScannedAt(
+            DateFormat.yMMMd().add_jm().format(_scannedAt!),
+          ),
+          style: settingsHintStyle,
+        ),
+      AnimatedSize(
+        duration: _collapse,
+        alignment: Alignment.topCenter,
+        child: _queue.total > 0 ? _runCard(l10n) : const SizedBox.shrink(),
+      ),
+    ],
+  );
+
+  List<Widget> _section(
+    String title,
+    String? body,
+    Map<FlagSolution, List<Flag>> actions,
+  ) => [
+    Padding(
+      padding: const EdgeInsets.only(top: 24, bottom: 6, left: 4),
+      child: Text(title.toUpperCase(), style: settingsHintStyle),
+    ),
+    if (body != null)
+      Padding(
+        padding: const EdgeInsets.only(left: 4, bottom: 8),
+        child: Text(body, style: settingsHintStyle),
+      ),
+    Container(
+      decoration: BoxDecoration(
+        color: settingsControlFill,
+        borderRadius: BorderRadius.circular(12),
+      ),
       child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Text(
-            _scanning && _toScan > 0
-                ? l10n.storageScanning(_scanned, _toScan)
-                : _loading && count == 0
-                ? l10n.flaggedLooking
-                : l10n.flaggedHeading(count),
-            style: settingsHeadingStyle,
-          ),
-          if (_saving > 0) ...[
-            const SizedBox(height: 4),
-            Text(
-              l10n.flaggedFreesUpTo(formatBytes(_saving)),
-              style: settingsFooterStyle,
-            ),
-          ],
-          if (_scannedAt != null)
-            Text(
-              l10n.storageScannedAt(
-                DateFormat.yMMMd().add_jm().format(_scannedAt!),
+          for (final (i, MapEntry(key: s, value: flags))
+              in actions.entries.indexed) ...[
+            if (i > 0)
+              Container(
+                height: 0.5,
+                margin: const EdgeInsets.only(left: 56),
+                color: settingsSeparator,
               ),
-              style: settingsHintStyle,
-            ),
-          AnimatedSize(
-            duration: _collapse,
-            alignment: Alignment.topCenter,
-            child: _queue.total > 0 ? _runCard(l10n) : const SizedBox.shrink(),
-          ),
-          const SizedBox(height: 12),
-          if (_counts.isNotEmpty) _chips(l10n),
-          if (_batches.isNotEmpty) ...[
-            const SizedBox(height: 12),
-            Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final (i, MapEntry(key: s, value: flags))
-                    in _batches.entries.indexed)
-                  _SolutionButton(
-                    icon: _solutionIcon(s),
-                    label: '${_solutionLabel(l10n, s)} · ${flags.length}',
-                    filled: i == 0,
-                    onPressed: () => _fix(flags, s),
-                  ),
-              ],
+            _ActionRow(
+              key: ValueKey('flagged-action-${s.name}'),
+              icon: solutionIcon(s),
+              title: solutionLabel(AppLocalizations.of(context)!, s),
+              body: solutionHow(AppLocalizations.of(context)!, s),
+              amount: _amount(AppLocalizations.of(context)!, s, flags),
+              warning: _failedIn(AppLocalizations.of(context)!, flags),
+              onTap: () => _openAction(s, flags),
             ),
           ],
         ],
       ),
-    );
+    ),
+  ];
+
+  String _amount(AppLocalizations l10n, FlagSolution s, List<Flag> flags) {
+    final (saving, eta) = _totals[s] ?? (0, Duration.zero);
+    return [
+      l10n.flaggedItemCount(flags.length),
+      if (saving > 0) l10n.flaggedSavesAbout(formatBytes(saving)),
+      etaLabel(l10n, eta),
+    ].join(' · ');
   }
 
-  Widget _chips(AppLocalizations l10n) => SingleChildScrollView(
-    scrollDirection: Axis.horizontal,
-    child: Row(
-      children: [
-        _FilterChip(
-          label: l10n.storageFilterAll,
-          count: _all.length - _leaving.length,
-          selected: _filter == null,
-          onTap: () {
-            _filter = null;
-            _derive();
-          },
-        ),
-        for (final p in FlagProblem.values)
-          if (_counts[p] case final count?)
-            _FilterChip(
-              label: _problemLabel(l10n, p),
-              count: count,
-              selected: _filter == p,
-              onTap: () {
-                _filter = p;
-                _derive();
-              },
-            ),
-      ],
-    ),
-  );
+  String? _failedIn(AppLocalizations l10n, List<Flag> flags) {
+    final failed = flags
+        .where((f) => _queue.jobs[f.id]?.state == FixJobState.failed)
+        .length;
+    return failed == 0 ? null : l10n.flaggedActionFailed(failed);
+  }
 
   Widget _runCard(AppLocalizations l10n) {
     final q = _queue;
-    final progress = q.total == 0 ? 0.0 : q.done / q.total;
+    final progress = q.total == 0 ? 0.0 : q.progressed / q.total;
     final finished = q.finished;
     return Container(
       margin: const EdgeInsets.only(top: 12),
@@ -519,7 +498,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
                 child: Text(
                   finished
                       ? l10n.flaggedRunDone
-                      : l10n.flaggedBatchProgress(q.done, q.total),
+                      : l10n.flaggedBatchProgress(q.progressed, q.total),
                   style: settingsRowTitleStyle,
                 ),
               ),
@@ -543,6 +522,20 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
             padding: const EdgeInsets.only(right: 8),
             child: _ProgressBar(value: progress),
           ),
+          if (!finished && q.step != null) ...[
+            const SizedBox(height: 6),
+            Text(
+              key: const ValueKey('flagged-step'),
+              [
+                actionLabel(l10n, q.step!.action),
+                q.step!.name,
+                formatBytes(q.step!.bytes),
+              ].where((part) => part.isNotEmpty).join(' · '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 13, color: settingsSecondary),
+            ),
+          ],
           const SizedBox(height: 6),
           Text(
             [
@@ -557,191 +550,6 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
       ),
     );
   }
-
-  Widget _row(AppLocalizations l10n, Flag flag) {
-    final job = _queue.jobs[flag.id];
-    final storage = flag.storage;
-    return _Collapsing(
-      key: ValueKey(flag.id),
-      gone: _leaving.contains(flag.id),
-      duration: _collapse,
-      child: _FlagRow(
-        thumbnail: storage != null
-            ? assetImage(
-                storage.record,
-                thumbnailSize: 200,
-                placeholder: () => const _IconTile(CupertinoIcons.photo),
-              )
-            : _IconTile(
-                flag.bucket!.isVideo ? CupertinoIcons.film : CupertinoIcons.doc,
-              ),
-        title: flag.name,
-        subtitle:
-            '${formatBytes(flag.bytes)} · ${DateFormat.yMMMd().format(flag.date)}',
-        tags: _reason(l10n, flag),
-        note: _failureNote(l10n, job),
-        onTap: storage == null || widget.onOpenAsset == null
-            ? null
-            : () => widget.onOpenAsset!(storage.record.localId),
-        trailing: switch (job?.state) {
-          FixJobState.running => const CupertinoActivityIndicator(radius: 9),
-          FixJobState.waiting => Text(
-            l10n.flaggedWaiting,
-            style: settingsRowSubtitleStyle,
-          ),
-          FixJobState.failed => _RowButton(
-            label: l10n.flaggedRetry,
-            onPressed: () => _fix([flag], job!.solution),
-          ),
-          null => Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              _RowButton(
-                label: _solutionLabel(l10n, flag.solutions.first),
-                onPressed: () => _fix([flag], flag.solutions.first),
-              ),
-              if (flag.solutions.length > 1)
-                CupertinoButton(
-                  padding: const EdgeInsets.only(left: 6),
-                  minimumSize: const Size(28, 30),
-                  onPressed: () => _moreFixes(flag),
-                  child: const Icon(
-                    CupertinoIcons.ellipsis_circle,
-                    size: 22,
-                    color: settingsAccent,
-                  ),
-                ),
-            ],
-          ),
-        },
-      ),
-    );
-  }
-}
-
-class _FlagRow extends StatelessWidget {
-  const _FlagRow({
-    required this.thumbnail,
-    required this.title,
-    required this.subtitle,
-    required this.tags,
-    required this.trailing,
-    this.note,
-    this.onTap,
-  });
-
-  final Widget thumbnail;
-  final String title;
-  final String subtitle;
-  final String tags;
-  final Widget trailing;
-  final String? note;
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(settingsPagePadding, 8, 12, 8),
-        child: Row(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            ClipRRect(
-              borderRadius: BorderRadius.circular(8),
-              child: SizedBox(width: 48, height: 48, child: thumbnail),
-            ),
-            const SizedBox(width: 12),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    title,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: settingsRowTitleStyle,
-                  ),
-                  const SizedBox(height: 2),
-                  Text(subtitle, style: settingsRowSubtitleStyle),
-                  if (tags.isNotEmpty)
-                    Text(
-                      tags,
-                      maxLines: 2,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontSize: 11,
-                        color: settingsTertiary,
-                      ),
-                    ),
-                  if (note != null) ...[
-                    const SizedBox(height: 2),
-                    Text(note!, style: settingsErrorStyle),
-                  ],
-                ],
-              ),
-            ),
-            const SizedBox(width: 8),
-            SizedBox(
-              height: 48,
-              child: Align(alignment: Alignment.centerRight, child: trailing),
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// A row leaving the list: folds to nothing rather than vanishing, so the
-/// eye sees the list drain instead of jump.
-class _Collapsing extends StatefulWidget {
-  const _Collapsing({
-    super.key,
-    required this.gone,
-    required this.duration,
-    required this.child,
-  });
-
-  final bool gone;
-  final Duration duration;
-  final Widget child;
-
-  @override
-  State<_Collapsing> createState() => _CollapsingState();
-}
-
-class _CollapsingState extends State<_Collapsing>
-    with SingleTickerProviderStateMixin {
-  late final AnimationController _controller = AnimationController(
-    vsync: this,
-    duration: widget.duration,
-    value: widget.gone ? 0 : 1,
-  );
-  late final Animation<double> _curve = CurvedAnimation(
-    parent: _controller,
-    curve: Curves.easeInOut,
-  );
-
-  @override
-  void didUpdateWidget(_Collapsing old) {
-    super.didUpdateWidget(old);
-    if (widget.gone && !old.gone) _controller.reverse();
-  }
-
-  @override
-  void dispose() {
-    _controller.dispose();
-    super.dispose();
-  }
-
-  @override
-  Widget build(BuildContext context) => SizeTransition(
-    sizeFactor: _curve,
-    alignment: Alignment.topCenter,
-    child: FadeTransition(opacity: _curve, child: widget.child),
-  );
 }
 
 class _ProgressBar extends StatelessWidget {
@@ -771,118 +579,92 @@ class _ProgressBar extends StatelessWidget {
   );
 }
 
-class _IconTile extends StatelessWidget {
-  const _IconTile(this.icon);
+/// One action: what it's called, what it will do, to how many.
+class _ActionRow extends StatelessWidget {
+  const _ActionRow({
+    super.key,
+    required this.icon,
+    required this.title,
+    required this.body,
+    required this.amount,
+    required this.onTap,
+    this.warning,
+  });
 
   final IconData icon;
+  final String title;
+  final String body;
+  final String amount;
+  final VoidCallback onTap;
 
-  @override
-  Widget build(BuildContext context) => ColoredBox(
-    color: settingsControlFill,
-    child: Icon(icon, size: 20, color: settingsTertiary),
-  );
-}
-
-class _RowButton extends StatelessWidget {
-  const _RowButton({required this.label, required this.onPressed});
-
-  final String label;
-  final VoidCallback onPressed;
+  /// How many of these failed last time, in orange.
+  final String? warning;
 
   @override
   Widget build(BuildContext context) => CupertinoButton(
-    padding: const EdgeInsets.symmetric(horizontal: 12),
-    minimumSize: const Size(0, 30),
-    borderRadius: BorderRadius.circular(15),
-    color: settingsControlFill,
-    onPressed: onPressed,
-    child: Text(
-      label,
-      style: const TextStyle(fontSize: 13, color: settingsAccent),
+    padding: const EdgeInsets.fromLTRB(12, 12, 10, 12),
+    minimumSize: Size.zero,
+    onPressed: onTap,
+    child: Row(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Container(
+          width: 32,
+          height: 32,
+          decoration: BoxDecoration(
+            color: settingsAccent.withValues(alpha: 0.18),
+            borderRadius: BorderRadius.circular(8),
+          ),
+          child: Icon(icon, size: 17, color: settingsAccent),
+        ),
+        const SizedBox(width: 12),
+        Expanded(
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.start,
+            children: [
+              Text(
+                title,
+                style: const TextStyle(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: CupertinoColors.white,
+                ),
+              ),
+              const SizedBox(height: 2),
+              Text(
+                body,
+                style: const TextStyle(
+                  fontSize: 13,
+                  height: 1.3,
+                  color: CupertinoColors.systemGrey,
+                ),
+              ),
+              const SizedBox(height: 4),
+              if (amount.isNotEmpty)
+                Text(
+                  amount,
+                  style: const TextStyle(fontSize: 13, color: settingsAccent),
+                ),
+              if (warning != null)
+                Text(
+                  warning!,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: CupertinoColors.systemOrange,
+                  ),
+                ),
+            ],
+          ),
+        ),
+        const Padding(
+          padding: EdgeInsets.only(top: 8, left: 6),
+          child: Icon(
+            CupertinoIcons.chevron_right,
+            size: 15,
+            color: CupertinoColors.systemGrey2,
+          ),
+        ),
+      ],
     ),
   );
-}
-
-/// One solution for every listed item it applies to. The first is filled:
-/// the one most of the list is waiting for.
-class _SolutionButton extends StatelessWidget {
-  const _SolutionButton({
-    required this.icon,
-    required this.label,
-    required this.filled,
-    required this.onPressed,
-  });
-
-  final IconData icon;
-  final String label;
-  final bool filled;
-  final VoidCallback onPressed;
-
-  @override
-  Widget build(BuildContext context) {
-    final color = filled ? CupertinoColors.white : settingsAccent;
-    return CupertinoButton(
-      padding: const EdgeInsets.symmetric(horizontal: 14),
-      minimumSize: const Size(0, 34),
-      borderRadius: BorderRadius.circular(17),
-      color: filled ? settingsAccent : settingsControlFill,
-      onPressed: onPressed,
-      child: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          Icon(icon, size: 14, color: color),
-          const SizedBox(width: 6),
-          Text(
-            label,
-            style: TextStyle(
-              fontSize: 13,
-              fontWeight: FontWeight.w600,
-              color: color,
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-class _FilterChip extends StatelessWidget {
-  const _FilterChip({
-    required this.label,
-    required this.count,
-    required this.selected,
-    required this.onTap,
-  });
-
-  final String label;
-  final int count;
-  final bool selected;
-  final VoidCallback onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    return GestureDetector(
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Container(
-        margin: const EdgeInsets.only(right: 8),
-        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 8),
-        decoration: BoxDecoration(
-          color: settingsControlFill,
-          borderRadius: BorderRadius.circular(18),
-          border: Border.all(
-            color: selected ? settingsAccent : settingsSeparator,
-            width: selected ? 1.5 : 0.5,
-          ),
-        ),
-        child: Text(
-          '$label $count',
-          style: TextStyle(
-            fontSize: 13,
-            color: selected ? settingsAccent : CupertinoColors.white,
-          ),
-        ),
-      ),
-    );
-  }
 }

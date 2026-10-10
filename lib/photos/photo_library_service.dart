@@ -527,12 +527,18 @@ class PhotoLibraryService {
   /// `deleteWithIds`, so clearing fifty photos one at a time is fifty
   /// prompts. Returns the `localId`s that actually went; anything past
   /// [deleteBatchLimit] simply isn't in it.
-  Future<Set<String>> deleteManyFromLibrary(List<AssetRecord> records) async {
+  ///
+  /// [limit] lifts the cap for a prompt the person asked to be one: the
+  /// originals a whole Optimize run replaced, all at once at its end.
+  Future<Set<String>> deleteManyFromLibrary(
+    List<AssetRecord> records, {
+    int limit = deleteBatchLimit,
+  }) async {
     final localIds = <String, String>{};
     for (final record in records) {
       final id = libraryIdOf(record);
       if (id != null) localIds[id] = record.localId;
-      if (localIds.length == deleteBatchLimit) break;
+      if (localIds.length == limit) break;
     }
     if (localIds.isEmpty) return const {};
     final deleted = await _deleteAssets(localIds.keys.toList());

@@ -54,6 +54,7 @@ import '../storage/album.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/bucket_object.dart';
 import '../storage/passcode_hash.dart';
 import '../storage/membership_sweep.dart';
 import '../upload/backup_coordinator.dart';
@@ -61,6 +62,7 @@ import '../upload/background_sync.dart' show ForegroundHeartbeat;
 import '../upload/sync_engine.dart';
 import '../upload/backup_verifier.dart';
 import '../upload/library_restore.dart';
+import '../vault/hidden_backup.dart';
 import '../vault/bucket.dart';
 import '../vault/carrier_upload.dart';
 import '../vault/decoy.dart';
@@ -227,6 +229,12 @@ class LibraryScreenState extends State<LibraryScreen>
       widget.manualAddService ?? ManualAddService(store: assetRecordStore);
   late final PersonStore _personStore = widget.personStore ?? PersonStore();
   late final VaultKeys _vaultKeys = VaultKeys();
+  late final HiddenBackup _hiddenBackup = HiddenBackup(
+    records: assetRecordStore,
+    backUp: _engine.backUpHidden,
+    albums: () => _vaultKeys.unlockedHashes,
+    ready: _engine.hasBackupTarget,
+  );
   late final CarrierBuilder _carriers = CarrierBuilder(
     posterFrame: (record) => _thumbnailCache.libraryThumbnail(record),
     videoDuration: _photoLibraryService.durationOf,
@@ -335,6 +343,7 @@ class LibraryScreenState extends State<LibraryScreen>
       targetsStore: _backupTargetsStore,
       passphrases: _vaultKeys.entries,
       uploader: S3Uploader(),
+      downloader: S3Downloader(),
     ),
     refreshBucket: () => BucketIndexer(
       targetsStore: _backupTargetsStore,
@@ -535,6 +544,7 @@ class LibraryScreenState extends State<LibraryScreen>
     unawaited(_analyzeQueue.startIfDue());
     unawaited(_sweepLeftovers());
     unawaited(_runScheduledSyncIfDue());
+    unawaited(_hiddenBackup.run().catchError((_) {}));
     _startTrickle();
   }
 
@@ -562,7 +572,7 @@ class LibraryScreenState extends State<LibraryScreen>
     try {
       final result = await _photoLibraryService.applyChange(change);
       if (result.isEmpty || !mounted) return;
-      if (result.added.isNotEmpty && await _autoSyncAllowed()) {
+      if (result.added.isNotEmpty) {
         await _backUpRecords(result.added);
       }
       await reload();
@@ -618,7 +628,7 @@ class LibraryScreenState extends State<LibraryScreen>
         recordStore: assetRecordStore,
       ).restoreThumbnail,
     );
-    PrivateAlbumScreen.backUpHidden = _engine.backUpHidden;
+    PrivateAlbumScreen.hiddenBackup = _hiddenBackup;
     _searchFocus.addListener(_onSearchFocusChanged);
     _watchPhotoLibrary();
     syncQueue.draining.addListener(_onDrainingChanged);
@@ -645,6 +655,38 @@ class LibraryScreenState extends State<LibraryScreen>
         _push(FavoritesScreen(assetRecordStore: assetRecordStore));
       case 'album':
         if (_albums.isNotEmpty) _openAlbum(_albums.first);
+      case 'flagged' || 'flagged-action':
+        // A few odd bucket files beside the demo photos, so every section
+        // has something in it.
+        final demoTargets = await _backupTargetsStore.loadAll();
+        final demoTarget = demoTargets.isEmpty ? 'demo' : demoTargets.first.id;
+        const odd = [
+          ('photos-vault/originals/IMG_0042.PNG', 14 << 20),
+          ('photos-vault/originals/holiday clip.mov', 220 << 20),
+          ('photos-vault/thumbnails/20240101120000_ab.jpg', 40 << 10),
+        ];
+        await assetRecordStore.replaceBucketObjects(demoTarget, [
+          ...(await assetRecordStore.listBucketObjects()).where(
+            (o) => o.targetId == demoTarget && !odd.any((e) => e.$1 == o.key),
+          ),
+          for (final (key, size) in odd)
+            BucketObject(
+              targetId: demoTarget,
+              key: key,
+              size: size,
+              lastModified: DateTime(2025, 6, 1),
+            ),
+        ]);
+        FlaggedItemsScreen.demoOpenAction = screen == 'flagged-action';
+        _push(
+          FlaggedItemsScreen(
+            store: assetRecordStore,
+            targetsStore: _backupTargetsStore,
+            advisor: _storageAdvisor,
+            queue: _fixQueue,
+            onOpenAsset: _openById,
+          ),
+        );
       case 'hidden' || 'hidden-backup' || 'hidden-detail':
         // The demo seed's code, past the passcode sheet.
         const code = '1234';
@@ -739,6 +781,13 @@ class LibraryScreenState extends State<LibraryScreen>
     // up until asked.
     unawaited(_resumeQueue());
     unawaited(_fixQueue.resume().catchError((_) {}));
+    // Albums unlocked before the last close pick their backup up again.
+    unawaited(
+      _vaultKeys
+          .restoreRing()
+          .then((_) => _hiddenBackup.run())
+          .catchError((_) {}),
+    );
     // Fire-and-forget: a full camera-roll scan (and any iCloud downloads it
     // triggers for backup) can be slow, and must never block showing the
     // manually-added assets already on hand. Re-`reload()`s itself once
@@ -845,7 +894,7 @@ class LibraryScreenState extends State<LibraryScreen>
       // resolving, the same as after a full pass.
       if (result.added.isNotEmpty) _unresolvable.clear();
       if (result.isEmpty || !mounted) return;
-      if (result.added.isNotEmpty && await _autoSyncAllowed()) {
+      if (result.added.isNotEmpty) {
         await _backUpRecords(result.added);
       }
       await reload();
@@ -899,7 +948,7 @@ class LibraryScreenState extends State<LibraryScreen>
       // photos nobody has opened yet — which is most of them.
       unawaited(_namePlaces());
       if (result.isEmpty) return;
-      if (result.added.isNotEmpty && await _autoSyncAllowed()) {
+      if (result.added.isNotEmpty) {
         await _backUpRecords(result.added);
       }
       // Also redraws for a scan that only *changed* things — a heart taken
@@ -940,7 +989,7 @@ class LibraryScreenState extends State<LibraryScreen>
     if (!mounted || _busy || syncQueue.paused.value) return;
     if (syncQueue.draining.value) return;
     final pending = _pendingAndFailed;
-    if (pending.isNotEmpty && await _autoSyncAllowed()) {
+    if (pending.isNotEmpty) {
       await _backUpRecords(pending);
       return;
     }
@@ -1366,10 +1415,16 @@ class LibraryScreenState extends State<LibraryScreen>
       return _decoyPool!;
     }
     _decoyDrawnAt = DateTime.now();
-    return _decoyPool = _drawDecoyCandidates().catchError((Object _) {
-      _decoyDrawnAt = null;
-      return <DecoyCandidate>[];
-    });
+    return _decoyPool = _drawDecoyCandidates()
+        .then((found) {
+          // Nothing found isn't worth keeping for half an hour.
+          if (found.isEmpty) _decoyDrawnAt = null;
+          return found;
+        })
+        .catchError((Object _) {
+          _decoyDrawnAt = null;
+          return <DecoyCandidate>[];
+        });
   }
 
   Future<List<DecoyCandidate>>? _decoyPool;
@@ -1473,33 +1528,29 @@ class LibraryScreenState extends State<LibraryScreen>
   Future<int> _backUpRecords(List<AssetRecord> records) =>
       _engine.backUpRecords(records);
 
-  /// Whether work nobody asked for may start on its own. "Manual" is a
-  /// promise: new photos still *arrive* (the scanner is not gated on
-  /// this), they just don't go up the wire until Sync Now or a frequency
-  /// says so.
-  Future<bool> _autoSyncAllowed() async {
+  /// Hidden photos never go through the queue. Older builds queued them,
+  /// and their rows — even finished ones, even nameless — said on an open
+  /// page that hidden photos exist; they're dropped before it loads.
+  Future<void> _resumeQueue() async {
     try {
-      return await _backupTargetsStore.getSyncFrequency() !=
-          SyncFrequency.manual;
+      await syncQueue.store.forget([
+        for (final r in await assetRecordStore.listAll())
+          if (r.passcodeHash != null || r.isHidden) r.localId,
+      ]);
     } catch (_) {
-      // Secure storage unavailable — the default is Manual, and a promise
-      // that can't be read is a promise kept.
-      return false;
+      // The queue shows them until the next launch; nothing is lost.
     }
+    await syncQueue.resume(drain: true);
   }
-
-  Future<void> _resumeQueue() async =>
-      syncQueue.resume(drain: await _autoSyncAllowed());
 
   /// Opportunistic: fires whenever the app (or this screen) comes to the
   /// foreground. While backgrounded, iOS may also run a background pass —
   /// see `../upload/background_sync.dart` — at a time of its own choosing.
   Future<void> _runScheduledSyncIfDue() async {
     try {
-      final frequency = await _backupTargetsStore.getSyncFrequency();
       final lastSyncAt = await _backupTargetsStore.getLastSyncAt();
       if (!isSyncDue(
-        frequency: frequency,
+        frequency: autoSyncFrequency,
         lastSyncAt: lastSyncAt,
         now: DateTime.now(),
       )) {
@@ -1644,6 +1695,7 @@ class LibraryScreenState extends State<LibraryScreen>
         source: source,
         bytes: bytes,
         extension: extension,
+        keepMotion: true,
         store: assetRecordStore,
         personStore: _personStore,
       ),
@@ -1972,7 +2024,7 @@ class LibraryScreenState extends State<LibraryScreen>
             name: '',
             appOwned: r.sourcePath != null,
             issues: const {},
-            fix: StorageFix.removeFromDevice,
+            fixes: const [StorageFix.removeFromDevice],
           ),
       ]);
     } finally {
@@ -2231,9 +2283,6 @@ class LibraryScreenState extends State<LibraryScreen>
           store: _backupTargetsStore,
           assetRecordStore: assetRecordStore,
           icloudBackup: _icloudBackup,
-          syncQueue: syncQueue,
-          syncEverything: _syncEverything,
-          onOpenAsset: _openById,
         ),
       ),
     );
@@ -2720,14 +2769,21 @@ class LibraryScreenState extends State<LibraryScreen>
           borderRadius: BorderRadius.all(Radius.circular(10)),
         ),
         children: [
-          // First in the list, and deliberately above the buckets: the
-          // question it answers ("is this safe, and can I get it back")
-          // comes before the machinery that answers it.
           _row(
-            icon: CupertinoIcons.checkmark_shield_fill,
-            color: CupertinoColors.systemGreen,
-            title: l10n.collectionsSafetyRow,
-            onTap: _openSafety,
+            icon: CupertinoIcons.chart_pie_fill,
+            color: CupertinoColors.systemOrange,
+            title: l10n.collectionsStorageRow,
+            count: _fixRunning ? _fixLeft : null,
+            busy: _fixRunning,
+            onTap: () => _push(
+              FlaggedItemsScreen(
+                store: assetRecordStore,
+                targetsStore: _backupTargetsStore,
+                advisor: _storageAdvisor,
+                queue: _fixQueue,
+                onOpenAsset: _openById,
+              ),
+            ),
           ),
           _row(
             // Filled, like every other glyph in this list — the outline
@@ -2747,22 +2803,6 @@ class LibraryScreenState extends State<LibraryScreen>
               title: l10n.collectionsAiSettingsRow,
               onTap: () => _push(const AiSettingsScreen()),
             ),
-          _row(
-            icon: CupertinoIcons.chart_pie_fill,
-            color: CupertinoColors.systemOrange,
-            title: l10n.collectionsStorageRow,
-            count: _fixRunning ? _fixLeft : null,
-            busy: _fixRunning,
-            onTap: () => _push(
-              FlaggedItemsScreen(
-                store: assetRecordStore,
-                targetsStore: _backupTargetsStore,
-                advisor: _storageAdvisor,
-                queue: _fixQueue,
-                onOpenAsset: _openById,
-              ),
-            ),
-          ),
           _row(
             icon: CupertinoIcons.globe,
             color: CupertinoColors.systemBlue,
@@ -2792,7 +2832,10 @@ class LibraryScreenState extends State<LibraryScreen>
       ),
     ),
     SliverToBoxAdapter(child: _SectionHeader(title: l10n.privacyHeading)),
-    SliverToBoxAdapter(child: _PrivacyNote(onCheck: _openSafety)),
+    const SliverToBoxAdapter(child: _PrivacyNote()),
+    // Below the note, not in the menu: it is the proof of what the note
+    // claims, so it sits where the claim is read.
+    SliverToBoxAdapter(child: _WhereCard(onTap: _openSafety)),
     // The last thing on the page, under the note that explains what there
     // is to lose. It lived in Cloud Settings, which is a page about where
     // photos *go* — the wipe is about the whole app, so it belongs at the
@@ -3090,11 +3133,7 @@ class _PersonCard extends StatelessWidget {
 /// Last thing on the page, after everything configurable above it: what the
 /// app does with your photos, said once and in full.
 class _PrivacyNote extends StatelessWidget {
-  const _PrivacyNote({this.onCheck});
-
-  /// The note ends in the one thing that turns it from a claim into
-  /// something the reader can go and confirm for themselves.
-  final VoidCallback? onCheck;
+  const _PrivacyNote();
 
   @override
   Widget build(BuildContext context) {
@@ -3122,33 +3161,76 @@ class _PrivacyNote extends StatelessWidget {
               color: CupertinoColors.systemGrey,
             ),
           ),
-          if (onCheck != null) ...[
-            const SizedBox(height: 12),
-            GestureDetector(
-              behavior: HitTestBehavior.opaque,
-              onTap: onCheck,
-              child: Row(
+        ],
+      ),
+    );
+  }
+}
+
+/// Where Your Photos Are, as a card of its own under the privacy note:
+/// the way to check every copy the note talks about.
+class _WhereCard extends StatelessWidget {
+  const _WhereCard({required this.onTap});
+
+  final VoidCallback onTap;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+      child: CupertinoButton(
+        key: const ValueKey('where-your-photos-are'),
+        padding: const EdgeInsets.all(14),
+        color: const Color(0xFF2C2C2E),
+        borderRadius: const BorderRadius.all(Radius.circular(10)),
+        onPressed: onTap,
+        child: Row(
+          children: [
+            Container(
+              width: 36,
+              height: 36,
+              decoration: BoxDecoration(
+                color: CupertinoColors.systemGreen.withValues(alpha: 0.2),
+                borderRadius: BorderRadius.circular(9),
+              ),
+              child: const Icon(
+                CupertinoIcons.checkmark_shield_fill,
+                size: 20,
+                color: CupertinoColors.systemGreen,
+              ),
+            ),
+            const SizedBox(width: 12),
+            Expanded(
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
-                  Expanded(
-                    child: Text(
-                      l10n.privacyCheckRow,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: CupertinoColors.activeBlue,
-                      ),
+                  Text(
+                    l10n.collectionsSafetyRow,
+                    style: const TextStyle(
+                      fontSize: 16,
+                      fontWeight: FontWeight.w600,
+                      color: CupertinoColors.white,
                     ),
                   ),
-                  const Icon(
-                    CupertinoIcons.chevron_right,
-                    size: 14,
-                    color: CupertinoColors.activeBlue,
+                  const SizedBox(height: 2),
+                  Text(
+                    l10n.privacyCheckRow,
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: CupertinoColors.systemGrey,
+                    ),
                   ),
                 ],
               ),
             ),
+            const Icon(
+              CupertinoIcons.chevron_right,
+              size: 15,
+              color: CupertinoColors.systemGrey2,
+            ),
           ],
-        ],
+        ),
       ),
     );
   }

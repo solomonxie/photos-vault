@@ -92,10 +92,11 @@ running `SyncEngine` (`sync_engine.dart`, the same code the library screen
 drives). iOS decides when — typically overnight, on power and Wi-Fi — and
 whether at all; nothing here can promise a schedule.
 
-It exits early, in this order, when: demo mode is on, the sync frequency is
-Manual, no bucket is configured, the app was in the foreground in the last 5
-minutes (`ForegroundHeartbeat`), the frequency says it isn't due, or nothing
+Backup is always automatic (no schedule to pick; `autoSyncFrequency`, 15
+min). It exits early, in this order, when: demo mode is on, no bucket is
+configured, the app was in the foreground in the last 5 minutes
+(`ForegroundHeartbeat`), the last pass was under 15 minutes ago, or nothing
 is pending. While running it stops if the app returns to the foreground or
 iOS expires the task. Change-check re-hashing and the full camera-roll scan
 stay with the foreground app. Hidden photos are never queued anywhere: they
-are backed up from inside their album (`../vault/README.md`).
+back up on their own runner while the app is open (`../vault/README.md`).

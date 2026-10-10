@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:photos_vault/photos/file_hash.dart';
 import 'package:photos_vault/photos/photo_library_service.dart';
 import 'package:photos_vault/photos/storage_advice.dart';
@@ -81,7 +82,7 @@ void main() {
         name: record.sourcePath ?? record.localId,
         appOwned: record.sourcePath != null,
         issues: const {},
-        fix: fix,
+        fixes: [fix],
       );
 
   setUp(() => deleted = <List<String>>[]);
@@ -96,7 +97,7 @@ void main() {
         final record = await ownedPhoto(store, path: original.path);
 
         final result = await optimizerOver(store)
-            .apply([itemFor(record, 4000, StorageFix.reduceResolution)]);
+            .apply([itemFor(record, 4000, StorageFix.optimize)]);
 
         expect(result.freedBytes, 3000);
         expect(original.existsSync(), isFalse);
@@ -109,7 +110,7 @@ void main() {
     );
 
     test(
-      'leaves the bucket copy alone and stops the change check re-uploading it',
+      'leaves the change check to send the smaller copy to the bucket',
       () async {
         final store = FakeAssetRecordStore();
         final original = File('${tempDir.path}/a.png')
@@ -117,16 +118,17 @@ void main() {
         final record = await ownedPhoto(store, path: original.path);
 
         await optimizerOver(store)
-            .apply([itemFor(record, 4000, StorageFix.reduceResolution)]);
+            .apply([itemFor(record, 4000, StorageFix.optimize)]);
 
         final state = (await store.getByLocalId('manual:a'))!
             .stateOf(DerivativeKind.original);
         expect(state.status, UploadStatus.uploaded);
         expect(state.destinationKey, 'originals/a.png');
-        // The full-quality original stays in the bucket only if the next
-        // change check sees the new local file as already accounted for.
+        // The backed-up hash is the old file's, so the next change check
+        // sees a different file and uploads the smaller one.
         final saved = (await store.getByLocalId('manual:a'))!;
-        expect(state.backedUpHash, await hashFile(saved.sourcePath!));
+        expect(state.backedUpHash, isNot(await hashFile(saved.sourcePath!)));
+        expect(saved.localOptimized, isTrue);
       },
     );
 
@@ -139,7 +141,7 @@ void main() {
       final result = await optimizerOver(
         store,
         encode: (_, _) async => (Uint8List(500), 2560, 1707),
-      ).apply([itemFor(record, 100, StorageFix.convertFormat)]);
+      ).apply([itemFor(record, 100, StorageFix.optimize)]);
 
       expect(result.freedBytes, 0);
       expect(result.skipped, 1);
@@ -156,7 +158,7 @@ void main() {
       final result = await optimizerOver(
         store,
         encode: (_, _) async => null,
-      ).apply([itemFor(record, 4000, StorageFix.convertFormat)]);
+      ).apply([itemFor(record, 4000, StorageFix.optimize)]);
 
       expect(result.skipped, 1);
       expect(original.existsSync(), isTrue);
@@ -291,4 +293,248 @@ void main() {
     expect(result.queuedForBackup, 2);
     expect(result.freedBytes, 0);
   });
+
+  group('shrinking a camera-roll photo', () {
+    Future<AssetRecord> cameraRoll(FakeAssetRecordStore store) async {
+      await store.upsert(
+        localId: 'cam',
+        contentHash: 'cam',
+        platform: 'ios',
+        libraryId: 'old-asset',
+        width: 8064,
+        height: 6048,
+      );
+      await store.updateDerivative(
+        'cam',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'originals/cam.heic',
+          backedUpHash: 'original-hash',
+        ),
+      );
+      return (await store.getByLocalId('cam'))!;
+    }
+
+    test('a run asks to delete its originals once, at the end, and a quit '
+        'in between still asks next time', () async {
+      final store = FakeAssetRecordStore();
+      final record = await cameraRoll(store);
+      deleted = [];
+      StorageOptimizer optimizer() => StorageOptimizer(
+        store: store,
+        thumbnails: ThumbnailCache(
+          store: store,
+          directory: () async => tempDir,
+          encode: (_) async => Uint8List.fromList([1]),
+        ),
+        library: libraryThatDeletes(const []),
+        backUp: (_) async {},
+        writer: _FakeWriter(tempDir),
+      );
+
+      await optimizer().apply([
+        StorageItem(
+          record: record,
+          bytes: 6000,
+          name: 'IMG_1.HEIC',
+          appOwned: false,
+          issues: const {StorageIssue.highResolution},
+          fixes: const [StorageFix.optimize],
+        ),
+      ], deferDeletes: true);
+
+      expect(deleted, isEmpty, reason: 'no prompt mid-run');
+      expect((await store.getByLocalId('cam'))!.libraryId, 'old-asset');
+
+      // A new launch: a fresh optimizer finds the filed original and asks.
+      final relaunched = optimizer();
+      expect(await relaunched.pendingSwaps(), hasLength(1));
+      final result = await relaunched.finishSwaps();
+
+      expect(deleted, [
+        ['old-asset'],
+      ]);
+      expect(result.freedBytes, 6000 - 100);
+      expect((await store.getByLocalId('cam'))!.libraryId, 'new-asset');
+      expect(await relaunched.pendingSwaps(), isEmpty);
+    });
+
+    test('puts the smaller copy in Photos and moves the record onto it, so '
+        'the bucket keeps the original', () async {
+      final store = FakeAssetRecordStore();
+      final record = await cameraRoll(store);
+      final writer = _FakeWriter(tempDir);
+      final optimizer = StorageOptimizer(
+        store: store,
+        thumbnails: ThumbnailCache(
+          store: store,
+          directory: () async => tempDir,
+          encode: (_) async => Uint8List.fromList([1]),
+        ),
+        library: libraryThatDeletes(const []),
+        backUp: (_) async {},
+        writer: writer,
+      );
+
+      final result = await optimizer.apply([
+        StorageItem(
+          record: record,
+          bytes: 6000,
+          name: 'IMG_1.HEIC',
+          appOwned: false,
+          issues: const {StorageIssue.highResolution},
+          fixes: const [StorageFix.optimize],
+        ),
+      ]);
+
+      final after = (await store.getByLocalId('cam'))!;
+      expect(result.freedBytes, 6000 - 100);
+      expect(after.libraryId, 'new-asset');
+      expect(after.localOptimized, isTrue);
+      expect(
+        after.stateOf(DerivativeKind.original).destinationKey,
+        'originals/cam.heic',
+      );
+      expect(writer.savedTitles, ['IMG_1.HEIC']);
+      expect(writer.deletedIds, isEmpty);
+    });
+
+    test('declined at the prompt, the new copy is taken back out', () async {
+      final store = FakeAssetRecordStore();
+      final record = await cameraRoll(store);
+      final writer = _FakeWriter(tempDir);
+      final optimizer = StorageOptimizer(
+        store: store,
+        thumbnails: ThumbnailCache(
+          store: store,
+          directory: () async => tempDir,
+          encode: (_) async => Uint8List.fromList([1]),
+        ),
+        library: libraryThatDeletes(const ['old-asset']),
+        backUp: (_) async {},
+        writer: writer,
+      );
+
+      final result = await optimizer.apply([
+        StorageItem(
+          record: record,
+          bytes: 6000,
+          name: 'IMG_1.HEIC',
+          appOwned: false,
+          issues: const {StorageIssue.highResolution},
+          fixes: const [StorageFix.optimize],
+        ),
+      ]);
+
+      expect(result.skipped, 1);
+      expect((await store.getByLocalId('cam'))!.libraryId, 'old-asset');
+      expect(writer.deletedIds, ['new-asset']);
+    });
+  });
+
+  group('a smaller copy for the bucket', () {
+    StorageOptimizer over(FakeAssetRecordStore store) => StorageOptimizer(
+      store: store,
+      thumbnails: ThumbnailCache(store: store, directory: () async => tempDir),
+      library: libraryThatDeletes(const []),
+      backUp: (_) async {},
+      writer: _FakeWriter(tempDir),
+    );
+
+    Future<AssetRecord> owned(
+      FakeAssetRecordStore store, {
+      required bool optimized,
+      bool present = true,
+    }) async {
+      final file = File('${tempDir.path}/mine.heic');
+      if (present) file.writeAsBytesSync(List.filled(3000, 7));
+      await store.upsert(
+        localId: 'manual:m',
+        contentHash: 'm',
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: file.path,
+      );
+      await store.setLocalOptimized('manual:m', optimized);
+      return (await store.getByLocalId('manual:m'))!;
+    }
+
+    test('an optimized phone copy goes up as it is', () async {
+      final store = FakeAssetRecordStore();
+      final record = await owned(store, optimized: true);
+
+      final out = (await over(store).smallerFile(record))!;
+
+      expect(out.readAsBytesSync(), List.filled(3000, 7));
+      expect(File(record.sourcePath!).existsSync(), isTrue);
+      out.deleteSync();
+    });
+
+    test('a full phone copy is shrunk, and left where it is', () async {
+      final store = FakeAssetRecordStore();
+      final record = await owned(store, optimized: false);
+
+      final out = (await over(store).smallerFile(record))!;
+
+      expect(out.lengthSync(), 100);
+      expect(File(record.sourcePath!).lengthSync(), 3000);
+      out.deleteSync();
+    });
+
+    test("with no copy here, the bucket's is downloaded and shrunk", () async {
+      final store = FakeAssetRecordStore();
+      final record = await owned(store, optimized: false, present: false);
+      String? asked;
+
+      final out = (await over(store).smallerFile(
+        record,
+        fromBucket: (path) async {
+          asked = path;
+          return File(path)..writeAsBytesSync(List.filled(5000, 1));
+        },
+      ))!;
+
+      expect(asked, isNotNull);
+      expect(out.lengthSync(), 100);
+      expect(File(asked!).existsSync(), isFalse, reason: 'download cleaned up');
+      out.deleteSync();
+    });
+  });
+}
+
+class _FakeWriter extends LibraryWriter {
+  _FakeWriter(this.dir);
+
+  final Directory dir;
+  final savedTitles = <String>[];
+  final deletedIds = <String>[];
+
+  @override
+  Future<File?> original(
+    PhotoLibraryService library,
+    AssetRecord record,
+  ) async =>
+      File('${dir.path}/original.heic')..writeAsBytesSync(List.filled(6000, 1));
+
+  @override
+  Future<bool> encodeStill(String input, String output, int maxEdge) async {
+    File(output).writeAsBytesSync(List.filled(100, 2));
+    return true;
+  }
+
+  @override
+  Future<AssetEntity?> save({
+    required File file,
+    File? motion,
+    required bool isVideo,
+    required String title,
+    required DateTime createdAt,
+  }) async {
+    savedTitles.add(title);
+    return AssetEntity(id: 'new-asset', typeInt: 1, width: 2560, height: 1920);
+  }
+
+  @override
+  Future<void> delete(List<String> ids) async => deletedIds.addAll(ids);
 }
