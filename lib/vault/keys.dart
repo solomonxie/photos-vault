@@ -216,9 +216,12 @@ class VaultKeys {
     return all.isEmpty ? null : all.last;
   }
 
-  /// Album keys for codes typed this session, kept under the same hash the
-  /// records carry so the upload path can find them without ever holding
-  /// the digits. Dropped when the app dies; nothing writes them down.
+  /// Album keys for codes typed, kept under the same hash the records
+  /// carry so the upload path can find them without ever holding the
+  /// digits. Also in the keychain ([_ringKey]), so a backup started in an
+  /// album carries on after a relaunch. No new exposure: the master key
+  /// beside it already opens every album in 10,000 guesses. Never read by
+  /// the gate — opening an album still takes the code.
   ///
   /// One ring for the app, not per instance: an album opened from a
   /// person's page has to be as open to the library's uploads as one opened
@@ -231,9 +234,58 @@ class VaultKeys {
   Future<AlbumKeys?> unlockAlbum(String passcode) async {
     final keys = await activeAlbumKeys(passcode);
     if (keys == null) return null;
-    _ring[hashPasscode(passcode)] = keys;
+    final hash = hashPasscode(passcode);
+    _ring[hash] = keys;
+    try {
+      await _saveRing(hash, keys);
+    } catch (_) {
+      // Only costs the resume after a relaunch; the album opens regardless.
+    }
     return keys;
   }
+
+  static const _ringKey = 'vault_ring_v1';
+
+  Future<Map<String, dynamic>> _storedRing() async {
+    try {
+      final raw = await _store.read(_ringKey);
+      return raw == null
+          ? {}
+          : (jsonDecode(raw) as Map).cast<String, dynamic>();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _saveRing(String hash, AlbumKeys keys) async {
+    final stored = await _storedRing();
+    stored[hash] = {'k': base64Encode(keys.albumKey), 'e': keys.entry.id};
+    await _store.write(_ringKey, jsonEncode(stored));
+  }
+
+  /// Puts back the albums unlocked before the app last closed, so their
+  /// backups resume. One whose passphrase this phone has forgotten stays
+  /// out.
+  Future<void> restoreRing() async {
+    final stored = await _storedRing();
+    if (stored.isEmpty) return;
+    final known = {for (final e in await entries()) e.id: e};
+    for (final MapEntry(key: hash, value: raw) in stored.entries) {
+      if (_ring.containsKey(hash)) continue;
+      final entry = known[(raw as Map)['e']];
+      if (entry == null) continue;
+      final master = await _masterKey(entry);
+      if (master == null) continue;
+      _ring[hash] = AlbumKeys(
+        albumKey: Uint8List.fromList(base64Decode(raw['k'] as String)),
+        entry: entry,
+        outboxKey: _outboxKeyFrom(master),
+      );
+    }
+  }
+
+  /// Every album with a key on hand, by passcode hash.
+  Iterable<String> get unlockedHashes => _ring.keys;
 
   /// Every key typed this session for [passcodeHash] — the active one, plus
   /// older passphrases added inside the album.
@@ -262,6 +314,7 @@ class VaultKeys {
     }
     _unlocked.clear();
     _ring.clear();
+    await _store.delete(_ringKey);
   }
 
   /// [forgetOnThisDevice], and the passphrase entries too: for removing

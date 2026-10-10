@@ -82,6 +82,27 @@ void main() {
     expect(keys.ringKeysFor(hashPasscode('1234')), isNull);
   });
 
+  test(
+    'an unlocked album comes back after a relaunch, until forgotten',
+    () async {
+      final store = _MemoryStore();
+      final keys = VaultKeys(store: store);
+      await keys.add('correct horse battery');
+      final opened = (await keys.unlockAlbum('1234'))!;
+      keys.lockAll();
+
+      final relaunched = VaultKeys(store: store);
+      await relaunched.restoreRing();
+      final back = relaunched.ringKeysFor(hashPasscode('1234'))!;
+      expect(back.albumKey, opened.albumKey);
+      expect(store.values.values.any((v) => v.contains('1234')), isFalse);
+
+      await relaunched.forgetOnThisDevice();
+      await VaultKeys(store: store).restoreRing();
+      expect(relaunched.ringKeysFor(hashPasscode('1234')), isNull);
+    },
+  );
+
   test('forgetting on this phone leaves the entry but loses the key', () async {
     final store = _MemoryStore();
     final keys = VaultKeys(store: store);
