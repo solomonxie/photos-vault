@@ -1,5 +1,7 @@
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
+
 import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:photos_vault/settings/s3_listing.dart';
 import 'package:photos_vault/upload/bucket_ops.dart';
@@ -9,6 +11,7 @@ import 'package:photos_vault/vault/carrier_probe.dart';
 class MemoryBucket extends BucketOps {
   final objects = <String, Uint8List>{};
   final lastModified = DateTime(2026, 10, 3, 9);
+  bool refuseCopies = false;
 
   @override
   Future<List<S3Object>?> listFolder(
@@ -46,6 +49,12 @@ class MemoryBucket extends BucketOps {
       };
 
   @override
+  Future<String?> etagOf(S3BackupTarget target, String key) async {
+    final bytes = objects[key];
+    return bytes == null ? null : md5.convert(bytes).toString();
+  }
+
+  @override
   Future<int?> sizeOf(S3BackupTarget target, String key) async =>
       objects[key]?.length;
 
@@ -57,7 +66,7 @@ class MemoryBucket extends BucketOps {
     required int expectedSize,
   }) async {
     final bytes = objects[from];
-    if (bytes == null) return false;
+    if (bytes == null || refuseCopies) return false;
     objects[to] = bytes;
     return true;
   }

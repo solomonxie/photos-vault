@@ -46,6 +46,7 @@ Future<bool> encodeFileNatively({
   required String input,
   required String output,
   required String format,
+  int? maxEdge,
   bool onlyIfSmaller = true,
 }) async {
   try {
@@ -53,6 +54,7 @@ Future<bool> encodeFileNatively({
           'input': input,
           'output': output,
           'format': format,
+          'maxEdge': ?maxEdge,
           'onlyIfSmaller': onlyIfSmaller,
           'quality': _quality / 100,
         }) ??
@@ -77,3 +79,25 @@ Future<({Uint8List bytes, String extension})?> shrinkPhoto(
   );
   return heic == null ? null : (bytes: heic, extension: '.heic');
 }
+
+/// [input] as 1080p HEVC at [output] (`ImageEncodeChannel.swift`). True
+/// only when it was written and came out smaller; otherwise
+/// [lastVideoCompressError] says why.
+Future<bool> compressVideoNatively({
+  required String input,
+  required String output,
+}) async {
+  try {
+    final answer = await _encodeChannel.invokeMethod<Object>('compressVideo', {
+      'input': input,
+      'output': output,
+    });
+    if (answer == true) return true;
+    lastVideoCompressError = '$answer';
+  } catch (e) {
+    lastVideoCompressError = '$e';
+  }
+  return false;
+}
+
+String? lastVideoCompressError;

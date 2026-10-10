@@ -247,9 +247,13 @@ class FakeAssetRecordStore implements AssetRecordStore {
       localDeleted: existing.localDeleted,
       isVideo: existing.isVideo,
       isLivePhoto: existing.isLivePhoto,
+      isGif: existing.isGif,
+      addedAt: existing.addedAt,
       derivatives: existing.derivatives,
       isFavorite: existing.isFavorite,
       isHidden: existing.isHidden,
+      isLocked: existing.isLocked,
+      localOptimized: existing.localOptimized,
       deletedAt: existing.deletedAt,
       description: existing.description,
       tags: existing.tags,
@@ -306,6 +310,13 @@ class FakeAssetRecordStore implements AssetRecordStore {
     final existing = _records[localId];
     if (existing == null) return;
     _records[localId] = existing.withPasscodeHash(value);
+  }
+
+  @override
+  Future<void> setLivePhoto(String localId, bool value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withLivePhoto(value);
   }
 
   @override
@@ -399,6 +410,12 @@ class FakeAssetRecordStore implements AssetRecordStore {
     bucketScans.remove(targetId);
     bucketStaged.remove(targetId);
   }
+
+  @override
+  Future<Set<String>> bucketTargetIds() async => {
+    for (final e in bucketObjects.entries)
+      if (e.value.isNotEmpty) e.key,
+  };
 
   @override
   Future<List<BucketObject>> listBucketObjects() async => [

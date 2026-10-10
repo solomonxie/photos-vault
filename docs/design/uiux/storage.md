@@ -1,56 +1,71 @@
 # Flagged Items
 
-`lib/viewer/flagged_items_screen.dart` — More → Flagged Items. One list of
-everything worth a look: space this phone could give back, and bucket
-objects the app doesn't understand. "Not enough space" is just another flag.
+`lib/viewer/flagged_items_screen.dart` — More → Flagged Items. A list of
+**actions**, not files: each says what it does, to how many, and what it
+saves; tapping one opens its items (`flagged_action_screen.dart`). Shared
+wording in `flagged_copy.dart`.
 
-Was two pages (Flagged Items with an Optimize Storage sub-page, which had
-its own select mode). Merged: a sub-page for one kind of flag, and checkboxes
-to pick what the chip had already picked, were two steps nobody needed.
+Was a file list with problem chips, per-row buttons and ⋯ menus, and
+batch pills keyed by solution. Two taxonomies (problem chips, solution
+pills), labels with no explanation, and iPhone photos mixed with bucket
+files — every tap a guess. Replaced.
 
 ## Stories
 
-- I want to free space without picking photos one by one → a chip narrows
-  to a problem, one button fixes every listed item it applies to.
-- I want to fix one thing → its row's own button.
-- I want to see it working, and leave → the list drains as items are
-  fixed; the run keeps going on other screens and after a kill.
+- What can I do, and what will it do? → one row per action, with a
+  sentence and the count/saving.
+- Do it for most, not all → the action's page, everything ticked; untick.
+- Leave this alone → Hide from List, on every action's page (iPhone
+  photos and bucket files alike; remembered across scans).
+- Watch it, or leave → the run card; items drop out as they're done.
+
+## What it offers
+
+- No backup queue: backing up runs on its own. A photo the bucket lost is
+  a red line under the heading.
+- **On this iPhone** — Optimize (smaller copy; the next sync sends it to
+  the bucket too), Delete Duplicates (exact copies by backup hash; one
+  kept, rest to Recently Deleted). Never deletes a local copy otherwise:
+  that's the person's call, in Photos.
+- **In your bucket** — Optimize (smaller copy in the bucket only; the
+  phone keeps its original, hash kept so sync doesn't re-send it), Delete
+  Duplicates (same size + ETag; a record's copy kept), Delete Old Copies,
+  Add to Library, Fix Names, Convert to HEIF, Delete Thumbnails, Add Anyway.
 
 ## The page
 
 ```
  ‹ Library              Flagged Items                ( Rescan )
- ─────────────────────────────────────────────────────────────
- 23 items to fix                             ← count, bold
- Frees up to 6.2 GB on this phone            ← only if any
- Scanned 19 Sep 2026, 12:16
- ( ALL 23 ) ( On device 14 ) ( Large file 6 ) ( Off-scheme… ▸   ← scrolls
-                                                   sideways
- [[ 🗑 Remove from Device · 14 ]]  [ ⤒ Back Up First · 3 ]
- [ ✎ Rename · 4 ]  [ ⦸ Remove · 2 ]           ← one per solution, for
-                                                 what the chip shows;
-                                                 first filled
- ─────────────────────────────────────────────────────────────
- ▣  IMG_4934.HEIC                          [ Remove from Device ]
-    62.4 MB · 14 Feb 2026
-    On device · Large file
- ▤  holiday.jpg                                    [ Rename ] ⋯   ← ⋯ = other
-    3.1 MB · 2 Mar 2019                                         fixes, sheet
-    Name doesn't follow the app's scheme
- empty   Nothing flagged
- loading Looking for problems…    /   Measuring 400 of 3,812…
+ 23 items to fix
+ Checking 40 of 189 new photos…      ← only while new ones are measured
+ ON THIS IPHONE
+ │ ⤓ Optimize — … 122 items · saves about 2.1 GB                   › │
+ │ ⧉ Delete Duplicates                                              › │
+ IN YOUR BUCKET
+ │ ⤓ Optimize · ⧉ Delete Duplicates · 🗑 Delete Old Copies · …      › │
 ```
 
-A solution button counts only what's listed under the current chip and not
-already queued. Destructive ones confirm once for the batch (`Remove from
-Device: 14 items?`); Back Up, Import and Ignore don't ask.
+The last scan's result is the heading at once; a pass over photos added
+since is a line under it.
 
-Kept out of the buttons, one at a time only: **Import anyway** on a likely
-old copy, and **Rename** on a file the same size as one already here — both
-are guesses a person should look at. A likely duplicate gets **Ignore** as
-its batchable fix instead.
+## An action's page
 
-## Running: the list is the queue
+```
+ ‹                    Remove from iPhone          Deselect All
+ Deletes the full photo from this iPhone to free space. …
+ ◉ ▣ p12.jpg   233.9 KB · Jul 12, 2026
+ ◉ ▣ p20.jpg   …                               (tap row = tick)
+ ───────────────────────────────────────────────────────────
+  Hide from List          [[ Remove from iPhone · 14 ]]
+```
+
+- The fuller explanation on top, never both short and long.
+- Running items show ⟳ / 🕒; failed ones stay ticked-able with their
+  reason. The page closes itself when nothing is left.
+- Only permanent bucket deletes (thumbnails, old copies) ask again;
+  iOS asks for photo removals itself.
+
+## Running
 
 ```
  ╭─────────────────────────────────────────────────────────╮
@@ -58,10 +73,6 @@ its batchable fix instead.
  │ [██████████░░░░░░░░░░░░░░░░░]                           │
  │ Keeps going while you use the rest of the app.          │
  ╰─────────────────────────────────────────────────────────╯
- ▣  IMG_4934.HEIC                                       ⟳    ← running
- ▣  IMG_4935.HEIC                                 Waiting
- ▣  IMG_4936.HEIC                                [ Retry ]
-    Couldn't finish. Nothing was changed.                    ← stays, red
 ```
 
 ```
@@ -73,9 +84,6 @@ its batchable fix instead.
  ╰─────────────────────────────────────────────────────────╯
 ```
 
-- A fixed row folds away (height + fade, ~0.3 s), so the list visibly
-  shrinks rather than jumping. A failed one stays with its reason and a
-  Retry.
 - Stop ends the run after the item in flight; what hadn't started is
   dropped and stays listed.
 - More → Flagged Items shows `⟳ 28` while a run is going, from anywhere.
@@ -185,3 +193,15 @@ A batch removal is **one** iOS confirmation, not one per photo
 (`deleteManyFromLibrary`), capped at 100 — past a hundred thumbnails that
 sheet stops being something anyone reads, and a confirmation nobody can
 check is not a confirmation.
+
+## While it runs
+
+Under "Fixing N of M": what it is doing now — `Optimizing · IMG_3381.MOV ·
+512 MB` (Downloading, Uploading, Deleting, Renaming, Adding, Converting,
+Waiting for your OK in the iOS prompt).
+
+Originals replaced in Photos (Optimize Space) and library duplicates are
+not deleted batch by batch: each is filed in `pending_swaps_v1` as it is
+done, and one iOS prompt takes all of them when the run ends. A quit before
+that prompt asks on the next launch; declined, the smaller copies are taken
+back out.

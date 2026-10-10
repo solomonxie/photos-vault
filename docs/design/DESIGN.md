@@ -24,7 +24,7 @@ Photo apps like Google Photos/iCloud lock the user's photos into a vendor's stor
 - Web/desktop platforms (mobile only).
 - Multi-resolution video transcoding (poster-frame thumbnail + original only, in v1). Until a video *does* get a poster frame (T2.3), videos have no thumbnail to fall back on, so "Remove from Device" isn't offered for them.
 - STS/Cognito temporary credentials — static IAM user keys only (single-user personal app, no backend to broker tokens).
-- ~~True OS background scheduling~~ — now a `BGProcessingTask` (`ios/Runner/BackgroundSync.swift`, `lib/upload/background_sync.dart`): iOS grants it when it likes, usually overnight on power and Wi-Fi. `SyncFrequency` is still checked in the foreground too. Uploads already in flight survive backgrounding through `background_downloader`'s native transfer, separately.
+- ~~True OS background scheduling~~ — now a `BGProcessingTask` (`ios/Runner/BackgroundSync.swift`, `lib/upload/background_sync.dart`): iOS grants it when it likes, usually overnight on power and Wi-Fi. Backup is always automatic; a full pass also runs on foreground, 15 min after the last (`autoSyncFrequency`). Uploads already in flight survive backgrounding through `background_downloader`'s native transfer, separately.
 
 ## Options considered
 - **Platform**: native Swift+Kotlin (two codebases) vs React Native/Expo vs Flutter/Dart → Flutter wins: one Dart codebase, and `flutter run` produces a real compiled native app from day one — no sandboxed dev runtime standing between the app and native background-transfer APIs. Kept even though Android is now backlogged: it costs nothing to build iOS-only for now on a codebase that's already Android-ready, versus committing to a native Swift rewrite if/when Android gets prioritized.

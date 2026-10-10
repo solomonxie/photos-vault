@@ -42,3 +42,33 @@ class S3Uploader {
     }
   }
 }
+
+/// Gets one object to a file through a `background_downloader` task — a
+/// video can be gigabytes, which must neither sit in memory nor stop when
+/// the app is backgrounded.
+class S3Downloader {
+  S3Downloader({FileDownloader? downloader})
+    : _downloader = downloader ?? FileDownloader();
+
+  final FileDownloader _downloader;
+
+  Future<bool> get({
+    required String key,
+    required S3BackupTarget target,
+    required String toPath,
+  }) async {
+    try {
+      final url = await presignGetUrl(target: target, key: key);
+      final task = DownloadTask(
+        url: url.toString(),
+        filename: p.basename(toPath),
+        directory: p.dirname(toPath),
+        baseDirectory: BaseDirectory.root,
+      );
+      final result = await _downloader.download(task);
+      return result.status == TaskStatus.complete;
+    } catch (_) {
+      return false;
+    }
+  }
+}

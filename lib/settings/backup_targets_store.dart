@@ -32,6 +32,10 @@ enum BackupFormat { original, optimized }
 /// count on.
 enum SyncFrequency { manual, every15Minutes, everyHour, every6Hours, daily }
 
+/// Backup is always automatic: the queue drains as photos arrive, and a
+/// full pass runs when the app comes forward this long after the last.
+const autoSyncFrequency = SyncFrequency.every15Minutes;
+
 const _syncIntervals = {
   SyncFrequency.every15Minutes: Duration(minutes: 15),
   SyncFrequency.everyHour: Duration(hours: 1),
@@ -82,19 +86,10 @@ class BackupTargetsStore {
   Future<void> setBackupFormat(BackupFormat value) =>
       _store.write(_formatKey, value.name);
 
+  /// Written by builds that offered a choice; read by none. Kept so a
+  /// wipe still clears it.
   static const _syncFrequencyKey = 'backup_sync_frequency_v1';
   static const _lastSyncAtKey = 'backup_last_sync_at_v1';
-
-  Future<SyncFrequency> getSyncFrequency() async {
-    final raw = await _store.read(_syncFrequencyKey);
-    return SyncFrequency.values.firstWhere(
-      (f) => f.name == raw,
-      orElse: () => SyncFrequency.manual,
-    );
-  }
-
-  Future<void> setSyncFrequency(SyncFrequency value) =>
-      _store.write(_syncFrequencyKey, value.name);
 
   Future<DateTime?> getLastSyncAt() async {
     final raw = await _store.read(_lastSyncAtKey);

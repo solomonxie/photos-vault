@@ -11,6 +11,7 @@ import 'package:photos_vault/photos/thumbnail_cache.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/photos/fix_queue.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
+import 'package:photos_vault/storage/bucket_object.dart';
 import 'package:photos_vault/upload/bucket_flagged.dart';
 import 'package:photos_vault/viewer/flagged_items_screen.dart';
 
@@ -59,7 +60,7 @@ void main() {
       );
     }
 
-    await add('big', status: UploadStatus.uploaded);
+    await add('big', status: UploadStatus.uploaded, width: 6000, height: 4000);
     await add('small', status: UploadStatus.uploaded);
     await add('unsent', status: UploadStatus.pending);
     return store;
@@ -128,43 +129,82 @@ void main() {
     return deleted;
   }
 
-  testWidgets('a chip per problem, a button per solution', (tester) async {
+  Finder action(String solution) =>
+      find.byKey(ValueKey('flagged-action-$solution'));
+
+  testWidgets('actions, not files: each says what it does, to how many', (
+    tester,
+  ) async {
     await open(tester, await seeded());
 
-    expect(find.text('3 items to fix'), findsOneWidget);
-    expect(find.text('Frees up to 60.0 MB on this phone'), findsOneWidget);
-    expect(find.text('All 3'), findsOneWidget);
-    expect(find.text('On device 2'), findsOneWidget);
-    expect(find.text('Large file 2'), findsOneWidget);
-    expect(find.text('Remove from Device · 2'), findsOneWidget);
-    expect(find.text('Back Up First · 1'), findsOneWidget);
-  });
-
-  testWidgets('a chip narrows the solutions to that problem', (tester) async {
-    await open(tester, await seeded());
-
-    await tester.tap(find.text('Large file 2'));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Remove from Device · 1'), findsOneWidget);
-    expect(find.text('Back Up First · 1'), findsOneWidget);
-  });
-
-  testWidgets('fixing a batch drains it from the list', (tester) async {
-    final deleted = await open(tester, await seeded());
-
-    await tester.tap(find.text('Remove from Device · 2'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Remove from Device').last);
-    await tester.pump();
-    await tester.runAsync(
-      () => Future<void>.delayed(const Duration(milliseconds: 200)),
-    );
-    await tester.pumpAndSettle(const Duration(milliseconds: 100));
-
-    expect(deleted, unorderedEquals(['lib-big', 'lib-small']));
     expect(find.text('1 item to fix'), findsOneWidget);
-    expect(find.text('Done'), findsOneWidget);
-    expect(find.textContaining('Remove from Device'), findsNothing);
+    expect(find.text('ON THIS IPHONE'), findsOneWidget);
+    expect(action('optimize'), findsOneWidget);
+    // Not backed up yet is the backup queue's business, not an action here.
+    expect(action('backUp'), findsNothing);
+    // Nothing here ever deletes a local copy, and a fine photo isn't listed.
+    expect(action('removeFromDevice'), findsNothing);
+    expect(find.text('big.heic'), findsNothing, reason: 'files are a tap in');
+  });
+
+  testWidgets('an action opens onto its items, all selected, with one '
+      'button for them', (tester) async {
+    await open(tester, await seeded());
+
+    await tester.tap(action('optimize'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('big.heic'), findsOneWidget);
+    expect(find.text('Optimize Space · 1'), findsOneWidget);
+    expect(find.text('Deselect All'), findsOneWidget);
+  });
+
+  testWidgets('unticking leaves an item out of the run', (tester) async {
+    await open(tester, await seeded());
+
+    await tester.tap(action('optimize'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('big.heic'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Optimize Space · 0'), findsOneWidget);
+    expect(find.text('Select All'), findsOneWidget);
+  });
+
+  testWidgets('Hide from List takes a photo off the list for good', (
+    tester,
+  ) async {
+    final store = await seeded();
+    await open(tester, store);
+
+    await tester.tap(action('optimize'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('flagged-hide')));
+    await tester.pumpAndSettle(const Duration(milliseconds: 400));
+
+    expect(action('optimize'), findsNothing);
+    expect(await store.getAppState('flag_kept_v1'), contains('asset:big'));
+  });
+
+  testWidgets('a bucket action stays open on its files', (tester) async {
+    final store = await seeded();
+    await store.replaceBucketObjects('t', [
+      BucketObject(
+        targetId: 't',
+        key: 'photos-vault/originals/IMG_0042.PNG',
+        size: 10,
+        lastModified: DateTime(2025),
+      ),
+    ]);
+    await open(tester, store);
+
+    await tester.tap(action('rename'));
+    await tester.pumpAndSettle();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 100)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('IMG_0042.PNG'), findsOneWidget);
   });
 }

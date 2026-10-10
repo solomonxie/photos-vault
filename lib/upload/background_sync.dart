@@ -163,10 +163,7 @@ class BackgroundSync {
     await reload();
     final reason = backgroundSkipReason(
       demo: DemoFlag.active,
-      frequency: await _try<SyncFrequency>(
-        targets.getSyncFrequency,
-        SyncFrequency.manual,
-      ),
+      frequency: autoSyncFrequency,
       hasTarget: await engine.hasBackupTarget(),
       lastSyncAt: await _try<DateTime?>(targets.getLastSyncAt, null),
       foregroundAt: await heartbeat.last(),

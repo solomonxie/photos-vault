@@ -1,6 +1,7 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/photos/storage_advice.dart';
 import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/storage/bucket_object.dart';
 
 import '../support/fake_asset_record_store.dart';
 
@@ -48,7 +49,6 @@ void main() {
       )!;
 
       expect(item.issues, contains(StorageIssue.largeFile));
-      expect(item.issues, isNot(contains(StorageIssue.onDevice)));
       expect(item.fix, StorageFix.backUpFirst);
       expect(item.estimatedSaving, 0);
     });
@@ -61,30 +61,29 @@ void main() {
       );
     });
 
-    test('a backed-up photo still on the device is offered a removal', () {
-      final item = advise(record(), bytes: 5 * 1024 * 1024)!;
-
-      expect(item.issues, {StorageIssue.onDevice});
-      expect(item.fix, StorageFix.removeFromDevice);
-      expect(item.estimatedSaving, 5 * 1024 * 1024);
+    test('a photo with nothing wrong is never listed, backed up or not', () {
+      // What to keep on the phone is the person's call, not this page's.
+      expect(advise(record(width: 4032, height: 3024), bytes: 3000000), isNull);
+      expect(advise(record(), bytes: 5 * 1024 * 1024), isNull);
     });
 
-    test('a backed-up video is removable now it has a poster frame', () {
+    test('a big backed-up video is compressed, never removed', () {
       final item = advise(
         record(isVideo: true, libraryId: 'lib-1'),
         bytes: 900 * 1024 * 1024,
       )!;
 
-      expect(item.issues, contains(StorageIssue.onDevice));
-      expect(item.issues, contains(StorageIssue.largeFile));
-      expect(item.fix, StorageFix.removeFromDevice);
-      expect(item.estimatedSaving, 900 * 1024 * 1024);
+      expect(item.issues, {StorageIssue.largeFile});
+      expect(item.fixes, [StorageFix.optimize, StorageFix.optimizeRemote]);
     });
 
-    test('an imported video with no frame to draw is left out of it', () {
+    test('an imported video with no frame to draw can only be compressed', () {
       // Nothing in the photo library to take a poster frame from, and no
       // frame extractor of our own — removing it would blank the tile.
-      expect(advise(record(isVideo: true), bytes: 900 * 1024 * 1024), isNull);
+      expect(advise(record(isVideo: true), bytes: 900 * 1024 * 1024)!.fixes, [
+        StorageFix.optimize,
+        StorageFix.optimizeRemote,
+      ]);
     });
 
     test('an un-backed-up video is still offered a backup', () {
@@ -105,12 +104,11 @@ void main() {
       )!;
 
       expect(item.issues, {
-        StorageIssue.onDevice,
         StorageIssue.largeFile,
         StorageIssue.highResolution,
         StorageIssue.optimizableFormat,
       });
-      expect(item.fix, StorageFix.reduceResolution);
+      expect(item.fix, StorageFix.optimize);
       // 6000 px down to 2560 keeps (2560/6000)² of the pixels.
       expect(item.estimatedSaving, greaterThan(30 * 1024 * 1024));
       expect(item.estimatedSaving, lessThan(40 * 1024 * 1024));
@@ -125,12 +123,10 @@ void main() {
       )!;
 
       expect(item.issues, contains(StorageIssue.optimizableFormat));
-      expect(item.fix, StorageFix.convertFormat);
+      expect(item.fix, StorageFix.optimize);
     });
 
-    test('a camera-roll photo says why it is big but is only removable', () {
-      // PhotoKit owns the file, so the tags explain the size and the
-      // honest fix is still a removal.
+    test('a camera-roll photo is shrunk in Photos', () {
       final item = advise(
         record(width: 8064, height: 6048),
         bytes: 60 * 1024 * 1024,
@@ -139,7 +135,19 @@ void main() {
 
       expect(item.issues, contains(StorageIssue.highResolution));
       expect(item.issues, contains(StorageIssue.optimizableFormat));
-      expect(item.fix, StorageFix.removeFromDevice);
+      expect(item.fixes, [StorageFix.optimize, StorageFix.optimizeRemote]);
+    });
+
+    test('once the bucket copy is smaller, only the phone is offered', () {
+      final item = adviseOn(
+        record: record(width: 6000, height: 4000),
+        bytes: 30 * 1024 * 1024,
+        name: 'IMG_1.heic',
+        appOwned: false,
+        remoteOptimized: true,
+      )!;
+
+      expect(item.fixes, [StorageFix.optimize]);
     });
 
     test('a not-yet-backed-up file is never rewritten either', () {
@@ -158,24 +166,15 @@ void main() {
       bool large(StorageItem? item) =>
           item?.issues.contains(StorageIssue.largeFile) ?? false;
 
-      expect(large(advise(record(), bytes: largePhotoBytes)), isTrue);
-      expect(large(advise(record(), bytes: largePhotoBytes - 1)), isFalse);
+      final big = record(width: 6000, height: 4000);
+      expect(large(advise(big, bytes: largePhotoBytes)), isTrue);
+      expect(large(advise(big, bytes: largePhotoBytes - 1)), isFalse);
       final video = record(isVideo: true, original: UploadStatus.pending);
       expect(large(advise(video, bytes: largeVideoBytes)), isTrue);
       expect(large(advise(video, bytes: largeVideoBytes - 1)), isFalse);
       // A 50 MB video is unremarkable; a 50 MB photo is not.
-      expect(large(advise(record(), bytes: 50 * 1024 * 1024)), isTrue);
+      expect(large(advise(big, bytes: 50 * 1024 * 1024)), isTrue);
     });
-
-    test(
-      'small backed-up files below every threshold still list a removal',
-      () {
-        final item = advise(record(), bytes: 900)!;
-
-        expect(item.issues, isNot(contains(StorageIssue.largeFile)));
-        expect(item.fix, StorageFix.removeFromDevice);
-      },
-    );
 
     test('cloud-only, binned and hidden assets are never listed', () {
       expect(advise(record(localDeleted: true)), isNull);
@@ -193,6 +192,8 @@ void main() {
           localId: 'photo:$i',
           contentHash: '$i',
           platform: 'ios',
+          width: 6000,
+          height: 4000,
           createdAt: DateTime(2026, 1, i + 1),
         );
         await store.updateDerivative(
@@ -258,6 +259,8 @@ void main() {
         localId: 'photo:0',
         contentHash: '0',
         platform: 'ios',
+        width: 6000,
+        height: 4000,
         createdAt: DateTime(2026),
       );
       await store.updateDerivative(
@@ -295,6 +298,8 @@ void main() {
           localId: 'photo:0',
           contentHash: '0',
           platform: 'ios',
+          width: 6000,
+          height: 4000,
         );
         await store.updateDerivative(
           'photo:0',
@@ -321,7 +326,13 @@ void main() {
 
     test('a cached item hidden since is dropped from the read-back', () async {
       final store = FakeAssetRecordStore();
-      await store.upsert(localId: 'photo:0', contentHash: '0', platform: 'ios');
+      await store.upsert(
+        localId: 'photo:0',
+        contentHash: '0',
+        platform: 'ios',
+        width: 6000,
+        height: 4000,
+      );
       await store.updateDerivative(
         'photo:0',
         DerivativeKind.original,
@@ -350,6 +361,8 @@ void main() {
           localId: 'photo:$i',
           contentHash: '$i',
           platform: 'ios',
+          width: 6000,
+          height: 4000,
           createdAt: DateTime(2026, 1, i + 1),
         );
         await store.updateDerivative(
@@ -388,7 +401,13 @@ void main() {
 
     test('a finished pass measures nothing until asked to restart', () async {
       final store = FakeAssetRecordStore();
-      await store.upsert(localId: 'photo:0', contentHash: '0', platform: 'ios');
+      await store.upsert(
+        localId: 'photo:0',
+        contentHash: '0',
+        platform: 'ios',
+        width: 6000,
+        height: 4000,
+      );
       await store.updateDerivative(
         'photo:0',
         DerivativeKind.original,
@@ -418,7 +437,13 @@ void main() {
     test('a photo added since is picked up without a restart', () async {
       final store = FakeAssetRecordStore();
       Future<void> add(String id) async {
-        await store.upsert(localId: id, contentHash: id, platform: 'ios');
+        await store.upsert(
+          localId: id,
+          contentHash: id,
+          platform: 'ios',
+          width: 6000,
+          height: 4000,
+        );
         await store.updateDerivative(
           id,
           DerivativeKind.original,
@@ -452,7 +477,13 @@ void main() {
     test('remeasure only re-reads the assets a fix touched', () async {
       final store = FakeAssetRecordStore();
       for (final id in ['a', 'b']) {
-        await store.upsert(localId: id, contentHash: id, platform: 'ios');
+        await store.upsert(
+          localId: id,
+          contentHash: id,
+          platform: 'ios',
+          width: 6000,
+          height: 4000,
+        );
         await store.updateDerivative(
           id,
           DerivativeKind.original,
@@ -483,7 +514,13 @@ void main() {
 
     test('reports progress against the number of candidates', () async {
       final store = FakeAssetRecordStore();
-      await store.upsert(localId: 'photo:0', contentHash: '0', platform: 'ios');
+      await store.upsert(
+        localId: 'photo:0',
+        contentHash: '0',
+        platform: 'ios',
+        width: 6000,
+        height: 4000,
+      );
       final reports = <(int, int)>[];
 
       await StorageAdvisor(
@@ -501,5 +538,64 @@ void main() {
     expect(formatBytes(1536), '1.5 KB');
     expect(formatBytes(20 * 1024 * 1024), '20.0 MB');
     expect(formatBytes(3 * 1024 * 1024 * 1024), '3.0 GB');
+  });
+
+  test(
+    'exact copies are found by their backup hash; a favourite is kept',
+    () async {
+      final store = FakeAssetRecordStore();
+      for (final id in ['a', 'b', 'c']) {
+        await store.upsert(localId: id, contentHash: id, platform: 'ios');
+        await store.updateDerivative(
+          id,
+          DerivativeKind.original,
+          DerivativeState(
+            status: UploadStatus.uploaded,
+            backedUpHash: id == 'c' ? 'other' : 'same',
+          ),
+        );
+      }
+      await store.setFavorite('b', true);
+
+      final copies = await StorageAdvisor(store: store).duplicates();
+
+      expect(copies.map((i) => i.record.localId), ['a']);
+      expect(copies.single.fix, StorageFix.removeDuplicate);
+      expect(copies.single.duplicateOf, 'b');
+    },
+  );
+
+  test('a cloud-only photo is offered a smaller bucket copy, sized from the '
+      'listing', () async {
+    final store = FakeAssetRecordStore();
+    await store.upsert(
+      localId: 'gone',
+      contentHash: 'g',
+      platform: 'ios',
+      width: 8000,
+      height: 6000,
+    );
+    await store.updateDerivative(
+      'gone',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'p/originals/x.heic',
+      ),
+    );
+    await store.setLocalDeleted('gone', true);
+    await store.replaceBucketObjects('t', [
+      BucketObject(
+        targetId: 't',
+        key: 'p/originals/x.heic',
+        size: 30 * 1024 * 1024,
+        lastModified: DateTime(2026),
+      ),
+    ]);
+
+    final items = await StorageAdvisor(store: store).cloudOnly();
+
+    expect(items.single.fixes, [StorageFix.optimizeRemote]);
+    expect(items.single.bytes, 30 * 1024 * 1024);
   });
 }

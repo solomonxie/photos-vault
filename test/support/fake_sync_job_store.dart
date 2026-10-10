@@ -88,6 +88,12 @@ class FakeSyncJobStore implements SyncJobStore {
   Future<void> clearQueue() async => _jobs.clear();
 
   @override
+  Future<void> forget(Iterable<String> localIds) async {
+    final ids = localIds.toSet();
+    _jobs.removeWhere((j) => ids.contains(j.localId));
+  }
+
+  @override
   Future<void> clearSynced() async =>
       _jobs.removeWhere((j) => j.status == SyncJobStatus.done);
 

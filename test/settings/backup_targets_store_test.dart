@@ -97,22 +97,14 @@ void main() {
     expect(await store.getBackupFormat(), BackupFormat.original);
   });
 
-  test(
-    'sync frequency defaults to manual, and lastSyncAt defaults to null',
-    () async {
-      final store = BackupTargetsStore(store: FakeSecureStore());
+  test('lastSyncAt defaults to null and is kept', () async {
+    final store = BackupTargetsStore(store: FakeSecureStore());
+    expect(await store.getLastSyncAt(), isNull);
 
-      expect(await store.getSyncFrequency(), SyncFrequency.manual);
-      expect(await store.getLastSyncAt(), isNull);
-
-      await store.setSyncFrequency(SyncFrequency.everyHour);
-      final now = DateTime(2026, 1, 1, 12);
-      await store.setLastSyncAt(now);
-
-      expect(await store.getSyncFrequency(), SyncFrequency.everyHour);
-      expect(await store.getLastSyncAt(), now);
-    },
-  );
+    final now = DateTime(2026, 1, 1, 12);
+    await store.setLastSyncAt(now);
+    expect(await store.getLastSyncAt(), now);
+  });
 
   group('isSyncDue', () {
     final now = DateTime(2026, 1, 1, 12);

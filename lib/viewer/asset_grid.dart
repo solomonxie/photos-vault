@@ -228,12 +228,23 @@ Widget assetImage(
   }
   final libraryId = PhotoLibraryService.libraryIdOf(record);
   if (record.sourceType == AssetSourceType.photoManager && libraryId != null) {
+    // The thumbnail this app keeps on disk stands in while Photos renders
+    // its own: a cold start draws pictures at once instead of a grid of
+    // grey squares, and the sharper one replaces it when it lands.
+    final saved = record.thumbnailPath;
     return PhotoManagerThumbnail(
       assetId: libraryId,
       fit: fit,
       size: thumbnailSize,
       fitted: fittedThumbnail,
-      placeholder: placeholder,
+      placeholder: saved == null || fittedThumbnail
+          ? placeholder
+          : () => Image.file(
+              File(saved),
+              fit: fit,
+              cacheWidth: thumbnailSize,
+              errorBuilder: (context, error, stackTrace) => placeholder(),
+            ),
       onMissing: onMissing,
     );
   }
@@ -859,12 +870,25 @@ Future<Uint8List?> photoManagerThumbnailBytes(
   final cached = _thumbnailBytes.remove(key);
   if (cached != null) return _thumbnailBytes[key] = cached;
   try {
-    final entity = await AssetEntity.fromId(assetId);
-    final bytes = size == null
-        ? await entity?.thumbnailData
-        : await entity?.thumbnailDataWithOption(
-            thumbnailOption(size, fitted: fitted),
-          );
+    // Asked by id alone first: a thumbnail needs nothing else, and the
+    // lookup that builds a full entity was a second round trip per tile.
+    Uint8List? bytes;
+    if (size != null) {
+      bytes = await AssetEntity(
+        id: assetId,
+        typeInt: 1,
+        width: 0,
+        height: 0,
+      ).thumbnailDataWithOption(thumbnailOption(size, fitted: fitted));
+    }
+    if (bytes == null) {
+      final entity = await AssetEntity.fromId(assetId);
+      bytes = size == null
+          ? await entity?.thumbnailData
+          : await entity?.thumbnailDataWithOption(
+              thumbnailOption(size, fitted: fitted),
+            );
+    }
     if (bytes != null) {
       _remember(key, bytes);
       if (fitted) _rememberFitted(assetId, size!, bytes);

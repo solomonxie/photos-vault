@@ -245,6 +245,19 @@ class SyncJobStore {
     await db.delete(_table);
   }
 
+  /// Drops every row for [localIds], whatever its state.
+  Future<void> forget(Iterable<String> localIds) async {
+    final ids = localIds.toList();
+    if (ids.isEmpty) return;
+    final db = await _open();
+    final placeholders = List.filled(ids.length, '?').join(', ');
+    await db.delete(
+      _table,
+      where: 'local_id IN ($placeholders)',
+      whereArgs: ids,
+    );
+  }
+
   /// Clears the finished-successfully rows so the list stops growing,
   /// leaving anything still pending/running/failed visible.
   Future<void> clearSynced() async {

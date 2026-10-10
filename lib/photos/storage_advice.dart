@@ -7,7 +7,6 @@ import 'package:photo_manager/photo_manager.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'photo_library_service.dart';
-import 'thumbnail_cache.dart';
 
 /// What's costing space on one asset. An asset can carry several — a 40 MB
 /// 6000-px PNG carries three.
@@ -17,17 +16,27 @@ import 'thumbnail_cache.dart';
 /// listed every un-uploaded photo would be a second, worse copy of it. It
 /// only shows up here as [StorageFix.backUpFirst] — the gate in front of a
 /// real fix, on a photo that has a real problem.
-enum StorageIssue { onDevice, largeFile, highResolution, optimizableFormat }
+enum StorageIssue {
+  onDevice,
+  largeFile,
+  highResolution,
+  optimizableFormat,
 
-/// The one thing offered about an asset. Only ever something this app can
-/// actually do: a backed-up video is listed nowhere here, because removing
-/// it would leave the grid with nothing to draw (no video thumbnail
-/// pipeline yet, T2.3) and there's no video re-encoder either.
+  /// The same file, byte for byte, as another photo in the library.
+  duplicate,
+}
+
+/// What can be done about an asset — several at once, gentlest first. Only
+/// ever something this app can actually do.
 enum StorageFix {
   backUpFirst,
+  optimize,
+
+  /// The bucket's copy only: a smaller one takes its place there, and the
+  /// phone keeps its own.
+  optimizeRemote,
   removeFromDevice,
-  reduceResolution,
-  convertFormat,
+  removeDuplicate,
 }
 
 /// Past this, a single file is worth calling out whatever else is true
@@ -39,11 +48,15 @@ const largeVideoBytes = 100 * 1024 * 1024;
 int largeFileThreshold({required bool isVideo}) =>
     isVideo ? largeVideoBytes : largePhotoBytes;
 
-/// More pixels than a phone screen can ever show, and more than the
-/// bucket needs to keep a usable local copy.
-const highResolutionEdge = 4000;
+/// Past an ordinary iPhone photo (12 MP is 4032 px): 24 and 48 MP shots,
+/// panoramas, scans. Flagging every normal photo as a problem made the
+/// count meaningless.
+const highResolutionEdge = 4100;
 
-/// What [StorageFix.reduceResolution] shrinks to — still sharp full-screen
+/// What [StorageFix.optimize] makes of a video: 1080p HEVC.
+const compressedVideoEdge = 1920;
+
+/// What [StorageFix.optimize] shrinks a photo to — still sharp full-screen
 /// on a 3x display, a fraction of the bytes.
 const optimizedMaxEdge = 2560;
 
@@ -54,14 +67,19 @@ const _optimizableFormats = {'.png', '.bmp', '.tif', '.tiff'};
 
 /// One asset with something to fix about it.
 class StorageItem {
-  const StorageItem({
+  StorageItem({
     required this.record,
     required this.bytes,
     required this.name,
     required this.appOwned,
     required this.issues,
-    required this.fix,
-  });
+    required this.fixes,
+    StorageFix? fix,
+    this.duplicateOf,
+  }) : fix = fix ?? fixes.first;
+
+  /// For a [StorageIssue.duplicate]: the name of the copy that is kept.
+  final String? duplicateOf;
 
   final AssetRecord record;
 
@@ -76,16 +94,32 @@ class StorageItem {
   final bool appOwned;
 
   final Set<StorageIssue> issues;
+
+  /// Every fix on offer, gentlest first.
+  final List<StorageFix> fixes;
+
+  /// The one a run carries out — the first unless one was picked.
   final StorageFix fix;
+
+  StorageItem withFix(StorageFix chosen) => StorageItem(
+    record: record,
+    bytes: bytes,
+    name: name,
+    appOwned: appOwned,
+    issues: issues,
+    fixes: fixes,
+    fix: chosen,
+    duplicateOf: duplicateOf,
+  );
 
   /// Exact for a removal, a guess for the two re-encodes — nothing knows
   /// what the encoder will produce until it has run. Every total built on
   /// this is shown as "about".
   int get estimatedSaving => switch (fix) {
     StorageFix.backUpFirst => 0,
-    StorageFix.removeFromDevice => bytes,
-    StorageFix.convertFormat => (bytes * 0.5).round(),
-    StorageFix.reduceResolution => _resizedSaving,
+    StorageFix.removeFromDevice || StorageFix.removeDuplicate => bytes,
+    StorageFix.optimize || StorageFix.optimizeRemote =>
+      record.isVideo ? (bytes * 0.6).round() : _resizedSaving,
   };
 
   int get _resizedSaving {
@@ -109,6 +143,7 @@ StorageItem? adviseOn({
   required int bytes,
   required String name,
   required bool appOwned,
+  bool remoteOptimized = false,
 }) {
   if (!worthMeasuring(record)) return null;
 
@@ -118,15 +153,9 @@ StorageItem? adviseOn({
   final still = !record.isVideo;
   final issues = <StorageIssue>{};
 
-  // Facts about the file, whatever can or can't be done about them — the
-  // tags are there to explain the size, not only to justify the button.
-  //
-  // Videos count now that they get a poster frame out of the photo
-  // library: the grid has something to draw once the movie itself is
-  // gone, which is the only thing that ever ruled them out.
-  if (backedUp && ThumbnailCache.canThumbnail(record)) {
-    issues.add(StorageIssue.onDevice);
-  }
+  // Only something actually wrong with the file. Being on the phone and
+  // in the bucket is not: what to keep locally is the person's call, and
+  // this page never offers to delete a local copy.
   if (bytes >= largeFileThreshold(isVideo: record.isVideo)) {
     issues.add(StorageIssue.largeFile);
   }
@@ -140,41 +169,61 @@ StorageItem? adviseOn({
     }
   }
 
-  final fix = _fixFor(issues, backedUp: backedUp, appOwned: appOwned);
-  if (fix == null) return null;
+  final fixes = _fixesFor(
+    record,
+    issues,
+    name: name,
+    bytes: bytes,
+    backedUp: backedUp,
+    appOwned: appOwned,
+    remoteOptimized: remoteOptimized,
+  );
+  if (fixes.isEmpty) return null;
   return StorageItem(
     record: record,
     bytes: bytes,
     name: name,
     appOwned: appOwned,
     issues: issues,
-    fix: fix,
+    fixes: fixes,
   );
 }
 
-/// Gentlest first: shrink it in place if this app owns the file, and only
-/// remove the local copy when there's nothing smaller to make of it.
+/// A smaller copy on the phone (which the next sync also sends to the
+/// bucket), or in the bucket only. Both wait on the bucket holding the
+/// original — hence the one gate in front:
+/// back it up first, and the real fixes are here on the next pass.
 ///
-/// Everything here either replaces the local copy or deletes it, so all of
-/// it waits on the bucket holding the original — hence the one gate in
-/// front: back it up first, and the real fix is here on the next pass.
-StorageFix? _fixFor(
+/// A camera-roll photo is shrunk too: the smaller copy goes back into
+/// Photos in its place (`StorageOptimizer`).
+List<StorageFix> _fixesFor(
+  AssetRecord record,
   Set<StorageIssue> issues, {
+  required String name,
+  required int bytes,
   required bool backedUp,
   required bool appOwned,
+  bool remoteOptimized = false,
 }) {
-  if (issues.isEmpty) return null;
-  if (!backedUp) return StorageFix.backUpFirst;
-  if (appOwned && issues.contains(StorageIssue.highResolution)) {
-    return StorageFix.reduceResolution;
-  }
-  if (appOwned && issues.contains(StorageIssue.optimizableFormat)) {
-    return StorageFix.convertFormat;
-  }
-  if (issues.contains(StorageIssue.onDevice)) {
-    return StorageFix.removeFromDevice;
-  }
-  return null;
+  if (issues.isEmpty) return const [];
+  if (!backedUp) return const [StorageFix.backUpFirst];
+  final edge = longestEdgeOf(record);
+  final ext = p.extension(name).toLowerCase();
+  // One test for every re-encode: a smaller photo, a 1080p video, or a
+  // bulky format made compact.
+  final shrinkable =
+      !record.localOptimized &&
+      (record.isVideo
+          ? (edge != null && edge > compressedVideoEdge) ||
+                bytes >= largeVideoBytes
+          : (edge != null &&
+                    edge > optimizedMaxEdge &&
+                    (appOwned || ext != '.gif')) ||
+                (appOwned && issues.contains(StorageIssue.optimizableFormat)));
+  return [
+    if (shrinkable) StorageFix.optimize,
+    if (shrinkable && !remoteOptimized) StorageFix.optimizeRemote,
+  ];
 }
 
 /// Already cloud-only, binned, or behind a passcode — none of which has a
@@ -259,6 +308,122 @@ class StorageAdvisor {
 
   static const _reportEvery = 50;
   static const _cacheKey = 'storage_scan_v1';
+  static const _remoteKey = 'remote_optimized_v1';
+
+  /// Photos whose bucket copy has already been made smaller.
+  Set<String> _remoteDone = {};
+
+  Future<void> _loadRemoteDone() async {
+    try {
+      final raw = await store.getAppState(_remoteKey);
+      _remoteDone = raw == null
+          ? {}
+          : {...(jsonDecode(raw) as List).cast<String>()};
+    } catch (_) {
+      _remoteDone = {};
+    }
+  }
+
+  Future<void> markRemoteOptimized(String localId) async {
+    await _loadRemoteDone();
+    _remoteDone.add(localId);
+    await store.setAppState(_remoteKey, jsonEncode([..._remoteDone]));
+  }
+
+  /// Photos that are the same file, byte for byte, as another in the
+  /// library — by the hash taken when each was backed up, so only exact
+  /// copies, never look-alikes. One per group is kept: a favourite, else
+  /// the first added. Locked and hidden photos are never offered.
+  Future<List<StorageItem>> duplicates() async {
+    final groups = <String, List<AssetRecord>>{};
+    for (final r in await store.listAll()) {
+      if (r.isDeleted || r.isLocked || r.passcodeHash != null) continue;
+      final hash = r.stateOf(DerivativeKind.original).backedUpHash;
+      if (hash == null) continue;
+      (groups[hash] ??= []).add(r);
+    }
+    final sizes = {
+      for (final item in (await cached()).items) item.record.localId: item,
+    };
+    final out = <StorageItem>[];
+    for (final group in groups.values) {
+      if (group.length < 2) continue;
+      group.sort((a, b) {
+        if (a.isFavorite != b.isFavorite) return a.isFavorite ? -1 : 1;
+        return a.addedAt.compareTo(b.addedAt);
+      });
+      final kept = group.first;
+      final keptName = sizes[kept.localId]?.name ?? _recordName(kept);
+      for (final r in group.skip(1)) {
+        final known = sizes[r.localId];
+        out.add(
+          StorageItem(
+            record: r,
+            bytes: known?.bytes ?? 0,
+            name: known?.name ?? _recordName(r),
+            appOwned: r.sourcePath != null,
+            issues: const {StorageIssue.duplicate},
+            fixes: const [StorageFix.removeDuplicate],
+            duplicateOf: keptName,
+          ),
+        );
+      }
+    }
+    return out;
+  }
+
+  /// Photos with no copy on this phone whose bucket copy could be smaller:
+  /// sized from the bucket listing, since there's nothing here to measure.
+  /// Only ever offered Optimize in the bucket.
+  Future<List<StorageItem>> cloudOnly() async {
+    await _loadRemoteDone();
+    final sizes = {
+      for (final o in await store.listBucketObjects()) o.key: o.size,
+    };
+    final out = <StorageItem>[];
+    for (final r in await store.listAll()) {
+      if (!r.localDeleted ||
+          r.isDeleted ||
+          r.isHidden ||
+          r.isLocked ||
+          r.passcodeHash != null ||
+          !r.isFullyBackedUp ||
+          _remoteDone.contains(r.localId)) {
+        continue;
+      }
+      final key = r.stateOf(DerivativeKind.original).destinationKey;
+      final bytes = key == null ? null : sizes[key];
+      if (key == null || bytes == null) continue;
+      final edge = longestEdgeOf(r);
+      final issues = {
+        if (bytes >= largeFileThreshold(isVideo: r.isVideo))
+          StorageIssue.largeFile,
+        if (!r.isVideo && edge != null && edge > highResolutionEdge)
+          StorageIssue.highResolution,
+      };
+      final shrinkable = r.isVideo
+          ? (edge != null && edge > compressedVideoEdge) ||
+                bytes >= largeVideoBytes
+          : edge != null &&
+                edge > optimizedMaxEdge &&
+                p.extension(key).toLowerCase() != '.gif';
+      if (issues.isEmpty || !shrinkable) continue;
+      out.add(
+        StorageItem(
+          record: r,
+          bytes: bytes,
+          name: p.basename(key),
+          appOwned: false,
+          issues: issues,
+          fixes: const [StorageFix.optimizeRemote],
+        ),
+      );
+    }
+    return out;
+  }
+
+  static String _recordName(AssetRecord r) =>
+      r.sourcePath != null ? p.basename(r.sourcePath!) : r.localId;
 
   /// What the last scan found, or an empty never-scanned result.
   ///
@@ -267,6 +432,7 @@ class StorageAdvisor {
   /// the current record, because those answers are free and a stale one
   /// would offer a fix for something already fixed.
   Future<StorageScan> cached() async {
+    await _loadRemoteDone();
     final raw = await store.getAppState(_cacheKey);
     if (raw == null) return const StorageScan();
     try {
@@ -284,6 +450,7 @@ class StorageAdvisor {
           bytes: row['bytes'] as int,
           name: row['name'] as String,
           appOwned: row['appOwned'] as bool,
+          remoteOptimized: _remoteDone.contains(record.localId),
         );
         if (item != null) items.add(item);
       }
@@ -321,6 +488,7 @@ class StorageAdvisor {
     int? limit,
     void Function(List<StorageItem> found, int done, int total)? onProgress,
   }) async {
+    await _loadRemoteDone();
     final previous = restart ? const StorageScan() : await cached();
     final candidates = (await store.listAll()).where(worthMeasuring).toList();
     final measured = {...previous.measured};
@@ -353,6 +521,7 @@ class StorageAdvisor {
           bytes: measure.bytes,
           name: measure.name,
           appOwned: measure.appOwned,
+          remoteOptimized: _remoteDone.contains(record.localId),
         );
         if (item != null) found.add(item);
       }
@@ -368,7 +537,8 @@ class StorageAdvisor {
             complete: done >= total,
           ),
         );
-        onProgress?.call(scan.items, done, total);
+        // This pass's own progress: only what wasn't measured before.
+        onProgress?.call(scan.items, i + 1, take);
       }
     }
     return scan;
@@ -385,6 +555,7 @@ class StorageAdvisor {
   /// back. Walking the whole library again to find out what one removal
   /// did would be the entire scan over.
   Future<StorageScan> remeasure(StorageScan scan, Set<String> localIds) async {
+    await _loadRemoteDone();
     final records = {
       for (final record in await store.listAll()) record.localId: record,
     };
@@ -405,6 +576,7 @@ class StorageAdvisor {
         bytes: measure.bytes,
         name: measure.name,
         appOwned: measure.appOwned,
+        remoteOptimized: _remoteDone.contains(record.localId),
       );
       if (again != null) items.add(again);
     }

@@ -89,7 +89,10 @@ Future<S3ListingResult> listBucket({
       credentialScope: scope,
       serviceConfiguration: S3ServiceConfiguration(),
     );
-    final response = await http.get(signed.uri, headers: signed.headers);
+    // A stalled page would otherwise hold every listing behind it forever.
+    final response = await http
+        .get(signed.uri, headers: signed.headers)
+        .timeout(const Duration(seconds: 30));
     // Not `response.body`: S3's XML is always UTF-8 (its `<?xml ... encoding="UTF-8"?>`
     // declaration says so) but the response's Content-Type header omits a
     // `charset` param, so `http`'s own charset-sniffing falls back to
