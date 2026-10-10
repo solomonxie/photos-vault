@@ -37,6 +37,7 @@ import 'select_all.dart';
 import 'select_sweep.dart';
 import 'private_album_gate.dart';
 import 'zoom_page_route.dart';
+import '../vault/hidden_backup.dart';
 
 /// Contents of a private "album" — every [AssetRecord] currently tagged
 /// with [passcodeHash]. There's no separate album entity to load: this
@@ -77,10 +78,10 @@ class PrivateAlbumScreen extends StatefulWidget {
   final AlbumKeys? albumKeys;
   final VaultKeys? vaultKeys;
 
-  /// Backs up one hidden photo — an encrypted copy to every bucket, the
-  /// photo itself untouched. Set by the library screen, which owns the
-  /// upload machinery; null where there is none (tests).
-  static Future<void> Function(AssetRecord record)? backUpHidden;
+  /// Backs up hidden photos — encrypted copies to every bucket, the photos
+  /// themselves untouched. Set by the library screen, which owns the upload
+  /// machinery; null where there is none (tests).
+  static HiddenBackup? hiddenBackup;
 
   @override
   State<PrivateAlbumScreen> createState() => _PrivateAlbumScreenState();
@@ -91,6 +92,10 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
   late final LibraryCustody _custody =
       widget.custody ?? LibraryCustody(store: widget.assetRecordStore);
   List<AssetRecord> _records = const [];
+
+  /// Until the first read lands, "empty" would be a claim about photos not
+  /// yet looked at.
+  bool _loaded = false;
   int _totalBytes = 0;
   bool _selecting = false;
   Set<String> _selectedIds = {};
@@ -102,6 +107,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     _loadFromBucket();
     _loadTarget();
     _loadNotes();
+    _watchBackup();
     _screenshotHook();
   }
 
@@ -111,7 +117,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     if (screen != 'hidden-backup' && screen != 'hidden-detail') return;
     await Future<void>.delayed(const Duration(seconds: 2));
     if (!mounted || _records.isEmpty) return;
-    if (screen == 'hidden-backup') unawaited(_backUp());
+    if (screen == 'hidden-backup') unawaited(_hiddenBackup?.run());
     if (screen == 'hidden-detail') _open(_records.first);
   }
 
@@ -289,6 +295,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
 
   @override
   void dispose() {
+    _unwatchBackup();
     _gallery?.dispose();
     super.dispose();
   }
@@ -358,6 +365,13 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       final record = await _filed.adopt(keys, widget.passcodeHash, entry);
       if (record != null) changed = true;
     }
+    if (!mounted) return;
+    if (await _filed.repairMotion(
+      keys,
+      await widget.assetRecordStore.forPasscodeHash(widget.passcodeHash),
+    )) {
+      changed = true;
+    }
     if (changed && mounted) {
       await _reload();
       await _reloadHoldings();
@@ -390,37 +404,46 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     return at == -1 ? key : key.substring(at);
   }
 
-  bool _backingUp = false;
+  HiddenBackup? get _hiddenBackup => PrivateAlbumScreen.hiddenBackup;
 
-  /// Backs the album up one photo at a time. Nothing to watch but the
-  /// underlines: yellow waiting, moving while it goes, green when it's in
-  /// every bucket. The photos themselves don't change.
-  Future<void> _backUp() async {
-    final backUp = PrivateAlbumScreen.backUpHidden;
-    if (backUp == null || _backingUp) return;
-    final l10n = AppLocalizations.of(context)!;
-    setState(() => _backingUp = true);
-    final problems = <String>[];
-    try {
-      for (final record in List.of(_records)) {
-        if (!mounted || !_backingUp) return;
-        if (record.isDeleted || record.isFullyBackedUp) continue;
-        _showUploading(record);
-        try {
-          await backUp(record);
-        } catch (e) {
-          problems.add('$e');
-        }
-        await _reload();
-      }
-    } finally {
-      if (mounted) setState(() => _backingUp = false);
+  /// Backup runs on its own, app-wide, and carries on after this screen
+  /// closes; here it is only watched. The underlines say how it's going:
+  /// yellow waiting, moving while it goes, green when it's in every bucket.
+  void _watchBackup() {
+    final backup = _hiddenBackup;
+    if (backup == null) return;
+    backup.uploading.addListener(_onUploading);
+    backup.changed.addListener(_onBackupChanged);
+    backup.problems.addListener(_onBackupChanged);
+    unawaited(backup.run());
+  }
+
+  void _unwatchBackup() {
+    final backup = _hiddenBackup;
+    if (backup == null) return;
+    backup.uploading.removeListener(_onUploading);
+    backup.changed.removeListener(_onBackupChanged);
+    backup.problems.removeListener(_onBackupChanged);
+  }
+
+  void _onUploading() {
+    final id = _hiddenBackup?.uploading.value;
+    if (!mounted || id == null) return;
+    for (final r in _records) {
+      if (r.localId == id) _showUploading(r);
     }
-    if (problems.isNotEmpty && mounted) {
-      await _showNote(
-        l10n.privateAlbumBackUpProblems(problems.length, problems.first),
-      );
-    }
+  }
+
+  void _onBackupChanged() {
+    if (mounted) unawaited(_reload());
+  }
+
+  /// This album's photos that didn't go up on the last pass, and why the
+  /// first one didn't.
+  (int, String)? get _backupProblems {
+    final problems = _hiddenBackup?.problems.value ?? const {};
+    final mine = [for (final r in _records) ?problems[r.localId]];
+    return mine.isEmpty ? null : (mine.length, mine.first);
   }
 
   /// The underline moves at once rather than after the first database write.
@@ -511,6 +534,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     final records = all.toList()
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     setState(() {
+      _loaded = true;
       _records = records;
       _rowKeys = _keysOf(records);
       // Best-effort: only sums files already resolvable on disk
@@ -753,6 +777,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
         source: source,
         bytes: bytes,
         extension: extension,
+        keepMotion: true,
         store: widget.assetRecordStore,
       ),
       replaceOriginals: (originals) {
@@ -1223,22 +1248,6 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                 style: const TextStyle(fontSize: 13),
               ),
         actions: [
-          if (PrivateAlbumScreen.backUpHidden != null && _records.isNotEmpty)
-            CupertinoActionSheetAction(
-              onPressed: () {
-                Navigator.of(sheetContext).pop();
-                if (_backingUp) {
-                  setState(() => _backingUp = false);
-                } else {
-                  _backUp();
-                }
-              },
-              child: Text(
-                _backingUp
-                    ? l10n.privateAlbumStopBackUp
-                    : l10n.privateAlbumBackUp,
-              ),
-            ),
           if (keys != null) ...[
             CupertinoActionSheetAction(
               onPressed: () {
@@ -1468,6 +1477,17 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
               color: CupertinoColors.systemGrey,
             ),
           ),
+          if (_backupProblems case (final count, final reason)) ...[
+            const SizedBox(height: 12),
+            Text(
+              l10n.privateAlbumBackUpProblems(count, reason),
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.45,
+                color: CupertinoColors.systemOrange,
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           Text(
             l10n.privateAlbumBackupRecentlyDeleted,
@@ -1567,13 +1587,16 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                       // Both grids in one number. Counting only the local
                       // records read as an empty album the moment the
                       // carriers were filed and the rows deleted.
-                      Text(
-                        '${l10n.privateAlbumItemCount(_records.length + _entriesWithoutRows.length)}'
-                        ' · ${_formatSize(_totalBytes + _localBytes)}',
-                        style: const TextStyle(
-                          color: CupertinoColors.systemGrey,
+                      if (!_loaded)
+                        const CupertinoActivityIndicator(radius: 8)
+                      else
+                        Text(
+                          '${l10n.privateAlbumItemCount(_records.length + _entriesWithoutRows.length)}'
+                          ' · ${_formatSize(_totalBytes + _localBytes)}',
+                          style: const TextStyle(
+                            color: CupertinoColors.systemGrey,
+                          ),
                         ),
-                      ),
                       // What is held in full here, which is the number the
                       // "free up space" decision is made against.
                       if (_onThisPhone.isNotEmpty)
@@ -1610,12 +1633,14 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 48),
                       child: Center(
-                        child: Text(
-                          l10n.privateAlbumEmpty,
-                          style: const TextStyle(
-                            color: CupertinoColors.systemGrey,
-                          ),
-                        ),
+                        child: !_loaded
+                            ? const CupertinoActivityIndicator()
+                            : Text(
+                                l10n.privateAlbumEmpty,
+                                style: const TextStyle(
+                                  color: CupertinoColors.systemGrey,
+                                ),
+                              ),
                       ),
                     ),
                   ),

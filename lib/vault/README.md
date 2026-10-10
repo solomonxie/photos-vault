@@ -43,14 +43,19 @@ stays on this phone, and it shows, opens, zooms and shares through the same
 grid and viewer as any other photo. Nothing about it changes when it is
 backed up.
 
-Backing up happens only from inside the open album (⋯ → Back Up,
-`SyncEngine.backUpHidden`): a carrier is built from the plain file and sent
-to every bucket; the record's status flips and its underline turns green.
+Backup is automatic (`hidden_backup.dart` → `SyncEngine.backUpHidden`): a
+carrier is built from the plain file and sent to every bucket; the record's
+status flips and its underline turns green. It runs for every album whose
+key is on hand — started on opening an album, after hiding, at launch and
+on return to the app, and it carries on after the album closes. Album keys
+sit in the keychain (`vault_ring_v1`) so a relaunch resumes without the
+code; no new exposure, since the master key beside them already opens any
+album in 10,000 guesses. The gate never reads them.
 The queue, the Cloud page and the overnight run never touch hidden photos,
 so none of them can reveal that any exist.
 
 ```text
-hide ─▶ plain file + row (the photo) ── ⋯ Back Up ─▶ CarrierBuilder ─▶ bucket
+hide ─▶ plain file + row (the photo) ── HiddenBackup ─▶ CarrierBuilder ─▶ bucket
 ```
 
 Older builds *filed* hidden photos — deleted the plain file and the row and

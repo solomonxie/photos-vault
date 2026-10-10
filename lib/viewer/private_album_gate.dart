@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
@@ -620,6 +621,9 @@ Future<bool> hideIntoPrivateAlbum(
       targetsStore: buckets,
     );
   }
+  // Their encrypted copies go up now if the album's key is on hand,
+  // otherwise when it is next opened.
+  unawaited(PrivateAlbumScreen.hiddenBackup?.run());
 
   if (context.mounted && (failed > 0 || stillInLibrary > 0)) {
     await showCupertinoDialog<void>(
