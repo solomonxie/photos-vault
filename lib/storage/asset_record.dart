@@ -236,6 +236,7 @@ class AssetRecord {
   AssetRecord _copyWith({
     Map<DerivativeKind, DerivativeState>? derivatives,
     bool? isFavorite,
+    bool? isLivePhoto,
     bool? isHidden,
     bool? isLocked,
     bool? localOptimized,
@@ -267,7 +268,7 @@ class AssetRecord {
     localDeleted: localDeleted ?? this.localDeleted,
     isVideo: isVideo,
     isGif: isGif,
-    isLivePhoto: isLivePhoto,
+    isLivePhoto: isLivePhoto ?? this.isLivePhoto,
     derivatives: derivatives ?? this.derivatives,
     isFavorite: isFavorite ?? this.isFavorite,
     isHidden: isHidden ?? this.isHidden,
@@ -291,6 +292,8 @@ class AssetRecord {
   AssetRecord withFavorite(bool value) => _copyWith(isFavorite: value);
 
   AssetRecord withHidden(bool value) => _copyWith(isHidden: value);
+
+  AssetRecord withLivePhoto(bool value) => _copyWith(isLivePhoto: value);
 
   AssetRecord withLocked(bool value) => _copyWith(isLocked: value);
 

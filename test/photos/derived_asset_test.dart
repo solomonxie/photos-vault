@@ -96,4 +96,65 @@ void main() {
 
     expect(created.passcodeHash, 'hash-1234');
   });
+
+  group('a resized Live Photo', () {
+    Future<AssetRecord> live(AssetRecordStore store) => store.upsert(
+      localId: 'manual:live',
+      contentHash: 'live',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/live.heic',
+      isLivePhoto: true,
+    );
+
+    test('takes its .mov along and still moves', () async {
+      final store = newStore();
+      final motionDir = await tempDir('derived_asset_motion_')();
+      final motion = File('${motionDir.path}/live.mov')
+        ..writeAsBytesSync([7, 7, 7]);
+
+      final created = await createDerivedAsset(
+        source: await live(store),
+        bytes: Uint8List.fromList([1]),
+        extension: '.heic',
+        store: store,
+        keepMotion: true,
+        liveVideo: (_) async => motion,
+        temporaryDirectory: tempDir('derived_asset_staged_'),
+        manualAdd: ManualAddService(
+          store: store,
+          targetDirectory: tempDir('derived_asset_owned_'),
+        ),
+      );
+
+      expect(created.isLivePhoto, isTrue);
+      expect(File('${created.sourcePath}.live.mov').readAsBytesSync(), [
+        7,
+        7,
+        7,
+      ]);
+    });
+
+    test(
+      'is refused when its .mov is not here, so nothing replaces it',
+      () async {
+        final store = newStore();
+        final owned = tempDir('derived_asset_owned_');
+        await expectLater(
+          createDerivedAsset(
+            source: await live(store),
+            bytes: Uint8List.fromList([1]),
+            extension: '.heic',
+            store: store,
+            keepMotion: true,
+            liveVideo: (_) async => null,
+            temporaryDirectory: tempDir('derived_asset_staged_'),
+            manualAdd: ManualAddService(store: store, targetDirectory: owned),
+          ),
+          throwsA(isA<FileSystemException>()),
+        );
+        expect((await owned()).listSync(), isEmpty);
+      },
+    );
+  });
 }
