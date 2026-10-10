@@ -39,15 +39,17 @@ void main() {
   late VaultStore store;
   late FiledPhotos filed;
 
-  Uint8List carrier() => buildJpegCarrier(
-    cipher: PlatformCipher(),
-    keys: keys.carrier,
-    masterSalt: keys.entry.salt,
-    decoy: decoyJpeg(),
-    thumbnail: Uint8List.fromList([1, 2, 3]),
-    original: original,
-    extension: 'jpg',
-  )!;
+  Uint8List carrier({Uint8List? bytes, String extension = 'jpg'}) =>
+      buildJpegCarrier(
+        cipher: PlatformCipher(),
+        keys: keys.carrier,
+        masterSalt: keys.entry.salt,
+        decoy: decoyJpeg(),
+        thumbnail: Uint8List.fromList([1, 2, 3]),
+        original: bytes ?? original,
+        extension: extension,
+      )!;
+  final motion = Uint8List.fromList(List.generate(3000, (i) => i % 7));
 
   setUp(() {
     dir = Directory.systemTemp.createTempSync('pv_filed_');
@@ -119,5 +121,63 @@ void main() {
 
     expect(await filed.adopt(keys, 'h', entry), isNull);
     expect(await store.hasCarrier(keys, key), isTrue);
+  });
+
+  test('an entry filed before motion was recorded keeps its .mov', () async {
+    const key = 'originals/20260901120000_aaa.jpg';
+    const motionKey = 'originals/20260901120000_aaa.mov';
+    await store.putCarrierBytes(keys, key, carrier());
+    await store.putCarrierBytes(
+      keys,
+      motionKey,
+      carrier(bytes: motion, extension: 'mov'),
+    );
+    final entry = IndexEntry(
+      objectKey: key,
+      takenAt: DateTime(2026, 9, 1),
+      width: 1,
+      height: 1,
+      isVideo: false,
+    );
+
+    final record = (await filed.adopt(keys, 'h', entry))!;
+    expect(record.isLivePhoto, isTrue);
+    expect(File('${record.sourcePath}.live.mov').readAsBytesSync(), motion);
+    expect(record.stateOf(DerivativeKind.livePhoto).destinationKey, motionKey);
+    expect(await store.hasCarrier(keys, motionKey), isFalse);
+  });
+
+  test('a row adopted as a still moves again once its .mov is found, and '
+      'is checked only once', () async {
+    const key = 'originals/20260901120000_bbb.jpg';
+    const motionKey = 'originals/20260901120000_bbb.mov';
+    final still = File('${dir.path}/hidden_bbb.jpg')
+      ..writeAsBytesSync(original);
+    await records.upsert(
+      localId: 'manual:vault-20260901120000_bbb',
+      contentHash: 'c',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: still.path,
+    );
+    await records.updateDerivative(
+      'manual:vault-20260901120000_bbb',
+      DerivativeKind.original,
+      const DerivativeState(status: UploadStatus.uploaded, destinationKey: key),
+    );
+    await store.putCarrierBytes(
+      keys,
+      motionKey,
+      carrier(bytes: motion, extension: 'mov'),
+    );
+    final rows = [
+      (await records.getByLocalId('manual:vault-20260901120000_bbb'))!,
+    ];
+
+    expect(await filed.repairMotion(keys, rows), isTrue);
+    final fixed = (await records.getByLocalId(rows.single.localId))!;
+    expect(fixed.isLivePhoto, isTrue);
+    expect(File('${still.path}.live.mov').readAsBytesSync(), motion);
+    expect(await filed.repairMotion(keys, rows), isFalse);
   });
 }

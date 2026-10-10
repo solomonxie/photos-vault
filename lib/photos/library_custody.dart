@@ -168,6 +168,7 @@ class LibraryCustody {
       if (record.sourceType != AssetSourceType.photoManager ||
           PhotoLibraryService.libraryIdOf(record) == null) {
         // Already ours: imported by hand, or taken out before.
+        await _holdMotion(record);
         held.add(record);
         results[record.localId] = CustodyResult.taken;
         continue;
@@ -362,6 +363,23 @@ class LibraryCustody {
     }
     final ext = p.extension(path).toLowerCase();
     return ext != '.heic' && ext != '.heif';
+  }
+
+  /// A Live Photo's `.mov` beside the still this app holds. One brought
+  /// back down from a bucket is found by its object key, which hiding
+  /// retracts — so it moves next to the still first, or the photo is
+  /// hidden silent.
+  Future<void> _holdMotion(AssetRecord record) async {
+    final path = record.sourcePath;
+    if (!record.isLivePhoto || path == null) return;
+    final held = File(PhotoLibraryService.heldLiveVideoPath(path));
+    try {
+      if (await held.exists()) return;
+      final motion = await _liveVideo(record);
+      if (motion != null && await motion.exists()) await motion.copy(held.path);
+    } catch (_) {
+      // Stays a still; the hide itself goes ahead.
+    }
   }
 
   /// A photo this app already holds, re-encoded in place: the HEIF lands

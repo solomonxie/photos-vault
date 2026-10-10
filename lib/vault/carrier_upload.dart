@@ -5,6 +5,7 @@ import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 
+import '../photos/smaller_export.dart';
 import '../photos/image_pipeline.dart';
 import '../storage/asset_record.dart';
 import 'carrier.dart';
@@ -27,8 +28,10 @@ class CarrierBuilder {
     Future<Directory> Function()? temporaryDirectory,
     Future<Uint8List?> Function(AssetRecord record)? posterFrame,
     Future<Duration?> Function(AssetRecord record)? videoDuration,
+    Future<Uint8List?> Function(Uint8List bytes)? nativeThumbnail,
     Random? random,
   }) : _cipher = cipher ?? PlatformCipher(),
+       _nativeThumbnail = nativeThumbnail ?? _iosThumbnail,
        _stillVideo = stillVideo ?? const StillVideo(),
        _temporaryDirectory = temporaryDirectory ?? Directory.systemTemp.create,
        _posterFrame = posterFrame ?? ((_) async => null),
@@ -40,7 +43,13 @@ class CarrierBuilder {
   final Future<Directory> Function() _temporaryDirectory;
   final Future<Uint8List?> Function(AssetRecord record) _posterFrame;
   final Future<Duration?> Function(AssetRecord record) _videoDuration;
+  final Future<Uint8List?> Function(Uint8List bytes) _nativeThumbnail;
   final Random _random;
+
+  /// HEIC, which the pure-Dart decoder has never read — and most hidden
+  /// photos are HEIC. Bytes in, bytes out: nothing written to disk.
+  static Future<Uint8List?> _iosThumbnail(Uint8List bytes) =>
+      encodeNatively(bytes, format: 'jpeg', maxEdge: thumbnailMaxEdge);
 
   /// How many decoys each picture has already worn. Kept in memory only —
   /// a table of which object wears which face would be a list of exactly
@@ -236,19 +245,30 @@ class CarrierBuilder {
         () => encodeThumbnail(poster, maxBytes: carrierThumbnailBudget),
       );
     }
-    return Isolate.run(
-      () async => encodeThumbnail(
-        await File(path).readAsBytes(),
-        maxBytes: carrierThumbnailBudget,
-      ),
-    );
+    try {
+      return await _stillThumbnail(path);
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<Uint8List?> _stillThumbnail(String stillPath) async {
     try {
-      final still = await File(stillPath).readAsBytes();
+      final dart = await Isolate.run(
+        () async => encodeThumbnail(
+          await File(stillPath).readAsBytes(),
+          maxBytes: carrierThumbnailBudget,
+        ),
+      );
+      if (dart != null) return dart;
+      final native = await _nativeThumbnail(
+        await File(stillPath).readAsBytes(),
+      );
+      if (native == null || native.length <= carrierThumbnailBudget) {
+        return native;
+      }
       return await Isolate.run(
-        () => encodeThumbnail(still, maxBytes: carrierThumbnailBudget),
+        () => encodeThumbnail(native, maxBytes: carrierThumbnailBudget),
       );
     } catch (_) {
       return null;
