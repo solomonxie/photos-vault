@@ -43,6 +43,7 @@ Future<void> showObjectInBucketBrowser(
       builder: (_) => BucketBrowserScreen(
         target: target,
         prefix: folderPrefixOf(VaultBucket.resolveKey(target, objectKey)),
+        highlightKey: VaultBucket.resolveKey(target, objectKey),
       ),
     ),
   );
