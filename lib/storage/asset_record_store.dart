@@ -194,6 +194,7 @@ class AssetRecordStore {
     await installChangeLog(db, const [_table]);
     await _rehomePaths(db);
     await _dropSquareThumbnails(db);
+    await _undoRedate(db);
     _db = db;
     // After the grid has what it needs: a first trim of a bloated log is a
     // lot of rows to delete.
@@ -240,6 +241,54 @@ class AssetRecordStore {
     );
     await db.insert(_appStateTable, {
       'key': _fittedThumbnailsKey,
+      'value': '1',
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  static const _redateUndoneKey = 'imports_redate_undone_v1';
+
+  /// A build re-dated imports from the stamp in their object name, which
+  /// for a hidden photo is the decoy's date, not the photo's. Each such
+  /// change is still in the change log with the real date beside it; put
+  /// that back wherever the row hasn't changed date since. Once ever.
+  Future<void> _undoRedate(Database db) async {
+    final done = await db.query(
+      _appStateTable,
+      where: 'key = ?',
+      whereArgs: [_redateUndoneKey],
+      limit: 1,
+    );
+    if (done.isNotEmpty) return;
+    try {
+      await db.execute(
+        """
+        UPDATE $_table SET
+          created_at = (
+            SELECT json_extract(c.before, '\$.created_at')
+            FROM $changeLogTable c
+            WHERE c.table_name = '$_table' AND c.op = 'update'
+              AND c.row_key = $_table.local_id
+              AND json_extract(c.before, '\$.created_at')
+                  != json_extract(c.after, '\$.created_at')
+              AND json_extract(c.after, '\$.created_at') = $_table.created_at
+            ORDER BY c.seq DESC LIMIT 1),
+          updated_at = ?
+        WHERE (passcode_hash IS NOT NULL OR local_id LIKE 'manual:vault-%')
+          AND EXISTS (
+            SELECT 1 FROM $changeLogTable c
+            WHERE c.table_name = '$_table' AND c.op = 'update'
+              AND c.row_key = $_table.local_id
+              AND json_extract(c.before, '\$.created_at')
+                  != json_extract(c.after, '\$.created_at')
+              AND json_extract(c.after, '\$.created_at') = $_table.created_at)
+      """,
+        [DateTime.now().millisecondsSinceEpoch],
+      );
+    } catch (_) {
+      // No log to read from: nothing was re-dated on this phone.
+    }
+    await db.insert(_appStateTable, {
+      'key': _redateUndoneKey,
       'value': '1',
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }

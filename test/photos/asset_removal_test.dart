@@ -338,10 +338,25 @@ void main() {
     final binned = await removalOver(
       store,
       refuse: ['lib-1'],
+      loadEntity: (id) async =>
+          AssetEntity(id: id, typeInt: 1, width: 1, height: 1),
     ).deleteEverywhere(record);
 
     expect(binned, isFalse);
     expect((await store.getByLocalId('photo:1'))!.isDeleted, isFalse);
+  });
+
+  test('one Photos no longer has is binned, not stuck', () async {
+    final store = FakeAssetRecordStore();
+    final record = await backedUp(store);
+
+    final binned = await removalOver(
+      store,
+      refuse: ['lib-1'],
+    ).deleteEverywhere(record);
+
+    expect(binned, isTrue);
+    expect((await store.getByLocalId('photo:1'))!.isDeleted, isTrue);
   });
 
   test('a hidden photo out of Photos is deleted, not silently kept', () async {

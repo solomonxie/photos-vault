@@ -390,7 +390,9 @@ class BackupVerifier {
 
     final originals = <String, Set<String>>{};
     final thumbnails = <String, Set<String>>{};
+    final configured = <String>{};
     for (final target in await _targets()) {
+      configured.add(target.id);
       final o = await _listKeys(target, _originalsPrefix(target));
       final t = await _listKeys(
         target,
@@ -419,14 +421,20 @@ class BackupVerifier {
         final isThumb = kind == DerivativeKind.thumbnail;
         if (isThumb && state.status != UploadStatus.uploaded) continue;
         final seen = isThumb ? thumbnails : originals;
-        final held = holdings[record.localId]?[kind] ?? const {};
-        known.addAll(held.values);
+        final allHeld = holdings[record.localId]?[kind] ?? const {};
+        known.addAll(allHeld.values);
         known.add(key);
         if (kind == DerivativeKind.original) expectsOriginal = true;
+        // A copy in a bucket since removed is no backup: checked like a
+        // photo never uploaded. One that just didn't answer still counts.
+        final held = {
+          for (final e in allHeld.entries)
+            if (configured.contains(e.key)) e.key: e.value,
+        };
 
         final checked = <String>[];
         final missing = <String>{};
-        if (held.isEmpty || held.keys.every((id) => id.isEmpty)) {
+        if (held.isEmpty) {
           if (seen.isEmpty) continue;
           if (!seen.values.any((keys) => keys.contains(key))) {
             missing.addAll(seen.keys);
@@ -444,7 +452,7 @@ class BackupVerifier {
         final loss = losses.putIfAbsent(record.localId, RecordLoss.new);
         loss.missingAt[kind] = missing;
         // Gone everywhere only when every holder answered and none has it.
-        final holders = held.isEmpty || held.keys.every((id) => id.isEmpty)
+        final holders = held.isEmpty
             ? seen.length
             : held.keys.where(seen.containsKey).length;
         if (missing.length == checked.length && checked.length == holders) {

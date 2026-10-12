@@ -253,6 +253,51 @@ void main() {
       expect(report.isClean, isTrue);
     });
 
+    test('a copy only in a removed bucket is missing', () async {
+      final store = FakeAssetRecordStore();
+      await _uploaded(store, key: 'old/originals/a');
+      await store.recordUpload(
+        localId: 'photo:1',
+        kind: DerivativeKind.original,
+        targetId: 'removed-target',
+        destinationKey: 'old/originals/a',
+      );
+      final verifier = BackupVerifier(
+        targetsStore: await _targets(),
+        recordStore: store,
+        list: ({required target, prefix = '', continuationToken}) async =>
+            _listing(['photos/originals/other']),
+      );
+
+      final report = await verifier.reconcile();
+
+      expect(report.missingLocalIds, ['photo:1']);
+      expect(await verifier.requeueMissing(report), 1);
+    });
+
+    test('an unreachable holder is not called missing', () async {
+      final store = FakeAssetRecordStore();
+      await _uploaded(store, key: 'photos/originals/a');
+      final targets = await _targets(count: 2);
+      final holder = (await targets.loadAll()).first;
+      await store.recordUpload(
+        localId: 'photo:1',
+        kind: DerivativeKind.original,
+        targetId: holder.id,
+        destinationKey: 'photos/originals/a',
+      );
+      final verifier = BackupVerifier(
+        targetsStore: targets,
+        recordStore: store,
+        list: ({required target, prefix = '', continuationToken}) async =>
+            target.id == holder.id
+            ? const S3ListingResult(S3ListingOutcome.networkError)
+            : _listing(['photos/originals/other']),
+      );
+
+      expect((await verifier.reconcile()).missingLocalIds, isEmpty);
+    });
+
     test('an unreachable bucket reports nothing rather than zero', () async {
       final store = FakeAssetRecordStore();
       await _uploaded(store);

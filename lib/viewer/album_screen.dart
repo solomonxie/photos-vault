@@ -141,6 +141,9 @@ class _AlbumScreenState extends State<AlbumScreen> {
       context,
       assetRecordStore: widget.assetRecordStore,
       records: [record],
+      onSettled: () {
+        if (mounted) _reload();
+      },
     );
     await _reload();
   }

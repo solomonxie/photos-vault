@@ -21,8 +21,10 @@ class _FakeLibrary implements PhotoLibraryService {
   Future<File?> fileFor(AssetRecord record) async => original;
 
   @override
-  Future<bool> deleteFromLibrary(AssetRecord record) async =>
-      (await deleteManyFromLibrary([record])).contains(record.localId);
+  Future<bool> deleteFromLibrary(
+    AssetRecord record, {
+    bool missingCountsAsDeleted = false,
+  }) async => (await deleteManyFromLibrary([record])).contains(record.localId);
 
   /// One call per group, which is one OS prompt per group — [deleteRequests]
   /// counting *calls* rather than photos is the point of the test.
@@ -30,6 +32,7 @@ class _FakeLibrary implements PhotoLibraryService {
   Future<Set<String>> deleteManyFromLibrary(
     List<AssetRecord> records, {
     int limit = PhotoLibraryService.deleteBatchLimit,
+    bool missingCountsAsDeleted = false,
   }) async {
     deleteRequests++;
     return allowDelete ? {for (final r in records) r.localId} : <String>{};

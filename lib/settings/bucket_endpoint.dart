@@ -32,17 +32,24 @@ String bucketHost({
 /// correct and the one worth showing the user.
 String signingRegion(S3BackupTarget target) => target.region;
 
+/// A local S3 stand-in for simulator runs, path-style
+/// (`--dart-define=PV_S3_ENDPOINT=localhost:9443`). Empty in every real
+/// build, so the branch compiles away.
+const _testEndpoint = String.fromEnvironment('PV_S3_ENDPOINT');
+
 Uri bucketUri({
   required BackupStorageType provider,
   required String region,
   required String bucket,
   String path = '/',
   Map<String, dynamic>? query,
-}) => Uri.https(
-  bucketHost(provider: provider, region: region, bucket: bucket),
-  path,
-  query,
-);
+}) => _testEndpoint.isNotEmpty
+    ? Uri.https(_testEndpoint, '/$bucket$path', query)
+    : Uri.https(
+        bucketHost(provider: provider, region: region, bucket: bucket),
+        path,
+        query,
+      );
 
 Uri targetUri(
   S3BackupTarget target, {

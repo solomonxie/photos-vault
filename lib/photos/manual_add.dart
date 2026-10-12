@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:file_picker/file_picker.dart';
 import 'package:path/path.dart' as p;
@@ -6,6 +7,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/capture_date.dart';
 import 'file_hash.dart';
 
 const _videoExtensions = {'.mp4', '.mov', '.m4v'};
@@ -74,7 +76,31 @@ class ManualAddService {
       sourcePath: owned.path,
       isVideo: _isVideoPath(path),
       isGif: isGifPath(path),
-      createdAt: createdAt,
+      // Not a date from the file name: a hidden photo's object is named
+      // with its decoy's date.
+      createdAt: createdAt ?? await fileCaptureDate(owned),
     );
+  }
+}
+
+/// The camera's date from [file]'s own header, or null. Without it an
+/// imported photo is dated the day it was imported.
+Future<DateTime?> fileCaptureDate(File file) async {
+  RandomAccessFile? raf;
+  try {
+    final opened = raf = await file.open();
+    final size = await opened.length();
+    Future<Uint8List?> read(int start, int end) async {
+      await opened.setPosition(start);
+      return opened.read(end - start);
+    }
+
+    if (_isVideoPath(file.path)) return await videoCaptureDate(read, size);
+    final head = await read(0, size < 256 * 1024 ? size : 256 * 1024);
+    return head == null ? null : stillCaptureDate(head);
+  } catch (_) {
+    return null;
+  } finally {
+    await raf?.close();
   }
 }

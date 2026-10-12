@@ -186,8 +186,11 @@ Future<DeleteChoice> chooseBatchDelete(
 
 /// What a [deleteAsset] actually did.
 enum DeleteOutcome {
-  /// Cancelled, or declined at the OS's own prompt. Nothing to say.
+  /// Cancelled. Nothing to say.
   none,
+
+  /// Photos still has it: declined at the OS prompt, or the delete failed.
+  keptByPhotos,
 
   /// Now cloud-only, and still in the library — so a viewer above it
   /// stays open on it rather than popping.
@@ -245,9 +248,10 @@ Future<DeleteOutcome> deleteAsset(
         RemovalOutcome.backupUnverifiable => DeleteOutcome.backupUnverifiable,
       };
     case DeleteChoice.everywhere:
+      if (record.isLocked) return DeleteOutcome.none;
       return await removal.deleteEverywhere(record)
           ? DeleteOutcome.binned
-          : DeleteOutcome.none;
+          : DeleteOutcome.keptByPhotos;
     case DeleteChoice.permanent:
       if (!context.mounted || !await confirmPermanentDelete(context)) {
         return DeleteOutcome.none;

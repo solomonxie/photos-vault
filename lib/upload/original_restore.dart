@@ -9,6 +9,7 @@ import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import 'object_keys.dart';
 import 'signing.dart';
 
 /// Pulls a backed-up original back down to the device — the other half of
@@ -45,12 +46,13 @@ class OriginalRestore {
   /// one. When none answers, [lastProblem] says what each one said.
   Future<String?> restore(AssetRecord record) async {
     lastProblem = null;
+    final held = await recordStore.targetsHolding(
+      record.localId,
+      DerivativeKind.original,
+    );
     final keys = <String>{
       ?record.stateOf(DerivativeKind.original).destinationKey,
-      ...(await recordStore.targetsHolding(
-        record.localId,
-        DerivativeKind.original,
-      )).values,
+      ...held.values,
     };
     if (keys.isEmpty) {
       lastProblem = 'never backed up';
@@ -63,7 +65,20 @@ class OriginalRestore {
     }
     final heard = <String>{};
     for (final target in targets) {
-      for (final key in keys) {
+      // The bucket's own key first, then each recorded key under this
+      // bucket's prefix: a key carries the prefix of the bucket it was
+      // uploaded to, and as-is elsewhere it is a 404 for a photo that's there.
+      final candidates = <String>{
+        ?held[target.id],
+        for (final key in keys)
+          derivativeKey(
+            prefix: target.prefix,
+            derivativeDir: derivativeDirs[DerivativeKind.original]!,
+            fileName: p.posix.basename(key),
+          ),
+        ...keys,
+      };
+      for (final key in candidates) {
         final path = await _fetch(record, target, key, heard);
         if (path != null) return path;
       }
@@ -155,7 +170,15 @@ class OriginalRestore {
     S3BackupTarget target,
     Directory dir,
   ) async {
-    final key = record.stateOf(DerivativeKind.livePhoto).destinationKey;
+    final key = remoteKeyFor(
+      record: record,
+      kind: DerivativeKind.livePhoto,
+      target: target,
+      held: await recordStore.targetsHolding(
+        record.localId,
+        DerivativeKind.livePhoto,
+      ),
+    );
     if (key == null) return;
     try {
       final file = File(p.join(dir.path, p.basename(key)));

@@ -913,6 +913,14 @@
       }
     }
   },
+  "libraryDeleteKeptByPhotos": "{count, plural, one{Photos didn't delete this photo, so it's still here.} other{Photos didn't delete {count} photos, so they're still here.}}",
+  "@libraryDeleteKeptByPhotos": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "actionCancel": "Cancel",
   "actionDelete": "Delete",
   "actionAdd": "Add",

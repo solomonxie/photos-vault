@@ -159,19 +159,32 @@ class LibraryCustody {
   Future<Map<String, CustodyResult>> takeOutMany(
     List<AssetRecord> records, {
     Future<bool> Function(int count)? askHeif,
+    Set<String> restored = const {},
   }) async {
     final results = <String, CustodyResult>{};
     final held = <AssetRecord>[];
     final resolved = <AssetRecord, (File, File?)>{};
+    // Held here already, with a Photos entry that may still need removing:
+    // a shrunk copy, or one deleted when the photo went cloud-only.
+    final leftovers = <AssetRecord>[];
 
-    for (final record in records) {
+    // A few at a time: each may be an iCloud download.
+    await _eachLimited(records, (record) async {
       if (record.sourceType != AssetSourceType.photoManager ||
           PhotoLibraryService.libraryIdOf(record) == null) {
         // Already ours: imported by hand, or taken out before.
         await _holdMotion(record);
         held.add(record);
         results[record.localId] = CustodyResult.taken;
-        continue;
+        return;
+      }
+      // Just brought down from the bucket, or Photos let go of it long ago
+      // and the file here is all there is: Photos has nothing better.
+      if (restored.contains(record.localId) || await _onlyHeldHere(record)) {
+        await _holdMotion(record);
+        held.add(record);
+        leftovers.add(record);
+        return;
       }
       final files = await _resolve(record);
       if (files == null) {
@@ -179,14 +192,14 @@ class LibraryCustody {
       } else {
         resolved[record] = files;
       }
-    }
+    });
 
     var toHeif = false;
     if (askHeif != null) {
       final count =
-          held.where((r) => _heifCandidate(r, r.sourcePath)).length +
+          held.where((r) => isHeifCandidate(r, r.sourcePath)).length +
           resolved.entries
-              .where((e) => _heifCandidate(e.key, e.value.$1.path))
+              .where((e) => isHeifCandidate(e.key, e.value.$1.path))
               .length;
       if (count > 0) toHeif = await askHeif(count);
     }
@@ -197,12 +210,26 @@ class LibraryCustody {
     }
 
     final copied = <AssetRecord>[];
-    for (final MapEntry(key: record, value: (source, motion))
-        in resolved.entries) {
+    await _eachLimited(resolved.entries.toList(), (entry) async {
+      final MapEntry(key: record, value: (source, motion)) = entry;
       if (await _copyOut(record, source, motion, toHeif: toHeif)) {
         copied.add(record);
       } else {
         results[record.localId] = CustodyResult.failed;
+      }
+    });
+    if (leftovers.isNotEmpty) {
+      final gone = await _library.deleteManyFromLibrary(
+        leftovers,
+        missingCountsAsDeleted: true,
+      );
+      for (final record in leftovers) {
+        if (gone.contains(record.localId)) {
+          await store.setLibraryId(record.localId, null);
+          results[record.localId] = CustodyResult.taken;
+        } else {
+          results[record.localId] = CustodyResult.takenButStillInLibrary;
+        }
       }
     }
     if (copied.isEmpty) return results;
@@ -220,6 +247,18 @@ class LibraryCustody {
       }
     }
     return results;
+  }
+
+  /// Photos answers it has no such asset, and this app's own file of it is
+  /// on disk. A failed lookup is not an answer.
+  Future<bool> _onlyHeldHere(AssetRecord record) async {
+    final path = record.sourcePath;
+    if (path == null || !await File(path).exists()) return false;
+    try {
+      return await _library.entityFor(record) == null;
+    } catch (_) {
+      return false;
+    }
   }
 
   /// [record]'s original and, for a Live Photo, its `.mov` — or null when
@@ -264,7 +303,7 @@ class LibraryCustody {
       );
       final converted =
           toHeif &&
-          _heifCandidate(record, source.path) &&
+          isHeifCandidate(record, source.path) &&
           await encodeFileNatively(
             input: source.path,
             output: copy.path,
@@ -357,7 +396,7 @@ class LibraryCustody {
   /// A still at [path] that isn't HEIF already. Not a video, and not a
   /// Live Photo: its still and `.mov` are a pair Photos matches up, and a
   /// re-encoded still loses the tag that pairs them.
-  static bool _heifCandidate(AssetRecord record, String? path) {
+  static bool isHeifCandidate(AssetRecord record, String? path) {
     if (path == null || record.countsAsVideo || record.isLivePhoto) {
       return false;
     }
@@ -386,7 +425,7 @@ class LibraryCustody {
   /// beside it and the record moves over before the old file goes.
   Future<void> _convertHeld(AssetRecord record) async {
     final path = record.sourcePath;
-    if (!_heifCandidate(record, path)) return;
+    if (!isHeifCandidate(record, path)) return;
     final converted = p.setExtension(path!, '.heic');
     if (converted == path) return;
     if (!await encodeFileNatively(
@@ -408,4 +447,19 @@ class LibraryCustody {
     final safeId = record.localId.replaceAll(RegExp(r'[^A-Za-z0-9]'), '_');
     return '$safeId-${p.basename(source.path)}';
   }
+}
+
+Future<void> _eachLimited<T>(
+  List<T> items,
+  Future<void> Function(T item) work, {
+  int limit = 4,
+}) async {
+  final pending = items.iterator;
+  Future<void> worker() async {
+    while (pending.moveNext()) {
+      await work(pending.current);
+    }
+  }
+
+  await Future.wait([for (var i = 0; i < limit; i++) worker()]);
 }

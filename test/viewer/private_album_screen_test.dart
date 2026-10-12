@@ -39,6 +39,7 @@ class _RecordingCustody implements LibraryCustody {
   Future<Map<String, CustodyResult>> takeOutMany(
     List<AssetRecord> records, {
     Future<bool> Function(int count)? askHeif,
+    Set<String> restored = const {},
   }) async {
     takeOutCalls++;
     for (final record in records) {
@@ -306,6 +307,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Add 1'));
     await tester.pumpAndSettle();
+    // Asked up front now, so the rest can carry on behind the grid.
+    await tester.tap(find.text('Keep Originals'));
+    await tester.pumpAndSettle();
 
     // Straight through: the OS puts up its own confirmation for the
     // delete, and a second dialog of ours asking the same thing is how
@@ -396,6 +400,9 @@ void main() {
       await tester.pumpAndSettle();
     }
     await tester.tap(find.text('Add 3'));
+    await tester.pumpAndSettle();
+    // Asked up front now, so the rest can carry on behind the grid.
+    await tester.tap(find.text('Keep Originals'));
     await tester.pumpAndSettle();
 
     expect(custody.takenOut.length, 3);

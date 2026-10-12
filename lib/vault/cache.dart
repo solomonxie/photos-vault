@@ -52,7 +52,17 @@ class VaultCache {
   /// of 'vault' is a directory that quietly survives the wipe.
   static const root = 'vault';
 
-  Future<Directory> _poolDirectory(CachePool pool) async {
+  final Map<CachePool, Future<Directory>> _dirs = {};
+
+  /// Bytes in each pool as of its last scan plus what has been written
+  /// since. Null until the first write scans it, so a pool is listed once
+  /// per session rather than once per tile.
+  final Map<CachePool, int> _totals = {};
+
+  Future<Directory> _poolDirectory(CachePool pool) =>
+      _dirs[pool] ??= _createPool(pool);
+
+  Future<Directory> _createPool(CachePool pool) async {
     final dir = Directory(
       p.join((await _directory()).path, root, pool.dirName),
     );
@@ -113,13 +123,29 @@ class VaultCache {
     try {
       final iv = randomBytes(16);
       final file = await _fileFor(pool, keys, objectKey);
-      await file.writeAsBytes([
-        ...iv,
-        ..._cipher.transform(key: keys.carrier.encKey, iv: iv, data: bytes),
-      ], flush: true);
-      await _evict(pool);
+      final sealed =
+          (BytesBuilder(copy: false)
+                ..add(iv)
+                ..add(
+                  _cipher.transform(
+                    key: keys.carrier.encKey,
+                    iv: iv,
+                    data: bytes,
+                  ),
+                ))
+              .takeBytes();
+      await file.writeAsBytes(sealed, flush: true);
+      final total = _totals[pool];
+      if (total == null || total + sealed.length > pool.capBytes) {
+        await _evict(pool);
+      } else {
+        _totals[pool] = total + sealed.length;
+      }
     } catch (_) {
-      // Failing to cache is not failing.
+      // Failing to cache is not failing. A pool deleted underneath is
+      // created again next time.
+      _dirs.remove(pool);
+      _totals.remove(pool);
     }
   }
 
@@ -143,6 +169,7 @@ class VaultCache {
       living[entry.key] = entry.value;
       total += entry.value.size;
     }
+    _totals[pool] = total;
     if (total <= pool.capBytes) return;
     final oldest = living.keys.toList()
       ..sort((a, b) => living[a]!.modified.compareTo(living[b]!.modified));
@@ -151,10 +178,13 @@ class VaultCache {
       total -= living[file]!.size;
       await file.delete();
     }
+    _totals[pool] = total;
   }
 
   /// Everything, for when the passphrase is forgotten on this phone.
   Future<void> clear() async {
+    _dirs.clear();
+    _totals.clear();
     final dir = Directory(p.join((await _directory()).path, root));
     if (await dir.exists()) await dir.delete(recursive: true);
   }

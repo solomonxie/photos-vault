@@ -191,6 +191,26 @@ class VaultStore {
     }
   }
 
+  /// Which of [objectKeys] have a carrier here, from one listing of the
+  /// carriers folder rather than a stat per key.
+  Future<Set<String>> carriersHeld(
+    AlbumKeys keys,
+    Iterable<String> objectKeys,
+  ) async {
+    try {
+      final names = <String>{};
+      await for (final entity in (await _pool(carriersDir)).list()) {
+        if (entity is File) names.add(p.basename(entity.path));
+      }
+      return {
+        for (final key in objectKeys)
+          if (names.contains(_fileName(keys, key))) key,
+      };
+    } catch (_) {
+      return const {};
+    }
+  }
+
   /// Takes ownership of a freshly built carrier. Copied rather than moved:
   /// the caller's file is a temp the upload still has to read.
   Future<File?> putCarrier(

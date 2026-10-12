@@ -1270,11 +1270,7 @@ class LibraryScreenState extends State<LibraryScreen>
     ];
     _recentlyAdded = recentlyAdded(active, DateTime.now());
     _places = _groupedBy(active, (r) => r.location);
-    _deletedCount = all
-        .where(
-          (r) => r.isDeleted && !r.hasNothingLeft && r.passcodeHash == null,
-        )
-        .length;
+    _deletedCount = all.where(isInBin).length;
   }
 
   /// The card asks "who's this?", so a tap answers it. Opening the photo
@@ -1665,6 +1661,9 @@ class LibraryScreenState extends State<LibraryScreen>
         records: records,
         custody: _custody,
         targetsStore: _backupTargetsStore,
+        onSettled: () {
+          if (mounted) reload();
+        },
       );
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -1735,6 +1734,8 @@ class LibraryScreenState extends State<LibraryScreen>
           _showResult(l10n.libraryDeleteBackupMissing);
         case DeleteOutcome.backupUnverifiable:
           _showResult(l10n.libraryDeleteBackupUnverifiable);
+        case DeleteOutcome.keptByPhotos:
+          _showResult(l10n.libraryDeleteKeptByPhotos(1));
         case DeleteOutcome.none:
         case DeleteOutcome.cloudOnly:
         case DeleteOutcome.binned:
@@ -1752,7 +1753,10 @@ class LibraryScreenState extends State<LibraryScreen>
   /// `recently_deleted_screen.dart`).
   Future<Set<String>> _deleteManyFromLibrary(List<AssetRecord> records) async {
     try {
-      return await _photoLibraryService.deleteManyFromLibrary(records);
+      return await _photoLibraryService.deleteManyFromLibrary(
+        records,
+        missingCountsAsDeleted: true,
+      );
     } catch (_) {
       // No plugin, or they're already out of the library — either way
       // there's nothing over there left to delete.
@@ -1973,6 +1977,7 @@ class LibraryScreenState extends State<LibraryScreen>
       }
     }
     setState(() => _busy = true);
+    var kept = 0;
     try {
       final fromLibrary = batch
           .where(
@@ -1993,6 +1998,7 @@ class LibraryScreenState extends State<LibraryScreen>
         // binning it here and claiming it went from Photos too.
         if (needsLibrary.contains(record.localId) &&
             !gone.contains(record.localId)) {
+          kept++;
           continue;
         }
         await _removal.binOrPurge(record);
@@ -2004,7 +2010,12 @@ class LibraryScreenState extends State<LibraryScreen>
     final left = {for (final r in records.skip(batch.length)) r.localId};
     setState(() => _selection = left.isEmpty ? null : left);
     await reload();
-    if (capped && mounted) _showResult(l10n.libraryDeleteBatchCapped(limit));
+    if (!mounted) return;
+    if (kept > 0) {
+      _showResult(l10n.libraryDeleteKeptByPhotos(kept));
+    } else if (capped) {
+      _showResult(l10n.libraryDeleteBatchCapped(limit));
+    }
   }
 
   /// Frees the device copy of each of [records] and keeps it in the library

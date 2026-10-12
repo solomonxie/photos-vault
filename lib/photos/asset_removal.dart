@@ -39,6 +39,11 @@ enum RemovalOutcome {
   bool get freedSpace => this == RemovalOutcome.freed;
 }
 
+/// What Recently Deleted lists, and so what the library counts for it. A
+/// hidden photo never shows there: that page opens without a passcode, and
+/// hidden deletes are permanent (`HiddenRemoval`).
+bool isInBin(AssetRecord r) => r.isDeleted && r.passcodeHash == null;
+
 /// The two ways a photo or video can go, and the work behind each.
 ///
 /// One place rather than one per screen: which of the two a photo is
@@ -384,7 +389,10 @@ class AssetRemoval {
 
   Future<bool> _deleteFromLibrary(AssetRecord record) async {
     try {
-      return await library.deleteFromLibrary(record);
+      return await library.deleteFromLibrary(
+        record,
+        missingCountsAsDeleted: true,
+      );
     } catch (_) {
       // No plugin, or it's already gone from the library — either way
       // there's nothing over there left to delete.

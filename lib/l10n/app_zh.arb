@@ -549,6 +549,7 @@
   "libraryDeleteBackupMissing": "存储桶中没有这张照片，因此未删除任何内容。此前应用将它标记为已备份——现已重新加入同步队列。",
   "libraryDeleteBackupUnverifiable": "无法连接存储桶以确认备份，因此未删除任何内容。请在恢复联网后重试。",
   "libraryDeleteBatchCapped": "「照片」每次最多删除 {limit} 项。其余仍处于选中状态——再删一次即可继续。",
+  "libraryDeleteKeptByPhotos": "{count, plural, other{「照片」未删除 {count} 张照片，它们仍保留在这里。}}",
   "actionCancel": "取消",
   "actionDelete": "删除",
   "actionAdd": "添加",

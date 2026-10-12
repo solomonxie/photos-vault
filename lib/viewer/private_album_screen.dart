@@ -309,6 +309,20 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     final keys = widget.albumKeys;
     if (keys == null) return;
     final gallery = VaultGallery(keys: keys);
+    // This phone's last copy of the listing first, so the grid is up
+    // before the bucket answers.
+    final mirrored = await gallery.listLocal();
+    if (!mounted) {
+      gallery.dispose();
+      return;
+    }
+    if (mirrored.isNotEmpty) {
+      setState(() {
+        _gallery = gallery;
+        _cloudEntries = mirrored;
+      });
+      unawaited(_reloadHoldings());
+    }
     final entries = await gallery.list();
     if (!mounted) {
       gallery.dispose();
@@ -864,6 +878,9 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       passcodeHash: widget.passcodeHash,
       custody: _custody,
       targetsStore: widget.targetsStore,
+      onSettled: () {
+        if (mounted) _reload();
+      },
     );
     await _reload();
   }

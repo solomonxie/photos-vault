@@ -513,8 +513,12 @@ class PhotoLibraryService {
   /// to the system's own Recently Deleted; returns whether it actually
   /// went (false if the user declined the prompt, or it wasn't ours to
   /// delete).
-  Future<bool> deleteFromLibrary(AssetRecord record) async =>
-      (await deleteManyFromLibrary([record])).contains(record.localId);
+  Future<bool> deleteFromLibrary(
+    AssetRecord record, {
+    bool missingCountsAsDeleted = false,
+  }) async => (await deleteManyFromLibrary([
+    record,
+  ], missingCountsAsDeleted: missingCountsAsDeleted)).contains(record.localId);
 
   /// The most photos one call may take out. iOS puts up a single
   /// confirmation listing what's about to go, and past a hundred thumbnails
@@ -533,6 +537,7 @@ class PhotoLibraryService {
   Future<Set<String>> deleteManyFromLibrary(
     List<AssetRecord> records, {
     int limit = deleteBatchLimit,
+    bool missingCountsAsDeleted = false,
   }) async {
     final localIds = <String, String>{};
     for (final record in records) {
@@ -541,8 +546,31 @@ class PhotoLibraryService {
       if (localIds.length == limit) break;
     }
     if (localIds.isEmpty) return const {};
-    final deleted = await _deleteAssets(localIds.keys.toList());
-    return {for (final id in deleted) ?localIds[id]};
+    final deleted = (await _deleteAssets(localIds.keys.toList())).toSet();
+    if (!missingCountsAsDeleted) {
+      return {for (final id in deleted) ?localIds[id]};
+    }
+    // An id Photos no longer has can't be deleted and comes back unlisted,
+    // which used to leave its record undeletable for good. It's gone. Only
+    // for a delete: to hiding, "not found" must never pass for "removed".
+    final missing = await Future.wait([
+      for (final id in localIds.keys)
+        if (!deleted.contains(id)) _missingFromLibrary(id),
+    ]);
+    return {
+      for (final id in deleted) ?localIds[id],
+      for (final id in missing.nonNulls) ?localIds[id],
+    };
+  }
+
+  /// [id] when Photos answers that it has no such asset; null when it has
+  /// it or can't say — a failed lookup is not proof of absence.
+  Future<String?> _missingFromLibrary(String id) async {
+    try {
+      return await _loadEntity(id) == null ? id : null;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Mirrors a favourite back into the OS photo library, so a heart set

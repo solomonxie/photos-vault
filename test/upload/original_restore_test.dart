@@ -236,6 +236,38 @@ void main() {
     },
   );
 
+  test(
+    'finds the original under this bucket\'s prefix, not the recorded one',
+    () async {
+      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+      await targetsStore.add(
+        accessKeyId: 'a',
+        secretAccessKey: 'b',
+        region: 'us-east-1',
+        bucket: 'bucket',
+        prefix: 'vault/',
+      );
+      final recordStore = FakeAssetRecordStore();
+      final record = await cloudOnlyRecord(recordStore);
+      final asked = <String>[];
+
+      final restored = await OriginalRestore(
+        targetsStore: targetsStore,
+        recordStore: recordStore,
+        directory: () async => tempDir,
+        get: (url) async {
+          asked.add(url.path);
+          return http.Response.bytes([
+            1,
+          ], url.path.endsWith('/vault/originals/manual_abc.jpg') ? 200 : 404);
+        },
+      ).restore(record);
+
+      expect(restored, isNotNull);
+      expect(asked.first, endsWith('/vault/originals/manual_abc.jpg'));
+    },
+  );
+
   test('stays cloud-only when every target fails', () async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     await targetsStore.add(

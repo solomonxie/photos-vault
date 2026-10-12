@@ -492,6 +492,7 @@ Future<bool> hideIntoPrivateAlbum(
   LibraryCustody? custody,
   PendingDeletes? pendingDeletes,
   BackupTargetsStore? targetsStore,
+  VoidCallback? onSettled,
 }) async {
   final l10n = AppLocalizations.of(context)!;
   // No confirmation of our own, with one exception. The OS puts one up for
@@ -543,7 +544,6 @@ Future<bool> hideIntoPrivateAlbum(
     for (final r in records)
       if (r.localDeleted || r.localOptimized) r,
   ];
-  final refused = <AssetRecord>[];
   if (cloudOnly.isNotEmpty) {
     if (!context.mounted) return false;
     final proceed = await showCupertinoDialog<bool>(
@@ -565,17 +565,69 @@ Future<bool> hideIntoPrivateAlbum(
       ),
     );
     if (proceed != true) return false;
-    final restorer = OriginalRestore(
-      targetsStore: buckets,
-      recordStore: assetRecordStore,
-    );
+  }
+  // Asked now, not once the files are in hand, so nothing after this needs
+  // the user. A photo whose file turns out to be HEIF already is kept as is.
+  final heifCount = records
+      .where(
+        (r) => LibraryCustody.isHeifCandidate(
+          r,
+          // The bucket copy's extension says nothing about the file here:
+          // with the optimized format it is `.heif` whatever this one is.
+          r.sourcePath ?? '',
+        ),
+      )
+      .length;
+  var toHeif = false;
+  if (heifCount > 0) {
+    if (!context.mounted) return false;
+    toHeif = await _askHeif(context, heifCount);
+  }
+
+  // Hidden at once; the copying out happens behind it. Until it lands the
+  // original is still in Photos, so a failure only has to un-hide.
+  for (final record in records) {
+    await assetRecordStore.setPasscodeHash(record.localId, hash);
+  }
+  unawaited(
+    _finishHiding(
+      // Outlives the screen on purpose; only read again behind `mounted`.
+      // ignore: use_build_context_synchronously
+      context,
+      l10n: l10n,
+      records: records,
+      cloudOnly: cloudOnly,
+      store: assetRecordStore,
+      keeper: keeper,
+      buckets: buckets,
+      pendingDeletes: pendingDeletes,
+      toHeif: toHeif,
+      onSettled: onSettled,
+    ),
+  );
+  return true;
+}
+
+Future<void> _finishHiding(
+  BuildContext context, {
+  required AppLocalizations l10n,
+  required List<AssetRecord> records,
+  required List<AssetRecord> cloudOnly,
+  required AssetRecordStore store,
+  required LibraryCustody keeper,
+  required BackupTargetsStore buckets,
+  required PendingDeletes? pendingDeletes,
+  required bool toHeif,
+  VoidCallback? onSettled,
+}) async {
+  final refused = <AssetRecord>[];
+  if (cloudOnly.isNotEmpty) {
+    final restorer = OriginalRestore(targetsStore: buckets, recordStore: store);
     final fetched = <String, AssetRecord>{};
     for (final record in cloudOnly) {
-      if (await restorer.restore(record) == null) {
-        refused.add(record);
-        continue;
-      }
-      final fresh = await assetRecordStore.getByLocalId(record.localId);
+      final fresh = await restorer.restore(record) == null
+          ? null
+          : await store.getByLocalId(record.localId);
       if (fresh == null) {
         refused.add(record);
       } else {
@@ -587,23 +639,25 @@ Future<bool> hideIntoPrivateAlbum(
         if (!refused.contains(r)) fetched[r.localId] ?? r,
     ];
   }
-  for (final record in records) {
-    await assetRecordStore.setPasscodeHash(record.localId, hash);
+  for (final record in refused) {
+    await store.setPasscodeHash(record.localId, null);
   }
   final results = await keeper.takeOutMany(
     records,
-    askHeif: (count) async => context.mounted && await _askHeif(context, count),
+    askHeif: (_) async => toHeif,
+    restored: {for (final r in cloudOnly) r.localId},
   );
 
   var stillInLibrary = 0;
   var failed = refused.length;
+  final deletes = pendingDeletes ?? PendingDeletes(store: store);
   for (final record in records) {
     switch (results[record.localId] ?? CustodyResult.failed) {
       case CustodyResult.failed:
         // Nothing was copied out, so nothing should have been hidden
         // either — a hidden photo this app doesn't hold is a photo nobody
         // holds. And its bucket copy stays: it may be the only one.
-        await assetRecordStore.setPasscodeHash(record.localId, null);
+        await store.setPasscodeHash(record.localId, null);
         failed++;
         continue;
       case CustodyResult.takenButStillInLibrary:
@@ -616,14 +670,15 @@ Future<bool> hideIntoPrivateAlbum(
     // private album's copy sits beside a plain one that predates it.
     await _retractFromBuckets(
       record: record,
-      store: assetRecordStore,
-      deletes: pendingDeletes ?? PendingDeletes(store: assetRecordStore),
+      store: store,
+      deletes: deletes,
       targetsStore: buckets,
     );
   }
   // Their encrypted copies go up now if the album's key is on hand,
   // otherwise when it is next opened.
   unawaited(PrivateAlbumScreen.hiddenBackup?.run());
+  onSettled?.call();
 
   if (context.mounted && (failed > 0 || stillInLibrary > 0)) {
     await showCupertinoDialog<void>(
@@ -641,7 +696,6 @@ Future<bool> hideIntoPrivateAlbum(
       ),
     );
   }
-  return failed < records.length + refused.length;
 }
 
 /// Zero rather than throwing when the keychain can't be read: the warning

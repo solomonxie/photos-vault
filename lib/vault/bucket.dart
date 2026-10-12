@@ -33,7 +33,7 @@ class VaultBucket {
        _cipher = cipher ?? PlatformCipher(),
        _store = store ?? VaultStore(),
        _put = put ?? http.put,
-       _get = get ?? _defaultGet,
+       _getOverride = get,
        _uploaderOverride = uploader;
 
   final BackupTargetsStore _targetsStore;
@@ -49,13 +49,45 @@ class VaultBucket {
   /// section replaced by fresh noise.
   final VaultStore _store;
   final Future<http.Response> Function(Uri url, {Object? body}) _put;
-  final Future<http.Response> Function(Uri url, {Map<String, String>? headers})
-  _get;
+  final Future<http.Response> Function(Uri url, {Map<String, String>? headers})?
+  _getOverride;
 
-  static Future<http.Response> _defaultGet(
+  /// One connection pool for every read: a grid of ranged GETs each paying
+  /// its own TLS handshake is most of what scrolling an album waits on.
+  http.Client? _client;
+
+  late final Future<http.Response> Function(
     Uri url, {
     Map<String, String>? headers,
-  }) => http.get(url, headers: headers);
+  })
+  _get =
+      _getOverride ??
+      (url, {headers}) =>
+          (_client ??= http.Client()).get(url, headers: headers);
+
+  /// The bucket settings, read from the keychain once per [targetsTtl]
+  /// rather than once per tile.
+  Future<List<S3BackupTarget>>? _targets;
+  DateTime _targetsAt = DateTime(0);
+  static const targetsTtl = Duration(seconds: 30);
+
+  Future<List<S3BackupTarget>> _loadTargets() {
+    final now = DateTime.now();
+    if (_targets == null || now.difference(_targetsAt) > targetsTtl) {
+      _targetsAt = now;
+      _targets = _targetsStore.loadAll()
+        ..catchError((Object _) {
+          _targets = null;
+          return const <S3BackupTarget>[];
+        });
+    }
+    return _targets!;
+  }
+
+  void close() {
+    _client?.close();
+    _client = null;
+  }
 
   static String _indexKey(S3BackupTarget target) =>
       BucketBackup.keyFor(target, indexObjectName);
@@ -237,7 +269,7 @@ class VaultBucket {
   /// deliberately not on the background transfer: this is a grid tile, not
   /// a transfer.
   Future<Uint8List?> thumbnailPrefix(String objectKey) async {
-    for (final target in await _targetsStore.loadAll()) {
+    for (final target in await _loadTargets()) {
       try {
         final response = await _get(
           await presignGetUrl(
@@ -323,7 +355,7 @@ class VaultBucket {
 
   /// A whole carrier, for opening the photo itself.
   Future<Uint8List?> object(String objectKey) async {
-    for (final target in await _targetsStore.loadAll()) {
+    for (final target in await _loadTargets()) {
       try {
         final response = await _get(
           await presignGetUrl(

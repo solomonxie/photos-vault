@@ -23,7 +23,17 @@ class FakeAssetRecordStore implements AssetRecordStore {
 
   @override
   Future<Map<String, Map<DerivativeKind, Map<String, String>>>>
-  allHoldings() async => const {};
+  allHoldings() async {
+    final out = <String, Map<DerivativeKind, Map<String, String>>>{};
+    for (final MapEntry(:key, :value) in uploads.entries) {
+      final cut = key.lastIndexOf('/');
+      final kind = DerivativeKind.values.byName(key.substring(cut + 1));
+      (out[key.substring(0, cut)] ??= {})[kind] = {
+        for (final e in value.entries) e.key: e.value.key,
+      };
+    }
+    return out;
+  }
 
   @override
   Future<void> forgetTargetUpload(

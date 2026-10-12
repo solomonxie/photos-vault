@@ -1,3 +1,7 @@
+import 'dart:async';
+import 'dart:collection';
+import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:flutter/cupertino.dart';
@@ -43,12 +47,14 @@ class VaultGallery {
     VaultCache? cache,
     VaultStore? store,
     VaultCipher? cipher,
-  }) : _bucket = bucket ?? VaultBucket(),
+  }) : _ownsBucket = bucket == null,
+       _bucket = bucket ?? VaultBucket(),
        _cache = cache ?? VaultCache(),
        _store = store ?? VaultStore(),
        _cipher = cipher ?? PlatformCipher();
 
   final AlbumKeys keys;
+  final bool _ownsBucket;
   final VaultBucket _bucket;
   final VaultCache _cache;
   final VaultStore _store;
@@ -76,16 +82,100 @@ class VaultGallery {
     return readSection(cipher: _cipher, keys: keys, index: index);
   }
 
+  /// The listing as this phone last saw it, with no network: what the grid
+  /// shows while [list] asks the bucket.
+  Future<List<IndexEntry>> listLocal() async {
+    final index = await _store.readIndex();
+    if (index == null) return const [];
+    try {
+      return readSection(cipher: _cipher, keys: keys, index: index);
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// Which of [entries] this phone holds in full. The rest are in the bucket
   /// only, and draw from a kept thumbnail until one is downloaded.
-  Future<Set<String>> localKeys(List<IndexEntry> entries) async {
-    final held = <String>{};
-    for (final entry in entries) {
-      if (await _store.hasCarrier(keys, entry.objectKey)) {
-        held.add(entry.objectKey);
+  Future<Set<String>> localKeys(List<IndexEntry> entries) =>
+      _store.carriersHeld(keys, [for (final e in entries) e.objectKey]);
+
+  /// Bucket reads in flight for tiles. A fast fling asks for hundreds; past
+  /// a handful they only queue in the network stack behind each other.
+  static const _maxTileFetches = 6;
+  int _tileFetches = 0;
+  final _tileQueue = Queue<Completer<void>>();
+
+  Future<Uint8List?> _fetchTilePrefix(String objectKey) async {
+    if (_tileFetches >= _maxTileFetches) {
+      final turn = Completer<void>();
+      _tileQueue.add(turn);
+      await turn.future;
+    } else {
+      _tileFetches++;
+    }
+    try {
+      return await _bucket.thumbnailPrefix(objectKey);
+    } finally {
+      if (_tileQueue.isNotEmpty) {
+        _tileQueue.removeFirst().complete();
+      } else {
+        _tileFetches--;
       }
     }
-    return held;
+  }
+
+  /// Payloads past this are parsed, MAC-checked and decrypted on another
+  /// isolate: the HMAC is pure Dart, and over a video it is seconds of
+  /// frozen UI. Below it, spawning one costs more than the work.
+  static const _offloadBytes = 1024 * 1024;
+
+  Future<OpenedCarrier?> _openBytes(Uint8List bytes) {
+    final cipher = _cipher;
+    final carrierKeys = keys.carrier;
+    OpenedCarrier? open() {
+      final payload = payloadOf(bytes);
+      return payload == null
+          ? null
+          : openCarrier(cipher: cipher, keys: carrierKeys, payload: payload);
+    }
+
+    if (bytes.length < _offloadBytes) return Future.value(open());
+    return _offload(open);
+  }
+
+  /// The local carrier, read and opened together off the UI isolate when
+  /// it is big, so its bytes are never copied across.
+  Future<OpenedCarrier?> _openLocal(String objectKey) async {
+    final File file;
+    try {
+      file = await _store.carrierFile(keys, objectKey);
+      if (!await file.exists()) return null;
+      if (await file.length() < _offloadBytes) {
+        return await _openBytes(await file.readAsBytes());
+      }
+    } catch (_) {
+      return null;
+    }
+    final path = file.path;
+    final cipher = _cipher;
+    final carrierKeys = keys.carrier;
+    return _offload(() {
+      final payload = payloadOf(File(path).readAsBytesSync());
+      return payload == null
+          ? null
+          : openCarrier(cipher: cipher, keys: carrierKeys, payload: payload);
+    });
+  }
+
+  static Future<OpenedCarrier?> _offload(OpenedCarrier? Function() work) async {
+    try {
+      return await Isolate.run(work);
+    } on ArgumentError {
+      // A cipher that can't cross isolates (a test double): open it here.
+      return work();
+    } catch (_) {
+      return null;
+    }
   }
 
   Future<Uint8List?> thumbnail(String objectKey) async {
@@ -116,7 +206,7 @@ class VaultGallery {
       return cached;
     }
 
-    final prefix = await _bucket.thumbnailPrefix(objectKey);
+    final prefix = await _fetchTilePrefix(objectKey);
     if (prefix == null) return null;
     final payload = payloadOfPrefix(prefix);
     if (payload == null) return null;
@@ -138,14 +228,8 @@ class VaultGallery {
   /// the local copy, and a decrypted second copy of it in Caches would be
   /// the same photo twice, one of them purgeable.
   Future<Uint8List?> original(IndexEntry entry) async {
-    final local = await _store.readCarrier(keys, entry.objectKey);
-    if (local != null) {
-      final payload = payloadOf(local);
-      final opened = payload == null
-          ? null
-          : openCarrier(cipher: _cipher, keys: keys.carrier, payload: payload);
-      if (opened != null) return opened.original;
-    }
+    final local = await _openLocal(entry.objectKey);
+    if (local != null) return local.original;
 
     final pool = entry.isVideo ? CachePool.video : CachePool.photo;
     final cached = await _cache.read(pool, keys, entry.objectKey);
@@ -153,13 +237,7 @@ class VaultGallery {
 
     final object = await _bucket.object(entry.objectKey);
     if (object == null) return null;
-    final payload = payloadOf(object);
-    if (payload == null) return null;
-    final opened = openCarrier(
-      cipher: _cipher,
-      keys: keys.carrier,
-      payload: payload,
-    );
+    final opened = await _openBytes(object);
     if (opened == null) return null;
     await _cache.write(pool, keys, entry.objectKey, opened.original);
     return opened.original;
@@ -178,12 +256,7 @@ class VaultGallery {
     // Only a carrier this album's key can open: anything else is somebody
     // else's object, or a truncated download, and storing it would leave a
     // photo that claims to be here and opens as nothing.
-    final payload = payloadOf(object);
-    if (payload == null) return false;
-    if (openCarrier(cipher: _cipher, keys: keys.carrier, payload: payload) ==
-        null) {
-      return false;
-    }
+    if (await _openBytes(object) == null) return false;
     return await _store.putCarrierBytes(keys, entry.objectKey, object) != null;
   }
 
@@ -219,22 +292,13 @@ class VaultGallery {
   Future<({OpenedCarrier? opened, bool absent})> openFull(
     String objectKey,
   ) async {
-    final local = await _store.readCarrier(keys, objectKey);
-    final Uint8List? bytes;
-    if (local != null) {
-      bytes = local;
-    } else {
-      final fetched = await _bucket.fetch(objectKey);
-      if (fetched.bytes == null) return (opened: null, absent: fetched.absent);
-      bytes = fetched.bytes;
+    if (await _store.hasCarrier(keys, objectKey)) {
+      return (opened: await _openLocal(objectKey), absent: false);
     }
-    final payload = payloadOf(bytes!);
-    return (
-      opened: payload == null
-          ? null
-          : openCarrier(cipher: _cipher, keys: keys.carrier, payload: payload),
-      absent: false,
-    );
+    final fetched = await _bucket.fetch(objectKey);
+    final bytes = fetched.bytes;
+    if (bytes == null) return (opened: null, absent: fetched.absent);
+    return (opened: await _openBytes(bytes), absent: false);
   }
 
   Uint8List? _openPrefix(Uint8List prefix) {
@@ -247,7 +311,10 @@ class VaultGallery {
     );
   }
 
-  void dispose() => _memory.clear();
+  void dispose() {
+    _memory.clear();
+    if (_ownsBucket) _bucket.close();
+  }
 }
 
 /// A carrier and its Live Photo twin share a name and differ by extension;

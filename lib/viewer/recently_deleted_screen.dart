@@ -37,6 +37,7 @@ class RecentlyDeletedScreen extends StatefulWidget {
 
 class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
   List<AssetRecord> _records = const [];
+  bool _loaded = false;
   List<BlockedTarget> _blocked = const [];
 
   late final AssetRemoval _removal =
@@ -53,16 +54,23 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
   }
 
   Future<void> _reload() async {
-    await _removal.expireBin();
-    final all = await widget.assetRecordStore.listAll();
-    final binned = await _removal.purgeVanished(
-      // A hidden photo never shows here: this page opens without a
-      // passcode. Hidden deletes are permanent (`HiddenRemoval`); this only
-      // catches one binned before that existed.
-      all.where((r) => r.isDeleted && r.passcodeHash == null).toList(),
-    );
+    // Housekeeping first, but a failure in it must not hide the bin: the
+    // page used to stay "empty" for good when either of these threw.
+    try {
+      await _removal.expireBin();
+    } catch (_) {}
+    final inBin = (await widget.assetRecordStore.listAll())
+        .where(isInBin)
+        .toList();
+    List<AssetRecord> binned;
+    try {
+      binned = await _removal.purgeVanished(inBin);
+    } catch (_) {
+      binned = inBin;
+    }
     if (!mounted) return;
     setState(() {
+      _loaded = true;
       _records = binned..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     });
     final blocked = await _loadBlocked();
@@ -215,7 +223,9 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
                 ),
               ),
             Expanded(
-              child: _records.isEmpty
+              child: !_loaded
+                  ? const Center(child: CupertinoActivityIndicator())
+                  : _records.isEmpty
                   ? Center(
                       child: Text(
                         l10n.libraryRecentlyDeletedEmpty,
