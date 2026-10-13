@@ -53,6 +53,15 @@ class RecordFixer {
     };
     final holdings = await store.allHoldings();
     final lostIds = await LostOriginals(store).current();
+    final holders = <String, Set<String>>{};
+    for (final r in records) {
+      for (final k in [
+        ?r.stateOf(DerivativeKind.original).destinationKey,
+        ...?holdings[r.localId]?[DerivativeKind.original]?.values,
+      ]) {
+        (holders[p.posix.basenameWithoutExtension(k)] ??= {}).add(r.localId);
+      }
+    }
 
     final lost = <Flag>[];
     final bare = <(AssetRecord, List<String>)>[];
@@ -71,6 +80,14 @@ class RecordFixer {
                     sizes.containsKey(k) ||
                     originals.containsKey(p.posix.basename(k)),
               ));
+      if (gone &&
+          r.localId.startsWith('bucket:') &&
+          _twinned(r, keys, holders)) {
+        // Imported from a listing older than a replace: the photo it names
+        // is already in the library under its new format.
+        await store.remove(r.localId);
+        continue;
+      }
       if (gone) {
         // One library lookup per lost record: a handful, not the library.
         final photos = r.libraryId != null && await _inPhotos(r);
@@ -116,6 +133,18 @@ class RecordFixer {
     ];
     return RecordScan(noThumbnail: noThumbnail, lost: lost);
   }
+
+  static bool _twinned(
+    AssetRecord r,
+    List<String> keys,
+    Map<String, Set<String>> holders,
+  ) => keys.any(
+    (k) =>
+        holders[p.posix.basenameWithoutExtension(k)]?.any(
+          (id) => id != r.localId,
+        ) ??
+        false,
+  );
 
   Future<bool> _inPhotos(AssetRecord r) async {
     try {

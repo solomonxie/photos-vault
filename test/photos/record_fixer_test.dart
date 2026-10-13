@@ -118,6 +118,28 @@ void main() {
     }
   }
 
+  test('an import of a key since replaced is dropped, its twin kept', () async {
+    await cloudOnly(
+      'bucket:20210912023824_abc',
+      key: 'photos-vault/originals/20210912023824_abc.heif',
+    );
+    await store.upsert(localId: 'photo', contentHash: 'p', platform: 'ios');
+    await store.updateDerivative(
+      'photo',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'photos-vault/originals/20210912023824_abc.heic',
+      ),
+    );
+    await listed(['photos-vault/originals/20210912023824_abc.heic']);
+
+    final scan = await fixer().scan();
+
+    expect(scan.lost, isEmpty);
+    expect((await store.listAll()).map((r) => r.localId), ['photo']);
+  });
+
   test('cloud-only with no thumbnail, or a thumbnail file gone, is '
       'flagged; one with its picture is not', () async {
     final kept = File('${tempDir.path}/kept.jpg')..writeAsBytesSync([1]);

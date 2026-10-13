@@ -312,6 +312,51 @@ void main() {
       expect((await f.rename(item)).ok, isTrue);
     });
 
+    test('adopting a key a replace already deleted makes no record', () async {
+      const stale = 'photos-vault/originals/20210912023824_abc.heif';
+      final item = FlaggedObject(
+        object: BucketObject(
+          targetId: target.id,
+          key: stale,
+          size: 10,
+          lastModified: DateTime(2026),
+        ),
+        kind: FlagKind.unclaimed,
+      );
+
+      expect((await fixer().adopt(item)).outcome, FixOutcome.removed);
+      expect(await store.listAll(), isEmpty);
+    });
+
+    test(
+      'adopting a name a record holds in another format is refused',
+      () async {
+        const stale = 'photos-vault/originals/20210912023824_abc.heif';
+        bucket.objects[stale] = video;
+        await store.upsert(localId: 'a', contentHash: 'a', platform: 'ios');
+        await store.updateDerivative(
+          'a',
+          DerivativeKind.original,
+          const DerivativeState(
+            status: UploadStatus.uploaded,
+            destinationKey: 'photos-vault/originals/20210912023824_abc.heic',
+          ),
+        );
+        final item = FlaggedObject(
+          object: BucketObject(
+            targetId: target.id,
+            key: stale,
+            size: 10,
+            lastModified: DateTime(2026),
+          ),
+          kind: FlagKind.unclaimed,
+        );
+
+        expect((await fixer().adopt(item)).ok, isFalse);
+        expect((await store.listAll()).map((r) => r.localId), ['a']);
+      },
+    );
+
     test('a file already gone is nothing left to fix', () async {
       bucket.objects['photos-vault/originals/odd.mp4'] = video;
       await relist();
@@ -535,6 +580,14 @@ void main() {
         destinationKey: oldKey,
         sourceHash: 'local-hash',
       );
+      await store.replaceBucketObjects(target.id, [
+        BucketObject(
+          targetId: target.id,
+          key: oldKey,
+          size: 9,
+          lastModified: DateTime(2026),
+        ),
+      ]);
       final smaller = File('${Directory.systemTemp.path}/pv_small.heic')
         ..writeAsBytesSync([1, 2, 3]);
       addTearDown(() => smaller.deleteSync());
@@ -550,6 +603,7 @@ void main() {
       expect(result.ok, isTrue);
       const newKey = 'photos-vault/originals/20260101120000_abc.heic';
       expect(bucket.objects.keys, [newKey]);
+      expect((await store.listBucketObjects()).map((o) => o.key), [newKey]);
       final state = (await store.getByLocalId('a'))!
           .stateOf(DerivativeKind.original);
       expect(state.destinationKey, newKey);

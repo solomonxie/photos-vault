@@ -612,6 +612,25 @@ class AssetRecordStore {
     });
   }
 
+  /// The listing follows a replace done here, so nothing reads the old key
+  /// as still in the bucket before the next listing.
+  Future<void> moveBucketObject(BucketObject from, BucketObject to) async {
+    final db = await _open();
+    final batch = db.batch()
+      ..delete(
+        _bucketObjectTable,
+        where: 'target_id = ? AND key = ?',
+        whereArgs: [from.targetId, from.key],
+      )
+      ..insert(_bucketObjectTable, {
+        'target_id': to.targetId,
+        'key': to.key,
+        'size': to.size,
+        'last_modified': to.lastModified.millisecondsSinceEpoch,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await batch.commit(noResult: true);
+  }
+
   /// Buckets with a listing on file.
   Future<Set<String>> bucketTargetIds() async {
     final db = await _open();
@@ -837,6 +856,22 @@ class AssetRecordStore {
       '(original_key = ? OR thumbnail_key = ? OR medium_key = ? OR live_key = ?) '
       'LIMIT 1',
       [key, except, except, key, key, key, key],
+    );
+    return rows.isNotEmpty;
+  }
+
+  /// Whether a record's original already has [stem] as its name, in any
+  /// format: a replace keeps the name and changes only the extension.
+  Future<bool> originalStemHeld(String stem) async {
+    if (RegExp(r'[*?\[\]]').hasMatch(stem)) return false;
+    final db = await _open();
+    final pattern = '*/$stem.*';
+    final rows = await db.rawQuery(
+      'SELECT 1 FROM $_derivativeTargetTable '
+      "WHERE kind = 'original' AND destination_key GLOB ? "
+      'UNION ALL SELECT 1 FROM $_table WHERE original_key GLOB ? '
+      'LIMIT 1',
+      [pattern, pattern],
     );
     return rows.isNotEmpty;
   }

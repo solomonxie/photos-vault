@@ -531,6 +531,13 @@ class BucketFixer {
       return const FixResult(FixOutcome.failed, detail: 'no such bucket');
     }
     final base = _stem(f.object.key);
+    // A listing older than a replace still shows the key it replaced.
+    if (await _ops.sizeOf(target, f.object.key) == null) {
+      return const FixResult(FixOutcome.removed);
+    }
+    if (await store.originalStemHeld(base)) {
+      return const FixResult(FixOutcome.failed, detail: 'already in library');
+    }
     final thumb = await _thumbnailOf(f);
     final localId = await _importRecord(
       target: target,
@@ -779,6 +786,21 @@ class BucketFixer {
         return const FixResult(FixOutcome.failed, detail: 'upload failed');
       }
       if (newKey != oldKey) await _ops.delete(target, oldKey);
+      final now = DateTime.now();
+      await store.moveBucketObject(
+        BucketObject(
+          targetId: targetId,
+          key: oldKey,
+          size: 0,
+          lastModified: now,
+        ),
+        BucketObject(
+          targetId: targetId,
+          key: newKey,
+          size: size,
+          lastModified: now,
+        ),
+      );
       await store.renameUploadKey(
         localId: record.localId,
         kind: DerivativeKind.original,

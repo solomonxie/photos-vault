@@ -1,5 +1,7 @@
 import 'dart:io';
 
+import 'package:path/path.dart' as p;
+
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:photos_vault/storage/bucket_object.dart';
@@ -30,6 +32,14 @@ class FakeAssetRecordStore implements AssetRecordStore {
           DerivativeKind.values.any((k) => r.stateOf(k).destinationKey == key),
     );
   }
+
+  @override
+  Future<bool> originalStemHeld(String stem) async => _records.values.any(
+    (r) => switch (r.stateOf(DerivativeKind.original).destinationKey) {
+      final key? => p.posix.basenameWithoutExtension(key) == stem,
+      null => false,
+    },
+  );
 
   @override
   Future<List<Map<String, Object?>>> uploadRows() async => const [];
@@ -394,6 +404,14 @@ class FakeAssetRecordStore implements AssetRecordStore {
     String targetId,
     List<BucketObject> objects,
   ) async => bucketObjects[targetId] = objects;
+
+  @override
+  Future<void> moveBucketObject(BucketObject from, BucketObject to) async {
+    bucketObjects[from.targetId]?.removeWhere((o) => o.key == from.key);
+    (bucketObjects[to.targetId] ??= [])
+      ..removeWhere((o) => o.key == to.key)
+      ..add(to);
+  }
 
   final bucketScans = <String, Map<String, String?>>{};
   final bucketStaged = <String, Map<String, BucketObject>>{};
