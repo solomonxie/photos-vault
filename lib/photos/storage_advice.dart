@@ -313,7 +313,22 @@ class StorageAdvisor {
   /// Photos whose bucket copy has already been made smaller.
   Set<String> _remoteDone = {};
 
+  /// Originals the listing of a bucket set up now has; empty before any
+  /// listing.
+  Set<String> _listed = {};
+
+  /// Done already, or held only by a bucket no longer set up: nothing
+  /// there to replace until it is backed up again.
+  bool _noRemote(AssetRecord r) =>
+      _remoteDone.contains(r.localId) ||
+      (_listed.isNotEmpty &&
+          !_listed.contains(r.stateOf(DerivativeKind.original).destinationKey));
+
   Future<void> _loadRemoteDone() async {
+    _listed = {
+      for (final o in await store.listBucketObjects())
+        if (o.directory == 'originals') o.key,
+    };
     try {
       final raw = await store.getAppState(_remoteKey);
       _remoteDone = raw == null
@@ -450,7 +465,7 @@ class StorageAdvisor {
           bytes: row['bytes'] as int,
           name: row['name'] as String,
           appOwned: row['appOwned'] as bool,
-          remoteOptimized: _remoteDone.contains(record.localId),
+          remoteOptimized: _noRemote(record),
         );
         if (item != null) items.add(item);
       }
@@ -571,7 +586,7 @@ class StorageAdvisor {
           bytes: measure.bytes,
           name: measure.name,
           appOwned: measure.appOwned,
-          remoteOptimized: _remoteDone.contains(record.localId),
+          remoteOptimized: _noRemote(record),
         );
         if (item != null) found.add(item);
       }
@@ -626,7 +641,7 @@ class StorageAdvisor {
         bytes: measure.bytes,
         name: measure.name,
         appOwned: measure.appOwned,
-        remoteOptimized: _remoteDone.contains(record.localId),
+        remoteOptimized: _noRemote(record),
       );
       if (again != null) items.add(again);
     }

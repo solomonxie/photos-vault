@@ -216,6 +216,46 @@ void main() {
       expect(found.items.map((i) => i.bytes), [9000, 3000, 1000]);
     });
 
+    test('a photo held only by a bucket no longer set up is not offered a '
+        'smaller bucket copy', () async {
+      final store = FakeAssetRecordStore();
+      for (final (id, key) in [
+        ('here', 'photos-vault/originals/here.heic'),
+        ('gone', 'photos-vault2/originals/gone.heic'),
+      ]) {
+        await store.upsert(
+          localId: id,
+          contentHash: id,
+          platform: 'ios',
+          width: 6000,
+          height: 4000,
+        );
+        await store.updateDerivative(
+          id,
+          DerivativeKind.original,
+          DerivativeState(status: UploadStatus.uploaded, destinationKey: key),
+        );
+      }
+      await store.replaceBucketObjects('t', [
+        BucketObject(
+          targetId: 't',
+          key: 'photos-vault/originals/here.heic',
+          size: 9000,
+          lastModified: DateTime(2026),
+        ),
+      ]);
+
+      final found = await StorageAdvisor(
+        store: store,
+        measure: (r) async =>
+            AssetMeasure(bytes: 9000, name: 'a.heic', appOwned: false),
+      ).scan();
+
+      final fixes = {for (final i in found.items) i.record.localId: i.fixes};
+      expect(fixes['here'], contains(StorageFix.optimizeRemote));
+      expect(fixes['gone'], isNot(contains(StorageFix.optimizeRemote)));
+    });
+
     test('a page opened again joins the pass already running', () async {
       final store = FakeAssetRecordStore();
       for (var i = 0; i < 3; i++) {
