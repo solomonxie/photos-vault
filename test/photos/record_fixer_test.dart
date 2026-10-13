@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
+import 'package:image/image.dart' as img;
 import 'package:photos_vault/photos/fix_queue.dart';
 import 'package:photos_vault/photos/photo_library_service.dart';
 import 'package:photos_vault/photos/record_fixer.dart';
@@ -117,6 +118,108 @@ void main() {
       await Future<void>.delayed(const Duration(milliseconds: 5));
     }
   }
+
+  test('a smaller copy left in Photos is paired with its own original, '
+      'not the burst frame beside it', () async {
+    final taken = DateTime(2026, 9, 8, 14, 42, 50);
+    String picture(String name, {required bool flipped, int width = 90}) {
+      final image = img.Image(width: width, height: width * 2 ~/ 3);
+      for (final px in image) {
+        final v = flipped ? 255 - px.x * 255 ~/ width : px.x * 255 ~/ width;
+        px
+          ..r = v
+          ..g = v
+          ..b = (px.y * 7) % 255;
+      }
+      final file = File('${tempDir.path}/$name.jpg')
+        ..writeAsBytesSync(img.encodeJpg(image));
+      return file.path;
+    }
+
+    Future<void> photo(
+      String id, {
+      required int width,
+      required int height,
+      required String thumbnail,
+      DateTime? added,
+    }) async {
+      final key = 'photos-vault/originals/$id.heic';
+      await store.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        width: width,
+        height: height,
+        createdAt: taken,
+        addedAt: added ?? taken,
+        libraryId: '$id/L0/001',
+      );
+      await store.updateDerivative(
+        id,
+        DerivativeKind.original,
+        DerivativeState(status: UploadStatus.uploaded, destinationKey: key),
+      );
+      await store.setThumbnailPath(id, thumbnail);
+    }
+
+    final later = taken.add(const Duration(days: 30));
+    await photo(
+      'a',
+      width: 5120,
+      height: 3414,
+      thumbnail: picture('a', flipped: false),
+    );
+    await photo(
+      'b',
+      width: 5120,
+      height: 3414,
+      thumbnail: picture('b', flipped: true),
+    );
+    await photo(
+      'copy',
+      width: 2560,
+      height: 1707,
+      added: later,
+      thumbnail: picture('copy', flipped: true, width: 60),
+    );
+    await photo(
+      'again',
+      width: 2560,
+      height: 1707,
+      added: later,
+      thumbnail: picture('again', flipped: true, width: 75),
+    );
+    await listed([
+      for (final id in ['a', 'b', 'copy', 'again'])
+        'photos-vault/originals/$id.heic',
+    ]);
+    final filed = <(String, String, List<String>)>[];
+    final f = RecordFixer(
+      store: store,
+      thumbnail: (_) async => null,
+      inPhotos: (_) async => true,
+      remove: (_) async => true,
+      fileCopies: (pairs, extras) async {
+        for (final (:original, :copy) in pairs) {
+          filed.add((
+            original.localId,
+            copy.localId,
+            [for (final e in extras) e.localId],
+          ));
+        }
+      },
+    );
+
+    final scan = await f.scan();
+
+    expect(scan.leftoverCopies.map((x) => x.asset!.localId), ['b']);
+    expect(
+      (await f.finishOptimize((await store.getByLocalId('b'))!)).ok,
+      isTrue,
+    );
+    expect(filed.single.$1, 'b');
+    expect(filed.single.$3, hasLength(1));
+  });
 
   test('an import of a key since replaced is dropped, its twin kept', () async {
     await cloudOnly(

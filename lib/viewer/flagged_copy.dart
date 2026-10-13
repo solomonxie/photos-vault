@@ -25,6 +25,7 @@ String solutionLabel(AppLocalizations l10n, FlagSolution s) => switch (s) {
   FlagSolution.makeThumbnail => l10n.flaggedMakeThumbnails,
   FlagSolution.getFromPhotos => l10n.flaggedGetFromPhotos,
   FlagSolution.removeFromLibrary => l10n.flaggedRemoveFromLibrary,
+  FlagSolution.finishOptimize => l10n.flaggedFinishOptimize,
 };
 
 /// One line: what the action will do.
@@ -45,6 +46,7 @@ String solutionHow(AppLocalizations l10n, FlagSolution s) => switch (s) {
   FlagSolution.makeThumbnail => l10n.flaggedHowMakeThumbnail,
   FlagSolution.getFromPhotos => l10n.flaggedHowGetFromPhotos,
   FlagSolution.removeFromLibrary => l10n.flaggedHowRemoveFromLibrary,
+  FlagSolution.finishOptimize => l10n.flaggedHowFinishOptimize,
 };
 
 /// The fine print, shown on the action's page before anything runs.
@@ -56,6 +58,7 @@ String? solutionDetail(AppLocalizations l10n, FlagSolution s) => switch (s) {
   FlagSolution.removeOldCopy => l10n.flaggedConfirmOldCopyBody,
   FlagSolution.importAnyway => l10n.flaggedConfirmImportAnywayBody,
   FlagSolution.removeFromLibrary => l10n.flaggedConfirmRemoveFromLibraryBody,
+  FlagSolution.finishOptimize => l10n.flaggedConfirmFinishOptimizeBody,
   _ => null,
 };
 
@@ -89,6 +92,7 @@ IconData solutionIcon(FlagSolution s) => switch (s) {
   FlagSolution.makeThumbnail => CupertinoIcons.photo_fill,
   FlagSolution.getFromPhotos => CupertinoIcons.arrow_down_circle_fill,
   FlagSolution.removeFromLibrary => CupertinoIcons.trash_fill,
+  FlagSolution.finishOptimize => CupertinoIcons.arrow_down_right_arrow_up_left,
 };
 
 String problemLabel(AppLocalizations l10n, FlagProblem p) => switch (p) {
@@ -103,6 +107,7 @@ String problemLabel(AppLocalizations l10n, FlagProblem p) => switch (p) {
   FlagProblem.duplicate => l10n.flaggedProblemDuplicate,
   FlagProblem.noThumbnail => l10n.flaggedProblemNoThumbnail,
   FlagProblem.missingFromBucket => l10n.flaggedProblemMissing,
+  FlagProblem.leftoverCopy => l10n.flaggedProblemLeftoverCopy,
 };
 
 /// Why this item is listed. A photo's tags explain its size; a bucket file
@@ -112,6 +117,9 @@ String flagReason(AppLocalizations l10n, Flag flag) {
   if (flag.asset != null) {
     if (flag.problems.contains(FlagProblem.noThumbnail)) {
       return l10n.flaggedNoThumbnailReason;
+    }
+    if (flag.problems.contains(FlagProblem.leftoverCopy)) {
+      return l10n.flaggedLeftoverCopyReason;
     }
     return flag.solutions.contains(FlagSolution.getFromPhotos)
         ? l10n.flaggedLostInPhotosReason

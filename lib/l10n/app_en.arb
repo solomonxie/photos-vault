@@ -1942,5 +1942,10 @@
   "flaggedHowRemoveFromLibrary": "No bucket set up now has these, and neither does this iPhone or Photos. Nothing here can bring them back.",
   "flaggedConfirmRemoveFromLibraryBody": "They're removed from this app for good. No bucket set up now has them, so they can't be downloaded again.",
   "flaggedLostReason": "Not in any bucket set up now, and not on this iPhone",
-  "flaggedLostInPhotosReason": "Not in any bucket set up now; Photos still has it"
+  "flaggedLostInPhotosReason": "Not in any bucket set up now; Photos still has it",
+  "flaggedFinishOptimize": "Finish Optimize",
+  "flaggedHowFinishOptimize": "A smaller copy from an earlier Optimize is in Photos beside its original. Keeps the copy and deletes the original, which stays in your bucket.",
+  "flaggedConfirmFinishOptimizeBody": "iOS asks once to delete the originals. Only originals whose full-size file is in your bucket are listed. Tags, people and albums move to the smaller copy.",
+  "flaggedProblemLeftoverCopy": "Copy left in Photos",
+  "flaggedLeftoverCopyReason": "Optimize saved a smaller copy but the original was never removed"
 }

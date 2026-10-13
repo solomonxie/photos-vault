@@ -98,7 +98,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
       final found = await fixer.scan();
       if (!mounted) return;
       _lost = found.lost.length;
-      _records = [...found.lost, ...found.noThumbnail];
+      _records = [...found.lost, ...found.leftoverCopies, ...found.noThumbnail];
       _derive();
     } catch (_) {
       // Unreadable: said nothing rather than something wrong.

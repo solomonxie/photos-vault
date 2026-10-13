@@ -9,15 +9,24 @@ import '../upload/bucket_flagged.dart' show FixOutcome, FixResult;
 import '../upload/cloud_thumbnails.dart';
 import '../upload/lost_originals.dart';
 import 'fix_queue.dart';
+import 'image_pipeline.dart';
+import 'storage_advice.dart' show compressedVideoEdge, optimizedMaxEdge;
 
 /// Cloud-only records with something wrong that only the record can fix:
 /// no picture of themselves on this phone, or no original anywhere a
 /// bucket set up now can reach.
 class RecordScan {
-  const RecordScan({this.noThumbnail = const [], this.lost = const []});
+  const RecordScan({
+    this.noThumbnail = const [],
+    this.lost = const [],
+    this.leftoverCopies = const [],
+  });
 
   final List<Flag> noThumbnail;
   final List<Flag> lost;
+
+  /// Originals still in Photos beside the smaller copy Optimize made.
+  final List<Flag> leftoverCopies;
 }
 
 /// Finds and fixes [RecordScan]'s flags for [FixQueue].
@@ -27,6 +36,7 @@ class RecordFixer {
     required this.thumbnail,
     required this.inPhotos,
     required this.remove,
+    this.fileCopies,
   });
 
   final AssetRecordStore store;
@@ -40,6 +50,17 @@ class RecordFixer {
 
   /// `AssetRemoval.deletePermanently`.
   final Future<bool> Function(AssetRecord record) remove;
+
+  /// `StorageOptimizer.fileFoundCopies`.
+  final Future<void> Function(
+    List<({AssetRecord original, AssetRecord copy})> pairs,
+    List<AssetRecord> extras,
+  )?
+  fileCopies;
+
+  /// From the last [scan]: each original's copy to keep, and any more
+  /// copies of it.
+  Map<String, ({AssetRecord copy, List<AssetRecord> extras})> _copies = {};
 
   Future<RecordScan> scan() async {
     final records = await store.listAll();
@@ -131,7 +152,141 @@ class RecordFixer {
             bytes: _sizeOf(keys, sizes, originals),
           ),
     ];
-    return RecordScan(noThumbnail: noThumbnail, lost: lost);
+    return RecordScan(
+      noThumbnail: noThumbnail,
+      lost: lost,
+      leftoverCopies: await _leftoverCopies(records, sizes),
+    );
+  }
+
+  /// A copy has the original's capture time, the shape Optimize gives,
+  /// and arrived in Photos long after it was taken. A burst shares the
+  /// time and the size, so the picture itself decides which is whose.
+  Future<List<Flag>> _leftoverCopies(
+    List<AssetRecord> records,
+    Map<String, int> listed,
+  ) async {
+    bool inPhotos(AssetRecord r) =>
+        !r.isDeleted &&
+        !r.localDeleted &&
+        r.passcodeHash == null &&
+        !r.isLocked &&
+        r.libraryId != null &&
+        r.sourceType == AssetSourceType.photoManager;
+    int? edge(AssetRecord r) => switch ((r.width, r.height)) {
+      (final w?, final h?) => w > h ? w : h,
+      _ => null,
+    };
+    bool isCopy(AssetRecord r) {
+      final e = edge(r);
+      return !r.localOptimized &&
+          e != null &&
+          r.addedAt.difference(r.createdAt) > const Duration(days: 1) &&
+          (r.isVideo ? e == compressedVideoEdge : e == optimizedMaxEdge);
+    }
+
+    final byTime = <(int, bool), List<AssetRecord>>{};
+    for (final r in records) {
+      if (!inPhotos(r)) continue;
+      (byTime[(r.createdAt.millisecondsSinceEpoch, r.isVideo)] ??= []).add(r);
+    }
+    final groups = <(List<AssetRecord>, List<AssetRecord>)>[];
+    for (final group in byTime.values) {
+      if (group.length < 2) continue;
+      final copies = group.where(isCopy).toList();
+      if (copies.isEmpty) continue;
+      final originals = [
+        for (final o in group)
+          if (!copies.contains(o) && !o.localOptimized) o,
+      ];
+      if (originals.isNotEmpty) groups.add((originals, copies));
+    }
+    if (groups.isEmpty) {
+      _copies = {};
+      return const [];
+    }
+
+    final paths = {
+      for (final (originals, copies) in groups)
+        for (final r in [...originals, ...copies]) r.localId: ?r.thumbnailPath,
+    };
+    final hashes = await Isolate.run(() {
+      final out = <String, int>{};
+      for (final MapEntry(key: id, value: path) in paths.entries) {
+        try {
+          final hash = differenceHash(File(path).readAsBytesSync());
+          if (hash != null) out[id] = hash;
+        } catch (_) {}
+      }
+      return out;
+    });
+
+    bool sameShape(AssetRecord a, AssetRecord b) {
+      final (aw, ah, bw, bh) = (a.width!, a.height!, b.width, b.height);
+      if (bw == null || bh == null || ah == 0 || bh == 0) return false;
+      return ((aw / ah) - (bw / bh)).abs() < 0.02;
+    }
+
+    final found = <String, ({AssetRecord copy, List<AssetRecord> extras})>{};
+    final flags = <Flag>[];
+    for (final (originals, copies) in groups) {
+      final mine = <String, List<(int, AssetRecord)>>{};
+      for (final c in copies) {
+        AssetRecord? best;
+        var bestDistance = 1 << 30;
+        for (final o in originals) {
+          if (!sameShape(c, o) || (edge(o) ?? 0) <= edge(c)!) continue;
+          final (hc, ho) = (hashes[c.localId], hashes[o.localId]);
+          final d = hc != null && ho != null
+              ? hashDistance(hc, ho)
+              : originals.length == 1
+              ? _maxDistance
+              : 1 << 30;
+          if (d < bestDistance) (best, bestDistance) = (o, d);
+        }
+        if (best != null && bestDistance <= _maxDistance) {
+          (mine[best.localId] ??= []).add((bestDistance, c));
+        }
+      }
+      for (final o in originals) {
+        final claims = mine[o.localId];
+        if (claims == null) continue;
+        // Gone from Photos only when the full-size file is safe elsewhere.
+        final key = o.stateOf(DerivativeKind.original).destinationKey;
+        if (!o.isFullyBackedUp || key == null || !listed.containsKey(key)) {
+          continue;
+        }
+        claims.sort((a, b) => a.$1.compareTo(b.$1));
+        found[o.localId] = (
+          copy: claims.first.$2,
+          extras: [for (final (_, c) in claims.skip(1)) c],
+        );
+        flags.add(
+          Flag.asset(
+            o,
+            problem: FlagProblem.leftoverCopy,
+            solutions: const [FlagSolution.finishOptimize],
+            name: _nameOf(o, [key]),
+          ),
+        );
+      }
+    }
+    _copies = found;
+    return flags;
+  }
+
+  static const _maxDistance = 10;
+
+  /// Files the swap; the queue's one iOS prompt at the end of the run
+  /// deletes the original and moves the record onto its copy.
+  Future<FixResult> finishOptimize(AssetRecord record) async {
+    final file = fileCopies;
+    final found = _copies[record.localId];
+    if (file == null || found == null) {
+      return const FixResult(FixOutcome.failed, detail: 'rescan first');
+    }
+    await file([(original: record, copy: found.copy)], found.extras);
+    return const FixResult(FixOutcome.removed);
   }
 
   static bool _twinned(

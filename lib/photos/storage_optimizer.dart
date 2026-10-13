@@ -9,6 +9,7 @@ import 'package:photo_manager/photo_manager.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/backup_verifier.dart';
+import '../upload/pending_deletes.dart';
 import 'file_hash.dart';
 import 'image_pipeline.dart';
 import 'photo_library_service.dart';
@@ -363,22 +364,26 @@ class StorageOptimizer {
         report(item, StorageItemOutcome.skipped);
       } else {
         made[item] = result;
+        // Filed the moment the copy exists: a run cut short must not leave
+        // it in Photos beside its original with nothing to say so.
+        if (_defer) {
+          final (asset, file) = result;
+          await _addSwaps([
+            {
+              'id': item.record.localId,
+              'asset': asset.id,
+              'w': asset.width,
+              'h': asset.height,
+              'old': item.bytes,
+              'new': await file.length(),
+            },
+          ]);
+        }
         onPrepared?.call(item.record.localId);
       }
     }
     if (made.isEmpty) return StorageFixResult(skipped: skipped);
     if (_defer) {
-      await _addSwaps([
-        for (final MapEntry(key: item, value: (asset, file)) in made.entries)
-          {
-            'id': item.record.localId,
-            'asset': asset.id,
-            'w': asset.width,
-            'h': asset.height,
-            'old': item.bytes,
-            'new': await file.length(),
-          },
-      ]);
       for (final (_, file) in made.values) {
         try {
           await file.delete();
@@ -488,7 +493,9 @@ class StorageOptimizer {
       final id = s['id'] as String;
       final asset = s['asset'] as String?;
       if (!gone.contains(id)) {
-        if (asset != null) orphans.add(asset);
+        // A copy found already in Photos is kept: declining only means the
+        // original stays too.
+        if (asset != null && s['keep'] != true) orphans.add(asset);
         skipped++;
         onItem?.call(id, StorageItemOutcome.skipped);
         continue;
@@ -497,6 +504,7 @@ class StorageOptimizer {
         await store.softDelete(id);
         freed += s['old'] as int;
       } else {
+        await _dropCopyRecord(asset, keeper: id);
         await store.setLibraryId(id, asset);
         await store.setLocalOptimized(id, true);
         await store.setLibraryMetadata(
@@ -514,6 +522,45 @@ class StorageOptimizer {
     return StorageFixResult(freedBytes: freed, skipped: skipped);
   }
 
+  /// Sync may have found the copy before the swap finished and made it a
+  /// photo of its own, uploads and all; the original's record takes the
+  /// asset over, so that one and its bucket copies go.
+  Future<void> _dropCopyRecord(String asset, {required String keeper}) async {
+    final copy = await store.getByLibraryId(asset);
+    if (copy == null || copy.localId == keeper) return;
+    final keys = <PendingDelete>[
+      for (final kind in DerivativeKind.values)
+        for (final MapEntry(key: target, value: key)
+            in (await store.targetsHolding(copy.localId, kind)).entries)
+          PendingDelete(
+            objectKey: key,
+            targetId: target,
+            localId: copy.localId,
+          ),
+    ];
+    await store.remove(copy.localId);
+    if (keys.isNotEmpty) await PendingDeletes(store: store).add(keys);
+  }
+
+  /// Files [pairs] of an original and a smaller copy of it already in
+  /// Photos, and [extras], more copies of one, for [finishSwaps].
+  Future<void> fileFoundCopies(
+    List<({AssetRecord original, AssetRecord copy})> pairs,
+    List<AssetRecord> extras,
+  ) => _addSwaps([
+    for (final (:original, :copy) in pairs)
+      {
+        'id': original.localId,
+        'asset': copy.libraryId,
+        'w': copy.width,
+        'h': copy.height,
+        'old': 0,
+        'new': 0,
+        'keep': true,
+      },
+    for (final e in extras) {'id': e.localId, 'old': 0},
+  ]);
+
   void _step(StorageItem item, FixAction action) =>
       _onStep?.call(item.record.localId, action);
 
@@ -528,12 +575,17 @@ class StorageOptimizer {
   /// 3. it hasn't — [fromBucket] downloads the bucket's, and the smaller
   ///    copy is made from that.
   ///
+  /// The last [smallerFile] made a copy no smaller: already as compact as
+  /// it gets, nothing to retry.
+  bool smallestAlready = false;
+
   /// Null when nothing smaller can be had; [smallerFileProblem] says why.
   Future<File?> smallerFile(
     AssetRecord record, {
     Future<File?> Function(String toPath)? fromBucket,
   }) async {
     smallerFileProblem = null;
+    smallestAlready = false;
     final stamp = DateTime.now().microsecondsSinceEpoch;
     final temps = <File>[];
     File temp(String ext) {
@@ -572,6 +624,9 @@ class StorageOptimizer {
       smallerFileProblem = record.isVideo
           ? lastVideoCompressError ?? 'video not compressed'
           : 'not smaller';
+      smallestAlready =
+          (wrote && !record.isVideo) ||
+          (smallerFileProblem?.startsWith('not smaller') ?? false);
     } catch (e) {
       smallerFileProblem = '$e';
     }

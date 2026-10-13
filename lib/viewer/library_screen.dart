@@ -359,6 +359,7 @@ class LibraryScreenState extends State<LibraryScreen>
       inPhotos: (record) async =>
           await _photoLibraryService.entityFor(record) != null,
       remove: (record) => _removal.deletePermanently(record),
+      fileCopies: _storageOptimizer.fileFoundCopies,
     ),
   );
 

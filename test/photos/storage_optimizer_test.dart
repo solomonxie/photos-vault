@@ -7,6 +7,7 @@ import 'package:photos_vault/photos/file_hash.dart';
 import 'package:photos_vault/photos/photo_library_service.dart';
 import 'package:photos_vault/photos/storage_advice.dart';
 import 'package:photos_vault/photos/storage_optimizer.dart';
+import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/photos/thumbnail_cache.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 
@@ -358,6 +359,57 @@ void main() {
       expect(result.freedBytes, 6000 - 100);
       expect((await store.getByLocalId('cam'))!.libraryId, 'new-asset');
       expect(await relaunched.pendingSwaps(), isEmpty);
+    });
+
+    test('a copy already in Photos: the original goes, its record takes the '
+        'copy over, and the record sync made of the copy is dropped', () async {
+      final store = FakeAssetRecordStore();
+      final original = await cameraRoll(store);
+      await store.upsert(
+        localId: 'copy',
+        contentHash: 'copy',
+        platform: 'ios',
+        libraryId: 'copy-asset',
+        width: 2560,
+        height: 1920,
+      );
+      await store.recordUpload(
+        localId: 'copy',
+        kind: DerivativeKind.original,
+        targetId: 't',
+        destinationKey: 'originals/copy.heic',
+      );
+      final writer = _FakeWriter(tempDir);
+      StorageOptimizer optimizer(List<String> refuse) => StorageOptimizer(
+        store: store,
+        thumbnails: ThumbnailCache(
+          store: store,
+          directory: () async => tempDir,
+          encode: (_) async => Uint8List.fromList([1]),
+        ),
+        library: libraryThatDeletes(refuse),
+        backUp: (_) async {},
+        writer: writer,
+      );
+      final copy = (await store.getByLocalId('copy'))!;
+
+      await optimizer(['old-asset'])
+          .fileFoundCopies([(original: original, copy: copy)], const []);
+      await optimizer(['old-asset']).finishSwaps();
+      expect(writer.deletedIds, isEmpty, reason: 'declined keeps the copy');
+      expect(await store.getByLocalId('copy'), isNotNull);
+
+      await optimizer(const [])
+          .fileFoundCopies([(original: original, copy: copy)], const []);
+      await optimizer(const []).finishSwaps();
+      final moved = (await store.getByLocalId('cam'))!;
+      expect(moved.libraryId, 'copy-asset');
+      expect(moved.localOptimized, isTrue);
+      expect(await store.getByLocalId('copy'), isNull);
+      expect(
+        (await PendingDeletes(store: store).pending()).map((d) => d.objectKey),
+        ['originals/copy.heic'],
+      );
     });
 
     test('puts the smaller copy in Photos and moves the record onto it, so '

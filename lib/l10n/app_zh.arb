@@ -1344,5 +1344,10 @@
   "flaggedHowRemoveFromLibrary": "当前设置的存储桶、本机和“照片”中都没有这些项目，无法找回。",
   "flaggedConfirmRemoveFromLibraryBody": "它们会从本应用中永久移除。当前设置的存储桶都没有它们，无法再次下载。",
   "flaggedLostReason": "不在当前设置的任何存储桶中，本机也没有",
-  "flaggedLostInPhotosReason": "不在当前设置的任何存储桶中；“照片”中仍有"
+  "flaggedLostInPhotosReason": "不在当前设置的任何存储桶中；“照片”中仍有",
+  "flaggedFinishOptimize": "完成优化",
+  "flaggedHowFinishOptimize": "之前优化生成的较小副本与原图同时留在照片中。保留副本，删除原图；原图仍保存在存储桶中。",
+  "flaggedConfirmFinishOptimizeBody": "iOS 会询问一次是否删除原图。只列出完整原图已在存储桶中的照片。标签、人物和相簿会转到较小的副本上。",
+  "flaggedProblemLeftoverCopy": "照片中残留副本",
+  "flaggedLeftoverCopyReason": "优化保存了较小的副本，但原图未被删除"
 }

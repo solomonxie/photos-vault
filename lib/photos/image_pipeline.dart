@@ -111,3 +111,35 @@ Uint8List _encodeAt(img.Image decoded, int edge, int quality) {
   }
   return (Uint8List.fromList(img.encodeWebP(image)), image.width, image.height);
 }
+
+/// A 64-bit difference hash: near for the same picture at another size or
+/// quality, far for the next frame of a burst only when it moved.
+int? differenceHash(Uint8List bytes) {
+  final decoded = decodePhoto(bytes);
+  if (decoded == null) return null;
+  final small = img.copyResize(
+    decoded,
+    width: 9,
+    height: 8,
+    interpolation: img.Interpolation.average,
+  );
+  var hash = 0;
+  for (var y = 0; y < 8; y++) {
+    for (var x = 0; x < 8; x++) {
+      final left = small.getPixel(x, y).luminance;
+      final right = small.getPixel(x + 1, y).luminance;
+      hash = (hash << 1) | (left > right ? 1 : 0);
+    }
+  }
+  return hash;
+}
+
+int hashDistance(int a, int b) {
+  var x = a ^ b;
+  var n = 0;
+  while (x != 0) {
+    x &= x - 1;
+    n++;
+  }
+  return n;
+}
