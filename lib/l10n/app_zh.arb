@@ -1332,5 +1332,17 @@
   "flaggedConfirmReformatBody": "每张照片会被下载、转换并上传为更小的副本。副本校验无误后，存储桶中的原文件会被删除。",
   "flaggedConfirmImportAnywayBody": "这看起来是已有照片的旧副本。",
   "detailRestoreFailedTitle": "无法下载完整分辨率版本",
-  "detailRestoreFailedUnknown": "没有存储桶响应。"
+  "detailRestoreFailedUnknown": "没有存储桶响应。",
+  "flaggedMakeThumbnails": "生成缩略图",
+  "flaggedHowMakeThumbnail": "仅在云端，本机没有预览图。取回存储桶中的缩略图，或只读取文件开头生成一张，无需下载整个文件。",
+  "flaggedProblemNoThumbnail": "无缩略图",
+  "flaggedNoThumbnailReason": "仅在云端，本机没有预览图",
+  "flaggedProblemMissing": "存储桶中缺失",
+  "flaggedGetFromPhotos": "从照片取回",
+  "flaggedHowGetFromPhotos": "当前设置的存储桶都没有这些项目，但“照片”中仍有。改用“照片”中的副本，并重新备份。",
+  "flaggedRemoveFromLibrary": "从图库移除",
+  "flaggedHowRemoveFromLibrary": "当前设置的存储桶、本机和“照片”中都没有这些项目，无法找回。",
+  "flaggedConfirmRemoveFromLibraryBody": "它们会从本应用中永久移除。当前设置的存储桶都没有它们，无法再次下载。",
+  "flaggedLostReason": "不在当前设置的任何存储桶中，本机也没有",
+  "flaggedLostInPhotosReason": "不在当前设置的任何存储桶中；“照片”中仍有"
 }

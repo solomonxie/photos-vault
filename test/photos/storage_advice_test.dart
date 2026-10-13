@@ -216,6 +216,42 @@ void main() {
       expect(found.items.map((i) => i.bytes), [9000, 3000, 1000]);
     });
 
+    test('a page opened again joins the pass already running', () async {
+      final store = FakeAssetRecordStore();
+      for (var i = 0; i < 3; i++) {
+        await store.upsert(
+          localId: 'photo:$i',
+          contentHash: '$i',
+          platform: 'ios',
+          width: 6000,
+          height: 4000,
+        );
+        await store.updateDerivative(
+          'photo:$i',
+          DerivativeKind.original,
+          const DerivativeState(status: UploadStatus.uploaded),
+        );
+      }
+      final measured = <String>[];
+      final advisor = StorageAdvisor(
+        store: store,
+        measure: (r) async {
+          measured.add(r.localId);
+          await Future<void>.delayed(const Duration(milliseconds: 5));
+          return AssetMeasure(bytes: 9000, name: 'a.heic', appOwned: false);
+        },
+      );
+
+      final first = advisor.scan();
+      final second = advisor.scan();
+      final swept = await advisor.sweep();
+      await Future.wait([first, second]);
+
+      expect(measured, ['photo:0', 'photo:1', 'photo:2']);
+      expect((await second).complete, isTrue);
+      expect(swept.complete, isFalse);
+    });
+
     test('skips assets nothing can be measured about', () async {
       final store = FakeAssetRecordStore();
       await store.upsert(

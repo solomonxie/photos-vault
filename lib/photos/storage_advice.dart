@@ -483,10 +483,60 @@ class StorageAdvisor {
   /// the background sweep cheap enough to run unasked.
   ///
   /// [onProgress] lands on the same beat, so the page fills as it goes.
+  ///
+  /// One pass at a time: a page opened again while its last pass is still
+  /// going joins that pass rather than racing it over the same photos, and
+  /// a sweep that finds work under way leaves it alone.
   Future<StorageScan> scan({
     bool restart = false,
     int? limit,
     void Function(List<StorageItem> found, int done, int total)? onProgress,
+  }) async {
+    for (var running = _running; running != null; running = _running) {
+      if (limit != null) return cached();
+      if (!restart && _runningFull) {
+        if (onProgress != null) _listeners.add(onProgress);
+        try {
+          return await running;
+        } finally {
+          _listeners.remove(onProgress);
+        }
+      }
+      try {
+        await running;
+      } catch (_) {
+        // Its own caller hears about it.
+      }
+    }
+    if (onProgress != null) _listeners.add(onProgress);
+    _runningFull = limit == null;
+    final run = _running = _scan(
+      restart: restart,
+      limit: limit,
+      onProgress: (found, done, total) {
+        for (final listener in _listeners.toList()) {
+          listener(found, done, total);
+        }
+      },
+    );
+    try {
+      return await run;
+    } finally {
+      _running = null;
+      _listeners.remove(onProgress);
+    }
+  }
+
+  Future<StorageScan>? _running;
+  bool _runningFull = false;
+  final _listeners =
+      <void Function(List<StorageItem> found, int done, int total)>{};
+
+  Future<StorageScan> _scan({
+    required bool restart,
+    required int? limit,
+    required void Function(List<StorageItem> found, int done, int total)
+    onProgress,
   }) async {
     await _loadRemoteDone();
     final previous = restart ? const StorageScan() : await cached();
@@ -538,7 +588,7 @@ class StorageAdvisor {
           ),
         );
         // This pass's own progress: only what wasn't measured before.
-        onProgress?.call(scan.items, i + 1, take);
+        onProgress(scan.items, i + 1, take);
       }
     }
     return scan;

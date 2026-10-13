@@ -8,11 +8,9 @@ import '../photos/fix_queue.dart';
 import '../photos/storage_advice.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/settings_section.dart';
-import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/bucket_flagged.dart';
 import '../upload/bucket_import.dart';
-import '../upload/lost_originals.dart';
 import 'flagged_action_screen.dart';
 import 'flagged_copy.dart';
 
@@ -82,38 +80,26 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
     _queue.addListener(_derive);
     _loadStorage();
     _loadDuplicates();
-    _loadLost();
+    _loadRecords();
     _loadBucket();
   }
 
-  /// Photos the bucket turned out not to have — said under the heading,
-  /// the one place left that says so.
+  /// Cloud-only records: no thumbnail, or no bucket that has them.
+  List<Flag> _records = const [];
+
+  /// Photos the bucket turned out not to have — said under the heading as
+  /// well as listed.
   int _lost = 0;
 
-  Future<void> _loadLost() async {
+  Future<void> _loadRecords() async {
+    final fixer = _queue.records;
+    if (fixer == null) return;
     try {
-      final lost = {...await LostOriginals(widget.store).current()};
-      // Also cloud-only photos whose every known copy is in a bucket no
-      // longer set up: nothing here can download them.
-      final listed = {
-        for (final o in await widget.store.listBucketObjects()) o.key,
-      };
-      if (listed.isNotEmpty) {
-        final holdings = await widget.store.allHoldings();
-        for (final r in await widget.store.listAll()) {
-          if (!r.localDeleted || r.isDeleted || r.passcodeHash != null) {
-            continue;
-          }
-          final keys = {
-            ?r.stateOf(DerivativeKind.original).destinationKey,
-            ...?holdings[r.localId]?[DerivativeKind.original]?.values,
-          };
-          if (keys.isNotEmpty && !keys.any(listed.contains)) {
-            lost.add(r.localId);
-          }
-        }
-      }
-      if (mounted) setState(() => _lost = lost.length);
+      final found = await fixer.scan();
+      if (!mounted) return;
+      _lost = found.lost.length;
+      _records = [...found.lost, ...found.noThumbnail];
+      _derive();
     } catch (_) {
       // Unreadable: said nothing rather than something wrong.
     }
@@ -222,6 +208,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   void _rescan() {
     _loadStorage(restart: true);
     _loadDuplicates();
+    _loadRecords();
     _loadBucket(refresh: true);
   }
 
@@ -235,6 +222,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
         ..._duplicates,
         ..._storage.where((f) => !copies.contains(f.id)),
         ..._cloudOnly,
+        ..._records,
         ..._bucket,
       ])
         if (!_queue.isResolved(f)) f,

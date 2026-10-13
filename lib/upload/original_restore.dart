@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:flutter/services.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -26,8 +27,12 @@ class OriginalRestore {
     required this.recordStore,
     Future<Directory> Function()? directory,
     Future<http.Response> Function(Uri url)? get,
+    Future<bool> Function(Map<String, Object> args)? frame,
   }) : _directory = directory ?? getApplicationSupportDirectory,
-       _get = get ?? http.get;
+       _get = get ?? http.get,
+       _getHead =
+           get ?? ((url) => http.get(url, headers: {'Range': _headRange})),
+       _frame = frame ?? _nativeFrame;
 
   final BackupTargetsStore targetsStore;
   final AssetRecordStore recordStore;
@@ -35,6 +40,27 @@ class OriginalRestore {
 
   /// Overridable for tests so they never make a real network call.
   final Future<http.Response> Function(Uri url) _get;
+
+  /// The first [headBytes] of an object.
+  final Future<http.Response> Function(Uri url) _getHead;
+  static const _headRange = 'bytes=0-${headBytes - 1}';
+
+  /// `remoteThumbnail` in `ImageEncodeChannel.swift`; a test double in tests.
+  final Future<bool> Function(Map<String, Object> args) _frame;
+
+  static Future<bool> _nativeFrame(Map<String, Object> args) async {
+    try {
+      return await const MethodChannel('byo.photos/image_encode')
+              .invokeMethod<bool>('remoteThumbnail', args) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// How much of a photo is read for its thumbnail: enough for the preview
+  /// cameras embed near the start, a sliver of the whole.
+  static const headBytes = 512 * 1024;
 
   /// Downloads [record]'s `originals/` object from whichever configured
   /// target still has it, writes it into app-owned storage, and clears the
@@ -140,7 +166,55 @@ class OriginalRestore {
   /// cached path, or null if the bucket hasn't got a thumbnail either —
   /// which is the case for a photo small enough that the upload was
   /// skipped as not worth a second near-identical object.
-  Future<String?> restoreThumbnail(AssetRecord record) async {
+  ///
+  /// With no thumbnail object, one is made from the original where it
+  /// lies, without downloading it: a video's frame streamed by iOS, or a
+  /// photo's first [headBytes].
+  Future<String?> restoreThumbnail(AssetRecord record) async =>
+      await _fetchThumbnail(record) ?? await _makeThumbnail(record);
+
+  Future<String?> _makeThumbnail(AssetRecord record) async {
+    final held = await recordStore.targetsHolding(
+      record.localId,
+      DerivativeKind.original,
+    );
+    final dir = Directory(
+      p.join((await _directory()).path, ThumbnailCache.dirName),
+    );
+    for (final target in await targetsStore.loadAll()) {
+      final key = remoteKeyFor(
+        record: record,
+        kind: DerivativeKind.original,
+        target: target,
+        held: held,
+      );
+      if (key == null) continue;
+      try {
+        if (!await dir.exists()) await dir.create(recursive: true);
+        final out = p.join(
+          dir.path,
+          '${p.basenameWithoutExtension(key)}_made.jpg',
+        );
+        final url = await presignGetUrl(target: target, key: key);
+        final Map<String, Object> args;
+        if (record.isVideo) {
+          args = {'url': '$url', 'output': out};
+        } else {
+          final head = await _getHead(url);
+          if (head.statusCode != 200 && head.statusCode != 206) continue;
+          args = {'bytes': head.bodyBytes, 'output': out};
+        }
+        if (!await _frame(args)) continue;
+        await recordStore.setThumbnailPath(record.localId, out);
+        return out;
+      } catch (_) {
+        // This bucket couldn't; the next may.
+      }
+    }
+    return null;
+  }
+
+  Future<String?> _fetchThumbnail(AssetRecord record) async {
     final key = record.stateOf(DerivativeKind.thumbnail).destinationKey;
     if (key == null) return null;
 

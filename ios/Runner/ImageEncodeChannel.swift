@@ -28,6 +28,10 @@ class ImageEncodeChannel {
         compressVideo(call, result)
         return
       }
+      if call.method == "remoteThumbnail" {
+        remoteThumbnail(call, result)
+        return
+      }
       guard call.method == "encode",
             let args = call.arguments as? [String: Any],
             let data = args["bytes"] as? FlutterStandardTypedData,
@@ -82,6 +86,73 @@ class ImageEncodeChannel {
         wrote = FileManager.default.createFile(atPath: output, contents: out)
       }
       DispatchQueue.main.async { result(wrote) }
+    }
+  }
+
+  /// A thumbnail written to [output] without the whole file: a video's
+  /// frame read by AVFoundation straight from [url] (it range-requests only
+  /// what the frame needs), or a photo's from the first [bytes] of it —
+  /// its embedded preview, else whatever of it decodes. True when written.
+  private static func remoteThumbnail(
+    _ call: FlutterMethodCall,
+    _ result: @escaping FlutterResult
+  ) {
+    guard let args = call.arguments as? [String: Any],
+          let output = args["output"] as? String
+    else {
+      result(false)
+      return
+    }
+    let maxEdge = args["maxEdge"] as? Int ?? 640
+    let write = { (image: CGImage?) in
+      var wrote = false
+      let data = NSMutableData()
+      if let image = image,
+         let dest = CGImageDestinationCreateWithData(
+           data as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil
+         ) {
+        CGImageDestinationAddImage(
+          dest, image,
+          [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary
+        )
+        if CGImageDestinationFinalize(dest) {
+          wrote = FileManager.default.createFile(
+            atPath: output, contents: data as Data
+          )
+        }
+      }
+      DispatchQueue.main.async { result(wrote) }
+    }
+    if let bytes = args["bytes"] as? FlutterStandardTypedData {
+      DispatchQueue.global(qos: .utility).async {
+        let source = CGImageSourceCreateIncremental(nil)
+        CGImageSourceUpdateData(source, bytes.data as CFData, false)
+        write(CGImageSourceCreateThumbnailAtIndex(source, 0, [
+          kCGImageSourceCreateThumbnailFromImageIfAbsent: true,
+          kCGImageSourceCreateThumbnailWithTransform: true,
+          kCGImageSourceThumbnailMaxPixelSize: maxEdge,
+        ] as CFDictionary))
+      }
+      return
+    }
+    guard let raw = args["url"] as? String, let url = URL(string: raw) else {
+      result(false)
+      return
+    }
+    let generator = AVAssetImageGenerator(asset: AVURLAsset(url: url))
+    generator.appliesPreferredTrackTransform = true
+    generator.maximumSize = CGSize(width: maxEdge, height: maxEdge)
+    generator.requestedTimeToleranceBefore = .positiveInfinity
+    generator.requestedTimeToleranceAfter = .positiveInfinity
+    let at = CMTime(seconds: 1, preferredTimescale: 600)
+    if #available(iOS 16, *) {
+      generator.generateCGImageAsynchronously(for: at) { image, _, _ in
+        write(image)
+      }
+    } else {
+      DispatchQueue.global(qos: .utility).async {
+        write(try? generator.copyCGImage(at: at, actualTime: nil))
+      }
     }
   }
 

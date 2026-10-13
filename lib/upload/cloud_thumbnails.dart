@@ -35,6 +35,13 @@ class CloudThumbnails {
     _pump();
   }
 
+  /// A thumbnail made elsewhere (Flagged Items), for tiles already showing
+  /// their placeholder.
+  void landed(String localId, String path) {
+    _asked.add(localId);
+    fetched.value = {...fetched.value, localId: path};
+  }
+
   void _pump() {
     while (_running < concurrency && _waiting.isNotEmpty) {
       final record = _waiting.removeLast();

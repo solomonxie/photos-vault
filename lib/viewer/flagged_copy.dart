@@ -22,6 +22,9 @@ String solutionLabel(AppLocalizations l10n, FlagSolution s) => switch (s) {
   FlagSolution.removeOldCopy => l10n.flaggedRemoveOldCopy,
   FlagSolution.ignore => l10n.flaggedIgnore,
   FlagSolution.importAnyway => l10n.flaggedImportAnyway,
+  FlagSolution.makeThumbnail => l10n.flaggedMakeThumbnails,
+  FlagSolution.getFromPhotos => l10n.flaggedGetFromPhotos,
+  FlagSolution.removeFromLibrary => l10n.flaggedRemoveFromLibrary,
 };
 
 /// One line: what the action will do.
@@ -39,6 +42,9 @@ String solutionHow(AppLocalizations l10n, FlagSolution s) => switch (s) {
   FlagSolution.removeOldCopy => l10n.flaggedHowRemoveOldCopy,
   FlagSolution.ignore => l10n.flaggedHowIgnore,
   FlagSolution.importAnyway => l10n.flaggedHowImportAnyway,
+  FlagSolution.makeThumbnail => l10n.flaggedHowMakeThumbnail,
+  FlagSolution.getFromPhotos => l10n.flaggedHowGetFromPhotos,
+  FlagSolution.removeFromLibrary => l10n.flaggedHowRemoveFromLibrary,
 };
 
 /// The fine print, shown on the action's page before anything runs.
@@ -49,14 +55,22 @@ String? solutionDetail(AppLocalizations l10n, FlagSolution s) => switch (s) {
   FlagSolution.reformat => l10n.flaggedConfirmReformatBody,
   FlagSolution.removeOldCopy => l10n.flaggedConfirmOldCopyBody,
   FlagSolution.importAnyway => l10n.flaggedConfirmImportAnywayBody,
+  FlagSolution.removeFromLibrary => l10n.flaggedConfirmRemoveFromLibraryBody,
   _ => null,
 };
 
-/// Deletes from the bucket for good, so it asks once more.
+/// Deletes for good, so it asks once more.
 bool solutionIsPermanent(FlagSolution s) =>
     s == FlagSolution.removeThumbnail ||
     s == FlagSolution.removeOldCopy ||
-    s == FlagSolution.removeBucketDuplicate;
+    s == FlagSolution.removeBucketDuplicate ||
+    s == FlagSolution.removeFromLibrary;
+
+/// What the confirmation says is lost.
+String permanentNote(AppLocalizations l10n, FlagSolution s) =>
+    s == FlagSolution.removeFromLibrary
+    ? l10n.flaggedConfirmRemoveFromLibraryBody
+    : l10n.flaggedPermanent;
 
 IconData solutionIcon(FlagSolution s) => switch (s) {
   FlagSolution.backUp => CupertinoIcons.cloud_upload_fill,
@@ -72,6 +86,9 @@ IconData solutionIcon(FlagSolution s) => switch (s) {
   FlagSolution.removeDuplicate ||
   FlagSolution.removeBucketDuplicate => CupertinoIcons.square_on_square,
   FlagSolution.ignore => CupertinoIcons.eye_slash_fill,
+  FlagSolution.makeThumbnail => CupertinoIcons.photo_fill,
+  FlagSolution.getFromPhotos => CupertinoIcons.arrow_down_circle_fill,
+  FlagSolution.removeFromLibrary => CupertinoIcons.trash_fill,
 };
 
 String problemLabel(AppLocalizations l10n, FlagProblem p) => switch (p) {
@@ -84,12 +101,22 @@ String problemLabel(AppLocalizations l10n, FlagProblem p) => switch (p) {
   FlagProblem.unclaimed => l10n.flaggedProblemUnclaimed,
   FlagProblem.likelyLeftover => l10n.flaggedProblemLeftover,
   FlagProblem.duplicate => l10n.flaggedProblemDuplicate,
+  FlagProblem.noThumbnail => l10n.flaggedProblemNoThumbnail,
+  FlagProblem.missingFromBucket => l10n.flaggedProblemMissing,
 };
 
 /// Why this item is listed. A photo's tags explain its size; a bucket file
 /// needs the sentence.
 String flagReason(AppLocalizations l10n, Flag flag) {
   final bucket = flag.bucket;
+  if (flag.asset != null) {
+    if (flag.problems.contains(FlagProblem.noThumbnail)) {
+      return l10n.flaggedNoThumbnailReason;
+    }
+    return flag.solutions.contains(FlagSolution.getFromPhotos)
+        ? l10n.flaggedLostInPhotosReason
+        : l10n.flaggedLostReason;
+  }
   if (flag.storage?.duplicateOf case final kept?) {
     return l10n.flaggedDuplicateOf(kept);
   }

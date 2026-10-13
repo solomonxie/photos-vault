@@ -1930,5 +1930,17 @@
   "flaggedConfirmReformatBody": "Each photo is downloaded, converted and uploaded as a smaller copy. The original is removed from the bucket once its copy is checked.",
   "flaggedConfirmImportAnywayBody": "This looks like an old copy of a photo you already have.",
   "detailRestoreFailedTitle": "Couldn't download the full-resolution version",
-  "detailRestoreFailedUnknown": "No bucket answered."
+  "detailRestoreFailedUnknown": "No bucket answered.",
+  "flaggedMakeThumbnails": "Make Thumbnails",
+  "flaggedHowMakeThumbnail": "Cloud-only, with no preview on this iPhone. Gets the bucket's thumbnail, or makes one from the start of the file without downloading all of it.",
+  "flaggedProblemNoThumbnail": "No thumbnail",
+  "flaggedNoThumbnailReason": "Cloud-only, with no preview on this iPhone",
+  "flaggedProblemMissing": "Missing from bucket",
+  "flaggedGetFromPhotos": "Get from Photos",
+  "flaggedHowGetFromPhotos": "No bucket set up now has these, but Photos still does. Uses the Photos copy again, so they get backed up.",
+  "flaggedRemoveFromLibrary": "Remove from Library",
+  "flaggedHowRemoveFromLibrary": "No bucket set up now has these, and neither does this iPhone or Photos. Nothing here can bring them back.",
+  "flaggedConfirmRemoveFromLibraryBody": "They're removed from this app for good. No bucket set up now has them, so they can't be downloaded again.",
+  "flaggedLostReason": "Not in any bucket set up now, and not on this iPhone",
+  "flaggedLostInPhotosReason": "Not in any bucket set up now; Photos still has it"
 }

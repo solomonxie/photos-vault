@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/photos/photo_library_service.dart';
+import 'package:photos_vault/photos/record_fixer.dart';
 import 'package:photos_vault/photos/storage_advice.dart';
 import 'package:photos_vault/photos/storage_optimizer.dart';
 import 'package:photos_vault/photos/thumbnail_cache.dart';
@@ -81,8 +82,9 @@ void main() {
 
   Future<List<String>> open(
     WidgetTester tester,
-    FakeAssetRecordStore store,
-  ) async {
+    FakeAssetRecordStore store, {
+    RecordFixer? records,
+  }) async {
     final deleted = <String>[];
     final targets = BackupTargetsStore(store: FakeSecureStore());
     final advisor = advisorOver(store);
@@ -111,6 +113,7 @@ void main() {
         passphrases: () async => const [],
       ),
       refreshBucket: () async {},
+      records: records,
     );
     await tester.pumpWidget(
       _wrap(
@@ -206,5 +209,77 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('IMG_0042.PNG'), findsOneWidget);
+  });
+
+  testWidgets('cloud-only records without a thumbnail, or without any '
+      'bucket, are actions of their own', (tester) async {
+    final store = await seeded();
+    Future<void> cloudOnly(String id, String key, {bool video = false}) async {
+      await store.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        isVideo: video,
+      );
+      await store.updateDerivative(
+        id,
+        DerivativeKind.original,
+        DerivativeState(status: UploadStatus.uploaded, destinationKey: key),
+      );
+      await store.setLocalDeleted(id, true);
+    }
+
+    await cloudOnly('clip', 'photos-vault/originals/clip.mov', video: true);
+    await cloudOnly('old', 'photos-vault2/originals/old.jpg');
+    await store.replaceBucketObjects('t', [
+      BucketObject(
+        targetId: 't',
+        key: 'photos-vault/originals/clip.mov',
+        size: 10,
+        lastModified: DateTime(2025),
+      ),
+    ]);
+    final removed = <String>[];
+    await open(
+      tester,
+      store,
+      records: RecordFixer(
+        store: store,
+        thumbnail: (_) async => null,
+        inPhotos: (_) async => false,
+        remove: (r) async {
+          removed.add(r.localId);
+          await store.remove(r.localId);
+          return true;
+        },
+      ),
+    );
+
+    expect(action('makeThumbnail'), findsOneWidget);
+    expect(action('removeFromLibrary'), findsOneWidget);
+    expect(action('getFromPhotos'), findsNothing, reason: 'not in Photos');
+    expect(find.text('1 photo is missing from the bucket'), findsOneWidget);
+
+    await tester.tap(action('removeFromLibrary'));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Not in any bucket set up now, and not on this iPhone'),
+      findsOneWidget,
+    );
+
+    await tester.tap(find.byKey(const ValueKey('flagged-run')));
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining("They're removed from this app for good"),
+      findsWidgets,
+    );
+    await tester.tap(find.text('Remove from Library').last);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(removed, ['old']);
+    expect(await store.getByLocalId('old'), isNull);
   });
 }

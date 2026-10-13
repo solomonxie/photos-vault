@@ -960,6 +960,44 @@ void main() {
     expect(find.text('No Location'), findsOneWidget);
   });
 
+  testWidgets('a Live Photo whose motion failed does not read as backed up', (
+    tester,
+  ) async {
+    final record = AssetRecord(
+      localId: 'live',
+      contentHash: 'live',
+      platform: 'ios',
+      createdAt: DateTime(2026, 1, 1),
+      updatedAt: DateTime(2026, 1, 1),
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/live.jpg',
+      isLivePhoto: true,
+      derivatives: const {
+        DerivativeKind.original: DerivativeState(status: UploadStatus.uploaded),
+        DerivativeKind.livePhoto: DerivativeState(status: UploadStatus.failed),
+      },
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [record],
+          initialIndex: 0,
+          assetRecordStore: FakeAssetRecordStore(),
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+
+    expect(
+      find.text('Backed up · LIVE: Failed', skipOffstage: false),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('the share sheet offers "Export As…" for a photo, not a video', (
     tester,
   ) async {

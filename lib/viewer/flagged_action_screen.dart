@@ -97,7 +97,7 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
       context: context,
       builder: (dialogContext) => CupertinoAlertDialog(
         title: Text(l10n.flaggedConfirmTitle(label, chosen.length)),
-        content: Text(l10n.flaggedPermanent),
+        content: Text(permanentNote(l10n, widget.solution)),
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(dialogContext).pop(false),
@@ -243,7 +243,7 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
 
   Widget _row(AppLocalizations l10n, Flag flag) {
     final job = _queue.jobs[flag.id];
-    final storage = flag.storage;
+    final record = flag.record;
     final selected = _selected.contains(flag.id);
     final note = failureNote(l10n, job);
     final reason = flagReason(l10n, flag);
@@ -282,17 +282,17 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
             ),
             const SizedBox(width: 8),
             GestureDetector(
-              onTap: storage == null || open == null
+              onTap: record == null || open == null
                   ? null
-                  : () => open(storage.record.localId),
+                  : () => open(record.localId),
               child: ClipRRect(
                 borderRadius: BorderRadius.circular(8),
                 child: SizedBox(
                   width: 52,
                   height: 52,
-                  child: storage != null
+                  child: record != null
                       ? assetImage(
-                          storage.record,
+                          record,
                           thumbnailSize: 200,
                           placeholder: () =>
                               const _IconTile(CupertinoIcons.photo),
@@ -319,7 +319,7 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
                   const SizedBox(height: 2),
                   Text(
                     [
-                      formatBytes(flag.bytes),
+                      if (flag.bytes > 0) formatBytes(flag.bytes),
                       DateFormat.yMMMd().format(flag.date),
                       // Only when it isn't simply the whole file.
                       if (flag.saving > 0 && flag.saving < flag.bytes)

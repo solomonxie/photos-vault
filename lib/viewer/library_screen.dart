@@ -36,6 +36,7 @@ import '../backup/icloud_backup.dart';
 import '../backup/local_vault.dart';
 import '../photos/library_custody.dart';
 import '../photos/photo_library_service.dart';
+import '../photos/record_fixer.dart';
 import '../photos/photo_location.dart';
 import '../photos/fix_queue.dart';
 import '../photos/storage_advice.dart';
@@ -349,6 +350,16 @@ class LibraryScreenState extends State<LibraryScreen>
       targetsStore: _backupTargetsStore,
       recordStore: assetRecordStore,
     ).refresh(),
+    records: RecordFixer(
+      store: assetRecordStore,
+      thumbnail: OriginalRestore(
+        targetsStore: _backupTargetsStore,
+        recordStore: assetRecordStore,
+      ).restoreThumbnail,
+      inPhotos: (record) async =>
+          await _photoLibraryService.entityFor(record) != null,
+      remove: (record) => _removal.deletePermanently(record),
+    ),
   );
 
   /// Deleting is the same decision on every screen: keep the cloud copy

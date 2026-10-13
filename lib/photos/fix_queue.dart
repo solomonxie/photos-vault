@@ -5,12 +5,14 @@ import 'dart:io';
 
 import 'package:flutter/foundation.dart';
 
+import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/bucket_object.dart';
 import '../upload/bucket_flagged.dart';
 import '../upload/bucket_leftovers.dart';
 import '../vault/object_key.dart' show fitsProtocol;
 import 'fix_rates.dart';
+import 'record_fixer.dart';
 import 'storage_advice.dart';
 import 'storage_optimizer.dart';
 
@@ -26,6 +28,8 @@ enum FlagProblem {
   unclaimed,
   likelyLeftover,
   duplicate,
+  noThumbnail,
+  missingFromBucket,
 }
 
 /// One way of dealing with a flag — one batch button each.
@@ -42,13 +46,22 @@ enum FlagSolution {
   removeOldCopy,
   removeBucketDuplicate,
   ignore,
-  importAnyway;
+  importAnyway,
+  makeThumbnail,
+  getFromPhotos,
+  removeFromLibrary;
 
   bool get onDevice => _storageFix != null;
 
+  /// Done to the library's own record, by [RecordFixer].
+  bool get onRecord =>
+      this == makeThumbnail ||
+      this == getFromPhotos ||
+      this == removeFromLibrary;
+
   /// Which section it is listed under: what it changes, not what it is
   /// about. Optimize in the bucket is about a photo, and changes the bucket.
-  bool get inBucket => !onDevice || this == optimizeRemote;
+  bool get inBucket => (!onDevice && !onRecord) || this == optimizeRemote;
 
   StorageFix? get _storageFix => switch (this) {
     backUp => StorageFix.backUpFirst,
@@ -73,6 +86,9 @@ class Flag {
     this.oneAtATime = const {},
     this.storage,
     this.bucket,
+    this.asset,
+    this._bytes = 0,
+    this._name = '',
   });
 
   factory Flag.storage(StorageItem item) => Flag._(
@@ -133,6 +149,22 @@ class Flag {
     );
   }
 
+  /// A cloud-only record and its [RecordScan] problem.
+  factory Flag.asset(
+    AssetRecord record, {
+    required FlagProblem problem,
+    required List<FlagSolution> solutions,
+    int bytes = 0,
+    String name = '',
+  }) => Flag._(
+    id: assetFlagId(problem, record.localId),
+    problems: {problem},
+    solutions: solutions,
+    asset: record,
+    bytes: bytes,
+    name: name,
+  );
+
   final String id;
   final Set<FlagProblem> problems;
 
@@ -142,20 +174,26 @@ class Flag {
 
   final StorageItem? storage;
   final FlaggedObject? bucket;
+  final AssetRecord? asset;
+  final int _bytes;
+  final String _name;
+
+  /// The record behind a photo flag, either kind.
+  AssetRecord? get record => storage?.record ?? asset;
 
   bool batchable(FlagSolution s) =>
       solutions.contains(s) && !oneAtATime.contains(s);
 
-  int get bytes => storage?.bytes ?? bucket!.object.size;
+  int get bytes => storage?.bytes ?? bucket?.object.size ?? _bytes;
   int get saving => storage?.estimatedSaving ?? 0;
-  String get name => storage?.name ?? bucket!.name;
+  String get name => storage?.name ?? bucket?.name ?? _name;
   DateTime get date =>
-      storage?.record.createdAt ??
-      bucket!.takenAt ??
-      bucket!.object.lastModified;
+      record?.createdAt ?? bucket!.takenAt ?? bucket!.object.lastModified;
 }
 
 String storageFlagId(String localId) => 'asset:$localId';
+String assetFlagId(FlagProblem problem, String localId) =>
+    '${problem.name}:$localId';
 String bucketFlagId(BucketObject o) => 'bucket:${o.targetId}|${o.key}';
 
 enum FixJobState { waiting, running, failed }
@@ -199,6 +237,7 @@ class FixQueue extends ChangeNotifier {
     required this.optimizer,
     required this.fixer,
     required this.refreshBucket,
+    this.records,
   });
 
   final AssetRecordStore store;
@@ -206,6 +245,10 @@ class FixQueue extends ChangeNotifier {
   final StorageOptimizer optimizer;
   final BucketFixer fixer;
   final Future<void> Function() refreshBucket;
+
+  /// Null where nothing wires it (most tests): its flags aren't found, and
+  /// a resumed one fails.
+  final RecordFixer? records;
 
   static const _stateKey = 'fix_queue_v1';
 
@@ -387,6 +430,10 @@ class FixQueue extends ChangeNotifier {
   static Duration _defaultPerItem(FlagSolution s) => switch (s) {
     FlagSolution.ignore => const Duration(milliseconds: 10),
     FlagSolution.removeThumbnail => const Duration(milliseconds: 150),
+    // A video's frame is streamed from the bucket by iOS.
+    FlagSolution.makeThumbnail => const Duration(milliseconds: 1500),
+    FlagSolution.getFromPhotos ||
+    FlagSolution.removeFromLibrary => const Duration(milliseconds: 100),
     _ => const Duration(milliseconds: 300),
   };
 
@@ -422,6 +469,9 @@ class FixQueue extends ChangeNotifier {
     final objects = {
       for (final o in await store.listBucketObjects()) bucketFlagId(o): o,
     };
+    final assets = rows.any((r) => r['localId'] != null)
+        ? {for (final r in await store.listAll()) r.localId: r}
+        : const <String, AssetRecord>{};
 
     final grouped = <FlagSolution, List<Flag>>{};
     for (final row in rows) {
@@ -429,7 +479,19 @@ class FixQueue extends ChangeNotifier {
       if (solution == null) continue;
       final id = row['id'] as String;
       Flag? flag;
-      if (solution.onDevice) {
+      if (solution.onRecord) {
+        final record = assets[row['localId']];
+        final problem = FlagProblem.values.asNameMap()[row['problem']];
+        if (record != null && !record.isDeleted && problem != null) {
+          flag = Flag.asset(
+            record,
+            problem: problem,
+            solutions: [solution],
+            bytes: row['bytes'] as int? ?? 0,
+            name: row['name'] as String? ?? '',
+          );
+        }
+      } else if (solution.onDevice) {
         final item = storage[id];
         // Only if that is still the fix on offer: a photo backed up since
         // has moved on to the next one.
@@ -472,6 +534,12 @@ class FixQueue extends ChangeNotifier {
               'takenAt': b.takenAt?.toIso8601String(),
               'duplicateOf': b.likelyDuplicateOf,
             },
+            if (job.flag.asset case final r?) ...{
+              'localId': r.localId,
+              'problem': job.flag.problems.first.name,
+              'bytes': job.flag.bytes,
+              'name': job.flag.name,
+            },
           },
     ]),
   );
@@ -489,7 +557,9 @@ class FixQueue extends ChangeNotifier {
         }
         notifyListeners();
         final clock = Stopwatch()..start();
-        if (batch.first.solution == FlagSolution.optimizeRemote) {
+        if (batch.first.solution.onRecord) {
+          await Future.wait(batch.map(_runOnRecord));
+        } else if (batch.first.solution == FlagSolution.optimizeRemote) {
           touchedBucket = true;
           await _runRemoteOptimize(batch);
         } else if (batch.first.solution.onDevice) {
@@ -520,6 +590,10 @@ class FixQueue extends ChangeNotifier {
 
   static const _bucketParallel = 8;
 
+  /// Each thumbnail is a stream from the bucket; fewer at once than a
+  /// rename.
+  static const _recordParallel = 4;
+
   static bool _isVideo(FixJob job) => job.flag.storage?.record.isVideo ?? false;
 
   List<FixJob> _nextBatch() {
@@ -537,7 +611,7 @@ class FixQueue extends ChangeNotifier {
             (j) =>
                 j.solution == solution && !j.flag.oneAtATime.contains(solution),
           )
-          .take(_bucketParallel)
+          .take(solution.onRecord ? _recordParallel : _bucketParallel)
           .toList();
     }
     // Videos apart from photos, and few at a time: one compression can take
@@ -743,6 +817,36 @@ class FixQueue extends ChangeNotifier {
             : FixFailure.failed,
         detail: result.detail,
       );
+    }
+  }
+
+  Future<void> _runOnRecord(FixJob job) async {
+    final record = job.flag.asset!;
+    _setStep(job.flag, switch (job.solution) {
+      FlagSolution.makeThumbnail => FixAction.downloading,
+      FlagSolution.getFromPhotos => FixAction.adding,
+      _ => FixAction.deleting,
+    });
+    final fixer = records;
+    FixResult result;
+    try {
+      result = fixer == null
+          ? const FixResult(FixOutcome.failed)
+          : switch (job.solution) {
+              FlagSolution.makeThumbnail => await fixer.makeThumbnail(record),
+              FlagSolution.getFromPhotos => await fixer.getFromPhotos(record),
+              FlagSolution.removeFromLibrary => await fixer.removeFromLibrary(
+                record,
+              ),
+              _ => const FixResult(FixOutcome.failed),
+            };
+    } catch (e) {
+      result = FixResult(FixOutcome.failed, detail: '$e');
+    }
+    if (result.ok) {
+      _resolve(job.flag.id);
+    } else {
+      _fail(job.flag.id, FixFailure.failed, detail: result.detail);
     }
   }
 

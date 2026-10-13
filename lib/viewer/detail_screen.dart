@@ -2563,10 +2563,17 @@ class _InfoPanelState extends State<_InfoPanel> {
               CupertinoListTile(
                 title: Text(l10n.detailInfoStatus),
                 additionalInfo: Text(
-                  _statusLabel(
-                    l10n,
-                    record.stateOf(DerivativeKind.original).status,
-                  ),
+                  [
+                    _statusLabel(
+                      l10n,
+                      record.stateOf(DerivativeKind.original).status,
+                    ),
+                    // The tile's line counts the motion half; so does this.
+                    if (record.isLivePhoto &&
+                        record.stateOf(DerivativeKind.livePhoto).status !=
+                            UploadStatus.uploaded)
+                      '${l10n.detailLivePhotoBadge}: ${_statusLabel(l10n, record.stateOf(DerivativeKind.livePhoto).status)}',
+                  ].join(' · '),
                 ),
               ),
               if (_bucketKey(record) case final key?)
