@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/s3_backup_target.dart';
+import 'package:photos_vault/settings/s3_listing.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/bucket_object.dart';
 import 'package:photos_vault/upload/bucket_flagged.dart';
@@ -114,6 +115,22 @@ void main() {
 
     final flagged = await BucketFlags(store: store).detect();
     expect(flagged.map((f) => f.object.targetId), [target.id]);
+  });
+
+  test('refreshes asked for at once never publish a half listing', () async {
+    final paged = _PagedBucket();
+    for (var i = 0; i < 6; i++) {
+      paged.objects['photos-vault/originals/p$i.jpg'] = video;
+      paged.objects['photos-vault/thumbnails/p$i.jpg'] = video;
+    }
+    BucketIndexer indexer() =>
+        BucketIndexer(targetsStore: targets, recordStore: store, ops: paged);
+
+    final first = indexer().refresh();
+    await Future<void>.delayed(const Duration(milliseconds: 15));
+    await Future.wait([first, indexer().refresh()]);
+
+    expect(await store.listBucketObjects(), hasLength(12));
   });
 
   test('takenAtFromName reads the camera timestamp', () {
@@ -639,6 +656,25 @@ class _BucketUploader implements S3Uploader {
     required S3BackupTarget target,
   }) async {
     bucket.objects[key] = File(filePath).readAsBytesSync();
+    return true;
+  }
+}
+
+/// One object a page, each a moment apart, like a slow connection.
+class _PagedBucket extends MemoryBucket {
+  @override
+  Future<bool> listFolderPages(
+    S3BackupTarget target,
+    String dir, {
+    String? startToken,
+    required Future<void> Function(List<S3Object> page, String? nextToken)
+    onPage,
+  }) async {
+    final all = (await listFolder(target, dir))!;
+    for (var i = int.tryParse(startToken ?? '') ?? 0; i < all.length; i++) {
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await onPage([all[i]], i + 1 < all.length ? '${i + 1}' : null);
+    }
     return true;
   }
 }

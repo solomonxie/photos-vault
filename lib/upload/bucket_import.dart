@@ -27,17 +27,39 @@ class BucketIndexer {
   /// page by page, so a listing cut short by a kill or a dropped connection
   /// resumes where it stopped; the old rows are only replaced once both
   /// folders are fully listed.
-  Future<bool> refresh() async {
+  Future<bool> refresh() {
+    if (_running == null) {
+      return _running = _refresh().whenComplete(() => _running = null);
+    }
+    // Two at once would each commit the staging table the other is still
+    // filling, publishing a listing missing everything before the commit.
+    // A refresh asked for mid-run runs once more after it, so it still
+    // sees what changed since that one started.
+    return _next ??= _running!.then((_) {
+      _next = null;
+      return refresh();
+    });
+  }
+
+  static Future<bool>? _running;
+  static Future<bool>? _next;
+
+  Future<bool> _refresh() async {
     final targets = await targetsStore.loadAll();
     await _forgetRemoved(targets);
+    // Expired progress is discarded here, before either folder starts: a
+    // discard mid-listing would drop the other folder's staged pages.
+    for (final target in targets) {
+      for (final dir in _dirs) {
+        await recordStore.bucketScanProgress(target.id, dir);
+      }
+    }
     // Every folder of every bucket at once: it is a plain `ls`, and the
     // pages inside one folder are what has to stay in order.
     final results = await Future.wait([
       for (final target in targets)
-        Future.wait([
-          for (final dir in const ['originals/', 'thumbnails/'])
-            _listDir(target, dir),
-        ]).then((listed) => listed.every((ok) => ok)),
+        Future.wait([for (final dir in _dirs) _listDir(target, dir)])
+            .then((listed) => listed.every((ok) => ok)),
     ]);
     var all = true;
     for (var i = 0; i < targets.length; i++) {
@@ -49,6 +71,8 @@ class BucketIndexer {
     }
     return all;
   }
+
+  static const _dirs = ['originals/', 'thumbnails/'];
 
   /// Drops the listing of any bucket no longer set up. Its files can't be
   /// fixed, imported or even read without its credentials, so offering
