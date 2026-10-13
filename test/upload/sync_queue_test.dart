@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -321,6 +322,33 @@ void main() {
         isTrue,
       );
     });
+
+    test(
+      'a drain still running when the queue is disposed stops quietly',
+      () async {
+        final store = newStore();
+        final release = Completer<void>();
+        final queue = queueOver(store, (job) => release.future);
+        for (final name in ['a.jpg', 'b.jpg', 'c.jpg']) {
+          await queue.enqueue(
+            localId: name,
+            kind: SyncJobKind.uploadOriginal,
+            displayName: name,
+            assetCreatedAt: DateTime(2024),
+          );
+        }
+        final drain = queue.start();
+        await Future<void>.delayed(const Duration(milliseconds: 50));
+        queue.dispose();
+        release.complete();
+        await drain;
+        expect(
+          (await store.all()).where((j) => j.status == SyncJobStatus.pending),
+          hasLength(1),
+          reason: 'left for the next queue',
+        );
+      },
+    );
 
     test('runs jobs concurrently, bounded by the configured speed', () async {
       final store = newStore();

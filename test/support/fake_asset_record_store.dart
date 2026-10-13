@@ -19,6 +19,19 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<void> close() async {}
 
   @override
+  Future<bool> keyHeldByOthers(String key, String? exceptLocalId) async {
+    for (final MapEntry(key: slot, value: held) in uploads.entries) {
+      if (slot.startsWith('$exceptLocalId/')) continue;
+      if (held.values.any((v) => v.key == key)) return true;
+    }
+    return _records.values.any(
+      (r) =>
+          r.localId != exceptLocalId &&
+          DerivativeKind.values.any((k) => r.stateOf(k).destinationKey == key),
+    );
+  }
+
+  @override
   Future<List<Map<String, Object?>>> uploadRows() async => const [];
 
   @override

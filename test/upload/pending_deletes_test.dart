@@ -139,6 +139,37 @@ void main() {
     expect(await deletes.count(), 20);
   });
 
+  test('a key another photo still names is never deleted', () async {
+    final store = FakeAssetRecordStore();
+    await store.upsert(localId: 'photo:b', contentHash: 'b', platform: 'ios');
+    await store.recordUpload(
+      localId: 'photo:b',
+      kind: DerivativeKind.original,
+      targetId: 't1',
+      destinationKey: 'originals/shared.webp',
+    );
+    final tried = <String>[];
+    final deletes = PendingDeletes(
+      store: store,
+      delete: ({required target, required key}) async {
+        tried.add(key);
+        return true;
+      },
+    );
+
+    await deletes.add(const [
+      PendingDelete(
+        objectKey: 'originals/shared.webp',
+        targetId: 't1',
+        localId: 'photo:a',
+      ),
+    ]);
+    await deletes.drain([_target]);
+
+    expect(tried, isEmpty);
+    expect(await deletes.count(), 0);
+  });
+
   test('a key its photo\'s own upload holds again is not deleted', () async {
     final store = FakeAssetRecordStore();
     await store.upsert(localId: 'photo:a', contentHash: 'a', platform: 'ios');

@@ -456,6 +456,49 @@ void main() {
     expect(find.text('1 Selected'), findsNothing);
   });
 
+  testWidgets('the selection bar fits a phone with nothing selected', (
+    tester,
+  ) async {
+    tester.view.physicalSize = const Size(1206, 2622);
+    tester.view.devicePixelRatio = 3;
+    addTearDown(tester.view.reset);
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:abc',
+      contentHash: 'abc',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/library_screen_test.jpg',
+    );
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.longPress(find.byKey(const ValueKey('manual:abc')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manual:abc')));
+    await tester.pumpAndSettle();
+
+    expect(find.text('Touch and hold a photo to select more.'), findsOneWidget);
+    expect(find.text('Select All'), findsOneWidget);
+    expect(tester.takeException(), isNull);
+  });
+
   testWidgets('holding then sweeping picks up every tile on the way', (
     tester,
   ) async {

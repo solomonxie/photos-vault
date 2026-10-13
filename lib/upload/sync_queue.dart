@@ -55,12 +55,19 @@ class SyncQueue {
 
   bool _loadedSettings = false;
 
+  /// Set by [dispose]: a drain already running stops after its batch
+  /// instead of writing into notifiers nobody listens to any more.
+  bool _disposed = false;
+
   Future<void> _loadSettings() async {
     if (_loadedSettings) return;
     _loadedSettings = true;
     try {
-      paused.value = await settings.getQueuePaused();
-      concurrency.value = await settings.getQueueConcurrency();
+      final isPaused = await settings.getQueuePaused();
+      final speed = await settings.getQueueConcurrency();
+      if (_disposed) return;
+      paused.value = isPaused;
+      concurrency.value = speed;
     } catch (_) {
       // Secure storage unavailable — the defaults above are fine.
     }
@@ -74,7 +81,8 @@ class SyncQueue {
   Future<void> refresh() async {
     await _loadSettings();
     try {
-      jobs.value = await store.all();
+      final all = await store.all();
+      if (!_disposed) jobs.value = all;
     } catch (_) {
       // Queue database unavailable (e.g. no platform channel in a test) —
       // an empty list beats tearing down whatever's showing it.
@@ -203,7 +211,7 @@ class SyncQueue {
     draining.value = true;
     processedInLastDrain = 0;
     try {
-      while (!paused.value) {
+      while (!_disposed && !paused.value) {
         final batch = <Future<void>>[];
         for (var i = 0; i < concurrency.value; i++) {
           final job = await store.dequeueNextPending(kinds: kinds);
@@ -216,7 +224,7 @@ class SyncQueue {
         await refresh();
       }
     } finally {
-      draining.value = false;
+      if (!_disposed) draining.value = false;
     }
   }
 
@@ -231,6 +239,7 @@ class SyncQueue {
   }
 
   void dispose() {
+    _disposed = true;
     jobs.dispose();
     draining.dispose();
     paused.dispose();

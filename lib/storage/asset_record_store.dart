@@ -825,6 +825,22 @@ class AssetRecordStore {
 
   /// Every per-bucket upload row, for the backup snapshot and for bulk
   /// deletes that would otherwise ask once per photo.
+  /// Whether a photo other than [exceptLocalId] still names [key]: a file
+  /// two photos share is not one photo's to delete.
+  Future<bool> keyHeldByOthers(String key, String? exceptLocalId) async {
+    final db = await _open();
+    final except = exceptLocalId ?? '';
+    final rows = await db.rawQuery(
+      'SELECT 1 FROM $_derivativeTargetTable '
+      'WHERE destination_key = ? AND local_id != ? '
+      'UNION ALL SELECT 1 FROM $_table WHERE local_id != ? AND '
+      '(original_key = ? OR thumbnail_key = ? OR medium_key = ? OR live_key = ?) '
+      'LIMIT 1',
+      [key, except, except, key, key, key, key],
+    );
+    return rows.isNotEmpty;
+  }
+
   Future<List<Map<String, Object?>>> uploadRows() async {
     final db = await _open();
     return db.query(_derivativeTargetTable);

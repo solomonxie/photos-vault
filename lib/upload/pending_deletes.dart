@@ -227,8 +227,11 @@ class PendingDeletes {
     for (final task in work) {
       final target = byId[task.targetId];
       if (target == null) continue; // Dormant, not dropped.
-      if (await _heldNow(task)) {
-        done.add(task); // A fresh upload owns this key now.
+      if (await _heldNow(task) ||
+          await store.keyHeldByOthers(task.objectKey, task.localId)) {
+        done.add(
+          task,
+        ); // Someone's backup still: never this delete's to remove.
         continue;
       }
       attempted[target.id] = (attempted[target.id] ?? 0) + 1;

@@ -421,14 +421,22 @@ class AssetTile extends StatelessWidget {
     return CupertinoContextMenu(
       actions: [
         for (final action in actions)
-          CupertinoContextMenuAction(
-            isDestructiveAction: action.isDestructive,
-            trailingIcon: action.icon,
-            onPressed: () {
-              Navigator.of(context).pop();
-              action.onPressed();
-            },
-            child: Text(action.label),
+          Builder(
+            builder: (menuContext) => CupertinoContextMenuAction(
+              isDestructiveAction: action.isDestructive,
+              trailingIcon: action.icon,
+              onPressed: () {
+                // Once the menu has settled back onto the tile: an action
+                // that removes the tile or opens a dialog under a menu
+                // still flying home leaves the menu pointing at nothing.
+                final menu = ModalRoute.of(menuContext);
+                Navigator.of(menuContext).pop();
+                (menu?.completed ?? Future<void>.value()).then(
+                  (_) => action.onPressed(),
+                );
+              },
+              child: Text(action.label),
+            ),
           ),
       ],
       child: tile,

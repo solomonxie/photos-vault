@@ -423,4 +423,44 @@ void main() {
       expect(find.byKey(DateScrubber.handleKey), findsNothing);
     });
   });
+
+  testWidgets('a context menu action runs once the menu has gone', (
+    tester,
+  ) async {
+    bool? menuGoneWhenRun;
+    await tester.pumpWidget(
+      _wrap(
+        AssetGridView(
+          records: _daily(3),
+          onTap: (_) {},
+          actionsFor: (_) => [
+            TileAction(
+              icon: CupertinoIcons.delete,
+              label: 'Delete',
+              onPressed: () => menuGoneWhenRun = find
+                  .byType(CupertinoContextMenuAction)
+                  .evaluate()
+                  .isEmpty,
+            ),
+          ],
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final hold = await tester.startGesture(
+      tester.getCenter(find.byKey(const ValueKey('manual:day0'))),
+    );
+    await tester.pump();
+    await tester.pump(const Duration(milliseconds: 400));
+    await tester.pump(const Duration(milliseconds: 800));
+    await tester.pumpAndSettle();
+    await hold.up();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Delete'));
+    await tester.pump();
+    expect(menuGoneWhenRun, isNull, reason: 'not while the menu closes');
+    await tester.pumpAndSettle();
+    expect(menuGoneWhenRun, isTrue);
+  });
 }

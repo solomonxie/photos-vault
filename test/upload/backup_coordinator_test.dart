@@ -6,6 +6,7 @@ import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:photos_vault/upload/backup_cancel_token.dart';
 import 'package:photos_vault/upload/backup_coordinator.dart';
+import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/vault/object_key.dart';
 import 'package:photos_vault/upload/s3_uploader.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -47,6 +48,10 @@ class _RecordingS3Uploader implements S3Uploader {
     return _resultFor(filePath, key, target);
   }
 }
+
+/// The one target an upload in these tests went to, from its row.
+Future<String> oneTargetId(AssetRecordStore store) async =>
+    (await store.uploadRows()).first['target_id']! as String;
 
 Future<String> _base(AssetRecordStore store, String localId) async =>
     ordinaryBaseName((await store.getByLocalId(localId))!);
@@ -374,6 +379,73 @@ void main() {
       after!.stateOf(DerivativeKind.original).status,
       UploadStatus.uploaded,
     );
+  });
+
+  group('a re-upload under a new extension', () {
+    Future<(AssetRecordStore, BackupCoordinator)> uploadedAsJpeg() async {
+      final recordStore = newRecordStore();
+      await recordStore.upsert(
+        localId: 'manual:ext',
+        contentHash: 'ext',
+        platform: 'ios',
+      );
+      final coordinator = BackupCoordinator(
+        targetsStore: await oneTarget(),
+        recordStore: recordStore,
+        s3Uploader: _FakeS3Uploader(true),
+        hashFile: (path) async => path,
+      );
+      await coordinator.backUpDerivative(
+        record: (await recordStore.getByLocalId('manual:ext'))!,
+        kind: DerivativeKind.original,
+        filePath: '/tmp/ext.jpg',
+      );
+      return (recordStore, coordinator);
+    }
+
+    test(
+      'queues the old object for deletion rather than orphaning it',
+      () async {
+        final (recordStore, coordinator) = await uploadedAsJpeg();
+        final base = await _base(recordStore, 'manual:ext');
+        await coordinator.backUpDerivative(
+          record: (await recordStore.getByLocalId('manual:ext'))!,
+          kind: DerivativeKind.original,
+          filePath: '/tmp/ext.heif',
+        );
+        final queued = await PendingDeletes(store: recordStore).pending();
+        expect(queued.map((d) => d.objectKey), ['originals/$base.jpg']);
+        expect(
+          await recordStore.targetsHolding(
+            'manual:ext',
+            DerivativeKind.original,
+          ),
+          {(await oneTargetId(recordStore)): 'originals/$base.heif'},
+        );
+      },
+    );
+
+    test('and in a batch', () async {
+      final (recordStore, coordinator) = await uploadedAsJpeg();
+      final base = await _base(recordStore, 'manual:ext');
+      await coordinator.backUpBatch(
+        records: [(await recordStore.getByLocalId('manual:ext'))!],
+        kind: DerivativeKind.original,
+        resolvePath: (_) async => '/tmp/ext.heif',
+      );
+      final queued = await PendingDeletes(store: recordStore).pending();
+      expect(queued.map((d) => d.objectKey), ['originals/$base.jpg']);
+    });
+
+    test('the same name again queues nothing', () async {
+      final (recordStore, coordinator) = await uploadedAsJpeg();
+      await coordinator.backUpDerivative(
+        record: (await recordStore.getByLocalId('manual:ext'))!,
+        kind: DerivativeKind.original,
+        filePath: '/tmp/ext2.jpg',
+      );
+      expect(await PendingDeletes(store: recordStore).pending(), isEmpty);
+    });
   });
 
   test('marks the derivative failed when every target fails', () async {

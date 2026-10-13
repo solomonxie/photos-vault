@@ -3426,13 +3426,16 @@ class _SelectionBar extends StatelessWidget {
               child: Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  Text(
-                    count == 0
-                        ? l10n.selectionHint
-                        : l10n.selectionTitle(count),
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  // The hint is a sentence: it wraps rather than pushing
+                  // Select All and Done off a phone-width bar.
+                  Expanded(
+                    child: Text(
+                      count == 0
+                          ? l10n.selectionHint
+                          : l10n.selectionTitle(count),
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
                   ),
-                  const Spacer(),
                   selectAll,
                   CupertinoButton(
                     padding: EdgeInsets.zero,

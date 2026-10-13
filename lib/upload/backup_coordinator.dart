@@ -14,6 +14,7 @@ import '../vault/keys.dart';
 import '../vault/store.dart';
 import 'backup_cancel_token.dart';
 import 'object_keys.dart';
+import 'pending_deletes.dart';
 import 's3_uploader.dart';
 import 'signing.dart';
 
@@ -290,6 +291,11 @@ class BackupCoordinator {
     // and cannot say which. Treated as covering everything, which is what
     // the app believed anyway; a fresh upload records the truth.
     final legacy = held.containsKey('');
+    // Whatever each target held before, of any version: a re-upload under
+    // another extension (`.jpg` then `.heif`) is a new object, and the
+    // row that named the old one is about to be overwritten.
+    final before = await recordStore.targetsHolding(record.localId, kind);
+    final superseded = <PendingDelete>[];
 
     var succeeded = 0;
     String? firstDestinationKey;
@@ -320,10 +326,25 @@ class BackupCoordinator {
             destinationKey: key,
             sourceHash: sourceHash,
           );
+          final old = before[target.id];
+          if (old != null && old != key) {
+            superseded.add(
+              PendingDelete(
+                objectKey: old,
+                targetId: target.id,
+                localId: record.localId,
+              ),
+            );
+          }
         }
       }
     } finally {
       await _cleanupIfTemp(uploadPath, filePath);
+    }
+    // Queued, not deleted here: the drain is the one place that removes
+    // objects, and it leaves alone any key this photo has come to hold again.
+    if (superseded.isNotEmpty) {
+      await PendingDeletes(store: recordStore).add(superseded);
     }
 
     // **Every** target, not any of them. One of two buckets failing used to
@@ -455,6 +476,9 @@ class BackupCoordinator {
     final held = <String, Map<String, String>>{};
     final sourceHashes = <String, String?>{};
     final previousKeys = <String, String?>{};
+    // What each target held before, of any version — see [backUpDerivative].
+    final before = <String, Map<String, String>>{};
+    final superseded = <PendingDelete>[];
     final derivativeDir = derivativeDirs[kind]!;
     outer:
     for (final target in targets) {
@@ -471,6 +495,7 @@ class BackupCoordinator {
             kind,
             sourceHash: sourceHash,
           );
+          before[id] = await recordStore.targetsHolding(id, kind);
           final previousKey = (await recordStore.getByLocalId(id))
               ?.stateOf(kind)
               .destinationKey;
@@ -509,6 +534,16 @@ class BackupCoordinator {
                 destinationKey: key,
                 sourceHash: sourceHashes[id],
               );
+              final old = before[id]![target.id];
+              if (old != null && old != key) {
+                superseded.add(
+                  PendingDelete(
+                    objectKey: old,
+                    targetId: target.id,
+                    localId: id,
+                  ),
+                );
+              }
             }
             successCounts.update(id, (v) => v + 1, ifAbsent: () => 1);
             firstKeys.putIfAbsent(id, () => key);
@@ -544,6 +579,9 @@ class BackupCoordinator {
     }
     for (final tempPath in tempPaths) {
       await _deleteTempDir(tempPath);
+    }
+    if (superseded.isNotEmpty) {
+      await PendingDeletes(store: recordStore).add(superseded);
     }
     return succeeded;
   }
