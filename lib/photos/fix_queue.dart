@@ -31,6 +31,7 @@ enum FlagProblem {
   noThumbnail,
   missingFromBucket,
   leftoverCopy,
+  extraCopies,
 }
 
 /// One way of dealing with a flag — one batch button each.
@@ -51,7 +52,8 @@ enum FlagSolution {
   makeThumbnail,
   getFromPhotos,
   removeFromLibrary,
-  finishOptimize;
+  finishOptimize,
+  removeExtraCopies;
 
   bool get onDevice => _storageFix != null;
 
@@ -60,7 +62,8 @@ enum FlagSolution {
       this == makeThumbnail ||
       this == getFromPhotos ||
       this == removeFromLibrary ||
-      this == finishOptimize;
+      this == finishOptimize ||
+      this == removeExtraCopies;
 
   /// Which section it is listed under: what it changes, not what it is
   /// about. Optimize in the bucket is about a photo, and changes the bucket.
@@ -437,7 +440,8 @@ class FixQueue extends ChangeNotifier {
     FlagSolution.makeThumbnail => const Duration(milliseconds: 1500),
     FlagSolution.getFromPhotos ||
     FlagSolution.removeFromLibrary ||
-    FlagSolution.finishOptimize => const Duration(milliseconds: 100),
+    FlagSolution.finishOptimize ||
+    FlagSolution.removeExtraCopies => const Duration(milliseconds: 100),
     _ => const Duration(milliseconds: 300),
   };
 
@@ -852,7 +856,8 @@ class FixQueue extends ChangeNotifier {
               FlagSolution.removeFromLibrary => await fixer.removeFromLibrary(
                 record,
               ),
-              FlagSolution.finishOptimize => await fixer.finishOptimize(record),
+              FlagSolution.finishOptimize || FlagSolution.removeExtraCopies =>
+                await fixer.finishOptimize(record),
               _ => const FixResult(FixOutcome.failed),
             };
     } catch (e) {

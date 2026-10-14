@@ -133,7 +133,7 @@ void main() {
         px
           ..r = v
           ..g = v
-          ..b = (px.y * 7) % 255;
+          ..b = px.y * 255 ~/ (width * 2 ~/ 3);
       }
       final file = File('${tempDir.path}/$name.jpg')
         ..writeAsBytesSync(img.encodeJpg(image));
@@ -223,6 +223,87 @@ void main() {
     );
     expect(filed.single.$1, 'b');
     expect(filed.single.$3, hasLength(1));
+  });
+
+  test('extra copies of an optimized photo are offered for removal, '
+      'never the burst frame beside it', () async {
+    final taken = DateTime(2026, 9, 8, 14, 42, 50);
+    final later = taken.add(const Duration(days: 30));
+    String picture(String name, {required bool flipped, int width = 90}) {
+      final image = img.Image(width: width, height: width * 2 ~/ 3);
+      for (final px in image) {
+        final v = flipped ? 255 - px.x * 255 ~/ width : px.x * 255 ~/ width;
+        px
+          ..r = v
+          ..g = v
+          ..b = px.y * 255 ~/ (width * 2 ~/ 3);
+      }
+      final file = File('${tempDir.path}/$name.jpg')
+        ..writeAsBytesSync(img.encodeJpg(image));
+      return file.path;
+    }
+
+    Future<void> photo(
+      String id, {
+      required bool flipped,
+      required int thumbWidth,
+      bool optimized = false,
+      DateTime? added,
+    }) async {
+      await store.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        width: 2560,
+        height: 1707,
+        createdAt: taken,
+        addedAt: added ?? taken,
+        libraryId: '$id/L0/001',
+      );
+      await store.updateDerivative(
+        id,
+        DerivativeKind.original,
+        DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'photos-vault/originals/$id.heic',
+        ),
+      );
+      await store.setThumbnailPath(
+        id,
+        picture(id, flipped: flipped, width: thumbWidth),
+      );
+      if (optimized) await store.setLocalOptimized(id, true);
+    }
+
+    await photo('kept', flipped: true, thumbWidth: 90, optimized: true);
+    await photo('frame', flipped: false, thumbWidth: 90, optimized: true);
+    await photo('stray', flipped: true, thumbWidth: 60, added: later);
+    await photo('stray2', flipped: true, thumbWidth: 75, added: later);
+    await listed([
+      for (final id in ['kept', 'frame', 'stray', 'stray2'])
+        'photos-vault/originals/$id.heic',
+    ]);
+    final paired = <String>[];
+    final extras = <String>[];
+    final f = RecordFixer(
+      store: store,
+      thumbnail: (_) async => null,
+      inPhotos: (_) async => true,
+      remove: (_) async => true,
+      fileCopies: (p, e) async {
+        paired.addAll([for (final x in p) x.original.localId]);
+        extras.addAll([for (final x in e) x.localId]);
+      },
+    );
+
+    final scan = await f.scan();
+
+    final flag = scan.leftoverCopies.single;
+    expect(flag.asset!.localId, 'kept');
+    expect(flag.solutions, [FlagSolution.removeExtraCopies]);
+    expect((await f.finishOptimize(flag.asset!)).ok, isTrue);
+    expect(paired, isEmpty);
+    expect(extras, unorderedEquals(['stray', 'stray2']));
   });
 
   test('an import of a key since replaced is dropped, its twin kept', () async {

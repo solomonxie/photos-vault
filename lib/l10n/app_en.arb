@@ -1955,5 +1955,10 @@
   "flaggedHowFinishOptimize": "A smaller copy from an earlier Optimize is in Photos beside its original. Keeps the copy and deletes the original, which stays in your bucket.",
   "flaggedConfirmFinishOptimizeBody": "iOS asks once to delete the originals. Only originals whose full-size file is in your bucket are listed. Tags, people and albums move to the smaller copy.",
   "flaggedProblemLeftoverCopy": "Copy left in Photos",
-  "flaggedLeftoverCopyReason": "Optimize saved a smaller copy but the original was never removed"
+  "flaggedLeftoverCopyReason": "Optimize saved a smaller copy but the original was never removed",
+  "flaggedRemoveExtraCopies": "Remove Extra Copies",
+  "flaggedHowRemoveExtraCopies": "This photo is in Photos more than once. Keeps one and deletes the rest. Your bucket keeps the full-size original.",
+  "flaggedConfirmExtraCopiesBody": "iOS asks once to delete the extra copies. They stay in Photos' Recently Deleted for 30 days.",
+  "flaggedProblemExtraCopies": "Extra copies in Photos",
+  "flaggedExtraCopiesReason": "Optimize left more than one copy of this photo in Photos"
 }

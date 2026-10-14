@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -449,6 +450,84 @@ void main() {
         ['originals/copy.heic'],
       );
     });
+
+    test(
+      'one swap per photo: Optimize after Finish Optimize makes no '
+      'second copy, and a swap filed twice takes its second copy out',
+      () async {
+        final store = FakeAssetRecordStore();
+        final original = await cameraRoll(store);
+        await store.upsert(
+          localId: 'copy',
+          contentHash: 'copy',
+          platform: 'ios',
+          libraryId: 'copy-asset',
+          width: 2560,
+          height: 1920,
+        );
+        final writer = _FakeWriter(tempDir);
+        final optimizer = StorageOptimizer(
+          store: store,
+          thumbnails: ThumbnailCache(
+            store: store,
+            directory: () async => tempDir,
+            encode: (_) async => Uint8List.fromList([1]),
+          ),
+          library: libraryThatDeletes(const []),
+          backUp: (_) async {},
+          writer: writer,
+        );
+        final item = StorageItem(
+          record: original,
+          bytes: 6000,
+          name: 'IMG_1.HEIC',
+          appOwned: false,
+          issues: const {StorageIssue.highResolution},
+          fixes: const [StorageFix.optimize],
+        );
+        final copy = (await store.getByLocalId('copy'))!;
+
+        await optimizer.fileFoundCopies([
+          (original: original, copy: copy),
+        ], const []);
+        final prepared = <String>[];
+        await optimizer.apply(
+          [item],
+          deferDeletes: true,
+          onPrepared: prepared.add,
+        );
+
+        expect(writer.savedTitles, isEmpty);
+        expect(prepared, ['cam']);
+        expect(await optimizer.pendingSwaps(), hasLength(1));
+        await optimizer.finishSwaps();
+        expect((await store.getByLocalId('cam'))!.libraryId, 'copy-asset');
+
+        // A swap filed twice anyway: the second copy is taken back out, never
+        // left in Photos for sync to add as a new photo.
+        final again = await cameraRoll(store);
+        await optimizer.apply([
+          StorageItem(
+            record: again,
+            bytes: 6000,
+            name: 'IMG_1.HEIC',
+            appOwned: false,
+            issues: const {StorageIssue.highResolution},
+            fixes: const [StorageFix.optimize],
+          ),
+        ], deferDeletes: true);
+        await store.setAppState(
+          'pending_swaps_v1',
+          jsonEncode([
+            ...await optimizer.pendingSwaps(),
+            {'id': 'cam', 'asset': 'stray-asset', 'old': 6000, 'new': 100},
+          ]),
+        );
+        await optimizer.finishSwaps();
+        expect((await store.getByLocalId('cam'))!.libraryId, 'new-asset');
+        expect(writer.deletedIds, ['stray-asset']);
+      },
+    );
 
     test('puts the smaller copy in Photos and moves the record onto it, so '
         'the bucket keeps the original', () async {

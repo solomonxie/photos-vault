@@ -356,7 +356,14 @@ class StorageOptimizer {
     var freed = 0;
     var skipped = 0;
     final made = <StorageItem, (AssetEntity, File)>{};
+    // One swap per photo: a second copy would be left in Photos unclaimed,
+    // and sync would bring it back as a new photo.
+    final filed = _defer ? await _filedIds() : <String>{};
     for (final item in items) {
+      if (filed.contains(item.record.localId)) {
+        onPrepared?.call(item.record.localId);
+        continue;
+      }
       _step(item, FixAction.optimizing);
       final result = await _smallerCopyInLibrary(item);
       if (result == null) {
@@ -364,6 +371,7 @@ class StorageOptimizer {
         report(item, StorageItemOutcome.skipped);
       } else {
         made[item] = result;
+        filed.add(item.record.localId);
         // Filed the moment the copy exists: a run cut short must not leave
         // it in Photos beside its original with nothing to say so.
         if (_defer) {
@@ -459,6 +467,10 @@ class StorageOptimizer {
     }
   }
 
+  Future<Set<String>> _filedIds() async => {
+    for (final s in await pendingSwaps()) s['id'] as String,
+  };
+
   Future<void> _addSwaps(Iterable<Map<String, dynamic>> swaps) async {
     final all = [...await pendingSwaps(), ...swaps];
     await store.setAppState(_swapsKey, jsonEncode(all));
@@ -489,9 +501,16 @@ class StorageOptimizer {
     var freed = 0;
     var skipped = 0;
     final orphans = <String>[];
+    final done = <String>{};
     for (final s in swaps) {
       final id = s['id'] as String;
       final asset = s['asset'] as String?;
+      // Filed twice: only the first copy is taken over; a second made for
+      // it goes, or sync would find it unclaimed and add it back.
+      if (!done.add(id)) {
+        if (asset != null && s['keep'] != true) orphans.add(asset);
+        continue;
+      }
       if (!gone.contains(id)) {
         // A copy found already in Photos is kept: declining only means the
         // original stays too.
@@ -547,19 +566,24 @@ class StorageOptimizer {
   Future<void> fileFoundCopies(
     List<({AssetRecord original, AssetRecord copy})> pairs,
     List<AssetRecord> extras,
-  ) => _addSwaps([
-    for (final (:original, :copy) in pairs)
-      {
-        'id': original.localId,
-        'asset': copy.libraryId,
-        'w': copy.width,
-        'h': copy.height,
-        'old': 0,
-        'new': 0,
-        'keep': true,
-      },
-    for (final e in extras) {'id': e.localId, 'old': 0},
-  ]);
+  ) async {
+    final filed = await _filedIds();
+    await _addSwaps([
+      for (final (:original, :copy) in pairs)
+        if (!filed.contains(original.localId))
+          {
+            'id': original.localId,
+            'asset': copy.libraryId,
+            'w': copy.width,
+            'h': copy.height,
+            'old': 0,
+            'new': 0,
+            'keep': true,
+          },
+      for (final e in extras)
+        if (!filed.contains(e.localId)) {'id': e.localId, 'old': 0},
+    ]);
+  }
 
   void _step(StorageItem item, FixAction action) =>
       _onStep?.call(item.record.localId, action);

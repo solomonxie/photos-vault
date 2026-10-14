@@ -1350,5 +1350,10 @@
   "flaggedHowFinishOptimize": "之前优化生成的较小副本与原图同时留在照片中。保留副本，删除原图；原图仍保存在存储桶中。",
   "flaggedConfirmFinishOptimizeBody": "iOS 会询问一次是否删除原图。只列出完整原图已在存储桶中的照片。标签、人物和相簿会转到较小的副本上。",
   "flaggedProblemLeftoverCopy": "照片中残留副本",
-  "flaggedLeftoverCopyReason": "优化保存了较小的副本，但原图未被删除"
+  "flaggedLeftoverCopyReason": "优化保存了较小的副本，但原图未被删除",
+  "flaggedRemoveExtraCopies": "删除多余副本",
+  "flaggedHowRemoveExtraCopies": "这张照片在“照片”里有多份。保留一份，删除其余的。存储桶里的原图保留。",
+  "flaggedConfirmExtraCopiesBody": "iOS 会询问一次是否删除多余副本。它们会在“照片”的“最近删除”里保留 30 天。",
+  "flaggedProblemExtraCopies": "“照片”里有多余副本",
+  "flaggedExtraCopiesReason": "优化在“照片”里留下了这张照片的多份副本"
 }

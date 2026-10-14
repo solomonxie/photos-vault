@@ -232,10 +232,22 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   void _derive() {
     if (!mounted) return;
     final copies = {for (final f in _duplicates) f.id};
+    // A photo whose copy is already in Photos is finished, not optimized
+    // again: that would file a second copy for it.
+    final hasCopy = {
+      for (final f in _records)
+        if (f.solutions.contains(FlagSolution.finishOptimize) ||
+            f.solutions.contains(FlagSolution.removeExtraCopies))
+          ?f.asset?.localId,
+    };
     final live = [
       for (final f in [
         ..._duplicates,
-        ..._storage.where((f) => !copies.contains(f.id)),
+        ..._storage.where(
+          (f) =>
+              !copies.contains(f.id) &&
+              !hasCopy.contains(f.storage?.record.localId),
+        ),
         ..._cloudOnly,
         ..._records,
         ..._bucket,

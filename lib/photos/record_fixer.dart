@@ -66,7 +66,7 @@ class RecordFixer {
 
   /// From the last [scan]: each original's copy to keep, and any more
   /// copies of it.
-  Map<String, ({AssetRecord copy, List<AssetRecord> extras})> _copies = {};
+  Map<String, ({AssetRecord? copy, List<AssetRecord> extras})> _copies = {};
 
   Future<RecordScan> scan() async {
     final records = await store.listAll();
@@ -214,35 +214,48 @@ class RecordFixer {
       (byTime[(r.createdAt.millisecondsSinceEpoch, r.isVideo)] ??= []).add(r);
     }
     final groups = <(List<AssetRecord>, List<AssetRecord>)>[];
+    // Already optimized, with more copies of it beside: a swap filed twice,
+    // or a copy sync found before the swap moved the record onto another.
+    final optimizedGroups = <(List<AssetRecord>, List<AssetRecord>)>[];
     for (final group in byTime.values) {
       if (group.length < 2) continue;
       final copies = group.where(isCopy).toList();
-      if (copies.isEmpty) continue;
+      final optimized = [
+        for (final o in group)
+          if (o.localOptimized) o,
+      ];
       final originals = [
         for (final o in group)
           if (!copies.contains(o) && !o.localOptimized) o,
       ];
-      if (originals.isNotEmpty) groups.add((originals, copies));
+      if (copies.isNotEmpty && originals.isNotEmpty) {
+        groups.add((originals, copies));
+      }
+      if (optimized.isNotEmpty && optimized.length + copies.length > 1) {
+        optimizedGroups.add((optimized, copies));
+      }
     }
-    if (groups.isEmpty) {
+    if (groups.isEmpty && optimizedGroups.isEmpty) {
       _copies = {};
       return const [];
     }
 
-    final paths = {
-      for (final (originals, copies) in groups)
+    final printPaths = {
+      for (final (originals, copies) in [...groups, ...optimizedGroups])
         for (final r in [...originals, ...copies]) r.localId: ?r.thumbnailPath,
     };
-    final hashes = await Isolate.run(() {
-      final out = <String, int>{};
-      for (final MapEntry(key: id, value: path) in paths.entries) {
-        try {
-          final hash = differenceHash(File(path).readAsBytesSync());
-          if (hash != null) out[id] = hash;
-        } catch (_) {}
-      }
-      return out;
-    });
+    final prints = printPaths.isEmpty
+        ? const <String, List<int>>{}
+        : await Isolate.run(() {
+            final out = <String, List<int>>{};
+            for (final MapEntry(key: id, value: path) in printPaths.entries) {
+              try {
+                final grey = greyPrint(File(path).readAsBytesSync());
+                if (grey != null) out[id] = grey;
+              } catch (_) {}
+            }
+            return out;
+          });
 
     bool sameShape(AssetRecord a, AssetRecord b) {
       final (aw, ah, bw, bh) = (a.width!, a.height!, b.width, b.height);
@@ -250,25 +263,29 @@ class RecordFixer {
       return ((aw / ah) - (bw / bh)).abs() < 0.02;
     }
 
-    final found = <String, ({AssetRecord copy, List<AssetRecord> extras})>{};
+    final found = <String, ({AssetRecord? copy, List<AssetRecord> extras})>{};
     final flags = <Flag>[];
+    final claimed = <String>{};
     for (final (originals, copies) in groups) {
-      final mine = <String, List<(int, AssetRecord)>>{};
+      final mine = <String, List<(double, AssetRecord)>>{};
       for (final c in copies) {
-        AssetRecord? best;
-        var bestDistance = 1 << 30;
-        for (final o in originals) {
-          if (!sameShape(c, o) || (edge(o) ?? 0) <= edge(c)!) continue;
-          final (hc, ho) = (hashes[c.localId], hashes[o.localId]);
-          final d = hc != null && ho != null
-              ? hashDistance(hc, ho)
-              : originals.length == 1
-              ? _maxDistance
-              : 1 << 30;
-          if (d < bestDistance) (best, bestDistance) = (o, d);
-        }
-        if (best != null && bestDistance <= _maxDistance) {
-          (mine[best.localId] ??= []).add((bestDistance, c));
+        final grey = prints[c.localId];
+        final near = <(double, AssetRecord)>[
+          for (final o in originals)
+            if (sameShape(c, o) && (edge(o) ?? 0) > edge(c)!)
+              (
+                grey != null && prints[o.localId] != null
+                    ? printDistance(grey, prints[o.localId]!)
+                    : originals.length == 1
+                    ? _sameFrame
+                    : double.infinity,
+                o,
+              ),
+        ]..sort((a, b) => a.$1.compareTo(b.$1));
+        if (near.isNotEmpty &&
+            near.first.$1 <= _sameFrame &&
+            (near.length == 1 || near[1].$1 > _otherFrame)) {
+          (mine[near.first.$2.localId] ??= []).add(near.first);
         }
       }
       for (final o in originals) {
@@ -280,6 +297,7 @@ class RecordFixer {
           continue;
         }
         claims.sort((a, b) => a.$1.compareTo(b.$1));
+        claimed.addAll([for (final (_, c) in claims) c.localId]);
         found[o.localId] = (
           copy: claims.first.$2,
           extras: [for (final (_, c) in claims.skip(1)) c],
@@ -294,11 +312,74 @@ class RecordFixer {
         );
       }
     }
+    for (final (optimized, copies) in optimizedGroups) {
+      optimized.sort((a, b) {
+        if (a.isFavorite != b.isFavorite) return a.isFavorite ? -1 : 1;
+        return a.addedAt.compareTo(b.addedAt);
+      });
+      final keepers = <AssetRecord>[];
+      final extras = <String, List<AssetRecord>>{};
+      for (final r in [
+        ...optimized,
+        for (final c in copies)
+          if (!claimed.contains(c.localId)) c,
+      ]) {
+        final mine = prints[r.localId];
+        final near = <(double, AssetRecord)>[
+          for (final k in keepers)
+            if (mine != null &&
+                prints[k.localId] != null &&
+                sameShape(r, k) &&
+                (edge(k) ?? 0) >= (edge(r) ?? 0))
+              (printDistance(mine, prints[k.localId]!), k),
+        ]..sort((a, b) => a.$1.compareTo(b.$1));
+        // Only the same frame, and only when no other is close: a burst's
+        // next frame can come within a few levels.
+        final sure =
+            near.isNotEmpty &&
+            near.first.$1 <= _sameFrame &&
+            (near.length == 1 || near[1].$1 > _otherFrame) &&
+            (!r.localOptimized || r.isVideo);
+        if (sure) {
+          (extras[near.first.$2.localId] ??= []).add(r);
+        } else if (r.localOptimized) {
+          keepers.add(r);
+        }
+      }
+      for (final k in keepers) {
+        final key = k.stateOf(DerivativeKind.original).destinationKey;
+        final kept = key == null ? null : listed[key];
+        if (!k.isFullyBackedUp || kept == null) continue;
+        // Never lets go of a bigger bucket file than the one kept.
+        final mine = [
+          for (final e in extras[k.localId] ?? const <AssetRecord>[])
+            if (_bucketSize(e, listed) <= kept * 1.01) e,
+        ];
+        if (mine.isEmpty) continue;
+        found[k.localId] = (copy: null, extras: mine);
+        flags.add(
+          Flag.asset(
+            k,
+            problem: FlagProblem.extraCopies,
+            solutions: const [FlagSolution.removeExtraCopies],
+            name: _nameOf(k, [key!]),
+          ),
+        );
+      }
+    }
     _copies = found;
     return flags;
   }
 
-  static const _maxDistance = 10;
+  static int _bucketSize(AssetRecord r, Map<String, int> listed) {
+    final key = r.stateOf(DerivativeKind.original).destinationKey;
+    return key == null ? 0 : listed[key] ?? 0;
+  }
+
+  /// [printDistance] bounds. Copies of one frame measured ≤ 1.2 on a real
+  /// library; distinct burst frames ≥ 4.9.
+  static const _sameFrame = 2.0;
+  static const _otherFrame = 4.0;
 
   /// Files the swap; the queue's one iOS prompt at the end of the run
   /// deletes the original and moves the record onto its copy.
@@ -308,7 +389,9 @@ class RecordFixer {
     if (file == null || found == null) {
       return const FixResult(FixOutcome.failed, detail: 'rescan first');
     }
-    await file([(original: record, copy: found.copy)], found.extras);
+    await file([
+      if (found.copy case final copy?) (original: record, copy: copy),
+    ], found.extras);
     return const FixResult(FixOutcome.removed);
   }
 

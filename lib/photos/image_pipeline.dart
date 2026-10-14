@@ -134,6 +134,32 @@ int? differenceHash(Uint8List bytes) {
   return hash;
 }
 
+/// 16×16 grey levels: finer than [differenceHash], enough to tell two
+/// copies of one frame from the next frame of a burst.
+List<int>? greyPrint(Uint8List bytes) {
+  final decoded = decodePhoto(bytes);
+  if (decoded == null) return null;
+  final small = img.copyResize(
+    decoded,
+    width: 16,
+    height: 16,
+    interpolation: img.Interpolation.average,
+  );
+  return [
+    for (var y = 0; y < 16; y++)
+      for (var x = 0; x < 16; x++) small.getPixel(x, y).luminance.toInt(),
+  ];
+}
+
+/// Mean grey-level difference, 0–255.
+double printDistance(List<int> a, List<int> b) {
+  var sum = 0;
+  for (var i = 0; i < a.length; i++) {
+    sum += (a[i] - b[i]).abs();
+  }
+  return sum / a.length;
+}
+
 int hashDistance(int a, int b) {
   var x = a ^ b;
   var n = 0;

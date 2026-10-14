@@ -26,6 +26,7 @@ String solutionLabel(AppLocalizations l10n, FlagSolution s) => switch (s) {
   FlagSolution.getFromPhotos => l10n.flaggedGetFromPhotos,
   FlagSolution.removeFromLibrary => l10n.flaggedRemoveFromLibrary,
   FlagSolution.finishOptimize => l10n.flaggedFinishOptimize,
+  FlagSolution.removeExtraCopies => l10n.flaggedRemoveExtraCopies,
 };
 
 /// One line: what the action will do.
@@ -47,6 +48,7 @@ String solutionHow(AppLocalizations l10n, FlagSolution s) => switch (s) {
   FlagSolution.getFromPhotos => l10n.flaggedHowGetFromPhotos,
   FlagSolution.removeFromLibrary => l10n.flaggedHowRemoveFromLibrary,
   FlagSolution.finishOptimize => l10n.flaggedHowFinishOptimize,
+  FlagSolution.removeExtraCopies => l10n.flaggedHowRemoveExtraCopies,
 };
 
 /// The fine print, shown on the action's page before anything runs.
@@ -59,6 +61,7 @@ String? solutionDetail(AppLocalizations l10n, FlagSolution s) => switch (s) {
   FlagSolution.importAnyway => l10n.flaggedConfirmImportAnywayBody,
   FlagSolution.removeFromLibrary => l10n.flaggedConfirmRemoveFromLibraryBody,
   FlagSolution.finishOptimize => l10n.flaggedConfirmFinishOptimizeBody,
+  FlagSolution.removeExtraCopies => l10n.flaggedConfirmExtraCopiesBody,
   _ => null,
 };
 
@@ -93,6 +96,7 @@ IconData solutionIcon(FlagSolution s) => switch (s) {
   FlagSolution.getFromPhotos => CupertinoIcons.arrow_down_circle_fill,
   FlagSolution.removeFromLibrary => CupertinoIcons.trash_fill,
   FlagSolution.finishOptimize => CupertinoIcons.arrow_down_right_arrow_up_left,
+  FlagSolution.removeExtraCopies => CupertinoIcons.square_on_square,
 };
 
 String problemLabel(AppLocalizations l10n, FlagProblem p) => switch (p) {
@@ -108,6 +112,7 @@ String problemLabel(AppLocalizations l10n, FlagProblem p) => switch (p) {
   FlagProblem.noThumbnail => l10n.flaggedProblemNoThumbnail,
   FlagProblem.missingFromBucket => l10n.flaggedProblemMissing,
   FlagProblem.leftoverCopy => l10n.flaggedProblemLeftoverCopy,
+  FlagProblem.extraCopies => l10n.flaggedProblemExtraCopies,
 };
 
 /// Why this item is listed. A photo's tags explain its size; a bucket file
@@ -120,6 +125,9 @@ String flagReason(AppLocalizations l10n, Flag flag) {
     }
     if (flag.problems.contains(FlagProblem.leftoverCopy)) {
       return l10n.flaggedLeftoverCopyReason;
+    }
+    if (flag.problems.contains(FlagProblem.extraCopies)) {
+      return l10n.flaggedExtraCopiesReason;
     }
     return flag.solutions.contains(FlagSolution.getFromPhotos)
         ? l10n.flaggedLostInPhotosReason
