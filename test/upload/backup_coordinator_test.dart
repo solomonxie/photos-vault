@@ -448,6 +448,42 @@ void main() {
     });
   });
 
+  test('the same file exported under another extension keeps the key the '
+      'bucket has', () async {
+    final recordStore = newRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:same',
+      contentHash: 'same',
+      platform: 'ios',
+    );
+    final sent = <String>[];
+    final coordinator = BackupCoordinator(
+      targetsStore: await oneTarget(),
+      recordStore: recordStore,
+      s3Uploader: _RecordingS3Uploader((_, key, _) {
+        sent.add(key);
+        return true;
+      }),
+      hashFile: (_) async => 'one-hash',
+    );
+    for (final path in ['/tmp/same.heic', '/tmp/same.heif']) {
+      await coordinator.backUpDerivative(
+        record: (await recordStore.getByLocalId('manual:same'))!,
+        kind: DerivativeKind.original,
+        filePath: path,
+      );
+    }
+
+    final base = await _base(recordStore, 'manual:same');
+    expect(sent, ['originals/$base.heic']);
+    expect(
+      (await recordStore.getByLocalId('manual:same'))!
+          .stateOf(DerivativeKind.original)
+          .destinationKey,
+      'originals/$base.heic',
+    );
+  });
+
   test('marks the derivative failed when every target fails', () async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     await targetsStore.add(

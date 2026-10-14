@@ -40,6 +40,14 @@ class NameMigration {
       (listed[o.targetId] ??= {}).add(o.key);
     }
     if (listed.isEmpty) return 0;
+    // Same folder and name, another format: what a re-encode in the bucket
+    // leaves when a record kept the old extension.
+    final byStem = <String, Map<String, List<String>>>{};
+    for (final MapEntry(key: targetId, value: keys) in listed.entries) {
+      for (final k in keys) {
+        ((byStem[targetId] ??= {})[p.withoutExtension(k)] ??= []).add(k);
+      }
+    }
     var healed = 0;
     for (final record in await store.listAll()) {
       if (record.passcodeHash != null) continue;
@@ -56,8 +64,13 @@ class NameMigration {
         if (target == null || seen == null || seen.contains(key)) continue;
         final tail = _tail.firstMatch(key)?[2];
         if (tail == null) continue;
-        final rebased = '${target.prefix}$tail';
-        if (rebased == key || !seen.contains(rebased)) continue;
+        var rebased = '${target.prefix}$tail';
+        if (!seen.contains(rebased)) {
+          final formats = byStem[firstTarget]?[p.withoutExtension(rebased)];
+          if (formats == null || formats.length != 1) continue;
+          rebased = formats.single;
+        }
+        if (rebased == key) continue;
         for (final entry in held.entries) {
           await store.renameUploadKey(
             localId: record.localId,

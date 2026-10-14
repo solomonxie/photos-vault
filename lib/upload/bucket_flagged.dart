@@ -825,6 +825,17 @@ class BucketFixer {
     return const FixResult(FixOutcome.removed);
   }
 
+  /// An original under [stem] in any format, asked of each bucket set up
+  /// now rather than read from a listing. Throws when one can't be listed.
+  Future<({String targetId, String key})?> liveOriginal(String stem) async {
+    for (final target in await targetsStore.loadAll()) {
+      final found = await _ops.listFolder(target, 'originals/$stem.');
+      if (found == null) throw StateError('bucket did not answer');
+      if (found.isNotEmpty) return (targetId: target.id, key: found.first.key);
+    }
+    return null;
+  }
+
   /// The ETag, remembered with the other header answers.
   Future<String?> etagOf(BucketObject object) async {
     final known = await _looked(object);
@@ -863,6 +874,14 @@ class BucketFixer {
   Future<FixResult> removeOrphan(FlaggedObject f) async {
     final target = await _target(f.object.targetId);
     if (target == null) return const FixResult(FixOutcome.failed);
+    // An orphan by the listing; the bucket itself has the last word.
+    final original = await _ops.listFolder(
+      target,
+      'originals/${_stem(f.object.key)}.',
+    );
+    if (original == null || original.isNotEmpty) {
+      return const FixResult(FixOutcome.failed, detail: 'original is there');
+    }
     return await _ops.delete(target, f.object.key)
         ? const FixResult(FixOutcome.removed)
         : const FixResult(FixOutcome.failed);

@@ -74,6 +74,7 @@ void main() {
 
   RecordFixer fixer({
     Set<String> inPhotos = const {},
+    Set<String> inBucket = const {},
     Future<bool> Function(Map<String, Object> args)? frame,
     List<String>? asked,
   }) => RecordFixer(
@@ -89,6 +90,9 @@ void main() {
       frame: frame ?? (_) async => false,
     ).restoreThumbnail,
     inPhotos: (r) async => inPhotos.contains(r.localId),
+    liveOriginal: (stem) async => inBucket.contains(stem)
+        ? (targetId: 't', key: 'photos-vault/originals/$stem.heic')
+        : null,
     remove: (r) async {
       await store.remove(r.localId);
       return true;
@@ -370,6 +374,47 @@ void main() {
     expect(byId['nowhere']!.solutions, [FlagSolution.removeFromLibrary]);
     expect(byId['inPhotos']!.problems, {FlagProblem.missingFromBucket});
     expect([for (final f in found.noThumbnail) f.asset!.localId], ['moved']);
+  });
+
+  test('a listing cut short never makes a photo lost: the bucket is asked, '
+      'and what it has is linked back', () async {
+    await cloudOnly('there', key: 'photos-vault/originals/x.heif');
+    await cloudOnly('gone', key: 'photos-vault/originals/y.heif');
+    await listed(['photos-vault/originals/unrelated.jpg']);
+
+    final found = await fixer(inBucket: {'x'}).scan();
+
+    expect(found.lost.map((f) => f.asset!.localId), ['gone']);
+    expect(
+      (await store.getByLocalId('there'))!
+          .stateOf(DerivativeKind.original)
+          .destinationKey,
+      'photos-vault/originals/x.heic',
+    );
+  });
+
+  test('a bucket that does not answer makes nothing lost, and Remove from '
+      'Library refuses', () async {
+    await cloudOnly('a', key: 'photos-vault/originals/a.jpg');
+    await listed(['photos-vault/originals/unrelated.jpg']);
+    var removed = 0;
+    final f = RecordFixer(
+      store: store,
+      thumbnail: (_) async => null,
+      inPhotos: (_) async => false,
+      liveOriginal: (_) async => throw StateError('offline'),
+      remove: (_) async {
+        removed++;
+        return true;
+      },
+    );
+
+    expect((await f.scan()).lost, isEmpty);
+    expect(
+      (await f.removeFromLibrary((await store.getByLocalId('a'))!)).ok,
+      isFalse,
+    );
+    expect(removed, 0);
   });
 
   test('Get from Photos ends cloud-only and owes a backup; Remove drops the '

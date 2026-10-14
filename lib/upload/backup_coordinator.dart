@@ -308,7 +308,9 @@ class BackupCoordinator {
         );
         if (legacy || held.containsKey(target.id)) {
           succeeded++;
-          firstDestinationKey ??= key;
+          // The key it is really under: today's export may name another
+          // extension, which was never uploaded.
+          firstDestinationKey ??= held[target.id] ?? before[target.id] ?? key;
           continue;
         }
         final ok = await _s3Uploader.put(

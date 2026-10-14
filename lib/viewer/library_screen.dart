@@ -335,17 +335,19 @@ class LibraryScreenState extends State<LibraryScreen>
 
   /// Lives here rather than on the Flagged Items page, so leaving the page
   /// doesn't stop a run.
+  late final BucketFixer _bucketFixer = BucketFixer(
+    store: assetRecordStore,
+    targetsStore: _backupTargetsStore,
+    passphrases: _vaultKeys.entries,
+    uploader: S3Uploader(),
+    downloader: S3Downloader(),
+  );
+
   late final FixQueue _fixQueue = FixQueue(
     store: assetRecordStore,
     advisor: _storageAdvisor,
     optimizer: _storageOptimizer,
-    fixer: BucketFixer(
-      store: assetRecordStore,
-      targetsStore: _backupTargetsStore,
-      passphrases: _vaultKeys.entries,
-      uploader: S3Uploader(),
-      downloader: S3Downloader(),
-    ),
+    fixer: _bucketFixer,
     refreshBucket: () => BucketIndexer(
       targetsStore: _backupTargetsStore,
       recordStore: assetRecordStore,
@@ -358,8 +360,13 @@ class LibraryScreenState extends State<LibraryScreen>
       ).restoreThumbnail,
       inPhotos: (record) async =>
           await _photoLibraryService.entityFor(record) != null,
-      remove: (record) => _removal.deletePermanently(record),
+      remove: (record) async {
+        if (record.isLocked) return false;
+        await _removal.purge(record);
+        return true;
+      },
       fileCopies: _storageOptimizer.fileFoundCopies,
+      liveOriginal: _bucketFixer.liveOriginal,
     ),
   );
 

@@ -37,6 +37,7 @@ class RecordFixer {
     required this.inPhotos,
     required this.remove,
     this.fileCopies,
+    this.liveOriginal,
   });
 
   final AssetRecordStore store;
@@ -48,7 +49,7 @@ class RecordFixer {
   /// Whether the OS library still resolves the record's asset.
   final Future<bool> Function(AssetRecord record) inPhotos;
 
-  /// `AssetRemoval.deletePermanently`.
+  /// Drops the record and its files on this phone; never the bucket's.
   final Future<bool> Function(AssetRecord record) remove;
 
   /// `StorageOptimizer.fileFoundCopies`.
@@ -57,6 +58,11 @@ class RecordFixer {
     List<AssetRecord> extras,
   )?
   fileCopies;
+
+  /// `BucketFixer.liveOriginal`: the bucket itself, asked by name. A
+  /// listing can be stale or cut short; this is what decides "lost".
+  final Future<({String targetId, String key})?> Function(String stem)?
+  liveOriginal;
 
   /// From the last [scan]: each original's copy to keep, and any more
   /// copies of it.
@@ -86,6 +92,7 @@ class RecordFixer {
 
     final lost = <Flag>[];
     final bare = <(AssetRecord, List<String>)>[];
+    final suspects = <(AssetRecord, List<String>)>[];
     for (final r in records) {
       if (!r.localDeleted || r.isDeleted || r.passcodeHash != null) continue;
       final keys = [
@@ -101,16 +108,34 @@ class RecordFixer {
                     sizes.containsKey(k) ||
                     originals.containsKey(p.posix.basename(k)),
               ));
-      if (gone &&
-          r.localId.startsWith('bucket:') &&
-          _twinned(r, keys, holders)) {
+      if (gone) {
+        suspects.add((r, keys));
+      } else {
+        bare.add((r, keys));
+      }
+    }
+
+    // The listing only nominates; each is asked of the bucket before it is
+    // called lost. Found, the record is pointed at what is there.
+    final confirmed = <(AssetRecord, List<String>)>[];
+    for (var i = 0; i < suspects.length; i += _askAtOnce) {
+      final batch = suspects.skip(i).take(_askAtOnce).toList();
+      final answers = await Future.wait([
+        for (final (r, keys) in batch) _confirmLost(r, keys),
+      ]);
+      for (var j = 0; j < batch.length; j++) {
+        if (answers[j]) confirmed.add(batch[j]);
+      }
+    }
+    for (final (r, keys) in confirmed) {
+      if (r.localId.startsWith('bucket:') && _twinned(r, keys, holders)) {
         // Imported from a listing older than a replace: the photo it names
         // is already in the library under its new format.
         await store.remove(r.localId);
         continue;
       }
-      if (gone) {
-        // One library lookup per lost record: a handful, not the library.
+      // One library lookup per lost record: a handful, not the library.
+      {
         final photos = r.libraryId != null && await _inPhotos(r);
         lost.add(
           Flag.asset(
@@ -124,8 +149,6 @@ class RecordFixer {
             name: _nameOf(r, keys),
           ),
         );
-      } else {
-        bare.add((r, keys));
       }
     }
 
@@ -289,6 +312,49 @@ class RecordFixer {
     return const FixResult(FixOutcome.removed);
   }
 
+  static const _askAtOnce = 8;
+
+  /// True only when every bucket set up now answered and none has the
+  /// original under its name, in any format. Found: the record is pointed
+  /// at it and it is not lost. No answer: not lost either; unsure is never
+  /// gone.
+  Future<bool> _confirmLost(AssetRecord r, List<String> keys) async {
+    final ask = liveOriginal;
+    if (ask == null) return false;
+    try {
+      for (final stem in {
+        for (final k in keys) p.posix.basenameWithoutExtension(k),
+      }) {
+        final found = await ask(stem);
+        if (found == null) continue;
+        await _pointAt(r, found);
+        return false;
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  Future<void> _pointAt(
+    AssetRecord r,
+    ({String targetId, String key}) found,
+  ) async {
+    await store.recordUpload(
+      localId: r.localId,
+      kind: DerivativeKind.original,
+      targetId: found.targetId,
+      destinationKey: found.key,
+    );
+    await store.updateDerivative(
+      r.localId,
+      DerivativeKind.original,
+      r
+          .stateOf(DerivativeKind.original)
+          .copyWith(status: UploadStatus.uploaded, destinationKey: found.key),
+    );
+  }
+
   static bool _twinned(
     AssetRecord r,
     List<String> keys,
@@ -354,8 +420,24 @@ class RecordFixer {
     return const FixResult(FixOutcome.imported);
   }
 
-  Future<FixResult> removeFromLibrary(AssetRecord record) async =>
-      await remove(record)
-      ? const FixResult(FixOutcome.removed)
-      : const FixResult(FixOutcome.failed, detail: 'locked');
+  /// The record only. Asked of the bucket once more first: a file found
+  /// is linked back instead, and a bucket that doesn't answer stops it.
+  Future<FixResult> removeFromLibrary(AssetRecord record) async {
+    final keys = [
+      ?record.stateOf(DerivativeKind.original).destinationKey,
+      ...(await store.targetsHolding(
+        record.localId,
+        DerivativeKind.original,
+      )).values,
+    ];
+    if (!await _confirmLost(record, keys)) {
+      return const FixResult(
+        FixOutcome.failed,
+        detail: 'still in the bucket, or the bucket did not answer',
+      );
+    }
+    return await remove(record)
+        ? const FixResult(FixOutcome.removed)
+        : const FixResult(FixOutcome.failed, detail: 'locked');
+  }
 }
