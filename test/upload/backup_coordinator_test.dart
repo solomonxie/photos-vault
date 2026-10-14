@@ -513,6 +513,57 @@ void main() {
       ]);
     });
 
+    test('a copy Optimize shrank never goes up over the original the bucket '
+        'still lists, and nothing is retired for it', () async {
+      final recordStore = newRecordStore();
+      await recordStore.upsert(
+        localId: 'manual:opt',
+        contentHash: 'opt',
+        platform: 'ios',
+      );
+      final sent = <String>[];
+      final coordinator = BackupCoordinator(
+        targetsStore: await oneTarget(),
+        recordStore: recordStore,
+        s3Uploader: _RecordingS3Uploader((path, key, target) {
+          sent.add(key);
+          return true;
+        }),
+        hashFile: (path) async => path,
+      );
+      await coordinator.backUpDerivative(
+        record: (await recordStore.getByLocalId('manual:opt'))!,
+        kind: DerivativeKind.original,
+        filePath: '/tmp/opt.jpg',
+      );
+      final original = sent.single;
+      final target = await oneTargetId(recordStore);
+      await recordStore.replaceBucketObjects(target, [
+        BucketObject(
+          targetId: target,
+          key: original,
+          size: 1,
+          lastModified: DateTime(2026),
+        ),
+      ]);
+      await recordStore.setLocalOptimized('manual:opt', true);
+
+      await coordinator.backUpDerivative(
+        record: (await recordStore.getByLocalId('manual:opt'))!,
+        kind: DerivativeKind.original,
+        filePath: '/tmp/opt.heic',
+      );
+
+      expect(sent, [original]);
+      expect(await PendingDeletes(store: recordStore).pending(), isEmpty);
+      expect(
+        (await recordStore.getByLocalId('manual:opt'))!
+            .stateOf(DerivativeKind.original)
+            .destinationKey,
+        original,
+      );
+    });
+
     test('and in a batch', () async {
       final (recordStore, coordinator) = await uploadedAsJpeg();
       final base = await _base(recordStore, 'manual:ext');

@@ -863,6 +863,16 @@ class AssetRecordStore {
     return rows.isNotEmpty;
   }
 
+  Future<bool> isListed(String targetId, String key) async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT 1 FROM $_bucketObjectTable WHERE target_id = ? AND key = ? '
+      'LIMIT 1',
+      [targetId, key],
+    );
+    return rows.isNotEmpty;
+  }
+
   /// Listed objects beside [key] under its name with another extension.
   Future<List<String>> listedSiblings(String targetId, String key) async {
     final stem = p.posix.withoutExtension(key);

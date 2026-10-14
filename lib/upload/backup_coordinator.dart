@@ -201,6 +201,23 @@ class BackupCoordinator {
     await _deleteTempDir(uploadPath);
   }
 
+  /// The full-quality original the bucket still lists for a photo Optimize
+  /// shrank here: sending the smaller copy over it would only lose quality.
+  Future<String?> _keptOriginal(
+    AssetRecord record,
+    DerivativeKind kind,
+    String targetId,
+    String? before,
+  ) async {
+    if (!_keepsOld(record, kind) || before == null) return null;
+    return await recordStore.isListed(targetId, before) ? before : null;
+  }
+
+  /// Sent from a copy Optimize shrank on this iPhone: whatever the bucket
+  /// already holds is the full-quality original, and never retired for it.
+  static bool _keepsOld(AssetRecord record, DerivativeKind kind) =>
+      record.localOptimized && kind == DerivativeKind.original;
+
   /// This photo's earlier copies under its name with another extension
   /// (`.mov` then `.MOV`, `.heic` then `.heif`), now that [key] has landed.
   /// Same kind of file only — a Live Photo's still and motion share a
@@ -333,11 +350,18 @@ class BackupCoordinator {
           derivativeDir: derivativeDir,
           fileName: fileName,
         );
-        if (legacy || held.containsKey(target.id)) {
+        final kept = await _keptOriginal(
+          record,
+          kind,
+          target.id,
+          before[target.id],
+        );
+        if (legacy || held.containsKey(target.id) || kept != null) {
           succeeded++;
           // The key it is really under: today's export may name another
           // extension, which was never uploaded.
-          firstDestinationKey ??= held[target.id] ?? before[target.id] ?? key;
+          firstDestinationKey ??=
+              held[target.id] ?? kept ?? before[target.id] ?? key;
           continue;
         }
         final ok = await _s3Uploader.put(
@@ -356,7 +380,9 @@ class BackupCoordinator {
             sourceHash: sourceHash,
           );
           final old = before[target.id];
-          if (old != null && old != key) {
+          if (_keepsOld(record, kind)) {
+            // Nothing in the bucket is this upload's to retire.
+          } else if (old != null && old != key) {
             superseded.add(
               PendingDelete(
                 objectKey: old,
@@ -365,9 +391,11 @@ class BackupCoordinator {
               ),
             );
           }
-          superseded.addAll(
-            await _leftovers(target.id, key, record.localId, old),
-          );
+          if (!_keepsOld(record, kind)) {
+            superseded.addAll(
+              await _leftovers(target.id, key, record.localId, old),
+            );
+          }
         }
       }
     } finally {
@@ -553,12 +581,21 @@ class BackupCoordinator {
             fileName: fileName,
           );
           final has = held[id]!;
+          final kept = await _keptOriginal(
+            record,
+            kind,
+            target.id,
+            before[id]![target.id],
+          );
           final ok =
               has.containsKey('') ||
               has.containsKey(target.id) ||
+              kept != null ||
               await _s3Uploader.put(filePath: path, key: key, target: target);
           if (ok) {
-            if (!has.containsKey('') && !has.containsKey(target.id)) {
+            if (!has.containsKey('') &&
+                !has.containsKey(target.id) &&
+                kept == null) {
               await recordStore.recordUpload(
                 localId: id,
                 kind: kind,
@@ -567,7 +604,9 @@ class BackupCoordinator {
                 sourceHash: sourceHashes[id],
               );
               final old = before[id]![target.id];
-              if (old != null && old != key) {
+              if (_keepsOld(record, kind)) {
+                // Nothing in the bucket is this upload's to retire.
+              } else if (old != null && old != key) {
                 superseded.add(
                   PendingDelete(
                     objectKey: old,
@@ -576,10 +615,12 @@ class BackupCoordinator {
                   ),
                 );
               }
-              superseded.addAll(await _leftovers(target.id, key, id, old));
+              if (!_keepsOld(record, kind)) {
+                superseded.addAll(await _leftovers(target.id, key, id, old));
+              }
             }
             successCounts.update(id, (v) => v + 1, ifAbsent: () => 1);
-            firstKeys.putIfAbsent(id, () => key);
+            firstKeys.putIfAbsent(id, () => kept ?? key);
           }
         } catch (_) {
           // This (record, target) pair failed outright — other targets for

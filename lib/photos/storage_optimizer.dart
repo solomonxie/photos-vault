@@ -680,7 +680,13 @@ class StorageOptimizer {
       final wrote = video
           ? await _writer.compressVideo(source.path, out.path)
           : await _writer.encodeStill(source.path, out.path, optimizedMaxEdge);
-      if (!wrote) return null;
+      if (!wrote) {
+        if (video &&
+            (lastVideoCompressError?.startsWith('not smaller') ?? false)) {
+          notSmaller.add(record.localId);
+        }
+        return null;
+      }
       // A copy barely smaller is a second file in Photos for nothing.
       if (await out.length() > await source.length() * _worthKeeping) {
         notSmaller.add(record.localId);

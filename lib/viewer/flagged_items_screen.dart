@@ -8,6 +8,7 @@ import '../photos/fix_queue.dart';
 import '../photos/storage_advice.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/settings_section.dart';
+import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/bucket_flagged.dart';
 import '../upload/bucket_import.dart';
@@ -214,6 +215,20 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
 
   // ---------------------------------------------------------------- derive
 
+  int _backingUp = 0;
+
+  static bool _uploading(AssetRecord? r) =>
+      switch (r?.stateOf(DerivativeKind.original).status) {
+        UploadStatus.pending || UploadStatus.uploading => true,
+        _ => false,
+      };
+
+  static bool _isOptimize(Flag f) =>
+      f.storage != null &&
+      f.solutions.any(
+        (s) => s == FlagSolution.optimize || s == FlagSolution.optimizeRemote,
+      );
+
   void _derive() {
     if (!mounted) return;
     final copies = {for (final f in _duplicates) f.id};
@@ -227,13 +242,23 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
       ])
         if (!_queue.isResolved(f)) f,
     ];
+    // While photos are still uploading, each one landing would add an
+    // Optimize: they're held back and offered together once backup is done,
+    // so one pass clears the list. A failed upload doesn't hold them.
+    final backingUp = [
+      for (final f in live)
+        if (f.solutions.contains(FlagSolution.backUp) &&
+            _uploading(f.storage?.record))
+          f,
+    ].length;
     // One waiting for its backup has nothing to do here but wait: the
     // queue's row covers it.
     final problems = [
       for (final f in live)
         if (f.solutions.any(
-          (s) => s != FlagSolution.backUp && s != FlagSolution.ignore,
-        ))
+              (s) => s != FlagSolution.backUp && s != FlagSolution.ignore,
+            ) &&
+            !(backingUp > 0 && _isOptimize(f)))
           f,
     ];
     final groups = _groupsOf(problems);
@@ -245,6 +270,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
         ),
     };
     setState(() {
+      _backingUp = backingUp;
       _totals = totals;
       _problemCount = problems.length;
       _saving = problems.fold(0, (sum, f) => sum + f.saving);
@@ -371,6 +397,8 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
             color: CupertinoColors.systemRed,
           ),
         ),
+      if (_backingUp > 0)
+        Text(l10n.flaggedWaitingBackup(_backingUp), style: settingsHintStyle),
       if (_saving > 0) ...[
         const SizedBox(height: 4),
         Text(

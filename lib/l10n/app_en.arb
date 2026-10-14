@@ -507,6 +507,14 @@
     }
   },
   "flaggedNeedsAlbum": "Looks like a hidden photo. Open its album and it will be tidied there.",
+  "flaggedWaitingBackup": "{count, plural, one{1 photo is still backing up. Optimize is offered once it's done.} other{{count} photos are still backing up. Optimize is offered once they're done.}}",
+  "@flaggedWaitingBackup": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "flaggedFailed": "Couldn't finish. Nothing was changed.",
   "privateAlbumHideDownloadTitle": "Download to hide?",
   "privateAlbumHideDownloadBody": "{count, plural, =1{This photo is only in your bucket. It will be downloaded, hidden, and its plain copy removed from the bucket.} other{These {count} photos are only in your bucket. They will be downloaded, hidden, and their plain copies removed from the bucket.}}",

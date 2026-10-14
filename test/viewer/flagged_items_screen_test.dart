@@ -33,7 +33,7 @@ void main() {
   tearDown(() => tempDir.delete(recursive: true));
 
   /// Two backed-up camera-roll photos — one large, one not — and a large
-  /// one that was never uploaded.
+  /// one whose upload failed.
   Future<FakeAssetRecordStore> seeded() async {
     final store = FakeAssetRecordStore();
     Future<void> add(
@@ -63,7 +63,7 @@ void main() {
 
     await add('big', status: UploadStatus.uploaded, width: 6000, height: 4000);
     await add('small', status: UploadStatus.uploaded);
-    await add('unsent', status: UploadStatus.pending);
+    await add('unsent', status: UploadStatus.failed);
     return store;
   }
 
@@ -148,6 +148,26 @@ void main() {
     // Nothing here ever deletes a local copy, and a fine photo isn't listed.
     expect(action('removeFromDevice'), findsNothing);
     expect(find.text('big.heic'), findsNothing, reason: 'files are a tap in');
+  });
+
+  testWidgets('while photos are still backing up, Optimize waits so they '
+      'all come at once', (tester) async {
+    final store = await seeded();
+    await store.updateDerivative(
+      'unsent',
+      DerivativeKind.original,
+      const DerivativeState(status: UploadStatus.pending),
+    );
+    await open(tester, store);
+
+    expect(action('optimize'), findsNothing);
+    expect(find.text('Nothing to fix'), findsOneWidget);
+    expect(
+      find.text(
+        "1 photo is still backing up. Optimize is offered once it's done.",
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('an action opens onto its items, all selected, with one '

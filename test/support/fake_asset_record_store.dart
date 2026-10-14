@@ -406,6 +406,12 @@ class FakeAssetRecordStore implements AssetRecordStore {
   ) async => bucketObjects[targetId] = objects;
 
   @override
+  Future<bool> isListed(String targetId, String key) async =>
+      (bucketObjects[targetId] ?? const <BucketObject>[]).any(
+        (o) => o.key == key,
+      );
+
+  @override
   Future<List<String>> listedSiblings(String targetId, String key) async => [
     for (final o in bucketObjects[targetId] ?? const <BucketObject>[])
       if (o.key != key &&
