@@ -59,6 +59,32 @@ DateTime? mvhdCreationTime(Uint8List moov) {
   return null;
 }
 
+const _metaTail = 64 * 1024;
+
+final _isoWithZone = RegExp(
+  r'(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})([+-])(\d{2}):?(\d{2})',
+);
+
+/// `com.apple.quicktime.creationdate`, e.g. `2026-09-13T13:20:47-0700`:
+/// the only date with a zone in a QuickTime `meta`. Null when there's none.
+DateTime? appleCreationDate(Uint8List bytes) {
+  final key = _indexOf(bytes, 'com.apple.quicktime.creationdate'.codeUnits);
+  if (key < 0) return null;
+  final m = _isoWithZone.firstMatch(String.fromCharCodes(bytes, key));
+  if (m == null) return null;
+  int g(int i) => int.parse(m[i]!);
+  final sign = m[7] == '-' ? -1 : 1;
+  final offset = Duration(hours: g(8), minutes: g(9)) * sign;
+  return DateTime.utc(
+    g(1),
+    g(2),
+    g(3),
+    g(4),
+    g(5),
+    g(6),
+  ).subtract(offset).toLocal();
+}
+
 /// Walks an MP4/MOV's top-level boxes with small ranged reads to its
 /// `moov`, then reads the start of it for `mvhd`. Never the whole file.
 Future<DateTime?> videoCaptureDate(RangeReader read, int size) async {
@@ -80,8 +106,16 @@ Future<DateTime?> videoCaptureDate(RangeReader read, int size) async {
     if (boxSize < headerSize) return null;
     if (type == 'moov') {
       final start = at + headerSize;
-      final end = at + boxSize < start + 4096 ? at + boxSize : start + 4096;
-      final body = await read(start, end > size ? size : end);
+      final stop = at + boxSize > size ? size : at + boxSize;
+      // Apple's own capture date sits in the metadata at the end of `moov`;
+      // `mvhd` is when the file was written, which a re-encode resets.
+      final tailStart = stop - _metaTail < start ? start : stop - _metaTail;
+      final tail = await read(tailStart, stop);
+      if (tail != null) {
+        if (appleCreationDate(tail) case final taken?) return taken;
+      }
+      final end = stop < start + 4096 ? stop : start + 4096;
+      final body = await read(start, end);
       return body == null ? null : mvhdCreationTime(body);
     }
     at += boxSize;

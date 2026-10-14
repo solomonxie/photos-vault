@@ -146,6 +146,10 @@ class StorageOptimizer {
       if (!_rewrites.contains(item.fix)) continue;
       // The re-encodes replace the local copy, which is only safe while the
       // bucket holds the full-quality original they're throwing away.
+      if (_requeued.contains(item.record.localId)) {
+        report(item, StorageItemOutcome.queued);
+        continue;
+      }
       if (unconfirmed.contains(item.record.localId)) {
         unverified++;
         report(item, StorageItemOutcome.unverified);
@@ -213,7 +217,10 @@ class StorageOptimizer {
   /// freeing space is never urgent enough to guess. Only the two fixes that
   /// destroy a local original are asked about — queueing a backup is safe
   /// whatever the bucket says.
+  Set<String> _requeued = const {};
+
   Future<Set<String>> _unconfirmed(List<StorageItem> items) async {
+    _requeued = const {};
     final verifier = this.verifier;
     if (verifier == null) return const {};
     final atRisk = {
@@ -226,6 +233,15 @@ class StorageOptimizer {
     try {
       final report = await verifier.reconcile();
       if (!report.reachedBucket) return atRisk;
+      // Missing from the bucket: back in the queue now, not on the next
+      // daily check, or it is offered again and refused again meanwhile.
+      if (!report.isClean) {
+        await verifier.repair(report);
+        _requeued = {
+          for (final id in report.missingLocalIds)
+            if (atRisk.contains(id)) id,
+        };
+      }
       // A removal leaves the bucket's thumbnail as the only picture once the
       // cache is gone, so a missing one blocks it too; the re-encodes keep a
       // local file and don't care.
@@ -640,17 +656,16 @@ class StorageOptimizer {
       final wrote = record.isVideo
           ? await _writer.compressVideo(source.path, out.path)
           : await _writer.encodeStill(source.path, out.path, optimizedMaxEdge);
-      if (wrote && await out.length() < await source.length()) {
+      if (wrote && await out.length() < await source.length() * _worthKeeping) {
         temps.remove(out);
         await _cleanUp(temps);
         return out;
       }
-      smallerFileProblem = record.isVideo
-          ? lastVideoCompressError ?? 'video not compressed'
-          : 'not smaller';
+      smallerFileProblem = wrote || !record.isVideo
+          ? 'not smaller'
+          : lastVideoCompressError ?? 'video not compressed';
       smallestAlready =
-          (wrote && !record.isVideo) ||
-          (smallerFileProblem?.startsWith('not smaller') ?? false);
+          wrote || (smallerFileProblem?.startsWith('not smaller') ?? false);
     } catch (e) {
       smallerFileProblem = '$e';
     }

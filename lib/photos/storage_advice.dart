@@ -225,7 +225,8 @@ List<StorageFix> _fixesFor(
                 (appOwned && issues.contains(StorageIssue.optimizableFormat)));
   return [
     if (shrinkable && !smallestAlready) StorageFix.optimize,
-    if (shrinkable && !remoteOptimized) StorageFix.optimizeRemote,
+    if (shrinkable && !remoteOptimized && !smallestAlready)
+      StorageFix.optimizeRemote,
   ];
 }
 

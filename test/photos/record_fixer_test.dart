@@ -90,7 +90,7 @@ void main() {
       frame: frame ?? (_) async => false,
     ).restoreThumbnail,
     inPhotos: (r) async => inPhotos.contains(r.localId),
-    liveOriginal: (stem) async => inBucket.contains(stem)
+    liveOriginal: (stem, _) async => inBucket.contains(stem)
         ? (targetId: 't', key: 'photos-vault/originals/$stem.heic')
         : null,
     remove: (r) async {
@@ -306,6 +306,34 @@ void main() {
     expect(extras, unorderedEquals(['stray', 'stray2']));
   });
 
+  test('a Live Photo pointed at its .MOV goes back to its still', () async {
+    const stem = 'photos-vault/originals/20260823151354_46bac';
+    await store.upsert(
+      localId: 'live',
+      contentHash: 'live',
+      platform: 'ios',
+      isLivePhoto: true,
+    );
+    await store.updateDerivative(
+      'live',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: '$stem.MOV',
+      ),
+    );
+    await listed(['$stem.MOV', '$stem.jpg']);
+
+    await fixer().scan();
+
+    expect(
+      (await store.getByLocalId('live'))!
+          .stateOf(DerivativeKind.original)
+          .destinationKey,
+      '$stem.jpg',
+    );
+  });
+
   test('an import of a key since replaced is dropped, its twin kept', () async {
     await cloudOnly(
       'bucket:20210912023824_abc',
@@ -483,7 +511,7 @@ void main() {
       store: store,
       thumbnail: (_) async => null,
       inPhotos: (_) async => false,
-      liveOriginal: (_) async => throw StateError('offline'),
+      liveOriginal: (_, _) async => throw StateError('offline'),
       remove: (_) async {
         removed++;
         return true;

@@ -167,6 +167,33 @@ class BucketFlags {
         heldByStem['${o.targetId}|${p.posix.withoutExtension(o.key)}|'
             '${videoExtensions.contains(_ext(o.key))}'];
 
+    final sizes = {for (final o in objects) '${o.targetId}|${o.key}': o.size};
+    // A video's capture second → the key of the library video taken then:
+    // no camera shoots two videos in one second, so an unclaimed one from
+    // the same second and no bigger is a copy of it (a re-encode leaves the
+    // capture date as it was).
+    final videoAt = <String, String>{};
+    final targetIds = {for (final o in objects) o.targetId};
+    for (final r in live.values) {
+      if (!r.isVideo) continue;
+      final key = r.stateOf(DerivativeKind.original).destinationKey;
+      if (key == null) continue;
+      final second = r.createdAt.millisecondsSinceEpoch ~/ 1000;
+      for (final t in targetIds) {
+        if (sizes.containsKey('$t|$key')) videoAt['$t|$second'] = key;
+      }
+    }
+    String? videoTwin(BucketObject o, DateTime? takenAt) {
+      if (takenAt == null || !videoExtensions.contains(_ext(o.key))) {
+        return null;
+      }
+      final twin =
+          videoAt['${o.targetId}|${takenAt.millisecondsSinceEpoch ~/ 1000}'];
+      if (twin == null || twin == o.key) return null;
+      final kept = sizes['${o.targetId}|$twin'];
+      return kept != null && o.size <= kept * 1.01 ? twin : null;
+    }
+
     final originalStems = <String>{
       for (final o in objects)
         if (o.directory == 'originals') '${o.targetId}|${_stem(o.key)}',
@@ -253,6 +280,18 @@ class BucketFlags {
         // offered for the rename that files it.
         if (looks[j].carrier && protocol) continue;
         final takenAt = looks[j].takenAt;
+        if (!looks[j].carrier) {
+          if (videoTwin(o, takenAt) case final twin?) {
+            out.add(
+              FlaggedObject(
+                object: o,
+                kind: FlagKind.oldCopy,
+                likelyDuplicateOf: twin,
+              ),
+            );
+            continue;
+          }
+        }
         final leftover =
             !looks[j].carrier &&
             isLikelyLeftover(
@@ -408,7 +447,8 @@ class BucketFixer {
     return null;
   }
 
-  static const _looksKey = 'bucket_looks_v1';
+  // v2: a video's date is Apple's capture date, not `mvhd`.
+  static const _looksKey = 'bucket_looks_v2';
 
   /// Header answers already fetched, by bucket, key and size — an object
   /// doesn't change under the same name and size, so the page doesn't
@@ -796,6 +836,11 @@ class BucketFixer {
             target: target,
           ) ||
           await _ops.sizeOf(target, newKey) != size) {
+        // Half done is a stray beside the original; nothing claims it.
+        if (newKey != oldKey &&
+            !(await store.referencedKeys()).contains(newKey)) {
+          await _ops.delete(target, newKey);
+        }
         return const FixResult(FixOutcome.failed, detail: 'upload failed');
       }
       if (newKey != oldKey) await _ops.delete(target, oldKey);
@@ -840,11 +885,20 @@ class BucketFixer {
 
   /// An original under [stem] in any format, asked of each bucket set up
   /// now rather than read from a listing. Throws when one can't be listed.
-  Future<({String targetId, String key})?> liveOriginal(String stem) async {
+  /// Only a file of the record's own kind: a Live Photo's `.MOV` shares
+  /// its still's name and is never the still's original.
+  Future<({String targetId, String key})?> liveOriginal(
+    String stem,
+    bool video,
+  ) async {
     for (final target in await targetsStore.loadAll()) {
       final found = await _ops.listFolder(target, 'originals/$stem.');
       if (found == null) throw StateError('bucket did not answer');
-      if (found.isNotEmpty) return (targetId: target.id, key: found.first.key);
+      for (final o in found) {
+        if (BucketFlags.videoExtensions.contains(_ext(o.key)) == video) {
+          return (targetId: target.id, key: o.key);
+        }
+      }
     }
     return null;
   }

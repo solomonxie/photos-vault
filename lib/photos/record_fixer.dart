@@ -5,7 +5,8 @@ import 'package:path/path.dart' as p;
 
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import '../upload/bucket_flagged.dart' show FixOutcome, FixResult;
+import '../storage/bucket_object.dart';
+import '../upload/bucket_flagged.dart' show BucketFlags, FixOutcome, FixResult;
 import '../upload/cloud_thumbnails.dart';
 import '../upload/lost_originals.dart';
 import 'fix_queue.dart';
@@ -61,7 +62,10 @@ class RecordFixer {
 
   /// `BucketFixer.liveOriginal`: the bucket itself, asked by name. A
   /// listing can be stale or cut short; this is what decides "lost".
-  final Future<({String targetId, String key})?> Function(String stem)?
+  final Future<({String targetId, String key})?> Function(
+    String stem,
+    bool video,
+  )?
   liveOriginal;
 
   /// From the last [scan]: each original's copy to keep, and any more
@@ -78,6 +82,7 @@ class RecordFixer {
       for (final o in objects)
         if (o.directory == 'originals') o.fileName: o.size,
     };
+    await _healKinds(records, objects);
     final holdings = await store.allHoldings();
     final lostIds = await LostOriginals(store).current();
     final holders = <String, Set<String>>{};
@@ -408,7 +413,7 @@ class RecordFixer {
       for (final stem in {
         for (final k in keys) p.posix.basenameWithoutExtension(k),
       }) {
-        final found = await ask(stem);
+        final found = await ask(stem, r.isVideo);
         if (found == null) continue;
         await _pointAt(r, found);
         return false;
@@ -416,6 +421,34 @@ class RecordFixer {
       return true;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// A still pointed at its Live Photo's `.MOV` (or the other way round)
+  /// goes back to the file of its own kind, when the bucket lists one under
+  /// the same name. Left as it was, the right file looks unclaimed and is
+  /// offered for import.
+  Future<void> _healKinds(
+    List<AssetRecord> records,
+    List<BucketObject> objects,
+  ) async {
+    bool isVideoKey(String k) => BucketFlags.videoExtensions.contains(
+      p.posix.extension(k).replaceFirst('.', '').toLowerCase(),
+    );
+    final byStem = <String, List<BucketObject>>{};
+    for (final o in objects) {
+      if (o.directory != 'originals') continue;
+      (byStem[p.posix.withoutExtension(o.key)] ??= []).add(o);
+    }
+    for (final r in records) {
+      if (r.isDeleted) continue;
+      final key = r.stateOf(DerivativeKind.original).destinationKey;
+      if (key == null || isVideoKey(key) == r.isVideo) continue;
+      final right = byStem[p.posix.withoutExtension(key)]
+          ?.where((o) => isVideoKey(o.key) == r.isVideo)
+          .firstOrNull;
+      if (right == null) continue;
+      await _pointAt(r, (targetId: right.targetId, key: right.key));
     }
   }
 

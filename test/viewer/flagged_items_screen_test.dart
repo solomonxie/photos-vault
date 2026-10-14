@@ -267,7 +267,7 @@ void main() {
         store: store,
         thumbnail: (_) async => null,
         inPhotos: (_) async => false,
-        liveOriginal: (_) async => null,
+        liveOriginal: (_, _) async => null,
         remove: (r) async {
           removed.add(r.localId);
           await store.remove(r.localId);

@@ -125,6 +125,24 @@ void main() {
       expect(mvhdCreationTime(mvhd(0)), isNull);
     });
 
+    test("a video's Apple capture date wins over a re-encode's mvhd", () {
+      final meta = Uint8List.fromList([
+        ...'keys'.codeUnits,
+        ...'mdtacom.apple.quicktime.creationdate'.codeUnits,
+        0,
+        0,
+        0,
+        40,
+        ...'data'.codeUnits,
+        ...'2026-09-13T13:20:47-0700'.codeUnits,
+      ]);
+      expect(
+        appleCreationDate(meta),
+        DateTime.utc(2026, 9, 13, 20, 20, 47).toLocal(),
+      );
+      expect(appleCreationDate(Uint8List(64)), isNull);
+    });
+
     test('no metadata is no date', () {
       expect(stillCaptureDate(Uint8List(300)), isNull);
     });

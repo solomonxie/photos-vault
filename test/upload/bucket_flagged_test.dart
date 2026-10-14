@@ -248,6 +248,50 @@ void main() {
       expect(item.likelyDuplicateOf, current);
     });
 
+    test(
+      'an unclaimed video from the same second as a library video, and '
+      'no bigger, is its old copy; a still from that second is not',
+      () async {
+        const kept =
+            'photos-vault/originals/20260913132047_'
+            '410ae86bd3b18c0c005f40209fe6d908.MOV';
+        const copy =
+            'photos-vault/originals/20261013201857_'
+            'eb56fb7d6b91665170eb31c8f5f2fc9f.mov';
+        const still =
+            'photos-vault/originals/20261013201858_'
+            'cb56fb7d6b91665170eb31c8f5f2fc9f.jpg';
+        final taken = DateTime.utc(2026, 9, 13, 20, 20, 47);
+        bucket.objects[kept] = video;
+        bucket.objects[copy] = Uint8List.sublistView(video, 100);
+        bucket.objects[still] = Uint8List.sublistView(video, 100);
+        await relist();
+        await store.upsert(
+          localId: 'photo:V/L0/001',
+          contentHash: 'v',
+          platform: 'ios',
+          isVideo: true,
+          createdAt: taken,
+        );
+        await store.updateDerivative(
+          'photo:V/L0/001',
+          DerivativeKind.original,
+          const DerivativeState(
+            status: UploadStatus.uploaded,
+            destinationKey: kept,
+          ),
+        );
+
+        final items = await BucketFlags(store: store).detect(
+          inspect: (_) async => (carrier: false, takenAt: taken.toLocal()),
+        );
+        final byKey = {for (final i in items) i.object.key: i};
+        expect(byKey[copy]!.kind, FlagKind.oldCopy);
+        expect(byKey[copy]!.likelyDuplicateOf, kept);
+        expect(byKey[still]!.kind, isNot(FlagKind.oldCopy));
+      },
+    );
+
     test('a file already queued for deletion is not offered', () async {
       const key = 'photos-vault/originals/photo_GONE_L0_001.webp';
       bucket.objects[key] = video;
@@ -419,6 +463,21 @@ void main() {
 
       expect((await fixer().rename(item)).ok, isTrue);
     });
+  });
+
+  test("a Live Photo still's original is never its .MOV", () async {
+    const stem = '20260823151354_46bac50461d81b70b901e66d24c554be';
+    bucket.objects['photos-vault/originals/$stem.MOV'] = video;
+    bucket.objects['photos-vault/originals/$stem.jpg'] = video;
+
+    expect(
+      (await fixer().liveOriginal(stem, false))?.key,
+      'photos-vault/originals/$stem.jpg',
+    );
+    expect(
+      (await fixer().liveOriginal(stem, true))?.key,
+      'photos-vault/originals/$stem.MOV',
+    );
   });
 
   test('import renames every plain flagged file and counts them', () async {
