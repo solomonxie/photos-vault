@@ -1,3 +1,5 @@
+import 'dart:async';
+import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 
@@ -21,6 +23,7 @@ class RecordScan {
     this.noThumbnail = const [],
     this.lost = const [],
     this.leftoverCopies = const [],
+    this.importCopies = const [],
   });
 
   final List<Flag> noThumbnail;
@@ -28,6 +31,9 @@ class RecordScan {
 
   /// Originals still in Photos beside the smaller copy Optimize made.
   final List<Flag> leftoverCopies;
+
+  /// Bucket imports that are the same picture as a photo already here.
+  final List<Flag> importCopies;
 }
 
 /// Finds and fixes [RecordScan]'s flags for [FixQueue].
@@ -184,7 +190,131 @@ class RecordFixer {
       noThumbnail: noThumbnail,
       lost: lost,
       leftoverCopies: await _leftoverCopies(records, sizes),
+      importCopies: await _importCopies(records),
     );
+  }
+
+  static const _importChecksKey = 'import_copies_v1';
+
+  static bool _isImport(AssetRecord r) =>
+      r.localId.startsWith('bucket:') &&
+      !r.isDeleted &&
+      !r.isHidden &&
+      !r.isLocked &&
+      r.passcodeHash == null &&
+      r.thumbnailPath != null;
+
+  static Future<Map<String, String?>> _importChecks(
+    AssetRecordStore store,
+  ) async {
+    try {
+      final raw = await store.getAppState(_importChecksKey);
+      return raw == null
+          ? {}
+          : (jsonDecode(raw) as Map).map(
+              (k, v) => MapEntry(k as String, v as String?),
+            );
+    } catch (_) {
+      return {};
+    }
+  }
+
+  static Future<void>? _checking;
+
+  /// Compares each bucket import not yet compared against every thumbnail
+  /// here, off the UI isolate, and keeps the answer. Slow on a big library
+  /// (every thumbnail decoded), so it runs in the background after a sync
+  /// and once per import, never while Flagged Items waits.
+  static Future<void> checkImports(AssetRecordStore store) =>
+      _checking ??= _checkImports(store).whenComplete(() => _checking = null);
+
+  static Future<void> _checkImports(AssetRecordStore store) async {
+    final records = await store.listAll();
+    final known = await _importChecks(store);
+    final asked = {
+      for (final r in records)
+        if (_isImport(r) && !known.containsKey(r.localId))
+          r.localId: r.thumbnailPath!,
+    };
+    if (asked.isEmpty) return;
+    final others = {
+      for (final r in records)
+        if (!r.isDeleted &&
+            !r.localId.startsWith('bucket:') &&
+            r.passcodeHash == null &&
+            r.thumbnailPath != null)
+          r.localId: r.thumbnailPath!,
+    };
+    final found = await Isolate.run(() {
+      List<int>? grey(String path) {
+        try {
+          return greyPrint(File(path).readAsBytesSync());
+        } catch (_) {
+          return null;
+        }
+      }
+
+      final mine = {for (final e in asked.entries) e.key: grey(e.value)};
+      final near = {for (final id in asked.keys) id: <(double, String)>[]};
+      for (final MapEntry(key: id, value: path) in others.entries) {
+        final theirs = grey(path);
+        if (theirs == null) continue;
+        for (final MapEntry(key: a, value: print) in mine.entries) {
+          if (print == null) continue;
+          final d = printDistance(print, theirs);
+          if (d <= _otherFrame) near[a]!.add((d, id));
+        }
+      }
+      // Only the same frame, and only when nothing else comes close.
+      return {
+        for (final MapEntry(key: a, value: list) in near.entries)
+          a: switch (list..sort((x, y) => x.$1.compareTo(y.$1))) {
+            [final best] when best.$1 <= _sameFrame => best.$2,
+            [final best, final next, ...]
+                when best.$1 <= _sameFrame && next.$1 > _otherFrame =>
+              best.$2,
+            _ => null,
+          },
+      };
+    });
+    final latest = await _importChecks(store)
+      ..addAll(found);
+    await store.setAppState(_importChecksKey, jsonEncode(latest));
+  }
+
+  /// A bucket import the library already has: the same picture as a photo
+  /// here, which keeps the real date the import's file never carried. Read
+  /// from [checkImports]' answers; any import not compared yet starts it.
+  Future<List<Flag>> _importCopies(List<AssetRecord> records) async {
+    final known = await _importChecks(store);
+    if (records.any((r) => _isImport(r) && !known.containsKey(r.localId))) {
+      unawaited(checkImports(store).catchError((_) {}));
+    }
+    final byId = {for (final r in records) r.localId: r};
+    final flags = <Flag>[];
+    for (final r in records) {
+      if (!_isImport(r)) continue;
+      final kept = byId[known[r.localId]];
+      if (kept == null || kept.isDeleted) continue;
+      flags.add(
+        Flag.asset(
+          r,
+          problem: FlagProblem.duplicate,
+          solutions: const [FlagSolution.removeImportCopy],
+          name: _nameOf(kept, [
+            ?kept.stateOf(DerivativeKind.original).destinationKey,
+          ]),
+        ),
+      );
+    }
+    return flags;
+  }
+
+  /// Into this app's Recently Deleted; the bucket file stays until that is
+  /// emptied, and the library's own photo is untouched.
+  Future<FixResult> removeImportCopy(AssetRecord record) async {
+    await store.softDelete(record.localId);
+    return const FixResult(FixOutcome.removed);
   }
 
   /// A copy has the original's capture time, the shape Optimize gives,

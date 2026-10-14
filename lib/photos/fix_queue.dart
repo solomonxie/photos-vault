@@ -53,7 +53,8 @@ enum FlagSolution {
   getFromPhotos,
   removeFromLibrary,
   finishOptimize,
-  removeExtraCopies;
+  removeExtraCopies,
+  removeImportCopy;
 
   bool get onDevice => _storageFix != null;
 
@@ -63,7 +64,8 @@ enum FlagSolution {
       this == getFromPhotos ||
       this == removeFromLibrary ||
       this == finishOptimize ||
-      this == removeExtraCopies;
+      this == removeExtraCopies ||
+      this == removeImportCopy;
 
   /// Which section it is listed under: what it changes, not what it is
   /// about. Optimize in the bucket is about a photo, and changes the bucket.
@@ -441,7 +443,8 @@ class FixQueue extends ChangeNotifier {
     FlagSolution.getFromPhotos ||
     FlagSolution.removeFromLibrary ||
     FlagSolution.finishOptimize ||
-    FlagSolution.removeExtraCopies => const Duration(milliseconds: 100),
+    FlagSolution.removeExtraCopies ||
+    FlagSolution.removeImportCopy => const Duration(milliseconds: 100),
     _ => const Duration(milliseconds: 300),
   };
 
@@ -858,6 +861,9 @@ class FixQueue extends ChangeNotifier {
               ),
               FlagSolution.finishOptimize || FlagSolution.removeExtraCopies =>
                 await fixer.finishOptimize(record),
+              FlagSolution.removeImportCopy => await fixer.removeImportCopy(
+                record,
+              ),
               _ => const FixResult(FixOutcome.failed),
             };
     } catch (e) {

@@ -27,6 +27,7 @@ String solutionLabel(AppLocalizations l10n, FlagSolution s) => switch (s) {
   FlagSolution.removeFromLibrary => l10n.flaggedRemoveFromLibrary,
   FlagSolution.finishOptimize => l10n.flaggedFinishOptimize,
   FlagSolution.removeExtraCopies => l10n.flaggedRemoveExtraCopies,
+  FlagSolution.removeImportCopy => l10n.flaggedRemoveDuplicates,
 };
 
 /// One line: what the action will do.
@@ -49,6 +50,7 @@ String solutionHow(AppLocalizations l10n, FlagSolution s) => switch (s) {
   FlagSolution.removeFromLibrary => l10n.flaggedHowRemoveFromLibrary,
   FlagSolution.finishOptimize => l10n.flaggedHowFinishOptimize,
   FlagSolution.removeExtraCopies => l10n.flaggedHowRemoveExtraCopies,
+  FlagSolution.removeImportCopy => l10n.flaggedHowRemoveImportCopy,
 };
 
 /// The fine print, shown on the action's page before anything runs.
@@ -96,7 +98,8 @@ IconData solutionIcon(FlagSolution s) => switch (s) {
   FlagSolution.getFromPhotos => CupertinoIcons.arrow_down_circle_fill,
   FlagSolution.removeFromLibrary => CupertinoIcons.trash_fill,
   FlagSolution.finishOptimize => CupertinoIcons.arrow_down_right_arrow_up_left,
-  FlagSolution.removeExtraCopies => CupertinoIcons.square_on_square,
+  FlagSolution.removeExtraCopies ||
+  FlagSolution.removeImportCopy => CupertinoIcons.square_on_square,
 };
 
 String problemLabel(AppLocalizations l10n, FlagProblem p) => switch (p) {
@@ -128,6 +131,9 @@ String flagReason(AppLocalizations l10n, Flag flag) {
     }
     if (flag.problems.contains(FlagProblem.extraCopies)) {
       return l10n.flaggedExtraCopiesReason;
+    }
+    if (flag.problems.contains(FlagProblem.duplicate)) {
+      return l10n.flaggedDuplicateOf(flag.name);
     }
     return flag.solutions.contains(FlagSolution.getFromPhotos)
         ? l10n.flaggedLostInPhotosReason

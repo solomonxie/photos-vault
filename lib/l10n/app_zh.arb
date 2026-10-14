@@ -1355,5 +1355,6 @@
   "flaggedHowRemoveExtraCopies": "这张照片在“照片”里有多份。保留一份，删除其余的。存储桶里的原图保留。",
   "flaggedConfirmExtraCopiesBody": "iOS 会询问一次是否删除多余副本。它们会在“照片”的“最近删除”里保留 30 天。",
   "flaggedProblemExtraCopies": "“照片”里有多余副本",
-  "flaggedExtraCopiesReason": "优化在“照片”里留下了这张照片的多份副本"
+  "flaggedExtraCopiesReason": "优化在“照片”里留下了这张照片的多份副本",
+  "flaggedHowRemoveImportCopy": "从存储桶导入，但资料库里已有这张照片和它的真实日期。删除这份副本，原照片保留。"
 }

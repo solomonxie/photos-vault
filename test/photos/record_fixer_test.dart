@@ -334,6 +334,53 @@ void main() {
     );
   });
 
+  test('a bucket import the library already has is offered as a duplicate; '
+      'a picture of its own is not', () async {
+    String picture(String name, {required bool flipped, int width = 90}) {
+      final image = img.Image(width: width, height: width * 2 ~/ 3);
+      for (final px in image) {
+        final v = flipped ? 255 - px.x * 255 ~/ width : px.x * 255 ~/ width;
+        px
+          ..r = v
+          ..g = v
+          ..b = px.y * 255 ~/ (width * 2 ~/ 3);
+      }
+      final file = File('${tempDir.path}/$name.jpg')
+        ..writeAsBytesSync(img.encodeJpg(image));
+      return file.path;
+    }
+
+    await store.upsert(
+      localId: 'photo:L/L0/001',
+      contentHash: 'l',
+      platform: 'ios',
+    );
+    await store.setThumbnailPath(
+      'photo:L/L0/001',
+      picture('lib', flipped: false),
+    );
+    for (final (id, flipped) in [
+      ('bucket:copy', false),
+      ('bucket:own', true),
+    ]) {
+      await cloudOnly(
+        id,
+        key: 'photos-vault/originals/$id.webp',
+        thumbnail: picture(id.substring(7), flipped: flipped, width: 70),
+      );
+    }
+    final f = fixer();
+
+    expect((await f.scan()).importCopies, isEmpty, reason: 'not compared yet');
+    await RecordFixer.checkImports(store);
+    final flags = (await f.scan()).importCopies;
+
+    expect(flags.map((x) => x.asset!.localId), ['bucket:copy']);
+    expect(flags.single.solutions, [FlagSolution.removeImportCopy]);
+    expect((await f.removeImportCopy(flags.single.asset!)).ok, isTrue);
+    expect((await store.getByLocalId('bucket:copy'))!.isDeleted, isTrue);
+  });
+
   test('an import of a key since replaced is dropped, its twin kept', () async {
     await cloudOnly(
       'bucket:20210912023824_abc',

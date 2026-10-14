@@ -1960,5 +1960,6 @@
   "flaggedHowRemoveExtraCopies": "This photo is in Photos more than once. Keeps one and deletes the rest. Your bucket keeps the full-size original.",
   "flaggedConfirmExtraCopiesBody": "iOS asks once to delete the extra copies. They stay in Photos' Recently Deleted for 30 days.",
   "flaggedProblemExtraCopies": "Extra copies in Photos",
-  "flaggedExtraCopiesReason": "Optimize left more than one copy of this photo in Photos"
+  "flaggedExtraCopiesReason": "Optimize left more than one copy of this photo in Photos",
+  "flaggedHowRemoveImportCopy": "Imported from your bucket, but already in your library with its real date. Removes this copy; your photo stays."
 }

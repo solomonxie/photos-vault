@@ -1605,6 +1605,7 @@ class LibraryScreenState extends State<LibraryScreen>
     unawaited(_drainPendingDeletes());
     unawaited(_sendUnsentCarriers());
     unawaited(_backupVerifier.spotCheck().then((_) {}, onError: (_) {}));
+    unawaited(RecordFixer.checkImports(assetRecordStore).catchError((_) {}));
     unawaited(_repairBackupsIfDue());
     _forgetFailures();
     await _enqueueChangeChecks();
