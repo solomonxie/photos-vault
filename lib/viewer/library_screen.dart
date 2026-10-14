@@ -1584,6 +1584,16 @@ class LibraryScreenState extends State<LibraryScreen>
   /// through. Queues the work and returns — nothing is uploaded on this
   /// call stack; [syncQueue] drains it. Returns how many jobs are now
   /// outstanding.
+  Future<void> _repairBackupsIfDue() async {
+    try {
+      if (await _backupVerifier.repairIfDue() == 0 || !mounted) return;
+      await reload();
+      await _backUpRecords(_pendingAndFailed);
+    } catch (_) {
+      // Tomorrow's sync asks again.
+    }
+  }
+
   Future<int> _syncEverything() async {
     // "Sync Now" means now. A paused queue takes nothing new (deliberately
     // — see [SyncQueue.enqueue]), so honouring the pause here would make
@@ -1595,6 +1605,7 @@ class LibraryScreenState extends State<LibraryScreen>
     unawaited(_drainPendingDeletes());
     unawaited(_sendUnsentCarriers());
     unawaited(_backupVerifier.spotCheck().then((_) {}, onError: (_) {}));
+    unawaited(_repairBackupsIfDue());
     _forgetFailures();
     await _enqueueChangeChecks();
     await _backUpRecords(_pendingAndFailed);

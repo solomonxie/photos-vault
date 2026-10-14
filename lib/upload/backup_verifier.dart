@@ -548,6 +548,27 @@ class BackupVerifier {
   /// it, nothing can ever re-upload it: the photo is **lost**, its original
   /// is marked failed so the grid draws it that way, and it is counted as
   /// lost, never as requeued.
+  static const _repairedAtKey = 'backup_repaired_at';
+
+  /// The full check and its repair, at most once per [every], on its own:
+  /// a photo the bucket lost goes back in the queue without anyone having
+  /// to ask. Asks the bucket itself, never the cached listing, and only
+  /// ever requeues or marks; it deletes nothing. Returns how many were
+  /// requeued.
+  Future<int> repairIfDue({Duration every = const Duration(days: 1)}) async {
+    final raw = await recordStore.getAppState(_repairedAtKey);
+    final last = raw == null ? null : DateTime.tryParse(raw);
+    if (last != null && DateTime.now().difference(last) < every) return 0;
+    final report = await reconcile();
+    if (!report.reachedBucket) return 0;
+    final requeued = report.isClean ? 0 : (await repair(report)).requeued;
+    await recordStore.setAppState(
+      _repairedAtKey,
+      DateTime.now().toIso8601String(),
+    );
+    return requeued;
+  }
+
   Future<RepairResult> repair(ReconcileReport report) async {
     final lostIds = LostOriginals(recordStore);
     var requeued = 0;

@@ -275,6 +275,31 @@ void main() {
       expect(await verifier.requeueMissing(report), 1);
     });
 
+    test('the daily check requeues what the bucket lost, once a day', () async {
+      final store = FakeAssetRecordStore();
+      await _uploaded(store, key: 'photos/originals/a');
+      var asked = 0;
+      final verifier = BackupVerifier(
+        targetsStore: await _targets(),
+        recordStore: store,
+        list: ({required target, prefix = '', continuationToken}) async {
+          asked++;
+          return _listing(['photos/originals/other']);
+        },
+      );
+
+      expect(await verifier.repairIfDue(), 1);
+      expect(
+        (await store.getByLocalId('photo:1'))!
+            .stateOf(DerivativeKind.original)
+            .status,
+        UploadStatus.pending,
+      );
+      final listings = asked;
+      expect(await verifier.repairIfDue(), 0);
+      expect(asked, listings, reason: 'not due again the same day');
+    });
+
     test('an unreachable holder is not called missing', () async {
       final store = FakeAssetRecordStore();
       await _uploaded(store, key: 'photos/originals/a');
