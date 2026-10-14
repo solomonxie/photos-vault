@@ -12,6 +12,7 @@ import 'upload/background_sync.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _ensureTemp();
   if (kProfileMode) _reportJank();
   await AppStoreRegion.load();
   try {
@@ -32,12 +33,22 @@ Future<void> main() async {
   runApp(const App());
 }
 
+/// Older builds could delete `tmp` itself; SQLite and every encoder need it.
+Future<void> _ensureTemp() async {
+  try {
+    await Directory.systemTemp.create(recursive: true);
+  } catch (_) {
+    // Nothing better to do; the database keeps its temp data in memory.
+  }
+}
+
 /// Entry point of the headless engine `ios/Runner/BackgroundSync.swift`
 /// starts when iOS hands the app a processing task. Not a screen: it runs
 /// one sync pass and reports back, whatever happens.
 @pragma('vm:entry-point')
 Future<void> backgroundSync() async {
   WidgetsFlutterBinding.ensureInitialized();
+  await _ensureTemp();
   const channel = MethodChannel('byo.photos/background_sync');
   final sync = BackgroundSync();
   channel.setMethodCallHandler((call) async {

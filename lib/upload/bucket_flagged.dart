@@ -154,6 +154,19 @@ class BucketFlags {
       return present.contains('${o.targetId}|$current') ? current : null;
     }
 
+    /// The key a photo holds under [o]'s name with another extension
+    /// (`.mov` beside `.MOV`, `.heic` beside `.heif`): [o] is its leftover.
+    final heldByStem = <String, String>{
+      for (final o in objects)
+        if (o.directory == 'originals' && referenced.contains(o.key))
+          '${o.targetId}|${p.posix.withoutExtension(o.key)}|'
+                  '${videoExtensions.contains(_ext(o.key))}':
+              o.key,
+    };
+    String? heldSibling(BucketObject o) =>
+        heldByStem['${o.targetId}|${p.posix.withoutExtension(o.key)}|'
+            '${videoExtensions.contains(_ext(o.key))}'];
+
     final originalStems = <String>{
       for (final o in objects)
         if (o.directory == 'originals') '${o.targetId}|${_stem(o.key)}',
@@ -199,7 +212,7 @@ class BucketFlags {
           );
           continue;
         }
-        if (stillBackedUp(o) case final current?) {
+        if ((stillBackedUp(o) ?? heldSibling(o)) case final current?) {
           out.add(
             FlaggedObject(
               object: o,
@@ -879,8 +892,14 @@ class BucketFixer {
       target,
       'originals/${_stem(f.object.key)}.',
     );
-    if (original == null || original.isNotEmpty) {
+    if (original == null) {
+      return const FixResult(FixOutcome.failed, detail: 'bucket unreachable');
+    }
+    if (original.isNotEmpty) {
       return const FixResult(FixOutcome.failed, detail: 'original is there');
+    }
+    if (await _ops.sizeOf(target, f.object.key) == null) {
+      return const FixResult(FixOutcome.removed);
     }
     return await _ops.delete(target, f.object.key)
         ? const FixResult(FixOutcome.removed)

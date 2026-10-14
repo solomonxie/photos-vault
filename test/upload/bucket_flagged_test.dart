@@ -211,6 +211,43 @@ void main() {
       expect(bucket.objects.keys, [current]);
     });
 
+    test('the same name under another extension is an old copy of the '
+        'photo that has it, not a file to import', () async {
+      const old = 'photos-vault/originals/20260920124044_abc.heic';
+      const current = 'photos-vault/originals/20260920124044_abc.heif';
+      const motion = 'photos-vault/originals/20260920124044_abc.MOV';
+      bucket.objects[old] = video;
+      bucket.objects[current] = video;
+      bucket.objects[motion] = video;
+      await relist();
+      await store.upsert(
+        localId: 'photo:X/L0/001',
+        contentHash: 'x',
+        platform: 'ios',
+      );
+      await store.updateDerivative(
+        'photo:X/L0/001',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: current,
+        ),
+      );
+      await store.updateDerivative(
+        'photo:X/L0/001',
+        DerivativeKind.livePhoto,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: motion,
+        ),
+      );
+
+      final item = (await BucketFlags(store: store).detect()).single;
+      expect(item.object.key, old);
+      expect(item.kind, FlagKind.oldCopy);
+      expect(item.likelyDuplicateOf, current);
+    });
+
     test('a file already queued for deletion is not offered', () async {
       const key = 'photos-vault/originals/photo_GONE_L0_001.webp';
       bucket.objects[key] = video;

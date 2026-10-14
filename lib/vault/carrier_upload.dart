@@ -33,7 +33,9 @@ class CarrierBuilder {
   }) : _cipher = cipher ?? PlatformCipher(),
        _nativeThumbnail = nativeThumbnail ?? _iosThumbnail,
        _stillVideo = stillVideo ?? const StillVideo(),
-       _temporaryDirectory = temporaryDirectory ?? Directory.systemTemp.create,
+       _temporaryDirectory =
+           temporaryDirectory ??
+           (() => Directory.systemTemp.createTemp('byop_carrier_')),
        _posterFrame = posterFrame ?? ((_) async => null),
        _videoDuration = videoDuration ?? ((_) async => null),
        _random = random ?? Random.secure();

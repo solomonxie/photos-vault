@@ -657,6 +657,12 @@ class StorageOptimizer {
   /// The smaller copy, saved into Photos — the asset and the temp file it
   /// was made from. Null when there was nothing smaller to make, or a Live
   /// Photo's `.mov` couldn't be had (a silent copy is not a smaller one).
+  /// Largest share of the original a copy may be and still replace it.
+  static const _worthKeeping = 0.9;
+
+  /// Photos the last runs couldn't make worth-while smaller.
+  final notSmaller = <String>{};
+
   Future<(AssetEntity, File)?> _smallerCopyInLibrary(StorageItem item) async {
     final record = item.record;
     File? out;
@@ -675,6 +681,12 @@ class StorageOptimizer {
           ? await _writer.compressVideo(source.path, out.path)
           : await _writer.encodeStill(source.path, out.path, optimizedMaxEdge);
       if (!wrote) return null;
+      // A copy barely smaller is a second file in Photos for nothing.
+      if (await out.length() > await source.length() * _worthKeeping) {
+        notSmaller.add(record.localId);
+        await out.delete();
+        return null;
+      }
       File? motion;
       if (record.isLivePhoto) {
         motion = await PhotoLibraryService.resolveLivePhotoVideo(record);

@@ -144,6 +144,7 @@ StorageItem? adviseOn({
   required String name,
   required bool appOwned,
   bool remoteOptimized = false,
+  bool smallestAlready = false,
 }) {
   if (!worthMeasuring(record)) return null;
 
@@ -177,6 +178,7 @@ StorageItem? adviseOn({
     backedUp: backedUp,
     appOwned: appOwned,
     remoteOptimized: remoteOptimized,
+    smallestAlready: smallestAlready,
   );
   if (fixes.isEmpty) return null;
   return StorageItem(
@@ -204,6 +206,7 @@ List<StorageFix> _fixesFor(
   required bool backedUp,
   required bool appOwned,
   bool remoteOptimized = false,
+  bool smallestAlready = false,
 }) {
   if (issues.isEmpty) return const [];
   if (!backedUp) return const [StorageFix.backUpFirst];
@@ -221,7 +224,7 @@ List<StorageFix> _fixesFor(
                     (appOwned || ext != '.gif')) ||
                 (appOwned && issues.contains(StorageIssue.optimizableFormat)));
   return [
-    if (shrinkable) StorageFix.optimize,
+    if (shrinkable && !smallestAlready) StorageFix.optimize,
     if (shrinkable && !remoteOptimized) StorageFix.optimizeRemote,
   ];
 }
@@ -309,9 +312,13 @@ class StorageAdvisor {
   static const _reportEvery = 50;
   static const _cacheKey = 'storage_scan_v1';
   static const _remoteKey = 'remote_optimized_v1';
+  static const _smallestKey = 'smallest_already_v1';
 
   /// Photos whose bucket copy has already been made smaller.
   Set<String> _remoteDone = {};
+
+  /// Photos a re-encode on this iPhone couldn't make worth-while smaller.
+  Set<String> _smallest = {};
 
   /// Originals the listing of a bucket set up now has; empty before any
   /// listing.
@@ -329,14 +336,24 @@ class StorageAdvisor {
       for (final o in await store.listBucketObjects())
         if (o.directory == 'originals') o.key,
     };
+    _remoteDone = await _idSet(_remoteKey);
+    _smallest = await _idSet(_smallestKey);
+  }
+
+  Future<Set<String>> _idSet(String key) async {
     try {
-      final raw = await store.getAppState(_remoteKey);
-      _remoteDone = raw == null
-          ? {}
-          : {...(jsonDecode(raw) as List).cast<String>()};
+      final raw = await store.getAppState(key);
+      return raw == null ? {} : {...(jsonDecode(raw) as List).cast<String>()};
     } catch (_) {
-      _remoteDone = {};
+      return {};
     }
+  }
+
+  /// Nothing smaller to be had on this iPhone: not offered again.
+  Future<void> markSmallestAlready(String localId) async {
+    await _loadRemoteDone();
+    _smallest.add(localId);
+    await store.setAppState(_smallestKey, jsonEncode([..._smallest]));
   }
 
   Future<void> markRemoteOptimized(String localId) async {
@@ -466,6 +483,7 @@ class StorageAdvisor {
           name: row['name'] as String,
           appOwned: row['appOwned'] as bool,
           remoteOptimized: _noRemote(record),
+          smallestAlready: _smallest.contains(record.localId),
         );
         if (item != null) items.add(item);
       }
@@ -587,6 +605,7 @@ class StorageAdvisor {
           name: measure.name,
           appOwned: measure.appOwned,
           remoteOptimized: _noRemote(record),
+          smallestAlready: _smallest.contains(record.localId),
         );
         if (item != null) found.add(item);
       }
@@ -642,6 +661,7 @@ class StorageAdvisor {
         name: measure.name,
         appOwned: measure.appOwned,
         remoteOptimized: _noRemote(record),
+        smallestAlready: _smallest.contains(record.localId),
       );
       if (again != null) items.add(again);
     }

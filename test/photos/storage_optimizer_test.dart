@@ -361,6 +361,44 @@ void main() {
       expect(await relaunched.pendingSwaps(), isEmpty);
     });
 
+    test('a copy barely smaller is not saved, and is remembered as the '
+        'smallest it gets', () async {
+      final store = FakeAssetRecordStore();
+      final record = await cameraRoll(store);
+      final writer = _BarelySmallerWriter(tempDir);
+      final optimizer = StorageOptimizer(
+        store: store,
+        thumbnails: ThumbnailCache(
+          store: store,
+          directory: () async => tempDir,
+          encode: (_) async => Uint8List.fromList([1]),
+        ),
+        library: libraryThatDeletes(const []),
+        backUp: (_) async {},
+        writer: writer,
+      );
+      final outcomes = <StorageItemOutcome>[];
+
+      await optimizer.apply(
+        [
+          StorageItem(
+            record: record,
+            bytes: 6000,
+            name: 'IMG_1.MOV',
+            appOwned: false,
+            issues: const {StorageIssue.largeFile},
+            fixes: const [StorageFix.optimize],
+          ),
+        ],
+        deferDeletes: true,
+        onItem: (_, outcome) => outcomes.add(outcome),
+      );
+
+      expect(writer.savedTitles, isEmpty);
+      expect(outcomes, [StorageItemOutcome.skipped]);
+      expect(optimizer.notSmaller, {'cam'});
+    });
+
     test('a copy already in Photos: the original goes, its record takes the '
         'copy over, and the record sync made of the copy is dropped', () async {
       final store = FakeAssetRecordStore();
@@ -589,4 +627,14 @@ class _FakeWriter extends LibraryWriter {
 
   @override
   Future<void> delete(List<String> ids) async => deletedIds.addAll(ids);
+}
+
+class _BarelySmallerWriter extends _FakeWriter {
+  _BarelySmallerWriter(super.dir);
+
+  @override
+  Future<bool> encodeStill(String input, String output, int maxEdge) async {
+    File(output).writeAsBytesSync(List.filled(5800, 2));
+    return true;
+  }
 }

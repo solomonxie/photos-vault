@@ -189,6 +189,9 @@ class AssetRecordStore {
         },
       ),
     );
+    // Sorts and temp indexes stay off disk: with no usable `tmp` a query
+    // fails and sqflite's queue stalls behind it.
+    await db.execute('PRAGMA temp_store = MEMORY');
     // After the migrations, never inside them: a trigger has to describe
     // the schema the app just finished upgrading to.
     await installChangeLog(db, const [_table]);
@@ -858,6 +861,19 @@ class AssetRecordStore {
       [key, except, except, key, key, key, key],
     );
     return rows.isNotEmpty;
+  }
+
+  /// Listed objects beside [key] under its name with another extension.
+  Future<List<String>> listedSiblings(String targetId, String key) async {
+    final stem = p.posix.withoutExtension(key);
+    if (RegExp(r'[*?\[\]]').hasMatch(stem)) return const [];
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT key FROM $_bucketObjectTable '
+      'WHERE target_id = ? AND key GLOB ? AND key != ?',
+      [targetId, '$stem.*', key],
+    );
+    return [for (final row in rows) row['key'] as String];
   }
 
   /// Whether a record's original already has [stem] as its name, in any

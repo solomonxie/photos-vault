@@ -4,11 +4,13 @@ import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
+import 'package:photos_vault/storage/bucket_object.dart';
 import 'package:photos_vault/upload/backup_cancel_token.dart';
 import 'package:photos_vault/upload/backup_coordinator.dart';
 import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/vault/object_key.dart';
 import 'package:photos_vault/upload/s3_uploader.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:image/image.dart' as img;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -154,6 +156,51 @@ void main() {
       // two halves, leaving a still with a video next to it.
       expect(keys.single, endsWith('.mov'));
     });
+
+    test(
+      'a converted upload is cleaned up without taking tmp with it',
+      () async {
+        const channel = MethodChannel('byo.photos/image_encode');
+        final messenger =
+            TestDefaultBinaryMessengerBinding.instance.defaultBinaryMessenger;
+        messenger.setMockMethodCallHandler(channel, (call) async {
+          final args = call.arguments as Map;
+          File(args['output'] as String).writeAsBytesSync([1, 2, 3]);
+          return true;
+        });
+        addTearDown(
+          () => messenger.setMockMethodCallHandler(channel, (_) async => null),
+        );
+        final source = Directory.systemTemp.createTempSync('pv_src_');
+        addTearDown(() => source.delete(recursive: true));
+        final jpg = File('${source.path}/IMG.JPG')..writeAsBytesSync([9]);
+        final recordStore = newRecordStore();
+        final record = await recordStore.upsert(
+          localId: 'photo:jpg',
+          contentHash: 'j',
+          platform: 'ios',
+        );
+        String? sent;
+
+        await BackupCoordinator(
+          targetsStore: await oneTarget(format: BackupFormat.optimized),
+          recordStore: recordStore,
+          s3Uploader: _RecordingS3Uploader((path, key, target) {
+            sent = path;
+            return true;
+          }),
+          hashFile: (_) async => 'hash',
+        ).backUpDerivative(
+          record: record,
+          kind: DerivativeKind.original,
+          filePath: jpg.path,
+        );
+
+        expect(sent, endsWith('.heif'));
+        expect(File(sent!).existsSync(), isFalse);
+        expect(Directory.systemTemp.existsSync(), isTrue);
+      },
+    );
 
     test('a still-only backup is not a backed-up Live Photo', () async {
       final recordStore = newRecordStore();
@@ -424,6 +471,47 @@ void main() {
         );
       },
     );
+
+    test('and any other leftover still under its name, but never a Live '
+        "Photo's motion or a file another photo holds", () async {
+      final (recordStore, coordinator) = await uploadedAsJpeg();
+      final base = await _base(recordStore, 'manual:ext');
+      final target = await oneTargetId(recordStore);
+      BucketObject listed(String ext) => BucketObject(
+        targetId: target,
+        key: 'originals/$base.$ext',
+        size: 1,
+        lastModified: DateTime(2026),
+      );
+      await recordStore.replaceBucketObjects(target, [
+        for (final ext in ['jpg', 'webp', 'MOV', 'png']) listed(ext),
+      ]);
+      await recordStore.upsert(
+        localId: 'manual:other',
+        contentHash: 'other',
+        platform: 'ios',
+      );
+      await recordStore.updateDerivative(
+        'manual:other',
+        DerivativeKind.original,
+        DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'originals/$base.png',
+        ),
+      );
+
+      await coordinator.backUpDerivative(
+        record: (await recordStore.getByLocalId('manual:ext'))!,
+        kind: DerivativeKind.original,
+        filePath: '/tmp/ext.heif',
+      );
+
+      final queued = await PendingDeletes(store: recordStore).pending();
+      expect(queued.map((d) => d.objectKey), [
+        'originals/$base.jpg',
+        'originals/$base.webp',
+      ]);
+    });
 
     test('and in a batch', () async {
       final (recordStore, coordinator) = await uploadedAsJpeg();

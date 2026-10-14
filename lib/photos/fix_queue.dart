@@ -760,7 +760,12 @@ class FixQueue extends ChangeNotifier {
             case StorageItemOutcome.unverified:
               _fail(id, FixFailure.unverified);
             case StorageItemOutcome.skipped:
-              _fail(id, FixFailure.failed);
+              if (optimizer.notSmaller.remove(localId)) {
+                unawaited(advisor.markSmallestAlready(localId));
+                _resolve(id);
+              } else {
+                _fail(id, FixFailure.failed);
+              }
           }
         },
       );

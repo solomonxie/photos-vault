@@ -201,11 +201,38 @@ class BackupCoordinator {
     await _deleteTempDir(uploadPath);
   }
 
+  /// This photo's earlier copies under its name with another extension
+  /// (`.mov` then `.MOV`, `.heic` then `.heif`), now that [key] has landed.
+  /// Same kind of file only — a Live Photo's still and motion share a
+  /// name — and none a photo holds. Queued, never deleted here.
+  Future<List<PendingDelete>> _leftovers(
+    String targetId,
+    String key,
+    String localId,
+    String? old,
+  ) async => [
+    for (final other in await recordStore.listedSiblings(targetId, key))
+      if (other != old &&
+          _isVideoKey(other) == _isVideoKey(key) &&
+          !await recordStore.keyHeldByOthers(other, null))
+        PendingDelete(objectKey: other, targetId: targetId, localId: localId),
+  ];
+
+  static bool _isVideoKey(String key) =>
+      const {'.mp4', '.mov', '.m4v'}.contains(p.extension(key).toLowerCase());
+
   /// Best-effort — a leftover temp file costs some device storage, not
   /// correctness.
   Future<void> _deleteTempDir(String tempFilePath) async {
     try {
-      await File(tempFilePath).parent.delete(recursive: true);
+      final parent = File(tempFilePath).parent;
+      // Deleting `tmp` itself leaves SQLite no temp path and the database
+      // stuck.
+      if (p.equals(parent.path, Directory.systemTemp.path)) {
+        await File(tempFilePath).delete();
+        return;
+      }
+      await parent.delete(recursive: true);
     } catch (_) {
       // See above.
     }
@@ -338,6 +365,9 @@ class BackupCoordinator {
               ),
             );
           }
+          superseded.addAll(
+            await _leftovers(target.id, key, record.localId, old),
+          );
         }
       }
     } finally {
@@ -546,6 +576,7 @@ class BackupCoordinator {
                   ),
                 );
               }
+              superseded.addAll(await _leftovers(target.id, key, id, old));
             }
             successCounts.update(id, (v) => v + 1, ifAbsent: () => 1);
             firstKeys.putIfAbsent(id, () => key);
