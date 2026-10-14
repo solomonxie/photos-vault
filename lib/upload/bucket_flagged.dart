@@ -272,15 +272,22 @@ class BucketFlags {
     // rather than one after another.
     for (var i = 0; i < toProbe.length; i += probeConcurrency) {
       final batch = toProbe.skip(i).take(probeConcurrency).toList();
-      final looks = await Future.wait(batch.map(look!));
+      final looks = await Future.wait(
+        batch.map(
+          (o) =>
+              look!(o).then<ObjectInspection?>((v) => v, onError: (_) => null),
+        ),
+      );
       for (var j = 0; j < batch.length; j++) {
         final o = batch[j];
+        final seen = looks[j];
+        if (seen == null) continue;
         final protocol = fitsProtocol(o.fileName);
         // A carrier is an album's business; an off-protocol one is still
         // offered for the rename that files it.
-        if (looks[j].carrier && protocol) continue;
-        final takenAt = looks[j].takenAt;
-        if (!looks[j].carrier) {
+        if (seen.carrier && protocol) continue;
+        final takenAt = seen.takenAt;
+        if (!seen.carrier) {
           if (videoTwin(o, takenAt) case final twin?) {
             out.add(
               FlaggedObject(
@@ -293,7 +300,7 @@ class BucketFlags {
           }
         }
         final leftover =
-            !looks[j].carrier &&
+            !seen.carrier &&
             isLikelyLeftover(
               nameStamp: takenAtFromName(o.fileName),
               reference: o.lastModified,
@@ -525,9 +532,15 @@ class BucketFixer {
     final takenAt = carrier
         ? null
         : await _captureDateFrom(read, object, isVideo);
-    if (!failed()) {
-      await _remember(object, {'c': carrier, 't': takenAt?.toIso8601String()});
+    if (failed()) {
+      // Unread is unknown, never "a photo to add". Gone for good: out of
+      // the listing, or it is offered on every scan and fails every time.
+      if (await _ops.sizeOf(target, object.key) == null) {
+        await store.forgetBucketObject(object.targetId, object.key);
+      }
+      throw StateError('could not read ${object.key}');
     }
+    await _remember(object, {'c': carrier, 't': takenAt?.toIso8601String()});
     return (carrier: carrier, takenAt: takenAt);
   }
 
@@ -679,7 +692,7 @@ class BucketFixer {
       return FixResult(FixOutcome.failed, detail: _ops.lastError);
     }
     if (hidden) {
-      await _ops.delete(target, f.object.key);
+      await _deleteObject(target, f.object.key);
       return const FixResult(FixOutcome.keptHidden);
     }
 
@@ -699,9 +712,9 @@ class BucketFixer {
       isVideo: f.isVideo,
       created: date,
     );
-    await _ops.delete(target, f.object.key);
+    await _deleteObject(target, f.object.key);
     if (thumb != null && newThumbKey != null) {
-      await _ops.delete(target, thumb.key);
+      await _deleteObject(target, thumb.key);
     }
     return FixResult(FixOutcome.imported, localId: localId);
   }
@@ -776,8 +789,8 @@ class BucketFixer {
         isVideo: false,
         created: date,
       );
-      await _ops.delete(target, f.object.key);
-      if (thumb != null) await _ops.delete(target, thumb.key);
+      await _deleteObject(target, f.object.key);
+      if (thumb != null) await _deleteObject(target, thumb.key);
       return FixResult(FixOutcome.imported, localId: localId);
     } catch (_) {
       return const FixResult(FixOutcome.failed);
@@ -839,11 +852,11 @@ class BucketFixer {
         // Half done is a stray beside the original; nothing claims it.
         if (newKey != oldKey &&
             !(await store.referencedKeys()).contains(newKey)) {
-          await _ops.delete(target, newKey);
+          await _deleteObject(target, newKey);
         }
         return const FixResult(FixOutcome.failed, detail: 'upload failed');
       }
-      if (newKey != oldKey) await _ops.delete(target, oldKey);
+      if (newKey != oldKey) await _deleteObject(target, oldKey);
       final now = DateTime.now();
       await store.moveBucketObject(
         BucketObject(
@@ -885,6 +898,13 @@ class BucketFixer {
 
   /// An original under [stem] in any format, asked of each bucket set up
   /// now rather than read from a listing. Throws when one can't be listed.
+  /// Deleted, and out of the listing on file with it.
+  Future<bool> _deleteObject(S3BackupTarget target, String key) async {
+    final ok = await _ops.delete(target, key);
+    if (ok) await store.forgetBucketObject(target.id, key);
+    return ok;
+  }
+
   /// Only a file of the record's own kind: a Live Photo's `.MOV` shares
   /// its still's name and is never the still's original.
   Future<({String targetId, String key})?> liveOriginal(
@@ -928,12 +948,12 @@ class BucketFixer {
         detail: 'current copy not found',
       );
     }
-    if (!await _ops.delete(target, f.object.key)) {
+    if (!await _deleteObject(target, f.object.key)) {
       return FixResult(FixOutcome.failed, detail: _ops.lastError);
     }
     final thumb = await _thumbnailOf(f);
     if (thumb != null && !(await store.referencedKeys()).contains(thumb.key)) {
-      await _ops.delete(target, thumb.key);
+      await _deleteObject(target, thumb.key);
     }
     return const FixResult(FixOutcome.removed);
   }
@@ -955,7 +975,7 @@ class BucketFixer {
     if (await _ops.sizeOf(target, f.object.key) == null) {
       return const FixResult(FixOutcome.removed);
     }
-    return await _ops.delete(target, f.object.key)
+    return await _deleteObject(target, f.object.key)
         ? const FixResult(FixOutcome.removed)
         : const FixResult(FixOutcome.failed);
   }

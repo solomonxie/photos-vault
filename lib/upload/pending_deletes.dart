@@ -236,6 +236,7 @@ class PendingDeletes {
       }
       attempted[target.id] = (attempted[target.id] ?? 0) + 1;
       if (await _delete(target: target, key: task.objectKey)) {
+        await store.forgetBucketObject(target.id, task.objectKey);
         done.add(task);
         succeeded[target.id] = (succeeded[target.id] ?? 0) + 1;
       }

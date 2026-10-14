@@ -420,6 +420,10 @@ class FakeAssetRecordStore implements AssetRecordStore {
   ];
 
   @override
+  Future<void> forgetBucketObject(String targetId, String key) async =>
+      bucketObjects[targetId]?.removeWhere((o) => o.key == key);
+
+  @override
   Future<void> moveBucketObject(BucketObject from, BucketObject to) async {
     bucketObjects[from.targetId]?.removeWhere((o) => o.key == from.key);
     (bucketObjects[to.targetId] ??= [])

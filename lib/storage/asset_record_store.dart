@@ -634,6 +634,17 @@ class AssetRecordStore {
     await batch.commit(noResult: true);
   }
 
+  /// Out of the listing on file, once the bucket no longer has it: a
+  /// listing that still names a deleted file offers it forever.
+  Future<void> forgetBucketObject(String targetId, String key) async {
+    final db = await _open();
+    await db.delete(
+      _bucketObjectTable,
+      where: 'target_id = ? AND key = ?',
+      whereArgs: [targetId, key],
+    );
+  }
+
   /// Buckets with a listing on file.
   Future<Set<String>> bucketTargetIds() async {
     final db = await _open();

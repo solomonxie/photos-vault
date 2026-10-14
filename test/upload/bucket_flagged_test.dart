@@ -292,6 +292,30 @@ void main() {
       },
     );
 
+    test('a listed file the bucket no longer has is never offered, and '
+        'leaves the listing', () async {
+      const gone =
+          'photos-vault/originals/20261014072254_'
+          '1c1e37b238b58e8d7b9faad07dd86cca.heif';
+      await store.replaceBucketObjects(target.id, [
+        BucketObject(
+          targetId: target.id,
+          key: gone,
+          size: 517345,
+          lastModified: DateTime(2026, 10, 14),
+        ),
+      ]);
+      final f = fixer();
+
+      final items = await BucketFlags(store: store).detect(inspect: f.inspect);
+
+      expect(items.where((i) => i.object.key == gone), isEmpty);
+      expect(
+        (await store.listBucketObjects()).map((o) => o.key),
+        isNot(contains(gone)),
+      );
+    });
+
     test('a file already queued for deletion is not offered', () async {
       const key = 'photos-vault/originals/photo_GONE_L0_001.webp';
       bucket.objects[key] = video;
