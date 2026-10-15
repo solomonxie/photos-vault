@@ -63,7 +63,9 @@ Every list-grid screen above (Library, Favorites, PrivateAlbum, PersonPage,
 RecentlyDeleted, Album, AssetGroup) mounts `asset_grid_view.dart`'s
 `AssetGridView` — the grid plus the two things that make a decade-deep
 library usable: it opens scrolled to the *newest* photo (the grid reads
-oldest-first, so every screen sorts ascending), and it carries the
+oldest-first, so every screen sorts ascending) — or, given a `restKey`,
+to that sliver at the top, which is how Library opens on Albums (on the
+newest photo while a search is typed) — and it carries the
 right-edge date scrubber. They share `asset_grid.dart`'s
 `assetGridSlivers()` / `AssetTile` / `TileAction`, and push into the same
 `DetailScreen` with their own `onDelete`/`onToggleFavorite` callbacks — the only thing that differs
@@ -115,7 +117,7 @@ is a `RenderSliverFixedExtentBoxAdaptor` that reads its offsets from there —
 Flutter's own `SliverVariedExtentList` re-walks its whole item list several
 times per frame, which is fine for hundreds of rows and hopeless for the tens
 of thousands ten years of photos come to. That exact geometry is also what lets
-`AssetGridView` jump straight to the newest photo and `date_scrubber.dart`
+`AssetGridView` jump straight to its rest and `date_scrubber.dart`
 label itself with the month under the handle.
 
 `safety_screen.dart` is the trust page: every copy that exists, when a real

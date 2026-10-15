@@ -4,6 +4,7 @@ import 'package:photos_vault/viewer/asset_grid.dart';
 import 'package:photos_vault/viewer/asset_grid_view.dart';
 import 'package:photos_vault/viewer/date_scrubber.dart';
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 AssetRecord _record(String id, DateTime createdAt) => AssetRecord(
@@ -462,5 +463,124 @@ void main() {
     expect(menuGoneWhenRun, isNull, reason: 'not while the menu closes');
     await tester.pumpAndSettle();
     expect(menuGoneWhenRun, isTrue);
+  });
+
+  group('resting on a sliver below the grid', () {
+    const inset = 44.0;
+
+    Future<StateSetter> pumpResting(
+      WidgetTester tester,
+      GlobalKey<AssetGridViewState> key,
+      GlobalKey restKey,
+      List<AssetRecord> Function() records,
+    ) async {
+      late StateSetter setOuter;
+      await tester.pumpWidget(
+        _wrap(
+          StatefulBuilder(
+            builder: (context, setState) {
+              setOuter = setState;
+              return AssetGridView(
+                key: key,
+                records: records(),
+                onTap: (_) {},
+                actionsFor: (_) => _actions,
+                restKey: restKey,
+                restInset: inset,
+                trailingSlivers: [
+                  SliverToBoxAdapter(
+                    key: restKey,
+                    child: const SizedBox(key: ValueKey('rest'), height: 3000),
+                  ),
+                ],
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return setOuter;
+    }
+
+    double restTop(WidgetTester tester, GlobalKey restKey) {
+      final sliver =
+          restKey.currentContext!.findRenderObject()! as RenderSliver;
+      final position = tester
+          .state<ScrollableState>(find.byType(Scrollable).first)
+          .position;
+      return sliver.constraints.precedingScrollExtent - position.pixels;
+    }
+
+    testWidgets('growth lands already resting, with no frame in between', (
+      tester,
+    ) async {
+      final key = GlobalKey<AssetGridViewState>();
+      final restKey = GlobalKey();
+      var records = _daily(40);
+      final setOuter = await pumpResting(tester, key, restKey, () => records);
+      expect(restTop(tester, restKey), closeTo(inset, 0.5));
+
+      setOuter(() => records = _daily(120));
+      await tester.pump();
+
+      // As laid out and painted in that one frame, not after a jump.
+      final top = tester.getTopLeft(find.byKey(const ValueKey('rest'))).dy;
+      expect(top, closeTo(inset, 0.5));
+    });
+
+    testWidgets('a rebuild that moved nothing leaves a drag alone', (
+      tester,
+    ) async {
+      final key = GlobalKey<AssetGridViewState>();
+      final restKey = GlobalKey();
+      final records = _daily(40);
+      final setOuter = await pumpResting(tester, key, restKey, () => records);
+
+      final position =
+          key.currentState!.scrollController.position
+              as ScrollPositionWithSingleContext;
+      final drag = position.drag(
+        DragStartDetails(globalPosition: Offset.zero),
+        () {},
+      );
+      setOuter(() {});
+      await tester.pump();
+      await tester.pump();
+
+      expect(position.activity, isA<DragScrollActivity>());
+      drag.cancel();
+    });
+
+    testWidgets('a rotation keeps the rest', (tester) async {
+      final key = GlobalKey<AssetGridViewState>();
+      final restKey = GlobalKey();
+      await pumpResting(tester, key, restKey, () => _daily(40));
+
+      final view = tester.view;
+      view.physicalSize = const Size(2532, 1170);
+      await tester.pumpAndSettle();
+
+      expect(restTop(tester, restKey), closeTo(inset, 0.5));
+      expect(key.currentState!.isAtNewest, isTrue);
+    });
+
+    testWidgets('a rotation keeps the photo being read', (tester) async {
+      final key = GlobalKey<AssetGridViewState>();
+      final restKey = GlobalKey();
+      await pumpResting(tester, key, restKey, () => _daily(120));
+      final controller = key.currentState!.scrollController;
+      controller.jumpTo(controller.offset / 2);
+      await tester.pumpAndSettle();
+      final before = _tileNearest(tester, 200)!;
+
+      tester.view.physicalSize = const Size(2532, 1170);
+      await tester.pumpAndSettle();
+
+      final tile = find.byKey(before.key!);
+      expect(tile, findsOneWidget);
+      final rect = tester.getRect(tile);
+      expect(rect.bottom, greaterThan(0));
+      expect(rect.top, lessThan(tester.view.physicalSize.height / 3));
+    });
   });
 }

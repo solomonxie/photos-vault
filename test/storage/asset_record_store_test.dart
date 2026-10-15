@@ -43,6 +43,35 @@ void main() {
     return store;
   }
 
+  test('getByLocalIds reads many records back in one call', () async {
+    final store = newStore();
+    await store.upsert(localId: 'photo:A', contentHash: 'a', platform: 'ios');
+    await store.upsert(localId: 'photo:B', contentHash: 'b', platform: 'ios');
+    await store.setPasscodeHash('photo:B', 'h');
+
+    final found = await store.getByLocalIds(['photo:A', 'photo:B', 'photo:C']);
+
+    expect(found.keys, unorderedEquals(['photo:A', 'photo:B']));
+    expect(found['photo:B']!.passcodeHash, 'h');
+  });
+
+  test('getByLibraryIds finds a page of assets in one call', () async {
+    final store = newStore();
+    await store.upsert(
+      localId: 'photo:A',
+      contentHash: 'h',
+      platform: 'ios',
+      libraryId: 'A2',
+    );
+    await store.upsert(localId: 'photo:B', contentHash: 'h', platform: 'ios');
+
+    final found = await store.getByLibraryIds(['A2', 'B', 'C']);
+
+    expect(found.keys, unorderedEquals(['A2', 'B']));
+    expect(found['A2']!.localId, 'photo:A');
+    expect(found['B']!.localId, 'photo:B');
+  });
+
   test('upsert creates a record with all derivatives pending', () async {
     final store = newStore();
 

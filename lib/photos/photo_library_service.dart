@@ -242,9 +242,13 @@ class PhotoLibraryService {
   ) async {
     final added = <AssetRecord>[];
     var updated = 0;
+    final known = await store.getByLibraryIds(entities.map((e) => e.id));
     for (final entity in entities) {
       final localId = localIdFor(entity);
-      final existing = await store.getByLibraryId(entity.id);
+      // A miss is checked again: the page was read before a swap could
+      // re-point a record at this asset, and inserting would make a second.
+      final existing =
+          known[entity.id] ?? await store.getByLibraryId(entity.id);
       seen.add(existing?.localId ?? localId);
       if (existing != null) {
         if (existing.isFavorite != entity.isFavorite) {

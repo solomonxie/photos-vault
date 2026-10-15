@@ -136,6 +136,24 @@ void main() {
     },
   );
 
+  test(
+    'a record re-pointed at an asset while its page was read is not doubled',
+    () async {
+      final store = _RepointDuringLookup(from: 'photo:X', to: 'C');
+      await store.upsert(localId: 'photo:X', contentHash: 'x', platform: 'ios');
+      final service = PhotoLibraryService(
+        store: store,
+        listAssetPage: pagedFrom([_entity('C')]),
+      );
+
+      final result = await service.syncAll();
+
+      expect(result.added, isEmpty);
+      expect(await store.listAll(), hasLength(1));
+      expect((await store.getByLibraryId('C'))!.localId, 'photo:X');
+    },
+  );
+
   test('syncAll is a no-op for assets already tracked', () async {
     final store = FakeAssetRecordStore();
     final service = PhotoLibraryService(
@@ -649,4 +667,21 @@ void main() {
       expect(firstPage, hasLength(200));
     });
   });
+}
+
+/// A swap landing between the page lookup and its inserts.
+class _RepointDuringLookup extends FakeAssetRecordStore {
+  _RepointDuringLookup({required this.from, required this.to});
+
+  final String from;
+  final String to;
+
+  @override
+  Future<Map<String, AssetRecord>> getByLibraryIds(
+    Iterable<String> libraryIds,
+  ) async {
+    final page = await super.getByLibraryIds(libraryIds);
+    await setLibraryId(from, to);
+    return page;
+  }
 }

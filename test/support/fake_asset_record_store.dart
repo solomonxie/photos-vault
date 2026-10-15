@@ -244,6 +244,16 @@ class FakeAssetRecordStore implements AssetRecordStore {
     return null;
   }
 
+  @override
+  Future<Map<String, AssetRecord>> getByLocalIds(
+    Iterable<String> localIds,
+  ) async => {for (final id in localIds) id: ?_records[id]};
+
+  @override
+  Future<Map<String, AssetRecord>> getByLibraryIds(
+    Iterable<String> libraryIds,
+  ) async => {for (final id in libraryIds) id: ?await getByLibraryId(id)};
+
   final _appState = <String, String>{};
 
   @override

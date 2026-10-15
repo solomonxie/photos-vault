@@ -11,6 +11,7 @@ import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:photos_vault/storage/passcode_hash.dart';
 import 'package:photos_vault/upload/backup_coordinator.dart';
 import 'package:photos_vault/upload/s3_uploader.dart';
+import 'package:photos_vault/upload/sync_job.dart';
 import 'package:photos_vault/viewer/album_screen.dart';
 import 'package:photos_vault/viewer/asset_grid.dart';
 import 'package:photos_vault/viewer/built_in_album.dart';
@@ -206,6 +207,114 @@ void main() {
     expect(find.byType(StatusDot), findsOneWidget);
   });
 
+  testWidgets('home opens on Albums, with the photos above', (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:abc',
+      contentHash: 'abc',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/library_screen_test.jpg',
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final albums = tester.getRect(find.text('Albums'));
+    expect(albums.top, lessThan(120));
+    expect(
+      tester.getRect(find.byKey(const ValueKey('manual:abc'))).bottom,
+      lessThanOrEqualTo(albums.top),
+    );
+  });
+
+  group('searching from home', () {
+    Future<void> pumpHome(WidgetTester tester) async {
+      final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+      final recordStore = FakeAssetRecordStore();
+      for (var i = 0; i < 30; i++) {
+        await recordStore.upsert(
+          localId: 'manual:$i',
+          contentHash: '$i',
+          platform: 'ios',
+          sourceType: AssetSourceType.manualFile,
+          sourcePath: i == 0 ? '/tmp/needle.jpg' : '/tmp/hay$i.jpg',
+          createdAt: DateTime(2020).add(Duration(days: i)),
+        );
+      }
+      await tester.pumpWidget(
+        _wrap(
+          LibraryScreen(
+            assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
+            albumStore: FakeAlbumStore(),
+            personStore: FakePersonStore(),
+            backupTargetsStore: targetsStore,
+            backupCoordinator: BackupCoordinator(
+              targetsStore: targetsStore,
+              recordStore: recordStore,
+              s3Uploader: _UnusedS3Uploader(),
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    testWidgets('the open field sits above Albums, not over it', (
+      tester,
+    ) async {
+      await pumpHome(tester);
+
+      await tester.tap(find.byIcon(CupertinoIcons.search));
+      await tester.pumpAndSettle();
+
+      final field = tester.getRect(find.byType(CupertinoSearchTextField));
+      final albums = tester.getRect(find.text('Albums'));
+      expect(albums.top, greaterThanOrEqualTo(field.bottom));
+      expect(albums.top, lessThan(field.bottom + 60));
+    });
+
+    testWidgets('results show on screen, and Albums is home again after', (
+      tester,
+    ) async {
+      await pumpHome(tester);
+      final screen = tester.getSize(find.byType(LibraryScreen));
+
+      await tester.tap(find.byIcon(CupertinoIcons.search));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(CupertinoSearchTextField), 'needle');
+      await tester.pumpAndSettle();
+
+      final result = tester.getRect(find.byKey(const ValueKey('manual:0')));
+      final field = tester.getRect(find.byType(CupertinoSearchTextField));
+      expect(result.bottom, greaterThan(field.bottom));
+      expect(result.top, lessThan(screen.height));
+
+      await tester.tap(find.text('Cancel'));
+      await tester.pumpAndSettle();
+      expect(tester.getRect(find.text('Albums')).top, lessThan(120));
+    });
+  });
+
   testWidgets('tapping a listed file opens the detail screen', (tester) async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     final recordStore = FakeAssetRecordStore();
@@ -236,6 +345,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await showPhotos(tester);
     await tester.tap(find.byKey(const ValueKey('manual:abc')));
     // A couple of bounded pumps, not pumpAndSettle: DetailScreen's image
     // decode is real file I/O, which never resolves under testWidgets'
@@ -279,6 +389,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await showPhotos(tester);
       await tester.tap(find.byKey(const ValueKey('manual:abc')));
       await tester.pump();
       await tester.pump(const Duration(milliseconds: 400));
@@ -432,6 +543,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await showPhotos(tester);
     await tester.longPress(find.byKey(const ValueKey('manual:abc')));
     await tester.pumpAndSettle();
 
@@ -489,6 +601,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await showPhotos(tester);
     await tester.longPress(find.byKey(const ValueKey('manual:abc')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('manual:abc')));
@@ -534,6 +647,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // One unbroken gesture: hold to start selecting, then keep going.
+    await showPhotos(tester);
     final gesture = await tester.startGesture(
       tester.getCenter(find.byKey(const ValueKey('manual:one'))),
     );
@@ -588,6 +702,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await showPhotos(tester);
     await tester.longPress(find.byKey(const ValueKey('manual:one')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('manual:two')));
@@ -665,6 +780,7 @@ void main() {
     );
     await pumpWithRecord(tester, recordStore);
 
+    await showPhotos(tester);
     await tester.tap(find.byKey(const ValueKey('manual:abc')));
     await tester.pumpAndSettle();
     await tester.tap(find.byIcon(CupertinoIcons.info_circle));
@@ -693,6 +809,7 @@ void main() {
       );
       await pumpWithRecord(tester, recordStore);
 
+      await showPhotos(tester);
       await tester.tap(find.byKey(const ValueKey('manual:abc')));
       await tester.pumpAndSettle();
       await tester.tap(find.byIcon(CupertinoIcons.info_circle));
@@ -1329,6 +1446,59 @@ void main() {
     },
   );
 
+  testWidgets('a new photo hidden once on screen is not queued for backup', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    await targetsStore.add(
+      accessKeyId: 'a',
+      secretAccessKey: 'b',
+      region: 'us-east-1',
+      bucket: 'bucket',
+      prefix: '',
+    );
+    final recordStore = _HidesOnceDrawn('photo:roll1');
+    final jobs = _RecordingSyncJobStore();
+    final photoLibraryService = PhotoLibraryService(
+      store: recordStore,
+      requestPermission: () async => PermissionState.authorized,
+      listAssetPage: pagedFrom([
+        AssetEntity(
+          id: 'roll1',
+          typeInt: AssetType.image.index,
+          width: 100,
+          height: 100,
+        ),
+      ]),
+      loadEntity: (_) async => null,
+    );
+    await tester.binding.setSurfaceSize(const Size(800, 2000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: jobs,
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+          photoLibraryService: photoLibraryService,
+        ),
+      ),
+    );
+    await _settleScan(tester);
+
+    expect(recordStore.hid, isTrue);
+    expect(jobs.queued, isNot(contains('photo:roll1')));
+  });
+
   testWidgets(
     'coming back to the app re-reads what changed in Photos while away',
     (tester) async {
@@ -1432,6 +1602,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await showPhotos(tester);
     await tester.longPress(find.byKey(const ValueKey('manual:one')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('manual:two')));
@@ -1490,6 +1661,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await showPhotos(tester);
     await tester.longPress(find.byKey(const ValueKey('manual:one')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('More'));
@@ -1727,4 +1899,53 @@ void main() {
     // is taken anyway, and to name it well enough to find afterwards.
     expect(find.textContaining('pre-deletion'), findsOneWidget);
   });
+}
+
+/// Home opens on Albums, below the grid: up to the photos.
+Future<void> showPhotos(WidgetTester tester) async {
+  tester
+      .state<ScrollableState>(find.byType(Scrollable).first)
+      .position
+      .jumpTo(0);
+  await tester.pump();
+}
+
+/// Hides [localId] at the first reload that would draw it — the user
+/// hiding a new photo before its backup is queued.
+class _HidesOnceDrawn extends FakeAssetRecordStore {
+  _HidesOnceDrawn(this.localId);
+
+  final String localId;
+  bool hid = false;
+
+  @override
+  Future<List<AssetRecord>> listAll() async {
+    if (!hid && await getByLocalId(localId) != null) {
+      hid = true;
+      await setPasscodeHash(localId, hashPasscode('1234'));
+    }
+    return super.listAll();
+  }
+}
+
+class _RecordingSyncJobStore extends FakeSyncJobStore {
+  final queued = <String>{};
+
+  @override
+  Future<SyncJob> enqueue({
+    required String localId,
+    required SyncJobKind kind,
+    required String displayName,
+    required DateTime assetCreatedAt,
+    int priority = 0,
+  }) {
+    queued.add(localId);
+    return super.enqueue(
+      localId: localId,
+      kind: kind,
+      displayName: displayName,
+      assetCreatedAt: assetCreatedAt,
+      priority: priority,
+    );
+  }
 }

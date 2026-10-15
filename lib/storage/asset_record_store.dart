@@ -192,6 +192,12 @@ class AssetRecordStore {
     // Sorts and temp indexes stay off disk: with no usable `tmp` a query
     // fails and sqflite's queue stalls behind it.
     await db.execute('PRAGMA temp_store = MEMORY');
+    // Every camera-roll scan looks each asset up by this; unindexed, each
+    // lookup read the whole table.
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS asset_record_library_id '
+      'ON $_table (library_id)',
+    );
     // After the migrations, never inside them: a trigger has to describe
     // the schema the app just finished upgrading to.
     await installChangeLog(db, const [_table]);
@@ -1359,6 +1365,60 @@ class AssetRecordStore {
 
   /// The record for a photo-library asset, whatever this app calls it —
   /// how the scan recognises a photo it already tracks.
+  /// [getByLocalId] for many at once, a query per 900, keyed by local id.
+  Future<Map<String, AssetRecord>> getByLocalIds(
+    Iterable<String> localIds,
+  ) async {
+    final ids = localIds.toSet().toList();
+    final out = <String, AssetRecord>{};
+    if (ids.isEmpty) return out;
+    final db = await _open();
+    for (var i = 0; i < ids.length; i += 900) {
+      final chunk = ids.skip(i).take(900).toList();
+      final rows = await db.query(
+        _table,
+        where: 'local_id IN (${List.filled(chunk.length, '?').join(',')})',
+        whereArgs: chunk,
+      );
+      for (final row in rows) {
+        final record = await _healed(_fromRow(row));
+        out[record.localId] = record;
+      }
+    }
+    return out;
+  }
+
+  /// [getByLibraryId] for a page of assets in one query, keyed by library
+  /// id.
+  Future<Map<String, AssetRecord>> getByLibraryIds(
+    Iterable<String> libraryIds,
+  ) async {
+    final ids = libraryIds.toSet().toList();
+    final out = <String, AssetRecord>{};
+    if (ids.isEmpty) return out;
+    final db = await _open();
+    // Two parameters per id, under SQLite's 999.
+    for (var i = 0; i < ids.length; i += 400) {
+      final chunk = ids.skip(i).take(400).toList();
+      final marks = List.filled(chunk.length, '?').join(',');
+      final rows = await db.query(
+        _table,
+        where:
+            'library_id IN ($marks) '
+            'OR (library_id IS NULL AND local_id IN ($marks))',
+        whereArgs: [...chunk, for (final id in chunk) 'photo:$id'],
+      );
+      for (final row in rows) {
+        final id =
+            row['library_id'] as String? ??
+            (row['local_id'] as String).substring('photo:'.length);
+        if (out.containsKey(id)) continue;
+        out[id] = await _healed(_fromRow(row));
+      }
+    }
+    return out;
+  }
+
   Future<AssetRecord?> getByLibraryId(String libraryId) async {
     final db = await _open();
     final rows = await db.query(

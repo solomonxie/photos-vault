@@ -558,13 +558,20 @@ class LibraryScreenState extends State<LibraryScreen>
     // is almost always at that end, and a full pass already walking
     // through 2014 would otherwise take minutes to reach it.
     unawaited(_refreshBucketListing());
-    unawaited(_libraryScanner.runRecent());
-    unawaited(_libraryScanner.run(force: true));
+    unawaited(_scanRecentThenAll());
     unawaited(_analyzeQueue.startIfDue());
     unawaited(_sweepLeftovers());
     unawaited(_runScheduledSyncIfDue());
     unawaited(_hiddenBackup.run().catchError((_) {}));
     _startTrickle();
+  }
+
+  /// The full pass starts once the newest photos are in: started together,
+  /// both queue on the one database connection and the recent lane, the
+  /// one somebody is waiting on, finishes behind the full pass.
+  Future<void> _scanRecentThenAll() async {
+    await _libraryScanner.runRecent();
+    await _libraryScanner.run(force: true);
   }
 
   /// Keeping up with Photos while the app is open costs a notification per
@@ -591,10 +598,7 @@ class LibraryScreenState extends State<LibraryScreen>
     try {
       final result = await _photoLibraryService.applyChange(change);
       if (result.isEmpty || !mounted) return;
-      if (result.added.isNotEmpty) {
-        await _backUpRecords(result.added);
-      }
-      await reload();
+      await _showThenBackUp(result.added);
     } catch (_) {
       // Whatever this notification carried, the next scan finds anyway.
     }
@@ -811,8 +815,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // triggers for backup) can be slow, and must never block showing the
     // manually-added assets already on hand. Re-`reload()`s itself once
     // done.
-    unawaited(_libraryScanner.runRecent());
-    unawaited(_libraryScanner.run(force: true));
+    unawaited(_scanRecentThenAll());
     unawaited(_analyzeQueue.startIfDue());
     // Independent of camera-roll access: retries whatever's already
     // pending/failed if the configured sync frequency says it's due — the
@@ -913,10 +916,7 @@ class LibraryScreenState extends State<LibraryScreen>
       // resolving, the same as after a full pass.
       if (result.added.isNotEmpty) _unresolvable.clear();
       if (result.isEmpty || !mounted) return;
-      if (result.added.isNotEmpty) {
-        await _backUpRecords(result.added);
-      }
-      await reload();
+      await _showThenBackUp(result.added);
     } catch (_) {
       // No platform channel, or the permission flow failed — the full pass
       // covers the same ground, just not as promptly.
@@ -967,12 +967,9 @@ class LibraryScreenState extends State<LibraryScreen>
       // photos nobody has opened yet — which is most of them.
       unawaited(_namePlaces());
       if (result.isEmpty) return;
-      if (result.added.isNotEmpty) {
-        await _backUpRecords(result.added);
-      }
       // Also redraws for a scan that only *changed* things — a heart taken
       // off a photo over in Photos adds nothing, and still has to show.
-      await reload();
+      await _showThenBackUp(result.added);
     } catch (_) {
       // No `photo_manager` platform channel (tests, unsupported platform)
       // or the permission flow failed — leave the camera roll unsynced
@@ -1313,8 +1310,8 @@ class LibraryScreenState extends State<LibraryScreen>
       all
           .where((r) => !r.isDeleted && !r.isHidden && r.passcodeHash == null)
           .toList()
-        // Oldest first, newest at the bottom — Photos' order, and what
-        // lets the page open on the latest photo (see [AssetGridView]).
+        // Oldest first, newest at the bottom — Photos' order, with Albums
+        // just below the latest photo (see [AssetGridView]).
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
   /// The one derived list that can't be precomputed — it depends on what
@@ -1538,6 +1535,19 @@ class LibraryScreenState extends State<LibraryScreen>
     } catch (_) {
       // Nothing to report — the tasks stay queued.
     }
+  }
+
+  /// New photos on screen first; queueing their backup is a few writes
+  /// each, and the grid used to wait for all of them. No second reload:
+  /// the drain's own, when it ends, shows their backup status.
+  Future<void> _showThenBackUp(List<AssetRecord> added) async {
+    await reload();
+    if (added.isEmpty || !mounted) return;
+    // Read again: on screen, a photo can be hidden before it's queued.
+    final fresh = await assetRecordStore.getByLocalIds(
+      added.map((r) => r.localId),
+    );
+    await _backUpRecords(fresh.values.toList());
   }
 
   Future<int> _backUpRecords(List<AssetRecord> records) =>
@@ -2524,7 +2534,12 @@ class LibraryScreenState extends State<LibraryScreen>
                   scrubberInsets: const EdgeInsets.only(top: 56, bottom: 16),
                   leadingSlivers: _leadingSlivers(l10n),
                   trailingSlivers: _trailingSlivers(l10n, selection),
-                  restKey: _peopleRowKey,
+                  // A query rests on its newest result, not on Albums
+                  // below results that would sit off screen above.
+                  restKey: _query.isEmpty ? _albumsKey : null,
+                  restInset:
+                      _navigationBarHeight +
+                      (_searching ? _searchBarHeight : 0),
                 ),
                 if (selection != null)
                   Positioned(
@@ -2590,13 +2605,16 @@ class LibraryScreenState extends State<LibraryScreen>
             right: 0,
             child: ColoredBox(
               color: const Color(0xFF1C1C1E),
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: CupertinoSearchTextField(
-                  controller: _searchController,
-                  focusNode: _searchFocus,
-                  autofocus: true,
-                  onChanged: (v) => setState(() => _query = v),
+              child: SizedBox(
+                height: _searchBarHeight,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                  child: CupertinoSearchTextField(
+                    controller: _searchController,
+                    focusNode: _searchFocus,
+                    autofocus: true,
+                    onChanged: (v) => setState(() => _query = v),
+                  ),
                 ),
               ),
             ),
@@ -2608,6 +2626,9 @@ class LibraryScreenState extends State<LibraryScreen>
   /// `CupertinoSliverNavigationBar`'s collapsed height — the strip that
   /// stays pinned under the status bar however far the page is scrolled.
   static const _navigationBarHeight = 44.0;
+
+  /// The pinned search field under it, which the rest also clears.
+  static const _searchBarHeight = 52.0;
 
   /// Kept clear at the trailing end of the bar for its search button. A translucent overlay still wins the gesture arena against
   /// what's under it, so anything covered here is a button that can't be
@@ -2624,14 +2645,14 @@ class LibraryScreenState extends State<LibraryScreen>
   @override
   void handleStatusBarTap() => _jumpHome();
 
-  /// Back to the newest photos — and, tapped again from there, on up to the
-  /// very top. Bound to the status bar, the navigation bar and the large
+  /// Home rests Albums at the top of the screen, not the newest photo:
+  /// the photos are a scroll up.
+  final _albumsKey = GlobalKey();
+
+  /// Back home to Albums — and, tapped again from there, on up to the very
+  /// top. Bound to the status bar, the navigation bar and the large
   /// title: the whole header, which is what a thumb reaches for when it's
   /// lost.
-  /// Home rests the People row on the bottom of the screen, not the
-  /// newest photo: the faces are what's opened most from here.
-  final _peopleRowKey = GlobalKey();
-
   void _jumpHome() => _gridKey.currentState?.toggleAnchor();
 
   List<Widget> _leadingSlivers(AppLocalizations l10n) => [
@@ -2641,9 +2662,9 @@ class LibraryScreenState extends State<LibraryScreen>
         child: Text(l10n.tabLibrary),
       ),
       // A button, not a field. A search box living at the top of the scroll
-      // content is a box nobody can reach: the page opens at the *newest*
-      // photo, so the field sat a decade of scrolling away. Importing from
-      // Files is rare enough to live in More.
+      // content is a box nobody can reach: the page opens on Albums, below
+      // the newest photo, so the field sat a decade of scrolling away.
+      // Importing from Files is rare enough to live in More.
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
@@ -2673,6 +2694,7 @@ class LibraryScreenState extends State<LibraryScreen>
   ) => [
     if (_all.isNotEmpty) ...[
       SliverToBoxAdapter(
+        key: _albumsKey,
         child: _SubsectionHeader(
           title: l10n.collectionsAlbums,
           onAdd: _createAlbum,
@@ -2740,7 +2762,6 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       ),
       SliverToBoxAdapter(
-        key: _peopleRowKey,
         child: _people.isEmpty && _unnamedFaces.isEmpty
             ? Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
