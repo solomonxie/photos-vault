@@ -187,12 +187,16 @@ class FakePersonStore implements PersonStore {
   }
 
   @override
-  Future<void> addAssets(String personId, Iterable<String> localIds) async {
+  Future<void> addAssets(
+    String personId,
+    Iterable<String> localIds, {
+    bool fillAvatar = true,
+  }) async {
     _members.putIfAbsent(personId, () => {}).addAll(localIds);
     // Mirrors the real store: the first photo someone is tagged in becomes
     // their picture, unless they already have one.
     final first = localIds.firstOrNull;
-    if (first == null) return;
+    if (first == null || !fillAvatar) return;
     final person = _people[personId];
     if (person == null || person.avatarLocalId != null) return;
     _people[personId] = person.copyWith(avatarLocalId: first);

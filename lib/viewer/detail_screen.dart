@@ -2074,8 +2074,11 @@ class _InfoPanelState extends State<_InfoPanel> {
     final person = await _addPerson();
     if (person != null && index < _faceRects.length) {
       final latest = await widget.personStore.getById(person.id);
-      // Only when they haven't got one already, same as linking any photo.
-      if (latest != null && latest.avatarFace == null) {
+      // Only when they haven't got one already, same as linking any photo,
+      // and never from a hidden photo.
+      if (latest != null &&
+          latest.avatarFace == null &&
+          widget.record.isVisibleInLibrary) {
         await widget.personStore.update(
           latest.copyWith(
             avatarLocalId: widget.record.localId,
@@ -2087,11 +2090,14 @@ class _InfoPanelState extends State<_InfoPanel> {
       // shared `nameFace`, so the teaching has to happen here too — or the
       // one surface where you're actually looking at the photo would be
       // the one that never learns from it.
-      await _faceIdentity.remember(
-        record: widget.record,
-        face: _faceRects[index],
-        personId: person.id,
-      );
+      // A hidden photo's face is kept out of every face search.
+      if (widget.record.isVisibleInLibrary) {
+        await _faceIdentity.remember(
+          record: widget.record,
+          face: _faceRects[index],
+          personId: person.id,
+        );
+      }
     }
     if (!mounted) return;
     // Named, so it stops being an open question.
@@ -2287,7 +2293,9 @@ class _InfoPanelState extends State<_InfoPanel> {
       title: l10n.detailPeopleTagPickerTitle,
     );
     if (picked == null) return null;
-    await widget.personStore.addAssets(picked.id, [widget.record.localId]);
+    await widget.personStore.addAssets(picked.id, [
+      widget.record.localId,
+    ], fillAvatar: widget.record.isVisibleInLibrary);
     await _loadPeople();
     return picked;
   }

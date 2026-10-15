@@ -48,6 +48,29 @@ void main() {
     expect(find.byKey(const ValueKey('manual:fav-deleted')), findsNothing);
   });
 
+  testWidgets('a hidden favourite is not shown', (tester) async {
+    final store = FakeAssetRecordStore();
+    for (final id in ['manual:locked', 'manual:hidden']) {
+      await store.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+      await store.setFavorite(id, true);
+    }
+    await store.setPasscodeHash('manual:locked', 'hash');
+    await store.setHidden('manual:hidden', true);
+
+    await tester.pumpWidget(_wrap(FavoritesScreen(assetRecordStore: store)));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('manual:locked')), findsNothing);
+    expect(find.byKey(const ValueKey('manual:hidden')), findsNothing);
+    expect(find.text('No favorites yet.'), findsOneWidget);
+  });
+
   testWidgets('shows the empty state with no favorites', (tester) async {
     await tester.pumpWidget(
       _wrap(FavoritesScreen(assetRecordStore: FakeAssetRecordStore())),

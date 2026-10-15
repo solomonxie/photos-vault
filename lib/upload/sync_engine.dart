@@ -91,7 +91,7 @@ class SyncEngine {
   /// up from inside their open album ([backUpHidden]), so the queue and the
   /// Cloud page never have to know they exist.
   List<AssetRecord> get pendingAndFailed => records().where((r) {
-    if (r.isDeleted || r.passcodeHash != null) return false;
+    if (!r.isVisibleInLibrary) return false;
     if (unresolvable.contains(r.localId)) return false;
     // A Live Photo whose still went up but whose `.mov` didn't is still
     // owed to the bucket — what's up there is a silent still.
@@ -103,8 +103,7 @@ class SyncEngine {
   List<AssetRecord> get thumbnailsOwed => records()
       .where(
         (r) =>
-            !r.isDeleted &&
-            r.passcodeHash == null &&
+            r.isVisibleInLibrary &&
             r.isFullyBackedUp &&
             r.stateOf(DerivativeKind.thumbnail).status !=
                 UploadStatus.uploaded &&
@@ -228,10 +227,10 @@ class SyncEngine {
       // neither has one whose file this pass already failed to find —
       // asking again every sync is how one deleted photo becomes a
       // permanent red row.
-      if (r.isDeleted || r.localDeleted) return false;
+      if (r.localDeleted) return false;
       // Hidden ones are the album's to back up, never the queue's: a row
       // here, even nameless, says on an open page that they exist.
-      if (r.passcodeHash != null || r.isHidden) return false;
+      if (!r.isVisibleInLibrary) return false;
       if (unresolvable.contains(r.localId)) return false;
       return r.stateOf(DerivativeKind.original).status == UploadStatus.uploaded;
     }).toList();

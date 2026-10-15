@@ -477,6 +477,9 @@ class LibraryScreenState extends State<LibraryScreen>
   List<Person> _people = const [];
   Map<String, int> _personPhotoCounts = const {};
 
+  /// Each person's first visible photo — their picture until one is chosen.
+  Map<String, String> _personFirstPhotos = const {};
+
   /// Faces the app found and nobody has put a name to, newest first. They
   /// sit in the People row beside the named profiles because that is where
   /// somebody goes looking to name one — a face nobody can find is a face
@@ -1152,10 +1155,32 @@ class LibraryScreenState extends State<LibraryScreen>
       if (gone.isNotEmpty) {
         await _albumStore.forgetAssets(gone);
         await _personStore.forgetAssets(gone);
+        try {
+          await _aiAnalysisStore.forgetAssets(gone);
+        } catch (_) {
+          // No analysis database: nothing kept about them.
+        }
       }
       await assetRecordStore.forgetRemoved(removed);
     } catch (_) {
       // Kept for the next reload; a stale membership draws nothing.
+    }
+  }
+
+  /// Faces of photos hidden before hiding dropped them, or restored with
+  /// them. Once per session: one pass, and a no-op once clean.
+  var _hiddenFacesSwept = false;
+
+  Future<void> _sweepHiddenFaces(List<AssetRecord> all) async {
+    _hiddenFacesSwept = true;
+    final hidden = [
+      for (final r in all)
+        if (r.isHidden || r.passcodeHash != null) r.localId,
+    ];
+    try {
+      await _aiAnalysisStore.forgetFacesOf(hidden);
+    } catch (_) {
+      // No analysis database: nothing kept about them.
     }
   }
 
@@ -1186,6 +1211,7 @@ class LibraryScreenState extends State<LibraryScreen>
     }
 
     if (libraryChanged) await _forgetRemovedMemberships(all);
+    if (!_hiddenFacesSwept) await _sweepHiddenFaces(all);
     if (!_orphansSwept) {
       _orphansSwept = true;
       try {
@@ -1228,17 +1254,24 @@ class LibraryScreenState extends State<LibraryScreen>
     // ticked. [faces] is for what changed somewhere this can't see: a
     // photo analysed, a face named.
     var personPhotoCounts = _personPhotoCounts;
+    var personFirstPhotos = _personFirstPhotos;
     var unnamed = (faces: _unnamedFaces, found: 0);
     if (libraryChanged || peopleChanged || faces) {
       final counts = <String, int>{};
+      final firsts = <String, String>{};
       final tagged = <String>{};
       final personMembers = await _personStore.allMemberships();
+      // Visible ones only: a hidden photo in a count gives it away.
+      final visible = visibleIdsOf(all);
       for (final person in people) {
         final localIds = personMembers[person.id] ?? const <String>[];
-        counts[person.id] = localIds.length;
+        final shown = localIds.where(visible.contains);
+        counts[person.id] = shown.length;
+        if (shown.firstOrNull case final first?) firsts[person.id] = first;
         tagged.addAll(localIds);
       }
       personPhotoCounts = counts;
+      personFirstPhotos = firsts;
       // One at a time. A camera-roll scan reloads once a second, and each
       // round would otherwise start another pass over every face in the
       // library on top of the one still running.
@@ -1266,6 +1299,7 @@ class LibraryScreenState extends State<LibraryScreen>
       _builtInCovers = builtInCovers;
       _people = people;
       _personPhotoCounts = personPhotoCounts;
+      _personFirstPhotos = personFirstPhotos;
       _unnamedFaces = unnamed.faces;
     });
   }
@@ -1307,9 +1341,7 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   static List<AssetRecord> _activeOf(List<AssetRecord> all) =>
-      all
-          .where((r) => !r.isDeleted && !r.isHidden && r.passcodeHash == null)
-          .toList()
+      all.where((r) => r.isVisibleInLibrary).toList()
         // Oldest first, newest at the bottom — Photos' order, with Albums
         // just below the latest photo (see [AssetGridView]).
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
@@ -1702,6 +1734,7 @@ class LibraryScreenState extends State<LibraryScreen>
         records: records,
         custody: _custody,
         targetsStore: _backupTargetsStore,
+        analysisStore: _aiAnalysisStore,
         onSettled: () {
           if (mounted) reload();
         },
@@ -2802,6 +2835,7 @@ class LibraryScreenState extends State<LibraryScreen>
                         person: person,
                         assetRecordStore: assetRecordStore,
                         photoCount: _personPhotoCounts[person.id] ?? 0,
+                        firstPhoto: _personFirstPhotos[person.id],
                         onTap: () => _openPerson(person),
                       ),
                     );
@@ -3166,12 +3200,14 @@ class _PersonCard extends StatelessWidget {
     required this.person,
     required this.assetRecordStore,
     required this.photoCount,
+    required this.firstPhoto,
     required this.onTap,
   });
 
   final Person person;
   final AssetRecordStore assetRecordStore;
   final int photoCount;
+  final String? firstPhoto;
   final VoidCallback onTap;
 
   @override
@@ -3183,6 +3219,7 @@ class _PersonCard extends StatelessWidget {
         PersonAvatar.forPerson(
           assetRecordStore: assetRecordStore,
           person: person,
+          firstTaggedLocalId: firstPhoto,
           size: 92,
         ),
         const SizedBox(height: 6),

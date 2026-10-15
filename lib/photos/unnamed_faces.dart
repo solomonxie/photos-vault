@@ -55,9 +55,7 @@ Future<UnnamedFaces> findUnnamedFaces({
       records
           .where(
             (r) =>
-                !r.isDeleted &&
-                !r.isHidden &&
-                r.passcodeHash == null &&
+                r.isVisibleInLibrary &&
                 !taggedLocalIds.contains(r.localId) &&
                 faces.containsKey(r.localId),
           )

@@ -116,11 +116,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
       () => _records =
           all
               .where(
-                (r) =>
-                    !r.isDeleted &&
-                    !r.isHidden &&
-                    r.passcodeHash == null &&
-                    memberIds.contains(r.localId),
+                (r) => r.isVisibleInLibrary && memberIds.contains(r.localId),
               )
               .toList()
             ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),

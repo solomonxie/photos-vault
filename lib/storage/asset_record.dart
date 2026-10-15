@@ -211,6 +211,11 @@ class AssetRecord {
 
   bool get isDeleted => deletedAt != null;
 
+  /// May be shown or counted outside the private gate: not binned, not
+  /// hidden, in no private album. The one test every open screen uses.
+  bool get isVisibleInLibrary =>
+      !isDeleted && !isHidden && passcodeHash == null;
+
   /// Nothing of this photo could be given back: no file of its own and no
   /// original in a bucket. Only ever true once the OS library has let go of
   /// it too — until then the library still has the pixels, and this says

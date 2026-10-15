@@ -11,21 +11,22 @@ import 'asset_grid.dart';
 /// A person's profile picture — resolved on demand from their
 /// `avatarLocalId` (one of their own tagged photos, not a separate upload),
 /// cropped to [face] when the photo is a group shot and only part of it is
-/// them. Falls back to a plain person glyph until resolved or if there's
-/// none.
-class PersonAvatar extends StatelessWidget {
+/// them. Falls back to [fallbackLocalId], then a plain person glyph, when
+/// the photo is gone or not visible outside the private gate.
+class PersonAvatar extends StatefulWidget {
   const PersonAvatar({
     super.key,
     required this.assetRecordStore,
     required this.localId,
     this.face,
+    this.fallbackLocalId,
     this.size = 64,
   });
 
-  /// Their chosen picture, or — until one's been chosen — the first photo
-  /// they're tagged in: somebody with photos should never sit behind a grey
-  /// glyph. A face box only means anything on the photo it was tapped in,
-  /// so it's dropped along with the photo.
+  /// Their chosen picture, or — until one's been chosen, or while it can't
+  /// be shown — the first photo they're tagged in: somebody with photos
+  /// should never sit behind a grey glyph. A face box only means anything
+  /// on the photo it was tapped in, so it's dropped along with the photo.
   factory PersonAvatar.forPerson({
     required AssetRecordStore assetRecordStore,
     required Person person,
@@ -35,6 +36,7 @@ class PersonAvatar extends StatelessWidget {
     assetRecordStore: assetRecordStore,
     localId: person.avatarLocalId ?? firstTaggedLocalId,
     face: person.avatarLocalId == null ? null : person.avatarFace,
+    fallbackLocalId: person.avatarLocalId == null ? null : firstTaggedLocalId,
     size: size,
   );
 
@@ -44,41 +46,72 @@ class PersonAvatar extends StatelessWidget {
   /// Which part of the photo is this person — see [Person.avatarFace].
   /// Null shows the whole photo, centre-cropped to the circle.
   final FaceRect? face;
+
+  /// Drawn whole when [localId] can't be shown.
+  final String? fallbackLocalId;
   final double size;
 
   @override
+  State<PersonAvatar> createState() => _PersonAvatarState();
+}
+
+class _PersonAvatarState extends State<PersonAvatar> {
+  /// Read once per photo, not per build: a list `setState` rebuilds every
+  /// visible avatar.
+  late Future<(AssetRecord, FaceRect?)?> _resolved = _resolve();
+
+  @override
+  void didUpdateWidget(PersonAvatar oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.localId != widget.localId ||
+        oldWidget.face != widget.face ||
+        oldWidget.fallbackLocalId != widget.fallbackLocalId ||
+        oldWidget.assetRecordStore != widget.assetRecordStore) {
+      _resolved = _resolve();
+    }
+  }
+
+  Future<(AssetRecord, FaceRect?)?> _resolve() async {
+    final id = widget.localId;
+    final fallback = widget.fallbackLocalId;
+    final ids = [?id, ?fallback];
+    if (ids.isEmpty) return null;
+    final visible = await widget.assetRecordStore.getVisibleByLocalIds(ids);
+    if (visible[id] case final record?) return (record, widget.face);
+    if (visible[fallback] case final record?) return (record, null);
+    return null;
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final id = localId;
+    final size = widget.size;
     return ClipOval(
       child: SizedBox(
         width: size,
         height: size,
-        child: id == null
-            ? _placeholder()
-            : FutureBuilder<AssetRecord?>(
-                future: assetRecordStore.getByLocalId(id),
-                builder: (context, snapshot) {
-                  final record = snapshot.data;
-                  if (record == null) return _placeholder();
-                  // Resolved exactly like a grid tile — an avatar that
-                  // fell back to the person glyph while the same photo drew
-                  // fine in the grid was this path missing the thumbnail
-                  // cache.
-                  whole() => assetImage(record, placeholder: _placeholder);
-                  final rect = face;
-                  if (rect == null) return whole();
-                  // The whole photo holds the place while the crop decodes,
-                  // and stands in for good if it never does — a grey glyph
-                  // there reads as "no picture", which is the one thing
-                  // this person definitely isn't.
-                  return _FaceCrop(
-                    record: record,
-                    face: rect,
-                    size: size,
-                    whole: whole,
-                  );
-                },
-              ),
+        child: FutureBuilder<(AssetRecord, FaceRect?)?>(
+          future: _resolved,
+          builder: (context, snapshot) {
+            final resolved = snapshot.data;
+            if (resolved == null) return _placeholder();
+            final (record, rect) = resolved;
+            // Resolved exactly like a grid tile — an avatar that fell back
+            // to the person glyph while the same photo drew fine in the
+            // grid was this path missing the thumbnail cache.
+            whole() => assetImage(record, placeholder: _placeholder);
+            if (rect == null) return whole();
+            // The whole photo holds the place while the crop decodes, and
+            // stands in for good if it never does — a grey glyph there
+            // reads as "no picture", which is the one thing this person
+            // definitely isn't.
+            return _FaceCrop(
+              record: record,
+              face: rect,
+              size: size,
+              whole: whole,
+            );
+          },
+        ),
       ),
     );
   }
@@ -87,7 +120,7 @@ class PersonAvatar extends StatelessWidget {
     color: CupertinoColors.systemGrey4,
     child: Icon(
       CupertinoIcons.person_fill,
-      size: size * 0.6,
+      size: widget.size * 0.6,
       color: CupertinoColors.white,
     ),
   );

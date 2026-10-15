@@ -11,6 +11,7 @@ import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
 import '../photos/unnamed_faces.dart';
 import '../photos/analyze_queue.dart';
+import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'analyze_queue_screen.dart';
 import 'person_avatar.dart';
@@ -106,19 +107,26 @@ class _PeopleScreenState extends State<PeopleScreen> {
 
   Future<void> _reload() async {
     final people = await widget.personStore.listAll();
+    final records = await _records();
+    // Counted over what may be shown: a hidden photo in the count gives
+    // away that it exists.
+    final visible = visibleIdsOf(records);
     final counts = <String, int>{};
     final firstPhoto = <String, String>{};
     final tagged = <String>{};
     final members = await widget.personStore.allMemberships();
     for (final person in people) {
-      final localIds = members[person.id] ?? const <String>[];
-      counts[person.id] = localIds.length;
-      tagged.addAll(localIds);
-      if (localIds.isNotEmpty) firstPhoto[person.id] = localIds.first;
+      final shown = [
+        for (final id in members[person.id] ?? const <String>[])
+          if (visible.contains(id)) id,
+      ];
+      counts[person.id] = shown.length;
+      tagged.addAll(members[person.id] ?? const <String>[]);
+      if (shown.isNotEmpty) firstPhoto[person.id] = shown.first;
     }
     final groups = await widget.personStore.allGroups();
     final details = await widget.personStore.openDetails();
-    final unnamed = await _loadUnnamedFaces(tagged, {
+    final unnamed = await _loadUnnamedFaces(records, tagged, {
       for (final p in people) p.id: p.name,
     });
     // Most photographed first, matching the faces below it. This is a
@@ -137,20 +145,33 @@ class _PeopleScreenState extends State<PeopleScreen> {
     });
   }
 
+  /// Every record, or none where there's no record database (a widget
+  /// test, no platform channel) — the page is still the list of people.
+  Future<List<AssetRecord>> _records() async {
+    try {
+      return await widget.assetRecordStore.listAll();
+    } catch (_) {
+      return const [];
+    }
+  }
+
   /// The same strangers the home page's People row offers, on the page
   /// that row's "More" leads to — naming somebody is the one thing you
   /// come here to do, and sending you back to the home screen to do it was
   /// the wrong way round.
   Future<UnnamedFaces> _loadUnnamedFaces(
+    List<AssetRecord> records,
     Set<String> tagged,
     Map<String, String> peopleById,
   ) async {
     final analysisStore = widget.aiAnalysisStore;
-    if (analysisStore == null) return (faces: const <UnnamedFace>[], found: 0);
+    if (analysisStore == null || records.isEmpty) {
+      return (faces: const <UnnamedFace>[], found: 0);
+    }
     try {
       return await findUnnamedFaces(
         analysisStore: analysisStore,
-        records: await widget.assetRecordStore.listAll(),
+        records: records,
         taggedLocalIds: tagged,
         peopleById: peopleById,
         limit: _unnamedFacesShown,

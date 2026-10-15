@@ -85,9 +85,15 @@ Future<Person?> nameFace({
     title: l10n.peopleUnnamedFace,
   );
   if (picked == null) return null;
-  await personStore.addAssets(picked.id, [face.localId]);
+  // A hidden photo's face is never anyone's picture.
+  final visible =
+      assetRecordStore == null ||
+      ((await assetRecordStore.getByLocalId(face.localId))
+              ?.isVisibleInLibrary ??
+          false);
+  await personStore.addAssets(picked.id, [face.localId], fillAvatar: visible);
   final latest = await personStore.getById(picked.id);
-  if (latest != null && latest.avatarFace == null) {
+  if (visible && latest != null && latest.avatarFace == null) {
     await personStore.update(
       latest.copyWith(avatarLocalId: face.localId, avatarFace: () => face.face),
     );

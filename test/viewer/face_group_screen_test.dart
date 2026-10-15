@@ -251,4 +251,114 @@ void main() {
     final grid = tester.widget<AssetGridView>(find.byType(AssetGridView));
     expect(grid.markedId, 'a');
   });
+
+  Set<String> offered(WidgetTester tester) => {
+    for (final r
+        in tester.widget<AssetGridView>(find.byType(AssetGridView)).records)
+      r.localId,
+  };
+
+  testWidgets('a hidden, binned or purged face is never offered or saved', (
+    tester,
+  ) async {
+    await describe('a', [1, 0, 0]);
+    await describe('b', [1, 0.05, 0]);
+    for (final id in ['locked', 'hidden', 'binned', 'purged']) {
+      await describe(id, [1, 0.02, 0]);
+    }
+    await records.setPasscodeHash('locked', 'hash');
+    await records.setHidden('hidden', true);
+    await records.softDelete('binned');
+    await records.remove('purged');
+
+    await tester.pumpWidget(screen());
+    await tester.pumpAndSettle();
+    expect(offered(tester), {'a', 'b'});
+
+    await tester.enterText(find.byType(CupertinoSearchTextField), 'Sam');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final created = (await people.listAll()).single;
+    expect((await people.localIdsIn(created.id)).toSet(), {'a', 'b'});
+  });
+
+  testWidgets('a hidden seed is no one\'s picture', (tester) async {
+    await describe('a', [1, 0, 0]);
+    await describe('b', [1, 0.05, 0]);
+    await records.setPasscodeHash('a', 'hash');
+
+    await tester.pumpWidget(screen());
+    await tester.pumpAndSettle();
+    expect(offered(tester), {'b'});
+    await tester.enterText(find.byType(CupertinoSearchTextField), 'Sam');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    final created = (await people.listAll()).single;
+    expect(created.avatarLocalId, 'b');
+  });
+
+  group('find more of somebody', () {
+    Future<void> confirm(String id, List<double> v, String personId) async {
+      await records.upsert(localId: id, contentHash: id, platform: 'ios');
+      await analyses.saveDescriptor(
+        localId: id,
+        face: _face,
+        personId: personId,
+        descriptor: FaceDescriptor(
+          vector: Float32List.fromList(v),
+          revision: 1,
+        ),
+      );
+    }
+
+    Widget findMore(Person existing) => _wrap(
+      FaceGroupScreen(
+        existing: existing,
+        personStore: people,
+        assetRecordStore: records,
+        grouping: FaceGrouping(analysisStore: analyses, ceiling: 0.3),
+        faceIdentity: FaceIdentityService(
+          analysisStore: analyses,
+          resolvePath: (_) async => null,
+        ),
+      ),
+    );
+
+    testWidgets('searches from their faces only, never everyone\'s', (
+      tester,
+    ) async {
+      final alice = await people.create(name: 'Alice');
+      final bob = await people.create(name: 'Bob');
+      await confirm('alice1', [1, 0, 0], alice.id);
+      await confirm('bob1', [0, 1, 0], bob.id);
+      await confirm('bob2', [1, 1, 0], bob.id);
+      await describe('likeAlice', [1, 0.05, 0]);
+      await describe('likeBob', [0.05, 1, 0]);
+      // Near enough to Alice, nearer still to Bob: his.
+      await describe('nearerBob', [1, 0.8, 0]);
+      await describe('hiddenAlice', [1, 0.02, 0]);
+      await records.setPasscodeHash('hiddenAlice', 'hash');
+
+      await tester.pumpWidget(findMore(alice));
+      await tester.pumpAndSettle();
+
+      expect(offered(tester), {'likeAlice'});
+    });
+
+    testWidgets('a hidden face of theirs is not a reference', (tester) async {
+      final alice = await people.create(name: 'Alice');
+      await confirm('hiddenRef', [0, 1, 0], alice.id);
+      await records.setHidden('hiddenRef', true);
+      await describe('likeHiddenRef', [0.05, 1, 0]);
+
+      await tester.pumpWidget(findMore(alice));
+      await tester.pumpAndSettle();
+
+      expect(offered(tester), isEmpty);
+    });
+  });
 }

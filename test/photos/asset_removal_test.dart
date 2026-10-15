@@ -392,4 +392,23 @@ void main() {
     expect(await removalOver(store).deleteEverywhere(record), isFalse);
     expect((await store.getByLocalId('manual:l'))!.isDeleted, isFalse);
   });
+
+  test(
+    'a photo in a private album is never binned from an open screen',
+    () async {
+      final store = FakeAssetRecordStore();
+      await store.upsert(
+        localId: 'manual:p',
+        contentHash: 'p',
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/p.jpg',
+      );
+      await store.setPasscodeHash('manual:p', 'hash');
+      final record = (await store.getByLocalId('manual:p'))!;
+
+      expect(await removalOver(store).deleteEverywhere(record), isFalse);
+      expect((await store.getByLocalId('manual:p'))!.isDeleted, isFalse);
+    },
+  );
 }

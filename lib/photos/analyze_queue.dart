@@ -366,15 +366,7 @@ class AnalyzeQueue {
   /// enqueued behind them and gets there eventually.
   Future<List<AssetRecord>> _activeRecords() async {
     final all = await assetRecordStore.listAll();
-    return all
-        .where(
-          (r) =>
-              !r.isDeleted &&
-              !r.isHidden &&
-              r.passcodeHash == null &&
-              !r.localDeleted,
-        )
-        .toList()
+    return all.where((r) => r.isVisibleInLibrary && !r.localDeleted).toList()
       ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
   }
 

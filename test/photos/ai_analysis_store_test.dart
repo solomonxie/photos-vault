@@ -117,6 +117,70 @@ void main() {
       await store.clearAllSuggestions();
       expect(await store.matchedAssets(), isEmpty);
     });
+
+    test('confirmedFacesFor is one person\'s faces only', () async {
+      final store = newStore();
+      await store.saveDescriptor(
+        localId: 'p1',
+        face: face,
+        personId: 'nina',
+        descriptor: nina,
+      );
+      await store.saveDescriptor(
+        localId: 'p2',
+        face: face,
+        personId: 'sam',
+        descriptor: nina,
+      );
+      await store.saveDescriptor(localId: 'p3', face: face, descriptor: nina);
+
+      final faces = await store.confirmedFacesFor('nina');
+      expect(faces.map((f) => f.localId), ['p1']);
+    });
+
+    Future<AiAnalysisStore> described() async {
+      final store = newStore();
+      for (final id in ['hidden', 'kept']) {
+        await store.saveFaceCount(
+          localId: id,
+          peopleCount: 1,
+          analyzedAt: DateTime(2026),
+          faces: const [face],
+        );
+        await store.saveDescriptor(
+          localId: id,
+          face: face,
+          personId: 'nina',
+          descriptor: nina,
+        );
+        await store.saveSuggestions(id, {face.encode(): 'nina'});
+      }
+      return store;
+    }
+
+    test('hiding a photo drops its faces, vectors and guesses', () async {
+      final store = await described();
+
+      await store.forgetFacesOf(['hidden']);
+
+      expect(await store.facesFor('hidden'), isEmpty);
+      expect(await store.descriptorFor('hidden', face), isNull);
+      expect(await store.suggestionsFor('hidden'), isEmpty);
+      expect((await store.allDescribedFaces()).map((f) => f.localId), ['kept']);
+      expect((await store.facesByAsset()).keys, ['kept']);
+      expect(await store.get('hidden'), isNotNull, reason: 'paid half stays');
+    });
+
+    test('a permanent delete drops every row of the photo', () async {
+      final store = await described();
+
+      await store.forgetAssets(['hidden']);
+
+      expect(await store.get('hidden'), isNull);
+      expect(await store.descriptorFor('hidden', face), isNull);
+      expect(await store.matchedAssets(), {'kept'});
+      expect(await store.get('kept'), isNotNull);
+    });
   });
 
   test('facesFor reads back the boxes a scan stored', () async {

@@ -4,6 +4,8 @@ import 'dart:io';
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/ai_analysis_store.dart';
+import '../photos/face_identity.dart';
 import '../photos/library_custody.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
@@ -492,6 +494,7 @@ Future<bool> hideIntoPrivateAlbum(
   LibraryCustody? custody,
   PendingDeletes? pendingDeletes,
   BackupTargetsStore? targetsStore,
+  AiAnalysisStore? analysisStore,
   VoidCallback? onSettled,
 }) async {
   final l10n = AppLocalizations.of(context)!;
@@ -601,6 +604,7 @@ Future<bool> hideIntoPrivateAlbum(
       keeper: keeper,
       buckets: buckets,
       pendingDeletes: pendingDeletes,
+      analysisStore: analysisStore,
       toHeif: toHeif,
       onSettled: onSettled,
     ),
@@ -617,6 +621,7 @@ Future<void> _finishHiding(
   required LibraryCustody keeper,
   required BackupTargetsStore buckets,
   required PendingDeletes? pendingDeletes,
+  required AiAnalysisStore? analysisStore,
   required bool toHeif,
   VoidCallback? onSettled,
 }) async {
@@ -651,6 +656,12 @@ Future<void> _finishHiding(
   var stillInLibrary = 0;
   var failed = refused.length;
   final deletes = pendingDeletes ?? PendingDeletes(store: store);
+  await forgetHiddenFaces([
+    for (final r in records)
+      if (results[r.localId] case final result?
+          when result != CustodyResult.failed)
+        r.localId,
+  ], analysisStore: analysisStore);
   for (final record in records) {
     switch (results[record.localId] ?? CustodyResult.failed) {
       case CustodyResult.failed:

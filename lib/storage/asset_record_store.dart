@@ -1809,3 +1809,29 @@ class AssetRecordStore {
     );
   }
 }
+
+/// Reads filtered by [AssetRecord.isVisibleInLibrary], for screens outside
+/// the private gate.
+extension VisibleRecords on AssetRecordStore {
+  /// [getByLocalIds], keeping only what may be shown.
+  Future<Map<String, AssetRecord>> getVisibleByLocalIds(
+    Iterable<String> localIds,
+  ) async => {
+    for (final entry in (await getByLocalIds(localIds)).entries)
+      if (entry.value.isVisibleInLibrary) entry.key: entry.value,
+  };
+
+  /// Ids of every visible record. One pass per change of the library:
+  /// memoised on the [listAll] instance, which is the same while nothing
+  /// moved.
+  Future<Set<String>> visibleLocalIds() async => visibleIdsOf(await listAll());
+}
+
+final _visibleIds = Expando<Set<String>>();
+
+/// Ids in [records] that may be shown, memoised per list instance.
+Set<String> visibleIdsOf(List<AssetRecord> records) =>
+    _visibleIds[records] ??= {
+      for (final r in records)
+        if (r.isVisibleInLibrary) r.localId,
+    };

@@ -23,6 +23,20 @@ Future<void> forgetPersonFaces(
   }
 }
 
+/// Forgets the faces of photos being hidden, so no face search, count or
+/// avatar can reach them. Own handle, for the same reason as
+/// [forgetPersonFaces].
+Future<void> forgetHiddenFaces(
+  Iterable<String> localIds, {
+  AiAnalysisStore? analysisStore,
+}) async {
+  try {
+    await (analysisStore ?? AiAnalysisStore()).forgetFacesOf(localIds);
+  } catch (_) {
+    // No analysis database — nothing was kept about them.
+  }
+}
+
 /// Which part of [localId] is [personId] — their confirmed face if there
 /// is one, otherwise the photo's only face, otherwise nothing.
 ///

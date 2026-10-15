@@ -1,5 +1,8 @@
+import 'dart:isolate';
+
 import 'ai_analysis_store.dart';
 import 'face_matcher.dart';
+import 'on_device_vision.dart' show FaceDescriptor;
 import 'person.dart';
 
 /// Everyone in the library who looks like one particular face.
@@ -71,38 +74,39 @@ class FaceGrouping {
   /// confirmed of somebody searches from all of them, and a new photo
   /// only has to land near one. This is what makes tagging pay off
   /// instead of plateau — each confirmation is another way to be found.
+  ///
+  /// A face nearer to one of [others] (everyone else's references) than to
+  /// any of [references] is somebody else's, and left out. [among] limits
+  /// candidates and references to those photos — the visible ones.
   Future<List<UnnamedFace>> likeAnyOf(
     List<ConfirmedFace> references, {
+    List<ConfirmedFace> others = const [],
+    Set<String>? among,
     int limit = 500,
   }) async {
-    if (references.isEmpty) return const [];
+    final mine = [
+      for (final r in references)
+        if (among == null || among.contains(r.localId)) r.descriptor,
+    ];
+    if (mine.isEmpty) return const [];
+    final theirs = [
+      for (final r in others)
+        if (among == null || among.contains(r.localId)) r.descriptor,
+    ];
     final List<DescribedFace> described;
     try {
       described = await analysisStore.allDescribedFaces();
     } catch (_) {
       return const [];
     }
-    final ranked = <(double, DescribedFace)>[];
-    for (final candidate in described) {
-      if (candidate.personId != null) continue;
-      var best = double.infinity;
-      for (final reference in references) {
-        final distance = reference.descriptor.distanceTo(candidate.descriptor);
-        if (distance == null) continue;
-        if (distance < best) best = distance;
-      }
-      // Measured against the space the *candidate* is in, since that is
-      // the one being judged.
-      final ceilingHere =
-          ceiling ?? foldingCeilingForPipeline(candidate.descriptor.pipeline);
-      if (best > ceilingHere) continue;
-      ranked.add((best, candidate));
-    }
-    ranked.sort((a, b) => a.$1.compareTo(b.$1));
-    return [
-      for (final (_, candidate) in ranked.take(limit))
-        UnnamedFace(localId: candidate.localId, face: candidate.face),
-    ];
+    return _ranked(
+      _candidates(described, among),
+      mine,
+      theirs,
+      ceiling,
+      limit,
+      folding: true,
+    );
   }
 
   /// Faces that look like [seed], nearest first, [seed] itself included.
@@ -110,13 +114,18 @@ class FaceGrouping {
   /// Faces already belonging to a named person are left out: they have an
   /// answer, and offering them again invites a second name on the same
   /// face. Empty when the seed has no description yet — which means the
-  /// analyze pass hasn't reached it.
+  /// analyze pass hasn't reached it. [among] limits candidates to those
+  /// photos.
   /// [limit] is a last guard against a threshold gone wrong, not a page
   /// size — it sits far above any real group, because a circle promising
   /// two hundred photos that opens on thirty-seven is a lie told by the
   /// cap. Nearest first, so a bad threshold reads as "the first few are
   /// right and then it drifts" rather than as a wall.
-  Future<List<UnnamedFace>> like(UnnamedFace seed, {int limit = 500}) async {
+  Future<List<UnnamedFace>> like(
+    UnnamedFace seed, {
+    Set<String>? among,
+    int limit = 500,
+  }) async {
     final List<DescribedFace> described;
     final seedDescriptor = await analysisStore.descriptorFor(
       seed.localId,
@@ -134,12 +143,77 @@ class FaceGrouping {
     } catch (_) {
       return const [];
     }
+    return _ranked(
+      _candidates(described, among),
+      [seedDescriptor],
+      const [],
+      limitDistance,
+      limit,
+      folding: false,
+    );
+  }
+
+  static List<DescribedFace> _candidates(
+    List<DescribedFace> described,
+    Set<String>? among,
+  ) => [
+    for (final f in described)
+      if (f.personId == null && (among == null || among.contains(f.localId))) f,
+  ];
+
+  /// Off the UI isolate once the comparisons add up (CLAUDE.md). Static, so
+  /// the closure carries only its arguments.
+  static Future<List<UnnamedFace>> _ranked(
+    List<DescribedFace> candidates,
+    List<FaceDescriptor> mine,
+    List<FaceDescriptor> theirs,
+    double? ceiling,
+    int limit, {
+    required bool folding,
+  }) async {
+    final work = candidates.length * (mine.length + theirs.length);
+    if (work < _isolateWork) {
+      return _rank(candidates, mine, theirs, ceiling, limit, folding);
+    }
+    return Isolate.run(
+      () => _rank(candidates, mine, theirs, ceiling, limit, folding),
+    );
+  }
+
+  static const _isolateWork = 20000;
+
+  static List<UnnamedFace> _rank(
+    List<DescribedFace> candidates,
+    List<FaceDescriptor> mine,
+    List<FaceDescriptor> theirs,
+    double? ceiling,
+    int limit,
+    bool folding,
+  ) {
+    double nearest(List<FaceDescriptor> from, FaceDescriptor to) {
+      var best = double.infinity;
+      for (final d in from) {
+        final distance = d.distanceTo(to);
+        if (distance != null && distance < best) best = distance;
+      }
+      return best;
+    }
+
     final ranked = <(double, DescribedFace)>[];
-    for (final candidate in described) {
-      if (candidate.personId != null) continue;
-      final distance = seedDescriptor.distanceTo(candidate.descriptor);
-      if (distance == null || distance > limitDistance) continue;
-      ranked.add((distance, candidate));
+    for (final candidate in candidates) {
+      final best = nearest(mine, candidate.descriptor);
+      // Measured against the space the *candidate* is in, since that is
+      // the one being judged.
+      final ceilingHere =
+          ceiling ??
+          (folding
+              ? foldingCeilingForPipeline(candidate.descriptor.pipeline)
+              : double.infinity);
+      if (best > ceilingHere) continue;
+      if (theirs.isNotEmpty && nearest(theirs, candidate.descriptor) < best) {
+        continue;
+      }
+      ranked.add((best, candidate));
     }
     ranked.sort((a, b) => a.$1.compareTo(b.$1));
     return [

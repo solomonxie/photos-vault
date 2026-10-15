@@ -63,6 +63,7 @@ class _FaceGroupScreenState extends State<FaceGroupScreen> {
 
   List<UnnamedFace> _group = const [];
   List<AssetRecord> _records = const [];
+  Map<String, AssetRecord> _byAsset = const {};
   late final Set<String> _keeping = {
     if (widget.seed case final seed?) _keyOf(seed),
   };
@@ -100,20 +101,35 @@ class _FaceGroupScreenState extends State<FaceGroupScreen> {
     };
     people.sort((a, b) => (counts[b.id] ?? 0).compareTo(counts[a.id] ?? 0));
     final seed = _seed;
-    final group = seed != null
-        ? await widget.grouping.like(seed)
-        : await widget.grouping.likeAnyOf(
-            await widget.faceIdentity.analysisStore.confirmedFaces(),
-          );
-    final faces = group.isEmpty && seed != null ? [seed] : group;
+    // Faces in hidden, binned or purged photos are never offered.
+    final visible = await widget.assetRecordStore.visibleLocalIds();
+    final List<UnnamedFace> group;
+    if (seed != null) {
+      group = await widget.grouping.like(seed, among: visible);
+    } else if (existing != null) {
+      // Their own faces only; one nearer somebody else is theirs.
+      final analysis = widget.faceIdentity.analysisStore;
+      group = await widget.grouping.likeAnyOf(
+        await analysis.confirmedFacesFor(existing.id),
+        others: [
+          for (final f in await analysis.confirmedFaces())
+            if (f.personId != existing.id) f,
+        ],
+        among: visible,
+      );
+    } else {
+      group = const [];
+    }
+    final candidates = group.isEmpty && seed != null ? [seed] : group;
     // The grid draws records, and one photo can hold two of these faces —
     // so a photo appears once, whichever of its faces got in.
-    final byAsset = <String, AssetRecord>{};
-    for (final face in faces) {
-      if (byAsset.containsKey(face.localId)) continue;
-      final record = await widget.assetRecordStore.getByLocalId(face.localId);
-      if (record != null) byAsset[face.localId] = record;
-    }
+    final byAsset = await widget.assetRecordStore.getVisibleByLocalIds(
+      candidates.map((f) => f.localId),
+    );
+    final faces = [
+      for (final f in candidates)
+        if (byAsset.containsKey(f.localId)) f,
+    ];
     if (!mounted) return;
     setState(() {
       _people = people;
@@ -121,7 +137,10 @@ class _FaceGroupScreenState extends State<FaceGroupScreen> {
       // that it's mostly right, and dropping three is less work than
       // picking twenty.
       _group = faces;
-      _keeping.addAll(faces.map(_keyOf));
+      _keeping
+        ..clear()
+        ..addAll(faces.map(_keyOf));
+      _byAsset = byAsset;
       _records = byAsset.values.toList()
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
       _loading = false;
@@ -212,7 +231,7 @@ class _FaceGroupScreenState extends State<FaceGroupScreen> {
       );
     }
     for (final face in kept) {
-      final record = await widget.assetRecordStore.getByLocalId(face.localId);
+      final record = _byAsset[face.localId];
       if (record == null) continue;
       await widget.faceIdentity.remember(
         record: record,

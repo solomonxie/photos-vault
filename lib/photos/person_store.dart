@@ -535,7 +535,13 @@ class PersonStore {
 
   // --- Photo membership ---
 
-  Future<void> addAssets(String personId, Iterable<String> localIds) async {
+  /// [fillAvatar] false for photos that must never be anyone's picture —
+  /// hidden ones.
+  Future<void> addAssets(
+    String personId,
+    Iterable<String> localIds, {
+    bool fillAvatar = true,
+  }) async {
     final db = await _open();
     final now = DateTime.now().millisecondsSinceEpoch;
     final batch = db.batch();
@@ -553,7 +559,7 @@ class PersonStore {
     // here, so this is the one place it needs saying — and it only ever
     // fills an empty slot, so a portrait chosen on purpose stays.
     final first = localIds.firstOrNull;
-    if (first == null) return;
+    if (first == null || !fillAvatar) return;
     final person = await getById(personId);
     if (person == null || person.avatarLocalId != null) return;
     await update(person.copyWith(avatarLocalId: first));

@@ -76,7 +76,9 @@ Future<AssetRecord> createDerivedAsset({
   }
   if (personStore != null) {
     for (final person in await personStore.peopleFor(source.localId)) {
-      await personStore.addAssets(person.id, [id]);
+      await personStore.addAssets(person.id, [
+        id,
+      ], fillAvatar: source.isVisibleInLibrary);
     }
   }
 

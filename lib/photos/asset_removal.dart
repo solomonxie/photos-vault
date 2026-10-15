@@ -196,6 +196,9 @@ class AssetRemoval {
   Future<bool> deleteEverywhere(AssetRecord record) async {
     // The lock's promise holds on every screen, not just the library's.
     if (record.isLocked) return false;
+    // Hidden ones go through `HiddenRemoval`; binned here, no purge would
+    // ever reach them.
+    if (record.passcodeHash != null || record.isHidden) return false;
     // Only when the library still has it. A photo taken out of Photos
     // (hidden, or restored with no library entry) has no library id, and
     // the library answers "nothing deleted" for it — which used to fail the

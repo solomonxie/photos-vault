@@ -35,8 +35,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     final all = await widget.assetRecordStore.listAll();
     if (!mounted) return;
     setState(
-      () =>
-          _records = all.where((r) => r.isFavorite && !r.isDeleted).toList()
+      () => _records =
+          all.where((r) => r.isFavorite && r.isVisibleInLibrary).toList()
             ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
     );
   }

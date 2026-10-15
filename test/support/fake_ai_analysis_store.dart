@@ -158,6 +158,35 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   }
 
   @override
+  Future<List<ConfirmedFace>> confirmedFacesFor(
+    String personId, {
+    int limit = 40,
+  }) async => [
+    for (final d in _descriptors.reversed)
+      if (d.personId == personId)
+        ConfirmedFace(
+          personId: personId,
+          localId: d.localId,
+          descriptor: d.descriptor,
+        ),
+  ].take(limit).toList();
+
+  @override
+  Future<void> forgetFacesOf(Iterable<String> localIds) async {
+    final ids = localIds.toSet();
+    _descriptors.removeWhere((d) => ids.contains(d.localId));
+    _suggestions.removeWhere((id, _) => ids.contains(id));
+    _faces.removeWhere((id, _) => ids.contains(id));
+  }
+
+  @override
+  Future<void> forgetAssets(Iterable<String> localIds) async {
+    final ids = localIds.toSet();
+    await forgetFacesOf(ids);
+    _analyses.removeWhere((id, _) => ids.contains(id));
+  }
+
+  @override
   Future<void> forgetPerson(String personId) async {
     for (var i = 0; i < _descriptors.length; i++) {
       if (_descriptors[i].personId != personId) continue;

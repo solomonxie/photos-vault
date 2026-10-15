@@ -56,6 +56,55 @@ void main() {
     expect(find.byKey(const ValueKey('manual:other')), findsNothing);
   });
 
+  testWidgets('a hidden or binned photo of them is not shown, nor their '
+      'picture', (tester) async {
+    final assetStore = FakeAssetRecordStore();
+    final personStore = FakePersonStore();
+    for (final id in ['manual:shown', 'manual:locked', 'manual:binned']) {
+      await assetStore.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+    }
+    await assetStore.setPasscodeHash('manual:locked', 'hash');
+    await assetStore.softDelete('manual:binned');
+    final person = await personStore.create(name: 'Mia');
+    await personStore.addAssets(person.id, [
+      'manual:locked',
+      'manual:shown',
+      'manual:binned',
+    ]);
+    // Their picture was the photo since hidden.
+    expect(
+      (await personStore.getById(person.id))!.avatarLocalId,
+      'manual:locked',
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonPageScreen(
+          person: (await personStore.getById(person.id))!,
+          personStore: personStore,
+          assetRecordStore: assetStore,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('manual:shown')), findsOneWidget);
+    expect(find.byKey(const ValueKey('manual:locked')), findsNothing);
+    expect(find.byKey(const ValueKey('manual:binned')), findsNothing);
+    final drawn = {
+      for (final image in tester.widgetList<Image>(find.byType(Image)))
+        if (image.image case final FileImage file) file.file.path,
+    };
+    expect(drawn, isNot(contains('/tmp/manual:locked.jpg')));
+    expect(drawn, contains('/tmp/manual:shown.jpg'));
+  });
+
   testWidgets('shows the empty state with nothing tagged', (tester) async {
     final personStore = FakePersonStore();
     final person = await personStore.create(name: 'Mia');

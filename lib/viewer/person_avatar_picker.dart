@@ -39,13 +39,12 @@ class _PersonAvatarPickerState extends State<PersonAvatarPicker> {
   }
 
   Future<void> _load() async {
-    final ids = (await widget.personStore.localIdsIn(widget.person.id)).toSet();
-    final all = await widget.assetRecordStore.listAll();
+    final ids = await widget.personStore.localIdsIn(widget.person.id);
+    final visible = await widget.assetRecordStore.getVisibleByLocalIds(ids);
     if (!mounted) return;
     setState(() {
-      _records =
-          all.where((r) => ids.contains(r.localId) && !r.isDeleted).toList()
-            ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      _records = visible.values.toList()
+        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
       _loaded = true;
     });
   }

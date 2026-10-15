@@ -24,6 +24,15 @@ Widget _wrap(Widget child) => CupertinoApp(
 
 const _face = FaceRect(0.3, 0.3, 0.4, 0.4);
 
+/// A record per id, as a library that has the photos would.
+Future<FakeAssetRecordStore> _withPhotos(Iterable<String> ids) async {
+  final store = FakeAssetRecordStore();
+  for (final id in ids) {
+    await store.upsert(localId: id, contentHash: id, platform: 'ios');
+  }
+  return store;
+}
+
 void main() {
   /// A library with one photo, one face found in it, and — where [guess]
   /// is given — a name the matcher put to that face.
@@ -224,14 +233,10 @@ void main() {
     await personStore.addAssets(few.id, ['p1']);
     final many = await personStore.create(name: 'Bo');
     await personStore.addAssets(many.id, ['p2', 'p3', 'p4']);
+    final photos = await _withPhotos(['p1', 'p2', 'p3', 'p4']);
 
     await tester.pumpWidget(
-      _wrap(
-        PeopleScreen(
-          personStore: personStore,
-          assetRecordStore: FakeAssetRecordStore(),
-        ),
-      ),
+      _wrap(PeopleScreen(personStore: personStore, assetRecordStore: photos)),
     );
     await tester.pumpAndSettle();
 
@@ -247,19 +252,42 @@ void main() {
     final personStore = FakePersonStore();
     final person = await personStore.create(name: 'Mia');
     await personStore.addAssets(person.id, ['p1', 'p2']);
+    final photos = await _withPhotos(['p1', 'p2']);
 
     await tester.pumpWidget(
-      _wrap(
-        PeopleScreen(
-          personStore: personStore,
-          assetRecordStore: FakeAssetRecordStore(),
-        ),
-      ),
+      _wrap(PeopleScreen(personStore: personStore, assetRecordStore: photos)),
     );
     await tester.pumpAndSettle();
 
     expect(find.text('Mia'), findsOneWidget);
     expect(find.text('2'), findsOneWidget);
+  });
+
+  testWidgets('a count never includes hidden, binned or purged photos', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final person = await personStore.create(name: 'Mia');
+    await personStore.addAssets(person.id, [
+      'shown',
+      'locked',
+      'hidden',
+      'binned',
+      'purged',
+    ]);
+    final photos = await _withPhotos(['shown', 'locked', 'hidden', 'binned']);
+    await photos.setPasscodeHash('locked', 'hash');
+    await photos.setHidden('hidden', true);
+    await photos.softDelete('binned');
+
+    await tester.pumpWidget(
+      _wrap(PeopleScreen(personStore: personStore, assetRecordStore: photos)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mia'), findsOneWidget);
+    expect(find.text('1'), findsOneWidget);
+    expect(find.text('5'), findsNothing);
   });
 
   testWidgets('+ opens a profile, and a typed name is the save', (

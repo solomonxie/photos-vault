@@ -59,12 +59,12 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
   }
 
   Future<void> _reload() async {
-    final ids = (await widget.personStore.localIdsIn(_person.id)).toSet();
-    final all = await widget.assetRecordStore.listAll();
+    final ids = await widget.personStore.localIdsIn(_person.id);
+    final visible = await widget.assetRecordStore.getVisibleByLocalIds(ids);
     if (!mounted) return;
     setState(
-      () => _records =
-          all.where((r) => !r.isDeleted && ids.contains(r.localId)).toList()
+      () =>
+          _records = visible.values.toList()
             ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
     );
   }

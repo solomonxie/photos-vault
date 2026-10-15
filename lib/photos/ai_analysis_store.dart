@@ -433,6 +433,76 @@ class AiAnalysisStore {
     return faces;
   }
 
+  /// [confirmedFaces] for one person only — what "find more of them"
+  /// searches from.
+  Future<List<ConfirmedFace>> confirmedFacesFor(
+    String personId, {
+    int limit = 40,
+  }) async {
+    final db = await _open();
+    final rows = await db.query(
+      _descriptorTable,
+      where: 'person_id = ?',
+      whereArgs: [personId],
+      orderBy: 'confirmed_at DESC',
+      limit: limit,
+    );
+    return [
+      for (final row in rows)
+        ConfirmedFace(
+          personId: personId,
+          localId: row['local_id'] as String,
+          descriptor: FaceDescriptor.decode(
+            row['vector'] as Uint8List?,
+            (row['revision'] as num?)?.toInt() ?? 0,
+          ),
+        ),
+    ];
+  }
+
+  /// Drops every face, vector and guess of these photos — for hiding. The
+  /// paid analysis stays; the face pass looks again if one comes back.
+  Future<void> forgetFacesOf(Iterable<String> localIds) =>
+      _eachChunk(localIds, (batch, where, ids) {
+        batch
+          ..delete(_descriptorTable, where: where, whereArgs: ids)
+          ..delete(_suggestionTable, where: where, whereArgs: ids)
+          ..update(
+            _table,
+            {'people_count': _neverLooked, 'faces': ''},
+            where: where,
+            whereArgs: ids,
+          );
+      });
+
+  /// Drops everything kept about these photos — for a permanent delete.
+  Future<void> forgetAssets(Iterable<String> localIds) =>
+      _eachChunk(localIds, (batch, where, ids) {
+        batch
+          ..delete(_descriptorTable, where: where, whereArgs: ids)
+          ..delete(_suggestionTable, where: where, whereArgs: ids)
+          ..delete(_table, where: where, whereArgs: ids);
+      });
+
+  Future<void> _eachChunk(
+    Iterable<String> localIds,
+    void Function(sqflite.Batch batch, String where, List<String> ids) add,
+  ) async {
+    final all = localIds.toSet().toList();
+    if (all.isEmpty) return;
+    final db = await _open();
+    final batch = db.batch();
+    for (var i = 0; i < all.length; i += 900) {
+      final ids = all.skip(i).take(900).toList();
+      add(
+        batch,
+        'local_id IN (${List.filled(ids.length, '?').join(',')})',
+        ids,
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
   /// Forgets one confirmed face — what undoing a name has to mean. Without
   /// it an accepted-then-undone guess leaves the wrong face in the
   /// reference set, where it goes on pulling later photos towards the

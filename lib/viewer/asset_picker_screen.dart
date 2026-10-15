@@ -56,9 +56,7 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
           all
               .where(
                 (r) =>
-                    !r.isDeleted &&
-                    !r.isHidden &&
-                    r.passcodeHash == null &&
+                    r.isVisibleInLibrary &&
                     !widget.excludeIds.contains(r.localId),
               )
               .toList()
