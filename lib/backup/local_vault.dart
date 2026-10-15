@@ -215,10 +215,9 @@ class LocalVault {
           '${at.year.toString().padLeft(4, '0')}'
               '${at.month.toString().padLeft(2, '0')}'
               '${at.day.toString().padLeft(2, '0')}-daily';
-      for (final file in await snapshots.databaseFiles()) {
-        final base = p.basenameWithoutExtension(file.path);
-        await file.copy(p.join(directory.path, '$lead-$base.db'));
-      }
+      // On the databases' own connections, which wait the second or two a
+      // compact copy takes; once a day and before bulk operations only.
+      await snapshots.copyDatabases(directory.path, lead);
     } catch (_) {
       // Same as the zip: unattended, and the zip already went out.
     }

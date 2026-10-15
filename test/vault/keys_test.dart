@@ -97,7 +97,7 @@ void main() {
     await keys.add('correct horse battery');
 
     expect(keys.ringKeysFor(hashPasscode('1234')), isNull);
-    await keys.unlockAlbum('1234');
+    await keys.unlockAlbum('1234', hashPasscode('1234'));
     expect(keys.ringKeysFor(hashPasscode('1234')), isNotNull);
     expect(keys.ringKeysFor(hashPasscode('4321')), isNull);
 
@@ -111,7 +111,7 @@ void main() {
       final store = _MemoryStore();
       final keys = VaultKeys(store: store);
       await keys.add('correct horse battery');
-      final opened = (await keys.unlockAlbum('1234'))!;
+      final opened = (await keys.unlockAlbum('1234', hashPasscode('1234')))!;
       await keys.keepAlbum(hashPasscode('1234'));
       keys.lockAll();
 
@@ -167,7 +167,7 @@ void main() {
       final store = _MemoryStore();
       final keys = VaultKeys(store: store);
       await keys.add('correct horse battery');
-      await keys.unlockAlbum('9876');
+      await keys.unlockAlbum('9876', hashPasscode('9876'));
       keys.lockAll();
 
       final relaunched = VaultKeys(store: store);

@@ -9,8 +9,8 @@ import '../photos/person_detail.dart';
 import '../photos/person_owner.dart';
 import '../photos/person_store.dart';
 import '../storage/asset_record_store.dart';
-import '../storage/passcode_hash.dart';
 import '../vault/keys.dart';
+import '../vault/passcode_tags.dart';
 import '../vault/passphrase_sheet.dart';
 import 'ask_ai_screen.dart';
 import 'custom_fields_editor.dart';
@@ -320,7 +320,12 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     final passcode = await showPrivateAlbumPasscodeSheet(context);
     if (passcode == null) return;
 
-    var keys = await _vaultKeys.unlockAlbum(passcode);
+    final tag = await PasscodeTags(
+      records: widget.assetRecordStore,
+      people: widget.personStore,
+      vaultKeys: _vaultKeys,
+    ).tagFor(passcode);
+    var keys = await _vaultKeys.unlockAlbum(passcode, tag);
     if (keys == null) {
       // The passphrase is known *of* but cannot be derived on this phone —
       // which is exactly what Remove All App Data leaves behind, since it
@@ -335,10 +340,10 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
         candidates: known,
       );
       if (!unlocked || !mounted) return;
-      keys = await _vaultKeys.unlockAlbum(passcode);
+      keys = await _vaultKeys.unlockAlbum(passcode, tag);
     }
     if (keys == null || !mounted) return;
-    await _enter(PersonScope.sealed(hashPasscode(passcode), keys));
+    await _enter(PersonScope.sealed(tag, keys));
   }
 
   /// Shows [scope]'s set. The old one's details leave the screen first, so

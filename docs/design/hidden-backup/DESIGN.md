@@ -114,7 +114,8 @@ Code: [`lib/vault/`](../../../lib/vault/README.md),
 5. The record row carries `passcodeHash` *and* the photo's date, filename,
    description, location and people — plaintext, in sqlite, in the
    daily snapshot, in the bucket. `sha256(4 digits)` is 10,000 guesses to
-   reverse.
+   reverse. *(Fixed Oct 2026: hidden rows are left out of every app-data
+   copy, and the tag is an HMAC under a Keychain key.)*
 
 ## Threat model: the format is public
 
@@ -488,6 +489,7 @@ a mistyped one. The README's promise stops being a UI convention.
 | `masterKey` in the Keychain | **yes, default.** Credentials already live there and are excluded from the snapshot. Not iCloud-Keychain-synced. Accessibility is the plugin default (`WhenUnlocked`, not `ThisDeviceOnly`), so it does travel in an encrypted device backup; moving to `first_unlock` is WP9. |
 | salt · verifier · hint | `index.bin`'s plaintext header (Keychain while there is no bucket) |
 | anything in sqlite | **no.** It is in the snapshot, which is in the bucket, next to the carriers. |
+| passcode-tag key | Keychain. Escrowed in sqlite and the snapshot sealed under each master key — opens only with a passphrase, which already opens every album. |
 
 **A Keychain item survives a reinstall on iOS** — the repo already relies on
 this (`bucket_backup.dart`). So deleting and reinstalling the app on the

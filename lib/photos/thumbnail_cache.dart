@@ -201,6 +201,30 @@ class ThumbnailCache {
       !record.isVideo ||
       record.libraryId != null;
 
+  /// Plaintext thumbnails hidden photos still have: the recorded one, and
+  /// the one this cache would have named for them. Returns how many went.
+  Future<int> sweepHidden(List<AssetRecord> hidden) async {
+    var swept = 0;
+    final dir = Directory(p.join((await _directory()).path, dirName));
+    for (final record in hidden) {
+      if (record.passcodeHash == null) continue;
+      if (record.thumbnailPath != null) {
+        await remove(record);
+        swept++;
+      }
+      final named = File(p.join(dir.path, _fileNameFor(record)));
+      try {
+        if (await named.exists()) {
+          await named.delete();
+          swept++;
+        }
+      } catch (_) {
+        // Tried again next launch.
+      }
+    }
+    return swept;
+  }
+
   Future<void> remove(AssetRecord record) async {
     final path = record.thumbnailPath;
     if (path == null) return;

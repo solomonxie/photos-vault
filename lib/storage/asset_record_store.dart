@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart'
     show ConflictAlgorithm, Database, DatabaseFactory, OpenDatabaseOptions;
 
 import '../backup/change_log.dart';
+import '../backup/database_copy.dart';
 import 'container_path.dart';
 import 'asset_record.dart';
 import 'bucket_object.dart';
@@ -63,7 +64,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 21,
+        version: 22,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createTransitionTableSql);
@@ -188,6 +189,12 @@ class AssetRecordStore {
           if (oldVersion < 21) {
             await db.execute(_createTransitionTableSql);
           }
+          if (oldVersion < 22) {
+            final columns = await db.rawQuery('PRAGMA table_info($_table)');
+            if (!columns.any((c) => c['name'] == 'held_name')) {
+              await db.execute('ALTER TABLE $_table ADD COLUMN held_name TEXT');
+            }
+          }
           if (oldVersion < 10) {
             await db.execute('ALTER TABLE $_table ADD COLUMN latitude REAL');
             await db.execute('ALTER TABLE $_table ADD COLUMN longitude REAL');
@@ -207,9 +214,19 @@ class AssetRecordStore {
       'CREATE INDEX IF NOT EXISTS asset_record_library_id '
       'ON $_table (library_id)',
     );
+    // A deleted hidden row is zeroed, not left in a free page.
+    await db.execute('PRAGMA secure_delete = ON');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS asset_record_passcode_hash '
+      'ON $_table (passcode_hash)',
+    );
     // After the migrations, never inside them: a trigger has to describe
     // the schema the app just finished upgrading to.
-    await installChangeLog(db, const [_table]);
+    await installChangeLog(
+      db,
+      const [_table],
+      private: const {_table: privateRowSql},
+    );
     await _rehomePaths(db);
     await _dropSquareThumbnails(db);
     await _undoRedate(db);
@@ -217,13 +234,68 @@ class AssetRecordStore {
     // After the grid has what it needs: a first trim of a bloated log is a
     // lot of rows to delete.
     unawaited(
-      Future<void>.delayed(
-        const Duration(seconds: 30),
-        () => pruneChangeLog(db),
-      ),
+      Future<void>.delayed(const Duration(seconds: 30), () async {
+        await _purgePrivateLog(db);
+        await pruneChangeLog(db);
+        await _compactOnce(db);
+      }),
     );
     return db;
   }
+
+  /// A row behind a passcode, as the change log tests it.
+  static const privateRowSql = '{row}.passcode_hash IS NOT NULL';
+
+  static const _privateLogPurgedKey = 'private_log_purged_v1';
+
+  /// What builds before the log's private rule wrote about hidden rows.
+  /// Once; after [_undoRedate], which read them.
+  Future<void> _purgePrivateLog(Database db) async {
+    try {
+      if (await _appState(db, _privateLogPurgedKey) != null) return;
+      await purgePrivateEntries(
+        db,
+        _table,
+        privateRowSql,
+        rowKeySql: "COALESCE(CAST(local_id AS TEXT), '')",
+      );
+      await _putAppState(db, _privateLogPurgedKey, '1');
+    } catch (_) {
+      // Tried again next launch.
+    }
+  }
+
+  static const _compactedKey = 'compacted_v1';
+
+  /// Free pages still hold what was deleted before `secure_delete`: wiped
+  /// rows, hidden rows, the log's old copies. One `VACUUM` rewrites the file
+  /// without them. Knowingly holds the connection for the seconds it takes,
+  /// once ever, half a minute after launch.
+  Future<void> _compactOnce(Database db) async {
+    try {
+      if (await _appState(db, _compactedKey) != null) return;
+      await db.execute('VACUUM');
+      await _putAppState(db, _compactedKey, '1');
+    } catch (_) {
+      // A full disk; next launch.
+    }
+  }
+
+  static Future<String?> _appState(Database db, String key) async {
+    final rows = await db.query(
+      _appStateTable,
+      where: 'key = ?',
+      whereArgs: [key],
+      limit: 1,
+    );
+    return rows.isEmpty ? null : rows.first['value'] as String?;
+  }
+
+  static Future<void> _putAppState(Database db, String key, String value) =>
+      db.insert(_appStateTable, {
+        'key': key,
+        'value': value,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
 
   static const _fittedThumbnailsKey = 'thumbnails_fitted_v1';
 
@@ -435,7 +507,8 @@ class AssetRecordStore {
       height INTEGER,
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
-      added_at INTEGER
+      added_at INTEGER,
+      held_name TEXT
     )
   ''';
 
@@ -965,6 +1038,9 @@ class AssetRecordStore {
       ..delete(_derivativeTargetTable)
       ..delete(_hiddenNoteTable)
       ..delete(_transitionTable)
+      ..delete(_bucketObjectTable)
+      ..delete(_bucketScanTable)
+      ..delete(_bucketScanObjectTable)
       ..delete(changeLogTable);
     await batch.commit(noResult: true);
     _dropCache();
@@ -1156,8 +1232,12 @@ class AssetRecordStore {
   Future<int> changeMark() async => changeLogMark(await _open());
 
   /// The tail of this database's change log, for the copy in the backup.
-  Future<List<Map<String, Object?>>> changeLogRows() async =>
-      changeLogTail(await _open());
+  Future<List<Map<String, Object?>>> changeLogRows() async {
+    final db = await _open();
+    // Before the first copy leaves, not half a minute after launch.
+    await _purgePrivateLog(db);
+    return changeLogTail(db);
+  }
 
   /// Inserts a new record if `localId` isn't tracked yet. If one already
   /// exists, refreshes `sourcePath` when it's changed (e.g. demo/manual
@@ -1707,6 +1787,138 @@ class AssetRecordStore {
       where: 'passcode_hash IS NOT NULL',
     );
     return {for (final r in rows) r['passcode_hash'] as String};
+  }
+
+  /// Moves every row tagged [from] to [to] — a passcode tag upgraded.
+  Future<int> retag(String from, String to) async {
+    final db = await _open();
+    return db.update(
+      _table,
+      {
+        'passcode_hash': to,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'passcode_hash = ?',
+      whereArgs: [from],
+    );
+  }
+
+  /// Every row behind a passcode.
+  Future<List<AssetRecord>> hiddenRecords() async {
+    final db = await _open();
+    final rows = await db.query(_table, where: 'passcode_hash IS NOT NULL');
+    return rows.map(_fromRow).toList();
+  }
+
+  /// Points [localId] at its file's new home. [heldName] is the name it had
+  /// before hiding, kept for the way back; [clearHeld] forgets it.
+  Future<void> moveSourcePath(
+    String localId,
+    String path, {
+    String? heldName,
+    bool clearHeld = false,
+  }) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {
+        'source_path': path,
+        if (heldName != null || clearHeld) 'held_name': heldName,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  Future<String?> heldNameOf(String localId) async {
+    final db = await _open();
+    final rows = await db.query(
+      _table,
+      columns: ['held_name'],
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+    return rows.isEmpty ? null : rows.first['held_name'] as String?;
+  }
+
+  /// Un-hidden rows whose file is still under [dir].
+  Future<List<String>> plainIdsUnder(String dir) async {
+    final db = await _open();
+    final rows = await db.query(
+      _table,
+      columns: ['local_id'],
+      where: 'passcode_hash IS NULL AND source_path LIKE ?',
+      whereArgs: ['$dir/%'],
+    );
+    return [for (final r in rows) r['local_id'] as String];
+  }
+
+  /// Whether a row other than [localId] points at [path].
+  Future<bool> sourcePathShared(String path, String localId) async {
+    final db = await _open();
+    final rows = await db.query(
+      _table,
+      columns: ['local_id'],
+      where: 'source_path = ? AND local_id != ?',
+      whereArgs: [path, localId],
+      limit: 1,
+    );
+    return rows.isNotEmpty;
+  }
+
+  /// Every hidden-album note row, sealed as stored — for the export.
+  Future<List<Map<String, Object?>>> allHiddenNoteRows() async {
+    final db = await _open();
+    return db.query(_hiddenNoteTable);
+  }
+
+  /// A note row from an export, unless one with its id is here already.
+  Future<void> restoreHiddenNote(Map<String, Object?> row) async {
+    final id = row['id'];
+    final tag = row['album_tag'];
+    final payload = row['payload'];
+    if (id is! String || tag is! String || payload is! String) return;
+    final db = await _open();
+    await db.insert(_hiddenNoteTable, {
+      'id': id,
+      'album_tag': tag,
+      'payload': payload,
+      'created_at': row['created_at'] as int? ?? 0,
+      'updated_at': row['updated_at'] as int? ?? 0,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+  }
+
+  /// A compact copy of this database at [dest], with nothing behind a
+  /// passcode in it: see `../backup/database_copy.dart`.
+  Future<bool> copyTo(String dest) async => copyDatabase(
+    await _open(),
+    _databaseFactory,
+    dest,
+    scrub: [
+      "DELETE FROM $changeLogTable WHERE table_name = '$_table' AND ("
+          "json_extract(before, '\$.passcode_hash') IS NOT NULL OR "
+          "json_extract(after, '\$.passcode_hash') IS NOT NULL OR "
+          'row_key IN (SELECT local_id FROM $_table '
+          'WHERE passcode_hash IS NOT NULL))',
+      'DELETE FROM $_derivativeTargetTable WHERE local_id IN '
+          '(SELECT local_id FROM $_table WHERE passcode_hash IS NOT NULL)',
+      'DELETE FROM $_table WHERE passcode_hash IS NOT NULL',
+      'DELETE FROM $_transitionTable',
+      // A cache of adopted ids; pending deletes stay, they are obligations.
+      "DELETE FROM $_appStateTable WHERE key = 'hidden_motion_checked_v1'",
+    ],
+  );
+
+  /// Ids of rows behind a passcode — what other databases' copies drop.
+  Future<Set<String>> hiddenIds() async {
+    final db = await _open();
+    final rows = await db.query(
+      _table,
+      columns: ['local_id'],
+      where: 'passcode_hash IS NOT NULL',
+    );
+    return {for (final r in rows) r['local_id'] as String};
   }
 
   Future<void> setHidden(String localId, bool value) async {

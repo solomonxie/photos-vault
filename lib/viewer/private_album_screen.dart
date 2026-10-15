@@ -23,6 +23,7 @@ import '../vault/hidden_repair.dart';
 import '../vault/hidden_restore.dart';
 import '../vault/hidden_transition.dart';
 import '../vault/passphrase_sheet.dart';
+import '../vault/plain_files.dart';
 import '../vault/private_lifecycle.dart';
 import '../upload/bucket_import.dart';
 import '../vault/hidden_bucket_scan.dart';
@@ -419,6 +420,14 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       await _reload();
       await _reloadHoldings();
     }
+    // A copy or an import hidden from its first write lands beside the
+    // library's files; it goes under `vault/plain/` now, not next launch.
+    try {
+      if (await PlainFiles(store: widget.assetRecordStore).settleAll() > 0 &&
+          mounted) {
+        await _reload();
+      }
+    } catch (_) {}
   }
 
   /// Every key a row here is known by in the bucket. An index entry with
@@ -642,8 +651,12 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                   r,
                 ], passphrases: _passphrases),
         );
+        // Read again: un-hiding moved its file back out of `vault/plain/`.
         if (!unhidden ||
-            await _custody.putBack(record) == CustodyResult.failed) {
+            await _custody.putBack(
+                  await widget.assetRecordStore.getByLocalId(id) ?? record,
+                ) ==
+                CustodyResult.failed) {
           failed++;
         }
       }

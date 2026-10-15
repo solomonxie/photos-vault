@@ -664,4 +664,70 @@ class FakeAssetRecordStore implements AssetRecordStore {
 
   @override
   Future<void> removeHiddenNote(String id) async => hiddenNotes.remove(id);
+
+  final heldNames = <String, String>{};
+
+  @override
+  Future<int> retag(String from, String to) async {
+    var moved = 0;
+    for (final r in _records.values.toList()) {
+      if (r.passcodeHash != from) continue;
+      _records[r.localId] = r.withPasscodeHash(to);
+      moved++;
+    }
+    return moved;
+  }
+
+  @override
+  Future<List<AssetRecord>> hiddenRecords() async => [
+    for (final r in _records.values)
+      if (r.passcodeHash != null) r,
+  ];
+
+  @override
+  Future<Set<String>> hiddenIds() async => {
+    for (final r in _records.values)
+      if (r.passcodeHash != null) r.localId,
+  };
+
+  @override
+  Future<void> moveSourcePath(
+    String localId,
+    String path, {
+    String? heldName,
+    bool clearHeld = false,
+  }) async {
+    await setSourcePath(localId, path);
+    if (heldName != null) heldNames[localId] = heldName;
+    if (clearHeld) heldNames.remove(localId);
+  }
+
+  @override
+  Future<String?> heldNameOf(String localId) async => heldNames[localId];
+
+  @override
+  Future<bool> sourcePathShared(String path, String localId) async =>
+      _records.values.any((r) => r.localId != localId && r.sourcePath == path);
+
+  @override
+  Future<List<String>> plainIdsUnder(String dir) async => [
+    for (final r in _records.values)
+      if (r.passcodeHash == null &&
+          (r.sourcePath?.startsWith('$dir/') ?? false))
+        r.localId,
+  ];
+
+  @override
+  Future<List<Map<String, Object?>>> allHiddenNoteRows() async => [
+    ...hiddenNotes.values,
+  ];
+
+  @override
+  Future<void> restoreHiddenNote(Map<String, Object?> row) async {
+    final id = row['id'];
+    if (id is String) hiddenNotes.putIfAbsent(id, () => {...row});
+  }
+
+  @override
+  Future<bool> copyTo(String dest) async => false;
 }

@@ -31,6 +31,10 @@ carrier_probe.dart  is this object a carrier? a JPEG's first 64 KB, or an
 hidden_bucket_scan.dart  adds carriers of this album found in the bucket
 hidden_migration.dart    gives old carrier names protocol names, album open
 hidden_transition.dart   the one owner of hide / un-hide, journaled in sqlite
+passcode_tags.dart       code → tag (HMAC, Keychain key, escrowed); old tags
+                         accepted and upgraded
+plain_files.dart <AppSupport>/vault/plain — hidden photos' plain files,
+                 out of the device backup, neutral names
 hidden_repair.dart       one-time list of what older builds left; changes nothing
 store.dart       <AppSupport>/vault — the carriers themselves, durable and
                  out of the device backup. **The local copy.**
@@ -71,11 +75,16 @@ Design and the reasoning behind each choice:
 Rules worth not rediscovering:
 
 - **The row and the plain file stay on this phone.** Chosen Oct 2026 so a
-  hidden photo is no different to use than any other. The cost: its row
-  (date, name) is in sqlite, and so in the app-data snapshot in the bucket.
-  The photo itself only ever leaves the phone encrypted. Album notes
-  (`hidden_notes.dart`) are rows, sealed with the album key and tagged by a
-  keyed hash, not the passcode hash.
+  hidden photo is no different to use than any other. The plain file is in
+  `vault/plain/` (`plain_files.dart`): out of the device backup, a name
+  derived from the id, its old name on the row for un-hide. Its row is
+  in sqlite, but **never in an app-data copy**: export, change log and the
+  raw `.db` copies leave hidden rows out; a new phone gets the photo back
+  from the carriers. Album notes (`hidden_notes.dart`) are exported sealed.
+- **The tag is not the code's hash** (`passcode_tags.dart`): HMAC under a
+  Keychain key, escrowed in sqlite under each master key so a new phone
+  with the passphrase gets it back. Old `sha256` tags are still accepted,
+  and moved on unlock or by reversing them at launch.
 - **Deleting a hidden photo is permanent** (`hidden_removal.dart`): index
   first, then this phone's files, then the bucket via `PendingDeletes`.
   Never the library's Recently Deleted, which opens without a code.

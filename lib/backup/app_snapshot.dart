@@ -1,5 +1,6 @@
 import 'dart:convert';
-import 'dart:io';
+
+import 'package:path/path.dart' as p;
 
 import '../photos/ai_analysis_store.dart';
 import '../photos/person.dart';
@@ -9,6 +10,7 @@ import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/membership_sweep.dart';
+import '../vault/passcode_tags.dart';
 
 /// Everything this app knows that isn't a photo.
 ///
@@ -48,6 +50,7 @@ class AppSnapshot {
     required this.assets,
     required this.albums,
     required this.people,
+    this.vault = const {},
   });
 
   /// Bumped when the shape changes in a way an older build can't read.
@@ -60,6 +63,11 @@ class AppSnapshot {
   final List<Map<String, Object?>> assets;
   final List<Map<String, Object?>> albums;
   final List<Map<String, Object?>> people;
+
+  /// What the private albums keep that is already sealed: album notes and
+  /// the passcode-tag key's escrow. Nothing here opens without a
+  /// passphrase. Absent from snapshots written before it.
+  final Map<String, Object?> vault;
 
   bool get isEmpty => assets.isEmpty && albums.isEmpty && people.isEmpty;
 
@@ -95,6 +103,7 @@ class AppSnapshot {
     'assets': assets,
     'albums': albums,
     'people': people,
+    if (vault.isNotEmpty) 'vault': vault,
   });
 
   /// `null` for anything that isn't a snapshot this build can read — a
@@ -112,6 +121,7 @@ class AppSnapshot {
         assets: _rows(json['assets']),
         albums: _rows(json['albums']),
         people: _rows(json['people']),
+        vault: json['vault'] as Map<String, Object?>? ?? const {},
       );
     } catch (_) {
       return null;
@@ -147,19 +157,30 @@ class AppSnapshotIo {
   /// until it was noticed.
   final AiAnalysisStore? aiAnalysisStore;
 
-  /// The database files behind this app, each checkpointed. What
-  /// `LocalVault` copies raw — the one copy that survives a *schema*
-  /// problem, which no row-level undo can fix.
+  /// Copies of the databases behind this app into [directory], as
+  /// `<lead>-<name>.db` — what `LocalVault` keeps, the one copy that
+  /// survives a *schema* problem, which no row-level undo can fix.
   ///
-  /// The analysis database joined them late and matters more than its
-  /// size suggests: see [AiAnalysisStore.checkpointedFile]. Optional so
-  /// the snapshot still stands alone in tests.
-  Future<List<File>> databaseFiles() async => [
-    ?await assetRecordStore.checkpointedFile(),
-    ?await albumStore.checkpointedFile(),
-    ?await personStore.checkpointedFile(),
-    ?await aiAnalysisStore?.checkpointedFile(),
-  ];
+  /// `VACUUM INTO`, not a file copy: consistent while open, and no free
+  /// pages holding deleted rows. Nothing behind a passcode goes in: hidden
+  /// rows, their uploads, memberships, faces. The analysis database joined
+  /// late and matters more than its size suggests: see
+  /// [AiAnalysisStore.checkpointedFile]. Returns how many were written.
+  Future<int> copyDatabases(String directory, String lead) async {
+    final hidden = await assetRecordStore.hiddenIds();
+    String at(String name) => p.join(directory, '$lead-$name.db');
+    final copies = [
+      assetRecordStore.copyTo(at('photos_vault')),
+      albumStore.copyTo(at('photo_albums'), hidden),
+      personStore.copyTo(at('people'), hidden),
+      ?aiAnalysisStore?.copyTo(at('ai_analysis'), hidden),
+    ];
+    var written = 0;
+    for (final copy in copies) {
+      if (await copy) written++;
+    }
+    return written;
+  }
 
   /// One number for "has anything changed", across all three databases.
   /// Summed rather than compared field by field: the gate only ever asks
@@ -172,16 +193,51 @@ class AppSnapshotIo {
   /// The change log as it travels in the backup zip — one document, the
   /// three databases' logs side by side. Never replayed on restore; it
   /// describes ids that were remapped on the way in.
-  Future<Map<String, Object?>> changeLog() async => {
-    'assets': await assetRecordStore.changeLogRows(),
-    'albums': await albumStore.changeLogRows(),
-    'people': await personStore.changeLogRows(),
-  };
+  ///
+  /// Entries naming a hidden photo are left out; the stores already log
+  /// nothing of rows behind a passcode.
+  Future<Map<String, Object?>> changeLog() async {
+    final hidden = await assetRecordStore.hiddenIds();
+    bool tagged(Object? side) =>
+        side is Map && '${side['passcode_hash'] ?? ''}'.isNotEmpty;
+    List<Map<String, Object?>> open(List<Map<String, Object?>> rows) => [
+      for (final row in rows)
+        if (!tagged(row['before']) &&
+            !tagged(row['after']) &&
+            !'${row['row_key']}'.split('/').any(hidden.contains))
+          row,
+    ];
+    return {
+      'assets': open(await assetRecordStore.changeLogRows()),
+      'albums': open(await albumStore.changeLogRows()),
+      'people': open(await personStore.changeLogRows()),
+    };
+  }
 
+  late final PasscodeTags _tags = PasscodeTags(
+    records: assetRecordStore,
+    people: personStore,
+  );
+
+  /// Hidden photos are left out entirely — row, tag, carrier keys and
+  /// memberships. A new phone gets them back from the buckets' carriers
+  /// (album index, or Find in Bucket) with the passphrase and code; their
+  /// captions and tags stay on this phone.
   Future<AppSnapshot> export() async {
-    final records = await assetRecordStore.listAll();
+    final all = await assetRecordStore.listAll();
+    final hidden = {
+      for (final r in all)
+        if (r.passcodeHash != null) r.localId,
+    };
+    final records = [
+      for (final r in all)
+        if (r.passcodeHash == null) r,
+    ];
+    List<String> shown(List<String> ids) =>
+        hidden.isEmpty ? ids : [...ids.where((id) => !hidden.contains(id))];
     final uploads = <String, List<Map<String, Object?>>>{};
     for (final row in await assetRecordStore.uploadRows()) {
+      if (hidden.contains(row['local_id'])) continue;
       (uploads[row['local_id'] as String] ??= []).add({
         'kind': row['kind'],
         'targetId': row['target_id'],
@@ -196,20 +252,23 @@ class AppSnapshotIo {
         'id': album.id,
         'name': album.name,
         'createdAt': album.createdAt.toIso8601String(),
-        'localIds': albumMembers[album.id] ?? const <String>[],
+        'localIds': shown(albumMembers[album.id] ?? const <String>[]),
       });
     }
     final people = <Map<String, Object?>>[];
     final personMembers = await personStore.allMemberships();
     final sets = await personStore.exportSets();
     for (final person in await personStore.listAll()) {
-      people.add(
-        _personRow(
-          person,
-          personMembers[person.id] ?? const <String>[],
-          sets[person.id] ?? PersonExportSet(),
-        ),
+      final row = _personRow(
+        person,
+        shown(personMembers[person.id] ?? const <String>[]),
+        sets[person.id] ?? PersonExportSet(),
       );
+      if (hidden.contains(person.avatarLocalId)) {
+        row['avatarLocalId'] = null;
+        row['avatarFace'] = null;
+      }
+      people.add(row);
     }
     return AppSnapshot(
       version: AppSnapshot.currentVersion,
@@ -219,6 +278,10 @@ class AppSnapshotIo {
       ],
       albums: albums,
       people: people,
+      vault: {
+        'hiddenNotes': await assetRecordStore.allHiddenNoteRows(),
+        'tagEscrow': await _tags.exportEscrows(),
+      },
     );
   }
 
@@ -240,6 +303,10 @@ class AppSnapshotIo {
     for (final row in snapshot.people) {
       await _importRelationships(row);
     }
+    for (final note in _rowsOf(snapshot.vault['hiddenNotes'])) {
+      await assetRecordStore.restoreHiddenNote(note);
+    }
+    await _tags.importEscrows(_rowsOf(snapshot.vault['tagEscrow']));
     return restored;
   }
 
@@ -337,6 +404,8 @@ class AppSnapshotIo {
     if (tags.isNotEmpty) await assetRecordStore.setTags(localId, tags);
     final location = row['location'] as String?;
     if (location != null) await assetRecordStore.setLocation(localId, location);
+    // Only in snapshots from before hidden rows were left out. Its old-form
+    // tag still opens the album, and is upgraded the first time it does.
     final passcodeHash = row['passcodeHash'] as String?;
     if (passcodeHash != null) {
       await assetRecordStore.setPasscodeHash(localId, passcodeHash);
@@ -597,6 +666,11 @@ class AppSnapshotIo {
       );
     }
   }
+
+  static List<Map<String, Object?>> _rowsOf(Object? value) => [
+    for (final row in value as List? ?? const [])
+      if (row is Map) row.cast<String, Object?>(),
+  ];
 
   static DateTime? _date(Object? value) =>
       value is String ? DateTime.tryParse(value) : null;

@@ -396,4 +396,13 @@ class FakePersonStore implements PersonStore {
 
   @override
   Future<List<Map<String, Object?>>> changeLogRows() async => const [];
+
+  @override
+  Future<Set<String>> namespaces() async => {};
+
+  @override
+  Future<void> retag(String from, String to) async {}
+
+  @override
+  Future<bool> copyTo(String dest, Set<String> hiddenIds) async => false;
 }

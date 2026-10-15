@@ -123,8 +123,10 @@ still be a page somebody can read rather than the whole library.
 - New table in the analysis DB: `face_descriptor(local_id, face, person_id,
   revision, vector BLOB)` — one row per confirmed face.
 - Written when a face is linked to a person; deleted with the person.
-- Excluded from the app-data change log and the bucket backup: derivable from
-  the photos and the person links, and bulky.
+- Excluded from the app-data change log and the zip backup (Files, iCloud
+  Drive, bucket): derivable from the photos and the person links, and bulky.
+  They are in the raw `ai_analysis.db` rollback copies on the phone (and so
+  in an iPhone backup), minus hidden photos' faces, which hiding deletes.
 - Cost: one extra Vision pass per unnamed face during analysis, and one per
   face at confirm time. No network, no money.
 

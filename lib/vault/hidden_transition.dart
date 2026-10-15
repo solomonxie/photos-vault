@@ -13,6 +13,7 @@ import 'bucket.dart';
 import 'hidden_removal.dart';
 import 'keys.dart';
 import 'object_key.dart';
+import 'plain_files.dart';
 
 /// The one owner of a photo going into or out of hiding.
 ///
@@ -40,14 +41,17 @@ class HiddenTransition {
     PendingDeletes? pendingDeletes,
     this.analysisStore,
     ThumbnailCache? thumbnails,
+    PlainFiles? plainFiles,
   }) : _pending = pendingDeletes ?? PendingDeletes(store: store),
-       _thumbnails = thumbnails ?? ThumbnailCache(store: store);
+       _thumbnails = thumbnails ?? ThumbnailCache(store: store),
+       _plain = plainFiles ?? PlainFiles(store: store);
 
   final AssetRecordStore store;
   final Future<List<S3BackupTarget>> Function()? loadTargets;
   final PendingDeletes _pending;
   final AiAnalysisStore? analysisStore;
   final ThumbnailCache _thumbnails;
+  final PlainFiles _plain;
 
   static const hide = 'hide';
   static const unhide = 'unhide';
@@ -164,6 +168,10 @@ class HiddenTransition {
         );
       default:
         await _holds.add(id, _decode(row.payload));
+        await _settleFiles(() async {
+          final record = await store.getByLocalId(id);
+          if (record != null) await _plain.keep(record);
+        });
         await store.closeTransition(id);
         return null;
     }
@@ -179,9 +187,19 @@ class HiddenTransition {
         await store.retractUploads(id, step: 1, unhide: true);
         return TransitionRow(localId: id, kind: unhide, step: 1);
       default:
+        await _settleFiles(() => _plain.release(id));
         await store.closeTransition(id);
         return null;
     }
+  }
+
+  /// Where its plain files live follows the hide. One that can't move now
+  /// is moved by the launch pass ([PlainFiles.settleAll]); the transition
+  /// doesn't wait on it.
+  static Future<void> _settleFiles(Future<void> Function() move) async {
+    try {
+      await move();
+    } catch (_) {}
   }
 
   /// Every carrier [record] may have in a bucket: the keys its rows name,

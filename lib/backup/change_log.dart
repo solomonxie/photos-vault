@@ -30,13 +30,26 @@ const changeLogTable = 'change_log';
 /// caches (`place_name`) are deliberately left out: logging the row that
 /// records "backed up at 3pm" would move the high-water mark every time a
 /// backup finished, and the gate would never see an unchanged library.
-Future<void> installChangeLog(Database db, List<String> tables) =>
+///
+/// [private] maps a table to the SQL test (on `{row}`) for a row behind a
+/// passcode. A write touching one logs nothing of it: the row's earlier
+/// entries go, and only the mark moves (see [changeLogMark]), so a backup
+/// still notices that something changed.
+Future<void> installChangeLog(
+  Database db,
+  List<String> tables, {
+  Map<String, String> private = const {},
+}) =>
     // One transaction: two stores opening the same file at once would
     // otherwise interleave their DROP and CREATE, and the loser throws
     // "trigger already exists" out of `open` — and the library never loads.
-    db.transaction((txn) => _installChangeLog(txn, tables));
+    db.transaction((txn) => _installChangeLog(txn, tables, private));
 
-Future<void> _installChangeLog(DatabaseExecutor db, List<String> tables) async {
+Future<void> _installChangeLog(
+  DatabaseExecutor db,
+  List<String> tables,
+  Map<String, String> private,
+) async {
   await db.execute('''
     CREATE TABLE IF NOT EXISTS $changeLogTable (
       seq INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -48,6 +61,12 @@ Future<void> _installChangeLog(DatabaseExecutor db, List<String> tables) async {
       at TEXT NOT NULL
     )
   ''');
+  if (private.isNotEmpty) {
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS ${changeLogTable}_row '
+      'ON $changeLogTable (table_name, row_key)',
+    );
+  }
   for (final table in tables) {
     final columns = await db.rawQuery('PRAGMA table_info($table)');
     if (columns.isEmpty) continue;
@@ -65,6 +84,7 @@ Future<void> _installChangeLog(DatabaseExecutor db, List<String> tables) async {
     String rowJson(String row) =>
         'json_object(${names.map((name) => "'$name', $row.$name").join(', ')})';
 
+    final test = private[table];
     for (final op in const ['insert', 'update', 'delete']) {
       final name = '${changeLogTable}_${table}_$op';
       final on = switch (op) {
@@ -75,9 +95,29 @@ Future<void> _installChangeLog(DatabaseExecutor db, List<String> tables) async {
       final subject = op == 'delete' ? 'OLD' : 'NEW';
       final before = op == 'insert' ? 'NULL' : rowJson('OLD');
       final after = op == 'delete' ? 'NULL' : rowJson('NEW');
+      final rows = [if (op != 'insert') 'OLD', if (op != 'delete') 'NEW'];
+      final isPrivate = test == null
+          ? null
+          : rows.map((r) => '(${test.replaceAll('{row}', r)})').join(' OR ');
       await db.execute('DROP TRIGGER IF EXISTS $name');
+      await db.execute('DROP TRIGGER IF EXISTS ${name}_private');
+      if (isPrivate != null) {
+        await db.execute('''
+          CREATE TRIGGER ${name}_private $on ON $table
+          WHEN $isPrivate
+          BEGIN
+            DELETE FROM $changeLogTable
+              WHERE table_name = '$table' AND row_key IN (
+                ${rows.map(rowKey).join(', ')});
+            INSERT INTO $changeLogTable (table_name, row_key, op, at)
+              VALUES ('$table', '', '$_privateOp', '');
+            DELETE FROM $changeLogTable WHERE seq = last_insert_rowid();
+          END
+        ''');
+      }
       await db.execute('''
         CREATE TRIGGER $name $on ON $table
+        ${isPrivate == null ? '' : 'WHEN NOT ($isPrivate)'}
         BEGIN
           INSERT INTO $changeLogTable
             (table_name, row_key, op, before, after, at)
@@ -93,6 +133,31 @@ Future<void> _installChangeLog(DatabaseExecutor db, List<String> tables) async {
       ''');
     }
   }
+}
+
+const _privateOp = 'private';
+
+/// Entries a build before [installChangeLog]'s `private` wrote about rows
+/// behind a passcode, and the earlier history of rows behind one now. Once.
+Future<void> purgePrivateEntries(
+  Database db,
+  String table,
+  String privateTest, {
+  String? rowKeySql,
+}) async {
+  final inTable = privateTest.replaceAll('{row}.', '');
+  String fromJson(String side) => privateTest.replaceAllMapped(
+    RegExp(r'\{row\}\.(\w+)'),
+    (m) => "json_extract($side, '\$.${m[1]}')",
+  );
+  await db.execute(
+    'DELETE FROM $changeLogTable WHERE table_name = ? AND ('
+    '(before IS NOT NULL AND (${fromJson('before')})) OR '
+    '(after IS NOT NULL AND (${fromJson('after')}))'
+    '${rowKeySql == null ? '' : ' OR row_key IN '
+              '(SELECT $rowKeySql FROM $table WHERE $inTable)'})',
+    [table],
+  );
 }
 
 /// Drops all but the newest [keep] entries. The log was never trimmed, and
@@ -124,10 +189,15 @@ Future<void> pruneChangeLog(Database db, {int keep = 20000}) async {
 /// How far the log has got. Comparing this against the number stored for a
 /// destination is the whole "only if something changed" gate — no diffing,
 /// no timestamps to trust.
+///
+/// The table's sequence rather than its highest row: a private write leaves
+/// no row, only a step in the sequence.
 Future<int> changeLogMark(Database db) async {
   try {
     final rows = await db.rawQuery(
-      'SELECT MAX(seq) AS mark FROM $changeLogTable',
+      'SELECT MAX(COALESCE((SELECT seq FROM sqlite_sequence WHERE name = ?), '
+      '0), COALESCE((SELECT MAX(seq) FROM $changeLogTable), 0)) AS mark',
+      [changeLogTable],
     );
     return (rows.first['mark'] as int?) ?? 0;
   } catch (_) {

@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:flutter/cupertino.dart';
 
@@ -13,9 +14,12 @@ import '../storage/passcode_hash.dart';
 import '../upload/original_restore.dart';
 import '../vault/hidden_transition.dart';
 import '../vault/keys.dart';
+import '../vault/passcode_tags.dart';
 import '../vault/passphrase_sheet.dart';
 import '../upload/pending_deletes.dart';
 import 'private_album_screen.dart';
+
+export '../storage/passcode_hash.dart' show personAlbumCode;
 
 /// The Utilities "Hidden" row's passcode popup: a 4-digit numeric keypad
 /// (no system keyboard) — the 4th digit submits automatically, no
@@ -281,29 +285,28 @@ class _PasscodeKeypad extends StatelessWidget {
 
 /// Utilities' "Hidden" row: prompts for a passcode, then opens whatever's
 /// currently tagged with its hash — an empty list if nothing is.
-/// A person's own hidden folder: an album like any other, whose code is the
-/// digits namespaced by the person. The same four digits open a different
-/// album per person and a different one again from Utilities, and nothing
-/// stored links a person to a hidden photo — only the key derivation does.
-String personAlbumCode(String personId, String digits) =>
-    'person:$personId:$digits';
-
 /// Whether [personId] has a hidden folder that still holds something. The
-/// folder is known only by the hash of its code, so all 10,000 codes are
-/// tried — off the UI isolate.
+/// folder is known only by the tag of its code, so all 10,000 codes are
+/// tried, in both tag forms — off the UI isolate.
 Future<bool> personHasHiddenFolder(
   AssetRecordStore store,
-  String personId,
-) async {
+  String personId, {
+  PasscodeTags? tags,
+}) async {
   final hashes = await store.passcodeHashes();
   if (hashes.isEmpty) return false;
-  return Isolate.run(() => _anyPersonCode(personId, hashes));
+  // Only old-form tags: nothing to ask the keychain for.
+  final key = hashes.every(isLegacyTag)
+      ? null
+      : await (tags ?? PasscodeTags(records: store)).currentKey();
+  return Isolate.run(() => _anyPersonCode(personId, hashes, key));
 }
 
-bool _anyPersonCode(String personId, Set<String> hashes) {
+bool _anyPersonCode(String personId, Set<String> hashes, Uint8List? key) {
   for (var i = 0; i < 10000; i++) {
-    final digits = i.toString().padLeft(4, '0');
-    if (hashes.contains(hashPasscode(personAlbumCode(personId, digits)))) {
+    final code = personAlbumCode(personId, i.toString().padLeft(4, '0'));
+    if (hashes.contains(hashPasscode(code)) ||
+        (key != null && hashes.contains(passcodeTagWith(key, code)))) {
       return true;
     }
   }
@@ -339,15 +342,19 @@ Future<void> openPrivateAlbums(
   final digits = await showPrivateAlbumPasscodeSheet(context, title: title);
   if (digits == null) return;
   final passcode = codeFor?.call(digits) ?? digits;
+  final tag = await PasscodeTags(
+    records: assetRecordStore,
+    vaultKeys: keys,
+  ).tagFor(passcode);
   // Fills the key ring for this session, so the upload path can find this
-  // album's key by the hash the records carry without ever holding the
+  // album's key by the tag the records carry without ever holding the
   // digits itself. Dropped when the app dies.
-  final album = await keys.unlockAlbum(passcode);
+  final album = await keys.unlockAlbum(passcode, tag);
   if (!context.mounted) return;
   await Navigator.of(context).push(
     CupertinoPageRoute(
       builder: (_) => PrivateAlbumScreen(
-        passcodeHash: hashPasscode(passcode),
+        passcodeHash: tag,
         assetRecordStore: assetRecordStore,
         custody: custody,
         albumKeys: album,
@@ -477,7 +484,7 @@ Future<bool> hideIntoPrivateAlbum(
     if (!context.mounted) return false;
     final passcode = await askHideCode(context);
     if (passcode == null) return false;
-    hash = hashPasscode(passcode);
+    hash = await PasscodeTags(records: assetRecordStore).tagFor(passcode);
   }
   final keeper = custody ?? LibraryCustody(store: assetRecordStore);
   // Cloud-only or shrunk here: the full original is only in the bucket, and

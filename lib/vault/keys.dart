@@ -3,7 +3,6 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import '../settings/secure_store.dart';
-import '../storage/passcode_hash.dart';
 import 'carrier.dart';
 import 'cipher.dart';
 
@@ -121,6 +120,9 @@ class VaultKeys {
 
   final SecureStore _store;
   final VaultCipher _cipher;
+
+  /// The keychain these keys live in; the passcode-tag key lives beside them.
+  SecureStore get secureStore => _store;
   final DeriveMasterKey _derive;
 
   static const _entriesKey = 'vault_passphrase_entries';
@@ -280,11 +282,52 @@ class VaultKeys {
   /// Held in memory only: a code is written to the keychain by [keepAlbum]
   /// once its album turns out to hold something, so mistyped codes don't
   /// pile up there.
-  Future<AlbumKeys?> unlockAlbum(String passcode) async {
+  Future<AlbumKeys?> unlockAlbum(String passcode, String tag) async {
     final keys = await activeAlbumKeys(passcode);
     if (keys == null) return null;
-    _ring[hashPasscode(passcode)] = keys;
+    _ring[tag] = keys;
     return keys;
+  }
+
+  /// Moves the ring's album from its old tag to [to], in memory and in the
+  /// keychain, so uploads keep finding it after the records are re-tagged.
+  Future<void> renameAlbum(String from, String to) async {
+    final keys = _ring.remove(from);
+    if (keys != null) _ring[to] = keys;
+    if (_kept.remove(from)) _kept.add(to);
+    final stored = await _storedRing();
+    final raw = stored.remove(from);
+    if (raw == null) return;
+    stored[to] ??= raw;
+    await _store.write(_ringKey, jsonEncode(stored));
+  }
+
+  /// Tags the keychain ring is kept under.
+  Future<Set<String>> ringTags() async => {
+    ..._ring.keys,
+    ...(await _storedRing()).keys,
+  };
+
+  /// Entries whose master key this phone holds.
+  Future<List<String>> entryIdsOnHand() async => [
+    for (final entry in await entries())
+      if (await _masterKey(entry) != null) entry.id,
+  ];
+
+  /// Seals the passcode-tag key's escrow (`passcode_tags.dart`). From the
+  /// master key, so typing the passphrase on a new phone brings it back.
+  Future<Uint8List?> escrowKey(String entryId) async {
+    for (final entry in await entries()) {
+      if (entry.id != entryId) continue;
+      final master = await _masterKey(entry);
+      if (master == null) return null;
+      return Uint8List.sublistView(
+        hkdf(key: master, info: utf8.encode('tag-escrow')),
+        0,
+        32,
+      );
+    }
+    return null;
   }
 
   final Set<String> _kept = {};

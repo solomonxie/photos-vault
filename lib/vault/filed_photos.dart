@@ -17,6 +17,7 @@ import 'cipher.dart';
 import 'gallery.dart' show siblingCarrierKeys;
 import 'keys.dart';
 import 'object_key.dart';
+import 'plain_files.dart';
 import 'store.dart';
 
 /// Turns photos older builds *filed* — plain file deleted, sometimes the row
@@ -245,12 +246,17 @@ class FiledPhotos {
     });
   }
 
-  /// Beside the files hiding copies out of Photos.
+  /// Beside the files hiding copies out of Photos: `vault/plain/`, out of
+  /// the device backup, named after nothing. The same name for the same
+  /// carrier, so a second open overwrites rather than adds.
   Future<String> _write(String key, OpenedCarrier opened) async {
-    final dir = await _directory();
+    final dir = await PlainFiles(store: records, directory: _directory).dir();
     final path = p.join(
       dir.path,
-      'hidden_${p.basenameWithoutExtension(key)}.${opened.extension}',
+      PlainFiles.neutralName(
+        'manual:vault-${p.basenameWithoutExtension(key)}',
+        '.${opened.extension}',
+      ),
     );
     await File(path).writeAsBytes(opened.original, flush: true);
     return path;

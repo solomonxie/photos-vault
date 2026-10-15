@@ -31,8 +31,10 @@ getByLocalId() / listAll() route every row through:
   shape as `album_store.dart`, plus a `moved` flag per row (moved assets are
   also `setHidden(true)` by the caller; copied ones stay visible in the main
   library too). See `../viewer/private_album_gate.dart` and DESIGN.md.
-- `passcode_hash.dart` — SHA-256 hashing shared by private albums (the hash
-  doubles as the album id) and person-profile locks.
+- `passcode_hash.dart` — the passcode tag (HMAC under a Keychain key; the
+  tag doubles as the album id) shared by private albums and person-profile
+  locks, and the old `sha256` form still read for upgrade. See
+  `../vault/passcode_tags.dart`.
 
 `asset_record.db` also carries a small `app_state` key/value table for flags
 about the library as a whole — whether a restore has already run, and

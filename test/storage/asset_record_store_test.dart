@@ -715,9 +715,9 @@ void main() {
         passcodeHash: 'h',
         isHidden: true,
       );
-      final rows = await s.changeLogRows();
-      final insert = rows.firstWhere((r) => r['op'] == 'insert');
-      expect((insert['after'] as Map)['passcode_hash'], 'h');
+      // Hidden from the log too: nothing of it, but the mark moved.
+      expect(await s.changeLogRows(), isEmpty);
+      expect(await s.changeMark(), greaterThan(0));
       expect((await s.getByLocalId('manual:c'))!.isVisibleInLibrary, isFalse);
     });
 

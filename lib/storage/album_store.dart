@@ -8,6 +8,7 @@ import 'package:sqflite/sqflite.dart'
     show Database, DatabaseFactory, OpenDatabaseOptions;
 
 import '../backup/change_log.dart';
+import '../backup/database_copy.dart';
 import 'album.dart';
 
 /// Local `sqflite` store for albums and their asset membership. Kept in its
@@ -111,6 +112,19 @@ class AlbumStore {
     final file = File(db.path);
     return file.existsSync() ? file : null;
   }
+
+  /// A compact copy at [dest] without [hiddenIds]' memberships or covers.
+  Future<bool> copyTo(String dest, Set<String> hiddenIds) async => copyDatabase(
+    await _open(),
+    _databaseFactory,
+    dest,
+    dropIds: hiddenIds,
+    scrub: [
+      'DELETE FROM $_memberTable WHERE local_id IN (SELECT id FROM drop_ids)',
+      'UPDATE $_albumTable SET cover_local_id = NULL '
+          'WHERE cover_local_id IN (SELECT id FROM drop_ids)',
+    ],
+  );
 
   /// How far this database's change log has got. See `change_log.dart`.
   Future<int> changeMark() async => changeLogMark(await _open());

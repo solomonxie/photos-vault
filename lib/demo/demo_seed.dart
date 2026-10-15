@@ -16,9 +16,9 @@ import '../settings/backup_targets_store.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import '../storage/passcode_hash.dart';
 import '../vault/hidden_notes.dart';
 import '../vault/keys.dart';
+import '../vault/passcode_tags.dart';
 import 'demo_bucket.dart';
 import 'demo_flag.dart';
 import 'demo_images.dart';
@@ -192,12 +192,13 @@ class DemoSeed {
           hint: album['hint'] as String? ?? '',
         );
       }
+      final tag = await PasscodeTags(
+        records: records,
+        vaultKeys: keys,
+      ).tagFor(passcode);
       for (final photo in photos) {
         if (photo['hidden'] == true) {
-          await records.setPasscodeHash(
-            localIdOf(photo),
-            hashPasscode(passcode),
-          );
+          await records.setPasscodeHash(localIdOf(photo), tag);
         }
       }
       final albumKeys = await keys.activeAlbumKeys(passcode);

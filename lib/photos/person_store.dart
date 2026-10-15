@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -8,6 +9,7 @@ import 'package:sqflite/sqflite.dart'
 import 'package:uuid/uuid.dart';
 
 import '../backup/change_log.dart';
+import '../backup/database_copy.dart';
 import '../vault/keys.dart' show AlbumKeys;
 import 'person.dart';
 import 'person_detail.dart';
@@ -205,19 +207,102 @@ class PersonStore {
     );
     // After the migrations, never inside them: a trigger has to describe
     // the schema the app just finished upgrading to.
-    await installChangeLog(db, const [
-      _personTable,
-      _memberTable,
-      _relationshipTable,
-      _locationTable,
-      _historyTable,
-      _detailTable,
-      _eventTable,
-      _groupTable,
-    ]);
+    await db.execute('PRAGMA secure_delete = ON');
+    await installChangeLog(
+      db,
+      const [
+        _personTable,
+        _memberTable,
+        _relationshipTable,
+        _locationTable,
+        _historyTable,
+        _detailTable,
+        _eventTable,
+        _groupTable,
+      ],
+      private: {
+        for (final table in [_personTable, ..._sealedTables])
+          table: _privateRowSql,
+      },
+    );
     _db = db;
+    unawaited(_purgePrivateLog(db));
     return db;
   }
+
+  /// A row kept under a passcode, as the change log tests it.
+  static const _privateRowSql = "COALESCE({row}.passcode_hash, '') != ''";
+
+  static const _stateTable = 'person_state';
+  static const _purgedKey = 'private_log_purged_v1';
+
+  /// What builds before the log's private rule wrote of namespaced rows,
+  /// passcode tags included. Once.
+  Future<void> _purgePrivateLog(Database db) async {
+    try {
+      await db.execute(
+        'CREATE TABLE IF NOT EXISTS $_stateTable '
+        '(key TEXT PRIMARY KEY, value TEXT NOT NULL)',
+      );
+      final done = await db.query(
+        _stateTable,
+        where: 'key = ?',
+        whereArgs: [_purgedKey],
+      );
+      if (done.isNotEmpty) return;
+      for (final table in [_personTable, ..._sealedTables]) {
+        await purgePrivateEntries(db, table, _privateRowSql);
+      }
+      await db.insert(_stateTable, {
+        'key': _purgedKey,
+        'value': '1',
+      }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+    } catch (_) {
+      // Tried again next launch.
+    }
+  }
+
+  /// Every passcode tag a profile or a sealed set is kept under.
+  Future<Set<String>> namespaces() async {
+    final db = await _open();
+    final out = <String>{};
+    for (final table in [_personTable, ..._sealedTables]) {
+      for (final row in await db.rawQuery(
+        "SELECT DISTINCT passcode_hash AS t FROM $table "
+        "WHERE COALESCE(passcode_hash, '') != ''",
+      )) {
+        out.add(row['t'] as String);
+      }
+    }
+    return out;
+  }
+
+  /// Moves everything kept under [from] to [to]. A row whose key already
+  /// exists under [to] stays where it is rather than replacing it.
+  Future<void> retag(String from, String to) async {
+    final db = await _open();
+    await db.transaction((txn) async {
+      for (final table in [_personTable, ..._sealedTables]) {
+        await txn.rawUpdate(
+          'UPDATE OR IGNORE $table SET passcode_hash = ? WHERE passcode_hash = ?',
+          [to, from],
+        );
+      }
+    });
+  }
+
+  /// A compact copy at [dest] without [hiddenIds]' memberships or avatars.
+  Future<bool> copyTo(String dest, Set<String> hiddenIds) async => copyDatabase(
+    await _open(),
+    _databaseFactory,
+    dest,
+    dropIds: hiddenIds,
+    scrub: [
+      'DELETE FROM $_memberTable WHERE local_id IN (SELECT id FROM drop_ids)',
+      'UPDATE $_personTable SET avatar_local_id = NULL, avatar_face = NULL '
+          'WHERE avatar_local_id IN (SELECT id FROM drop_ids)',
+    ],
+  );
 
   static const _createHistoryTableSql =
       '''

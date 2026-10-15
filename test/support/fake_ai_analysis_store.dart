@@ -292,4 +292,7 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     for (final analysis in _analyses.values)
       if (!analysis.reviewed && analysis.hasSuggestions) analysis,
   ];
+
+  @override
+  Future<bool> copyTo(String dest, Set<String> hiddenIds) async => false;
 }

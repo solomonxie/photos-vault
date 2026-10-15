@@ -1,6 +1,7 @@
 import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/storage/passcode_hash.dart';
+import 'package:photos_vault/vault/passcode_tags.dart';
 import 'package:photos_vault/viewer/custom_fields_editor.dart';
 import 'package:photos_vault/viewer/person_profile_screen.dart';
 import 'package:photos_vault/viewer/private_album_gate.dart';
@@ -248,12 +249,15 @@ void main() {
     );
     await tester.pump();
 
-    // Saved under 1234 and nowhere else.
+    // Saved under 1234's tag and nowhere else.
+    final tag = await PasscodeTags(
+      records: FakeAssetRecordStore(),
+      people: personStore,
+      vaultKeys: vaultKeys,
+    ).tagFor('1234');
+    expect(tag, isNot(hashPasscode('1234')));
     expect(
-      (await personStore.detailFor(
-        mia.id,
-        passcodeHash: hashPasscode('1234'),
-      )).bio,
+      (await personStore.detailFor(mia.id, passcodeHash: tag)).bio,
       'the other bio',
     );
     expect((await personStore.detailFor(mia.id)).bio, 'open bio');

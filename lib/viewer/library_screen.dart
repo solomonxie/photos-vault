@@ -56,7 +56,6 @@ import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/bucket_object.dart';
-import '../storage/passcode_hash.dart';
 import '../storage/membership_sweep.dart';
 import '../upload/backup_coordinator.dart';
 import '../upload/background_sync.dart' show ForegroundHeartbeat;
@@ -70,6 +69,8 @@ import '../vault/bucket.dart';
 import '../vault/carrier_upload.dart';
 import '../vault/decoy.dart';
 import '../vault/keys.dart';
+import '../vault/passcode_tags.dart';
+import '../vault/plain_files.dart';
 import '../vault/store.dart';
 import '../upload/pending_deletes.dart';
 import '../upload/sync_job_store.dart';
@@ -718,11 +719,16 @@ class LibraryScreenState extends State<LibraryScreen>
       case 'hidden' || 'hidden-backup' || 'hidden-detail':
         // The demo seed's code, past the passcode sheet.
         const code = '1234';
-        final keys = await _vaultKeys.unlockAlbum(code);
+        final tag = await PasscodeTags(
+          records: assetRecordStore,
+          people: _personStore,
+          vaultKeys: _vaultKeys,
+        ).tagFor(code);
+        final keys = await _vaultKeys.unlockAlbum(code, tag);
         if (!mounted) return;
         _push(
           PrivateAlbumScreen(
-            passcodeHash: hashPasscode(code),
+            passcodeHash: tag,
             assetRecordStore: assetRecordStore,
             custody: _custody,
             albumKeys: keys,
@@ -789,6 +795,7 @@ class LibraryScreenState extends State<LibraryScreen>
     await reload();
     // A hide or un-hide a kill cut short, finished before anything uploads.
     await _finishTransitions();
+    unawaited(_secureHiddenAtRest());
     unawaited(
       HiddenRepair(store: assetRecordStore)
           .runOnce()
@@ -1564,6 +1571,31 @@ class LibraryScreenState extends State<LibraryScreen>
     } catch (_) {
       // Retried on the next sync.
     }
+  }
+
+  /// Old passcode tags upgraded, hidden plain files moved under
+  /// `vault/plain/`, and (once) plaintext thumbnails of hidden photos gone.
+  /// Each resumable; each bounded by the hidden rows, not the library.
+  Future<void> _secureHiddenAtRest() async {
+    try {
+      await PasscodeTags(
+        records: assetRecordStore,
+        people: _personStore,
+        vaultKeys: _vaultKeys,
+      ).upgradeLegacy();
+    } catch (_) {}
+    try {
+      await PlainFiles(store: assetRecordStore).settleAll();
+    } catch (_) {}
+    try {
+      const swept = 'hidden_thumbnails_swept_v1';
+      if (await assetRecordStore.getAppState(swept) == null) {
+        await _thumbnailCache.sweepHidden(
+          await assetRecordStore.hiddenRecords(),
+        );
+        await assetRecordStore.setAppState(swept, '1');
+      }
+    } catch (_) {}
   }
 
   Future<void> _finishTransitions() async {

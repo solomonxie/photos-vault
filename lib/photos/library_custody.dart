@@ -6,6 +6,7 @@ import 'package:photo_manager/photo_manager.dart';
 
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../vault/plain_files.dart';
 import 'photo_library_service.dart';
 import 'smaller_export.dart';
 
@@ -59,14 +60,20 @@ class LibraryCustody {
     })?
     saveLiveToLibrary,
   }) : _library = library ?? PhotoLibraryService(store: store),
-       _directory = directory ?? getApplicationSupportDirectory,
+       _plain = PlainFiles(
+         store: store,
+         directory: directory ?? getApplicationSupportDirectory,
+       ),
        _saveToLibrary = saveToLibrary ?? _defaultSaveToLibrary,
        _liveVideo = liveVideo ?? PhotoLibraryService.resolveLivePhotoVideo,
        _saveLiveToLibrary = saveLiveToLibrary ?? _defaultSaveLiveToLibrary;
 
   final AssetRecordStore store;
   final PhotoLibraryService _library;
-  final Future<Directory> Function() _directory;
+
+  /// Copied-out originals go straight under `vault/plain/`: out of the
+  /// device backup, and named after nothing.
+  final PlainFiles _plain;
   final Future<AssetEntity?> Function(
     File file, {
     required bool isVideo,
@@ -297,10 +304,8 @@ class LibraryCustody {
     bool toHeif = false,
   }) async {
     try {
-      final dir = await _directory();
-      var copy = File(
-        p.join(dir.path, p.setExtension(_fileNameFor(record, source), '.heic')),
-      );
+      var name = p.setExtension(_fileNameFor(record, source), '.heic');
+      var copy = File(await plainPathFor(_plain, record, '.heic'));
       final converted =
           toHeif &&
           isHeifCandidate(record, source.path) &&
@@ -310,7 +315,10 @@ class LibraryCustody {
             format: 'heic',
           );
       if (!converted) {
-        copy = File(p.join(dir.path, _fileNameFor(record, source)));
+        name = _fileNameFor(record, source);
+        copy = File(
+          await plainPathFor(_plain, record, p.extension(source.path)),
+        );
         await source.copy(copy.path);
       }
       if (!await copy.exists() || await copy.length() == 0) return false;
@@ -319,7 +327,7 @@ class LibraryCustody {
         await motion.copy(held.path);
         if (!await held.exists() || await held.length() == 0) return false;
       }
-      await store.setSourcePath(record.localId, copy.path);
+      await store.moveSourcePath(record.localId, copy.path, heldName: name);
       return true;
     } catch (_) {
       return false;

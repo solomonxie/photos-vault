@@ -7,6 +7,7 @@ import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:sqflite/sqflite.dart'
     show Database, DatabaseFactory, OpenDatabaseOptions;
 
+import '../backup/database_copy.dart';
 import 'ai_analysis.dart';
 import 'face_matcher.dart' show ConfirmedFace, DescribedFace;
 import 'on_device_vision.dart' show FaceDescriptor;
@@ -558,6 +559,18 @@ class AiAnalysisStore {
     final file = File(db.path);
     return file.existsSync() ? file : null;
   }
+
+  /// A compact copy at [dest] without anything of [hiddenIds].
+  Future<bool> copyTo(String dest, Set<String> hiddenIds) async => copyDatabase(
+    await _open(),
+    _factory,
+    dest,
+    dropIds: hiddenIds,
+    scrub: [
+      for (final table in [_table, _descriptorTable, _suggestionTable])
+        'DELETE FROM $table WHERE local_id IN (SELECT id FROM drop_ids)',
+    ],
+  );
 
   Future<void> close() async {
     await _db?.close();
