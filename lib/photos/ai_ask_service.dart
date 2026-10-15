@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:http/http.dart' as http;
 
 import '../settings/ai_settings_store.dart';
@@ -23,11 +21,7 @@ class AiAskService {
   /// plain text, or nothing at all. Kept separate from [question] so the
   /// prompt can say which is which, and so a caller cannot accidentally send
   /// a profile when it meant to send only a question.
-  Future<String> ask({
-    required String question,
-    String context = '',
-    Uint8List? image,
-  }) async {
+  Future<String> ask({required String question, String context = ''}) async {
     final prompt = [
       if (context.isNotEmpty) ...['Here is what I know:', context, ''],
       'My question:',
@@ -39,7 +33,6 @@ class AiAskService {
         apiKey: key.secret,
         prompt: prompt,
         client: _httpClient,
-        image: image,
       ),
     );
   }

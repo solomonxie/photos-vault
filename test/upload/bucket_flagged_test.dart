@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/photos/fix_queue.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:photos_vault/settings/s3_listing.dart';
@@ -13,6 +14,7 @@ import 'package:photos_vault/upload/name_migration.dart';
 import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/upload/s3_uploader.dart';
 import 'package:photos_vault/vault/carrier.dart';
+import 'package:photos_vault/vault/carrier_probe.dart';
 import 'package:photos_vault/vault/cipher.dart';
 import 'package:photos_vault/vault/keys.dart';
 import 'package:photos_vault/vault/object_key.dart';
@@ -248,49 +250,69 @@ void main() {
       expect(item.likelyDuplicateOf, current);
     });
 
-    test(
-      'an unclaimed video from the same second as a library video, and '
-      'no bigger, is its old copy; a still from that second is not',
-      () async {
-        const kept =
-            'photos-vault/originals/20260913132047_'
-            '410ae86bd3b18c0c005f40209fe6d908.MOV';
-        const copy =
-            'photos-vault/originals/20261013201857_'
-            'eb56fb7d6b91665170eb31c8f5f2fc9f.mov';
-        const still =
-            'photos-vault/originals/20261013201858_'
-            'cb56fb7d6b91665170eb31c8f5f2fc9f.jpg';
-        final taken = DateTime.utc(2026, 9, 13, 20, 20, 47);
-        bucket.objects[kept] = video;
-        bucket.objects[copy] = Uint8List.sublistView(video, 100);
-        bucket.objects[still] = Uint8List.sublistView(video, 100);
-        await relist();
-        await store.upsert(
-          localId: 'photo:V/L0/001',
-          contentHash: 'v',
-          platform: 'ios',
-          isVideo: true,
-          createdAt: taken,
-        );
-        await store.updateDerivative(
-          'photo:V/L0/001',
-          DerivativeKind.original,
-          const DerivativeState(
-            status: UploadStatus.uploaded,
-            destinationKey: kept,
-          ),
-        );
+    test('a video from the same second as a library video is never its old '
+        'copy unless it is the same file', () async {
+      const kept =
+          'photos-vault/originals/20260913132047_'
+          '410ae86bd3b18c0c005f40209fe6d908.MOV';
+      const copy =
+          'photos-vault/originals/20261013201857_'
+          'eb56fb7d6b91665170eb31c8f5f2fc9f.mov';
+      const sameSize =
+          'photos-vault/originals/20261013201858_'
+          'cb56fb7d6b91665170eb31c8f5f2fc9f.mp4';
+      const same =
+          'photos-vault/originals/20261013201859_'
+          'db56fb7d6b91665170eb31c8f5f2fc9f.mov';
+      final taken = DateTime.utc(2026, 9, 13, 20, 20, 47);
+      bucket.objects[kept] = video;
+      // Another phone, the same second: smaller, or the same size.
+      bucket.objects[copy] = Uint8List.sublistView(video, 100);
+      bucket.objects[sameSize] = Uint8List.fromList(
+        List.generate(video.length, (i) => (i * 7) % 251),
+      );
+      bucket.objects[same] = Uint8List.fromList(video);
+      await relist();
+      await store.upsert(
+        localId: 'photo:V/L0/001',
+        contentHash: 'v',
+        platform: 'ios',
+        isVideo: true,
+        createdAt: taken,
+      );
+      await store.updateDerivative(
+        'photo:V/L0/001',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: kept,
+        ),
+      );
 
-        final items = await BucketFlags(store: store).detect(
-          inspect: (_) async => (carrier: false, takenAt: taken.toLocal()),
-        );
-        final byKey = {for (final i in items) i.object.key: i};
-        expect(byKey[copy]!.kind, FlagKind.oldCopy);
-        expect(byKey[copy]!.likelyDuplicateOf, kept);
-        expect(byKey[still]!.kind, isNot(FlagKind.oldCopy));
-      },
-    );
+      final f = fixer();
+      final items = await BucketFlags(store: store).detect(
+        inspect: (_) async => (carrier: false, takenAt: taken.toLocal()),
+        etag: f.etagOf,
+      );
+      final byKey = {for (final i in items) i.object.key: i};
+      expect(byKey[copy]!.kind, isNot(FlagKind.oldCopy));
+      expect(byKey[sameSize]!.kind, isNot(FlagKind.oldCopy));
+      expect(byKey[same]!.kind, FlagKind.duplicate);
+      expect(byKey[same]!.likelyDuplicateOf, kept);
+
+      // Even when listed as one, a video only goes as the same file.
+      final forced = FlaggedObject(
+        object: byKey[copy]!.object,
+        kind: FlagKind.oldCopy,
+        likelyDuplicateOf: kept,
+      );
+      expect((await f.removeOldCopy(forced)).ok, isFalse);
+      expect(bucket.objects.containsKey(copy), isTrue);
+      expect(
+        Flag.bucket(forced).batchable(FlagSolution.removeOldCopy),
+        isFalse,
+      );
+    });
 
     test('a listed file the bucket no longer has is never offered, and '
         'leaves the listing', () async {
@@ -486,6 +508,50 @@ void main() {
       bucket.objects.clear();
 
       expect((await fixer().rename(item)).ok, isTrue);
+    });
+  });
+
+  group('reformat', () {
+    BucketFixer over(MemoryBucket ops) => BucketFixer(
+      store: store,
+      targetsStore: targets,
+      passphrases: () async => [known],
+      ops: ops,
+      uploader: _BucketUploader(ops),
+    );
+    FlaggedObject offProtocol(String key, int size) => FlaggedObject(
+      object: BucketObject(
+        targetId: target.id,
+        key: key,
+        size: size,
+        lastModified: DateTime(2026),
+      ),
+      kind: FlagKind.offProtocol,
+    );
+
+    test('a header that could not be read is never re-encoded', () async {
+      final offline = _UnreadableBucket();
+      const key = 'photos-vault/originals/IMG_0001.jpg';
+      offline.objects[key] = carrier(salt: knownSalt);
+      final item = offProtocol(key, offline.objects[key]!.length);
+      final f = over(offline);
+
+      expect(await f.canReformat(item), isFalse);
+      expect((await f.reformat(item)).ok, isFalse);
+      expect(offline.objects.keys, [key]);
+    });
+
+    test('a file the scan found to be a carrier stays one', () async {
+      const key = 'photos-vault/originals/IMG_0002.jpg';
+      final bytes = carrier(salt: knownSalt);
+      bucket.objects[key] = bytes;
+      final item = offProtocol(key, bytes.length);
+      final f = fixer();
+      expect((await f.inspect(item.object)).carrier, isTrue);
+
+      // Same name and size, a header that now reads as plain.
+      bucket.objects[key] = Uint8List(bytes.length);
+      expect(await f.canReformat(item), isFalse);
     });
   });
 
@@ -778,6 +844,13 @@ class _BucketUploader implements S3Uploader {
     bucket.objects[key] = File(filePath).readAsBytesSync();
     return true;
   }
+}
+
+/// Lists fine, but every header read fails, like a dropped connection.
+class _UnreadableBucket extends MemoryBucket {
+  @override
+  RangeReader rangeReader(S3BackupTarget target, String key) =>
+      (start, end) async => null;
 }
 
 /// One object a page, each a moment apart, like a slow connection.

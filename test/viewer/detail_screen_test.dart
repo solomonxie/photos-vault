@@ -960,6 +960,38 @@ void main() {
     expect(find.text('No Location'), findsOneWidget);
   });
 
+  testWidgets('no photo, hidden or not, is offered to an AI service', (
+    tester,
+  ) async {
+    for (final record in [
+      _record(localId: 'open'),
+      _record(localId: 'hidden').withHidden(true),
+    ]) {
+      await tester.pumpWidget(
+        _wrap(
+          DetailScreen(
+            key: ValueKey(record.localId),
+            records: [record],
+            initialIndex: 0,
+            assetRecordStore: FakeAssetRecordStore(),
+            personStore: FakePersonStore(),
+            onDelete: (_) async => true,
+            onToggleFavorite: (_) async {},
+          ),
+        ),
+      );
+      await tester.tap(find.byIcon(CupertinoIcons.info_circle));
+      await tester.pumpAndSettle();
+
+      expect(find.text('No Location'), findsOneWidget);
+      expect(find.textContaining('Ask AI', skipOffstage: false), findsNothing);
+      expect(
+        find.byIcon(CupertinoIcons.sparkles, skipOffstage: false),
+        findsNothing,
+      );
+    }
+  });
+
   testWidgets('a Live Photo whose motion failed does not read as backed up', (
     tester,
   ) async {

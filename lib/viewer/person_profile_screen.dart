@@ -1644,20 +1644,22 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
         decoration: _cardDecoration,
         children: [
           if (aiOffered) ...[
-            CupertinoListTile(
-              key: const ValueKey('utility-ask-ai'),
-              leading: const Icon(
-                CupertinoIcons.sparkles,
-                color: CupertinoColors.systemIndigo,
+            // A sealed set's details never go to a vendor.
+            if (_namespace == openNamespace)
+              CupertinoListTile(
+                key: const ValueKey('utility-ask-ai'),
+                leading: const Icon(
+                  CupertinoIcons.sparkles,
+                  color: CupertinoColors.systemIndigo,
+                ),
+                title: Text(l10n.askAiProfileOption),
+                trailing: const Icon(
+                  CupertinoIcons.chevron_forward,
+                  size: 18,
+                  color: CupertinoColors.systemGrey2,
+                ),
+                onTap: _askAboutPerson,
               ),
-              title: Text(l10n.askAiProfileOption),
-              trailing: const Icon(
-                CupertinoIcons.chevron_forward,
-                size: 18,
-                color: CupertinoColors.systemGrey2,
-              ),
-              onTap: _askAboutPerson,
-            ),
             CupertinoListTile(
               key: const ValueKey('utility-autofill'),
               leading: const Icon(

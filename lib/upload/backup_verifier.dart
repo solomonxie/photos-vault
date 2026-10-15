@@ -381,10 +381,19 @@ class BackupVerifier {
   /// library of thirty thousand is thirty requests this way and thirty
   /// thousand the other. Per bucket, not the union: a photo in A and gone
   /// from B is not backed up twice.
-  Future<ReconcileReport> reconcile() async {
+  ///
+  /// Hidden and locked photos are left out of every number unless
+  /// [includeHidden] (the unseen daily repair): a count that moved when a
+  /// photo was hidden would give the private album away. Their keys are
+  /// still known, so a carrier is never reported as unreferenced.
+  Future<ReconcileReport> reconcile({bool includeHidden = false}) async {
+    final all = await recordStore.listAll();
     final records = [
-      for (final record in await recordStore.listAll())
-        if (!record.isDeleted) record,
+      for (final record in all)
+        if (!record.isDeleted &&
+            (includeHidden ||
+                (!record.isHidden && record.passcodeHash == null)))
+          record,
     ];
     final holdings = await recordStore.allHoldings();
 
@@ -403,7 +412,14 @@ class BackupVerifier {
     }
     final reached = originals.isNotEmpty;
 
-    final known = <String>{};
+    final known = <String>{
+      for (final record in all)
+        if (!record.isDeleted)
+          for (final kind in DerivativeKind.values) ...[
+            ?record.stateOf(kind).destinationKey,
+            ...?holdings[record.localId]?[kind]?.values,
+          ],
+    };
     final losses = <String, RecordLoss>{};
     var expected = 0;
     var present = 0;
@@ -422,8 +438,6 @@ class BackupVerifier {
         if (isThumb && state.status != UploadStatus.uploaded) continue;
         final seen = isThumb ? thumbnails : originals;
         final allHeld = holdings[record.localId]?[kind] ?? const {};
-        known.addAll(allHeld.values);
-        known.add(key);
         if (kind == DerivativeKind.original) expectsOriginal = true;
         // A copy in a bucket since removed is no backup: checked like a
         // photo never uploaded. One that just didn't answer still counts.
@@ -559,7 +573,7 @@ class BackupVerifier {
     final raw = await recordStore.getAppState(_repairedAtKey);
     final last = raw == null ? null : DateTime.tryParse(raw);
     if (last != null && DateTime.now().difference(last) < every) return 0;
-    final report = await reconcile();
+    final report = await reconcile(includeHidden: true);
     if (!report.reachedBucket) return 0;
     final requeued = report.isClean ? 0 : (await repair(report)).requeued;
     await recordStore.setAppState(

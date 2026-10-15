@@ -2968,15 +2968,31 @@ class LibraryScreenState extends State<LibraryScreen>
     );
     if (includeHidden == null || !mounted) return;
     setState(() => _removingAppData = true);
+    var filesChecked = true;
     try {
       // No prompt, no share sheet: the copies are simply taken, and then
       // everything goes — rows, files, queue, credentials. See
       // `../settings/app_data_removal.dart` for why the order is what it is.
-      await _appDataRemoval.run(includeHidden: includeHidden);
+      filesChecked = await _appDataRemoval.run(includeHidden: includeHidden);
     } finally {
       if (mounted) setState(() => _removingAppData = false);
     }
     if (mounted) await reload();
+    if (!filesChecked && mounted) {
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (dialogContext) => CupertinoAlertDialog(
+          content: Text(l10n.settingsRemoveAllAppDataKeptFiles),
+          actions: [
+            CupertinoDialogAction(
+              isDefaultAction: true,
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(l10n.actionOk),
+            ),
+          ],
+        ),
+      );
+    }
   }
 
   CupertinoListTile _row({

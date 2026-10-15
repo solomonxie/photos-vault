@@ -167,11 +167,10 @@ class BucketFlags {
         heldByStem['${o.targetId}|${p.posix.withoutExtension(o.key)}|'
             '${videoExtensions.contains(_ext(o.key))}'];
 
-    final sizes = {for (final o in objects) '${o.targetId}|${o.key}': o.size};
-    // A video's capture second → the key of the library video taken then:
-    // no camera shoots two videos in one second, so an unclaimed one from
-    // the same second and no bigger is a copy of it (a re-encode leaves the
-    // capture date as it was).
+    final byKey = {for (final o in objects) '${o.targetId}|${o.key}': o};
+    // A video's capture second → the key of the library video taken then.
+    // Two phones can film the same second, so a match only counts when the
+    // bytes are the same: same size and ETag.
     final videoAt = <String, String>{};
     final targetIds = {for (final o in objects) o.targetId};
     for (final r in live.values) {
@@ -180,18 +179,26 @@ class BucketFlags {
       if (key == null) continue;
       final second = r.createdAt.millisecondsSinceEpoch ~/ 1000;
       for (final t in targetIds) {
-        if (sizes.containsKey('$t|$key')) videoAt['$t|$second'] = key;
+        if (byKey.containsKey('$t|$key')) videoAt['$t|$second'] = key;
       }
     }
-    String? videoTwin(BucketObject o, DateTime? takenAt) {
-      if (takenAt == null || !videoExtensions.contains(_ext(o.key))) {
+    Future<String?> videoTwin(BucketObject o, DateTime? takenAt) async {
+      if (etag == null ||
+          takenAt == null ||
+          !videoExtensions.contains(_ext(o.key))) {
         return null;
       }
       final twin =
           videoAt['${o.targetId}|${takenAt.millisecondsSinceEpoch ~/ 1000}'];
       if (twin == null || twin == o.key) return null;
-      final kept = sizes['${o.targetId}|$twin'];
-      return kept != null && o.size <= kept * 1.01 ? twin : null;
+      final kept = byKey['${o.targetId}|$twin'];
+      if (kept == null || kept.size != o.size) return null;
+      try {
+        final (a, b) = (await etag(o), await etag(kept));
+        return a != null && a == b ? twin : null;
+      } catch (_) {
+        return null;
+      }
     }
 
     final originalStems = <String>{
@@ -288,7 +295,7 @@ class BucketFlags {
         if (seen.carrier && protocol) continue;
         final takenAt = seen.takenAt;
         if (!seen.carrier) {
-          if (videoTwin(o, takenAt) case final twin?) {
+          if (await videoTwin(o, takenAt) case final twin?) {
             out.add(
               FlaggedObject(
                 object: o,
@@ -617,24 +624,32 @@ class BucketFixer {
   }
 
   /// Whether the file is known not to be a carrier, which is the only case
-  /// where changing its bytes is safe.
-  Future<bool> canReformat(FlaggedObject f) async {
+  /// where changing its bytes is safe. [fresh] reads the header again
+  /// rather than trust a remembered yes.
+  Future<bool> canReformat(FlaggedObject f, {bool fresh = false}) async {
     if (f.kind != FlagKind.offProtocol || f.isVideo) return false;
     final ext = _ext(f.object.key);
     if (ext == 'heic' || ext == 'heif' || ext == 'gif') return false;
     final known = await _looked(f.object);
-    if (known != null && known['r'] is bool) return known['r'] as bool;
+    if (known?['c'] == true || known?['r'] == false) return false;
+    if (!fresh && known?['r'] == true) return true;
     final target = await _target(f.object.targetId);
     if (target == null) return false;
     final (read, failed) = _watched(_ops.rangeReader(target, f.object.key));
-    final ok =
-        await _probe.probe(
-          read: read,
-          size: f.object.size,
-          isVideo: f.isVideo,
-        ) ==
-        null;
-    if (!failed()) await _remember(f.object, {'r': ok});
+    final ProbedCarrier? found;
+    try {
+      found = await _probe.probe(
+        read: read,
+        size: f.object.size,
+        isVideo: f.isVideo,
+      );
+    } catch (_) {
+      return false;
+    }
+    // Unread is unknown, and unknown never re-encodes.
+    if (failed()) return false;
+    final ok = found == null;
+    await _remember(f.object, {'r': ok});
     return ok;
   }
 
@@ -724,7 +739,7 @@ class BucketFixer {
   /// to be carriers - re-encoding one destroys what it holds.
   Future<FixResult> reformat(FlaggedObject f) async {
     final uploader = _uploader;
-    if (uploader == null || !await canReformat(f)) {
+    if (uploader == null || !await canReformat(f, fresh: true)) {
       return const FixResult(FixOutcome.failed);
     }
     final target = await _target(f.object.targetId);
@@ -739,6 +754,9 @@ class BucketFixer {
         await presignGetUrl(target: target, key: f.object.key),
       );
       if (response.statusCode != 200) return const FixResult(FixOutcome.failed);
+      if (await _carries(response.bodyBytes)) {
+        return const FixResult(FixOutcome.failed, detail: 'hidden photo');
+      }
       await input.writeAsBytes(response.bodyBytes, flush: true);
 
       final output = p.join(dir.path, '$base.heif');
@@ -802,6 +820,19 @@ class BucketFixer {
       }
     }
   }
+
+  /// The downloaded bytes asked once more, with nothing left to fail.
+  Future<bool> _carries(Uint8List bytes) async =>
+      await _probe.probe(
+        read: (start, end) async => Uint8List.sublistView(
+          bytes,
+          start.clamp(0, bytes.length),
+          end.clamp(0, bytes.length),
+        ),
+        size: bytes.length,
+        isVideo: false,
+      ) !=
+      null;
 
   /// [record]'s original from whichever bucket holds it, to [toPath] — for
   /// Optimize in the bucket when this phone has no copy of its own.
@@ -948,6 +979,10 @@ class BucketFixer {
         detail: 'current copy not found',
       );
     }
+    // A video is only ever removed as the same file as the one kept.
+    if (f.isVideo && !await _sameBytes(target, f.object.key, current)) {
+      return const FixResult(FixOutcome.failed, detail: 'not the same file');
+    }
     if (!await _deleteObject(target, f.object.key)) {
       return FixResult(FixOutcome.failed, detail: _ops.lastError);
     }
@@ -956,6 +991,19 @@ class BucketFixer {
       await _deleteObject(target, thumb.key);
     }
     return const FixResult(FixOutcome.removed);
+  }
+
+  Future<bool> _sameBytes(S3BackupTarget target, String a, String b) async {
+    final sizes = await Future.wait([
+      _ops.sizeOf(target, a),
+      _ops.sizeOf(target, b),
+    ]);
+    if (sizes[0] == null || sizes[0] != sizes[1]) return false;
+    final tags = await Future.wait([
+      _ops.etagOf(target, a),
+      _ops.etagOf(target, b),
+    ]);
+    return tags[0] != null && tags[0] == tags[1];
   }
 
   Future<FixResult> removeOrphan(FlaggedObject f) async {

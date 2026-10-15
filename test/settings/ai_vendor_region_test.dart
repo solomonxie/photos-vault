@@ -4,7 +4,6 @@ import 'package:photos_vault/settings/app_store_region.dart';
 
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -51,43 +50,29 @@ void main() {
     expect(keys.single.vendor, AiVendor.qwen);
   });
 
-  test(
-    'DeepSeek asks deepseek-v4-pro in plain text, and refuses photos',
-    () async {
-      late Map<String, dynamic> sent;
-      final client = MockClient((request) async {
-        sent = jsonDecode(request.body) as Map<String, dynamic>;
-        return http.Response(
-          jsonEncode({
-            'choices': [
-              {
-                'message': {'content': 'OK'},
-              },
-            ],
-          }),
-          200,
-        );
-      });
-      await checkVendorKey(
-        vendor: AiVendor.deepseek,
-        apiKey: 'sk',
-        client: client,
+  test('DeepSeek asks deepseek-v4-pro in plain text', () async {
+    late Map<String, dynamic> sent;
+    final client = MockClient((request) async {
+      sent = jsonDecode(request.body) as Map<String, dynamic>;
+      return http.Response(
+        jsonEncode({
+          'choices': [
+            {
+              'message': {'content': 'OK'},
+            },
+          ],
+        }),
+        200,
       );
-      expect(sent['model'], 'deepseek-v4-pro');
-      expect(sent['messages'][0]['content'], isA<String>());
-
-      expect(
-        askVendor(
-          vendor: AiVendor.deepseek,
-          apiKey: 'sk',
-          prompt: 'p',
-          client: client,
-          image: Uint8List(1),
-        ),
-        throwsA(isA<AiChatException>()),
-      );
-    },
-  );
+    });
+    await checkVendorKey(
+      vendor: AiVendor.deepseek,
+      apiKey: 'sk',
+      client: client,
+    );
+    expect(sent['model'], 'deepseek-v4-pro');
+    expect(sent['messages'][0]['content'], isA<String>());
+  });
 
   test('a request that never answers times out', () async {
     final client = MockClient((_) => Completer<http.Response>().future);

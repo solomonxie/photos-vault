@@ -384,6 +384,15 @@
     }
   },
   "flaggedPermanent": "They're deleted from your bucket for good.",
+  "flaggedPermanentReplace": "The original in your bucket is replaced by the smaller copy. This can't be undone.",
+  "flaggedPermanentOnlyCopy": "{count, plural, one{1 of them has} other{{count} of them have}} no other full-quality copy anywhere.",
+  "@flaggedPermanentOnlyCopy": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "flaggedSelectAll": "Select All",
   "flaggedSelectNone": "Deselect All",
   "flaggedActionFailed": "{count, plural, one{1 couldn't be done last time} other{{count} couldn't be done last time}}",
@@ -406,8 +415,8 @@
       }
     }
   },
-  "flaggedHowOptimizeRemote": "Replaces the copy in your bucket with a smaller one. This iPhone keeps its full-quality original.",
-  "flaggedConfirmOptimizeRemoteBody": "In your bucket, photos become HEIF up to 2560 px and videos 1080p HEVC. The copy on this iPhone isn't touched.",
+  "flaggedHowOptimizeRemote": "Replaces the original in your bucket with a smaller copy, for good. Any copy on this iPhone is kept as it is.",
+  "flaggedConfirmOptimizeRemoteBody": "In your bucket, photos become HEIF up to 2560 px and videos 1080p HEVC, replacing the original for good. Any copy on this iPhone isn't touched; a photo only in the bucket has no full-quality copy left.",
   "flaggedGroupBackup": "Backup",
   "flaggedBackupQueue": "Backup Queue",
   "flaggedQueueClear": "Nothing waiting. New photos go up on their own.",
@@ -624,6 +633,7 @@
   "settingsRemoveAllAppDataKeepHidden": "Remove All, Keep Hidden Photos",
   "settingsRemoveAllAppDataWithHidden": "Remove All, Including Hidden Photos",
   "settingsRemoveAllAppDataConfirm": "Remove All Data",
+  "settingsRemoveAllAppDataKeptFiles": "Photos the app stores itself, like imports and edits, were kept: the app couldn't confirm which of them exist nowhere else.",
   "settingsICloudNotEntitled": "This build of the app isn't signed for iCloud",
   "settingsICloudDriveOff": "iCloud Drive is off on this device",
   "settingsICloudDriveOffFix": "Settings → your name → iCloud → Drive → turn on",
@@ -1232,7 +1242,6 @@
   "utilitiesHeader": "Utilities",
   "askAiTitle": "Ask AI",
   "askAiProfileOption": "Ask AI about this person",
-  "askAiPhotoOption": "Ask AI about this photo",
   "askAiPromptPlaceholder": "What do you want to know?",
   "askAiSendButton": "Ask",
   "askAiThinking": "Asking…",
@@ -1240,11 +1249,6 @@
   "askAiSendsNote": "Your question and the details below are sent to your AI provider.",
   "askAiContextHeading": "SENT AS CONTEXT",
   "askAiAnswerHeading": "ANSWER",
-  "askAiResolutionLabel": "Picture sent",
-  "askAiResolutionSmall": "Small (cheapest)",
-  "askAiResolutionMedium": "Medium",
-  "askAiResolutionFull": "Full size",
-  "askAiResolutionNote": "A smaller picture costs fewer tokens. Small is usually enough to describe a scene.",
   "autofillOption": "Fill in from a file",
   "autofillTitle": "Fill in from a file",
   "autofillPickButton": "Choose a file",

@@ -1,5 +1,3 @@
-import 'dart:typed_data';
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/l10n/app_localizations.dart';
@@ -13,17 +11,11 @@ class _FakeAsk implements AiAskService {
   final Object? throws;
   String? question;
   String? context;
-  Uint8List? image;
 
   @override
-  Future<String> ask({
-    required String question,
-    String context = '',
-    Uint8List? image,
-  }) async {
+  Future<String> ask({required String question, String context = ''}) async {
     this.question = question;
     this.context = context;
-    this.image = image;
     if (throws case final error?) throw error;
     return answer;
   }
@@ -60,9 +52,6 @@ void main() {
 
     expect(service.question, 'Who is she?');
     expect(service.context, 'Name: Mia');
-    // No picture for a question about a person: their profile is words, and
-    // uploading a photo to answer it would be paying for nothing.
-    expect(service.image, isNull);
     expect(find.text('Because of the light.'), findsOneWidget);
   });
 
@@ -93,36 +82,5 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(service.question, isNull);
-  });
-
-  testWidgets('the resolution choice is only offered for a photo', (
-    tester,
-  ) async {
-    await tester.pumpWidget(
-      _wrap(AskAiScreen(subject: 'Mia', service: _FakeAsk())),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Small (cheapest)'), findsNothing);
-
-    await tester.pumpWidget(
-      _wrap(
-        AskAiScreen(
-          key: const ValueKey('photo'),
-          subject: 'A photo',
-          imageBytes: () async => null,
-          service: _FakeAsk(),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    // Small by default: tokens are charged by pixels, and most questions
-    // about a photo are answered as well by a thumbnail.
-    expect(find.text('Small (cheapest)'), findsOneWidget);
-  });
-
-  test('each resolution names its own longest edge', () {
-    expect(maxEdgeFor(AskAiResolution.small), 512);
-    expect(maxEdgeFor(AskAiResolution.medium), 1024);
-    expect(maxEdgeFor(AskAiResolution.full), isNull);
   });
 }

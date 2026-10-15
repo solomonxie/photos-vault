@@ -122,10 +122,15 @@ class FakeAssetRecordStore implements AssetRecordStore {
     _records[localId] = existing.withDerivative(kind, state);
   }
 
+  /// Set to make [listAll] throw, like a locked or corrupt database.
+  var throwOnListAll = false;
+
   @override
-  Future<List<AssetRecord>> listAll() async =>
-      _records.values.toList()
-        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  Future<List<AssetRecord>> listAll() async {
+    if (throwOnListAll) throw StateError('database unavailable');
+    return _records.values.toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  }
 
   @override
   Future<void> remove(String localId) async {

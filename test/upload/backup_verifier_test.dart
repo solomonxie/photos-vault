@@ -186,6 +186,54 @@ void main() {
       );
     });
 
+    test(
+      'hidden and locked photos are in no count, nor unreferenced',
+      () async {
+        final store = FakeAssetRecordStore();
+        await _uploaded(
+          store,
+          localId: 'photo:open',
+          key: 'photos/originals/a',
+        );
+        await _uploaded(store, localId: 'photo:hid', key: 'photos/originals/h');
+        await _uploaded(
+          store,
+          localId: 'photo:lock',
+          key: 'photos/originals/l',
+        );
+        await _uploaded(
+          store,
+          localId: 'photo:gone',
+          key: 'photos/originals/g',
+        );
+        await store.setHidden('photo:hid', true);
+        await store.setPasscodeHash('photo:lock', 'tag');
+        await store.setHidden('photo:gone', true);
+        final verifier = BackupVerifier(
+          targetsStore: await _targets(),
+          recordStore: store,
+          list: ({required target, prefix = '', continuationToken}) async =>
+              _listing([
+                'photos/originals/a',
+                'photos/originals/h',
+                'photos/originals/l',
+              ]),
+        );
+
+        final report = await verifier.reconcile();
+
+        expect(report.expected, 1);
+        expect(report.present, 1);
+        expect(report.missingLocalIds, isEmpty);
+        expect(report.unreferencedKeys, isEmpty);
+        expect(report.isClean, isTrue);
+
+        // The unseen daily repair still looks after them.
+        final all = await verifier.reconcile(includeHidden: true);
+        expect(all.missingLocalIds, ['photo:gone']);
+      },
+    );
+
     test('a Live Photo missing its motion half is missing', () async {
       final store = FakeAssetRecordStore();
       await _uploaded(

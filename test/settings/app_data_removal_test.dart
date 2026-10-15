@@ -216,6 +216,19 @@ void main() {
     expect(onlyCopy.existsSync(), isTrue);
   });
 
+  test('an unreadable database deletes none of the owned photos', () async {
+    final s = _subject();
+    final owned = File(p.join(s.support.path, '${'a' * 64}.jpg'))
+      ..writeAsBytesSync(const [1, 2, 3]);
+    s.assets.throwOnListAll = true;
+
+    final checked = await s.removal.run(includeHidden: true);
+
+    // Which ones exist nowhere else is unknown, so every one stays.
+    expect(checked, isFalse);
+    expect(owned.existsSync(), isTrue);
+  });
+
   test('a photo safely in a bucket loses its local copy', () async {
     final s = _subject();
     final backedUp = File(p.join(s.support.path, '${'b' * 64}.jpg'))

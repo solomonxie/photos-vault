@@ -1,13 +1,11 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:typed_data';
 
 import 'package:http/http.dart' as http;
 
 import 'ai_vendor.dart';
 
-/// One request to whichever vendor's key is in use, with a prompt and
-/// optionally a picture.
+/// One request to whichever vendor's key is in use, with a text prompt.
 ///
 /// Extracted from `ai_vision_service.dart` when a second thing needed to ask
 /// a vendor something — the questions somebody types about a person or a
@@ -15,9 +13,7 @@ import 'ai_vendor.dart';
 /// already written and already the most likely thing to go stale; a second
 /// copy of them would have gone stale separately.
 ///
-/// [image] omitted sends a text-only question, which is what a question about
-/// a person is: their profile is words, and paying to upload a photo to answer
-/// it would be paying for nothing.
+/// Text only, by design: no photo is ever sent to an AI service.
 class AiChatException implements Exception {
   const AiChatException(this.message);
   final String message;
@@ -35,7 +31,6 @@ Future<String> askVendor({
   required String apiKey,
   required String prompt,
   required http.Client client,
-  Uint8List? image,
   bool jsonMode = false,
   int maxTokens = 1024,
   Duration timeout = const Duration(seconds: 60),
@@ -45,7 +40,6 @@ Future<String> askVendor({
       apiKey: apiKey,
       prompt: prompt,
       client: client,
-      image: image,
       jsonMode: jsonMode,
       maxTokens: maxTokens,
     ).timeout(
@@ -77,21 +71,17 @@ Future<String> _dispatch({
   required http.Client client,
   required bool jsonMode,
   required int maxTokens,
-  Uint8List? image,
 }) => switch (vendor) {
-  AiVendor.deepseek =>
-    image != null
-        ? Future.error(const AiChatException("DeepSeek can't read photos"))
-        : _openAiCompatible(
-            vendorName: 'DeepSeek',
-            endpoint: 'https://api.deepseek.com/chat/completions',
-            model: 'deepseek-v4-pro',
-            apiKey: apiKey,
-            prompt: prompt,
-            client: client,
-            jsonMode: jsonMode,
-            maxTokens: maxTokens,
-          ),
+  AiVendor.deepseek => _openAiCompatible(
+    vendorName: 'DeepSeek',
+    endpoint: 'https://api.deepseek.com/chat/completions',
+    model: 'deepseek-v4-pro',
+    apiKey: apiKey,
+    prompt: prompt,
+    client: client,
+    jsonMode: jsonMode,
+    maxTokens: maxTokens,
+  ),
   AiVendor.openai => _openAiCompatible(
     vendorName: 'OpenAI',
     endpoint: 'https://api.openai.com/v1/chat/completions',
@@ -99,20 +89,16 @@ Future<String> _dispatch({
     apiKey: apiKey,
     prompt: prompt,
     client: client,
-    image: image,
     jsonMode: jsonMode,
     maxTokens: maxTokens,
   ),
   AiVendor.groq => _openAiCompatible(
     vendorName: 'Groq',
     endpoint: 'https://api.groq.com/openai/v1/chat/completions',
-    model: image == null
-        ? 'llama-3.3-70b-versatile'
-        : 'llama-3.2-11b-vision-preview',
+    model: 'llama-3.3-70b-versatile',
     apiKey: apiKey,
     prompt: prompt,
     client: client,
-    image: image,
     jsonMode: jsonMode,
     maxTokens: maxTokens,
   ),
@@ -123,7 +109,6 @@ Future<String> _dispatch({
     apiKey: apiKey,
     prompt: prompt,
     client: client,
-    image: image,
     jsonMode: jsonMode,
     maxTokens: maxTokens,
   ),
@@ -134,7 +119,6 @@ Future<String> _dispatch({
     apiKey: apiKey,
     prompt: prompt,
     client: client,
-    image: image,
     jsonMode: jsonMode,
     maxTokens: maxTokens,
   ),
@@ -142,33 +126,30 @@ Future<String> _dispatch({
     vendorName: 'Qwen',
     endpoint:
         'https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions',
-    model: image == null ? 'qwen-plus' : 'qwen-vl-max',
+    model: 'qwen-plus',
     apiKey: apiKey,
     prompt: prompt,
     client: client,
-    image: image,
     jsonMode: jsonMode,
     maxTokens: maxTokens,
   ),
   AiVendor.zhipu => _openAiCompatible(
     vendorName: 'Zhipu',
     endpoint: 'https://open.bigmodel.cn/api/paas/v4/chat/completions',
-    model: image == null ? 'glm-4-plus' : 'glm-4v-plus',
+    model: 'glm-4-plus',
     apiKey: apiKey,
     prompt: prompt,
     client: client,
-    image: image,
     jsonMode: jsonMode,
     maxTokens: maxTokens,
   ),
   AiVendor.moonshot => _openAiCompatible(
     vendorName: 'Moonshot',
     endpoint: 'https://api.moonshot.cn/v1/chat/completions',
-    model: image == null ? 'moonshot-v1-8k' : 'moonshot-v1-8k-vision-preview',
+    model: 'moonshot-v1-8k',
     apiKey: apiKey,
     prompt: prompt,
     client: client,
-    image: image,
     jsonMode: jsonMode,
     maxTokens: maxTokens,
   ),
@@ -176,15 +157,9 @@ Future<String> _dispatch({
     apiKey: apiKey,
     prompt: prompt,
     client: client,
-    image: image,
     maxTokens: maxTokens,
   ),
-  AiVendor.google => _google(
-    apiKey: apiKey,
-    prompt: prompt,
-    client: client,
-    image: image,
-  ),
+  AiVendor.google => _google(apiKey: apiKey, prompt: prompt, client: client),
 };
 
 Future<String> _openAiCompatible({
@@ -195,7 +170,6 @@ Future<String> _openAiCompatible({
   required String prompt,
   required http.Client client,
   required int maxTokens,
-  Uint8List? image,
   bool jsonMode = false,
 }) async {
   final response = await client.post(
@@ -209,22 +183,7 @@ Future<String> _openAiCompatible({
       'max_tokens': maxTokens,
       if (jsonMode) 'response_format': {'type': 'json_object'},
       'messages': [
-        {
-          'role': 'user',
-          // Plain text when there's no picture: text-only vendors reject
-          // the parts array.
-          'content': image == null
-              ? prompt
-              : [
-                  {'type': 'text', 'text': prompt},
-                  {
-                    'type': 'image_url',
-                    'image_url': {
-                      'url': 'data:image/jpeg;base64,${base64Encode(image)}',
-                    },
-                  },
-                ],
-        },
+        {'role': 'user', 'content': prompt},
       ],
     }),
   );
@@ -242,7 +201,6 @@ Future<String> _anthropic({
   required String prompt,
   required http.Client client,
   required int maxTokens,
-  Uint8List? image,
 }) async {
   final response = await client.post(
     Uri.parse('https://api.anthropic.com/v1/messages'),
@@ -259,15 +217,6 @@ Future<String> _anthropic({
           'role': 'user',
           'content': [
             {'type': 'text', 'text': prompt},
-            if (image != null)
-              {
-                'type': 'image',
-                'source': {
-                  'type': 'base64',
-                  'media_type': 'image/jpeg',
-                  'data': base64Encode(image),
-                },
-              },
           ],
         },
       ],
@@ -284,7 +233,6 @@ Future<String> _google({
   required String apiKey,
   required String prompt,
   required http.Client client,
-  Uint8List? image,
 }) async {
   final response = await client.post(
     Uri.parse(
@@ -297,13 +245,6 @@ Future<String> _google({
         {
           'parts': [
             {'text': prompt},
-            if (image != null)
-              {
-                'inline_data': {
-                  'mime_type': 'image/jpeg',
-                  'data': base64Encode(image),
-                },
-              },
           ],
         },
       ],

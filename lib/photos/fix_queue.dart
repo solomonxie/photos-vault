@@ -148,10 +148,13 @@ class Flag {
         ],
       },
       // A guess either way, so a person looks at each: an old copy, or a
-      // file the same size as one already here.
+      // file the same size as one already here. A video's old copy may be
+      // another phone's only clip of the moment.
       oneAtATime: {
         FlagSolution.importAnyway,
         if (duplicate) FlagSolution.rename,
+        if (object.isVideo && object.kind == FlagKind.oldCopy)
+          FlagSolution.removeOldCopy,
       },
       bucket: object,
     );

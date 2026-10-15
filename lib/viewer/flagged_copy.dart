@@ -67,18 +67,38 @@ String? solutionDetail(AppLocalizations l10n, FlagSolution s) => switch (s) {
   _ => null,
 };
 
-/// Deletes for good, so it asks once more.
+/// Deletes or overwrites for good, so it asks once more.
 bool solutionIsPermanent(FlagSolution s) =>
     s == FlagSolution.removeThumbnail ||
     s == FlagSolution.removeOldCopy ||
     s == FlagSolution.removeBucketDuplicate ||
-    s == FlagSolution.removeFromLibrary;
+    s == FlagSolution.removeFromLibrary ||
+    solutionReplacesOriginal(s);
 
-/// What the confirmation says is lost.
-String permanentNote(AppLocalizations l10n, FlagSolution s) =>
-    s == FlagSolution.removeFromLibrary
-    ? l10n.flaggedConfirmRemoveFromLibraryBody
-    : l10n.flaggedPermanent;
+/// Writes a smaller copy over the bucket's original.
+bool solutionReplacesOriginal(FlagSolution s) =>
+    s == FlagSolution.optimizeRemote || s == FlagSolution.reformat;
+
+/// What the confirmation says is lost. For a replace, how many of [chosen]
+/// have no other copy: a bucket file not in the library, or a cloud-only
+/// photo.
+String permanentNote(
+  AppLocalizations l10n,
+  FlagSolution s, [
+  List<Flag> chosen = const [],
+]) {
+  if (s == FlagSolution.removeFromLibrary) {
+    return l10n.flaggedConfirmRemoveFromLibraryBody;
+  }
+  if (!solutionReplacesOriginal(s)) return l10n.flaggedPermanent;
+  final only = chosen
+      .where((f) => f.record == null || f.record!.localDeleted)
+      .length;
+  return [
+    l10n.flaggedPermanentReplace,
+    if (only > 0) l10n.flaggedPermanentOnlyCopy(only),
+  ].join(' ');
+}
 
 IconData solutionIcon(FlagSolution s) => switch (s) {
   FlagSolution.backUp => CupertinoIcons.cloud_upload_fill,

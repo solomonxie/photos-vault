@@ -14,6 +14,7 @@ import 'package:photos_vault/photos/fix_queue.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/storage/bucket_object.dart';
 import 'package:photos_vault/upload/bucket_flagged.dart';
+import 'package:photos_vault/viewer/flagged_action_screen.dart';
 import 'package:photos_vault/viewer/flagged_items_screen.dart';
 
 import '../settings/fake_secure_store.dart';
@@ -229,6 +230,69 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('IMG_0042.PNG'), findsOneWidget);
+  });
+
+  testWidgets('Optimize in bucket starts unticked and asks before it '
+      'replaces an original for good', (tester) async {
+    final store = FakeAssetRecordStore();
+    await store.upsert(localId: 'c', contentHash: 'c', platform: 'ios');
+    await store.setLocalDeleted('c', true);
+    final record = (await store.getByLocalId('c'))!;
+    final queue = FixQueue(
+      store: store,
+      advisor: advisorOver(store),
+      optimizer: StorageOptimizer(
+        store: store,
+        thumbnails: ThumbnailCache(
+          store: store,
+          directory: () async => tempDir,
+          encode: (_) async => Uint8List.fromList([1]),
+        ),
+        library: PhotoLibraryService(store: store),
+        backUp: (_) async {},
+      ),
+      fixer: BucketFixer(
+        store: store,
+        targetsStore: BackupTargetsStore(store: FakeSecureStore()),
+        passphrases: () async => const [],
+      ),
+      refreshBucket: () async {},
+    );
+    final flag = Flag.storage(
+      StorageItem(
+        record: record,
+        bytes: 1,
+        name: 'cloud.heic',
+        appOwned: false,
+        issues: const {StorageIssue.largeFile},
+        fixes: const [StorageFix.optimizeRemote],
+      ),
+    );
+    await tester.pumpWidget(
+      _wrap(
+        FlaggedActionScreen(
+          solution: FlagSolution.optimizeRemote,
+          flags: [flag],
+          queue: queue,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Optimize Space · 0'), findsOneWidget);
+    await tester.tap(find.text('cloud.heic'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Optimize Space · 1'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining("can't be undone"), findsOneWidget);
+    expect(
+      find.textContaining('1 of them has no other full-quality copy'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(queue.jobs, isEmpty);
   });
 
   testWidgets('cloud-only records without a thumbnail, or without any '

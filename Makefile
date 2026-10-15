@@ -20,7 +20,8 @@ BUDGET  := 33
 # archive always build the normal binary.
 STOREFRONT ?= USA
 REGION  := $(if $(filter CHN,$(STOREFRONT)),cn,$(if $(filter USA CAN,$(STOREFRONT)),us))
-# Demo-mode credentials, if present (copy .env.demo.example).
+# Demo-mode credentials, if present (copy .env.demo.example). Device builds
+# only; archive and release never get them.
 DEFINES := $(if $(wildcard .env.demo),--dart-define-from-file=.env.demo)
 
 .DEFAULT_GOAL := help
@@ -65,7 +66,8 @@ run: install-ios ## Same as install-ios
 archive: ## Archive a Release build without uploading it (never forced to China)
 	@echo "APP_STORE_REGION = us" > ios/Flutter/Store.xcconfig
 	$(FLUTTER) build ipa --release --build-number=$$(date +%Y%m%d%H%M) \
-	  --obfuscate --split-debug-info=build/symbols/$$(date +%Y%m%d%H%M) $(DEFINES)
+	  --obfuscate --split-debug-info=build/symbols/$$(date +%Y%m%d%H%M)
+	./scripts/check-no-demo-secrets.sh $(APP)
 
 upload: ## Upload the archive that already exists, without rebuilding
 	xcodebuild -exportArchive \

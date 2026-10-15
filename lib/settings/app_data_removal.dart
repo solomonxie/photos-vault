@@ -94,7 +94,10 @@ class AppDataRemoval {
   /// store, the passphrase entries and master keys, and any hidden photo's
   /// plaintext file. Carriers already in a bucket are never touched either
   /// way - the wipe has never deleted from a bucket.
-  Future<void> run({bool includeHidden = false}) async {
+  ///
+  /// Returns false when the photos the app stores itself were all kept,
+  /// because which of them exist nowhere else couldn't be read.
+  Future<bool> run({bool includeHidden = false}) async {
     // Before the rows go, because afterwards there is nothing left to ask
     // which files are the only copy of anything.
     final keep = await _onlyCopies(includeHidden: includeHidden);
@@ -127,6 +130,7 @@ class AppDataRemoval {
       await _attempt(_vaultKeys.eraseOnThisDevice);
     }
     await _attempt(sealAgainstRestore);
+    return keep != null;
   }
 
   /// Puts the outstanding object deletions back after the wipe.
@@ -180,7 +184,9 @@ class AppDataRemoval {
   /// [AssetRecord.isFullyBackedUp] is the codebase's existing answer to
   /// "is it safe to remove the local copy?" — it accounts for the moving
   /// half of a Live Photo, which the original's status alone does not.
-  Future<Set<String>> _onlyCopies({bool includeHidden = false}) async {
+  ///
+  /// Null when the rows can't be read: unknown, so no owned file goes.
+  Future<Set<String>?> _onlyCopies({bool includeHidden = false}) async {
     try {
       return {
         for (final record in await settings.listAll())
@@ -190,10 +196,7 @@ class AppDataRemoval {
             ?record.sourcePath,
       };
     } catch (_) {
-      // Unreadable database. Keeping everything is the safe way to be
-      // wrong: the files stay, and nothing is destroyed that cannot be
-      // got back.
-      return const {};
+      return null;
     }
   }
 
@@ -207,7 +210,7 @@ class AppDataRemoval {
   /// sharing the container can be caught by it.
   ///
   /// [keeping] is spared: the files that are some photo's only copy. See
-  /// [_onlyCopies].
+  /// [_onlyCopies]. Null keeps every owned original.
   ///
   /// The thumbnail cache and the carrier cache go whatever happens. Both are
   /// caches in the real sense — a thumbnail regenerates from its original,
@@ -219,12 +222,12 @@ class AppDataRemoval {
   /// album keys, and asking would reveal that a hidden album exists. So it
   /// stays, encrypted, and opens again with the passphrase and code;
   /// deleting hidden photos is done inside the hidden album.
-  Future<void> deleteOwnedFiles({Set<String> keeping = const {}}) async {
+  Future<void> deleteOwnedFiles({Set<String>? keeping = const {}}) async {
     final support = supportDirectory;
     if (support != null) {
       final root = await support();
       await _deleteTree(Directory(p.join(root.path, ThumbnailCache.dirName)));
-      await _deleteOwnedOriginals(root, keeping);
+      if (keeping != null) await _deleteOwnedOriginals(root, keeping);
     }
     final cache = cacheDirectory;
     if (cache != null) {

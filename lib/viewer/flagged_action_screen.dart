@@ -8,8 +8,9 @@ import '../settings/settings_section.dart';
 import 'asset_grid.dart';
 import 'flagged_copy.dart';
 
-/// One action and everything it applies to. All selected to start with:
-/// untick what should stay as it is, then one button does the rest. What
+/// One action and everything it applies to. All selected to start with,
+/// except an action that replaces bucket originals: each of those is
+/// ticked by hand. Then one button does the rest. What
 /// is done drops out; what fails stays, saying why, ready to try again.
 class FlaggedActionScreen extends StatefulWidget {
   const FlaggedActionScreen({
@@ -32,7 +33,9 @@ class FlaggedActionScreen extends StatefulWidget {
 class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
   FixQueue get _queue => widget.queue;
   late List<Flag> _flags = _open();
-  late Set<String> _selected = {for (final f in _flags) f.id};
+  late Set<String> _selected = solutionReplacesOriginal(widget.solution)
+      ? {}
+      : {for (final f in _flags) f.id};
 
   List<Flag> _open() => [
     for (final f in widget.flags)
@@ -97,7 +100,7 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
       context: context,
       builder: (dialogContext) => CupertinoAlertDialog(
         title: Text(l10n.flaggedConfirmTitle(label, chosen.length)),
-        content: Text(permanentNote(l10n, widget.solution)),
+        content: Text(permanentNote(l10n, widget.solution, chosen)),
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(dialogContext).pop(false),

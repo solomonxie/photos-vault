@@ -19,9 +19,11 @@ FLUTTER=.tools/flutter/bin/flutter
 # launch. A forced `cn` (STOREFRONT=CHN, for testing) must never ship.
 echo "APP_STORE_REGION = us" > ios/Flutter/Store.xcconfig
 
-# Demo-mode credentials, if present (see .env.demo.example).
-DEFINES=
-[ -f .env.demo ] && DEFINES=--dart-define-from-file=.env.demo
+# Never any demo defines: they would put the demo bucket secret and AI key
+# in every user's binary.
+case "$*" in
+  *dart-define*) echo "release-ios.sh: no --dart-define in a release" >&2; exit 1 ;;
+esac
 
 BUILD=${1:-$(date +%Y%m%d%H%M)}
 SYMBOLS=build/symbols/$BUILD
@@ -32,9 +34,11 @@ SYMBOLS=build/symbols/$BUILD
 "$FLUTTER" build ipa --release \
   --build-number="$BUILD" \
   --obfuscate --split-debug-info="$SYMBOLS" \
-  --export-options-plist=ios/ExportOptions.plist $DEFINES
+  --export-options-plist=ios/ExportOptions.plist
 
-du -sh build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app 2>/dev/null || true
+APP=build/ios/archive/Runner.xcarchive/Products/Applications/Runner.app
+scripts/check-no-demo-secrets.sh "$APP"
+du -sh "$APP" 2>/dev/null || true
 echo
 echo "Uploaded build $BUILD. Processing in App Store Connect takes 15–60 min."
 echo "Crash symbols for it: $SYMBOLS — keep these."
