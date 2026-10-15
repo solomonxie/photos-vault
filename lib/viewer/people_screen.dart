@@ -20,6 +20,7 @@ import 'person_page_screen.dart';
 import 'face_group_screen.dart';
 import 'person_picker_sheet.dart';
 import 'person_profile_screen.dart';
+import 'private_album_gate.dart' show personHasHiddenFolder;
 import 'profile_transfer_screen.dart';
 
 /// Collections' "People" row: named [Person] profiles (T7.1-T7.3), each with
@@ -549,7 +550,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
       ),
     );
     final saved = await widget.personStore.getById(person.id);
-    if ((saved?.name ?? '').trim().isEmpty) {
+    if ((saved?.name ?? '').trim().isEmpty &&
+        !await personHasHiddenFolder(widget.assetRecordStore, person.id)) {
       await widget.personStore.remove(person.id);
       await widget.faceIdentity?.forget(person.id);
     }

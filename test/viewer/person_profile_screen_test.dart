@@ -3,10 +3,12 @@ import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/storage/passcode_hash.dart';
 import 'package:photos_vault/viewer/custom_fields_editor.dart';
 import 'package:photos_vault/viewer/person_profile_screen.dart';
+import 'package:photos_vault/viewer/private_album_gate.dart';
 import 'package:photos_vault/viewer/person_traits_editor.dart';
 import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/photos/person_store.dart';
 
 import 'package:photos_vault/photos/person_detail.dart';
 import 'package:photos_vault/photos/person_owner.dart';
@@ -167,6 +169,7 @@ void main() {
           category: HistoryCategory.education,
           title: 'MIT',
         ),
+        scope: PersonScope.open,
       );
       final mia = await personStore.create(name: 'Mia');
 
@@ -199,12 +202,16 @@ void main() {
   ) async {
     final personStore = FakePersonStore();
     final keychain = FakeSecureStore();
-    final vaultKeys = VaultKeys(store: keychain);
+    final vaultKeys = VaultKeys(store: keychain, derive: deriveOnThisIsolate);
     // The passphrase is the app's, shared with the private album. With one
     // already set, the keypad goes straight up rather than through setup.
     await vaultKeys.add('a good long passphrase');
     final mia = await personStore.create(name: 'Mia');
-    await personStore.saveDetail(mia.id, const PersonDetail(bio: 'open bio'));
+    await personStore.saveDetail(
+      mia.id,
+      const PersonDetail(bio: 'open bio'),
+      scope: PersonScope.open,
+    );
 
     await tester.pumpWidget(
       _wrap(
@@ -418,7 +425,7 @@ void main() {
     await _useTallSurface(tester);
     final personStore = FakePersonStore();
     final keychain = FakeSecureStore();
-    final vaultKeys = VaultKeys(store: keychain);
+    final vaultKeys = VaultKeys(store: keychain, derive: deriveOnThisIsolate);
     await vaultKeys.add('a good long passphrase', hint: 'the usual');
     // Exactly what Remove All App Data leaves behind: the entry is known,
     // the master key it derives is not.
@@ -742,6 +749,7 @@ void main() {
       mia.id,
       daniel.id,
       RelationshipType.friend,
+      scope: PersonScope.open,
     );
 
     await tester.pumpWidget(
@@ -777,6 +785,7 @@ void main() {
         mia.id,
         daniel.id,
         RelationshipType.friend,
+        scope: PersonScope.open,
       );
 
       await tester.pumpWidget(
@@ -820,6 +829,7 @@ void main() {
         mia.id,
         daniel.id,
         RelationshipType.friend,
+        scope: PersonScope.open,
       );
 
       await tester.pumpWidget(
@@ -869,8 +879,14 @@ void main() {
       mia.id,
       daniel.id,
       RelationshipType.friend,
+      scope: PersonScope.open,
     );
-    await personStore.addRelationship(mia.id, lily.id, RelationshipType.family);
+    await personStore.addRelationship(
+      mia.id,
+      lily.id,
+      RelationshipType.family,
+      scope: PersonScope.open,
+    );
 
     await tester.pumpWidget(
       _wrap(
@@ -902,6 +918,7 @@ void main() {
         place: 'Shanghai',
         since: DateTime(1995),
       ),
+      scope: PersonScope.open,
     );
     await personStore.addLocation(
       PersonLocation(
@@ -911,6 +928,7 @@ void main() {
         place: 'Beijing',
         since: DateTime(2010),
       ),
+      scope: PersonScope.open,
     );
 
     await tester.pumpWidget(
@@ -945,6 +963,7 @@ void main() {
           title: 'Acme Corp',
           titles: const [TimelineEntry(id: 't1', title: 'Senior Engineer')],
         ),
+        scope: PersonScope.open,
       );
 
       await tester.pumpWidget(
@@ -976,6 +995,7 @@ void main() {
         place: 'Shanghai',
         since: DateTime(1995),
       ),
+      scope: PersonScope.open,
     );
 
     await tester.pumpWidget(
@@ -1024,6 +1044,7 @@ void main() {
         place: 'Shanghai',
         since: DateTime(1995),
       ),
+      scope: PersonScope.open,
     );
 
     await tester.pumpWidget(
@@ -1074,7 +1095,12 @@ void main() {
     final assets = FakeAssetRecordStore();
     final me = await personStore.create(name: 'Solomon');
     final mia = await personStore.create(name: 'Mia');
-    await personStore.addRelationship(mia.id, me.id, RelationshipType.sibling);
+    await personStore.addRelationship(
+      mia.id,
+      me.id,
+      RelationshipType.sibling,
+      scope: PersonScope.open,
+    );
     await assets.setAppState(PersonOwner.key, me.id);
 
     await tester.pumpWidget(
@@ -1096,7 +1122,12 @@ void main() {
     final personStore = FakePersonStore();
     final me = await personStore.create(name: 'Solomon');
     final mia = await personStore.create(name: 'Mia');
-    await personStore.addRelationship(mia.id, me.id, RelationshipType.sibling);
+    await personStore.addRelationship(
+      mia.id,
+      me.id,
+      RelationshipType.sibling,
+      scope: PersonScope.open,
+    );
 
     await tester.pumpWidget(
       _wrap(
@@ -1118,8 +1149,8 @@ void main() {
     final mia = await personStore.create(name: 'Mia');
     final dan = await personStore.create(name: 'Daniel');
     const acme = PersonGroup(id: 'g1', name: 'Acme', kind: GroupKind.company);
-    await personStore.joinGroup(mia.id, acme);
-    await personStore.joinGroup(dan.id, acme);
+    await personStore.joinGroup(mia.id, acme, scope: PersonScope.open);
+    await personStore.joinGroup(dan.id, acme, scope: PersonScope.open);
 
     await tester.pumpWidget(
       _wrap(
@@ -1140,5 +1171,60 @@ void main() {
       find.byIcon(CupertinoIcons.pencil, skipOffstage: false),
       findsNothing,
     );
+  });
+
+  testWidgets('a person whose hidden folder holds photos cannot be deleted', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final records = FakeAssetRecordStore();
+    final mia = await personStore.create(name: 'Mia');
+    await records.upsert(localId: 'h1', contentHash: 'c', platform: 'ios');
+    await records.setPasscodeHash(
+      'h1',
+      hashPasscode(personAlbumCode(mia.id, '0420')),
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: records,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final delete = find.text('Delete Person');
+    await _scrollTo(tester, delete);
+    // The codes are tried on another isolate, which only answers on the
+    // real clock.
+    await tester.runAsync(() async {
+      await tester.tap(delete);
+      await Future<void>.delayed(const Duration(seconds: 2));
+    });
+    await tester.pumpAndSettle();
+
+    expect(find.text('Empty Their Hidden Folder First'), findsOneWidget);
+    expect(find.text('Delete this person?'), findsNothing);
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    expect(await personStore.getById(mia.id), isNotNull);
+  });
+
+  test('only this person\'s codes count as their hidden folder', () async {
+    final records = FakeAssetRecordStore();
+    await records.upsert(localId: 'h1', contentHash: 'c', platform: 'ios');
+    await records.setPasscodeHash(
+      'h1',
+      hashPasscode(personAlbumCode('someone-else', '0420')),
+    );
+    expect(await personHasHiddenFolder(records, 'mia'), isFalse);
+
+    await records.setPasscodeHash(
+      'h1',
+      hashPasscode(personAlbumCode('mia', '9999')),
+    );
+    expect(await personHasHiddenFolder(records, 'mia'), isTrue);
   });
 }

@@ -382,6 +382,11 @@ class FakeAssetRecordStore implements AssetRecordStore {
   }
 
   @override
+  Future<Set<String>> passcodeHashes() async => {
+    for (final r in _records.values) ?r.passcodeHash,
+  };
+
+  @override
   Future<List<AssetRecord>> forPasscodeHash(String hash) async =>
       _records.values.where((r) => r.passcodeHash == hash).toList()
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));

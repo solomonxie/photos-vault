@@ -5,6 +5,7 @@ import 'package:flutter/services.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
+import 'album_index.dart';
 import 'carrier.dart';
 import 'cipher.dart';
 import 'keys.dart';
@@ -99,6 +100,7 @@ class VaultStore {
   static const unsentDir = 'unsent';
   static const indexFileName = 'index.bin';
   static const unpublishedFileName = 'index.unpublished';
+  static const indexMarksFileName = 'index.marks';
 
   Future<Directory> _root() async {
     final dir = Directory(p.join((await _directory()).path, root));
@@ -133,23 +135,57 @@ class VaultStore {
   /// every album's padded section, readable only with an album key. Kept
   /// whole rather than per album for exactly that reason: a per-album file
   /// would make the number of albums a directory listing.
+  ///
+  /// Null for a torn or short file: it is never handed out, so it is never
+  /// merged into or pushed to a bucket.
   Future<Uint8List?> readIndex() async {
     try {
       final file = File(p.join((await _root()).path, indexFileName));
       if (!await file.exists()) return null;
       final bytes = await file.readAsBytes();
-      return bytes.isEmpty ? null : bytes;
+      return isWholeIndex(bytes) ? bytes : null;
     } catch (_) {
       return null;
     }
   }
 
-  Future<void> writeIndex(Uint8List index) async {
+  /// Written beside and renamed over, so a kill mid-write leaves the old
+  /// file whole. False, and nothing written, for an index that isn't whole.
+  Future<bool> writeIndex(Uint8List index) async {
+    if (!isWholeIndex(index)) return false;
     try {
-      final file = File(p.join((await _root()).path, indexFileName));
-      await file.writeAsBytes(index, flush: true);
+      final root = (await _root()).path;
+      final temp = File(p.join(root, '$indexFileName.tmp'));
+      await temp.writeAsBytes(index, flush: true);
+      await temp.rename(p.join(root, indexFileName));
+      return true;
     } catch (_) {
       // The bucket's copy still stands; the album just won't open offline.
+      return false;
+    }
+  }
+
+  /// Per bucket, which passphrase entries its `index.bin` is known to carry
+  /// — so first contact is checked once, not on every sync.
+  Future<Map<String, String>> readIndexMarks() async {
+    try {
+      final file = File(p.join((await _root()).path, indexMarksFileName));
+      if (!await file.exists()) return {};
+      return (jsonDecode(await file.readAsString()) as Map)
+          .cast<String, String>();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> writeIndexMarks(Map<String, String> marks) async {
+    try {
+      final root = (await _root()).path;
+      final temp = File(p.join(root, '$indexMarksFileName.tmp'));
+      await temp.writeAsString(jsonEncode(marks), flush: true);
+      await temp.rename(p.join(root, indexMarksFileName));
+    } catch (_) {
+      // Checked again next time.
     }
   }
 

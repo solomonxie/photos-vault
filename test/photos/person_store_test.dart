@@ -49,6 +49,7 @@ void main() {
         title: 'MIT',
         startDate: DateTime(2010),
       ),
+      scope: PersonScope.open,
     );
     await store.addHistoryEntry(
       PersonHistoryEntry(
@@ -58,6 +59,7 @@ void main() {
         title: 'Cleveland High',
         startDate: DateTime(2006),
       ),
+      scope: PersonScope.open,
     );
     await store.addHistoryEntry(
       PersonHistoryEntry(
@@ -66,6 +68,7 @@ void main() {
         category: HistoryCategory.job,
         title: 'Acme Corp',
       ),
+      scope: PersonScope.open,
     );
 
     final education = await store.historyFor(
@@ -91,6 +94,7 @@ void main() {
           category: HistoryCategory.job,
           title: 'Acme Corp',
         ),
+        scope: PersonScope.open,
       );
 
       await store.addHistoryEntry(
@@ -104,6 +108,7 @@ void main() {
             PersonCustomField(label: 'Title', value: 'Senior Engineer'),
           ],
         ),
+        scope: PersonScope.open,
       );
 
       final jobs = await store.historyFor(person.id, HistoryCategory.job);
@@ -127,6 +132,7 @@ void main() {
           category: HistoryCategory.education,
           title: 'MIT',
         ),
+        scope: PersonScope.open,
       );
       await store.addHistoryEntry(
         PersonHistoryEntry(
@@ -135,6 +141,7 @@ void main() {
           category: HistoryCategory.education,
           title: 'MIT',
         ),
+        scope: PersonScope.open,
       );
       await store.addHistoryEntry(
         PersonHistoryEntry(
@@ -143,6 +150,7 @@ void main() {
           category: HistoryCategory.job,
           title: 'Acme Corp',
         ),
+        scope: PersonScope.open,
       );
 
       expect(await store.allHistoryTitles(HistoryCategory.education), {'MIT'});
@@ -159,9 +167,10 @@ void main() {
         category: HistoryCategory.education,
         title: 'MIT',
       ),
+      scope: PersonScope.open,
     );
 
-    await store.removeHistoryEntry('e1');
+    await store.removeHistoryEntry('e1', scope: PersonScope.open);
 
     expect(
       await store.historyFor(person.id, HistoryCategory.education),
@@ -179,6 +188,7 @@ void main() {
         category: HistoryCategory.education,
         title: 'MIT',
       ),
+      scope: PersonScope.open,
     );
 
     await store.remove(person.id);
@@ -212,7 +222,12 @@ void main() {
       final parent = await store.create(name: 'Parent');
       final child = await store.create(name: 'Child');
 
-      await store.addRelationship(parent.id, child.id, RelationshipType.parent);
+      await store.addRelationship(
+        parent.id,
+        child.id,
+        RelationshipType.parent,
+        scope: PersonScope.open,
+      );
 
       final fromParent = await store.relationshipsFor(parent.id);
       final fromChild = await store.relationshipsFor(child.id);
@@ -226,7 +241,12 @@ void main() {
     final a = await store.create(name: 'A');
     final b = await store.create(name: 'B');
 
-    await store.addRelationship(a.id, b.id, RelationshipType.friend);
+    await store.addRelationship(
+      a.id,
+      b.id,
+      RelationshipType.friend,
+      scope: PersonScope.open,
+    );
 
     expect(
       (await store.relationshipsFor(b.id)).single.type,
@@ -238,9 +258,14 @@ void main() {
     final store = newStore();
     final a = await store.create(name: 'A');
     final b = await store.create(name: 'B');
-    await store.addRelationship(a.id, b.id, RelationshipType.friend);
+    await store.addRelationship(
+      a.id,
+      b.id,
+      RelationshipType.friend,
+      scope: PersonScope.open,
+    );
 
-    await store.removeRelationship(a.id, b.id);
+    await store.removeRelationship(a.id, b.id, scope: PersonScope.open);
 
     expect(await store.relationshipsFor(a.id), isEmpty);
     expect(await store.relationshipsFor(b.id), isEmpty);
@@ -257,6 +282,7 @@ void main() {
         place: 'Vancouver',
         since: DateTime(2020),
       ),
+      scope: PersonScope.open,
     );
     await store.addLocation(
       PersonLocation(
@@ -266,6 +292,7 @@ void main() {
         place: 'Guangzhou',
         since: DateTime(1990),
       ),
+      scope: PersonScope.open,
     );
 
     final locations = await store.locationsFor(person.id);
@@ -285,6 +312,7 @@ void main() {
         b.id,
         RelationshipType.colleague,
         organization: 'Acme Corp',
+        scope: PersonScope.open,
       );
 
       expect(
@@ -308,8 +336,14 @@ void main() {
       b.id,
       RelationshipType.colleague,
       organization: 'Acme Corp',
+      scope: PersonScope.open,
     );
-    await store.addRelationship(a.id, c.id, RelationshipType.friend);
+    await store.addRelationship(
+      a.id,
+      c.id,
+      RelationshipType.friend,
+      scope: PersonScope.open,
+    );
 
     expect(await store.allOrganizations(), {'Acme Corp'});
   });
@@ -319,7 +353,12 @@ void main() {
     final a = await store.create(name: 'A');
     final b = await store.create(name: 'B');
     await store.addAssets(a.id, ['p1']);
-    await store.addRelationship(a.id, b.id, RelationshipType.friend);
+    await store.addRelationship(
+      a.id,
+      b.id,
+      RelationshipType.friend,
+      scope: PersonScope.open,
+    );
     await store.addLocation(
       PersonLocation(
         id: 'l1',
@@ -328,6 +367,7 @@ void main() {
         place: 'X',
         since: DateTime(2000),
       ),
+      scope: PersonScope.open,
     );
 
     await store.remove(a.id);
@@ -419,6 +459,7 @@ void main() {
           title: id,
           startDate: DateTime(year),
         ),
+        scope: PersonScope.open,
       );
     }
     await store.addLocation(
@@ -429,8 +470,14 @@ void main() {
         place: 'Oslo',
         since: DateTime(2020),
       ),
+      scope: PersonScope.open,
     );
-    await store.addRelationship(a.id, b.id, RelationshipType.parent);
+    await store.addRelationship(
+      a.id,
+      b.id,
+      RelationshipType.parent,
+      scope: PersonScope.open,
+    );
 
     final sets = await store.exportSets();
 

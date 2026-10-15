@@ -1561,6 +1561,19 @@ class AssetRecordStore {
     return rows.map(_fromRow).toList();
   }
 
+  /// Every passcode hash any row carries, binned rows included: each is a
+  /// hidden album that still holds something.
+  Future<Set<String>> passcodeHashes() async {
+    final db = await _open();
+    final rows = await db.query(
+      _table,
+      columns: ['passcode_hash'],
+      distinct: true,
+      where: 'passcode_hash IS NOT NULL',
+    );
+    return {for (final r in rows) r['passcode_hash'] as String};
+  }
+
   Future<void> setHidden(String localId, bool value) async {
     final db = await _open();
     await db.update(

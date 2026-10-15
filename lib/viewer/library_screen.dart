@@ -1540,6 +1540,9 @@ class LibraryScreenState extends State<LibraryScreen>
   Future<void> _sendUnsentCarriers() async {
     try {
       if (!await _hasBackupTarget()) return;
+      // Every install, hidden albums or not: first contact with a bucket
+      // leaves an index carrying this phone's passphrase entries.
+      await _vaultBucket.ensurePublished(await _vaultKeys.entries());
       if (await _vaultStore.isIndexUnpublished()) {
         final local = await _vaultStore.readIndex();
         if (local != null) await _vaultBucket.pushIndex(local);

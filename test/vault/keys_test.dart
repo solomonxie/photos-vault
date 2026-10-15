@@ -1,9 +1,32 @@
+import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/vault/cipher.dart';
 import 'package:photos_vault/settings/secure_store.dart';
 import 'package:photos_vault/storage/passcode_hash.dart';
 import 'package:photos_vault/vault/keys.dart';
+
+/// Set on the test's own isolate only; a fresh isolate sees the initial 0.
+var _isolateMark = 0;
+
+/// Reports, as the derived key, which isolate it ran on.
+class _MarkingCipher implements VaultCipher {
+  @override
+  Uint8List deriveKey({
+    required String passphrase,
+    required Uint8List salt,
+    required int iterations,
+    int length = 32,
+  }) => Uint8List(length)..fillRange(0, length, _isolateMark);
+
+  @override
+  Uint8List transform({
+    required Uint8List key,
+    required Uint8List iv,
+    required Uint8List data,
+  }) => data;
+}
 
 class _MemoryStore implements SecureStore {
   final Map<String, String> values = {};
@@ -89,6 +112,7 @@ void main() {
       final keys = VaultKeys(store: store);
       await keys.add('correct horse battery');
       final opened = (await keys.unlockAlbum('1234'))!;
+      await keys.keepAlbum(hashPasscode('1234'));
       keys.lockAll();
 
       final relaunched = VaultKeys(store: store);
@@ -136,4 +160,87 @@ void main() {
       expect(await keys.outboxKey('nobody'), isNull);
     },
   );
+
+  test(
+    'a code typed into an empty album is not kept across launches',
+    () async {
+      final store = _MemoryStore();
+      final keys = VaultKeys(store: store);
+      await keys.add('correct horse battery');
+      await keys.unlockAlbum('9876');
+      keys.lockAll();
+
+      final relaunched = VaultKeys(store: store);
+      await relaunched.restoreRing();
+      expect(relaunched.ringKeysFor(hashPasscode('9876')), isNull);
+    },
+  );
+
+  test('the passphrase is stretched off the UI isolate', () async {
+    _isolateMark = 7;
+    final keys = VaultKeys(store: _MemoryStore(), cipher: _MarkingCipher());
+    await keys.add('correct horse battery');
+
+    final master = await deriveOnThisIsolate(
+      _MarkingCipher(),
+      'x',
+      Uint8List(16),
+    );
+    expect(master.first, 7, reason: 'the mark is visible here');
+    final album = (await keys.albumKeys('1234')).single;
+    final derivedThere = hkdf(
+      key: Uint8List(32),
+      info: utf8.encode('album:1234'),
+    ).sublist(0, 32);
+    expect(
+      album.albumKey,
+      derivedThere,
+      reason: 'the master key came from an isolate that never saw the mark',
+    );
+  });
+
+  test('setup on a new phone lands on the old salt when the old passphrase '
+      'is typed, and mints a new one otherwise', () async {
+    final old = await VaultKeys(store: _MemoryStore())
+        .add('the old one', hint: 'old phone');
+
+    final phone = VaultKeys(store: _MemoryStore());
+    final again = await phone.setUp('the old one', known: [old]);
+    expect(again.id, old.id);
+    expect(again.salt, old.salt);
+    expect((await phone.entries()).single.id, old.id);
+
+    final other = VaultKeys(store: _MemoryStore());
+    final fresh = await other.setUp('something else', known: [old]);
+    expect(fresh.id, isNot(old.id));
+  });
+
+  test('a passphrase entry made before this change still opens', () async {
+    // Built by hand the way every earlier build did: PBKDF2-SHA256 600k
+    // over a 16-byte salt, verifier and id by HMAC, album key by HKDF.
+    final cipher = PlatformCipher();
+    final salt = Uint8List.fromList(List.generate(16, (i) => 200 - i));
+    final master = cipher.deriveKey(
+      passphrase: 'an older passphrase',
+      salt: salt,
+      iterations: 600000,
+    );
+    final entry = PassphraseEntry(
+      id: base64Url.encode(vaultHmac(salt, 'id'.codeUnits).sublist(0, 9)),
+      salt: salt,
+      verifier: vaultHmac(master, 'verify'.codeUnits),
+      hint: '',
+    );
+    final albumKey = hkdf(
+      key: master,
+      info: utf8.encode('album:2468'),
+    ).sublist(0, 32);
+
+    final phone = VaultKeys(store: _MemoryStore());
+    expect(
+      (await phone.setUp('an older passphrase', known: [entry])).id,
+      entry.id,
+    );
+    expect((await phone.albumKeys('2468')).single.albumKey, albumKey);
+  });
 }

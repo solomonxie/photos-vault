@@ -1,4 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/photos/person_store.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/photos/person_detail.dart';
 import 'package:photos_vault/photos/profile_csv.dart';
@@ -20,10 +21,12 @@ void main() {
         customFields: const [PersonCustomField(label: 'Phone', value: '0700')],
         impression: const PersonImpression(tags: ['organised']),
       ),
+      scope: PersonScope.open,
     );
     await store.joinGroup(
       mia.id,
       const PersonGroup(id: 'g1', name: 'Acme Ltd', kind: GroupKind.company),
+      scope: PersonScope.open,
     );
     await store.addHistoryEntry(
       PersonHistoryEntry(
@@ -34,6 +37,7 @@ void main() {
         notes: 'Engineer',
         startDate: DateTime(2015),
       ),
+      scope: PersonScope.open,
     );
     await store.addLocation(
       PersonLocation(
@@ -43,6 +47,7 @@ void main() {
         place: 'Kyoto',
         since: DateTime(2015),
       ),
+      scope: PersonScope.open,
     );
 
     final rows = await ProfileTransfer(store: store).read();
@@ -81,6 +86,7 @@ void main() {
     await store.saveDetail(
       mia.id,
       PersonDetail(bio: 'Photographer', birthDate: DateTime(1990)),
+      scope: PersonScope.open,
     );
 
     await ProfileTransfer(store: store).write([

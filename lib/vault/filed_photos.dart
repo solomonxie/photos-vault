@@ -102,26 +102,36 @@ class FiledPhotos {
       height: entry.height == 0 ? null : entry.height,
     );
     await records.setPasscodeHash(localId, passcodeHash);
-    // Already in the bucket: that carrier is this photo's backup.
+    // Backed up only where every bucket answers with the carrier now: one
+    // the bucket lost has to go up again, not be taken on trust.
+    final stillUp = await _bucket.isEverywhere(key);
+    final motionUp =
+        moves &&
+        !await _store.isUnsent(keys, motionKey) &&
+        await _bucket.isEverywhere(motionKey);
     await records.updateDerivative(
       localId,
       DerivativeKind.original,
-      DerivativeState(status: UploadStatus.uploaded, destinationKey: key),
+      stillUp
+          ? DerivativeState(status: UploadStatus.uploaded, destinationKey: key)
+          : const DerivativeState(),
     );
     if (moves) {
       await records.updateDerivative(
         localId,
         DerivativeKind.livePhoto,
-        DerivativeState(
-          status: UploadStatus.uploaded,
-          destinationKey: motionKey,
-        ),
+        motionUp
+            ? DerivativeState(
+                status: UploadStatus.uploaded,
+                destinationKey: motionKey,
+              )
+            : const DerivativeState(),
       );
     }
     // The plain files are the copy on this phone now; a second, encrypted
-    // one would only double the space. A `.mov` carrier goes only once its
-    // plain file is written. The bucket keeps both.
-    await _store.removeAll(keys, [key, if (moves) motionKey]);
+    // one would only double the space. A carrier goes only once every
+    // bucket is seen to hold it.
+    await _store.removeAll(keys, [if (stillUp) key, if (motionUp) motionKey]);
     return records.getByLocalId(localId);
   }
 

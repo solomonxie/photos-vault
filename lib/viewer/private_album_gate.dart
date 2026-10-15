@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
 import 'package:flutter/cupertino.dart';
 
@@ -289,6 +290,28 @@ class _PasscodeKeypad extends StatelessWidget {
 /// stored links a person to a hidden photo — only the key derivation does.
 String personAlbumCode(String personId, String digits) =>
     'person:$personId:$digits';
+
+/// Whether [personId] has a hidden folder that still holds something. The
+/// folder is known only by the hash of its code, so all 10,000 codes are
+/// tried — off the UI isolate.
+Future<bool> personHasHiddenFolder(
+  AssetRecordStore store,
+  String personId,
+) async {
+  final hashes = await store.passcodeHashes();
+  if (hashes.isEmpty) return false;
+  return Isolate.run(() => _anyPersonCode(personId, hashes));
+}
+
+bool _anyPersonCode(String personId, Set<String> hashes) {
+  for (var i = 0; i < 10000; i++) {
+    final digits = i.toString().padLeft(4, '0');
+    if (hashes.contains(hashPasscode(personAlbumCode(personId, digits)))) {
+      return true;
+    }
+  }
+  return false;
+}
 
 /// [codeFor] turns the typed digits into the album's code — see
 /// [personAlbumCode]; [title] names the album screen.

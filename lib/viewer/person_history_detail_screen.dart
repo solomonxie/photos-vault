@@ -26,11 +26,15 @@ class PersonHistoryDetailScreen extends StatefulWidget {
     required this.entry,
     required this.categoryLabel,
     required this.personStore,
+    required this.scope,
   });
 
   final PersonHistoryEntry entry;
   final String categoryLabel;
   final PersonStore personStore;
+
+  /// The set [entry] belongs to; every save goes back there.
+  final PersonScope scope;
 
   @override
   State<PersonHistoryDetailScreen> createState() =>
@@ -51,11 +55,15 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
 
   Future<void> _persist(PersonHistoryEntry updated) async {
     setState(() => _entry = updated);
-    await widget.personStore.addHistoryEntry(updated);
+    await widget.personStore.addHistoryEntry(updated, scope: widget.scope);
   }
 
   Future<void> _pickTitle() async {
-    final options = await widget.personStore.allHistoryTitles(_entry.category);
+    final options = await widget.personStore.allHistoryTitles(
+      _entry.category,
+      passcodeHash: widget.scope.passcodeHash,
+      keys: widget.scope.keys,
+    );
     if (!mounted) return;
     final title = await showSearchPickerSheet(
       context: context,
@@ -400,7 +408,7 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
       ),
     );
     if (confirmed != true) return;
-    await widget.personStore.removeHistoryEntry(_entry.id);
+    await widget.personStore.removeHistoryEntry(_entry.id, scope: widget.scope);
     if (mounted) Navigator.of(context).pop();
   }
 

@@ -507,6 +507,7 @@ class AppSnapshotIo {
           place: location['place'] as String? ?? '',
           since: _date(location['since']) ?? DateTime.now(),
         ),
+        scope: PersonScope.open,
       );
     }
     for (final entry
@@ -540,6 +541,7 @@ class AppSnapshotIo {
               .map(TimelineEntry.fromJson)
               .toList(),
         ),
+        scope: PersonScope.open,
       );
     }
   }
@@ -566,6 +568,7 @@ class AppSnapshotIo {
           ((row['impression'] as Map?) ?? const {}).cast<String, Object?>(),
         ),
       ),
+      scope: PersonScope.open,
     );
     final sealed = row['sealed'] as List?;
     if (sealed == null || sealed.isEmpty) return;
@@ -590,6 +593,7 @@ class AppSnapshotIo {
           relationship['type'] as String? ?? RelationshipType.other.name,
         ),
         organization: relationship['organization'] as String?,
+        scope: PersonScope.open,
       );
     }
   }

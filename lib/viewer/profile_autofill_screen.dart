@@ -184,8 +184,7 @@ class _ProfileAutofillScreenState extends State<ProfileAutofillScreen> {
               // guessing "company" from a CV would be wrong for a university.
               kind: GroupKind.circle,
             ),
-            passcodeHash: hash,
-            keys: keys,
+            scope: PersonScope.of(hash, keys),
           );
         case SuggestionTarget.education:
         case SuggestionTarget.job:
@@ -199,8 +198,7 @@ class _ProfileAutofillScreenState extends State<ProfileAutofillScreen> {
               title: suggestion.label,
               notes: suggestion.value,
             ),
-            passcodeHash: hash,
-            keys: keys,
+            scope: PersonScope.of(hash, keys),
           );
         case SuggestionTarget.place:
           await store.addLocation(
@@ -211,8 +209,7 @@ class _ProfileAutofillScreenState extends State<ProfileAutofillScreen> {
               place: suggestion.label,
               since: DateTime.now(),
             ),
-            passcodeHash: hash,
-            keys: keys,
+            scope: PersonScope.of(hash, keys),
           );
       }
     }
@@ -220,8 +217,7 @@ class _ProfileAutofillScreenState extends State<ProfileAutofillScreen> {
       await store.saveDetail(
         widget.person.id,
         detail,
-        passcodeHash: hash,
-        keys: keys,
+        scope: PersonScope.of(hash, keys),
       );
     }
     if (mounted) Navigator.of(context).pop(_accepted.length);

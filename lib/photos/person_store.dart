@@ -12,6 +12,27 @@ import '../vault/keys.dart' show AlbumKeys;
 import 'person.dart';
 import 'person_detail.dart';
 
+/// Which set a profile write lands in. Required on every write, so no
+/// default can drop an edit made inside a sealed set into the open one.
+class PersonScope {
+  const PersonScope._(this.passcodeHash, this.keys);
+
+  /// The set anybody holding the phone can read.
+  static const open = PersonScope._(openNamespace, null);
+
+  /// The set [keys] open, kept under [passcodeHash].
+  PersonScope.sealed(String passcodeHash, AlbumKeys keys)
+    : this._(passcodeHash, keys);
+
+  /// From a screen's own pair. A sealed hash with no [keys] writes nothing.
+  const PersonScope.of(this.passcodeHash, this.keys);
+
+  final String passcodeHash;
+  final AlbumKeys? keys;
+
+  bool get isOpen => passcodeHash == openNamespace;
+}
+
 /// Local `sqflite` store for [Person] profiles, their tagged-photo
 /// membership (same join-table shape as `album_store.dart`), relationships,
 /// and location history. See IMPLEMENTATION_PLAN.md Phase 7.
@@ -459,8 +480,7 @@ class PersonStore {
       await saveDetail(
         personId,
         upgraded,
-        passcodeHash: passcodeHash,
-        keys: keys,
+        scope: PersonScope.sealed(passcodeHash, keys),
       );
       return upgraded;
     }
@@ -470,9 +490,9 @@ class PersonStore {
   Future<void> saveDetail(
     String personId,
     PersonDetail detail, {
-    String passcodeHash = openNamespace,
-    AlbumKeys? keys,
+    required PersonScope scope,
   }) async {
+    final PersonScope(:passcodeHash, :keys) = scope;
     if (passcodeHash != openNamespace && keys == null) return;
     final db = await _open();
     await db.insert(_detailTable, {
@@ -704,9 +724,9 @@ class PersonStore {
     String relatedPersonId,
     RelationshipType type, {
     String? organization,
-    String passcodeHash = openNamespace,
-    AlbumKeys? keys,
+    required PersonScope scope,
   }) async {
+    final PersonScope(:passcodeHash, :keys) = scope;
     if (_unsealable(passcodeHash, keys)) return;
     final db = await _open();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -743,8 +763,9 @@ class PersonStore {
   Future<void> removeRelationship(
     String personId,
     String relatedPersonId, {
-    String passcodeHash = openNamespace,
+    required PersonScope scope,
   }) async {
+    final passcodeHash = scope.passcodeHash;
     final db = await _open();
     final batch = db.batch();
     for (final (a, b) in [
@@ -832,9 +853,9 @@ class PersonStore {
   /// gets edited (pass its own `id` back with updated fields).
   Future<void> addLocation(
     PersonLocation location, {
-    String passcodeHash = openNamespace,
-    AlbumKeys? keys,
+    required PersonScope scope,
   }) async {
+    final PersonScope(:passcodeHash, :keys) = scope;
     if (_unsealable(passcodeHash, keys)) return;
     final db = await _open();
     await db.insert(
@@ -858,9 +879,13 @@ class PersonStore {
     );
   }
 
-  Future<void> removeLocation(String id) async {
+  Future<void> removeLocation(String id, {required PersonScope scope}) async {
     final db = await _open();
-    await db.delete(_locationTable, where: 'id = ?', whereArgs: [id]);
+    await db.delete(
+      _locationTable,
+      where: 'id = ? AND passcode_hash = ?',
+      whereArgs: [id, scope.passcodeHash],
+    );
   }
 
   Future<List<PersonLocation>> locationsFor(
@@ -965,9 +990,9 @@ class PersonStore {
   /// entry gets edited (pass its own `id` back with updated fields).
   Future<void> addHistoryEntry(
     PersonHistoryEntry entry, {
-    String passcodeHash = openNamespace,
-    AlbumKeys? keys,
+    required PersonScope scope,
   }) async {
+    final PersonScope(:passcodeHash, :keys) = scope;
     if (_unsealable(passcodeHash, keys)) return;
     final db = await _open();
     await db.insert(
@@ -1001,9 +1026,16 @@ class PersonStore {
     );
   }
 
-  Future<void> removeHistoryEntry(String id) async {
+  Future<void> removeHistoryEntry(
+    String id, {
+    required PersonScope scope,
+  }) async {
     final db = await _open();
-    await db.delete(_historyTable, where: 'id = ?', whereArgs: [id]);
+    await db.delete(
+      _historyTable,
+      where: 'id = ? AND passcode_hash = ?',
+      whereArgs: [id, scope.passcodeHash],
+    );
   }
 
   Future<List<PersonHistoryEntry>> historyFor(
@@ -1123,9 +1155,9 @@ class PersonStore {
   Future<void> joinGroup(
     String personId,
     PersonGroup group, {
-    String passcodeHash = openNamespace,
-    AlbumKeys? keys,
+    required PersonScope scope,
   }) async {
+    final PersonScope(:passcodeHash, :keys) = scope;
     if (_unsealable(passcodeHash, keys)) return;
     final db = await _open();
     await db.insert(
@@ -1148,13 +1180,13 @@ class PersonStore {
   Future<void> leaveGroup(
     String personId,
     String groupId, {
-    String passcodeHash = openNamespace,
+    required PersonScope scope,
   }) async {
     final db = await _open();
     await db.delete(
       _groupTable,
       where: 'person_id = ? AND group_id = ? AND passcode_hash = ?',
-      whereArgs: [personId, groupId, passcodeHash],
+      whereArgs: [personId, groupId, scope.passcodeHash],
     );
   }
 
@@ -1231,9 +1263,9 @@ class PersonStore {
   /// Insert-or-replace by [PersonEvent.id].
   Future<void> saveEvent(
     PersonEvent event, {
-    String passcodeHash = openNamespace,
-    AlbumKeys? keys,
+    required PersonScope scope,
   }) async {
+    final PersonScope(:passcodeHash, :keys) = scope;
     if (_unsealable(passcodeHash, keys)) return;
     final db = await _open();
     await db.insert(
@@ -1258,9 +1290,13 @@ class PersonStore {
     );
   }
 
-  Future<void> removeEvent(String id) async {
+  Future<void> removeEvent(String id, {required PersonScope scope}) async {
     final db = await _open();
-    await db.delete(_eventTable, where: 'id = ?', whereArgs: [id]);
+    await db.delete(
+      _eventTable,
+      where: 'id = ? AND passcode_hash = ?',
+      whereArgs: [id, scope.passcodeHash],
+    );
   }
 
   /// Oldest first. Sorted here rather than in SQL, because a sealed row's

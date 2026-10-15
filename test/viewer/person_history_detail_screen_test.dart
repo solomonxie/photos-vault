@@ -3,7 +3,13 @@ import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/viewer/person_history_detail_screen.dart';
 import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:flutter/cupertino.dart';
+
+import 'dart:typed_data';
+
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/storage/passcode_hash.dart';
+import 'package:photos_vault/vault/keys.dart';
+import 'package:photos_vault/photos/person_store.dart';
 
 import '../support/fake_person_store.dart';
 
@@ -33,6 +39,7 @@ void main() {
                   entry: entry,
                   categoryLabel: 'Job',
                   personStore: personStore,
+                  scope: PersonScope.open,
                 ),
               ),
             ),
@@ -69,6 +76,7 @@ void main() {
           entry: entry,
           categoryLabel: 'Education',
           personStore: personStore,
+          scope: PersonScope.open,
         ),
       ),
     );
@@ -103,6 +111,7 @@ void main() {
           entry: entry,
           categoryLabel: 'Job',
           personStore: personStore,
+          scope: PersonScope.open,
         ),
       ),
     );
@@ -136,6 +145,7 @@ void main() {
           entry: entry,
           categoryLabel: 'Job',
           personStore: personStore,
+          scope: PersonScope.open,
         ),
       ),
     );
@@ -179,6 +189,7 @@ void main() {
           entry: entry,
           categoryLabel: 'Job',
           personStore: personStore,
+          scope: PersonScope.open,
         ),
       ),
     );
@@ -217,6 +228,7 @@ void main() {
           entry: entry,
           categoryLabel: 'Education',
           personStore: personStore,
+          scope: PersonScope.open,
         ),
       ),
     );
@@ -240,6 +252,7 @@ void main() {
           entry: entry,
           categoryLabel: 'Job',
           personStore: personStore,
+          scope: PersonScope.open,
         ),
       ),
     );
@@ -276,7 +289,7 @@ void main() {
       category: HistoryCategory.job,
       title: 'Acme Corp',
     );
-    await personStore.addHistoryEntry(entry);
+    await personStore.addHistoryEntry(entry, scope: PersonScope.open);
 
     await tester.pumpWidget(
       _wrap(
@@ -284,6 +297,7 @@ void main() {
           entry: entry,
           categoryLabel: 'Job',
           personStore: personStore,
+          scope: PersonScope.open,
         ),
       ),
     );
@@ -297,5 +311,66 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(await personStore.historyFor('p1', HistoryCategory.job), isEmpty);
+  });
+
+  testWidgets('notes typed in a sealed entry are saved to that set only', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    const entry = PersonHistoryEntry(
+      id: 'e1',
+      personId: 'p1',
+      category: HistoryCategory.job,
+      title: 'Acme Corp',
+    );
+    final hash = hashPasscode('1111');
+    final scope = PersonScope.sealed(
+      hash,
+      AlbumKeys(
+        albumKey: Uint8List(32),
+        entry: PassphraseEntry(
+          id: 'x',
+          salt: Uint8List(16),
+          verifier: Uint8List(32),
+          hint: '',
+        ),
+      ),
+    );
+    await personStore.addHistoryEntry(entry, scope: scope);
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonHistoryDetailScreen(
+          entry: entry,
+          categoryLabel: 'Job',
+          personStore: personStore,
+          scope: scope,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.descendant(
+        of: find.byType(CupertinoTextFormFieldRow),
+        matching: find.byType(CupertinoTextField),
+      ),
+      'left in 2024',
+    );
+    await tester.pumpAndSettle();
+
+    expect(personStore.historyScopes['e1'], hash);
+    expect(
+      await personStore.historyFor('p1', HistoryCategory.job),
+      isEmpty,
+      reason: 'the open set is untouched',
+    );
+    expect(
+      (await personStore.historyFor(
+        'p1',
+        HistoryCategory.job,
+        passcodeHash: hash,
+      )).single.notes,
+      'left in 2024',
+    );
   });
 }

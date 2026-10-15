@@ -485,7 +485,7 @@ a mistyped one. The README's promise stops being a UI convention.
 | | verdict |
 |---|---|
 | passphrase, anywhere | **never stored.** Only the derived key is, and nothing needs the plaintext back. |
-| `masterKey` in the Keychain | **yes, default.** Credentials already live there and are excluded from the snapshot. `ThisDeviceOnly`, not iCloud-synced. |
+| `masterKey` in the Keychain | **yes, default.** Credentials already live there and are excluded from the snapshot. Not iCloud-Keychain-synced. Accessibility is the plugin default (`WhenUnlocked`, not `ThisDeviceOnly`), so it does travel in an encrypted device backup; moving to `first_unlock` is WP9. |
 | salt · verifier · hint | `index.bin`'s plaintext header (Keychain while there is no bucket) |
 | anything in sqlite | **no.** It is in the snapshot, which is in the bucket, next to the carriers. |
 

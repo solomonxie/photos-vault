@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import '../settings/secure_store.dart';
@@ -27,6 +28,36 @@ import 'cipher.dart';
 /// strand every carrier it opens.
 const passphraseIterations = 600000;
 const minimumPassphraseLength = 8;
+
+typedef DeriveMasterKey = Future<Uint8List> Function(
+  VaultCipher cipher,
+  String passphrase,
+  Uint8List salt,
+);
+
+/// PBKDF2 takes most of a second; on the UI isolate that is a frozen sheet.
+Future<Uint8List> deriveOffMainIsolate(
+  VaultCipher cipher,
+  String passphrase,
+  Uint8List salt,
+) => Isolate.run(
+  () => cipher.deriveKey(
+    passphrase: passphrase,
+    salt: salt,
+    iterations: passphraseIterations,
+  ),
+);
+
+/// For widget tests, whose fake clock never sees another isolate answer.
+Future<Uint8List> deriveOnThisIsolate(
+  VaultCipher cipher,
+  String passphrase,
+  Uint8List salt,
+) async => cipher.deriveKey(
+  passphrase: passphrase,
+  salt: salt,
+  iterations: passphraseIterations,
+);
 
 class PassphraseEntry {
   const PassphraseEntry({
@@ -81,12 +112,16 @@ class AlbumKeys {
 }
 
 class VaultKeys {
-  VaultKeys({SecureStore? store, VaultCipher? cipher})
-    : _store = store ?? const FlutterSecureStore(),
-      _cipher = cipher ?? PlatformCipher();
+  VaultKeys({
+    SecureStore? store,
+    VaultCipher? cipher,
+    this._derive = deriveOffMainIsolate,
+  }) : _store = store ?? const FlutterSecureStore(),
+       _cipher = cipher ?? PlatformCipher();
 
   final SecureStore _store;
   final VaultCipher _cipher;
+  final DeriveMasterKey _derive;
 
   static const _entriesKey = 'vault_passphrase_entries';
   static const _masterPrefix = 'vault_master_';
@@ -113,11 +148,7 @@ class VaultKeys {
   /// phone gets its old carriers back.
   Future<PassphraseEntry> add(String passphrase, {String hint = ''}) async {
     final salt = randomBytes(16);
-    final master = _cipher.deriveKey(
-      passphrase: passphrase,
-      salt: salt,
-      iterations: passphraseIterations,
-    );
+    final master = await _derive(_cipher, passphrase, salt);
     final entry = PassphraseEntry(
       id: base64Url.encode(vaultHmac(salt, 'id'.codeUnits).sublist(0, 9)),
       salt: salt,
@@ -134,16 +165,30 @@ class VaultKeys {
   /// wrong, which only this screen may say out loud; the 4-digit gate never
   /// does.
   Future<bool> unlockEntry(PassphraseEntry entry, String passphrase) async {
-    final master = _cipher.deriveKey(
-      passphrase: passphrase,
-      salt: entry.salt,
-      iterations: passphraseIterations,
-    );
+    final master = await _derive(_cipher, passphrase, entry.salt);
     if (!bytesMatch(vaultHmac(master, 'verify'.codeUnits), entry.verifier)) {
       return false;
     }
     await _remember(entry, master);
     return true;
+  }
+
+  /// Setup: [passphrase] against every entry already known — this phone's
+  /// and [known], from the index — before a new salt is minted. A new phone
+  /// typing the old passphrase must land on the old salt, or it derives a
+  /// key that opens none of the old carriers.
+  Future<PassphraseEntry> setUp(
+    String passphrase, {
+    String hint = '',
+    List<PassphraseEntry> known = const [],
+  }) async {
+    final candidates = {
+      for (final e in [...await entries(), ...known]) e.id: e,
+    };
+    for (final entry in candidates.values) {
+      if (await unlockEntry(entry, passphrase)) return entry;
+    }
+    return add(passphrase, hint: hint);
   }
 
   Future<void> _remember(PassphraseEntry entry, Uint8List master) async {
@@ -231,17 +276,30 @@ class VaultKeys {
   /// Called when the gate opens an album. Returns the keys for [passcode],
   /// or null when this phone has no passphrase yet — the upload path then
   /// holds the job rather than failing it.
+  ///
+  /// Held in memory only: a code is written to the keychain by [keepAlbum]
+  /// once its album turns out to hold something, so mistyped codes don't
+  /// pile up there.
   Future<AlbumKeys?> unlockAlbum(String passcode) async {
     final keys = await activeAlbumKeys(passcode);
     if (keys == null) return null;
-    final hash = hashPasscode(passcode);
-    _ring[hash] = keys;
+    _ring[hashPasscode(passcode)] = keys;
+    return keys;
+  }
+
+  final Set<String> _kept = {};
+
+  /// Persists [passcodeHash]'s ring keys, so its backups resume after a
+  /// relaunch. For an album with photos or entries; a no-op otherwise.
+  Future<void> keepAlbum(String passcodeHash) async {
+    final keys = _ring[passcodeHash];
+    if (keys == null || _kept.contains(passcodeHash)) return;
     try {
-      await _saveRing(hash, keys);
+      await _saveRing(passcodeHash, keys);
+      _kept.add(passcodeHash);
     } catch (_) {
       // Only costs the resume after a relaunch; the album opens regardless.
     }
-    return keys;
   }
 
   static const _ringKey = 'vault_ring_v1';
@@ -281,6 +339,7 @@ class VaultKeys {
         entry: entry,
         outboxKey: _outboxKeyFrom(master),
       );
+      _kept.add(hash);
     }
   }
 
@@ -291,7 +350,10 @@ class VaultKeys {
   /// older passphrases added inside the album.
   AlbumKeys? ringKeysFor(String passcodeHash) => _ring[passcodeHash];
 
-  void lockAll() => _ring.clear();
+  void lockAll() {
+    _ring.clear();
+    _kept.clear();
+  }
 
   /// Forgets this phone's master keys. The carriers stay where they are and
   /// the passphrase still opens them; this phone just stops being able to
@@ -314,6 +376,7 @@ class VaultKeys {
     }
     _unlocked.clear();
     _ring.clear();
+    _kept.clear();
     await _store.delete(_ringKey);
   }
 

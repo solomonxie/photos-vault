@@ -47,9 +47,9 @@ Backup is automatic (`hidden_backup.dart` → `SyncEngine.backUpHidden`): a
 carrier is built from the plain file and sent to every bucket; the record's
 status flips and its underline turns green. It runs for every album whose
 key is on hand — started on opening an album, after hiding, at launch and
-on return to the app, and it carries on after the album closes. Album keys
-sit in the keychain (`vault_ring_v1`) so a relaunch resumes without the
-code; no new exposure, since the master key beside them already opens any
+on return to the app, and it carries on after the album closes. Keys of
+albums that hold something sit in the keychain (`vault_ring_v1`) so a
+relaunch resumes without the code; no new exposure, since the master key beside them already opens any
 album in 10,000 guesses. The gate never reads them.
 The queue, the Cloud page and the overnight run never touch hidden photos,
 so none of them can reveal that any exist.
@@ -89,6 +89,15 @@ Rules worth not rediscovering:
 - **Un-hiding a filed photo** (`hidden_restore.dart`): Photos takes it back
   first, then `HiddenRemoval.release` unlists it. The bucket's carriers
   wait in `DeferredDeletes` until the plain copy is in every bucket.
+- **`index.bin` carries every passphrase entry and only ever gains them.**
+  `VaultBucket.ensurePublished` runs on setup, on adding a passphrase and on
+  each sync: a bucket with no index gets one (blank only when every bucket
+  says 404), one missing an entry gets it merged in. Setup tries every known
+  entry before minting a salt, so a new phone typing the old passphrase
+  opens the old carriers.
+- **A torn index goes nowhere.** Written temp-then-rename; anything not
+  exactly `indexBytes` with a readable header is never mirrored, merged or
+  pushed.
 - **A wrong 4-digit code is never an error.** It derives a different album
   key, which matches no index section and no carrier MAC, so the album is
   simply empty. There is no code path that could report "wrong passcode".

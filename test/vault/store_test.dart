@@ -2,6 +2,7 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/vault/album_index.dart';
 import 'package:photos_vault/vault/carrier.dart';
 import 'package:photos_vault/vault/keys.dart';
 import 'package:photos_vault/vault/store.dart';
@@ -56,7 +57,7 @@ void main() {
   test(
     'the directory is taken out of the device backup when it is made',
     () async {
-      await store.writeIndex(Uint8List.fromList([1, 2, 3]));
+      await store.writeIndex(emptyIndex());
 
       expect(excluded, hasLength(1));
       expect(excluded.single, endsWith('/${VaultStore.root}'));
@@ -169,11 +170,26 @@ void main() {
   test('the index survives a rewrite and says nothing when absent', () async {
     expect(await store.readIndex(), isNull);
 
-    await store.writeIndex(Uint8List.fromList([1, 2, 3]));
-    expect(await store.readIndex(), equals([1, 2, 3]));
+    final first = emptyIndex();
+    expect(await store.writeIndex(first), isTrue);
+    expect(await store.readIndex(), equals(first));
 
-    await store.writeIndex(Uint8List.fromList([4, 5]));
-    expect(await store.readIndex(), equals([4, 5]));
+    final second = emptyIndex();
+    expect(await store.writeIndex(second), isTrue);
+    expect(await store.readIndex(), equals(second));
+  });
+
+  test('a short index is refused on the way in and on the way out', () async {
+    final whole = emptyIndex();
+    await store.writeIndex(whole);
+
+    expect(await store.writeIndex(Uint8List.fromList([1, 2, 3])), isFalse);
+    expect(await store.readIndex(), equals(whole));
+
+    // Killed mid-write by an older build: the file on disk is cut short.
+    File('${tempDir.path}/${VaultStore.root}/${VaultStore.indexFileName}')
+        .writeAsBytesSync(Uint8List.sublistView(whole, 0, 1000));
+    expect(await store.readIndex(), isNull);
   });
 
   test('one album can be emptied without touching another', () async {
@@ -191,7 +207,7 @@ void main() {
   test('clear takes the whole directory', () async {
     final keys = _keysFor(1);
     await store.putCarrierBytes(keys, 'originals/a.jpg', decoyJpeg());
-    await store.writeIndex(Uint8List.fromList([1]));
+    await store.writeIndex(emptyIndex());
 
     await store.clear();
 

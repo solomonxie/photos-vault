@@ -1,6 +1,8 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
 import '../backup/bucket_backup.dart';
@@ -114,48 +116,67 @@ class VaultBucket {
 
   /// The whole index object from the first target that has one. Null when
   /// no bucket answers — which is not the same as an empty album, and the
-  /// caller must not treat it as one.
+  /// caller must not treat it as one. A torn copy counts as no answer.
   Future<Uint8List?> loadIndex() async {
     for (final target in await _targetsStore.loadAll()) {
-      try {
-        final response = await _get(
-          await presignGetUrl(target: target, key: _indexKey(target)),
-        );
-        if (response.statusCode == 200 && response.bodyBytes.isNotEmpty) {
-          return response.bodyBytes;
-        }
-      } catch (_) {
-        // Next target.
-      }
+      final found = await _indexIn(target);
+      if (found.bytes != null) return found.bytes;
     }
     return null;
   }
 
+  /// [target]'s index: bytes when whole, [absent] only on a 404. Anything
+  /// else — offline, an error, a torn object — is neither.
+  Future<({Uint8List? bytes, bool absent})> _indexIn(
+    S3BackupTarget target,
+  ) async {
+    try {
+      final response = await _get(
+        await presignGetUrl(target: target, key: _indexKey(target)),
+      );
+      if (response.statusCode == 404) return (bytes: null, absent: true);
+      if (response.statusCode == 200 && isWholeIndex(response.bodyBytes)) {
+        return (bytes: response.bodyBytes, absent: false);
+      }
+    } catch (_) {
+      // Unknown.
+    }
+    return (bytes: null, absent: false);
+  }
+
+  Future<bool> _putIndex(S3BackupTarget target, Uint8List index) async {
+    try {
+      final response = await _put(
+        await presignPutUrl(target: target, key: _indexKey(target)),
+        body: index,
+      );
+      return response.statusCode == 200;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// Writes [index] to every target. Every install writes one, always the
   /// same size, whether or not anything is hidden. True only when every
-  /// target took it: one that missed would hand back the older copy.
+  /// target took it: one that missed would hand back the older copy. A torn
+  /// index goes nowhere.
   Future<bool> saveIndex(Uint8List index) async {
+    if (!isWholeIndex(index)) return false;
     final targets = await _targetsStore.loadAll();
     var wrote = 0;
     for (final target in targets) {
-      try {
-        final response = await _put(
-          await presignPutUrl(target: target, key: _indexKey(target)),
-          body: index,
-        );
-        if (response.statusCode == 200) wrote++;
-      } catch (_) {
-        // Next target.
-      }
+      if (await _putIndex(target, index)) wrote++;
     }
     return targets.isNotEmpty && wrote == targets.length;
   }
 
   /// Lands [index] here, marked newer than the buckets' copy until
-  /// [pushIndex] gets it into every one.
-  Future<void> keepIndex(Uint8List index) async {
-    await _store.writeIndex(index);
+  /// [pushIndex] gets it into every one. False, and nothing marked, when it
+  /// didn't land.
+  Future<bool> keepIndex(Uint8List index) async {
+    if (!await _store.writeIndex(index)) return false;
     await _store.setIndexUnpublished(true);
+    return true;
   }
 
   /// Offers [index] to every bucket, clearing the mark only if it is still
@@ -170,8 +191,115 @@ class VaultBucket {
   }
 
   Future<bool> publishIndex(Uint8List index) async {
-    await keepIndex(index);
+    if (!await keepIndex(index)) return false;
     return pushIndex(index);
+  }
+
+  /// Makes sure every bucket has an `index.bin` carrying [known] in its
+  /// header — on setup, on a new passphrase and on first contact with a
+  /// bucket. Without it a new phone mints a fresh salt and the old
+  /// passphrase opens nothing.
+  ///
+  /// Only ever adds: an existing index keeps every section and every
+  /// header entry. A bucket with none gets this phone's mirror, or another
+  /// bucket's copy, or — only when every bucket says 404 — a blank one.
+  /// Checked once per bucket per set of entries. True when every bucket
+  /// carries them.
+  Future<bool> ensurePublished(List<PassphraseEntry> known) async {
+    try {
+      final local = await _store.readIndex();
+      // The mirror carries them too, so a later push can't drop them.
+      if (local != null && !_carries(local, known)) {
+        await _store.writeIndex(indexWithPassphrases(local, known));
+      }
+      final targets = await _targetsStore.loadAll();
+      if (targets.isEmpty) return false;
+      if (await _store.isIndexUnpublished()) {
+        final newer = await _store.readIndex();
+        return newer != null && await pushIndex(newer);
+      }
+      final digest = _digestOf(known);
+      final marks = await _store.readIndexMarks();
+      var all = true;
+      Uint8List? seed;
+      var seeded = false;
+      for (final target in targets) {
+        if (marks[target.id] == digest) continue;
+        final found = await _indexIn(target);
+        Uint8List? next;
+        if (found.bytes != null) {
+          if (!_carries(found.bytes!, known)) {
+            next = indexWithPassphrases(found.bytes, known);
+          }
+        } else if (found.absent) {
+          if (!seeded) {
+            seed = await _seed(targets);
+            seeded = true;
+          }
+          if (seed == null) {
+            all = false;
+            continue;
+          }
+          next = _carries(seed, known)
+              ? seed
+              : indexWithPassphrases(seed, known);
+        } else {
+          all = false;
+          continue;
+        }
+        if (next == null || await _putIndex(target, next)) {
+          marks[target.id] = digest;
+        } else {
+          all = false;
+        }
+      }
+      await _store.writeIndexMarks(marks);
+      return all;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// What a bucket with no index starts from. Null when a bucket that
+  /// might hold one didn't answer: a blank index there could later be read
+  /// first and hide every album.
+  Future<Uint8List?> _seed(List<S3BackupTarget> targets) async {
+    final local = await _store.readIndex();
+    if (local != null) return local;
+    for (final target in targets) {
+      final found = await _indexIn(target);
+      if (found.bytes != null) return found.bytes;
+      if (!found.absent) return null;
+    }
+    return emptyIndex();
+  }
+
+  static bool _carries(Uint8List index, List<PassphraseEntry> known) {
+    final ids = {for (final e in passphrasesIn(index)) e.id};
+    return known.every((e) => ids.contains(e.id));
+  }
+
+  static String _digestOf(List<PassphraseEntry> known) => sha256
+      .convert(utf8.encode((known.map((e) => e.id).toList()..sort()).join()))
+      .toString();
+
+  /// Salt, verifier and hint of every passphrase this phone or any bucket
+  /// knows — what setup tries before minting a new salt.
+  Future<List<PassphraseEntry>> knownPassphrases() async {
+    var known = <PassphraseEntry>[];
+    final local = await _store.readIndex();
+    if (local != null) known = passphrasesIn(local);
+    try {
+      for (final target in await _targetsStore.loadAll()) {
+        final found = await _indexIn(target);
+        if (found.bytes != null) {
+          known = mergePassphrases(known, passphrasesIn(found.bytes!));
+        }
+      }
+    } catch (_) {
+      // What the mirror knows.
+    }
+    return known;
   }
 
   static bool _sameBytes(Uint8List a, Uint8List b) {
@@ -286,6 +414,35 @@ class VaultBucket {
       }
     }
     return null;
+  }
+
+  /// True only when every bucket answered for [objectKey] with its bytes —
+  /// a one-byte ranged read each. False with none configured.
+  Future<bool> isEverywhere(String objectKey) async {
+    final List<S3BackupTarget> targets;
+    try {
+      targets = await _targetsStore.loadAll();
+    } catch (_) {
+      return false;
+    }
+    if (targets.isEmpty) return false;
+    for (final target in targets) {
+      try {
+        final response = await _get(
+          await presignGetUrl(
+            target: target,
+            key: resolveKey(target, objectKey),
+          ),
+          headers: {'Range': 'bytes=0-0'},
+        );
+        if (response.statusCode != 206 && response.statusCode != 200) {
+          return false;
+        }
+      } catch (_) {
+        return false;
+      }
+    }
+    return true;
   }
 
   /// True only when every bucket answered 404 for [objectKey] — a one-byte

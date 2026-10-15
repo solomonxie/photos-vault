@@ -346,6 +346,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
         ).run(keys),
       );
     }
+    if (entries.isNotEmpty) _keepAlbum();
     setState(() {
       _gallery = gallery;
       _cloudEntries = entries;
@@ -538,6 +539,11 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     }
   }
 
+  /// An album that holds something is remembered across launches, so its
+  /// backups resume; one opened by a mistyped code is not.
+  void _keepAlbum() =>
+      unawaited(widget.vaultKeys?.keepAlbum(widget.passcodeHash));
+
   Future<void> _reload() async {
     final all = await widget.assetRecordStore.forPasscodeHash(
       widget.passcodeHash,
@@ -547,6 +553,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     // one binned by an older build is reachable only from here.
     final records = all.toList()
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    if (records.isNotEmpty) _keepAlbum();
     setState(() {
       _loaded = true;
       _records = records;

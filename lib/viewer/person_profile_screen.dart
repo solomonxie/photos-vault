@@ -95,9 +95,14 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   /// Which set of details is on screen. The open one until somebody types
   /// four digits, and then theirs — empty if nothing has been kept there,
   /// which is indistinguishable from digits that open nothing.
-  String _namespace = openNamespace;
-  AlbumKeys? _keys;
+  PersonScope _scope = PersonScope.open;
+  String get _namespace => _scope.passcodeHash;
+  AlbumKeys? get _keys => _scope.keys;
   PersonDetail _detail = PersonDetail.empty;
+
+  /// True while a set's details are on their way in after a switch: nothing
+  /// on screen belongs to the set yet, so nothing may be saved into it.
+  bool _loading = false;
 
   late final VaultKeys _vaultKeys = widget.vaultKeys ?? VaultKeys();
   late final PersonOwner _owner = PersonOwner(widget.assetRecordStore);
@@ -131,8 +136,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
 
   Future<void> _reload() async {
     final store = widget.personStore;
-    final ns = _namespace;
-    final keys = _keys;
+    final scope = _scope;
+    final ns = scope.passcodeHash;
+    final keys = scope.keys;
     final detail = await store.detailFor(
       _person.id,
       passcodeHash: ns,
@@ -173,7 +179,8 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     );
     final allGroups = await store.allGroups(passcodeHash: ns, keys: keys);
     final ownerId = await _owner.id();
-    if (!mounted) return;
+    // Switched meanwhile: these are the other set's.
+    if (!mounted || !identical(scope, _scope)) return;
     setState(() {
       _detail = detail;
       _allPeople = allPeople;
@@ -200,13 +207,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   }
 
   Future<void> _persistDetail(PersonDetail updated) async {
+    if (_loading) return;
     setState(() => _detail = updated);
-    await widget.personStore.saveDetail(
-      _person.id,
-      updated,
-      passcodeHash: _namespace,
-      keys: _keys,
-    );
+    await widget.personStore.saveDetail(_person.id, updated, scope: _scope);
   }
 
   Future<void> _persist(Person updated) async {
@@ -239,7 +242,11 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     HistoryCategory category,
     String categoryLabel,
   ) async {
-    final options = await widget.personStore.allHistoryTitles(category);
+    final options = await widget.personStore.allHistoryTitles(
+      category,
+      passcodeHash: _namespace,
+      keys: _keys,
+    );
     if (!mounted) return;
     final title = await showSearchPickerSheet(
       context: context,
@@ -253,7 +260,8 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       category: category,
       title: title,
     );
-    await widget.personStore.addHistoryEntry(entry);
+    final scope = _scope;
+    await widget.personStore.addHistoryEntry(entry, scope: scope);
     if (!mounted) return;
     await Navigator.of(context).push(
       CupertinoPageRoute(
@@ -261,6 +269,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           entry: entry,
           categoryLabel: categoryLabel,
           personStore: widget.personStore,
+          scope: scope,
         ),
       ),
     );
@@ -277,6 +286,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           entry: entry,
           categoryLabel: categoryLabel,
           personStore: widget.personStore,
+          scope: _scope,
         ),
       ),
     );
@@ -293,12 +303,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   /// Already inside a set, it goes back to the open one. No confirmation:
   /// nothing is being destroyed, and the way back is four digits.
   Future<void> _switchNamespace() async {
+    if (_loading) return;
     if (_namespace != openNamespace) {
-      setState(() {
-        _namespace = openNamespace;
-        _keys = null;
-      });
-      await _reload();
+      await _enter(PersonScope.open);
       return;
     }
 
@@ -331,11 +338,33 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       keys = await _vaultKeys.unlockAlbum(passcode);
     }
     if (keys == null || !mounted) return;
+    await _enter(PersonScope.sealed(hashPasscode(passcode), keys));
+  }
+
+  /// Shows [scope]'s set. The old one's details leave the screen first, so
+  /// a keystroke during the load can't carry them into the new set.
+  Future<void> _enter(PersonScope scope) async {
     setState(() {
-      _namespace = hashPasscode(passcode);
-      _keys = keys;
+      _scope = scope;
+      _loading = true;
+      _detail = PersonDetail.empty;
+      _relationships = const [];
+      _locations = const [];
+      _education = const [];
+      _jobs = const [];
+      _events = const [];
+      _groups = const [];
+      _allGroups = const {};
+      _bio.text = '';
+      _hint.text = '';
     });
-    await _reload();
+    try {
+      await _reload();
+    } finally {
+      if (mounted && identical(scope, _scope)) {
+        setState(() => _loading = false);
+      }
+    }
   }
 
   String _relationshipLabel(AppLocalizations l10n, RelationshipType type) =>
@@ -407,7 +436,10 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
 
     String? organization;
     if (relationshipNeedsOrganization(type)) {
-      final orgOptions = await widget.personStore.allOrganizations();
+      final orgOptions = await widget.personStore.allOrganizations(
+        passcodeHash: _namespace,
+        keys: _keys,
+      );
       if (!mounted) return;
       organization = await showSearchPickerSheet(
         context: context,
@@ -422,6 +454,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       await widget.personStore.removeRelationship(
         _person.id,
         existing.relatedPersonId,
+        scope: _scope,
       );
     }
     await widget.personStore.addRelationship(
@@ -429,6 +462,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       other.id,
       type,
       organization: organization,
+      scope: _scope,
     );
     await _reload();
   }
@@ -463,6 +497,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     await widget.personStore.removeRelationship(
       _person.id,
       relationship.relatedPersonId,
+      scope: _scope,
     );
     await _reload();
   }
@@ -561,12 +596,13 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
         place: placeController.text.trim(),
         since: since,
       ),
+      scope: _scope,
     );
     await _reload();
   }
 
   Future<void> _removeLocation(PersonLocation location) async {
-    await widget.personStore.removeLocation(location.id);
+    await widget.personStore.removeLocation(location.id, scope: _scope);
     await _reload();
   }
 
@@ -659,6 +695,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
         Expanded(
           child: CupertinoTextField.borderless(
             controller: _hint,
+            readOnly: _loading,
             placeholder: l10n.personProfileHintLabel,
             placeholderStyle: const TextStyle(
               fontSize: 13,
@@ -721,16 +758,32 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
 
   Future<void> _confirmDeletePerson() async {
     final l10n = AppLocalizations.of(context)!;
+    // Their folder's code is `person:<id>:<digits>`, and the id goes with
+    // them: deleting now would strand those photos for good.
+    if (await personHasHiddenFolder(widget.assetRecordStore, _person.id)) {
+      if (!mounted) return;
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (context) => CupertinoAlertDialog(
+          title: Text(l10n.personProfileDeleteBlockedTitle),
+          content: Text(l10n.personProfileDeleteBlockedBody),
+          actions: [
+            CupertinoDialogAction(
+              isDefaultAction: true,
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l10n.actionOk),
+            ),
+          ],
+        ),
+      );
+      return;
+    }
+    if (!mounted) return;
     final confirmed = await showCupertinoDialog<bool>(
       context: context,
       builder: (context) => CupertinoAlertDialog(
         title: Text(l10n.personProfileDeleteConfirmTitle),
-        // Always said, never checked: whether this person has a hidden
-        // folder is exactly what the app can't know without the code.
-        content: Text(
-          '${l10n.personProfileDeleteConfirmBody}\n\n'
-          '${l10n.personProfileDeleteHiddenWarning}',
-        ),
+        content: Text(l10n.personProfileDeleteConfirmBody),
         actions: [
           CupertinoDialogAction(
             onPressed: () => Navigator.of(context).pop(false),
@@ -835,6 +888,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                 padding: const EdgeInsets.symmetric(horizontal: 24),
                 child: CupertinoTextField.borderless(
                   controller: _bio,
+                  readOnly: _loading,
                   maxLines: null,
                   textAlign: TextAlign.center,
                   placeholder: l10n.personProfileBioEmpty,
@@ -1429,7 +1483,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       ),
     );
     if (confirmed != true) return;
-    await widget.personStore.removeEvent(event.id);
+    await widget.personStore.removeEvent(event.id, scope: _scope);
     await _reload();
   }
 
@@ -1443,11 +1497,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
         );
     final saved = await showPersonEventSheet(context, event: draft);
     if (saved == null) return;
-    await widget.personStore.saveEvent(
-      saved,
-      passcodeHash: _namespace,
-      keys: _keys,
-    );
+    await widget.personStore.saveEvent(saved, scope: _scope);
     await _reload();
   }
 
@@ -1519,11 +1569,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       ),
     );
     if (confirmed != true) return;
-    await widget.personStore.leaveGroup(
-      _person.id,
-      group.id,
-      passcodeHash: _namespace,
-    );
+    await widget.personStore.leaveGroup(_person.id, group.id, scope: _scope);
     await _reload();
   }
 
@@ -1562,12 +1608,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     if (chosen == null) return;
     final group = chosen.group ?? await _makeGroup(l10n);
     if (group == null) return;
-    await widget.personStore.joinGroup(
-      _person.id,
-      group,
-      passcodeHash: _namespace,
-      keys: _keys,
-    );
+    await widget.personStore.joinGroup(_person.id, group, scope: _scope);
     await _reload();
   }
 

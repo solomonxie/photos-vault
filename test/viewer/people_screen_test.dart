@@ -4,6 +4,7 @@ import 'package:photos_vault/viewer/person_profile_screen.dart';
 import 'package:photos_vault/viewer/person_page_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/photos/person_store.dart';
 
 import 'dart:typed_data';
 
@@ -422,14 +423,16 @@ void main() {
     await personStore.saveDetail(
       mia.id,
       const PersonDetail(gender: Gender.female),
+      scope: PersonScope.open,
     );
     await personStore.saveDetail(
       dan.id,
       const PersonDetail(gender: Gender.male),
+      scope: PersonScope.open,
     );
     const acme = PersonGroup(id: 'g1', name: 'Acme', kind: GroupKind.company);
-    await personStore.joinGroup(mia.id, acme);
-    await personStore.joinGroup(dan.id, acme);
+    await personStore.joinGroup(mia.id, acme, scope: PersonScope.open);
+    await personStore.joinGroup(dan.id, acme, scope: PersonScope.open);
 
     await tester.pumpWidget(
       _wrap(

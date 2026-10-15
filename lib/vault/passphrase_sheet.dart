@@ -1,23 +1,34 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import 'bucket.dart';
 import 'keys.dart';
 
 /// One prompt, and it never says no.
 ///
-/// No "new or existing" fork: whatever is typed becomes the active
-/// passphrase, and if it happens to be one used before, that generation's
-/// carriers simply start opening. A screen that can answer "wrong" is a
-/// screen that confirms there is something to be wrong about — the same
-/// reason the 4-digit gate has no error state.
+/// No "new or existing" fork: whatever is typed is first tried against
+/// every entry this phone and the buckets' `index.bin` know, so one used
+/// before lands on its old salt and that generation's carriers open. Only
+/// a passphrase matching none becomes a new entry. A screen that can
+/// answer "wrong" is a screen that confirms there is something to be wrong
+/// about — the same reason the 4-digit gate has no error state.
 Future<PassphraseEntry?> showVaultSetupSheet(
   BuildContext context, {
   required VaultKeys keys,
+  VaultBucket? bucket,
 }) async {
   final l10n = AppLocalizations.of(context)!;
   final passphrase = TextEditingController();
   final hint = TextEditingController();
+  final vaultBucket = bucket ?? VaultBucket();
+  // Asked while the user types.
+  final known = vaultBucket.knownPassphrases().catchError(
+    (Object _) => const <PassphraseEntry>[],
+  );
   var error = false;
+  var busy = false;
 
   final entry = await showCupertinoModalPopup<PassphraseEntry>(
     context: context,
@@ -100,16 +111,32 @@ Future<PassphraseEntry?> showVaultSetupSheet(
             SizedBox(
               width: double.infinity,
               child: CupertinoButton.filled(
-                onPressed: () async {
-                  final typed = passphrase.text;
-                  if (typed.length < minimumPassphraseLength) {
-                    setState(() => error = true);
-                    return;
-                  }
-                  final added = await keys.add(typed, hint: hint.text.trim());
-                  if (context.mounted) Navigator.of(context).pop(added);
-                },
-                child: Text(l10n.vaultSetupContinue),
+                onPressed: busy
+                    ? null
+                    : () async {
+                        final typed = passphrase.text;
+                        if (typed.length < minimumPassphraseLength) {
+                          setState(() => error = true);
+                          return;
+                        }
+                        setState(() => busy = true);
+                        final entry = await keys.setUp(
+                          typed,
+                          hint: hint.text.trim(),
+                          // A stalled bucket must not hang the sheet.
+                          known: await known.timeout(
+                            const Duration(seconds: 20),
+                            onTimeout: () => const [],
+                          ),
+                        );
+                        unawaited(
+                          keys.entries().then(vaultBucket.ensurePublished),
+                        );
+                        if (context.mounted) Navigator.of(context).pop(entry);
+                      },
+                child: busy
+                    ? const CupertinoActivityIndicator()
+                    : Text(l10n.vaultSetupContinue),
               ),
             ),
           ],
@@ -129,10 +156,12 @@ Future<bool> showAddPassphraseSheet(
   BuildContext context, {
   required VaultKeys keys,
   required List<PassphraseEntry> candidates,
+  VaultBucket? bucket,
 }) async {
   final l10n = AppLocalizations.of(context)!;
   final passphrase = TextEditingController();
   var wrong = false;
+  var busy = false;
 
   final added = await showCupertinoModalPopup<bool>(
     context: context,
@@ -203,16 +232,36 @@ Future<bool> showAddPassphraseSheet(
             SizedBox(
               width: double.infinity,
               child: CupertinoButton.filled(
-                onPressed: () async {
-                  for (final candidate in candidates) {
-                    if (await keys.unlockEntry(candidate, passphrase.text)) {
-                      if (context.mounted) Navigator.of(context).pop(true);
-                      return;
-                    }
-                  }
-                  setState(() => wrong = true);
-                },
-                child: Text(l10n.vaultSetupContinue),
+                onPressed: busy
+                    ? null
+                    : () async {
+                        setState(() => busy = true);
+                        for (final candidate in candidates) {
+                          if (await keys.unlockEntry(
+                            candidate,
+                            passphrase.text,
+                          )) {
+                            unawaited(
+                              keys.entries().then(
+                                (bucket ?? VaultBucket()).ensurePublished,
+                              ),
+                            );
+                            if (context.mounted) {
+                              Navigator.of(context).pop(true);
+                            }
+                            return;
+                          }
+                        }
+                        if (context.mounted) {
+                          setState(() {
+                            busy = false;
+                            wrong = true;
+                          });
+                        }
+                      },
+                child: busy
+                    ? const CupertinoActivityIndicator()
+                    : Text(l10n.vaultSetupContinue),
               ),
             ),
           ],

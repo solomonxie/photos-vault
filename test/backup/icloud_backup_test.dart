@@ -9,6 +9,7 @@ import 'package:photos_vault/storage/asset_record.dart';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/photos/person_store.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../support/fake_album_store.dart';
@@ -451,6 +452,7 @@ void main() {
         mia.id,
         dan.id,
         RelationshipType.sibling,
+        scope: PersonScope.open,
       );
 
       final encoded = (await source.io.export()).encode();

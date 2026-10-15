@@ -38,7 +38,11 @@ void main() {
 
     expect(await store.detailFor(mia.id), PersonDetail.empty);
 
-    await store.saveDetail(mia.id, const PersonDetail(bio: 'Climbs.'));
+    await store.saveDetail(
+      mia.id,
+      const PersonDetail(bio: 'Climbs.'),
+      scope: PersonScope.open,
+    );
 
     expect((await store.detailFor(mia.id)).bio, 'Climbs.');
   });
@@ -49,18 +53,20 @@ void main() {
     final work = hashPasscode('1111');
     final family = hashPasscode('2222');
 
-    await store.saveDetail(mia.id, const PersonDetail(bio: 'open'));
+    await store.saveDetail(
+      mia.id,
+      const PersonDetail(bio: 'open'),
+      scope: PersonScope.open,
+    );
     await store.saveDetail(
       mia.id,
       const PersonDetail(bio: 'work', hint: 'the office'),
-      passcodeHash: work,
-      keys: _keysFor('1111'),
+      scope: PersonScope.of(work, _keysFor('1111')),
     );
     await store.saveDetail(
       mia.id,
       const PersonDetail(bio: 'family'),
-      passcodeHash: family,
-      keys: _keysFor('2222'),
+      scope: PersonScope.of(family, _keysFor('2222')),
     );
 
     expect((await store.detailFor(mia.id)).bio, 'open');
@@ -88,8 +94,7 @@ void main() {
     await store.saveDetail(
       mia.id,
       const PersonDetail(bio: 'work'),
-      passcodeHash: hashPasscode('1111'),
-      keys: _keysFor('1111'),
+      scope: PersonScope.of(hashPasscode('1111'), _keysFor('1111')),
     );
 
     final unused = await store.detailFor(
@@ -108,8 +113,7 @@ void main() {
     await store.saveDetail(
       mia.id,
       const PersonDetail(bio: 'work'),
-      passcodeHash: hash,
-      keys: _keysFor('1111'),
+      scope: PersonScope.of(hash, _keysFor('1111')),
     );
 
     // A phone that knows where to look but cannot derive the key — a
@@ -134,8 +138,7 @@ void main() {
     await store.saveDetail(
       mia.id,
       const PersonDetail(bio: 'a secret worth keeping'),
-      passcodeHash: hashPasscode('1111'),
-      keys: _keysFor('1111'),
+      scope: PersonScope.of(hashPasscode('1111'), _keysFor('1111')),
     );
 
     // What a backup zip, or anyone reading the database file, gets.
@@ -152,14 +155,18 @@ void main() {
     final work = hashPasscode('1111');
     final keys = _keysFor('1111');
 
-    await store.addRelationship(mia.id, dan.id, RelationshipType.friend);
+    await store.addRelationship(
+      mia.id,
+      dan.id,
+      RelationshipType.friend,
+      scope: PersonScope.open,
+    );
     await store.addRelationship(
       mia.id,
       dan.id,
       RelationshipType.colleague,
       organization: 'Acme',
-      passcodeHash: work,
-      keys: keys,
+      scope: PersonScope.of(work, keys),
     );
     await store.addLocation(
       PersonLocation(
@@ -169,8 +176,7 @@ void main() {
         place: 'Kyoto',
         since: DateTime(2019),
       ),
-      passcodeHash: work,
-      keys: keys,
+      scope: PersonScope.of(work, keys),
     );
     await store.addHistoryEntry(
       PersonHistoryEntry(
@@ -179,8 +185,7 @@ void main() {
         category: HistoryCategory.job,
         title: 'Acme',
       ),
-      passcodeHash: work,
-      keys: keys,
+      scope: PersonScope.of(work, keys),
     );
 
     // The open set sees only what was written to it.
@@ -233,8 +238,7 @@ void main() {
       mia.id,
       dan.id,
       RelationshipType.parent,
-      passcodeHash: work,
-      keys: keys,
+      scope: PersonScope.of(work, keys),
     );
 
     // Daniel's page shows it only when the same digits are typed there.
@@ -262,6 +266,7 @@ void main() {
         type: PersonEventType.firstMet,
         at: DateTime(2019, 3, 12),
       ),
+      scope: PersonScope.open,
     );
     await store.saveEvent(
       PersonEvent(
@@ -271,8 +276,7 @@ void main() {
         at: DateTime(2024, 1, 1),
         notes: 'not for the open set',
       ),
-      passcodeHash: work,
-      keys: keys,
+      scope: PersonScope.of(work, keys),
     );
 
     expect(
@@ -315,8 +319,7 @@ void main() {
         title: 'Cold War Naval Intelligence',
         notes: 'do not put this in a backup',
       ),
-      passcodeHash: work,
-      keys: keys,
+      scope: PersonScope.of(work, keys),
     );
     await store.addLocation(
       PersonLocation(
@@ -326,8 +329,7 @@ void main() {
         place: 'Vladivostok',
         since: DateTime(2019),
       ),
-      passcodeHash: work,
-      keys: keys,
+      scope: PersonScope.of(work, keys),
     );
 
     final dump = (await store.changeLogRows())
@@ -350,7 +352,7 @@ void main() {
     await store.saveDetail(
       mia.id,
       const PersonDetail(bio: 'would be in the clear'),
-      passcodeHash: hashPasscode('1111'),
+      scope: PersonScope.of(hashPasscode('1111'), null),
     );
 
     expect(
@@ -360,6 +362,76 @@ void main() {
         keys: _keysFor('1111'),
       ),
       PersonDetail.empty,
+    );
+  });
+
+  test('an edit made inside a sealed set stays sealed, notes included, and '
+      'removing from the open set cannot reach it', () async {
+    final store = newStore();
+    final mia = await store.create(name: 'Mia');
+    final work = hashPasscode('1111');
+    final keys = _keysFor('1111');
+    final sealed = PersonScope.sealed(work, keys);
+    final entry = PersonHistoryEntry(
+      id: store.newId(),
+      personId: mia.id,
+      category: HistoryCategory.job,
+      title: 'Acme',
+    );
+    await store.addHistoryEntry(entry, scope: sealed);
+    final location = PersonLocation(
+      id: store.newId(),
+      personId: mia.id,
+      kind: LocationKind.origin,
+      place: 'Kyoto',
+      since: DateTime(2019),
+    );
+    await store.addLocation(location, scope: sealed);
+
+    // What the notes field does on every keystroke.
+    await store.addHistoryEntry(
+      entry.copyWith(notes: 'left in 2024'),
+      scope: sealed,
+    );
+
+    expect(await store.historyFor(mia.id, HistoryCategory.job), isEmpty);
+    final rows = await store.sealedRowsFor(mia.id);
+    expect(rows.any((r) => '$r'.contains('left in 2024')), isFalse);
+    expect(
+      (await store.historyFor(
+        mia.id,
+        HistoryCategory.job,
+        passcodeHash: work,
+        keys: keys,
+      )).single.notes,
+      'left in 2024',
+    );
+
+    await store.removeHistoryEntry(entry.id, scope: PersonScope.open);
+    await store.removeLocation(location.id, scope: PersonScope.open);
+    expect(
+      await store.historyFor(
+        mia.id,
+        HistoryCategory.job,
+        passcodeHash: work,
+        keys: keys,
+      ),
+      hasLength(1),
+    );
+    expect(
+      await store.locationsFor(mia.id, passcodeHash: work, keys: keys),
+      hasLength(1),
+    );
+
+    await store.removeHistoryEntry(entry.id, scope: sealed);
+    expect(
+      await store.historyFor(
+        mia.id,
+        HistoryCategory.job,
+        passcodeHash: work,
+        keys: keys,
+      ),
+      isEmpty,
     );
   });
 }

@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/photos/person_store.dart';
 import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/photos/person_detail.dart';
@@ -112,6 +113,7 @@ void main() {
     await store.saveDetail(
       mia.id,
       const PersonDetail(bio: 'Photographer', gender: Gender.female),
+      scope: PersonScope.open,
     );
     File? shared;
     final dir = Directory.systemTemp.createTempSync('profile-csv');

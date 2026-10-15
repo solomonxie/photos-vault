@@ -3,6 +3,7 @@ import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/viewer/person_graph_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/photos/person_store.dart';
 
 import '../support/fake_asset_record_store.dart';
 import '../support/fake_person_store.dart';
@@ -43,6 +44,7 @@ void main() {
       mia.id,
       daniel.id,
       RelationshipType.friend,
+      scope: PersonScope.open,
     );
 
     await tester.pumpWidget(
@@ -73,6 +75,7 @@ void main() {
       daniel.id,
       zoe.id,
       RelationshipType.friend,
+      scope: PersonScope.open,
     );
 
     await tester.pumpWidget(
@@ -99,6 +102,7 @@ void main() {
         mia.id,
         daniel.id,
         RelationshipType.friend,
+        scope: PersonScope.open,
       );
 
       await tester.pumpWidget(

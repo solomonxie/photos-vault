@@ -125,8 +125,7 @@ class ProfileTransfer {
     await store.saveDetail(
       personId,
       after,
-      passcodeHash: passcodeHash,
-      keys: keys,
+      scope: PersonScope.of(passcodeHash, keys),
     );
   }
 
@@ -139,8 +138,7 @@ class ProfileTransfer {
       await store.joinGroup(
         personId,
         PersonGroup(id: store.newId(), name: group.name, kind: group.kind),
-        passcodeHash: passcodeHash,
-        keys: keys,
+        scope: PersonScope.of(passcodeHash, keys),
       );
     }
   }
@@ -166,8 +164,7 @@ class ProfileTransfer {
           endDate: entry.end,
           notes: entry.detail,
         ),
-        passcodeHash: passcodeHash,
-        keys: keys,
+        scope: PersonScope.of(passcodeHash, keys),
       );
     }
   }
@@ -189,8 +186,7 @@ class ProfileTransfer {
           place: place,
           since: DateTime.now(),
         ),
-        passcodeHash: passcodeHash,
-        keys: keys,
+        scope: PersonScope.of(passcodeHash, keys),
       );
     }
   }

@@ -66,8 +66,7 @@ class FakePersonStore implements PersonStore {
   Future<void> joinGroup(
     String personId,
     PersonGroup group, {
-    String passcodeHash = openNamespace,
-    AlbumKeys? keys,
+    required PersonScope scope,
   }) async {
     final mine = groups[personId] ??= [];
     mine.removeWhere((g) => g.id == group.id);
@@ -78,7 +77,7 @@ class FakePersonStore implements PersonStore {
   Future<void> leaveGroup(
     String personId,
     String groupId, {
-    String passcodeHash = openNamespace,
+    required PersonScope scope,
   }) async => groups[personId]?.removeWhere((g) => g.id == groupId);
 
   @override
@@ -109,14 +108,14 @@ class FakePersonStore implements PersonStore {
   @override
   Future<void> saveEvent(
     PersonEvent event, {
-    String passcodeHash = openNamespace,
-    AlbumKeys? keys,
+    required PersonScope scope,
   }) async {
     events[event.id] = event;
   }
 
   @override
-  Future<void> removeEvent(String id) async => events.remove(id);
+  Future<void> removeEvent(String id, {required PersonScope scope}) async =>
+      events.remove(id);
 
   @override
   Future<List<PersonEvent>> eventsFor(
@@ -143,10 +142,9 @@ class FakePersonStore implements PersonStore {
   Future<void> saveDetail(
     String personId,
     PersonDetail detail, {
-    String passcodeHash = openNamespace,
-    AlbumKeys? keys,
+    required PersonScope scope,
   }) async {
-    details[_key(personId, passcodeHash)] = detail;
+    details[_key(personId, scope.passcodeHash)] = detail;
   }
 
   @override
@@ -238,8 +236,7 @@ class FakePersonStore implements PersonStore {
     String relatedPersonId,
     RelationshipType type, {
     String? organization,
-    String passcodeHash = openNamespace,
-    AlbumKeys? keys,
+    required PersonScope scope,
   }) async {
     final inverse = switch (type) {
       RelationshipType.parent => RelationshipType.child,
@@ -270,7 +267,7 @@ class FakePersonStore implements PersonStore {
   Future<void> removeRelationship(
     String personId,
     String relatedPersonId, {
-    String passcodeHash = openNamespace,
+    required PersonScope scope,
   }) async {
     _relationships[personId]?.remove(relatedPersonId);
     _relationships[relatedPersonId]?.remove(personId);
@@ -303,8 +300,7 @@ class FakePersonStore implements PersonStore {
   @override
   Future<void> addLocation(
     PersonLocation location, {
-    String passcodeHash = openNamespace,
-    AlbumKeys? keys,
+    required PersonScope scope,
   }) async {
     final list = _locations.putIfAbsent(location.personId, () => []);
     list.removeWhere((l) => l.id == location.id);
@@ -312,7 +308,7 @@ class FakePersonStore implements PersonStore {
   }
 
   @override
-  Future<void> removeLocation(String id) async {
+  Future<void> removeLocation(String id, {required PersonScope scope}) async {
     for (final list in _locations.values) {
       list.removeWhere((l) => l.id == id);
     }
@@ -328,12 +324,24 @@ class FakePersonStore implements PersonStore {
   @override
   Future<void> addHistoryEntry(
     PersonHistoryEntry entry, {
-    String passcodeHash = openNamespace,
-    AlbumKeys? keys,
-  }) async => _history[entry.id] = entry;
+    required PersonScope scope,
+  }) async {
+    _history[entry.id] = entry;
+    historyScopes[entry.id] = scope.passcodeHash;
+  }
+
+  /// Which set each history entry was last written to, by entry id.
+  final historyScopes = <String, String>{};
 
   @override
-  Future<void> removeHistoryEntry(String id) async => _history.remove(id);
+  Future<void> removeHistoryEntry(
+    String id, {
+    required PersonScope scope,
+  }) async {
+    if (historyScopes[id] != scope.passcodeHash) return;
+    _history.remove(id);
+    historyScopes.remove(id);
+  }
 
   @override
   Future<List<PersonHistoryEntry>> historyFor(
@@ -343,7 +351,12 @@ class FakePersonStore implements PersonStore {
     AlbumKeys? keys,
   }) async =>
       _history.values
-          .where((e) => e.personId == personId && e.category == category)
+          .where(
+            (e) =>
+                e.personId == personId &&
+                e.category == category &&
+                (historyScopes[e.id] ?? openNamespace) == passcodeHash,
+          )
           .toList()
         ..sort(
           (a, b) => (a.startDate ?? DateTime(0)).compareTo(

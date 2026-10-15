@@ -17,7 +17,7 @@ import 'keys.dart';
 ///
 /// ```text
 /// plaintext header   version · entries JSON (salt · verifier · hint) · padding
-/// section × 16       tag(16) · iv(16) · mac(32) · ciphertext, all one size
+/// section × 32       tag(16) · iv(16) · mac(32) · ciphertext, all one size
 /// ```
 ///
 /// A wrong 4-digit code produces a tag that matches no section, which is
@@ -96,6 +96,53 @@ class VaultIndex {
 /// A blank index: what an install with nothing hidden still uploads.
 Uint8List emptyIndex({List<PassphraseEntry> passphrases = const []}) =>
     _assemble(header: passphrases, sections: []);
+
+/// Exactly [indexBytes] with a readable header. Anything else is torn or
+/// foreign, and is never merged into, mirrored or pushed.
+bool isWholeIndex(Uint8List? index) {
+  if (index == null || index.length != indexBytes) return false;
+  final length = ByteData.sublistView(index, 0, 4).getUint32(0);
+  if (length + 4 > _headerBytes) return false;
+  try {
+    final json = jsonDecode(
+      utf8.decode(Uint8List.sublistView(index, 4, 4 + length)),
+    );
+    return json is Map && json['v'] == _version && json['p'] is List;
+  } catch (_) {
+    return false;
+  }
+}
+
+/// [a] then whatever of [b] it lacks. Entries are only ever added: one
+/// dropped strands every carrier it opens.
+List<PassphraseEntry> mergePassphrases(
+  List<PassphraseEntry> a,
+  List<PassphraseEntry> b,
+) {
+  final ids = {for (final e in a) e.id};
+  return [
+    ...a,
+    for (final e in b)
+      if (ids.add(e.id)) e,
+  ];
+}
+
+/// [index] with [passphrases] merged into its header and every section
+/// copied through; blank sections when [index] is not whole.
+Uint8List indexWithPassphrases(
+  Uint8List? index,
+  List<PassphraseEntry> passphrases,
+) {
+  final header = mergePassphrases(
+    index == null ? const [] : passphrasesIn(index),
+    passphrases,
+  );
+  if (!isWholeIndex(index)) return emptyIndex(passphrases: header);
+  return _assemble(
+    header: header,
+    sections: [for (var i = 0; i < _sections; i++) _sectionAt(index!, i)],
+  );
+}
 
 Uint8List _assemble({
   required List<PassphraseEntry> header,
@@ -192,8 +239,9 @@ Uint8List writeSection({
   required List<IndexEntry> entries,
   required List<PassphraseEntry> passphrases,
 }) {
-  final existing = (index != null && index.length >= indexBytes)
-      ? [for (var i = 0; i < _sections; i++) _sectionAt(index, i)]
+  final whole = isWholeIndex(index);
+  final existing = whole
+      ? [for (var i = 0; i < _sections; i++) _sectionAt(index!, i)]
       : [for (var i = 0; i < _sections; i++) randomBytes(_sectionBytes)];
 
   final json = gzip.encode(
@@ -228,5 +276,11 @@ Uint8List writeSection({
   // Derived, never searched for: see the note at the top of this file.
   final slot = keys.sectionTag.first % _sections;
   existing[slot] = section;
-  return _assemble(header: passphrases, sections: existing);
+  return _assemble(
+    header: mergePassphrases(
+      index == null ? const [] : passphrasesIn(index),
+      passphrases,
+    ),
+    sections: existing,
+  );
 }
