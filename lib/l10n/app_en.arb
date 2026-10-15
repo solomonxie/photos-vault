@@ -531,6 +531,15 @@
       }
     }
   },
+  "flaggedSwapsWaiting": "{count, plural, one{1 photo is ready to leave Photos. A copy of it stays.} other{{count} photos are ready to leave Photos. A copy of each stays.}}",
+  "@flaggedSwapsWaiting": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "flaggedSwapsFinish": "Remove from Photos",
   "flaggedFailed": "Couldn't finish. Nothing was changed.",
   "privateAlbumHideDownloadTitle": "Download to hide?",
   "privateAlbumHideDownloadBody": "{count, plural, =1{This photo is only in your bucket. It will be downloaded, hidden, and its plain copy removed from the bucket.} other{These {count} photos are only in your bucket. They will be downloaded, hidden, and their plain copies removed from the bucket.}}",

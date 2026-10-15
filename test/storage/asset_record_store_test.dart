@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:path/path.dart' as p;
@@ -751,6 +752,202 @@ void main() {
       expect(await upgraded.openTransitions(), isEmpty);
       await upgraded.openTransition('photo:old', 'hide', passcodeHash: 'h');
       expect((await upgraded.openTransitions()).single.localId, 'photo:old');
+    });
+  });
+
+  group('one record per Photos asset, and the swap journal', () {
+    Future<void> photo(
+      AssetRecordStore s,
+      String id, {
+      String? asset,
+      DateTime? added,
+    }) => s.upsert(
+      localId: id,
+      contentHash: id,
+      platform: 'ios',
+      libraryId: asset,
+      addedAt: added,
+    );
+
+    test('a second record for an asset is refused', () async {
+      final s = newStore();
+      await photo(s, 'photo:A', asset: 'A');
+
+      final again = await s.upsert(
+        localId: 'photo:B',
+        contentHash: 'b',
+        platform: 'ios',
+        libraryId: 'A',
+      );
+      expect(again.localId, 'photo:A', reason: 'the holder comes back');
+      expect(await s.getByLocalId('photo:B'), isNull);
+      await photo(s, 'photo:C', asset: 'C');
+      await expectLater(
+        s.setLibraryId('photo:C', 'A'),
+        throwsA(isA<DatabaseException>()),
+      );
+
+      // A restore keeps its row, unlinked, rather than lose it.
+      final restored = await s.upsert(
+        localId: 'photo:D',
+        contentHash: 'd',
+        platform: 'ios',
+        libraryId: 'A',
+        keepOnLibraryConflict: true,
+      );
+      expect(restored.libraryId, isNull);
+      expect((await s.getByLocalId('photo:D'))!.libraryId, isNull);
+      expect((await s.getByLibraryId('A'))!.localId, 'photo:A');
+    });
+
+    test('filings made at once are all kept, one per record', () async {
+      final s = newStore();
+      final filed = await Future.wait([
+        for (final id in ['a', 'b', 'c', 'd', 'a'])
+          s.fileSwap(PendingSwap(localId: id, oldAsset: '$id-old')),
+      ]);
+      expect(filed.where((f) => f), hasLength(4));
+      expect([
+        for (final w in await s.pendingSwaps()) w.localId,
+      ], unorderedEquals(['a', 'b', 'c', 'd']));
+    });
+
+    test('taking an asset over merges the record on it and closes the swap '
+        'in one write; a locked one stops it', () async {
+      final s = newStore();
+      await photo(s, 'photo:X', asset: 'X');
+      await photo(s, 'photo:C', asset: 'C');
+      await s.setTags('photo:C', ['beach']);
+      await s.setDescription('photo:C', 'at the pier');
+      await s.fileSwap(
+        const PendingSwap(localId: 'photo:X', oldAsset: 'X', newAsset: 'C'),
+      );
+
+      expect(
+        await s.adoptAsset(
+          'photo:X',
+          'C',
+          width: 2560,
+          optimized: true,
+          closeSwap: true,
+        ),
+        isTrue,
+      );
+      final x = (await s.getByLocalId('photo:X'))!;
+      expect(x.libraryId, 'C');
+      expect(x.localOptimized, isTrue);
+      expect(x.width, 2560);
+      expect(x.tags, ['beach']);
+      expect(x.description, 'at the pier');
+      expect(await s.getByLocalId('photo:C'), isNull);
+      expect(await s.mergedInto(), {'photo:C': 'photo:X'});
+      expect(await s.pendingSwaps(), isEmpty);
+
+      await photo(s, 'photo:L', asset: 'L');
+      await s.setLocked('photo:L', true);
+      expect(await s.adoptAsset('photo:X', 'L'), isFalse);
+      expect((await s.getByLocalId('photo:X'))!.libraryId, 'C');
+      expect(await s.getByLocalId('photo:L'), isNotNull);
+    });
+
+    test('a v22 database with shared assets and the old swap list upgrades '
+        'without losing a row', () async {
+      final dir = await Directory.systemTemp.createTemp('pv_v22_');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = p.join(dir.path, 'photos_vault.db');
+
+      final current = AssetRecordStore(
+        databaseFactory: databaseFactoryFfi,
+        path: path,
+      );
+      final early = DateTime(2025);
+      final late = DateTime(2026);
+      // X moved onto its copy C; the scan had made photo:C of it first.
+      await photo(current, 'photo:X', asset: 'X', added: early);
+      await photo(current, 'photo:C', asset: 'C2', added: late);
+      // Two sharing B, neither the scan's own: the older keeps it.
+      await photo(current, 'photo:B1', asset: 'B', added: early);
+      await photo(current, 'photo:B2', asset: 'B2', added: late);
+      await photo(current, 'photo:Y', asset: 'Y');
+      await photo(current, 'photo:Z', asset: 'Z');
+      await current.close();
+
+      final raw = await databaseFactoryFfi.openDatabase(path);
+      await raw.execute('DROP INDEX asset_record_library_id_unique');
+      await raw.execute('DROP TABLE pending_swap');
+      await raw.execute(
+        'CREATE INDEX asset_record_library_id ON asset_record (library_id)',
+      );
+      await raw.rawUpdate(
+        "UPDATE asset_record SET library_id = 'C' "
+        "WHERE local_id IN ('photo:X', 'photo:C')",
+      );
+      await raw.rawUpdate(
+        "UPDATE asset_record SET library_id = 'B' WHERE local_id = 'photo:B2'",
+      );
+      await raw.insert('app_state', {
+        'key': 'pending_swaps_v1',
+        'value': jsonEncode([
+          // Filed, not yet asked.
+          {
+            'id': 'photo:Y',
+            'asset': 'Y2',
+            'w': 2560,
+            'h': 1920,
+            'old': 9,
+            'new': 1,
+          },
+          // Applied before a kill: Z is on its copy already.
+          {'id': 'photo:Z', 'asset': 'Z', 'old': 9, 'new': 1},
+          // A duplicate removal, and one whose record is gone.
+          {'id': 'photo:B1', 'old': 5},
+          {'id': 'photo:gone', 'asset': 'G', 'old': 1, 'new': 0},
+        ]),
+      });
+      final before =
+          (await raw.rawQuery('SELECT COUNT(*) FROM asset_record'))
+                  .single
+                  .values
+                  .first
+              as int?;
+      await raw.setVersion(22);
+      await raw.close();
+
+      final upgraded = AssetRecordStore(
+        databaseFactory: databaseFactoryFfi,
+        path: path,
+      );
+      addTearDown(upgraded.close);
+
+      expect(await upgraded.listAll(), hasLength(before!));
+      expect((await upgraded.getByLibraryId('C'))!.localId, 'photo:X');
+      expect((await upgraded.getByLocalId('photo:C'))!.libraryId, isNull);
+      expect((await upgraded.getByLibraryId('B'))!.localId, 'photo:B1');
+      expect((await upgraded.getByLocalId('photo:B2'))!.libraryId, isNull);
+      expect(
+        jsonDecode((await upgraded.getAppState('library_id_unlinked_v23'))!),
+        {'photo:C': 'C', 'photo:B2': 'B'},
+      );
+
+      final swaps = {
+        for (final w in await upgraded.pendingSwaps()) w.localId: w,
+      };
+      expect(swaps.keys, unorderedEquals(['photo:Y', 'photo:B1']));
+      expect(swaps['photo:Y']!.oldAsset, 'Y');
+      expect(swaps['photo:Y']!.newAsset, 'Y2');
+      expect(swaps['photo:Y']!.width, 2560);
+      expect(swaps['photo:B1']!.oldAsset, 'B');
+      expect(swaps['photo:B1']!.replaces, isFalse);
+      expect(await upgraded.getAppState('pending_swaps_v1'), isNull);
+
+      // And the rule holds from here on.
+      final again = await upgraded.upsert(
+        localId: 'photo:new',
+        contentHash: 'n',
+        platform: 'ios',
+        libraryId: 'C',
+      );
+      expect(again.localId, 'photo:X');
     });
   });
 }

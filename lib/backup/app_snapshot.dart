@@ -391,6 +391,8 @@ class AppSnapshotIo {
       createdAt: _date(row['createdAt']),
       addedAt: _date(row['addedAt']),
       libraryId: row['libraryId'] as String?,
+      // Its asset already held here: kept unlinked, metadata and all.
+      keepOnLibraryConflict: true,
       latitude: (row['latitude'] as num?)?.toDouble(),
       longitude: (row['longitude'] as num?)?.toDouble(),
       width: row['width'] as int?,

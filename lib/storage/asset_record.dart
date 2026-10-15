@@ -382,3 +382,46 @@ class TransitionRow {
   final int step;
   final String payload;
 }
+
+/// One Photos delete filed by Optimize, waiting on its iOS prompt. See
+/// `StorageOptimizer.finishSwaps`.
+class PendingSwap {
+  const PendingSwap({
+    required this.localId,
+    required this.oldAsset,
+    this.newAsset,
+    this.keeperId,
+    this.flag,
+    this.keepNew = false,
+    this.width,
+    this.height,
+    this.oldBytes = 0,
+    this.newBytes = 0,
+    this.provedAt,
+  });
+
+  /// The record whose Photos asset goes.
+  final String localId;
+
+  /// The asset deleted: the record's own as it was when filed.
+  final String oldAsset;
+
+  /// The smaller copy the record moves onto; null for a plain removal.
+  final String? newAsset;
+
+  /// A removal's record whose copy stays.
+  final String? keeperId;
+
+  /// The fix-queue flag to report by; null for the storage flag.
+  final String? flag;
+
+  /// A copy found already in Photos: never deleted on a decline.
+  final bool keepNew;
+  final int? width;
+  final int? height;
+  final int oldBytes;
+  final int newBytes;
+  final DateTime? provedAt;
+
+  bool get replaces => newAsset != null;
+}

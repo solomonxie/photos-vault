@@ -7,6 +7,7 @@ import 'package:photo_manager/photo_manager.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../vault/plain_files.dart';
+import 'asset_takeover.dart';
 import 'photo_library_service.dart';
 import 'smaller_export.dart';
 
@@ -371,8 +372,11 @@ class LibraryCustody {
               createdAt: record.createdAt,
             );
       if (saved == null) return CustodyResult.failed;
-      await store.setLibraryId(record.localId, saved.id);
-      return CustodyResult.returned;
+      // A scan may have listed the new asset first: that record goes, and
+      // this one, with its tags, people and albums, takes it over.
+      return await takeOverAsset(store, record.localId, saved.id)
+          ? CustodyResult.returned
+          : CustodyResult.failed;
     } catch (_) {
       return CustodyResult.failed;
     }

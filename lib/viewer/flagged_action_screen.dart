@@ -59,18 +59,21 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
   void _onQueue() {
     if (_closing) return;
     final open = _open();
-    if (open.isEmpty) {
-      // Once, and only while on top: a second pop would close the page
-      // underneath too.
-      _closing = true;
-      if (ModalRoute.of(context)?.isCurrent ?? false) {
-        Navigator.of(context).pop();
-      }
-      return;
-    }
     setState(() {
       _flags = open;
       _selected = _selected.intersection({for (final f in open) f.id});
+    });
+  }
+
+  /// Nothing left: closes once, and only while on top — a second pop would
+  /// close the page underneath too. With a photo open over it, this runs
+  /// again when the page is back on top.
+  void _closeIfDone() {
+    if (_closing || _flags.isNotEmpty) return;
+    if (!(ModalRoute.of(context)?.isCurrent ?? false)) return;
+    _closing = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) {
+      if (mounted) Navigator.of(context).pop();
     });
   }
 
@@ -124,6 +127,7 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
 
   @override
   Widget build(BuildContext context) {
+    _closeIfDone();
     final l10n = AppLocalizations.of(context)!;
     final label = solutionLabel(l10n, widget.solution);
     final allSelected = _selected.length == _flags.length;

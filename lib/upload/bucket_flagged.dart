@@ -401,6 +401,9 @@ enum FixOutcome {
   /// Needs an album that is not available (a v1 carrier).
   needsAlbum,
   removed,
+
+  /// Filed for the run's one iOS prompt; not done until it is answered.
+  filed,
   failed,
 }
 

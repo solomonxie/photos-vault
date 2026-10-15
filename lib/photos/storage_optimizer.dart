@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
 import 'dart:typed_data';
@@ -9,8 +8,8 @@ import 'package:photo_manager/photo_manager.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/backup_verifier.dart';
-import '../upload/pending_deletes.dart';
 import 'asset_removal.dart' show originalStands;
+import 'asset_takeover.dart';
 import 'file_hash.dart';
 import 'image_pipeline.dart';
 import 'photo_library_service.dart';
@@ -129,8 +128,18 @@ class StorageOptimizer {
     void report(StorageItem item, StorageItemOutcome outcome) =>
         onItem?.call(item.record.localId, outcome);
 
+    final work = <StorageItem>[];
+    for (final item in items) {
+      if (_offLimits(item.record)) {
+        skipped++;
+        report(item, StorageItemOutcome.skipped);
+      } else {
+        work.add(item);
+      }
+    }
+
     final toBackUp = [
-      for (final item in items)
+      for (final item in work)
         if (item.fix == StorageFix.backUpFirst) item,
     ];
     if (toBackUp.isNotEmpty) {
@@ -140,10 +149,10 @@ class StorageOptimizer {
       }
     }
 
-    final unconfirmed = await _unconfirmed(items);
+    final unconfirmed = await _unconfirmed(work);
 
     final inLibrary = <StorageItem>[];
-    for (final item in items) {
+    for (final item in work) {
       if (!_rewrites.contains(item.fix)) continue;
       // The re-encodes replace the local copy, which is only safe while the
       // bucket holds the full-quality original they're throwing away.
@@ -183,7 +192,7 @@ class StorageOptimizer {
     }
 
     final removable = <StorageItem>[];
-    for (final item in items) {
+    for (final item in work) {
       if (item.fix != StorageFix.removeFromDevice) continue;
       if (unconfirmed.contains(item.record.localId)) {
         unverified++;
@@ -197,7 +206,7 @@ class StorageOptimizer {
     skipped += removal.skipped;
 
     final dupes = await _removeDuplicates([
-      for (final item in items)
+      for (final item in work)
         if (item.fix == StorageFix.removeDuplicate) item,
     ], report);
     freed += dupes.freedBytes;
@@ -327,11 +336,15 @@ class StorageOptimizer {
         PhotoLibraryService.libraryIdOf(i.record) != null;
     final fromLibrary = items.where(inLibrary).toList();
     if (_defer && fromLibrary.isNotEmpty) {
-      await _addSwaps([
-        for (final item in fromLibrary)
-          {'id': item.record.localId, 'old': item.bytes},
-      ]);
       for (final item in fromLibrary) {
+        await store.fileSwap(
+          PendingSwap(
+            localId: item.record.localId,
+            oldAsset: item.record.libraryId!,
+            keeperId: item.keptId,
+            oldBytes: item.bytes,
+          ),
+        );
         _onPrepared?.call(item.record.localId);
       }
       fromLibrary.clear();
@@ -416,6 +429,11 @@ class StorageOptimizer {
         onPrepared?.call(item.record.localId);
         continue;
       }
+      if (item.record.libraryId == null) {
+        skipped++;
+        report(item, StorageItemOutcome.skipped);
+        continue;
+      }
       _step(item, FixAction.optimizing);
       final result = await _smallerCopyInLibrary(item);
       if (result == null) {
@@ -428,16 +446,19 @@ class StorageOptimizer {
         // it in Photos beside its original with nothing to say so.
         if (_defer) {
           final (asset, file) = result;
-          await _addSwaps([
-            {
-              'id': item.record.localId,
-              'asset': asset.id,
-              'w': asset.width,
-              'h': asset.height,
-              'old': item.bytes,
-              'new': await file.length(),
-            },
-          ]);
+          final filedNow = await store.fileSwap(
+            PendingSwap(
+              localId: item.record.localId,
+              oldAsset: item.record.libraryId!,
+              newAsset: asset.id,
+              width: asset.width,
+              height: asset.height,
+              oldBytes: item.bytes,
+              newBytes: await file.length(),
+            ),
+          );
+          // Filed meanwhile by another run: one copy per photo.
+          if (!filedNow) await _writer.delete([asset.id]);
         }
         onPrepared?.call(item.record.localId);
       }
@@ -471,12 +492,13 @@ class StorageOptimizer {
         continue;
       }
       final size = await file.length();
-      await store.setLibraryId(id, asset.id);
-      await store.setLocalOptimized(id, true);
-      await store.setLibraryMetadata(
+      await takeOverAsset(
+        store,
         id,
+        asset.id,
         width: asset.width,
         height: asset.height,
+        optimized: true,
       );
       freed += item.bytes > size ? item.bytes - size : 0;
       report(item, StorageItemOutcome.freed);
@@ -495,146 +517,253 @@ class StorageOptimizer {
   void Function(String localId, FixAction action)? _onStep;
 
   /// Set by [apply]: the originals a run replaces or removes from Photos
-  /// are filed in [_swapsKey] rather than deleted, and [finishSwaps] asks
-  /// for all of them in one iOS prompt when the run is over.
+  /// are filed (`pending_swap`) rather than deleted, and [finishSwaps] asks
+  /// for all of them in one iOS prompt.
   bool _defer = false;
   void Function(String localId)? _onPrepared;
 
-  static const _swapsKey = 'pending_swaps_v1';
-
-  /// Originals waiting on that one prompt. Kept in app state, so a run cut
-  /// short by a quit still asks on the next launch instead of leaving both
-  /// copies in Photos.
-  Future<List<Map<String, dynamic>>> pendingSwaps() async {
-    try {
-      final raw = await store.getAppState(_swapsKey);
-      return raw == null
-          ? []
-          : [
-              for (final e in jsonDecode(raw) as List)
-                (e as Map).cast<String, dynamic>(),
-            ];
-    } catch (_) {
-      return [];
-    }
-  }
+  /// Originals waiting on that one prompt. A row each, so a quit keeps
+  /// them and two jobs filing at once can't drop each other's.
+  Future<List<PendingSwap>> pendingSwaps() => store.pendingSwaps();
 
   Future<Set<String>> _filedIds() async => {
-    for (final s in await pendingSwaps()) s['id'] as String,
+    for (final s in await store.pendingSwaps()) s.localId,
   };
 
-  Future<void> _addSwaps(Iterable<Map<String, dynamic>> swaps) async {
-    final all = [...await pendingSwaps(), ...swaps];
-    await store.setAppState(_swapsKey, jsonEncode(all));
-  }
+  /// Not to be touched by a fix, whatever the scan said: hidden, locked or
+  /// binned since.
+  static bool _offLimits(AssetRecord r) =>
+      r.isDeleted || r.isLocked || r.isHidden || r.passcodeHash != null;
 
   /// The one prompt: every filed original out of Photos at once. A
   /// replaced photo moves over to its smaller copy; a duplicate goes to
-  /// Recently Deleted. Declined, the smaller copies are taken back out and
-  /// nothing has changed.
+  /// Recently Deleted.
+  ///
+  /// Each swap is checked again right before: the record still on the
+  /// asset it was filed with and not hidden, locked or binned; never an
+  /// asset another swap moves onto or a kept copy holds; a replacement's
+  /// copy still in Photos and its original live in a bucket; a removal's
+  /// kept copy still standing. A bucket that doesn't answer leaves the swap
+  /// filed for later. Each one done is closed in the same write that moves
+  /// the record, so a kill anywhere resumes forward.
   Future<StorageFixResult> finishSwaps({
-    void Function(String localId, StorageItemOutcome outcome)? onItem,
+    void Function(PendingSwap swap, StorageItemOutcome outcome)? onItem,
   }) async {
-    final swaps = await pendingSwaps();
+    final swaps = await store.pendingSwaps();
     if (swaps.isEmpty) return const StorageFixResult();
-    final records = <String, AssetRecord>{};
-    for (final s in swaps) {
-      final r = await store.getByLocalId(s['id'] as String);
-      if (r != null) records[r.localId] = r;
+    final records = await store.getByLocalIds([
+      for (final s in swaps) ...[s.localId, ?s.keeperId],
+    ]);
+    final movingOnto = {for (final s in swaps) ?s.newAsset};
+    final kept = {for (final s in swaps) ?records[s.keeperId]?.libraryId};
+    final orphans = <String>[];
+    final closed = <String>[];
+    final ready = <PendingSwap>[];
+    var unverified = 0;
+    var skipped = 0;
+
+    void close(PendingSwap s, StorageItemOutcome outcome) {
+      closed.add(s.localId);
+      if (s.newAsset case final copy? when !s.keepNew) orphans.add(copy);
+      onItem?.call(s, outcome);
     }
+
+    final asking = <PendingSwap>[];
+    for (final s in swaps) {
+      final r = records[s.localId];
+      if (r == null ||
+          _offLimits(r) ||
+          r.libraryId != s.oldAsset ||
+          s.newAsset == s.oldAsset ||
+          movingOnto.contains(s.oldAsset) ||
+          kept.contains(s.oldAsset)) {
+        skipped++;
+        close(s, StorageItemOutcome.skipped);
+      } else {
+        asking.add(s);
+      }
+    }
+    // A few round trips at a time, not one after another.
+    for (var i = 0; i < asking.length; i += _proveAtOnce) {
+      final chunk = asking.skip(i).take(_proveAtOnce).toList();
+      final proofs = await Future.wait([
+        for (final s in chunk) _proveSwap(s, records[s.localId]!, records),
+      ]);
+      for (final (j, s) in chunk.indexed) {
+        switch (proofs[j]) {
+          case CopyProof.present:
+            ready.add(s);
+          case CopyProof.unreachable:
+            unverified++;
+            onItem?.call(s, StorageItemOutcome.unverified);
+          case _:
+            unverified++;
+            close(s, StorageItemOutcome.unverified);
+        }
+      }
+    }
+    if (ready.isNotEmpty) {
+      await store.markSwapsProved([for (final s in ready) s.localId]);
+    }
+
     Set<String> gone;
     try {
-      gone = await library.deleteManyFromLibrary([
-        ...records.values,
-      ], limit: records.length + 1);
+      gone = ready.isEmpty
+          ? <String>{}
+          : {
+              ...await library.deleteManyFromLibrary([
+                for (final s in ready) records[s.localId]!,
+              ], limit: ready.length + 1),
+            };
     } catch (_) {
-      gone = const {};
+      gone = <String>{};
     }
-    var freed = 0;
-    var skipped = 0;
-    final orphans = <String>[];
-    final done = <String>{};
-    for (final s in swaps) {
-      final id = s['id'] as String;
-      final asset = s['asset'] as String?;
-      // Filed twice: only the first copy is taken over; a second made for
-      // it goes, or sync would find it unclaimed and add it back.
-      if (!done.add(id)) {
-        if (asset != null && s['keep'] != true) orphans.add(asset);
-        continue;
-      }
-      if (!gone.contains(id)) {
-        // A copy found already in Photos is kept: declining only means the
-        // original stays too.
-        if (asset != null && s['keep'] != true) orphans.add(asset);
-        skipped++;
-        onItem?.call(id, StorageItemOutcome.skipped);
-        continue;
-      }
-      if (asset == null) {
-        await store.softDelete(id);
-        freed += s['old'] as int;
-      } else {
-        await _dropCopyRecord(asset, keeper: id);
-        await store.setLibraryId(id, asset);
-        await store.setLocalOptimized(id, true);
-        await store.setLibraryMetadata(
-          id,
-          width: s['w'] as int?,
-          height: s['h'] as int?,
-        );
-        final saved = (s['old'] as int) - (s['new'] as int);
-        if (saved > 0) freed += saved;
-      }
-      onItem?.call(id, StorageItemOutcome.freed);
-    }
-    await store.setAppState(_swapsKey, '[]');
-    if (orphans.isNotEmpty) await _writer.delete(orphans);
-    return StorageFixResult(freedBytes: freed, skipped: skipped);
-  }
-
-  /// Sync may have found the copy before the swap finished and made it a
-  /// photo of its own, uploads and all; the original's record takes the
-  /// asset over, so that one and its bucket copies go.
-  Future<void> _dropCopyRecord(String asset, {required String keeper}) async {
-    final copy = await store.getByLibraryId(asset);
-    if (copy == null || copy.localId == keeper) return;
-    final keys = <PendingDelete>[
-      for (final kind in DerivativeKind.values)
-        for (final MapEntry(key: target, value: key)
-            in (await store.targetsHolding(copy.localId, kind)).entries)
-          PendingDelete(
-            objectKey: key,
-            targetId: target,
-            localId: copy.localId,
-          ),
+    // Deleted before a kill: Photos no longer has it, which only full
+    // access can say.
+    final left = [
+      for (final s in ready)
+        if (!gone.contains(s.localId)) s,
     ];
-    await store.remove(copy.localId);
-    if (keys.isNotEmpty) await PendingDeletes(store: store).add(keys);
+    if (left.isNotEmpty && await library.hasFullAccess()) {
+      for (final s in left) {
+        if (await library.hasAsset(s.oldAsset) == false) gone.add(s.localId);
+      }
+    }
+
+    var freed = 0;
+    for (final s in ready) {
+      if (!gone.contains(s.localId)) {
+        skipped++;
+        close(s, StorageItemOutcome.skipped);
+        continue;
+      }
+      if (s.newAsset case final copy?) {
+        final moved = await takeOverAsset(
+          store,
+          s.localId,
+          copy,
+          width: s.width,
+          height: s.height,
+          optimized: true,
+          closeSwap: true,
+        );
+        if (!moved) {
+          // The copy is held by a hidden or locked photo: the original is
+          // gone, its bucket copy proven; sync makes it cloud-only.
+          closed.add(s.localId);
+          skipped++;
+          onItem?.call(s, StorageItemOutcome.skipped);
+          continue;
+        }
+        if (s.oldBytes > s.newBytes) freed += s.oldBytes - s.newBytes;
+      } else {
+        await store.binSwapped(s.localId);
+        freed += s.oldBytes;
+      }
+      onItem?.call(s, StorageItemOutcome.freed);
+    }
+    if (closed.isNotEmpty) await store.dropSwaps(closed);
+    // Never an asset some record is on: that one is a photo, not a spare.
+    final spare = [
+      for (final id in orphans.toSet())
+        if (await store.getByLibraryId(id) == null) id,
+    ];
+    if (spare.isNotEmpty) await _writer.delete(spare);
+    return StorageFixResult(
+      freedBytes: freed,
+      skipped: skipped,
+      unverified: unverified,
+    );
   }
 
-  /// Files [pairs] of an original and a smaller copy of it already in
-  /// Photos, and [extras], more copies of one, for [finishSwaps].
-  Future<void> fileFoundCopies(
-    List<({AssetRecord original, AssetRecord copy})> pairs,
-    List<AssetRecord> extras,
+  static const _proveAtOnce = 8;
+
+  /// Whether a verified copy stands right now, for [s]'s delete to be safe.
+  /// [CopyProof.unreachable] when that can't be told.
+  Future<CopyProof> _proveSwap(
+    PendingSwap s,
+    AssetRecord r,
+    Map<String, AssetRecord> records,
   ) async {
-    final filed = await _filedIds();
-    await _addSwaps([
-      for (final (:original, :copy) in pairs)
-        if (!filed.contains(original.localId))
-          {
-            'id': original.localId,
-            'asset': copy.libraryId,
-            'w': copy.width,
-            'h': copy.height,
-            'old': 0,
-            'new': 0,
-            'keep': true,
-          },
-      for (final e in extras)
-        if (!filed.contains(e.localId)) {'id': e.localId, 'old': 0},
-    ]);
+    if (s.newAsset case final copy?) {
+      switch (await library.hasAsset(copy)) {
+        case false:
+          return CopyProof.missing;
+        case null:
+          return CopyProof.unreachable;
+        case true:
+      }
+      return _proveOriginal(r);
+    }
+    final keeperId = s.keeperId;
+    if (keeperId == null) return _proveOriginal(r);
+    final keeper = records[keeperId];
+    if (keeper == null || keeper.libraryId == s.oldAsset) {
+      return CopyProof.missing;
+    }
+    return await originalStands(keeper, library: library, verifier: verifier)
+        ? CopyProof.present
+        : CopyProof.missing;
+  }
+
+  Future<CopyProof> _proveOriginal(AssetRecord r) async {
+    final verifier = this.verifier;
+    if (verifier == null) return CopyProof.unreachable;
+    try {
+      return switch (await verifier.proveOriginal(r)) {
+        CopyProof.notRecorded => CopyProof.missing,
+        final proof => proof,
+      };
+    } catch (_) {
+      return CopyProof.unreachable;
+    }
+  }
+
+  /// Files the Photos copy [copy] of [keeper] (the record moves onto it,
+  /// the original goes) and [extras], more copies of it, for [finishSwaps].
+  /// [flag] is the fix-queue flag the outcome is reported under. Returns
+  /// how many are filed, counting any filed before.
+  Future<int> fileFoundCopies(
+    AssetRecord keeper, {
+    AssetRecord? copy,
+    List<AssetRecord> extras = const [],
+    String? flag,
+  }) async {
+    var count = 0;
+    // Refused only when that record has a swap filed already: filed either
+    // way, and one swap per record.
+    Future<void> file(PendingSwap swap) async {
+      await store.fileSwap(swap);
+      count++;
+    }
+
+    final from = keeper.libraryId;
+    if (copy?.libraryId case final to? when from != null && to != from) {
+      await file(
+        PendingSwap(
+          localId: keeper.localId,
+          oldAsset: from,
+          newAsset: to,
+          flag: flag,
+          keepNew: true,
+          width: copy!.width,
+          height: copy.height,
+        ),
+      );
+    }
+    for (final e in extras) {
+      final asset = e.libraryId;
+      if (asset == null || asset == from || asset == copy?.libraryId) continue;
+      await file(
+        PendingSwap(
+          localId: e.localId,
+          oldAsset: asset,
+          keeperId: keeper.localId,
+          flag: flag,
+        ),
+      );
+    }
+    return count;
   }
 
   void _step(StorageItem item, FixAction action) =>

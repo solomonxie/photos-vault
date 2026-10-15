@@ -64,9 +64,11 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 22,
+        version: 23,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
+          await db.execute(_createLibraryIdIndexSql);
+          await db.execute(_createPendingSwapTableSql);
           await db.execute(_createTransitionTableSql);
           await db.execute(_createPlaceNameTableSql);
           await db.execute(_createAppStateTableSql);
@@ -202,18 +204,19 @@ class AssetRecordStore {
             await db.execute('ALTER TABLE $_table ADD COLUMN height INTEGER');
             await db.execute(_createPlaceNameTableSql);
           }
+          if (oldVersion < 23) {
+            await _unlinkDuplicateLibraryIds(db);
+            await db.execute('DROP INDEX IF EXISTS asset_record_library_id');
+            await db.execute(_createLibraryIdIndexSql);
+            await db.execute(_createPendingSwapTableSql);
+            await _migrateSwapJson(db);
+          }
         },
       ),
     );
     // Sorts and temp indexes stay off disk: with no usable `tmp` a query
     // fails and sqflite's queue stalls behind it.
     await db.execute('PRAGMA temp_store = MEMORY');
-    // Every camera-roll scan looks each asset up by this; unindexed, each
-    // lookup read the whole table.
-    await db.execute(
-      'CREATE INDEX IF NOT EXISTS asset_record_library_id '
-      'ON $_table (library_id)',
-    );
     // A deleted hidden row is zeroed, not left in a free page.
     await db.execute('PRAGMA secure_delete = ON');
     await db.execute(
@@ -511,6 +514,118 @@ class AssetRecordStore {
       held_name TEXT
     )
   ''';
+
+  /// One record per Photos asset. Two rows on one asset is how a stray
+  /// copy record came to have the keeper's asset deleted (Remove Extra
+  /// Copies); the scan's lookup is this index too.
+  static const _createLibraryIdIndexSql =
+      'CREATE UNIQUE INDEX IF NOT EXISTS asset_record_library_id_unique '
+      'ON $_table (library_id) WHERE library_id IS NOT NULL';
+
+  static const _unlinkedKey = 'library_id_unlinked_v23';
+
+  /// Before the unique index: of rows sharing an asset, one keeps it. In
+  /// order: not binned, the record a swap or un-hide moved onto the asset
+  /// (it carries the history), the oldest. The rest keep every column but
+  /// the link, and are listed in [_unlinkedKey]. Nothing is deleted.
+  static Future<void> _unlinkDuplicateLibraryIds(Database db) async {
+    final rows = await db.rawQuery(
+      'SELECT local_id, library_id FROM $_table WHERE library_id IN ('
+      'SELECT library_id FROM $_table WHERE library_id IS NOT NULL '
+      'GROUP BY library_id HAVING COUNT(*) > 1) '
+      'ORDER BY library_id, deleted_at IS NOT NULL, '
+      "local_id = 'photo:' || library_id, "
+      'COALESCE(added_at, created_at), local_id',
+    );
+    if (rows.isEmpty) return;
+    final unlinked = <String, String>{};
+    String? keeping;
+    for (final row in rows) {
+      final asset = row['library_id'] as String;
+      if (asset != keeping) {
+        keeping = asset;
+        continue;
+      }
+      unlinked[row['local_id'] as String] = asset;
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final id in unlinked.keys) {
+      await db.update(
+        _table,
+        {'library_id': null, 'updated_at': now},
+        where: 'local_id = ?',
+        whereArgs: [id],
+      );
+    }
+    await _putAppState(db, _unlinkedKey, jsonEncode(unlinked));
+  }
+
+  static const _pendingSwapTable = 'pending_swap';
+
+  static const _createPendingSwapTableSql =
+      '''
+    CREATE TABLE IF NOT EXISTS $_pendingSwapTable (
+      local_id TEXT PRIMARY KEY,
+      old_asset TEXT NOT NULL,
+      new_asset TEXT,
+      keeper_id TEXT,
+      flag TEXT,
+      keep_new INTEGER NOT NULL DEFAULT 0,
+      width INTEGER,
+      height INTEGER,
+      old_bytes INTEGER NOT NULL DEFAULT 0,
+      new_bytes INTEGER NOT NULL DEFAULT 0,
+      proved_at INTEGER,
+      filed_at INTEGER NOT NULL
+    )
+  ''';
+
+  static const _legacySwapsKey = 'pending_swaps_v1';
+
+  /// The old JSON list into [_pendingSwapTable], inside the upgrade's own
+  /// transaction. An entry whose record already moved onto its copy was
+  /// applied before a kill and is dropped: deleting "its asset" now would
+  /// delete the copy.
+  static Future<void> _migrateSwapJson(Database db) async {
+    final raw = await _appState(db, _legacySwapsKey);
+    if (raw == null) return;
+    List<dynamic> entries;
+    try {
+      entries = jsonDecode(raw) as List;
+    } catch (_) {
+      entries = const [];
+    }
+    final now = DateTime.now().millisecondsSinceEpoch;
+    for (final e in entries.whereType<Map>()) {
+      final id = e['id'];
+      if (id is! String) continue;
+      final rows = await db.query(
+        _table,
+        columns: ['library_id'],
+        where: 'local_id = ?',
+        whereArgs: [id],
+      );
+      final old = rows.isEmpty ? null : rows.single['library_id'] as String?;
+      final asset = e['asset'] as String?;
+      if (old == null || old == asset) continue;
+      await db.insert(_pendingSwapTable, {
+        'local_id': id,
+        'old_asset': old,
+        'new_asset': asset,
+        'keep_new': e['keep'] == true ? 1 : 0,
+        'width': e['w'] as int?,
+        'height': e['h'] as int?,
+        'old_bytes': e['old'] as int? ?? 0,
+        'new_bytes': e['new'] as int? ?? 0,
+        'filed_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+    await db.delete(
+      _appStateTable,
+      where: 'key = ?',
+      whereArgs: [_legacySwapsKey],
+    );
+  }
 
   /// One row per rounded-off patch of the world, so a thousand photos from
   /// one trip cost one question to the geocoder rather than a thousand —
@@ -1001,6 +1116,211 @@ class AssetRecordStore {
     });
   }
 
+  /// Files [swap]; one per record. False when one is filed already.
+  Future<bool> fileSwap(PendingSwap swap) async {
+    final db = await _open();
+    return db.transaction((txn) async {
+      final filed = await txn.query(
+        _pendingSwapTable,
+        columns: ['local_id'],
+        where: 'local_id = ?',
+        whereArgs: [swap.localId],
+      );
+      if (filed.isNotEmpty) return false;
+      await txn.insert(_pendingSwapTable, {
+        'local_id': swap.localId,
+        'old_asset': swap.oldAsset,
+        'new_asset': swap.newAsset,
+        'keeper_id': swap.keeperId,
+        'flag': swap.flag,
+        'keep_new': swap.keepNew ? 1 : 0,
+        'width': swap.width,
+        'height': swap.height,
+        'old_bytes': swap.oldBytes,
+        'new_bytes': swap.newBytes,
+        'filed_at': DateTime.now().millisecondsSinceEpoch,
+      });
+      return true;
+    });
+  }
+
+  Future<List<PendingSwap>> pendingSwaps() async {
+    final db = await _open();
+    return [
+      for (final row in await db.query(_pendingSwapTable, orderBy: 'filed_at'))
+        PendingSwap(
+          localId: row['local_id'] as String,
+          oldAsset: row['old_asset'] as String,
+          newAsset: row['new_asset'] as String?,
+          keeperId: row['keeper_id'] as String?,
+          flag: row['flag'] as String?,
+          keepNew: row['keep_new'] == 1,
+          width: row['width'] as int?,
+          height: row['height'] as int?,
+          oldBytes: row['old_bytes'] as int,
+          newBytes: row['new_bytes'] as int,
+          provedAt: switch (row['proved_at']) {
+            final int at => DateTime.fromMillisecondsSinceEpoch(at),
+            _ => null,
+          },
+        ),
+    ];
+  }
+
+  Future<int> pendingSwapCount() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS n FROM $_pendingSwapTable',
+    );
+    return rows.single['n'] as int;
+  }
+
+  Future<void> markSwapsProved(Iterable<String> localIds) async {
+    final db = await _open();
+    final at = DateTime.now().millisecondsSinceEpoch;
+    final batch = db.batch();
+    for (final id in localIds) {
+      batch.update(
+        _pendingSwapTable,
+        {'proved_at': at},
+        where: 'local_id = ?',
+        whereArgs: [id],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<void> dropSwaps(Iterable<String> localIds) async {
+    final db = await _open();
+    final batch = db.batch();
+    for (final id in localIds) {
+      batch.delete(_pendingSwapTable, where: 'local_id = ?', whereArgs: [id]);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// A removal swap done: [localId] binned and its swap closed in one write.
+  Future<void> binSwapped(String localId) async {
+    final db = await _open();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.transaction((txn) async {
+      await txn.update(
+        _table,
+        {'deleted_at': now, 'binned_by': _binnedByUser, 'updated_at': now},
+        where: 'local_id = ?',
+        whereArgs: [localId],
+      );
+      await txn.delete(
+        _pendingSwapTable,
+        where: 'local_id = ?',
+        whereArgs: [localId],
+      );
+    });
+  }
+
+  /// [localId] takes Photos asset [libraryId] over, in one write. A record
+  /// already on that asset (a copy sync found first) gives its tags,
+  /// caption, heart and place to [localId] and is dropped; its albums and
+  /// people follow through [mergedInto]. With [closeSwap] the swap filed
+  /// for [localId] closes in the same write.
+  ///
+  /// False, and nothing written, when [localId] is gone or the holder is
+  /// hidden or locked.
+  Future<bool> adoptAsset(
+    String localId,
+    String libraryId, {
+    int? width,
+    int? height,
+    bool optimized = false,
+    bool closeSwap = false,
+  }) async {
+    final db = await _open();
+    final dropped = <String>[];
+    final ok = await db.transaction((txn) async {
+      final keeper = await txn.query(
+        _table,
+        where: 'local_id = ?',
+        whereArgs: [localId],
+      );
+      if (keeper.isEmpty) return false;
+      final holders = await txn.query(
+        _table,
+        where: 'library_id = ? AND local_id <> ?',
+        whereArgs: [libraryId, localId],
+      );
+      if (holders.any(
+        (h) => h['passcode_hash'] != null || h['is_locked'] == 1,
+      )) {
+        return false;
+      }
+      final k = keeper.single;
+      final tags = <String>{
+        for (final row in [k, ...holders])
+          ...(jsonDecode(row['tags'] as String? ?? '[]') as List)
+              .cast<String>(),
+      };
+      String? first(String column) => [k, ...holders]
+          .map((r) => r[column])
+          .whereType<String>()
+          .where((v) => v.isNotEmpty)
+          .firstOrNull;
+      Object? any(String column) =>
+          [k, ...holders].map((r) => r[column]).nonNulls.firstOrNull;
+      final now = DateTime.now().millisecondsSinceEpoch;
+      for (final h in holders) {
+        final id = h['local_id'] as String;
+        dropped.add(id);
+        await txn.delete(_table, where: 'local_id = ?', whereArgs: [id]);
+        await txn.delete(
+          _derivativeTargetTable,
+          where: 'local_id = ?',
+          whereArgs: [id],
+        );
+        await txn.insert(_appStateTable, {
+          'key': '$_removedKeyPrefix$id',
+          'value': localId,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+      await txn.update(
+        _table,
+        {
+          'library_id': libraryId,
+          if (optimized) 'local_optimized': 1,
+          'width': ?width,
+          'height': ?height,
+          if (holders.isNotEmpty) ...{
+            'tags': jsonEncode(tags.toList()),
+            'description': first('description') ?? '',
+            'location': first('location'),
+            'latitude': any('latitude'),
+            'longitude': any('longitude'),
+            'is_favorite': [k, ...holders].any((r) => r['is_favorite'] == 1)
+                ? 1
+                : 0,
+          },
+          'updated_at': now,
+        },
+        where: 'local_id = ?',
+        whereArgs: [localId],
+      );
+      if (closeSwap) {
+        await txn.delete(
+          _pendingSwapTable,
+          where: 'local_id = ?',
+          whereArgs: [localId],
+        );
+      }
+      return true;
+    });
+    if (ok && dropped.isNotEmpty) {
+      final cached = _cached;
+      if (cached != null && dropped.any((id) => cached.remove(id) != null)) {
+        _rebuildSorted();
+      }
+    }
+    return ok;
+  }
+
   static const _placeNameTable = 'place_name';
 
   static const _createPlaceNameTableSql =
@@ -1038,6 +1358,7 @@ class AssetRecordStore {
       ..delete(_derivativeTargetTable)
       ..delete(_hiddenNoteTable)
       ..delete(_transitionTable)
+      ..delete(_pendingSwapTable)
       ..delete(_bucketObjectTable)
       ..delete(_bucketScanTable)
       ..delete(_bucketScanObjectTable)
@@ -1268,6 +1589,7 @@ class AssetRecordStore {
     String? libraryId,
     String? passcodeHash,
     bool isHidden = false,
+    bool keepOnLibraryConflict = false,
   }) async {
     final db = await _open();
     final existing = await getByLocalId(localId);
@@ -1287,7 +1609,26 @@ class AssetRecordStore {
 
     final added = addedAt ?? DateTime.now();
     final now = createdAt ?? added;
-    await db.insert(_table, {
+    // One record per asset (the unique index): a scan that finds the asset
+    // already held gets the holder back. A restore keeps its row, unlinked,
+    // rather than lose the metadata written after it.
+    if (libraryId != null) {
+      final holder = await db.query(
+        _table,
+        columns: ['local_id'],
+        where: 'library_id = ?',
+        whereArgs: [libraryId],
+        limit: 1,
+      );
+      if (holder.isNotEmpty) {
+        if (!keepOnLibraryConflict) {
+          final held = await getByLocalId(holder.single['local_id'] as String);
+          if (held != null) return held;
+        }
+        libraryId = null;
+      }
+    }
+    final row = {
       'local_id': localId,
       'content_hash': contentHash,
       'platform': platform,
@@ -1306,7 +1647,18 @@ class AssetRecordStore {
       'created_at': now.millisecondsSinceEpoch,
       'updated_at': now.millisecondsSinceEpoch,
       'added_at': added.millisecondsSinceEpoch,
-    });
+    };
+    try {
+      await db.insert(_table, row);
+    } on sqflite.DatabaseException catch (e) {
+      // Raced by another insert of the same photo: that one stands.
+      if (!e.isUniqueConstraintError()) rethrow;
+      final raced =
+          await getByLocalId(localId) ??
+          (libraryId == null ? null : await getByLibraryId(libraryId));
+      if (raced == null) rethrow;
+      return raced;
+    }
     return AssetRecord(
       localId: localId,
       contentHash: contentHash,
@@ -1628,6 +1980,7 @@ class AssetRecordStore {
             'library_id IN ($marks) '
             'OR (library_id IS NULL AND local_id IN ($marks))',
         whereArgs: [...chunk, for (final id in chunk) 'photo:$id'],
+        orderBy: 'library_id IS NULL',
       );
       for (final row in rows) {
         final id =
@@ -1649,6 +2002,8 @@ class AssetRecordStore {
       // been re-scanned since the migration that lifts it out.
       where: 'library_id = ? OR (library_id IS NULL AND local_id = ?)',
       whereArgs: [libraryId, 'photo:$libraryId'],
+      // The real link before the old-row fallback.
+      orderBy: 'library_id IS NULL',
       limit: 1,
     );
     if (rows.isEmpty) return null;
@@ -1905,6 +2260,8 @@ class AssetRecordStore {
           '(SELECT local_id FROM $_table WHERE passcode_hash IS NOT NULL)',
       'DELETE FROM $_table WHERE passcode_hash IS NOT NULL',
       'DELETE FROM $_transitionTable',
+      // About this phone's Photos; a copy restored elsewhere names nothing.
+      'DELETE FROM $_pendingSwapTable',
       // A cache of adopted ids; pending deletes stay, they are obligations.
       "DELETE FROM $_appStateTable WHERE key = 'hidden_motion_checked_v1'",
     ],
@@ -2084,6 +2441,22 @@ class AssetRecordStore {
     return {
       for (final row in rows)
         (row['key'] as String).substring(_removedKeyPrefix.length),
+    };
+  }
+
+  /// Of [removedIds], those merged into another record by [adoptAsset]:
+  /// their albums and people move there rather than go.
+  Future<Map<String, String>> mergedInto() async {
+    final db = await _open();
+    final rows = await db.query(
+      _appStateTable,
+      where: "substr(key, 1, ?) = ? AND value <> '1'",
+      whereArgs: [_removedKeyPrefix.length, _removedKeyPrefix],
+    );
+    return {
+      for (final row in rows)
+        (row['key'] as String).substring(_removedKeyPrefix.length):
+            row['value'] as String,
     };
   }
 

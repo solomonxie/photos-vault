@@ -486,12 +486,45 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
           ),
           style: settingsHintStyle,
         ),
+      if (_queue.swapsWaiting > 0 && !_queue.running) _swapsBanner(l10n),
       AnimatedSize(
         duration: _collapse,
         alignment: Alignment.topCenter,
         child: _queue.total > 0 ? _runCard(l10n) : const SizedBox.shrink(),
       ),
     ],
+  );
+
+  /// Originals filed by a run and not yet asked about: iOS's delete sheet
+  /// comes from here, where the page says what it is for.
+  Widget _swapsBanner(AppLocalizations l10n) => Container(
+    key: const ValueKey('flagged-swaps'),
+    margin: const EdgeInsets.only(top: 12),
+    padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
+    decoration: BoxDecoration(
+      color: settingsControlFill,
+      borderRadius: BorderRadius.circular(12),
+    ),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            l10n.flaggedSwapsWaiting(_queue.swapsWaiting),
+            style: settingsRowSubtitleStyle,
+          ),
+        ),
+        CupertinoButton(
+          key: const ValueKey('flagged-swaps-finish'),
+          padding: const EdgeInsets.symmetric(horizontal: 10),
+          minimumSize: const Size(0, 30),
+          onPressed: _queue.finishPending,
+          child: Text(
+            l10n.flaggedSwapsFinish,
+            style: const TextStyle(fontSize: 14),
+          ),
+        ),
+      ],
+    ),
   );
 
   List<Widget> _section(

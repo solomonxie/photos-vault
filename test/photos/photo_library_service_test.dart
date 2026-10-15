@@ -131,7 +131,9 @@ void main() {
 
       final result = await service.syncAll();
 
-      expect(result.updated, 1);
+      // Its link to the asset, and its coordinates.
+      expect(result.updated, 2);
+      expect((await store.getByLocalId('photo:a1'))!.libraryId, 'a1');
       expect((await store.getByLocalId('photo:a1'))!.latitude, 48.86);
     },
   );

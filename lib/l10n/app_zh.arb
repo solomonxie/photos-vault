@@ -301,6 +301,8 @@
   },
   "flaggedNeedsAlbum": "疑似隐藏照片，请打开对应相册，会在那里整理。",
   "flaggedWaitingBackup": "还有 {count} 张照片正在备份，备份完成后再提供优化。",
+  "flaggedSwapsWaiting": "有 {count} 张照片可以从“照片”中移除，每张都会保留一份副本。",
+  "flaggedSwapsFinish": "从“照片”中移除",
   "flaggedFailed": "未能完成，没有做任何更改。",
   "privateAlbumHideDownloadTitle": "下载后隐藏？",
   "privateAlbumHideDownloadBody": "{count, plural, other{这 {count} 张照片只保存在存储桶中。将先下载并隐藏，然后从存储桶中移除明文副本。}}",

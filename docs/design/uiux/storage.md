@@ -201,7 +201,10 @@ Under "Fixing N of M": what it is doing now — `Optimizing · IMG_3381.MOV ·
 Waiting for your OK in the iOS prompt).
 
 Originals replaced in Photos (Optimize Space) and library duplicates are
-not deleted batch by batch: each is filed in `pending_swaps_v1` as it is
-done, and one iOS prompt takes all of them when the run ends. A quit before
-that prompt asks on the next launch; declined, the smaller copies are taken
-back out.
+not deleted batch by batch: each is filed as a `pending_swap` row as it is
+done, and one iOS prompt takes all of them when the run ends. Right before
+it, each is checked live: the copy still in Photos, the original in a
+bucket (HEAD), the record unchanged; unanswered stays filed. A quit before
+that prompt leaves them to the Flagged Items banner ("N photos are ready to
+leave Photos" · Remove from Photos), never a prompt at launch; declined, the
+smaller copies are taken back out.

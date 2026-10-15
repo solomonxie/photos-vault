@@ -106,6 +106,19 @@ class StorageItem {
   /// The one a run carries out — the first unless one was picked.
   final StorageFix fix;
 
+  /// The same item over [fresh], the record as it is now.
+  StorageItem withRecord(AssetRecord fresh) => StorageItem(
+    record: fresh,
+    bytes: bytes,
+    name: name,
+    appOwned: appOwned,
+    issues: issues,
+    fixes: fixes,
+    fix: fix,
+    duplicateOf: duplicateOf,
+    keptId: keptId,
+  );
+
   StorageItem withFix(StorageFix chosen) => StorageItem(
     record: record,
     bytes: bytes,
@@ -357,9 +370,12 @@ class StorageAdvisor {
   }
 
   /// Nothing smaller to be had on this iPhone: not offered again.
-  Future<void> markSmallestAlready(String localId) async {
+  /// One read and one write for a whole batch: a call per item, unawaited,
+  /// read the set before the others wrote theirs and lost them.
+  Future<void> markSmallestAlready(Iterable<String> localIds) async {
+    if (localIds.isEmpty) return;
     await _loadRemoteDone();
-    _smallest.add(localId);
+    _smallest.addAll(localIds);
     await store.setAppState(_smallestKey, jsonEncode([..._smallest]));
   }
 

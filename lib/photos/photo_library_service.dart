@@ -245,24 +245,26 @@ class PhotoLibraryService {
     final known = await store.getByLibraryIds(entities.map((e) => e.id));
     for (final entity in entities) {
       final localId = localIdFor(entity);
-      // A miss is checked again: the page was read before a swap could
-      // re-point a record at this asset, and inserting would make a second.
-      final existing =
-          known[entity.id] ?? await store.getByLibraryId(entity.id);
-      seen.add(existing?.localId ?? localId);
-      if (existing != null) {
-        if (existing.isFavorite != entity.isFavorite) {
-          await store.setFavorite(existing.localId, entity.isFavorite);
-          updated++;
-        }
-        if (await _cameBack(existing)) updated++;
-        // Photos tracked before this app started keeping coordinates and
-        // pixel sizes: the entity is right here, so the backfill is the
-        // scan itself rather than a separate pass over the library.
-        if (await _fillLibraryMetadata(existing, entity)) updated++;
+      final existing = known[entity.id];
+      if (existing == null) {
+        // Read before a swap could move a record onto this asset: the
+        // store's one-record-per-asset rule hands that record back.
+        final inserted = await _insert(entity, localId);
+        seen.add(inserted.localId);
+        if (inserted.localId == localId) added.add(inserted);
         continue;
       }
-      added.add(await _insert(entity, localId));
+      seen.add(existing.localId);
+      if (await _relink(existing, entity)) updated++;
+      if (existing.isFavorite != entity.isFavorite) {
+        await store.setFavorite(existing.localId, entity.isFavorite);
+        updated++;
+      }
+      if (await _cameBack(existing)) updated++;
+      // Photos tracked before this app started keeping coordinates and
+      // pixel sizes: the entity is right here, so the backfill is the
+      // scan itself rather than a separate pass over the library.
+      if (await _fillLibraryMetadata(existing, entity)) updated++;
     }
     return PhotoLibrarySyncResult(added: added, updated: updated);
   }
@@ -289,9 +291,11 @@ class PhotoLibraryService {
       final localId = localIdFor(entity);
       final existing = await store.getByLibraryId(entity.id);
       if (existing == null) {
-        added.add(await _insert(entity, localId));
+        final inserted = await _insert(entity, localId);
+        if (inserted.localId == localId) added.add(inserted);
         continue;
       }
+      if (await _relink(existing, entity)) updated++;
       if (existing.isFavorite != entity.isFavorite) {
         await store.setFavorite(existing.localId, entity.isFavorite);
         updated++;
@@ -302,6 +306,25 @@ class PhotoLibraryService {
 
     updated += await _markMissing(change.deleted);
     return PhotoLibrarySyncResult(added: added, updated: updated);
+  }
+
+  /// A row found only by its own id (`photo:<asset>`) with no link: one the
+  /// v23 upgrade unlinked as a second record of an asset, now the only one
+  /// on it. Linked back. Never a held file (hidden, or taken out).
+  Future<bool> _relink(AssetRecord record, AssetEntity entity) async {
+    if (record.libraryId != null ||
+        record.sourcePath != null ||
+        record.passcodeHash != null ||
+        record.localId != localIdFor(entity)) {
+      return false;
+    }
+    try {
+      await store.setLibraryId(record.localId, entity.id);
+      return true;
+    } catch (_) {
+      // Another record holds it: this one stays unlinked.
+      return false;
+    }
   }
 
   /// Listed again: back from the OS's own Recently Deleted, or restored
@@ -342,6 +365,16 @@ class PhotoLibraryService {
       return await requestAccess() == PhotoLibraryAccess.granted;
     } catch (_) {
       return false;
+    }
+  }
+
+  /// True when Photos has asset [id], false when it answered it hasn't,
+  /// null when the lookup failed.
+  Future<bool?> hasAsset(String id) async {
+    try {
+      return await _loadEntity(id) != null;
+    } catch (_) {
+      return null;
     }
   }
 
@@ -419,7 +452,8 @@ class PhotoLibraryService {
       width: entity.width > 0 ? entity.width : null,
       height: entity.height > 0 ? entity.height : null,
     );
-    if (!entity.isFavorite) return record;
+    // Already held: the store handed back the record on it.
+    if (record.localId != localId || !entity.isFavorite) return record;
     await store.setFavorite(localId, true);
     return record.withFavorite(true);
   }

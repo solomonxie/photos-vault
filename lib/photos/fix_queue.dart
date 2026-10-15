@@ -329,10 +329,18 @@ class FixQueue extends ChangeNotifier {
     notifyListeners();
   }
 
-  /// Made ready in the batch in flight, not yet decided — counted in the
-  /// progress so a batch of slow re-encodes doesn't sit at zero.
-  final Set<String> _prepared = {};
-  int get progressed => done + _prepared.length;
+  /// Filed for the one iOS prompt, by flag id, with the job when this run
+  /// filed it. Off the list (the banner covers them) until it's answered.
+  final Map<String, FixJob?> _filed = {};
+
+  /// Originals filed and not yet asked about: the Flagged Items banner.
+  int swapsWaiting = 0;
+
+  /// Whether this run ends with the prompt: only one somebody started. A
+  /// run picked up at launch leaves its swaps to the banner.
+  bool _promptAtEnd = false;
+
+  int get progressed => done;
   int freedBytes = 0;
   final Set<String> _failedThisRun = {};
   bool _pumping = false;
@@ -349,11 +357,20 @@ class FixQueue extends ChangeNotifier {
 
   bool isResolved(Flag flag) =>
       _kept.contains(flag.id) ||
+      _filed.containsKey(flag.id) ||
       flag.solutions.any((s) => _resolved.contains('${flag.id}#${s.name}'));
 
+  /// Somebody asked: the run ends with the one prompt.
   void enqueue(Iterable<Flag> flags, FlagSolution solution) {
+    _promptAtEnd = true;
+    _enqueue(flags, solution);
+  }
+
+  void _enqueue(Iterable<Flag> flags, FlagSolution solution) {
     if (!_pumping) _resetRun();
     for (final flag in flags) {
+      // Done, or waiting on the prompt: never queued twice.
+      if (isResolved(flag)) continue;
       final existing = _jobs[flag.id];
       if (existing != null && existing.state != FixJobState.failed) continue;
       _failedThisRun.remove(flag.id);
@@ -451,11 +468,30 @@ class FixQueue extends ChangeNotifier {
     _ => const Duration(milliseconds: 300),
   };
 
+  /// Asks the one prompt for every filed original: the banner's button.
+  void finishPending() {
+    _promptAtEnd = true;
+    unawaited(_pump());
+  }
+
+  Future<void> _countSwaps() async {
+    final swaps = await optimizer.pendingSwaps();
+    final flags = {for (final s in swaps) s.flag ?? storageFlagId(s.localId)};
+    _filed.removeWhere((id, _) => !flags.contains(id));
+    for (final id in flags) {
+      _filed.putIfAbsent(id, () => null);
+    }
+    if (swaps.length == swapsWaiting) return;
+    swapsWaiting = swaps.length;
+    notifyListeners();
+  }
+
   Future<void> resume() async {
     await loadKept();
     await rates.load();
-    // A quit between the last fix and the delete prompt: ask now.
-    if ((await optimizer.pendingSwaps()).isNotEmpty) unawaited(_pump());
+    // A quit between the last fix and the delete prompt: the banner asks,
+    // never a system sheet at launch with nothing to explain it.
+    await _countSwaps();
     final raw = await store.getAppState(_stateKey);
     if (raw == null) return;
     List<Map<String, dynamic>> rows;
@@ -483,9 +519,10 @@ class FixQueue extends ChangeNotifier {
     final objects = {
       for (final o in await store.listBucketObjects()) bucketFlagId(o): o,
     };
-    final assets = rows.any((r) => r['localId'] != null)
-        ? {for (final r in await store.listAll()) r.localId: r}
-        : const <String, AssetRecord>{};
+    final assets = await store.getByLocalIds([
+      for (final r in rows)
+        if (r['localId'] case final String id) id,
+    ]);
 
     final grouped = <FlagSolution, List<Flag>>{};
     for (final row in rows) {
@@ -496,7 +533,7 @@ class FixQueue extends ChangeNotifier {
       if (solution.onRecord) {
         final record = assets[row['localId']];
         final problem = FlagProblem.values.asNameMap()[row['problem']];
-        if (record != null && !record.isDeleted && problem != null) {
+        if (record != null && !_offLimits(record) && problem != null) {
           flag = Flag.asset(
             record,
             problem: problem,
@@ -530,10 +567,21 @@ class FixQueue extends ChangeNotifier {
       if (flag != null) (grouped[solution] ??= []).add(flag);
     }
     for (final MapEntry(key: solution, value: flags) in grouped.entries) {
-      enqueue(flags, solution);
+      _enqueue(flags, solution);
     }
     if (grouped.isEmpty) await _persist();
   }
+
+  /// Hidden, locked or binned since the scan: no fix touches it.
+  static bool _offLimits(AssetRecord r) =>
+      r.isDeleted || r.isLocked || r.isHidden || r.passcodeHash != null;
+
+  /// [ids]' records as they are now; null for one that is gone or
+  /// [_offLimits].
+  Future<Map<String, AssetRecord>> _fresh(Iterable<String> ids) async => {
+    for (final r in (await store.getByLocalIds(ids)).values)
+      if (!_offLimits(r)) r.localId: r,
+  };
 
   Future<void> _persist() => store.setAppState(
     _stateKey,
@@ -565,7 +613,15 @@ class FixQueue extends ChangeNotifier {
     try {
       while (!_stopping) {
         final batch = _nextBatch();
-        if (batch.isEmpty) break;
+        if (batch.isEmpty) {
+          if (_promptAtEnd) {
+            _promptAtEnd = false;
+            await _finishSwaps();
+          }
+          // Jobs queued while the prompt was up run too.
+          if (_stopping || _nextBatch().isEmpty) break;
+          continue;
+        }
         for (final job in batch) {
           _jobs[job.flag.id] = job.withState(FixJobState.running);
         }
@@ -585,11 +641,12 @@ class FixQueue extends ChangeNotifier {
         }
         await _time(batch, clock.elapsed);
         await _persist();
+        await _countSwaps();
       }
-      await _finishSwaps();
     } finally {
       _pumping = false;
       _stopping = false;
+      _promptAtEnd = false;
       step = null;
       notifyListeners();
     }
@@ -638,37 +695,63 @@ class FixQueue extends ChangeNotifier {
         .toList();
   }
 
+  /// What a filed swap may have been filed by.
+  static const _swapSolutions = [
+    FlagSolution.optimize,
+    FlagSolution.removeDuplicate,
+    FlagSolution.finishOptimize,
+    FlagSolution.removeExtraCopies,
+  ];
+
   /// Every original the run replaced or found duplicated, out of Photos in
   /// one prompt once everything else is done — not one prompt per batch.
-  /// Also what a launch does with any a quit left waiting.
+  /// Reported by the flag each was filed under; a flag with several swaps
+  /// is fixed only when all of them are.
   Future<void> _finishSwaps() async {
     final swaps = await optimizer.pendingSwaps();
-    if (swaps.isEmpty) return;
+    if (swaps.isEmpty) return _countSwaps();
     step = FixStep(
       name: '',
-      bytes: swaps.fold(0, (sum, s) => sum + (s['old'] as int)),
+      bytes: swaps.fold(0, (sum, s) => sum + s.oldBytes),
       action: FixAction.confirming,
     );
     notifyListeners();
     final ids = <String>{};
+    final outcomes = <String, Set<StorageItemOutcome>>{};
     try {
       final result = await optimizer.finishSwaps(
-        onItem: (localId, outcome) {
-          final id = storageFlagId(localId);
-          ids.add(localId);
-          _prepared.remove(id);
-          if (outcome == StorageItemOutcome.freed) {
-            _resolve(id);
-          } else {
-            _fail(id, FixFailure.failed, detail: 'kept in Photos');
-          }
+        onItem: (swap, outcome) {
+          ids.add(swap.localId);
+          (outcomes[swap.flag ?? storageFlagId(swap.localId)] ??= {}).add(
+            outcome,
+          );
         },
       );
       freedBytes += result.freedBytes;
     } catch (_) {
-      // Still filed: asked again on the next run or launch.
+      // Still filed: the banner asks again.
     }
-    _prepared.clear();
+    for (final MapEntry(key: id, value: seen) in outcomes.entries) {
+      final job = _filed.remove(id);
+      if (seen.every((o) => o == StorageItemOutcome.freed)) {
+        for (final s in job == null ? _swapSolutions : [job.solution]) {
+          _resolved.add('$id#${s.name}');
+        }
+        continue;
+      }
+      final unverified = seen.contains(StorageItemOutcome.unverified);
+      // Left filed when the bucket didn't answer: still the banner's.
+      if (unverified) _filed[id] = job;
+      if (job == null) continue;
+      _jobs[id] = job.withState(
+        FixJobState.failed,
+        failure: unverified ? FixFailure.unverified : FixFailure.failed,
+        detail: unverified ? null : 'kept in Photos',
+      );
+      _failedThisRun.add(id);
+    }
+    await _countSwaps();
+    notifyListeners();
     try {
       await advisor.remeasure(await advisor.cached(), ids);
     } catch (_) {}
@@ -698,7 +781,11 @@ class FixQueue extends ChangeNotifier {
       final record = job.flag.storage!.record;
       File? smaller;
       try {
-        final fresh = await store.getByLocalId(record.localId) ?? record;
+        final fresh = (await _fresh([record.localId]))[record.localId];
+        if (fresh == null) {
+          _skip(job.flag.id);
+          continue;
+        }
         _setStep(job.flag, FixAction.optimizing);
         smaller = await optimizer.smallerFile(
           fresh,
@@ -740,14 +827,31 @@ class FixQueue extends ChangeNotifier {
     }
   }
 
-  Future<void> _runOnDevice(List<FixJob> batch) async {
+  Future<void> _runOnDevice(List<FixJob> asked) async {
+    final fresh = await _fresh([
+      for (final job in asked) job.flag.storage!.record.localId,
+    ]);
+    final batch = <FixJob>[];
+    for (final job in asked) {
+      // Cloud-only since the scan has no copy here to fix either.
+      if (fresh[job.flag.storage!.record.localId] case final r?
+          when worthMeasuring(r)) {
+        batch.add(job);
+      } else {
+        _skip(job.flag.id);
+      }
+    }
+    if (batch.isEmpty) return;
     final reported = <String>{};
+    final smallest = <String>[];
     final byId = {for (final job in batch) job.flag.id: job.flag};
     try {
       final result = await optimizer.apply(
         [
           for (final job in batch)
-            job.flag.storage!.withFix(job.solution._storageFix!),
+            job.flag.storage!
+                .withRecord(fresh[job.flag.storage!.record.localId]!)
+                .withFix(job.solution._storageFix!),
         ],
         deferDeletes: true,
         onStep: (localId, action) {
@@ -756,13 +860,13 @@ class FixQueue extends ChangeNotifier {
           }
         },
         onPrepared: (localId) {
-          _prepared.add(storageFlagId(localId));
-          notifyListeners();
+          final id = storageFlagId(localId);
+          reported.add(id);
+          _fileJob(id);
         },
         onItem: (localId, outcome) {
           final id = storageFlagId(localId);
           reported.add(id);
-          _prepared.remove(id);
           switch (outcome) {
             case StorageItemOutcome.freed:
             case StorageItemOutcome.queued:
@@ -771,7 +875,7 @@ class FixQueue extends ChangeNotifier {
               _fail(id, FixFailure.unverified);
             case StorageItemOutcome.skipped:
               if (optimizer.notSmaller.remove(localId)) {
-                unawaited(advisor.markSmallestAlready(localId));
+                smallest.add(localId);
                 _resolve(id);
               } else {
                 _fail(id, FixFailure.failed);
@@ -784,12 +888,12 @@ class FixQueue extends ChangeNotifier {
       // Whatever didn't report below fails with it.
     }
     for (final job in batch) {
-      // Prepared ones wait for the run's one delete prompt.
-      if (!reported.contains(job.flag.id) && !_prepared.contains(job.flag.id)) {
+      if (!reported.contains(job.flag.id)) {
         _fail(job.flag.id, FixFailure.failed);
       }
     }
     try {
+      await advisor.markSmallestAlready(smallest);
       await advisor.remeasure(await advisor.cached(), {
         for (final job in batch) job.flag.storage!.record.localId,
       });
@@ -845,7 +949,10 @@ class FixQueue extends ChangeNotifier {
   }
 
   Future<void> _runOnRecord(FixJob job) async {
-    final record = job.flag.asset!;
+    final record = (await _fresh([
+      job.flag.asset!.localId,
+    ]))[job.flag.asset!.localId];
+    if (record == null) return _skip(job.flag.id);
     _setStep(job.flag, switch (job.solution) {
       FlagSolution.makeThumbnail => FixAction.downloading,
       FlagSolution.getFromPhotos => FixAction.adding,
@@ -863,7 +970,7 @@ class FixQueue extends ChangeNotifier {
                 record,
               ),
               FlagSolution.finishOptimize || FlagSolution.removeExtraCopies =>
-                await fixer.finishOptimize(record),
+                await fixer.finishOptimize(record, flag: job.flag.id),
               FlagSolution.removeImportCopy => await fixer.removeImportCopy(
                 record,
               ),
@@ -872,7 +979,9 @@ class FixQueue extends ChangeNotifier {
     } catch (e) {
       result = FixResult(FixOutcome.failed, detail: '$e');
     }
-    if (result.ok) {
+    if (result.outcome == FixOutcome.filed) {
+      _fileJob(job.flag.id);
+    } else if (result.ok) {
       _resolve(job.flag.id);
     } else {
       _fail(job.flag.id, FixFailure.failed, detail: result.detail);
@@ -884,6 +993,25 @@ class FixQueue extends ChangeNotifier {
   Future<FixResult> _ignore(FlaggedObject object) async {
     await IgnoredBucketKeys(store).addAll([object.object.key]);
     return const FixResult(FixOutcome.removed);
+  }
+
+  /// Filed for the prompt: counted as progress, decided by [_finishSwaps].
+  void _fileJob(String id) {
+    final job = _jobs.remove(id);
+    if (job == null) return;
+    _filed[id] = job;
+    done++;
+    notifyListeners();
+  }
+
+  /// Hidden, locked or binned since the scan: dropped, not fixed, and off
+  /// the list, which no longer has anything to offer for it.
+  void _skip(String id) {
+    final job = _jobs.remove(id);
+    if (job == null) return;
+    _resolved.add('$id#${job.solution.name}');
+    done++;
+    notifyListeners();
   }
 
   void _resolve(String id) {

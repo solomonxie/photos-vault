@@ -45,6 +45,7 @@ class RecordFixer {
     required this.remove,
     this.fileCopies,
     this.liveOriginal,
+    this.durationOf,
   });
 
   final AssetRecordStore store;
@@ -60,11 +61,17 @@ class RecordFixer {
   final Future<bool> Function(AssetRecord record) remove;
 
   /// `StorageOptimizer.fileFoundCopies`.
-  final Future<void> Function(
-    List<({AssetRecord original, AssetRecord copy})> pairs,
+  final Future<int> Function(
+    AssetRecord keeper, {
+    AssetRecord? copy,
     List<AssetRecord> extras,
-  )?
+    String? flag,
+  })?
   fileCopies;
+
+  /// `PhotoLibraryService.durationOf`: a video's copy must run as long as
+  /// the original, or it is a clip of it, not a copy.
+  final Future<Duration?> Function(AssetRecord record)? durationOf;
 
   /// `BucketFixer.liveOriginal`: the bucket itself, asked by name. A
   /// listing can be stale or cut short; this is what decides "lost".
@@ -75,8 +82,48 @@ class RecordFixer {
   liveOriginal;
 
   /// From the last [scan]: each original's copy to keep, and any more
-  /// copies of it.
-  Map<String, ({AssetRecord? copy, List<AssetRecord> extras})> _copies = {};
+  /// copies of it. Kept in app state too, so a job resumed after a quit
+  /// still knows which.
+  Map<String, ({String? copy, List<String> extras})> _copies = {};
+  bool _copiesLoaded = false;
+
+  static const _copiesKey = 'found_copies_v1';
+
+  Future<void> _saveCopies(
+    Map<String, ({String? copy, List<String> extras})> found,
+  ) async {
+    _copies = found;
+    _copiesLoaded = true;
+    await store.setAppState(
+      _copiesKey,
+      jsonEncode({
+        for (final MapEntry(key: id, value: (:copy, :extras)) in found.entries)
+          id: {'c': copy, 'x': extras},
+      }),
+    );
+  }
+
+  Future<({String? copy, List<String> extras})?> _copiesOf(String id) async {
+    if (!_copiesLoaded) {
+      _copiesLoaded = true;
+      try {
+        final raw = await store.getAppState(_copiesKey);
+        if (raw != null) {
+          _copies = {
+            for (final MapEntry(:key, :value)
+                in (jsonDecode(raw) as Map<String, dynamic>).entries)
+              key: (
+                copy: (value as Map)['c'] as String?,
+                extras: (value['x'] as List).cast<String>(),
+              ),
+          };
+        }
+      } catch (_) {
+        // Unreadable: a rescan finds them again.
+      }
+    }
+    return _copies[id];
+  }
 
   Future<RecordScan> scan() async {
     final records = await store.listAll();
@@ -371,7 +418,7 @@ class RecordFixer {
       }
     }
     if (groups.isEmpty && optimizedGroups.isEmpty) {
-      _copies = {};
+      await _saveCopies({});
       return const [];
     }
 
@@ -398,7 +445,7 @@ class RecordFixer {
       return ((aw / ah) - (bw / bh)).abs() < 0.02;
     }
 
-    final found = <String, ({AssetRecord? copy, List<AssetRecord> extras})>{};
+    final found = <String, ({String? copy, List<String> extras})>{};
     final flags = <Flag>[];
     final claimed = <String>{};
     for (final (originals, copies) in groups) {
@@ -407,12 +454,12 @@ class RecordFixer {
         final grey = prints[c.localId];
         final near = <(double, AssetRecord)>[
           for (final o in originals)
+            // Both pictures, always: a lone original with the same time and
+            // shape may still be another photo.
             if (sameShape(c, o) && (edge(o) ?? 0) > edge(c)!)
               (
                 grey != null && prints[o.localId] != null
                     ? printDistance(grey, prints[o.localId]!)
-                    : originals.length == 1
-                    ? _sameFrame
                     : double.infinity,
                 o,
               ),
@@ -434,8 +481,8 @@ class RecordFixer {
         claims.sort((a, b) => a.$1.compareTo(b.$1));
         claimed.addAll([for (final (_, c) in claims) c.localId]);
         found[o.localId] = (
-          copy: claims.first.$2,
-          extras: [for (final (_, c) in claims.skip(1)) c],
+          copy: claims.first.$2.localId,
+          extras: [for (final (_, c) in claims.skip(1)) c.localId],
         );
         flags.add(
           Flag.asset(
@@ -491,7 +538,10 @@ class RecordFixer {
             if (_bucketSize(e, listed) <= kept * 1.01) e,
         ];
         if (mine.isEmpty) continue;
-        found[k.localId] = (copy: null, extras: mine);
+        found[k.localId] = (
+          copy: null,
+          extras: [for (final e in mine) e.localId],
+        );
         flags.add(
           Flag.asset(
             k,
@@ -502,7 +552,7 @@ class RecordFixer {
         );
       }
     }
-    _copies = found;
+    await _saveCopies(found);
     return flags;
   }
 
@@ -516,18 +566,65 @@ class RecordFixer {
   static const _sameFrame = 2.0;
   static const _otherFrame = 4.0;
 
-  /// Files the swap; the queue's one iOS prompt at the end of the run
-  /// deletes the original and moves the record onto its copy.
-  Future<FixResult> finishOptimize(AssetRecord record) async {
+  /// Files the swap; the queue's one iOS prompt deletes the original and
+  /// moves the record onto its copy, and reports by [flag]. Every record is
+  /// read again first: one hidden, locked or binned since, or no longer in
+  /// Photos, is left alone.
+  Future<FixResult> finishOptimize(AssetRecord record, {String? flag}) async {
     final file = fileCopies;
-    final found = _copies[record.localId];
+    final found = await _copiesOf(record.localId);
     if (file == null || found == null) {
       return const FixResult(FixOutcome.failed, detail: 'rescan first');
     }
-    await file([
-      if (found.copy case final copy?) (original: record, copy: copy),
-    ], found.extras);
-    return const FixResult(FixOutcome.removed);
+    final fresh = await store.getByLocalIds([
+      record.localId,
+      ?found.copy,
+      ...found.extras,
+    ]);
+    bool usable(AssetRecord? r) =>
+        r != null &&
+        !r.isDeleted &&
+        !r.localDeleted &&
+        !r.isHidden &&
+        !r.isLocked &&
+        r.passcodeHash == null &&
+        r.libraryId != null;
+    final keeper = fresh[record.localId];
+    if (!usable(keeper)) {
+      return const FixResult(FixOutcome.failed, detail: 'changed since');
+    }
+    var copy = fresh[found.copy];
+    if (found.copy != null && !usable(copy)) {
+      return const FixResult(FixOutcome.failed, detail: 'copy changed since');
+    }
+    final extras = [
+      for (final id in found.extras)
+        if (fresh[id] case final e? when usable(e)) e,
+    ];
+    if (copy != null && !await _sameLength(keeper!, copy)) copy = null;
+    final same = [
+      for (final e in extras)
+        if (await _sameLength(keeper!, e)) e,
+    ];
+    if (copy == null && same.isEmpty) {
+      return const FixResult(FixOutcome.failed, detail: 'not the same video');
+    }
+    final filed = await file(keeper!, copy: copy, extras: same, flag: flag);
+    return filed == 0
+        ? const FixResult(FixOutcome.failed, detail: 'nothing to file')
+        : const FixResult(FixOutcome.filed);
+  }
+
+  /// A video and its copy run equally long; a still always does. Unknown
+  /// is not the same.
+  Future<bool> _sameLength(AssetRecord a, AssetRecord b) async {
+    if (!a.isVideo && !b.isVideo) return true;
+    final measure = durationOf;
+    if (measure == null) return false;
+    final (x, y) = (await measure(a), await measure(b));
+    return x != null &&
+        y != null &&
+        (x - y).abs() <= const Duration(seconds: 1);
   }
 
   static const _askAtOnce = 8;

@@ -84,9 +84,20 @@ class FakeAssetRecordStore implements AssetRecordStore {
     String? libraryId,
     String? passcodeHash,
     bool isHidden = false,
+    bool keepOnLibraryConflict = false,
   }) async {
     final existing = _records[localId];
     if (existing != null) return existing;
+    // As the real store's unique index: one record per asset.
+    if (libraryId != null) {
+      final holder = _records.values
+          .where((r) => r.libraryId == libraryId)
+          .firstOrNull;
+      if (holder != null) {
+        if (!keepOnLibraryConflict) return holder;
+        libraryId = null;
+      }
+    }
     final now = createdAt ?? DateTime.now();
     final record = AssetRecord(
       localId: localId,
@@ -218,8 +229,10 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<Set<String>> removedIds() async => {...removed};
 
   @override
-  Future<void> forgetRemoved(Iterable<String> localIds) async =>
-      removed.removeAll(localIds);
+  Future<void> forgetRemoved(Iterable<String> localIds) async {
+    removed.removeAll(localIds);
+    merged.removeWhere((id, _) => localIds.contains(id));
+  }
 
   @override
   Future<void> setSourcePath(String localId, String value) async {
@@ -329,12 +342,107 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<AssetRecord?> getByLibraryId(String libraryId) async {
     for (final record in _records.values) {
       if (record.libraryId == libraryId) return record;
+    }
+    for (final record in _records.values) {
       if (record.libraryId == null && record.localId == 'photo:$libraryId') {
         return record;
       }
     }
     return null;
   }
+
+  final swaps = <String, PendingSwap>{};
+
+  @override
+  Future<bool> fileSwap(PendingSwap swap) async {
+    _maybeCrash('fileSwap');
+    if (swaps.containsKey(swap.localId)) return false;
+    swaps[swap.localId] = swap;
+    return true;
+  }
+
+  @override
+  Future<List<PendingSwap>> pendingSwaps() async => [...swaps.values];
+
+  @override
+  Future<int> pendingSwapCount() async => swaps.length;
+
+  @override
+  Future<void> markSwapsProved(Iterable<String> localIds) async {
+    for (final id in localIds) {
+      final s = swaps[id];
+      if (s == null) continue;
+      swaps[id] = PendingSwap(
+        localId: s.localId,
+        oldAsset: s.oldAsset,
+        newAsset: s.newAsset,
+        keeperId: s.keeperId,
+        flag: s.flag,
+        keepNew: s.keepNew,
+        width: s.width,
+        height: s.height,
+        oldBytes: s.oldBytes,
+        newBytes: s.newBytes,
+        provedAt: DateTime.now(),
+      );
+    }
+  }
+
+  @override
+  Future<void> dropSwaps(Iterable<String> localIds) async {
+    for (final id in localIds) {
+      swaps.remove(id);
+    }
+  }
+
+  @override
+  Future<void> binSwapped(String localId) async {
+    _maybeCrash('binSwapped');
+    await softDelete(localId);
+    swaps.remove(localId);
+  }
+
+  @override
+  Future<bool> adoptAsset(
+    String localId,
+    String libraryId, {
+    int? width,
+    int? height,
+    bool optimized = false,
+    bool closeSwap = false,
+  }) async {
+    _maybeCrash('adopt');
+    var keeper = _records[localId];
+    if (keeper == null) return false;
+    final holders = [
+      for (final r in _records.values)
+        if (r.libraryId == libraryId && r.localId != localId) r,
+    ];
+    if (holders.any((h) => h.passcodeHash != null || h.isLocked)) {
+      return false;
+    }
+    for (final h in holders) {
+      keeper = keeper!
+          .withTags({...keeper.tags, ...h.tags}.toList())
+          .withFavorite(keeper.isFavorite || h.isFavorite);
+      if (keeper.description.isEmpty) {
+        keeper = keeper.withDescription(h.description);
+      }
+      await remove(h.localId);
+      merged[h.localId] = localId;
+    }
+    keeper = keeper!.withLibraryId(libraryId);
+    if (optimized) keeper = keeper.withLocalOptimized(true);
+    _records[localId] = keeper;
+    await setLibraryMetadata(localId, width: width, height: height);
+    if (closeSwap) swaps.remove(localId);
+    return true;
+  }
+
+  final merged = <String, String>{};
+
+  @override
+  Future<Map<String, String>> mergedInto() async => {...merged};
 
   @override
   Future<Map<String, AssetRecord>> getByLocalIds(
@@ -631,6 +739,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     _records.clear();
     _appState.clear();
     _placeNames.clear();
+    swaps.clear();
   }
 
   @override

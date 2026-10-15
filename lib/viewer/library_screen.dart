@@ -370,6 +370,7 @@ class LibraryScreenState extends State<LibraryScreen>
       },
       fileCopies: _storageOptimizer.fileFoundCopies,
       liveOriginal: _bucketFixer.liveOriginal,
+      durationOf: _photoLibraryService.durationOf,
     ),
   );
 
@@ -1169,6 +1170,30 @@ class LibraryScreenState extends State<LibraryScreen>
     };
     final gone = removed.difference(present);
     try {
+      // A copy record merged into the one that took its asset over: its
+      // albums and people move there first.
+      final merged = {
+        for (final MapEntry(:key, :value)
+            in (await assetRecordStore.mergedInto()).entries)
+          if (gone.contains(key)) key: value,
+      };
+      if (merged.isNotEmpty) {
+        Future<void> move(
+          Map<String, List<String>> members,
+          Future<void> Function(String id, List<String> into) add,
+        ) async {
+          for (final MapEntry(key: id, value: ids) in members.entries) {
+            final into = [for (final from in ids) ?merged[from]];
+            if (into.isNotEmpty) await add(id, into);
+          }
+        }
+
+        await move(await _albumStore.allMemberships(), _albumStore.addAssets);
+        await move(
+          await _personStore.allMemberships(),
+          (id, into) => _personStore.addAssets(id, into, fillAvatar: false),
+        );
+      }
       if (gone.isNotEmpty) {
         await _albumStore.forgetAssets(gone);
         await _personStore.forgetAssets(gone);

@@ -266,6 +266,98 @@ void main() {
     expect(jsonDecode((await store.getAppState('fix_queue_v1'))!), isEmpty);
   });
 
+  test('a queued fix reads its photo again: one locked, hidden or binned '
+      'since is left as it is, and off the list', () async {
+    final q = queue();
+    final flags = [
+      for (final id in ['a', 'b', 'c', 'd']) await owned(id),
+    ];
+    await store.setLocked('b', true);
+    await store.setPasscodeHash('c', 'h');
+    await store.softDelete('d');
+
+    q.enqueue(flags, FlagSolution.removeFromDevice);
+    await drained(q);
+
+    expect(File('${tempDir.path}/a.png').existsSync(), isFalse);
+    for (final id in ['b', 'c', 'd']) {
+      expect(File('${tempDir.path}/$id.png').existsSync(), isTrue, reason: id);
+    }
+    expect(q.freedBytes, 1000);
+    expect(q.failed, 0);
+    expect(flags.every(q.isResolved), isTrue);
+  });
+
+  test('a fixed flag is never queued again', () async {
+    final q = queue();
+    final a = await owned('a');
+    q.enqueue([a], FlagSolution.removeFromDevice);
+    await drained(q);
+    q.enqueue([a], FlagSolution.removeFromDevice);
+    expect(q.jobs, isEmpty);
+    expect(q.total, 0);
+  });
+
+  group('the one delete prompt', () {
+    late _CountingOptimizer optimizer;
+    FixQueue counted() => FixQueue(
+      store: store,
+      advisor: StorageAdvisor(store: store),
+      optimizer: optimizer = _CountingOptimizer(
+        store: store,
+        thumbnails: ThumbnailCache(
+          store: store,
+          directory: () async => tempDir,
+        ),
+        library: PhotoLibraryService(store: FakeAssetRecordStore()),
+        backUp: (_) async {},
+      ),
+      fixer: BucketFixer(
+        store: store,
+        targetsStore: BackupTargetsStore(store: FakeSecureStore()),
+        passphrases: () async => const [],
+      ),
+      refreshBucket: () async {},
+    );
+
+    Future<void> fileOne(String id) => store.fileSwap(
+      PendingSwap(localId: id, oldAsset: '$id-old', newAsset: '$id-new'),
+    );
+
+    test(
+      'swaps a quit left are asked from the banner, never at launch',
+      () async {
+        await fileOne('x');
+        final q = counted();
+        await q.resume();
+        await drained(q);
+        expect(optimizer.finishes, 0);
+        expect(q.swapsWaiting, 1);
+
+        q.finishPending();
+        await drained(q);
+        expect(optimizer.finishes, 1);
+        expect(q.swapsWaiting, 0);
+      },
+    );
+
+    test('a run somebody started ends with it, and what is queued while it '
+        'is up still runs', () async {
+      final q = counted();
+      final a = await owned('a');
+      final b = await owned('b');
+      await fileOne('x');
+      optimizer.onFinish = () => q.enqueue([b], FlagSolution.removeFromDevice);
+
+      q.enqueue([a], FlagSolution.removeFromDevice);
+      await drained(q);
+
+      expect(optimizer.finishes, 1);
+      expect(q.isResolved(b), isTrue);
+      expect(File('${tempDir.path}/b.png').existsSync(), isFalse);
+    });
+  });
+
   test('a likely duplicate is renamed one at a time, ignored in bulk', () {
     final flag = Flag.bucket(
       FlaggedObject(
@@ -312,6 +404,34 @@ class _RecordingOptimizer extends StorageOptimizer {
     for (final i in items) {
       onItem?.call(i.record.localId, StorageItemOutcome.freed);
     }
+    return const StorageFixResult();
+  }
+}
+
+class _CountingOptimizer extends StorageOptimizer {
+  _CountingOptimizer({
+    required super.store,
+    required super.thumbnails,
+    required super.library,
+    required super.backUp,
+  });
+
+  var finishes = 0;
+  void Function()? onFinish;
+
+  @override
+  Future<StorageFixResult> finishSwaps({
+    void Function(PendingSwap swap, StorageItemOutcome outcome)? onItem,
+  }) async {
+    finishes++;
+    final then = onFinish;
+    onFinish = null;
+    then?.call();
+    final swaps = await pendingSwaps();
+    for (final s in swaps) {
+      onItem?.call(s, StorageItemOutcome.freed);
+    }
+    await store.dropSwaps([for (final s in swaps) s.localId]);
     return const StorageFixResult();
   }
 }

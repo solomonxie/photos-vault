@@ -203,14 +203,15 @@ void main() {
       thumbnail: (_) async => null,
       inPhotos: (_) async => true,
       remove: (_) async => true,
-      fileCopies: (pairs, extras) async {
-        for (final (:original, :copy) in pairs) {
+      fileCopies: (keeper, {copy, extras = const [], flag}) async {
+        if (copy != null) {
           filed.add((
-            original.localId,
+            keeper.localId,
             copy.localId,
             [for (final e in extras) e.localId],
           ));
         }
+        return 1;
       },
     );
 
@@ -218,11 +219,25 @@ void main() {
 
     expect(scan.leftoverCopies.map((x) => x.asset!.localId), ['b']);
     expect(
-      (await f.finishOptimize((await store.getByLocalId('b'))!)).ok,
-      isTrue,
+      (await f.finishOptimize((await store.getByLocalId('b'))!)).outcome,
+      FixOutcome.filed,
+      reason: 'filed for the prompt, not fixed yet',
     );
     expect(filed.single.$1, 'b');
     expect(filed.single.$3, hasLength(1));
+
+    // After a relaunch the pair is read back; a photo locked since is left.
+    final relaunched = RecordFixer(
+      store: store,
+      thumbnail: (_) async => null,
+      inPhotos: (_) async => true,
+      remove: (_) async => true,
+      fileCopies: f.fileCopies,
+    );
+    final b = (await store.getByLocalId('b'))!;
+    expect((await relaunched.finishOptimize(b)).outcome, FixOutcome.filed);
+    await store.setLocked('b', true);
+    expect((await relaunched.finishOptimize(b)).ok, isFalse);
   });
 
   test('extra copies of an optimized photo are offered for removal, '
@@ -284,15 +299,16 @@ void main() {
         'photos-vault/originals/$id.heic',
     ]);
     final paired = <String>[];
-    final extras = <String>[];
+    final filedExtras = <String>[];
     final f = RecordFixer(
       store: store,
       thumbnail: (_) async => null,
       inPhotos: (_) async => true,
       remove: (_) async => true,
-      fileCopies: (p, e) async {
-        paired.addAll([for (final x in p) x.original.localId]);
-        extras.addAll([for (final x in e) x.localId]);
+      fileCopies: (keeper, {copy, extras = const [], flag}) async {
+        if (copy != null) paired.add(keeper.localId);
+        filedExtras.addAll([for (final x in extras) x.localId]);
+        return 1;
       },
     );
 
@@ -303,7 +319,7 @@ void main() {
     expect(flag.solutions, [FlagSolution.removeExtraCopies]);
     expect((await f.finishOptimize(flag.asset!)).ok, isTrue);
     expect(paired, isEmpty);
-    expect(extras, unorderedEquals(['stray', 'stray2']));
+    expect(filedExtras, unorderedEquals(['stray', 'stray2']));
   });
 
   test('a Live Photo pointed at its .MOV goes back to its still', () async {
