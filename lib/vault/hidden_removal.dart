@@ -130,14 +130,10 @@ class HiddenRemoval {
       await store.remove(record.localId);
     }
 
+    // Carriers, retired by the vault: the guard lets these through.
     final tasks = [
-      ...recordTasks,
-      for (final target in targets)
-        for (final key in sentKeys)
-          PendingDelete(
-            objectKey: VaultBucket.resolveKey(target, key),
-            targetId: target.id,
-          ),
+      for (final t in recordTasks) t.asCarrier(),
+      ..._sentTasks(targets, sentKeys),
     ];
     if (tasks.isEmpty) return true;
     await _pendingDeletes.add(tasks);
@@ -174,14 +170,7 @@ class HiddenRemoval {
     final targets = await _loadTargets();
     final deferred = DeferredDeletes(store: store, pending: _pendingDeletes);
     for (final MapEntry(key: objectKey, value: localId) in plainIds.entries) {
-      await deferred.add(localId, [
-        for (final target in targets)
-          for (final key in siblingKeys(objectKey))
-            PendingDelete(
-              objectKey: VaultBucket.resolveKey(target, key),
-              targetId: target.id,
-            ),
-      ]);
+      await deferred.add(localId, _sentTasks(targets, siblingKeys(objectKey)));
     }
     return true;
   }
@@ -223,6 +212,25 @@ class HiddenRemoval {
     final base = objectKey.substring(0, dot);
     return {objectKey, '$base.jpg', '$base.mov'}.toList();
   }
+
+  /// One task per bucket; with none readable (no keychain), one naming no
+  /// bucket that waits for one, rather than none at all.
+  static List<PendingDelete> _sentTasks(
+    List<S3BackupTarget> targets,
+    Iterable<String> keys,
+  ) => [
+    if (targets.isEmpty)
+      for (final key in keys)
+        PendingDelete(objectKey: key, targetId: '', carrier: true)
+    else
+      for (final target in targets)
+        for (final key in keys)
+          PendingDelete(
+            objectKey: VaultBucket.resolveKey(target, key),
+            targetId: target.id,
+            carrier: true,
+          ),
+  ];
 
   Future<List<S3BackupTarget>> _loadTargets() async {
     try {

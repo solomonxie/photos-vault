@@ -16,6 +16,7 @@ import 'package:image/image.dart' as img;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../settings/fake_secure_store.dart';
+import '../support/memory_bucket.dart';
 
 class _FakeS3Uploader implements S3Uploader {
   _FakeS3Uploader(this.result);
@@ -87,6 +88,70 @@ void main() {
     await targetsStore.setBackupFormat(format);
     return targetsStore;
   }
+
+  group('a shrunken copy never goes over the full original', () {
+    Future<({AssetRecordStore store, String key})> optimized() async {
+      final store = newRecordStore();
+      await store.upsert(localId: 'photo:o', contentHash: 'o', platform: 'ios');
+      final key = 'originals/${await _base(store, 'photo:o')}.HEIC';
+      await store.updateDerivative(
+        'photo:o',
+        DerivativeKind.original,
+        DerivativeState(status: UploadStatus.uploaded, destinationKey: key),
+      );
+      final targets = await oneTarget();
+      await store.recordUpload(
+        localId: 'photo:o',
+        kind: DerivativeKind.original,
+        targetId: (await targets.loadAll()).single.id,
+        destinationKey: key,
+        sourceHash: 'full',
+      );
+      await store.setLocalOptimized('photo:o', true);
+      return (store: store, key: key);
+    }
+
+    Future<List<String>> send(
+      AssetRecordStore store,
+      MemoryBucket bucket,
+    ) async {
+      final uploader = _FakeS3Uploader(true);
+      await BackupCoordinator(
+        targetsStore: await oneTarget(),
+        recordStore: store,
+        s3Uploader: uploader,
+        ops: bucket,
+        hashFile: (_) async => 'small',
+      ).backUpDerivative(
+        record: (await store.getByLocalId('photo:o'))!,
+        kind: DerivativeKind.original,
+        filePath: '/tmp/IMG.HEIC',
+      );
+      return uploader.keys;
+    }
+
+    test('asked live, not of a listing that never saw it', () async {
+      final (:store, :key) = await optimized();
+      final bucket = MemoryBucket()..objects[key] = Uint8List(10);
+
+      expect(await send(store, bucket), isEmpty);
+    });
+
+    test('a bucket that does not answer gets nothing', () async {
+      final (:store, :key) = await optimized();
+      final bucket = MemoryBucket()
+        ..objects[key] = Uint8List(10)
+        ..silent.add(key);
+
+      expect(await send(store, bucket), isEmpty);
+      expect(
+        (await store.getByLocalId('photo:o'))!
+            .stateOf(DerivativeKind.original)
+            .status,
+        UploadStatus.failed,
+      );
+    });
+  });
 
   group('Live Photos', () {
     test(

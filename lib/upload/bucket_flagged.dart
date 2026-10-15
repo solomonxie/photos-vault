@@ -461,12 +461,12 @@ class BucketFixer {
     return null;
   }
 
-  // v2: a video's date is Apple's capture date, not `mvhd`.
-  static const _looksKey = 'bucket_looks_v2';
+  // v3: keyed by modification time too.
+  static const _looksKey = 'bucket_looks_v3';
 
-  /// Header answers already fetched, by bucket, key and size — an object
-  /// doesn't change under the same name and size, so the page doesn't
-  /// re-read every header each time it opens.
+  /// Header answers already fetched, by bucket, key, size and modification
+  /// time — a same-size overwrite is a new object, so the page doesn't
+  /// re-read every header each time it opens, nor trust a stale one.
   Map<String, dynamic>? _looks;
   bool _looksDirty = false;
 
@@ -483,7 +483,8 @@ class BucketFixer {
     return _looks!;
   }
 
-  static String _lookId(BucketObject o) => '${o.targetId}|${o.key}|${o.size}';
+  static String _lookId(BucketObject o) =>
+      '${o.targetId}|${o.key}|${o.size}|${o.lastModified.millisecondsSinceEpoch}';
 
   Future<Map<String, dynamic>?> _looked(BucketObject o) async =>
       ((await _loadLooks())[_lookId(o)] as Map?)?.cast<String, dynamic>();
@@ -540,9 +541,10 @@ class BucketFixer {
         ? null
         : await _captureDateFrom(read, object, isVideo);
     if (failed()) {
-      // Unread is unknown, never "a photo to add". Gone for good: out of
-      // the listing, or it is offered on every scan and fails every time.
-      if (await _ops.sizeOf(target, object.key) == null) {
+      // Unread is unknown, never "a photo to add". Gone for good (a 404,
+      // not just no answer): out of the listing, or it is offered on every
+      // scan and fails every time.
+      if ((await _ops.head(target, object.key)).state == Probe.absent) {
         await store.forgetBucketObject(object.targetId, object.key);
       }
       throw StateError('could not read ${object.key}');
@@ -579,16 +581,19 @@ class BucketFixer {
     };
   }
 
-  /// Whether [object] is a hidden photo's carrier, by its header.
+  /// Whether [object] is a hidden photo's carrier, by its header. Throws
+  /// when the header can't be read: unknown is never "not a carrier".
   Future<bool> isCarrier(BucketObject object) async {
     final target = await _target(object.targetId);
     if (target == null) return true;
-    return await _probe.probe(
-          read: _ops.rangeReader(target, object.key),
-          size: object.size,
-          isVideo: BucketFlags.videoExtensions.contains(_ext(object.key)),
-        ) !=
-        null;
+    final (read, failed) = _watched(_ops.rangeReader(target, object.key));
+    final found = await _probe.probe(
+      read: read,
+      size: object.size,
+      isVideo: BucketFlags.videoExtensions.contains(_ext(object.key)),
+    );
+    if (failed()) throw StateError('could not read ${object.key}');
+    return found != null;
   }
 
   /// An unclaimed object that already has a protocol name: it becomes a
@@ -605,8 +610,12 @@ class BucketFixer {
     }
     final base = _stem(f.object.key);
     // A listing older than a replace still shows the key it replaced.
-    if (await _ops.sizeOf(target, f.object.key) == null) {
-      return const FixResult(FixOutcome.removed);
+    switch ((await _ops.head(target, f.object.key)).state) {
+      case Probe.absent:
+        return const FixResult(FixOutcome.removed);
+      case Probe.unknown:
+        return const FixResult(FixOutcome.failed, detail: _noAnswer);
+      case Probe.present:
     }
     if (await store.originalStemHeld(base)) {
       return const FixResult(FixOutcome.failed, detail: 'already in library');
@@ -669,10 +678,8 @@ class BucketFixer {
     // One header read for both questions, and none when the scan already
     // found it isn't a carrier and knows its date.
     final known = await _looked(f.object);
-    final read = _headCached(
-      _ops.rangeReader(target, f.object.key),
-      f.object.size,
-    );
+    final (raw, failed) = _watched(_ops.rangeReader(target, f.object.key));
+    final read = _headCached(raw, f.object.size);
     final carrier = known?['c'] == false
         ? null
         : await _probe.probe(
@@ -680,6 +687,12 @@ class BucketFixer {
             size: f.object.size,
             isVideo: f.isVideo,
           );
+    // Unread is unknown: never renamed, never imported as a photo.
+    if (failed()) {
+      return (await _ops.head(target, f.object.key)).state == Probe.absent
+          ? const FixResult(FixOutcome.removed)
+          : const FixResult(FixOutcome.failed, detail: _noAnswer);
+    }
     // Anything that looks like a hidden photo is only ever renamed into the
     // hidden format, and only when the header says it is ours and carries a
     // name. Otherwise it is left alone: an album's index may point at it,
@@ -701,13 +714,15 @@ class BucketFixer {
 
     if (!await _copy(target, f.object.key, newKey, f.object.size)) {
       // Gone already — deleted since the listing — is nothing left to fix.
-      if (await _ops.sizeOf(target, f.object.key) == null) {
+      if ((await _ops.head(target, f.object.key)).state == Probe.absent) {
         return const FixResult(FixOutcome.removed);
       }
       return FixResult(FixOutcome.failed, detail: _ops.lastError);
     }
+    final kept = Keeper(newKey, size: f.object.size);
     if (hidden) {
-      await _deleteObject(target, f.object.key);
+      // The vault's own move: the carrier is proven under its new name.
+      await _delete(target, f.object.key, keep: kept, carrierProof: true);
       return const FixResult(FixOutcome.keptHidden);
     }
 
@@ -727,9 +742,13 @@ class BucketFixer {
       isVideo: f.isVideo,
       created: date,
     );
-    await _deleteObject(target, f.object.key);
+    await _delete(target, f.object.key, keep: kept);
     if (thumb != null && newThumbKey != null) {
-      await _deleteObject(target, thumb.key);
+      await _delete(
+        target,
+        thumb.key,
+        keep: Keeper(newThumbKey, size: thumb.size),
+      );
     }
     return FixResult(FixOutcome.imported, localId: localId);
   }
@@ -771,7 +790,8 @@ class BucketFixer {
       if (!await uploader.put(filePath: output, key: newKey, target: target)) {
         return const FixResult(FixOutcome.failed);
       }
-      if (await _ops.sizeOf(target, newKey) != await File(output).length()) {
+      final sent = await File(output).length();
+      if ((await _ops.head(target, newKey)).size != sent) {
         return const FixResult(FixOutcome.failed);
       }
 
@@ -807,8 +827,10 @@ class BucketFixer {
         isVideo: false,
         created: date,
       );
-      await _deleteObject(target, f.object.key);
-      if (thumb != null) await _deleteObject(target, thumb.key);
+      await _delete(target, f.object.key, keep: Keeper(newKey, size: sent));
+      if (thumb != null && newThumbKey != null) {
+        await _delete(target, thumb.key, keep: Keeper(newThumbKey));
+      }
       return FixResult(FixOutcome.imported, localId: localId);
     } catch (_) {
       return const FixResult(FixOutcome.failed);
@@ -857,6 +879,10 @@ class BucketFixer {
   /// bucket holding it, and the phone's copy is left alone. Same name, the
   /// new format's extension. The rows are renamed with their hash kept, so
   /// a change check doesn't send the original back up.
+  ///
+  /// Sent to every bucket and checked there first; only then are the rows
+  /// moved and the old keys retired. One bucket failing changes nothing.
+  /// (Same name and extension is an overwrite in place: nothing to keep.)
   Future<FixResult> replaceRemoteOriginal(
     AssetRecord record,
     File smaller,
@@ -869,36 +895,59 @@ class BucketFixer {
     );
     final size = await smaller.length();
     final ext = p.extension(smaller.path).substring(1);
-    String? replaced;
+    final sent = <({S3BackupTarget target, String oldKey, String newKey})>[];
     for (final MapEntry(key: targetId, value: oldKey) in holding.entries) {
       final target = await _target(targetId);
-      if (target == null) continue;
-      final newKey = '${p.withoutExtension(oldKey)}.$ext';
-      if (!await uploader.put(
+      if (target == null) {
+        return const FixResult(FixOutcome.failed, detail: 'no such bucket');
+      }
+      sent.add((
+        target: target,
+        oldKey: oldKey,
+        newKey: '${p.withoutExtension(oldKey)}.$ext',
+      ));
+    }
+    if (sent.isEmpty) {
+      return const FixResult(FixOutcome.failed, detail: 'not in a bucket');
+    }
+    // In-place overwrites last: they are the part that can't be undone.
+    sent.sort(
+      (a, b) => (a.newKey == a.oldKey ? 1 : 0).compareTo(
+        b.newKey == b.oldKey ? 1 : 0,
+      ),
+    );
+    final landed = <({S3BackupTarget target, String oldKey, String newKey})>[];
+    for (final s in sent) {
+      final ok =
+          await uploader.put(
             filePath: smaller.path,
-            key: newKey,
-            target: target,
-          ) ||
-          await _ops.sizeOf(target, newKey) != size) {
-        // Half done is a stray beside the original; nothing claims it.
-        if (newKey != oldKey &&
-            !(await store.referencedKeys()).contains(newKey)) {
-          await _deleteObject(target, newKey);
+            key: s.newKey,
+            target: s.target,
+          ) &&
+          (await _ops.head(s.target, s.newKey)).size == size;
+      if (!ok) {
+        // Half done is a stray beside each original; nothing claims it.
+        for (final done in [...landed, s]) {
+          if (done.newKey != done.oldKey) {
+            await _delete(done.target, done.newKey);
+          }
         }
         return const FixResult(FixOutcome.failed, detail: 'upload failed');
       }
-      if (newKey != oldKey) await _deleteObject(target, oldKey);
-      final now = DateTime.now();
+      landed.add(s);
+    }
+    final now = DateTime.now();
+    for (final s in landed) {
       await store.moveBucketObject(
         BucketObject(
-          targetId: targetId,
-          key: oldKey,
+          targetId: s.target.id,
+          key: s.oldKey,
           size: 0,
           lastModified: now,
         ),
         BucketObject(
-          targetId: targetId,
-          key: newKey,
+          targetId: s.target.id,
+          key: s.newKey,
           size: size,
           lastModified: now,
         ),
@@ -906,13 +955,9 @@ class BucketFixer {
       await store.renameUploadKey(
         localId: record.localId,
         kind: DerivativeKind.original,
-        targetId: targetId,
-        destinationKey: newKey,
+        targetId: s.target.id,
+        destinationKey: s.newKey,
       );
-      replaced = newKey;
-    }
-    if (replaced == null) {
-      return const FixResult(FixOutcome.failed, detail: 'not in a bucket');
     }
     final state = record.stateOf(DerivativeKind.original);
     await store.updateDerivative(
@@ -920,31 +965,48 @@ class BucketFixer {
       DerivativeKind.original,
       DerivativeState(
         status: state.status,
-        destinationKey: replaced,
+        destinationKey: landed.first.newKey,
         backedUpHash: state.backedUpHash,
       ),
     );
+    for (final s in landed) {
+      if (s.newKey == s.oldKey) continue;
+      // The listing moved on already; the bucket may still have it.
+      await _delete(s.target, s.oldKey, keep: Keeper(s.newKey, size: size));
+    }
     return const FixResult(FixOutcome.removed);
   }
 
-  /// An original under [stem] in any format, asked of each bucket set up
-  /// now rather than read from a listing. Throws when one can't be listed.
-  /// Deleted, and out of the listing on file with it.
-  Future<bool> _deleteObject(S3BackupTarget target, String key) async {
-    final ok = await _ops.delete(target, key);
-    if (ok) await store.forgetBucketObject(target.id, key);
-    return ok;
-  }
+  static const _noAnswer = 'bucket did not answer';
 
+  /// Through the guard, always: see [BucketOps.deleteGuarded].
+  Future<DeleteOutcome> _delete(
+    S3BackupTarget target,
+    String key, {
+    Keeper? keep,
+    bool carrierProof = false,
+  }) => _ops.deleteGuarded(
+    target,
+    key,
+    store: store,
+    keep: keep,
+    carrierProof: carrierProof,
+  );
+
+  /// An original under [stem] in any format, asked of each bucket set up
+  /// now rather than read from a listing. Throws when one can't be listed,
+  /// and when no bucket can be read at all: none is not "not there".
   /// Only a file of the record's own kind: a Live Photo's `.MOV` shares
   /// its still's name and is never the still's original.
   Future<({String targetId, String key})?> liveOriginal(
     String stem,
     bool video,
   ) async {
-    for (final target in await targetsStore.loadAll()) {
+    final targets = await targetsStore.loadAll();
+    if (targets.isEmpty) throw StateError('no bucket to ask');
+    for (final target in targets) {
       final found = await _ops.listFolder(target, 'originals/$stem.');
-      if (found == null) throw StateError('bucket did not answer');
+      if (found == null) throw StateError(_noAnswer);
       for (final o in found) {
         if (BucketFlags.videoExtensions.contains(_ext(o.key)) == video) {
           return (targetId: target.id, key: o.key);
@@ -966,45 +1028,36 @@ class BucketFixer {
   }
 
   /// An [FlagKind.oldCopy] or [FlagKind.duplicate] and its thumbnail, once
-  /// the copy kept in its place is confirmed in the same bucket.
+  /// the copy kept in its place is proven live in the same bucket: the
+  /// same bytes for a duplicate or a video, and for an old copy no smaller
+  /// than it (a smaller one may be a lossy conversion of it).
   Future<FixResult> removeOldCopy(FlaggedObject f) async {
     final current = f.likelyDuplicateOf;
     final target = await _target(f.object.targetId);
     if (current == null || target == null) {
       return const FixResult(FixOutcome.failed);
     }
-    if (await _ops.sizeOf(target, current) == null) {
-      return const FixResult(
-        FixOutcome.failed,
-        detail: 'current copy not found',
-      );
-    }
-    // A video is only ever removed as the same file as the one kept.
-    if (f.isVideo && !await _sameBytes(target, f.object.key, current)) {
-      return const FixResult(FixOutcome.failed, detail: 'not the same file');
-    }
-    if (!await _deleteObject(target, f.object.key)) {
-      return FixResult(FixOutcome.failed, detail: _ops.lastError);
+    final exact = f.kind == FlagKind.duplicate || f.isVideo;
+    final outcome = await _delete(
+      target,
+      f.object.key,
+      keep: Keeper(current, sameBytes: exact, notSmaller: !exact),
+    );
+    if (!outcome.isGone) {
+      return FixResult(FixOutcome.failed, detail: _why(outcome));
     }
     final thumb = await _thumbnailOf(f);
-    if (thumb != null && !(await store.referencedKeys()).contains(thumb.key)) {
-      await _deleteObject(target, thumb.key);
-    }
+    if (thumb != null) await _delete(target, thumb.key);
     return const FixResult(FixOutcome.removed);
   }
 
-  Future<bool> _sameBytes(S3BackupTarget target, String a, String b) async {
-    final sizes = await Future.wait([
-      _ops.sizeOf(target, a),
-      _ops.sizeOf(target, b),
-    ]);
-    if (sizes[0] == null || sizes[0] != sizes[1]) return false;
-    final tags = await Future.wait([
-      _ops.etagOf(target, a),
-      _ops.etagOf(target, b),
-    ]);
-    return tags[0] != null && tags[0] == tags[1];
-  }
+  String _why(DeleteOutcome outcome) => switch (outcome) {
+    DeleteOutcome.held => 'a photo still uses it',
+    DeleteOutcome.carrier => 'hidden photo',
+    DeleteOutcome.keeperUnproven => 'current copy not found or not the same',
+    DeleteOutcome.unknown => _noAnswer,
+    _ => _ops.lastError ?? 'delete failed',
+  };
 
   Future<FixResult> removeOrphan(FlaggedObject f) async {
     final target = await _target(f.object.targetId);
@@ -1020,12 +1073,10 @@ class BucketFixer {
     if (original.isNotEmpty) {
       return const FixResult(FixOutcome.failed, detail: 'original is there');
     }
-    if (await _ops.sizeOf(target, f.object.key) == null) {
-      return const FixResult(FixOutcome.removed);
-    }
-    return await _deleteObject(target, f.object.key)
+    final outcome = await _delete(target, f.object.key);
+    return outcome.isGone
         ? const FixResult(FixOutcome.removed)
-        : const FixResult(FixOutcome.failed);
+        : FixResult(FixOutcome.failed, detail: _why(outcome));
   }
 
   Future<bool> _copy(
@@ -1034,7 +1085,7 @@ class BucketFixer {
     String to,
     int size,
   ) async {
-    if (await _ops.sizeOf(target, to) == size) return true;
+    if ((await _ops.head(target, to)).size == size) return true;
     return _ops.copy(target: target, from: from, to: to, expectedSize: size);
   }
 

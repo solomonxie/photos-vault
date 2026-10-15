@@ -4,14 +4,13 @@ import 'package:http/http.dart' as http;
 
 import '../settings/bucket_endpoint.dart';
 import '../settings/s3_backup_target.dart';
+import 'bucket_http.dart';
 
 /// Deletes one object from the bucket — signed `DELETE`, same credentials
 /// and signing as every other call this app makes.
 ///
-/// Only ever reached through `PendingDeletes`, from a *permanent* delete or
-/// a hide's retraction. Everything short of that leaves the bucket alone:
-/// the backed-up copy is the one that survives a lost phone, so it outlives
-/// the local record on purpose.
+/// Only ever called by `BucketOps.rawDelete`, behind `deleteGuarded`'s
+/// checks. Nothing else in the app may call it.
 ///
 /// Returns whether the object is gone, which includes it never having been
 /// there: S3 answers a delete for a missing key with `204` anyway, and a
@@ -41,9 +40,9 @@ Future<bool> deleteObject({
       credentialScope: scope,
       serviceConfiguration: S3ServiceConfiguration(),
     );
-    final response = await httpClient
-        .delete(signed.uri, headers: signed.headers)
-        .timeout(const Duration(seconds: 20));
+    final response = await bucketRequest(
+      httpClient.delete(signed.uri, headers: signed.headers),
+    );
     return response.statusCode == 204 ||
         response.statusCode == 200 ||
         response.statusCode == 404;

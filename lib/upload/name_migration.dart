@@ -1,10 +1,13 @@
 import 'package:path/path.dart' as p;
 
 import '../settings/backup_targets_store.dart';
+import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/bucket_object.dart';
 import '../vault/object_key.dart';
 import 'bucket_ops.dart';
+import 'object_keys.dart';
 
 /// Gives photos backed up under the old `photo_<id>` names a protocol name,
 /// a few at a time, so the bucket ends up with one naming scheme.
@@ -29,24 +32,40 @@ class NameMigration {
 
   /// Re-points a record whose key names another prefix (the bucket's folder
   /// was renamed, or the connection moved) at the object that really is in
-  /// the listing under this target's prefix. Only ever to an object seen in
-  /// the listing, so it can only turn a dead key into a live one. Returns
-  /// how many keys were repaired.
+  /// the bucket under this target's prefix. Returns how many keys were
+  /// repaired.
+  ///
+  /// The listing only nominates. A key is re-pointed when a live HEAD says
+  /// it is gone (404, not "no answer") and another says the new one is
+  /// there; only to a file of the same kind (a Live Photo's `.mov` is never
+  /// its still); and never to another format older than the upload it
+  /// replaces. Call it only after a listing that fully succeeded.
   Future<int> healPrefixes() async {
     final targets = {for (final t in await targetsStore.loadAll()) t.id: t};
     if (targets.isEmpty) return 0;
-    final listed = <String, Set<String>>{};
+    final listed = <String, Map<String, BucketObject>>{};
     for (final o in await store.listBucketObjects()) {
-      (listed[o.targetId] ??= {}).add(o.key);
+      (listed[o.targetId] ??= {})[o.key] = o;
     }
     if (listed.isEmpty) return 0;
     // Same folder and name, another format: what a re-encode in the bucket
     // leaves when a record kept the old extension.
-    final byStem = <String, Map<String, List<String>>>{};
-    for (final MapEntry(key: targetId, value: keys) in listed.entries) {
-      for (final k in keys) {
-        ((byStem[targetId] ??= {})[p.withoutExtension(k)] ??= []).add(k);
+    final byStem = <String, Map<String, List<BucketObject>>>{};
+    for (final MapEntry(key: targetId, value: objects) in listed.entries) {
+      for (final o in objects.values) {
+        ((byStem[targetId] ??= {})[p.withoutExtension(o.key)] ??= []).add(o);
       }
+    }
+    // One query for every upload row, not one per record and kind.
+    final rows = <String, Map<DerivativeKind, Map<String, int>>>{};
+    final uploadRows = await store.uploadRows();
+    final heldAll = groupUploads(uploadRows);
+    for (final row in uploadRows) {
+      final kind = DerivativeKind.values.asNameMap()[row['kind']];
+      if (kind == null) continue;
+      ((rows[row['local_id'] as String] ??= {})[kind] ??= {})[row['target_id']
+              as String] =
+          row['uploaded_at'] as int? ?? 0;
     }
     var healed = 0;
     for (final record in await store.listAll()) {
@@ -55,22 +74,31 @@ class NameMigration {
         final state = record.stateOf(kind);
         final key = state.destinationKey;
         if (key == null) continue;
-        final held = await store.targetsHolding(record.localId, kind);
+        final held = heldAll[record.localId]?[kind] ?? const <String, String>{};
         final firstTarget = held.isNotEmpty
             ? held.keys.first
             : targets.keys.first;
         final target = targets[firstTarget];
         final seen = listed[firstTarget];
-        if (target == null || seen == null || seen.contains(key)) continue;
+        if (target == null || seen == null || seen.containsKey(key)) continue;
         final tail = _tail.firstMatch(key)?[2];
         if (tail == null) continue;
-        var rebased = '${target.prefix}$tail';
-        if (!seen.contains(rebased)) {
-          final formats = byStem[firstTarget]?[p.withoutExtension(rebased)];
+        final exact = '${target.prefix}$tail';
+        final BucketObject? candidate;
+        if (seen[exact] case final o?) {
+          candidate = o;
+        } else {
+          final formats = byStem[firstTarget]?[p.withoutExtension(exact)];
           if (formats == null || formats.length != 1) continue;
-          rebased = formats.single;
+          final other = formats.single;
+          final uploadedAt = rows[record.localId]?[kind]?[firstTarget] ?? 0;
+          if (other.lastModified.millisecondsSinceEpoch < uploadedAt) continue;
+          candidate = other;
         }
-        if (rebased == key) continue;
+        final rebased = candidate.key;
+        if (rebased == key || isVideoKey(rebased) != isVideoKey(key)) continue;
+        if ((await _ops.head(target, key)).state != Probe.absent) continue;
+        if (!(await _ops.head(target, rebased)).isPresent) continue;
         for (final entry in held.entries) {
           await store.renameUploadKey(
             localId: record.localId,
@@ -91,10 +119,12 @@ class NameMigration {
   }
 
   /// Records migrated this run; zero means there is nothing left to do.
-  Future<int> run({int limit = 25}) async {
+  /// [listed] false when the listing just taken failed: then nothing is
+  /// healed off it.
+  Future<int> run({int limit = 25, bool listed = true}) async {
     final targets = {for (final t in await targetsStore.loadAll()) t.id: t};
     if (targets.isEmpty) return 0;
-    await healPrefixes();
+    if (listed) await healPrefixes();
     var done = 0;
     for (final record in await store.listAll()) {
       if (done >= limit) break;
@@ -115,9 +145,12 @@ class NameMigration {
     return false;
   }
 
+  /// Per kind: copy to every bucket and check each, then move the rows,
+  /// and only then retire the old keys, through the guard with the new
+  /// copy as the keeper.
   Future<bool> _migrate(
     AssetRecord record,
-    Map<String, dynamic> targets,
+    Map<String, S3BackupTarget> targets,
   ) async {
     final base = ordinaryBaseName(record);
     var allMoved = true;
@@ -127,7 +160,8 @@ class NameMigration {
       if (firstKey == null || fitsProtocol(p.basename(firstKey))) continue;
       final held = await store.targetsHolding(record.localId, kind);
       if (held.isEmpty) allMoved = false;
-      String? newFirst;
+      final moved =
+          <({S3BackupTarget target, String from, String to, int size})>[];
       for (final entry in held.entries) {
         final target = targets[entry.key];
         if (target == null) {
@@ -136,12 +170,12 @@ class NameMigration {
         }
         final oldKey = entry.value;
         final newKey = '${p.dirname(oldKey)}/$base${p.extension(oldKey)}';
-        final size = await _ops.sizeOf(target, oldKey);
+        final size = (await _ops.head(target, oldKey)).size;
         if (size == null) {
           allMoved = false;
           continue;
         }
-        final there = await _ops.sizeOf(target, newKey) == size;
+        final there = (await _ops.head(target, newKey)).size == size;
         if (!there &&
             !await _ops.copy(
               target: target,
@@ -158,14 +192,25 @@ class NameMigration {
           targetId: entry.key,
           destinationKey: newKey,
         );
-        await _ops.delete(target, oldKey);
-        if (oldKey == firstKey) newFirst = newKey;
+        moved.add((target: target, from: oldKey, to: newKey, size: size));
       }
+      final newFirst = [
+        for (final m in moved)
+          if (m.from == firstKey) m.to,
+      ].firstOrNull;
       if (newFirst != null) {
         await store.updateDerivative(
           record.localId,
           kind,
           state.copyWith(destinationKey: newFirst),
+        );
+      }
+      for (final m in moved) {
+        await _ops.deleteGuarded(
+          m.target,
+          m.from,
+          store: store,
+          keep: Keeper(m.to, size: m.size),
         );
       }
     }

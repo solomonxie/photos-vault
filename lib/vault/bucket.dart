@@ -8,6 +8,7 @@ import 'package:http/http.dart' as http;
 import '../backup/bucket_backup.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
+import '../upload/bucket_http.dart';
 import '../upload/s3_uploader.dart';
 import '../upload/signing.dart';
 import 'album_index.dart';
@@ -131,8 +132,10 @@ class VaultBucket {
     S3BackupTarget target,
   ) async {
     try {
-      final response = await _get(
-        await presignGetUrl(target: target, key: _indexKey(target)),
+      // 2 MB: a longer leash than a HEAD, but never none.
+      final response = await bucketRequest(
+        _get(await presignGetUrl(target: target, key: _indexKey(target))),
+        timeout: const Duration(seconds: 60),
       );
       if (response.statusCode == 404) return (bytes: null, absent: true);
       if (response.statusCode == 200 && isWholeIndex(response.bodyBytes)) {
@@ -399,12 +402,14 @@ class VaultBucket {
   Future<Uint8List?> thumbnailPrefix(String objectKey) async {
     for (final target in await _loadTargets()) {
       try {
-        final response = await _get(
-          await presignGetUrl(
-            target: target,
-            key: resolveKey(target, objectKey),
+        final response = await bucketRequest(
+          _get(
+            await presignGetUrl(
+              target: target,
+              key: resolveKey(target, objectKey),
+            ),
+            headers: {'Range': 'bytes=0-${thumbnailPrefixBytes - 1}'},
           ),
-          headers: {'Range': 'bytes=0-${thumbnailPrefixBytes - 1}'},
         );
         if (response.statusCode == 206 || response.statusCode == 200) {
           return response.bodyBytes;
@@ -428,12 +433,14 @@ class VaultBucket {
     if (targets.isEmpty) return false;
     for (final target in targets) {
       try {
-        final response = await _get(
-          await presignGetUrl(
-            target: target,
-            key: resolveKey(target, objectKey),
+        final response = await bucketRequest(
+          _get(
+            await presignGetUrl(
+              target: target,
+              key: resolveKey(target, objectKey),
+            ),
+            headers: {'Range': 'bytes=0-0'},
           ),
-          headers: {'Range': 'bytes=0-0'},
         );
         if (response.statusCode != 206 && response.statusCode != 200) {
           return false;
@@ -452,12 +459,14 @@ class VaultBucket {
     if (targets.isEmpty) return false;
     for (final target in targets) {
       try {
-        final response = await _get(
-          await presignGetUrl(
-            target: target,
-            key: resolveKey(target, objectKey),
+        final response = await bucketRequest(
+          _get(
+            await presignGetUrl(
+              target: target,
+              key: resolveKey(target, objectKey),
+            ),
+            headers: {'Range': 'bytes=0-0'},
           ),
-          headers: {'Range': 'bytes=0-0'},
         );
         if (response.statusCode != 404) return false;
       } catch (_) {
@@ -467,8 +476,7 @@ class VaultBucket {
     return true;
   }
 
-  /// A whole carrier, or [absent] when every bucket answered 404 (or none is
-  /// configured). Unreachable is neither: a caller deciding "there is no
+  /// A whole carrier, or [absent] when every bucket answered 404. Unreachable is neither: a caller deciding "there is no
   /// such object" must not mistake a dead network for it.
   Future<({Uint8List? bytes, bool absent})> fetch(String objectKey) async {
     var missing = 0;
@@ -489,7 +497,11 @@ class VaultBucket {
         // Next target.
       }
     }
-    return (bytes: null, absent: missing == targets.length);
+    // No bucket to ask (a keychain that didn't answer) is not "absent".
+    return (
+      bytes: null,
+      absent: targets.isNotEmpty && missing == targets.length,
+    );
   }
 
   /// Puts a local carrier into every bucket. True only when every one took

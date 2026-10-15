@@ -263,9 +263,16 @@ class VaultGallery {
   /// Drops the full local copy and keeps the tile, for a photo the user is
   /// happy to leave in the bucket. Refuses when the bucket hasn't got it:
   /// this app's copy is the only one until something else can be shown to
-  /// hold it, and "free up space" must never mean "lose the photo".
+  /// hold it, and "free up space" must never mean "lose the photo". Every
+  /// bucket has to answer for it, and for a Live Photo's `.mov` too: one
+  /// answering is not the others having it.
   Future<bool> sendBackToBucket(IndexEntry entry) async {
-    if (await _bucket.thumbnailPrefix(entry.objectKey) == null) return false;
+    for (final key in siblingCarrierKeys(entry.objectKey)) {
+      if (key != entry.objectKey && !await _store.hasCarrier(keys, key)) {
+        continue;
+      }
+      if (!await _bucket.isEverywhere(key)) return false;
+    }
     final tile = await thumbnail(entry.objectKey);
     return _store.sendBackToBucket(keys, entry.objectKey, thumbnail: tile);
   }

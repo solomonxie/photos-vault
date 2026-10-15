@@ -164,4 +164,18 @@ void main() {
   test('no index in the bucket is not an empty album', () async {
     expect(await bucket.loadIndex(), isNull);
   });
+
+  test('no bucket to ask is never "absent"', () async {
+    final none = VaultBucket(
+      targetsStore: BackupTargetsStore(store: _MemoryStore()),
+      store: VaultStore(
+        directory: () async =>
+            Directory.systemTemp.createTempSync('pv_bucket_test_'),
+      ),
+      get: (url, {headers}) async => http.Response('', 404),
+    );
+    final fetched = await none.fetch('originals/a.mov');
+    expect(fetched.bytes, isNull);
+    expect(fetched.absent, isFalse);
+  });
 }

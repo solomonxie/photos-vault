@@ -4,6 +4,7 @@ import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/upload/pending_deletes.dart';
 
 import '../support/fake_asset_record_store.dart';
+import '../support/scripted_deletes.dart';
 
 const _target = S3BackupTarget(
   id: 't1',
@@ -29,10 +30,10 @@ void main() {
     final tried = <String>[];
     final deletes = PendingDeletes(
       store: store,
-      delete: ({required target, required key}) async {
+      ops: ScriptedDeletes((target, key) async {
         tried.add(key);
         return true;
-      },
+      }),
     );
 
     await deletes.add(const [
@@ -51,7 +52,7 @@ void main() {
     var succeed = false;
     final deletes = PendingDeletes(
       store: store,
-      delete: ({required target, required key}) async => succeed,
+      ops: ScriptedDeletes((target, key) async => succeed),
     );
 
     await deletes.add(const [
@@ -69,10 +70,10 @@ void main() {
     var tried = 0;
     final deletes = PendingDeletes(
       store: store,
-      delete: ({required target, required key}) async {
+      ops: ScriptedDeletes((target, key) async {
         tried++;
         return true;
-      },
+      }),
     );
 
     await deletes.add(const [
@@ -91,7 +92,7 @@ void main() {
     final store = FakeAssetRecordStore();
     final deletes = PendingDeletes(
       store: store,
-      delete: ({required target, required key}) async => true,
+      ops: ScriptedDeletes((target, key) async => true),
     );
     await deletes.add(const [
       PendingDelete(objectKey: 'originals/a.jpg', targetId: 't1'),
@@ -107,7 +108,7 @@ void main() {
     late PendingDeletes deletes;
     deletes = PendingDeletes(
       store: store,
-      delete: ({required target, required key}) async {
+      ops: ScriptedDeletes((target, key) async {
         // Another hide lands mid-drain.
         if (key == 'originals/a.jpg') {
           await deletes.add(const [
@@ -115,7 +116,7 @@ void main() {
           ]);
         }
         return key == 'originals/a.jpg';
-      },
+      }),
     );
     await deletes.add(const [
       PendingDelete(objectKey: 'originals/a.jpg', targetId: 't1'),
@@ -151,10 +152,10 @@ void main() {
     final tried = <String>[];
     final deletes = PendingDeletes(
       store: store,
-      delete: ({required target, required key}) async {
+      ops: ScriptedDeletes((target, key) async {
         tried.add(key);
         return true;
-      },
+      }),
     );
 
     await deletes.add(const [
@@ -182,10 +183,10 @@ void main() {
     final tried = <String>[];
     final deletes = PendingDeletes(
       store: store,
-      delete: ({required target, required key}) async {
+      ops: ScriptedDeletes((target, key) async {
         tried.add(key);
         return true;
-      },
+      }),
     );
     await deletes.add(const [
       PendingDelete(

@@ -13,6 +13,7 @@ import '../vault/carrier_upload.dart';
 import '../vault/keys.dart';
 import '../vault/store.dart';
 import 'backup_cancel_token.dart';
+import 'bucket_ops.dart';
 import 'object_keys.dart';
 import 'pending_deletes.dart';
 import 's3_uploader.dart';
@@ -34,14 +35,20 @@ class BackupCoordinator {
     this.vaultKeys,
     Future<List<DecoyCandidate>> Function()? decoyCandidates,
     S3Uploader? s3Uploader,
+    BucketOps? ops,
     Future<String> Function(String path)? hashFile,
   }) : _s3Uploader = s3Uploader ?? S3Uploader(),
+       _ops = ops ?? BucketOps(),
        _hashFile = hashFile ?? file_hash.hashFile,
        _decoyCandidates = decoyCandidates ?? (() async => const []);
 
   final BackupTargetsStore targetsStore;
   final AssetRecordStore recordStore;
   final S3Uploader _s3Uploader;
+
+  /// Live HEADs for the one decision a listing must not make: whether a
+  /// full-quality original is already there ([_keptOriginal]).
+  final BucketOps _ops;
 
   /// Present once the private album has been set up. Absent in tests and
   /// on an install that has never opened Hidden, where no hidden record can
@@ -201,16 +208,29 @@ class BackupCoordinator {
     await _deleteTempDir(uploadPath);
   }
 
-  /// The full-quality original the bucket still lists for a photo Optimize
-  /// shrank here: sending the smaller copy over it would only lose quality.
-  Future<String?> _keptOriginal(
+  /// The full-quality original a bucket still has for a photo Optimize
+  /// shrank here: sending the smaller copy over it, or beside it, would only
+  /// lose quality. Asked live of the key held before and the one about to
+  /// be written, never of a listing. [skip] when the bucket didn't answer:
+  /// nothing is sent, and the upload is retried.
+  Future<({String? kept, bool skip})> _keptOriginal(
     AssetRecord record,
     DerivativeKind kind,
-    String targetId,
+    S3BackupTarget target,
     String? before,
+    String key,
   ) async {
-    if (!_keepsOld(record, kind) || before == null) return null;
-    return await recordStore.isListed(targetId, before) ? before : null;
+    if (!_keepsOld(record, kind)) return (kept: null, skip: false);
+    for (final candidate in {?before, key}) {
+      switch ((await _ops.head(target, candidate)).state) {
+        case Probe.present:
+          return (kept: candidate, skip: false);
+        case Probe.unknown:
+          return (kept: null, skip: true);
+        case Probe.absent:
+      }
+    }
+    return (kept: null, skip: false);
   }
 
   /// Sent from a copy Optimize shrank on this iPhone: whatever the bucket
@@ -222,18 +242,28 @@ class BackupCoordinator {
   /// (`.mov` then `.MOV`, `.heic` then `.heif`), now that [key] has landed.
   /// Same kind of file only — a Live Photo's still and motion share a
   /// name — and none a photo holds. Queued, never deleted here.
+  ///
+  /// None when [converted]: a `.heif` made from another format is a lossy
+  /// copy, and a byte-exact sibling (an older install's `.JPG`) must not be
+  /// retired for it.
   Future<List<PendingDelete>> _leftovers(
     String targetId,
     String key,
     String localId,
-    String? old,
-  ) async => [
-    for (final other in await recordStore.listedSiblings(targetId, key))
-      if (other != old &&
-          _isVideoKey(other) == _isVideoKey(key) &&
-          !await recordStore.keyHeldByOthers(other, null))
-        PendingDelete(objectKey: other, targetId: targetId, localId: localId),
+    String? old, {
+    required bool converted,
+  }) async => [
+    if (!converted)
+      for (final other in await recordStore.listedSiblings(targetId, key))
+        if (other != old &&
+            _isVideoKey(other) == _isVideoKey(key) &&
+            !await recordStore.keyHeldByOthers(other, null))
+          PendingDelete(objectKey: other, targetId: targetId, localId: localId),
   ];
+
+  /// Sent as a re-encode of the phone's file, not the file itself.
+  static bool _converted(String uploadPath, String filePath, AssetRecord r) =>
+      r.passcodeHash == null && uploadPath != filePath;
 
   static bool _isVideoKey(String key) =>
       const {'.mp4', '.mov', '.m4v'}.contains(p.extension(key).toLowerCase());
@@ -350,12 +380,19 @@ class BackupCoordinator {
           derivativeDir: derivativeDir,
           fileName: fileName,
         );
-        final kept = await _keptOriginal(
-          record,
-          kind,
-          target.id,
-          before[target.id],
-        );
+        final (:kept, :skip) = legacy || held.containsKey(target.id)
+            ? (kept: null, skip: false)
+            : await _keptOriginal(record, kind, target, before[target.id], key);
+        if (skip) continue;
+        if (kept != null && kept != before[target.id]) {
+          // Found live without a row: it is this photo's, so say so.
+          await recordStore.recordUpload(
+            localId: record.localId,
+            kind: kind,
+            targetId: target.id,
+            destinationKey: kept,
+          );
+        }
         if (legacy || held.containsKey(target.id) || kept != null) {
           succeeded++;
           // The key it is really under: today's export may name another
@@ -393,7 +430,13 @@ class BackupCoordinator {
           }
           if (!_keepsOld(record, kind)) {
             superseded.addAll(
-              await _leftovers(target.id, key, record.localId, old),
+              await _leftovers(
+                target.id,
+                key,
+                record.localId,
+                old,
+                converted: _converted(uploadPath, filePath, record),
+              ),
             );
           }
         }
@@ -581,12 +624,27 @@ class BackupCoordinator {
             fileName: fileName,
           );
           final has = held[id]!;
-          final kept = await _keptOriginal(
-            record,
-            kind,
-            target.id,
-            before[id]![target.id],
-          );
+          final (
+            :kept,
+            :skip,
+          ) = has.containsKey('') || has.containsKey(target.id)
+              ? (kept: null, skip: false)
+              : await _keptOriginal(
+                  record,
+                  kind,
+                  target,
+                  before[id]![target.id],
+                  key,
+                );
+          if (skip) continue;
+          if (kept != null && kept != before[id]![target.id]) {
+            await recordStore.recordUpload(
+              localId: id,
+              kind: kind,
+              targetId: target.id,
+              destinationKey: kept,
+            );
+          }
           final ok =
               has.containsKey('') ||
               has.containsKey(target.id) ||
@@ -616,7 +674,15 @@ class BackupCoordinator {
                 );
               }
               if (!_keepsOld(record, kind)) {
-                superseded.addAll(await _leftovers(target.id, key, id, old));
+                superseded.addAll(
+                  await _leftovers(
+                    target.id,
+                    key,
+                    id,
+                    old,
+                    converted: _converted(path, rawPaths[id]!, record),
+                  ),
+                );
               }
             }
             successCounts.update(id, (v) => v + 1, ifAbsent: () => 1);

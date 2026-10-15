@@ -3,7 +3,8 @@ import 'dart:convert';
 import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import 's3_object_delete.dart';
+import '../vault/bucket.dart';
+import 'bucket_ops.dart';
 
 /// Objects that must leave the bucket, kept until they actually have.
 ///
@@ -17,7 +18,7 @@ import 's3_object_delete.dart';
 /// `404` counts as gone — the right bucket, no such key, somebody removed
 /// it by hand. Nothing else does. Reading `403` as "not there" is precisely
 /// how a plain copy of a hidden photo gets left in a bucket while the app
-/// reports itself clean ([deleteObject] already draws that line: it accepts
+/// reports itself clean (the raw DELETE already draws that line: it accepts
 /// 200/204/404 and refuses everything else).
 ///
 /// A task names its target, and a target removed from the app leaves its
@@ -29,12 +30,14 @@ class PendingDelete {
     required this.objectKey,
     required this.targetId,
     this.localId,
+    this.carrier = false,
   });
 
   factory PendingDelete.fromJson(Map<String, dynamic> json) => PendingDelete(
     objectKey: json['k'] as String,
     targetId: json['t'] as String,
     localId: json['l'] as String?,
+    carrier: json['c'] == true,
   );
 
   final String objectKey;
@@ -48,13 +51,30 @@ class PendingDelete {
   /// alone while that photo's own upload holds it.
   final String? localId;
 
-  PendingDelete forTarget(String id) =>
-      PendingDelete(objectKey: objectKey, targetId: id, localId: localId);
+  /// A hidden photo's carrier the vault retired (a permanent delete, or an
+  /// un-hide whose plain copy is up). Every other task that finds a carrier
+  /// under its key is refused.
+  final bool carrier;
+
+  PendingDelete forTarget(String id) => PendingDelete(
+    objectKey: objectKey,
+    targetId: id,
+    localId: localId,
+    carrier: carrier,
+  );
+
+  PendingDelete asCarrier() => PendingDelete(
+    objectKey: objectKey,
+    targetId: targetId,
+    localId: localId,
+    carrier: true,
+  );
 
   Map<String, dynamic> toJson() => {
     'k': objectKey,
     't': targetId,
     'l': ?localId,
+    if (carrier) 'c': true,
   };
 
   @override
@@ -89,26 +109,11 @@ class _Lock {
 }
 
 class PendingDeletes {
-  PendingDeletes({
-    required this.store,
-    Future<bool> Function({
-      required S3BackupTarget target,
-      required String key,
-    })?
-    delete,
-  }) : _delete = delete ?? _defaultDelete;
+  PendingDeletes({required this.store, BucketOps? ops})
+    : _ops = ops ?? BucketOps();
 
   final AssetRecordStore store;
-  final Future<bool> Function({
-    required S3BackupTarget target,
-    required String key,
-  })
-  _delete;
-
-  static Future<bool> _defaultDelete({
-    required S3BackupTarget target,
-    required String key,
-  }) => deleteObject(target: target, key: key);
+  final BucketOps _ops;
 
   static const _key = 'pending_object_deletes';
   static const _failsKey = 'pending_object_delete_fails';
@@ -184,6 +189,39 @@ class PendingDeletes {
     await store.setAppState(_failsKey, jsonEncode(fails));
   });
 
+  /// A carrier task made with no bucket names the album's relative key;
+  /// each bucket has it under its own prefix.
+  static String _keyIn(S3BackupTarget target, PendingDelete task) =>
+      task.carrier && _relative.hasMatch(task.objectKey)
+      ? VaultBucket.resolveKey(target, task.objectKey)
+      : task.objectKey;
+
+  static final _relative = RegExp(r'^(originals|thumbnails|medium)/');
+
+  /// An upload that landed on [key] between the checks and the DELETE
+  /// (an un-hide re-upload) lost its object: its row goes, and the photo
+  /// is sent again. Rare, so one pass over the rows is fine here.
+  Future<void> _requeueIfTaken(S3BackupTarget target, String key) async {
+    if (!await store.keyHeldByOthers(key, null)) return;
+    for (final row in await store.uploadRows()) {
+      if (row['destination_key'] != key) continue;
+      final id = row['local_id'] as String;
+      final kind = DerivativeKind.values.asNameMap()[row['kind']];
+      final rowTarget = row['target_id'] as String;
+      if (kind == null || (rowTarget != target.id && rowTarget.isNotEmpty)) {
+        continue;
+      }
+      await store.forgetTargetUpload(id, kind, rowTarget);
+      final record = await store.getByLocalId(id);
+      if (record == null) continue;
+      await store.updateDerivative(
+        id,
+        kind,
+        record.stateOf(kind).copyWith(status: UploadStatus.pending),
+      );
+    }
+  }
+
   /// Whether the photo's own upload holds [task]'s key right now.
   Future<bool> _heldNow(PendingDelete task) async {
     final id = task.localId;
@@ -199,11 +237,15 @@ class PendingDeletes {
     return false;
   }
 
-  /// Tries every task whose target is still configured. Returns how many
-  /// are left, including the dormant ones.
+  /// Tries every task whose target is still configured, each through
+  /// [BucketOps.deleteGuarded]. Returns how many are left, including the
+  /// dormant ones.
   ///
   /// A task made with no bucket configured is expanded into one per bucket
   /// the first time there is one.
+  ///
+  /// Dropped, not deleted: a key a record holds, and a carrier the vault
+  /// did not ask for. Kept: anything a check couldn't answer.
   Future<int> drain(List<S3BackupTarget> targets) async {
     final tasks = await pending();
     if (tasks.isEmpty) return 0;
@@ -217,28 +259,39 @@ class PendingDeletes {
     final work = [
       for (final t in tasks)
         if (t.targetId.isEmpty)
-          for (final target in targets) t.forTarget(target.id)
+          for (final target in targets)
+            (task: t.forTarget(target.id), key: _keyIn(target, t))
         else
-          t,
+          (task: t, key: t.objectKey),
     ];
     final done = <PendingDelete>{};
     final attempted = <String, int>{};
     final succeeded = <String, int>{};
-    for (final task in work) {
+    for (final (:task, :key) in work) {
       final target = byId[task.targetId];
       if (target == null) continue; // Dormant, not dropped.
-      if (await _heldNow(task) ||
-          await store.keyHeldByOthers(task.objectKey, task.localId)) {
-        done.add(
-          task,
-        ); // Someone's backup still: never this delete's to remove.
+      if (await _heldNow(task)) {
+        done.add(task); // Someone's backup still: never this delete's.
         continue;
       }
-      attempted[target.id] = (attempted[target.id] ?? 0) + 1;
-      if (await _delete(target: target, key: task.objectKey)) {
-        await store.forgetBucketObject(target.id, task.objectKey);
-        done.add(task);
-        succeeded[target.id] = (succeeded[target.id] ?? 0) + 1;
+      final outcome = await _ops.deleteGuarded(
+        target,
+        key,
+        store: store,
+        carrierProof: task.carrier,
+      );
+      switch (outcome) {
+        case DeleteOutcome.deleted || DeleteOutcome.gone:
+          done.add(task);
+          attempted[target.id] = (attempted[target.id] ?? 0) + 1;
+          succeeded[target.id] = (succeeded[target.id] ?? 0) + 1;
+          if (outcome == DeleteOutcome.deleted) {
+            await _requeueIfTaken(target, key);
+          }
+        case DeleteOutcome.held || DeleteOutcome.carrier:
+          done.add(task);
+        case _:
+          attempted[target.id] = (attempted[target.id] ?? 0) + 1;
       }
     }
     // Re-read, under the lock, rather than write back what was read before
@@ -337,7 +390,11 @@ class DeferredDeletes {
           ?record.stateOf(kind).destinationKey,
         ],
       };
-      ready.addAll(tasks.where((t) => !held.contains(t.objectKey)));
+      // Carriers by construction: what an un-hide left behind.
+      ready.addAll([
+        for (final t in tasks)
+          if (!held.contains(t.objectKey)) t.asCarrier(),
+      ]);
       released.add(localId);
     }
     if (released.isEmpty) return 0;

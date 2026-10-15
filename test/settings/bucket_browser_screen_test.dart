@@ -1,10 +1,16 @@
+import 'dart:typed_data';
+
 import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/settings/bucket_browser_screen.dart';
 import 'package:photos_vault/settings/bucket_object_preview_screen.dart';
 import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:photos_vault/settings/s3_listing.dart';
+import 'package:photos_vault/storage/asset_record.dart';
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
+
+import '../support/fake_asset_record_store.dart';
+import '../support/memory_bucket.dart';
 
 Widget _wrap(Widget child) => MaterialApp(
   localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -210,5 +216,71 @@ void main() {
       find.byType(BucketObjectPreviewScreen),
     );
     expect(preview.objectKey, 'photos-vault/a.jpg');
+  });
+
+  testWidgets('a key a photo uses is refused and said so; the rest are named '
+      'before they go', (tester) async {
+    const held = 'photos-vault/held.jpg';
+    const free = 'photos-vault/free.jpg';
+    final bucket = MemoryBucket()
+      ..objects[held] = Uint8List(64)
+      ..objects[free] = Uint8List(64);
+    final store = FakeAssetRecordStore();
+    await store.upsert(localId: 'photo:h', contentHash: 'h', platform: 'ios');
+    await store.updateDerivative(
+      'photo:h',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: held,
+      ),
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        BucketBrowserScreen(
+          target: _target,
+          ops: bucket,
+          recordStore: store,
+          listBucketFn:
+              ({required target, prefix = '', continuationToken}) async =>
+                  S3ListingResult(
+                    S3ListingOutcome.ok,
+                    page: S3ListingPage(
+                      folders: const [],
+                      objects: [
+                        for (final key in [held, free])
+                          S3Object(
+                            key: key,
+                            size: 64,
+                            lastModified: DateTime(2024, 1, 1),
+                          ),
+                      ],
+                    ),
+                  ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.text('Select'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('held.jpg'));
+    await tester.tap(find.text('free.jpg'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining("1 file can't be deleted"), findsOneWidget);
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('free.jpg'), findsWidgets);
+    expect(bucket.deleted, isEmpty, reason: 'nothing goes before the confirm');
+    await tester.tap(find.text('Delete').last);
+    await tester.pumpAndSettle();
+
+    expect(bucket.deleted, [free]);
+    expect(bucket.objects.keys, [held]);
   });
 }

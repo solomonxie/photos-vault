@@ -189,6 +189,7 @@ void main() {
       vaultStore: store,
       bucket: bucket,
       passphrases: () async => [keys.entry],
+      recordStore: FakeAssetRecordStore(),
       ops: remote,
     ).run(keys);
 

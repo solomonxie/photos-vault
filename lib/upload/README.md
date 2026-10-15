@@ -65,22 +65,31 @@ the records come back from the app-data snapshot but the thumbnails died with
 the container, so it refills them from `thumbnails/`. Thumbnails only —
 originals stay in the bucket until something opens one.
 
-`s3_object_delete.dart` is the only thing in the app that removes an object
-from the bucket, and only `PendingDeletes` calls it: a permanent delete, the
-bin emptying or expiring (30 days), or a hide retracting plain copies. Tasks
-are durable and retried on every sync; keys are resolved per bucket
-(`object_keys.dart`). Everything short of that — including an ordinary delete
-— leaves the backup alone, because it's the copy that outlives the phone.
+Every bucket delete goes through `BucketOps.deleteGuarded` (`bucket_ops.dart`);
+`s3_object_delete.dart` is its raw DELETE and nothing else calls it. The guard
+refuses when any record still names the key, when the object is a carrier
+(unless the vault retired it), when the copy kept in its place isn't proven by
+a live HEAD (size, ETag where asked; never a smaller one for an old copy), and
+whenever a check goes unanswered. Callers: `PendingDeletes` (permanent delete,
+the bin, a hide's retraction, carriers an un-hide or hidden delete retired),
+the Flagged Items fixes, `NameMigration`, `HiddenMigration` and the bucket
+browser. Everything short of that — including an ordinary delete — leaves the
+backup alone, because it's the copy that outlives the phone.
+
+Bucket answers are tri-state (`Probe`: present / absent / unknown). Only a 404
+is absent; unknown never deletes, overwrites, renames, re-points or imports.
+Small requests (HEAD, list, ranged reads, DELETE) go through `bucket_http.dart`
+with a mandatory timeout.
 
 ## Bucket import and flagged objects
 
 `bucket_import.dart` lists each bucket into `bucket_object` (`BucketIndexer`),
 and "Import from Bucket" renames every flagged plain file. `bucket_flagged.dart`
 decides what is flagged (not pointed at by a record, not named like ours) and
-holds the fixes: Rename (server-side copy, size check, then delete), Re-format
-(download, HEIF, upload; only for files proven not to be carriers) and Remove
-orphan. `bucket_ops.dart` is the bucket side: flat listing, ranged reads, copy,
-size. `name_migration.dart` renames old `photo_<id>` backups in batches.
+holds the fixes: Rename (server-side copy, size check, then guarded delete),
+Re-format (download, HEIF, upload; only for files proven not to be carriers)
+and Remove orphan. `bucket_ops.dart` is the bucket side: flat listing, ranged
+reads, copy, HEAD and the guarded delete. `name_migration.dart` renames old `photo_<id>` backups in batches.
 `scripts/import-to-bucket.sh` puts a folder in the bucket. Design:
 `docs/design/bucket-import/`.
 

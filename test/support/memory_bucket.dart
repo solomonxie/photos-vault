@@ -40,7 +40,7 @@ class MemoryBucket extends BucketOps {
   RangeReader rangeReader(S3BackupTarget target, String key) =>
       (start, end) async {
         final bytes = objects[key];
-        if (bytes == null) return null;
+        if (bytes == null || silent.contains(key)) return null;
         return Uint8List.sublistView(
           bytes,
           start,
@@ -48,15 +48,24 @@ class MemoryBucket extends BucketOps {
         );
       };
 
-  @override
-  Future<String?> etagOf(S3BackupTarget target, String key) async {
-    final bytes = objects[key];
-    return bytes == null ? null : md5.convert(bytes).toString();
-  }
+  /// Keys whose HEAD and reads go unanswered, as offline would.
+  final silent = <String>{};
+
+  /// Every DELETE that reached the bucket.
+  final deleted = <String>[];
+  bool failDeletes = false;
 
   @override
-  Future<int?> sizeOf(S3BackupTarget target, String key) async =>
-      objects[key]?.length;
+  Future<ObjectHead> head(S3BackupTarget target, String key) async {
+    if (silent.contains(key)) return ObjectHead.unknown;
+    final bytes = objects[key];
+    if (bytes == null) return ObjectHead.absent;
+    return ObjectHead(
+      Probe.present,
+      size: bytes.length,
+      etag: md5.convert(bytes).toString(),
+    );
+  }
 
   @override
   Future<bool> copy({
@@ -72,7 +81,9 @@ class MemoryBucket extends BucketOps {
   }
 
   @override
-  Future<bool> delete(S3BackupTarget target, String key) async {
+  Future<bool> rawDelete(S3BackupTarget target, String key) async {
+    if (failDeletes) return false;
+    deleted.add(key);
     objects.remove(key);
     return true;
   }

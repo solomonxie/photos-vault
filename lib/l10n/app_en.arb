@@ -846,6 +846,22 @@
       }
     }
   },
+  "bucketBrowserDeleteRefused": "{count, plural, one{1 file can't be deleted here: a photo in your library uses it, it holds a hidden photo, or the bucket didn't answer. It was left as it is.} other{{count} files can't be deleted here: a photo in your library uses them, they hold a hidden photo, or the bucket didn't answer. They were left as they are.}}",
+  "@bucketBrowserDeleteRefused": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "bucketBrowserDeleteNamed": "Permanently delete from the bucket:\n{names}\n\nPhotos on this device aren't affected, but anything that exists only in the bucket will be lost.",
+  "@bucketBrowserDeleteNamed": {
+    "placeholders": {
+      "names": {
+        "type": "String"
+      }
+    }
+  },
   "bucketBrowserUnreachable": "Couldn't reach the bucket.",
   "bucketBrowserEmpty": "This folder is empty.",
   "bucketBrowserLoadMore": "Load More",

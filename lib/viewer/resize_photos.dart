@@ -152,7 +152,10 @@ class _ResizeSheetState extends State<_ResizeSheet> {
       ),
       actions: [
         CupertinoActionSheetAction(
-          isDefaultAction: true,
+          // Where Replace is for good (the private album: no bin, and the
+          // copy not yet in a bucket), it is never the default.
+          isDefaultAction: widget.note == null,
+          isDestructiveAction: widget.note != null,
           onPressed: () => pick(SaveMode.replace),
           child: Text(l10n.resizeReplace(widget.count)),
         ),

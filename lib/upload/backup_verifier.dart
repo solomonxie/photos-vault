@@ -9,6 +9,7 @@ import '../settings/s3_backup_target.dart';
 import '../settings/s3_listing.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import 'bucket_http.dart';
 import 'lost_originals.dart';
 import 'signing.dart';
 
@@ -262,15 +263,15 @@ class BackupVerifier {
 
   Future<CopyProof> _proveAt(S3BackupTarget target, String key) async {
     try {
-      final response = await _head(
-        await presignHeadUrl(target: target, key: key),
+      final response = await bucketRequest(
+        _head(await presignHeadUrl(target: target, key: key)),
       );
       if (response.statusCode == 200) return CopyProof.present;
       // 403 on a bucket without HeadObject permission is not "absent" —
       // only a 404 is the bucket saying it hasn't got it.
       if (response.statusCode == 404) return CopyProof.missing;
     } catch (_) {
-      // Network, DNS, a target that no longer exists.
+      // Network, DNS, a timeout, a target that no longer exists.
     }
     return CopyProof.unreachable;
   }

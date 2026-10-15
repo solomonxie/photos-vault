@@ -7,6 +7,7 @@ import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/viewer/private_album_gate.dart';
 
 import '../support/fake_asset_record_store.dart';
+import '../support/scripted_deletes.dart';
 
 void main() {
   late FakeAssetRecordStore records;
@@ -17,8 +18,7 @@ void main() {
     records = FakeAssetRecordStore();
     pending = PendingDeletes(
       store: records,
-      delete: ({required S3BackupTarget target, required String key}) async =>
-          true,
+      ops: ScriptedDeletes((target, key) async => true),
     );
     deferred = DeferredDeletes(store: records, pending: pending);
     await records.upsert(localId: 'photo:a', contentHash: 'a', platform: 'ios');

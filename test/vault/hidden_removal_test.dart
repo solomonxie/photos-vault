@@ -4,7 +4,6 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:photos_vault/settings/backup_targets_store.dart';
-import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/vault/album_index.dart';
@@ -15,6 +14,7 @@ import 'package:photos_vault/vault/store.dart';
 
 import '../settings/fake_secure_store.dart';
 import '../support/fake_asset_record_store.dart';
+import '../support/scripted_deletes.dart';
 
 AlbumKeys _keys() => AlbumKeys(
   albumKey: Uint8List.fromList(List.generate(32, (i) => i)),
@@ -93,10 +93,10 @@ void main() {
       bucket: bucket,
       pendingDeletes: PendingDeletes(
         store: records,
-        delete: ({required S3BackupTarget target, required String key}) async {
+        ops: ScriptedDeletes((target, key) async {
           deleted.add(key);
           return true;
-        },
+        }),
       ),
     );
   });
@@ -144,5 +144,39 @@ void main() {
 
     expect(await records.getByLocalId('photo:x'), isNull);
     expect(deleted, contains('photos/originals/photo_x.jpg'));
+  });
+
+  test('with no bucket readable, the carrier still waits to be deleted '
+      'rather than being forgotten', () async {
+    const gone = 'originals/a.jpg';
+    await bucket.writeAlbum(
+      keys: keys,
+      entries: [_entry(gone)],
+      passphrases: [keys.entry],
+    );
+    final pending = PendingDeletes(
+      store: records,
+      ops: ScriptedDeletes((target, key) async {
+        deleted.add(key);
+        return true;
+      }),
+    );
+    final blind = HiddenRemoval(
+      store: records,
+      targetsStore: BackupTargetsStore(store: FakeSecureStore()),
+      vaultStore: store,
+      bucket: bucket,
+      pendingDeletes: pending,
+    );
+
+    expect(await blind.delete(keys: keys, entries: [_entry(gone)]), isTrue);
+    await pumpEventQueue();
+    final tasks = await pending.pending();
+    expect(tasks, isNotEmpty);
+    expect(tasks.every((t) => t.targetId.isEmpty && t.carrier), isTrue);
+
+    await pending.drain(await targets.loadAll());
+    expect(deleted, contains('photos/$gone'));
+    expect(await pending.pending(), isEmpty);
   });
 }

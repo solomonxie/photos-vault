@@ -20,6 +20,7 @@ import 'package:photos_vault/vault/store.dart';
 import '../settings/fake_secure_store.dart';
 import '../support/fake_asset_record_store.dart';
 import 'carrier_fixtures.dart';
+import '../support/scripted_deletes.dart';
 
 AlbumKeys _keys() => AlbumKeys(
   albumKey: Uint8List.fromList(List.generate(32, (i) => i)),
@@ -203,8 +204,7 @@ void main() {
       bucket: bucket,
       pendingDeletes: PendingDeletes(
         store: records,
-        delete: ({required S3BackupTarget target, required String key}) async =>
-            true,
+        ops: ScriptedDeletes((target, key) async => true),
       ),
     );
 

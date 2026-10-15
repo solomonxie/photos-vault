@@ -1,7 +1,8 @@
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
-import '../upload/s3_object_delete.dart' as s3;
+import '../storage/asset_record_store.dart';
+import '../upload/bucket_ops.dart';
 import 'bucket_object_preview_screen.dart';
 import 's3_backup_target.dart';
 import 's3_listing.dart';
@@ -27,7 +28,8 @@ class BucketBrowserScreen extends StatefulWidget {
     String? prefix,
     this.highlightKey,
     this.listBucketFn = listBucket,
-    this.deleteObjectFn = s3.deleteObject,
+    this.ops,
+    this.recordStore,
     this.onDeleteConnection,
   }) : prefix = prefix ?? target.prefix;
 
@@ -45,12 +47,12 @@ class BucketBrowserScreen extends StatefulWidget {
   })
   listBucketFn;
 
+  /// Deletes go through [BucketOps.deleteGuarded] and nothing else.
   /// Overridable for tests so they never really delete anything.
-  final Future<bool> Function({
-    required S3BackupTarget target,
-    required String key,
-  })
-  deleteObjectFn;
+  final BucketOps? ops;
+
+  /// What the guard asks whether a photo still uses a key.
+  final AssetRecordStore? recordStore;
 
   /// Offered at the bucket's own root only — this screen *is* the
   /// connection, so it's where removing it belongs now that the row it used
@@ -239,7 +241,8 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
           target: widget.target,
           prefix: folderPrefix,
           listBucketFn: widget.listBucketFn,
-          deleteObjectFn: widget.deleteObjectFn,
+          ops: widget.ops,
+          recordStore: widget.recordStore,
         ),
       ),
     );
@@ -253,18 +256,58 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
     selection.contains(key) ? selection.remove(key) : selection.add(key);
   });
 
+  late final BucketOps _ops = widget.ops ?? BucketOps();
+  late final AssetRecordStore _store = widget.recordStore ?? AssetRecordStore();
+
+  Future<DeleteOutcome> _guarded(String key, {bool dryRun = false}) =>
+      _ops.deleteGuarded(widget.target, key, store: _store, dryRun: dryRun);
+
+  /// Checked before asking: a key a photo uses, a carrier, or one the
+  /// bucket won't answer for is refused, and said so. The rest are named
+  /// in the confirm, and checked again as each goes.
   Future<void> _deleteSelected() async {
     final l10n = AppLocalizations.of(context)!;
     final keys = _selection?.toList() ?? const <String>[];
     if (keys.isEmpty) return;
 
+    setState(() => _deleting = true);
+    final allowed = <String>[];
+    var refused = 0;
+    for (final key in keys) {
+      switch (await _guarded(key, dryRun: true)) {
+        case DeleteOutcome.allowed:
+          allowed.add(key);
+        case DeleteOutcome.gone || DeleteOutcome.deleted:
+          break;
+        case _:
+          refused++;
+      }
+    }
+    if (!mounted) return;
+    setState(() => _deleting = false);
+    if (refused > 0) {
+      await _tell(l10n.bucketBrowserDeleteRefused(refused));
+      if (!mounted) return;
+    }
+    if (allowed.isEmpty) {
+      setState(() => _selection = null);
+      await _load();
+      return;
+    }
+
+    const shown = 5;
+    final names = [
+      for (final key in allowed.take(shown)) key.split('/').last,
+      if (allowed.length > shown) '…',
+    ].join('\n');
     final confirmed = await showCupertinoDialog<bool>(
       context: context,
       builder: (dialogContext) => CupertinoAlertDialog(
-        title: Text(l10n.bucketBrowserDeleteSelected(keys.length)),
-        content: Text(l10n.bucketBrowserDeleteBody),
+        title: Text(l10n.bucketBrowserDeleteSelected(allowed.length)),
+        content: Text(l10n.bucketBrowserDeleteNamed(names)),
         actions: [
           CupertinoDialogAction(
+            isDefaultAction: true,
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: Text(l10n.actionCancel),
           ),
@@ -276,38 +319,36 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
         ],
       ),
     );
-    if (confirmed != true) return;
+    if (confirmed != true || !mounted) return;
 
     setState(() => _deleting = true);
     var failed = 0;
-    for (final key in keys) {
-      if (!await widget.deleteObjectFn(target: widget.target, key: key)) {
-        failed++;
-      }
+    for (final key in allowed) {
+      if (!(await _guarded(key)).isGone) failed++;
     }
     if (!mounted) return;
     setState(() {
       _deleting = false;
       _selection = null;
     });
-    if (failed > 0) {
-      await showCupertinoDialog<void>(
-        context: context,
-        builder: (dialogContext) => CupertinoAlertDialog(
-          content: Text(l10n.bucketBrowserDeleteFailed(failed)),
-          actions: [
-            CupertinoDialogAction(
-              onPressed: () => Navigator.of(dialogContext).pop(),
-              child: Text(l10n.actionOk),
-            ),
-          ],
-        ),
-      );
-    }
+    if (failed > 0) await _tell(l10n.bucketBrowserDeleteFailed(failed));
     // Re-listed rather than patched locally: the bucket is the truth here,
     // and a delete that didn't take has to show as still present.
     await _load();
   }
+
+  Future<void> _tell(String message) => showCupertinoDialog<void>(
+    context: context,
+    builder: (dialogContext) => CupertinoAlertDialog(
+      content: Text(message),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(dialogContext).pop(),
+          child: Text(AppLocalizations.of(context)!.actionOk),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _confirmDeleteConnection() async {
     final l10n = AppLocalizations.of(context)!;

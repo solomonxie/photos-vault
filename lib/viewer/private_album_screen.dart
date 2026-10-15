@@ -343,6 +343,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
           vaultStore: VaultStore(),
           bucket: VaultBucket(),
           passphrases: vault.entries,
+          recordStore: widget.assetRecordStore,
         ).run(keys),
       );
     }

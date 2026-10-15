@@ -856,14 +856,15 @@ class LibraryScreenState extends State<LibraryScreen>
     }
     _bucketListedAt = DateTime.now();
     try {
-      await BucketIndexer(
+      final listed = await BucketIndexer(
         targetsStore: _backupTargetsStore,
         recordStore: assetRecordStore,
       ).refresh();
+      // A partial listing is not evidence that a key is gone.
       await NameMigration(
         store: assetRecordStore,
         targetsStore: _backupTargetsStore,
-      ).run();
+      ).run(listed: listed);
       // Only noted for the Cloud settings row — never imported unasked.
       await BucketImport(
         targetsStore: _backupTargetsStore,
