@@ -7,8 +7,11 @@ import '../backup/app_snapshot.dart';
 import '../backup/bucket_backup.dart';
 import '../backup/icloud_backup.dart';
 import '../backup/local_vault.dart';
+import '../photos/photo_library_service.dart';
 import '../photos/thumbnail_cache.dart';
+import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/bucket_ops.dart';
 import '../upload/pending_deletes.dart';
 import '../upload/sync_job_store.dart';
 import '../vault/cache.dart';
@@ -17,6 +20,17 @@ import '../vault/store.dart';
 import 'ai_settings_store.dart';
 import 'backup_targets_store.dart';
 import 's3_target_drafts_store.dart';
+
+enum AppDataOutcome {
+  done,
+
+  /// Done, but every photo the app stores itself was kept: which of them
+  /// exist nowhere else couldn't be read.
+  keptOwnFiles,
+
+  /// Nothing removed: a hidden photo to keep isn't proven in a bucket.
+  refused,
+}
 
 /// Everything Remove All App Data has to erase, and the order that works.
 ///
@@ -49,7 +63,7 @@ class AppDataRemoval {
     AiSettingsStore? aiSettingsStore,
     VaultKeys? vaultKeys,
     VaultStore? vaultStore,
-
+    BucketOps? ops,
     this.supportDirectory = getApplicationSupportDirectory,
     this.cacheDirectory = getApplicationCacheDirectory,
   }) : _syncJobStore = syncJobStore ?? SyncJobStore(),
@@ -58,9 +72,14 @@ class AppDataRemoval {
          store: settings,
          pending: pendingDeletes ?? PendingDeletes(store: settings),
        ),
+       _hideHolds = DeferredDeletes.untilCarrier(
+         store: settings,
+         pending: pendingDeletes ?? PendingDeletes(store: settings),
+       ),
        _draftsStore = draftsStore ?? S3TargetDraftsStore(),
        _aiSettingsStore = aiSettingsStore ?? AiSettingsStore(),
        _vaultKeys = vaultKeys ?? VaultKeys(),
+       _ops = ops ?? BucketOps(),
        _vaultStore = vaultStore ?? VaultStore(directory: supportDirectory);
 
   final AppSnapshotIo snapshots;
@@ -77,10 +96,14 @@ class AppDataRemoval {
   final SyncJobStore _syncJobStore;
   final PendingDeletes _pendingDeletes;
   final DeferredDeletes _deferredDeletes;
+  final DeferredDeletes _hideHolds;
   final S3TargetDraftsStore _draftsStore;
   final AiSettingsStore _aiSettingsStore;
   final VaultKeys _vaultKeys;
   final VaultStore _vaultStore;
+
+  /// Live HEADs proving a hidden photo's carrier before its plain file goes.
+  final BucketOps _ops;
 
   /// Overridable so tests never reach a real container. `null` skips the
   /// on-disk pass, which is what a widget test wants: in `testWidgets`'
@@ -95,9 +118,14 @@ class AppDataRemoval {
   /// plaintext file. Carriers already in a bucket are never touched either
   /// way - the wipe has never deleted from a bucket.
   ///
-  /// Returns false when the photos the app stores itself were all kept,
-  /// because which of them exist nowhere else couldn't be read.
-  Future<bool> run({bool includeHidden = false}) async {
+  /// A hidden photo's plain file never outlives its row: nothing would
+  /// list it, and it is the photo in the clear. Kept hidden, each must be
+  /// proven in every bucket first, or nothing at all is removed
+  /// ([AppDataOutcome.refused]).
+  Future<AppDataOutcome> run({bool includeHidden = false}) async {
+    final hiddenFiles = await _hiddenFiles(includeHidden: includeHidden);
+    if (hiddenFiles == null) return AppDataOutcome.refused;
+
     // Before the rows go, because afterwards there is nothing left to ask
     // which files are the only copy of anything.
     final keep = await _onlyCopies(includeHidden: includeHidden);
@@ -113,6 +141,10 @@ class AppDataRemoval {
       _deferredDeletes.waiting,
       const <String, List<PendingDelete>>{},
     );
+    final held = await _attemptValue(
+      _hideHolds.waiting,
+      const <String, List<PendingDelete>>{},
+    );
 
     // On this phone first: it cannot fail to reach a network, and it is
     // the copy people come back for.
@@ -123,14 +155,78 @@ class AppDataRemoval {
     await _attempt(snapshots.clearAll);
     await _attempt(_syncJobStore.clearQueue);
     await _attempt(() => deleteOwnedFiles(keeping: keep));
-    await _attempt(() => _carryDeletionsOver(owed, deferred));
+    await _attempt(() => _deleteFiles(hiddenFiles));
+    await _attempt(() => _carryDeletionsOver(owed, deferred, held));
     await _attempt(forgetCredentials);
     if (includeHidden) {
       await _attempt(_vaultStore.clear);
       await _attempt(_vaultKeys.eraseOnThisDevice);
     }
     await _attempt(sealAgainstRestore);
-    return keep != null;
+    return keep == null ? AppDataOutcome.keptOwnFiles : AppDataOutcome.done;
+  }
+
+  /// Every hidden photo's plain files, to go with the rows. Null when they
+  /// are to be kept hidden and any isn't proven in every bucket, or the
+  /// rows can't be read: the wipe is refused rather than leave one as an
+  /// unlisted plaintext file, or delete the only copy.
+  Future<List<String>?> _hiddenFiles({required bool includeHidden}) async {
+    final List<AssetRecord> hidden;
+    try {
+      hidden = [
+        for (final r in await settings.listAll())
+          if (r.passcodeHash != null) r,
+      ];
+    } catch (_) {
+      return includeHidden ? const [] : null;
+    }
+    if (hidden.isEmpty) return const [];
+    if (!includeHidden && !await _carriersUp(hidden)) return null;
+    return [
+      for (final r in hidden)
+        if (r.sourcePath case final path?) ...[
+          path,
+          PhotoLibraryService.heldLiveVideoPath(path),
+        ],
+    ];
+  }
+
+  /// Each photo's carrier answers a live HEAD in every bucket. One per
+  /// half per bucket, bounded by hidden photos; any doubt is a no.
+  Future<bool> _carriersUp(List<AssetRecord> hidden) async {
+    try {
+      final targets = await targetsStore.loadAll();
+      if (targets.isEmpty) return false;
+      for (final record in hidden) {
+        if (!record.isFullyBackedUp) return false;
+        for (final kind in [
+          DerivativeKind.original,
+          if (record.isLivePhoto) DerivativeKind.livePhoto,
+        ]) {
+          final held = await settings.targetsHolding(record.localId, kind);
+          for (final target in targets) {
+            final key = held[target.id] ?? held[''];
+            if (key == null) return false;
+            if ((await _ops.head(target, key)).state != Probe.present) {
+              return false;
+            }
+          }
+        }
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  static Future<void> _deleteFiles(List<String> paths) async {
+    for (final path in paths) {
+      try {
+        await File(path).delete();
+      } catch (_) {
+        // Not there.
+      }
+    }
   }
 
   /// Puts the outstanding object deletions back after the wipe.
@@ -153,10 +249,15 @@ class AppDataRemoval {
   Future<void> _carryDeletionsOver(
     List<PendingDelete> owed,
     Map<String, List<PendingDelete>> deferred,
+    Map<String, List<PendingDelete>> held,
   ) async {
     if (owed.isNotEmpty) await _pendingDeletes.add(owed);
     for (final MapEntry(key: localId, value: tasks) in deferred.entries) {
       await _deferredDeletes.add(localId, tasks);
+    }
+    // Plain copies a hide held for its carrier, likewise.
+    for (final MapEntry(key: localId, value: tasks) in held.entries) {
+      await _hideHolds.add(localId, tasks);
     }
   }
 

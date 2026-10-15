@@ -73,6 +73,10 @@ class FiledPhotos {
   }) async {
     final key = entry.objectKey;
     if (await _store.isUnsent(keys, key)) return null;
+    final localId = 'manual:vault-${p.basenameWithoutExtension(key)}';
+    // Un-hidden (or in another album) already: never pulled back in here.
+    final existing = await records.getByLocalId(localId);
+    if (existing != null && existing.passcodeHash != passcodeHash) return null;
     var opened = await _openLocal(keys, key);
     if (opened == null && download) {
       final bytes = await _bucket.object(key);
@@ -88,7 +92,6 @@ class FiledPhotos {
         !entry.isVideo &&
         entry.hasMotion != false &&
         await _restoreMotion(keys, motionKey, path, download: download);
-    final localId = 'manual:vault-${p.basenameWithoutExtension(key)}';
     await records.upsert(
       localId: localId,
       contentHash: await _hashFile(path),
@@ -100,8 +103,9 @@ class FiledPhotos {
       createdAt: entry.takenAt,
       width: entry.width == 0 ? null : entry.width,
       height: entry.height == 0 ? null : entry.height,
+      // Hidden from its first write.
+      passcodeHash: passcodeHash,
     );
-    await records.setPasscodeHash(localId, passcodeHash);
     // Backed up only where every bucket answers with the carrier now: one
     // the bucket lost has to go up again, not be taken on trust.
     final stillUp = await _bucket.isEverywhere(key);

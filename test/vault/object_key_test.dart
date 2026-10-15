@@ -6,17 +6,21 @@ import 'package:photos_vault/upload/backup_coordinator.dart';
 import 'package:photos_vault/vault/carrier.dart';
 import 'package:photos_vault/vault/object_key.dart';
 
-AssetRecord _record({required String localId, bool isVideo = false}) =>
-    AssetRecord(
-      localId: localId,
-      contentHash: 'h',
-      platform: 'ios',
-      sourceType: AssetSourceType.photoManager,
-      createdAt: DateTime(2026, 3, 4, 5, 6, 7),
-      updatedAt: DateTime(2026),
-      isVideo: isVideo,
-      derivatives: const {},
-    );
+AssetRecord _record({
+  required String localId,
+  bool isVideo = false,
+  String? passcodeHash,
+}) => AssetRecord(
+  localId: localId,
+  contentHash: 'h',
+  platform: 'ios',
+  sourceType: AssetSourceType.photoManager,
+  createdAt: DateTime(2026, 3, 4, 5, 6, 7),
+  updatedAt: DateTime(2026),
+  isVideo: isVideo,
+  passcodeHash: passcodeHash,
+  derivatives: const {},
+);
 
 CarrierKeys _keys(int seed) => CarrierKeys.forAlbum(
   Uint8List.fromList(List.generate(32, (i) => (i * seed) % 251)),
@@ -26,7 +30,10 @@ void main() {
   final keys = _keys(3);
 
   test('a carrier is named the same by both sides', () {
-    final record = _record(localId: 'photo:B84E8479-475C/L0/001');
+    final record = _record(
+      localId: 'photo:B84E8479-475C/L0/001',
+      passcodeHash: 'h',
+    );
     final built = '${hiddenBaseName(keys, record)}.jpg';
 
     expect(vaultCarrierKey(record, keys), 'originals/$built');
@@ -34,6 +41,47 @@ void main() {
       BackupCoordinator.safeFileName(record, '/tmp/$built'),
       built,
       reason: 'the coordinator keeps the name the builder gave the file',
+    );
+  });
+
+  test('a plain upload never takes a carrier\'s name', () {
+    final record = _record(localId: 'photo:B84E8479-475C/L0/001');
+    final carrier = '${hiddenBaseName(keys, record)}.jpg';
+    final own = ordinaryBaseName(record);
+
+    // Un-hidden: the file on disk or the key read before the reset may
+    // still carry the hidden name. Neither is ever reused.
+    for (final (path, previous) in [
+      ('/tmp/$carrier', null),
+      ('/tmp/a.jpg', 'photos/originals/$carrier'),
+      ('/tmp/$carrier', 'photos/originals/$carrier'),
+      ('/tmp/a.heic', 'originals/${hiddenBaseName(_keys(7), record)}.mov'),
+    ]) {
+      final name = BackupCoordinator.safeFileName(
+        record,
+        path,
+        previousKey: previous,
+      );
+      expect(name, startsWith(own), reason: '$path / $previous');
+    }
+    // Its own name on another date (a date edit), or a pre-protocol one,
+    // is still its own.
+    final redated = '20110101000000_${ordinaryNameHash(record.localId)}';
+    expect(
+      BackupCoordinator.safeFileName(
+        record,
+        '/tmp/a.jpg',
+        previousKey: 'p/originals/$redated.jpg',
+      ),
+      '$redated.jpg',
+    );
+    expect(
+      BackupCoordinator.safeFileName(
+        record,
+        '/tmp/a.jpg',
+        previousKey: 'p/originals/photo_B84E8479_L0_001.jpg',
+      ),
+      'photo_B84E8479_L0_001.jpg',
     );
   });
 

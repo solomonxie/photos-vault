@@ -650,4 +650,107 @@ void main() {
       );
     });
   });
+
+  group('the hidden transition journal', () {
+    AssetRecordStore store() {
+      final s = AssetRecordStore(
+        databaseFactory: databaseFactoryFfi,
+        path: inMemoryDatabasePath,
+      );
+      addTearDown(s.close);
+      return s;
+    }
+
+    test('hiding writes the hash and the journal row together; un-hiding '
+        'resets every key with the hash', () async {
+      final s = store();
+      await s.upsert(localId: 'photo:a', contentHash: 'a', platform: 'ios');
+      await s.updateDerivative(
+        'photo:a',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'p/originals/c.jpg',
+          backedUpHash: 'x',
+        ),
+      );
+      await s.recordUpload(
+        localId: 'photo:a',
+        kind: DerivativeKind.original,
+        targetId: 't1',
+        destinationKey: 'p/originals/c.jpg',
+      );
+
+      await s.openTransition('photo:a', 'hide', passcodeHash: 'h');
+      expect((await s.getByLocalId('photo:a'))!.passcodeHash, 'h');
+      expect((await s.openTransitions()).single.step, 0);
+
+      await s.openTransition('photo:a', 'unhide', payload: '[1]');
+      await s.retractUploads('photo:a', step: 1, unhide: true);
+
+      final after = (await s.getByLocalId('photo:a'))!;
+      expect(after.passcodeHash, isNull);
+      expect(after.stateOf(DerivativeKind.original).destinationKey, isNull);
+      expect(
+        after.stateOf(DerivativeKind.original).status,
+        UploadStatus.pending,
+      );
+      expect(
+        await s.targetsHolding('photo:a', DerivativeKind.original),
+        isEmpty,
+      );
+      final row = (await s.openTransitions()).single;
+      expect((row.kind, row.step, row.payload), ('unhide', 1, '[1]'));
+
+      await s.closeTransition('photo:a');
+      expect(await s.openTransitions(), isEmpty);
+    });
+
+    test('a copy is hidden from its first write', () async {
+      final s = store();
+      await s.upsert(
+        localId: 'manual:c',
+        contentHash: 'c',
+        platform: 'ios',
+        passcodeHash: 'h',
+        isHidden: true,
+      );
+      final rows = await s.changeLogRows();
+      final insert = rows.firstWhere((r) => r['op'] == 'insert');
+      expect((insert['after'] as Map)['passcode_hash'], 'h');
+      expect((await s.getByLocalId('manual:c'))!.isVisibleInLibrary, isFalse);
+    });
+
+    test('a v20 database gains the journal and keeps its rows', () async {
+      final dir = await Directory.systemTemp.createTemp('pv_v20_');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = p.join(dir.path, 'photos_vault.db');
+
+      final current = AssetRecordStore(
+        databaseFactory: databaseFactoryFfi,
+        path: path,
+      );
+      await current.upsert(
+        localId: 'photo:old',
+        contentHash: 'o',
+        platform: 'ios',
+      );
+      await current.close();
+      final raw = await databaseFactoryFfi.openDatabase(path);
+      await raw.execute('DROP TABLE hidden_transition');
+      await raw.setVersion(20);
+      await raw.close();
+
+      final upgraded = AssetRecordStore(
+        databaseFactory: databaseFactoryFfi,
+        path: path,
+      );
+      addTearDown(upgraded.close);
+
+      expect(await upgraded.getByLocalId('photo:old'), isNotNull);
+      expect(await upgraded.openTransitions(), isEmpty);
+      await upgraded.openTransition('photo:old', 'hide', passcodeHash: 'h');
+      expect((await upgraded.openTransitions()).single.localId, 'photo:old');
+    });
+  });
 }

@@ -82,6 +82,8 @@ class FakeAssetRecordStore implements AssetRecordStore {
     int? width,
     int? height,
     String? libraryId,
+    String? passcodeHash,
+    bool isHidden = false,
   }) async {
     final existing = _records[localId];
     if (existing != null) return existing;
@@ -100,12 +102,82 @@ class FakeAssetRecordStore implements AssetRecordStore {
       longitude: longitude,
       width: width,
       height: height,
+      passcodeHash: passcodeHash,
+      isHidden: isHidden,
       createdAt: now,
       updatedAt: now,
       addedAt: addedAt,
     );
     _records[localId] = record;
+    upserts.add(record);
     return record;
+  }
+
+  /// Every record as its first write made it.
+  final upserts = <AssetRecord>[];
+
+  final transitions = <String, TransitionRow>{};
+
+  /// Names a journal write to fail, once — a kill at that point.
+  String? crashAt;
+
+  void _maybeCrash(String at) {
+    if (crashAt != at) return;
+    crashAt = null;
+    throw StateError('killed at $at');
+  }
+
+  @override
+  Future<List<TransitionRow>> openTransitions() async => [
+    ...transitions.values,
+  ];
+
+  @override
+  Future<void> openTransition(
+    String localId,
+    String kind, {
+    String payload = '',
+    String? passcodeHash,
+  }) async {
+    _maybeCrash('open');
+    if (passcodeHash != null) await setPasscodeHash(localId, passcodeHash);
+    transitions[localId] = TransitionRow(
+      localId: localId,
+      kind: kind,
+      step: 0,
+      payload: payload,
+    );
+  }
+
+  @override
+  Future<void> retractUploads(
+    String localId, {
+    required int step,
+    String? payload,
+    bool unhide = false,
+  }) async {
+    _maybeCrash('retract');
+    await forgetUploads(localId);
+    for (final kind in DerivativeKind.values) {
+      await updateDerivative(localId, kind, const DerivativeState());
+    }
+    if (unhide) await setPasscodeHash(localId, null);
+    final row = transitions[localId];
+    if (row != null) {
+      transitions[localId] = TransitionRow(
+        localId: localId,
+        kind: row.kind,
+        step: step,
+        payload: payload ?? row.payload,
+      );
+    }
+  }
+
+  @override
+  Future<void> closeTransition(String localId, {bool unhide = false}) async {
+    _maybeCrash('close');
+    if (unhide) await setPasscodeHash(localId, null);
+    transitions.remove(localId);
   }
 
   @override
@@ -135,6 +207,8 @@ class FakeAssetRecordStore implements AssetRecordStore {
   @override
   Future<void> remove(String localId) async {
     _records.remove(localId);
+    // As the real store: its upload rows go with it.
+    uploads.removeWhere((key, _) => key.startsWith('$localId/'));
     removed.add(localId);
   }
 

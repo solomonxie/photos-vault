@@ -63,9 +63,10 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 20,
+        version: 21,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
+          await db.execute(_createTransitionTableSql);
           await db.execute(_createPlaceNameTableSql);
           await db.execute(_createAppStateTableSql);
           await db.execute(_createDerivativeTargetTableSql);
@@ -183,6 +184,9 @@ class AssetRecordStore {
             // Null on rows binned before: who did it is unknown, so the
             // scan treats them as the user's and never un-bins them.
             await db.execute('ALTER TABLE $_table ADD COLUMN binned_by TEXT');
+          }
+          if (oldVersion < 21) {
+            await db.execute(_createTransitionTableSql);
           }
           if (oldVersion < 10) {
             await db.execute('ALTER TABLE $_table ADD COLUMN latitude REAL');
@@ -802,6 +806,128 @@ class AssetRecordStore {
     await db.delete(_hiddenNoteTable, where: 'id = ?', whereArgs: [id]);
   }
 
+  /// A hide or un-hide under way, one row per photo, so a kill part-way
+  /// is finished on the next launch rather than left half done. See
+  /// `../vault/hidden_transition.dart`.
+  static const _transitionTable = 'hidden_transition';
+
+  static const _createTransitionTableSql =
+      '''
+    CREATE TABLE IF NOT EXISTS $_transitionTable (
+      local_id TEXT PRIMARY KEY,
+      kind TEXT NOT NULL,
+      step INTEGER NOT NULL,
+      payload TEXT NOT NULL DEFAULT '',
+      started_at INTEGER NOT NULL
+    )
+  ''';
+
+  Future<List<TransitionRow>> openTransitions() async {
+    final db = await _open();
+    return [
+      for (final row in await db.query(_transitionTable))
+        TransitionRow(
+          localId: row['local_id'] as String,
+          kind: row['kind'] as String,
+          step: row['step'] as int,
+          payload: row['payload'] as String,
+        ),
+    ];
+  }
+
+  /// Opens (or restarts) [localId]'s journal entry at step 0. With
+  /// [passcodeHash] the record is hidden in the same write.
+  Future<void> openTransition(
+    String localId,
+    String kind, {
+    String payload = '',
+    String? passcodeHash,
+  }) async {
+    final db = await _open();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.transaction((txn) async {
+      if (passcodeHash != null) {
+        await txn.update(
+          _table,
+          {'passcode_hash': passcodeHash, 'updated_at': now},
+          where: 'local_id = ?',
+          whereArgs: [localId],
+        );
+      }
+      await txn.insert(_transitionTable, {
+        'local_id': localId,
+        'kind': kind,
+        'step': 0,
+        'payload': payload,
+        'started_at': now,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    });
+  }
+
+  /// Forgets every upload of [localId] and moves its journal entry to
+  /// [step], in one write: a kill can't leave the keys half reset. With
+  /// [unhide] the passcode hash is cleared in the same write, so no
+  /// upload ever sees the photo plain while it still names its carrier.
+  Future<void> retractUploads(
+    String localId, {
+    required int step,
+    String? payload,
+    bool unhide = false,
+  }) async {
+    final db = await _open();
+    await db.transaction((txn) async {
+      await txn.delete(
+        _derivativeTargetTable,
+        where: 'local_id = ?',
+        whereArgs: [localId],
+      );
+      await txn.update(
+        _table,
+        {
+          for (final kind in DerivativeKind.values) ...{
+            '${_columnPrefix(kind)}_status': UploadStatus.pending.name,
+            '${_columnPrefix(kind)}_key': null,
+            '${_columnPrefix(kind)}_hash': null,
+          },
+          if (unhide) 'passcode_hash': null,
+          'updated_at': DateTime.now().millisecondsSinceEpoch,
+        },
+        where: 'local_id = ?',
+        whereArgs: [localId],
+      );
+      await txn.update(
+        _transitionTable,
+        {'step': step, 'payload': ?payload},
+        where: 'local_id = ?',
+        whereArgs: [localId],
+      );
+    });
+  }
+
+  /// Ends [localId]'s journal entry. With [unhide] the passcode hash goes
+  /// in the same write: a hide that didn't take.
+  Future<void> closeTransition(String localId, {bool unhide = false}) async {
+    final db = await _open();
+    await db.transaction((txn) async {
+      if (unhide) {
+        await txn.update(
+          _table,
+          {
+            'passcode_hash': null,
+            'updated_at': DateTime.now().millisecondsSinceEpoch,
+          },
+          where: 'local_id = ?',
+          whereArgs: [localId],
+        );
+      }
+      await txn.delete(
+        _transitionTable,
+        where: 'local_id = ?',
+        whereArgs: [localId],
+      );
+    });
+  }
+
   static const _placeNameTable = 'place_name';
 
   static const _createPlaceNameTableSql =
@@ -838,6 +964,7 @@ class AssetRecordStore {
       ..delete(_appStateTable)
       ..delete(_derivativeTargetTable)
       ..delete(_hiddenNoteTable)
+      ..delete(_transitionTable)
       ..delete(changeLogTable);
     await batch.commit(noResult: true);
     _dropCache();
@@ -1041,6 +1168,8 @@ class AssetRecordStore {
   /// `DemoAssetsService` to spread demo assets across days/years so the
   /// day-grouped grid isn't just one giant "Today" section); ignored for an
   /// already-tracked `localId`, and defaults to now.
+  /// [passcodeHash] and [isHidden] likewise only on insert: a copy of a
+  /// hidden photo is hidden from its first write.
   Future<AssetRecord> upsert({
     required String localId,
     required String contentHash,
@@ -1057,6 +1186,8 @@ class AssetRecordStore {
     int? width,
     int? height,
     String? libraryId,
+    String? passcodeHash,
+    bool isHidden = false,
   }) async {
     final db = await _open();
     final existing = await getByLocalId(localId);
@@ -1090,6 +1221,8 @@ class AssetRecordStore {
       'longitude': longitude,
       'width': width,
       'height': height,
+      'passcode_hash': passcodeHash,
+      'is_hidden': isHidden ? 1 : 0,
       'created_at': now.millisecondsSinceEpoch,
       'updated_at': now.millisecondsSinceEpoch,
       'added_at': added.millisecondsSinceEpoch,
@@ -1108,6 +1241,8 @@ class AssetRecordStore {
       longitude: longitude,
       width: width,
       height: height,
+      passcodeHash: passcodeHash,
+      isHidden: isHidden,
       createdAt: now,
       updatedAt: now,
       addedAt: added,

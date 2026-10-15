@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -15,6 +16,7 @@ import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/storage/bucket_object.dart';
 import 'package:photos_vault/upload/bucket_flagged.dart';
 import 'package:photos_vault/viewer/flagged_action_screen.dart';
+import 'package:photos_vault/vault/hidden_repair.dart';
 import 'package:photos_vault/viewer/flagged_items_screen.dart';
 
 import '../settings/fake_secure_store.dart';
@@ -149,6 +151,35 @@ void main() {
     // Nothing here ever deletes a local copy, and a fine photo isn't listed.
     expect(action('removeFromDevice'), findsNothing);
     expect(find.text('big.heic'), findsNothing, reason: 'files are a tap in');
+  });
+
+  testWidgets('what the one-time repair listed is shown as information, '
+      'never a hidden photo', (tester) async {
+    final store = await seeded();
+    await store.setAppState(
+      HiddenRepair.stateKey,
+      jsonEncode([
+        const RepairItem('big', RepairKind.carrierStem, hidden: false).toJson(),
+        const RepairItem(
+          'manual:vault-x',
+          RepairKind.twoCarriers,
+          hidden: true,
+        ).toJson(),
+      ]),
+    );
+
+    await open(tester, store);
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('flagged-review-big')),
+      200,
+    );
+
+    expect(find.text('TO LOOK AT'), findsOneWidget);
+    expect(find.byKey(const ValueKey('flagged-review-big')), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('flagged-review-manual:vault-x')),
+      findsNothing,
+    );
   });
 
   testWidgets('while photos are still backing up, Optimize waits so they '

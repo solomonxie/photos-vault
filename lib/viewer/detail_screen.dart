@@ -106,6 +106,7 @@ class DetailScreen extends StatefulWidget {
     this.onToggleFavorite,
     required this.assetRecordStore,
     this.onReplaceOriginals,
+    this.onReplaceWithCopies,
     this.personStore,
     this.albumStore,
     this.resolvePhotoManagerFile,
@@ -130,6 +131,15 @@ class DetailScreen extends StatefulWidget {
   /// Bins originals a resize replaced, without asking again. Absent: the
   /// viewer's own [onDelete], which does ask.
   final Future<void> Function(List<AssetRecord> originals)? onReplaceOriginals;
+
+  /// Wins over [onReplaceOriginals], for a replace that must know which
+  /// copy (`localId`) stands in for each original's `localId`: a hidden
+  /// original's backup waits for its copy's.
+  final Future<void> Function(
+    List<AssetRecord> originals,
+    Map<String, String> copies,
+  )?
+  onReplaceWithCopies;
 
   /// Backs the info panel's editable fields (date/time, location,
   /// description, tags). Required since every caller already holds one.
@@ -537,7 +547,12 @@ class _DetailScreenState extends State<DetailScreen> {
     }
   }
 
-  Future<void> _replaceOriginals(List<AssetRecord> originals) async {
+  Future<void> _replaceOriginals(
+    List<AssetRecord> originals, [
+    Map<String, String> copies = const {},
+  ]) async {
+    final withCopies = widget.onReplaceWithCopies;
+    if (withCopies != null) return withCopies(originals, copies);
     final replace = widget.onReplaceOriginals;
     if (replace != null) {
       await replace(originals);
@@ -562,7 +577,7 @@ class _DetailScreenState extends State<DetailScreen> {
       _showEdited(created);
       return;
     }
-    await _replaceOriginals([original]);
+    await _replaceOriginals([original], {original.localId: created.localId});
     if (!mounted) return;
     // Looked up again: an AI edit lands seconds later, maybe after a swipe.
     final at = _records.indexWhere((r) => r.localId == original.localId);
@@ -585,19 +600,24 @@ class _DetailScreenState extends State<DetailScreen> {
       _showMessage(l10n.detailFileUnavailable);
       return;
     }
+    final copies = <String, String>{};
     final created = await resizePhotos(
       context,
       records: [record],
       readBytes: (_) => File(path).readAsBytes(),
-      saveCopy: (source, bytes, extension) => createDerivedAsset(
-        source: source,
-        bytes: bytes,
-        extension: extension,
-        keepMotion: true,
-        store: widget.assetRecordStore,
-        personStore: _personStore,
-      ),
-      replaceOriginals: _replaceOriginals,
+      saveCopy: (source, bytes, extension) async {
+        final copy = await createDerivedAsset(
+          source: source,
+          bytes: bytes,
+          extension: extension,
+          keepMotion: true,
+          store: widget.assetRecordStore,
+          personStore: _personStore,
+        );
+        copies[source.localId] = copy.localId;
+        return copy;
+      },
+      replaceOriginals: (originals) => _replaceOriginals(originals, copies),
     );
     if (created.isEmpty || !mounted) return;
     // Back to the grid it was opened from, which shows the result where it

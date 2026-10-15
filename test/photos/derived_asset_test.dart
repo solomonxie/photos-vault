@@ -8,6 +8,8 @@ import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
+import '../support/fake_asset_record_store.dart';
+
 void main() {
   setUpAll(sqfliteFfiInit);
 
@@ -95,6 +97,39 @@ void main() {
     );
 
     expect(created.passcodeHash, 'hash-1234');
+  });
+
+  test('a copy of a hidden photo is hidden from its first write', () async {
+    final store = FakeAssetRecordStore();
+    await store.upsert(
+      localId: 'manual:private',
+      contentHash: 'private',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/private.jpg',
+    );
+    await store.setPasscodeHash('manual:private', 'hash-1234');
+    await store.setHidden('manual:private', true);
+
+    final created = await createDerivedAsset(
+      source: (await store.getByLocalId('manual:private'))!,
+      bytes: Uint8List.fromList([4, 5, 6]),
+      extension: '.jpg',
+      store: store,
+      temporaryDirectory: tempDir('derived_asset_staged_'),
+      manualAdd: ManualAddService(
+        store: store,
+        targetDirectory: tempDir('derived_asset_owned_'),
+      ),
+    );
+
+    // Never an ordinary row a grid could draw or a sync send in the clear.
+    final first = store.upserts.singleWhere(
+      (r) => r.localId == created.localId,
+    );
+    expect(first.passcodeHash, 'hash-1234');
+    expect(first.isHidden, isTrue);
+    expect(first.isVisibleInLibrary, isFalse);
   });
 
   group('a resized Live Photo', () {

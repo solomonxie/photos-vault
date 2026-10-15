@@ -75,17 +75,69 @@ class BackupCoordinator {
   /// edit overwrites the object instead of orphaning it under a new name.
   /// A carrier arrives already named; anything else gets the protocol name
   /// (`object_key.dart`).
+  ///
+  /// Never another photo's protocol stem for a plain upload: a stem that
+  /// isn't this record's own may be a hidden photo's carrier (an un-hide
+  /// whose keys were read before they were reset), and a plain JPEG under
+  /// it overwrites that carrier.
   static String safeFileName(
     AssetRecord record,
     String filePath, {
     String? previousKey,
   }) {
     final base = p.basename(filePath);
-    if (fitsProtocol(base)) return base;
+    if (record.passcodeHash != null && fitsProtocol(base)) return base;
     final stem = previousKey == null
-        ? ordinaryBaseName(record)
+        ? null
         : p.basenameWithoutExtension(previousKey);
-    return '$stem${p.extension(filePath)}';
+    final own = stem != null && ownStem(record, stem);
+    return '${own ? stem : ordinaryBaseName(record)}${p.extension(filePath)}';
+  }
+
+  /// Whether [stem] can only be [record]'s own name: made from its id (on
+  /// any date — a date edit keeps the hash), the bucket object it was
+  /// imported from, or a name from before the protocol.
+  static bool ownStem(AssetRecord record, String stem) {
+    if (!fitsProtocol(stem)) return true;
+    if (record.localId == 'bucket:$stem') return true;
+    return stem.substring(15) == ordinaryNameHash(record.localId);
+  }
+
+  /// What landed for [record] while it was hidden or un-hidden under the
+  /// upload: never this record's backup now. Its rows go, and the objects
+  /// wait, as deletes, for the photo's backup in its new form.
+  Future<void> _disown(
+    AssetRecord record,
+    DerivativeKind kind,
+    List<(String, String)> landed,
+  ) async {
+    for (final (targetId, _) in landed) {
+      await recordStore.forgetTargetUpload(record.localId, kind, targetId);
+    }
+    await recordStore.updateDerivative(
+      record.localId,
+      kind,
+      const DerivativeState(),
+    );
+    final tasks = [
+      for (final (targetId, key) in landed)
+        PendingDelete(
+          objectKey: key,
+          targetId: targetId,
+          localId: record.localId,
+          carrier: record.passcodeHash != null,
+        ),
+    ];
+    await (record.passcodeHash != null
+            ? DeferredDeletes(store: recordStore)
+            : DeferredDeletes.untilCarrier(store: recordStore))
+        .add(record.localId, tasks);
+  }
+
+  /// Whether [record]'s hidden state is no longer what it was read as.
+  Future<bool> _changedHiding(AssetRecord record) async {
+    final now = await recordStore.getByLocalId(record.localId);
+    return now != null && now.passcodeHash != record.passcodeHash;
   }
 
   /// If [format] is [BackupFormat.optimized] and [record] is a still photo,
@@ -303,9 +355,11 @@ class BackupCoordinator {
     // The key stays: an earlier upload is still in the bucket, and a record
     // that forgot it would read as having nothing left there. Read fresh —
     // hiding clears it, and a stale [record] would put it back.
-    final previousKey = (await recordStore.getByLocalId(record.localId))
-        ?.stateOf(kind)
-        .destinationKey;
+    final fresh = await recordStore.getByLocalId(record.localId);
+    // Hidden or un-hidden since it was read: sent in the wrong form, it is
+    // a plain copy of a hidden photo, or a carrier taken for its backup.
+    if (fresh != null && fresh.passcodeHash != record.passcodeHash) return 0;
+    final previousKey = fresh?.stateOf(kind).destinationKey;
     await recordStore.updateDerivative(
       record.localId,
       kind,
@@ -373,6 +427,7 @@ class BackupCoordinator {
 
     var succeeded = 0;
     String? firstDestinationKey;
+    final landed = <(String, String)>[];
     try {
       for (final target in resolvedTargets) {
         final key = derivativeKey(
@@ -409,6 +464,7 @@ class BackupCoordinator {
         if (ok) {
           succeeded++;
           firstDestinationKey ??= key;
+          landed.add((target.id, key));
           await recordStore.recordUpload(
             localId: record.localId,
             kind: kind,
@@ -443,6 +499,10 @@ class BackupCoordinator {
       }
     } finally {
       await _cleanupIfTemp(uploadPath, filePath);
+    }
+    if (landed.isNotEmpty && await _changedHiding(record)) {
+      await _disown(record, kind, landed);
+      return 0;
     }
     // Queued, not deleted here: the drain is the one place that removes
     // objects, and it leaves alone any key this photo has come to hold again.
@@ -551,8 +611,10 @@ class BackupCoordinator {
     final paths = <String, String>{};
     final rawPaths = <String, String>{};
     final tempPaths = <String>[];
+    final landed = <String, List<(String, String)>>{};
     for (final record in records) {
       if (cancelToken?.isCancelled == true) break;
+      if (await _changedHiding(record)) continue;
       try {
         final rawPath = await resolvePath(record);
         if (rawPath == null) continue;
@@ -654,6 +716,7 @@ class BackupCoordinator {
             if (!has.containsKey('') &&
                 !has.containsKey(target.id) &&
                 kept == null) {
+              (landed[id] ??= []).add((target.id, key));
               await recordStore.recordUpload(
                 localId: id,
                 kind: kind,
@@ -696,8 +759,17 @@ class BackupCoordinator {
     }
 
     var succeeded = 0;
+    final disowned = <String>{};
+    for (final record in records) {
+      final sent = landed[record.localId];
+      if (sent == null || !await _changedHiding(record)) continue;
+      await _disown(record, kind, sent);
+      disowned.add(record.localId);
+    }
+    superseded.removeWhere((t) => disowned.contains(t.localId));
     for (final record in records) {
       if (!attempted.contains(record.localId)) continue;
+      if (disowned.contains(record.localId)) continue;
       final landed = successCounts[record.localId] ?? 0;
       // Every target, as in [uploadDerivative]: short of that it is retried.
       final ok = landed == targets.length;

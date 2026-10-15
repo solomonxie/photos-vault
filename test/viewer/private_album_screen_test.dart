@@ -58,6 +58,30 @@ class _RecordingCustody implements LibraryCustody {
   noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
 }
 
+/// Holds each `putBack` until [openAll], so a test can act mid-run.
+class _GatedCustody implements LibraryCustody {
+  final returned = <String>[];
+  final waiting = <Completer<void>>[];
+
+  void openAll() {
+    for (final gate in waiting) {
+      if (!gate.isCompleted) gate.complete();
+    }
+  }
+
+  @override
+  Future<CustodyResult> putBack(AssetRecord record) async {
+    final gate = Completer<void>();
+    waiting.add(gate);
+    await gate.future;
+    returned.add(record.localId);
+    return CustodyResult.returned;
+  }
+
+  @override
+  noSuchMethod(Invocation invocation) => super.noSuchMethod(invocation);
+}
+
 final _hash = hashPasscode('1234');
 
 /// Everything that acts on the album itself now lives behind the "..."
@@ -214,6 +238,69 @@ void main() {
     },
   );
 
+  testWidgets('Move to Library takes what was selected when tapped, once', (
+    tester,
+  ) async {
+    final assetStore = FakeAssetRecordStore();
+    for (final id in ['a', 'b', 'c']) {
+      await assetStore.upsert(
+        localId: 'manual:$id',
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+      await assetStore.setPasscodeHash('manual:$id', _hash);
+    }
+    final custody = _GatedCustody();
+
+    await tester.pumpWidget(
+      _wrap(
+        PrivateAlbumScreen(
+          passcodeHash: _hash,
+          assetRecordStore: assetStore,
+          custody: custody,
+          targetsStore: await _storeWithBucket(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Select'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manual:a')));
+    await tester.tap(find.byKey(const ValueKey('manual:b')));
+    await tester.pump();
+
+    await tester.tap(find.text('Recover 2 to Library'));
+    for (var i = 0; i < 5 && custody.waiting.isEmpty; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    expect(custody.waiting, isNotEmpty, reason: 'mid-run');
+
+    // While it runs: the selection changes, and the button is tapped again.
+    await tester.tap(find.byKey(const ValueKey('manual:c')));
+    await tester.pump();
+    await tester.tap(find.textContaining('to Library'));
+    await tester.pump();
+
+    for (var i = 0; i < 20; i++) {
+      custody.openAll();
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+
+    expect(custody.returned, ['manual:a', 'manual:b']);
+    expect((await assetStore.getByLocalId('manual:a'))!.passcodeHash, isNull);
+    expect((await assetStore.getByLocalId('manual:b'))!.passcodeHash, isNull);
+    expect((await assetStore.getByLocalId('manual:c'))!.passcodeHash, _hash);
+  });
+
   testWidgets('Cancel during select mode discards the selection', (
     tester,
   ) async {
@@ -260,7 +347,12 @@ void main() {
 
       await tester.pumpWidget(
         _wrap(
-          PrivateAlbumScreen(passcodeHash: _hash, assetRecordStore: assetStore),
+          PrivateAlbumScreen(
+            passcodeHash: _hash,
+            assetRecordStore: assetStore,
+            // Un-hiding names the buckets its carriers wait in.
+            targetsStore: await _storeWithBucket(),
+          ),
         ),
       );
       await tester.pumpAndSettle();

@@ -366,3 +366,19 @@ class PlaceNameEntry {
 
   final String? name;
 }
+
+/// One open hide or un-hide in the journal: which step it got to, and what
+/// it must still do (`payload`, JSON). See `../vault/hidden_transition.dart`.
+class TransitionRow {
+  const TransitionRow({
+    required this.localId,
+    required this.kind,
+    required this.step,
+    this.payload = '',
+  });
+
+  final String localId;
+  final String kind;
+  final int step;
+  final String payload;
+}

@@ -79,10 +79,12 @@ DateTime? parseObjectStamp(String stamp) {
 
 /// An ordinary photo's base name. Stable for the record (a hash, not a
 /// dice roll), so a retried upload lands on the same key.
-String ordinaryBaseName(AssetRecord record) {
-  final hash = sha256.convert(utf8.encode(record.localId)).bytes;
-  return '${objectStamp(record.createdAt)}_${_hex(hash.sublist(0, 16))}';
-}
+String ordinaryBaseName(AssetRecord record) =>
+    '${objectStamp(record.createdAt)}_${ordinaryNameHash(record.localId)}';
+
+/// The 32 hex after the date in an ordinary name: the same on every date.
+String ordinaryNameHash(String localId) =>
+    _hex(sha256.convert(utf8.encode(localId)).bytes.sublist(0, 16));
 
 /// A hidden photo's base name, worked out from the record and the album's
 /// keys alone - which is why nothing has to remember it between building a

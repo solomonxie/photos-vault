@@ -1,22 +1,19 @@
 import 'dart:async';
-import 'dart:io';
 import 'dart:isolate';
 
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
-import '../photos/face_identity.dart';
 import '../photos/library_custody.dart';
 import '../settings/backup_targets_store.dart';
-import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/passcode_hash.dart';
 import '../upload/original_restore.dart';
+import '../vault/hidden_transition.dart';
 import '../vault/keys.dart';
 import '../vault/passphrase_sheet.dart';
-import '../upload/object_keys.dart';
 import '../upload/pending_deletes.dart';
 import 'private_album_screen.dart';
 
@@ -387,88 +384,6 @@ Future<bool> _acceptFewDecoys(BuildContext context) async {
   return ok ?? false;
 }
 
-/// Un-hiding's half of [_retractFromBuckets]: what the buckets hold of a
-/// hidden photo is its disguised carrier, not the photo, so the record is
-/// set back to never-uploaded and the next sync sends it in the clear.
-///
-/// Only with the file here to send. Without it the carrier is the only
-/// copy, and forgetting its key would leave the record pointing at nothing.
-///
-/// The carriers it forgets are not left in the buckets: they go to
-/// [DeferredDeletes], released once the plain copy is in every bucket.
-///
-/// Each bucket gets its own key (`deletionTasksFor`), whether or not a row
-/// recorded it: the record's one key carries the first bucket's prefix and
-/// would 404 against any other.
-Future<void> resetBackupAfterUnhide(
-  AssetRecord record,
-  AssetRecordStore store, {
-  DeferredDeletes? deferred,
-  Future<List<S3BackupTarget>> Function()? loadTargets,
-}) async {
-  final path = record.sourcePath;
-  if (path == null || !await File(path).exists()) return;
-  final carriers = deletionTasksFor(
-    record,
-    await _targetsOrNone(loadTargets),
-    await heldKeysOf(store, record.localId),
-  );
-  await (deferred ?? DeferredDeletes(store: store)).add(
-    record.localId,
-    carriers,
-  );
-  await store.forgetUploads(record.localId);
-  for (final kind in DerivativeKind.values) {
-    await store.updateDerivative(record.localId, kind, const DerivativeState());
-  }
-}
-
-Future<List<S3BackupTarget>> _targetsOrNone(
-  Future<List<S3BackupTarget>> Function()? load,
-) async {
-  try {
-    return await (load ?? BackupTargetsStore().loadAll)();
-  } catch (_) {
-    // No keychain: nothing can be named, and nothing is lost by waiting.
-    return const [];
-  }
-}
-
-/// Hides [records]: tags each with a passcode hash — no separate album to
-/// create first, the group sharing a hash *is* the album — and takes them
-/// Queues every object this record already has in every bucket for
-/// deletion, and forgets that they were ever uploaded, so the next sync
-/// treats the photo as new. The deletion itself is durable rather than
-/// attempted here: hiding happens offline all the time, and a delete that
-/// quietly failed would leave a plain copy in the bucket forever.
-Future<void> _retractFromBuckets({
-  required AssetRecord record,
-  required AssetRecordStore store,
-  required PendingDeletes deletes,
-  required BackupTargetsStore targetsStore,
-}) async {
-  final targets = await targetsStore.loadAll();
-  // Read before the per-target rows go: they are what says which key each
-  // bucket holds. Forgotten after, or the next sync would read them as
-  // "every target already has this" and upload nothing, for a photo whose
-  // plain copies were just retracted.
-  final tasks = deletionTasksFor(
-    record,
-    targets,
-    await heldKeysOf(store, record.localId),
-  );
-  await store.forgetUploads(record.localId);
-  for (final kind in DerivativeKind.values) {
-    if (record.stateOf(kind).destinationKey == null) continue;
-    await store.updateDerivative(
-      record.localId,
-      kind,
-      const DerivativeState(status: UploadStatus.pending),
-    );
-  }
-  if (tasks.isNotEmpty) await deletes.add(tasks);
-}
-
 /// Whether to store the photos being hidden as HEIF. Asked, not assumed:
 /// it rewrites the file the hidden album keeps. Dismissed is "keep".
 Future<bool> _askHeif(BuildContext context, int count) async {
@@ -494,6 +409,8 @@ Future<bool> _askHeif(BuildContext context, int count) async {
   return convert ?? false;
 }
 
+/// Hides [records]: tags each with a passcode hash — no separate album to
+/// create first, the group sharing a hash *is* the album — and takes them
 /// out of the OS photo library, which is the half that makes "hidden" mean
 /// anything. Returns `false` (no-op) if the passcode popup was cancelled.
 ///
@@ -610,11 +527,16 @@ Future<bool> hideIntoPrivateAlbum(
     toHeif = await _askHeif(context, heifCount);
   }
 
-  // Hidden at once; the copying out happens behind it. Until it lands the
-  // original is still in Photos, so a failure only has to un-hide.
-  for (final record in records) {
-    await assetRecordStore.setPasscodeHash(record.localId, hash);
-  }
+  // Hidden at once, journaled; the copying out happens behind it. Until it
+  // lands the original is still in Photos, so a failure only has to
+  // un-hide.
+  final transition = HiddenTransition(
+    store: assetRecordStore,
+    loadTargets: buckets.loadAll,
+    pendingDeletes: pendingDeletes,
+    analysisStore: analysisStore,
+  );
+  await transition.markHidden(records.map((r) => r.localId), hash);
   unawaited(
     _finishHiding(
       // Outlives the screen on purpose; only read again behind `mounted`.
@@ -626,8 +548,7 @@ Future<bool> hideIntoPrivateAlbum(
       store: assetRecordStore,
       keeper: keeper,
       buckets: buckets,
-      pendingDeletes: pendingDeletes,
-      analysisStore: analysisStore,
+      transition: transition,
       toHeif: toHeif,
       onSettled: onSettled,
     ),
@@ -643,8 +564,7 @@ Future<void> _finishHiding(
   required AssetRecordStore store,
   required LibraryCustody keeper,
   required BackupTargetsStore buckets,
-  required PendingDeletes? pendingDeletes,
-  required AiAnalysisStore? analysisStore,
+  required HiddenTransition transition,
   required bool toHeif,
   VoidCallback? onSettled,
 }) async {
@@ -668,7 +588,7 @@ Future<void> _finishHiding(
     ];
   }
   for (final record in refused) {
-    await store.setPasscodeHash(record.localId, null);
+    await transition.cancelHide(record.localId);
   }
   final results = await keeper.takeOutMany(
     records,
@@ -678,20 +598,13 @@ Future<void> _finishHiding(
 
   var stillInLibrary = 0;
   var failed = refused.length;
-  final deletes = pendingDeletes ?? PendingDeletes(store: store);
-  await forgetHiddenFaces([
-    for (final r in records)
-      if (results[r.localId] case final result?
-          when result != CustodyResult.failed)
-        r.localId,
-  ], analysisStore: analysisStore);
   for (final record in records) {
     switch (results[record.localId] ?? CustodyResult.failed) {
       case CustodyResult.failed:
         // Nothing was copied out, so nothing should have been hidden
         // either — a hidden photo this app doesn't hold is a photo nobody
         // holds. And its bucket copy stays: it may be the only one.
-        await store.setPasscodeHash(record.localId, null);
+        await transition.cancelHide(record.localId);
         failed++;
         continue;
       case CustodyResult.takenButStillInLibrary:
@@ -699,15 +612,10 @@ Future<void> _finishHiding(
       case CustodyResult.taken || CustodyResult.returned:
         break;
     }
-    // Whatever is already in the bucket was uploaded in the clear, under
-    // this photo's own name. Hiding has to take it back out, or the
-    // private album's copy sits beside a plain one that predates it.
-    await _retractFromBuckets(
-      record: record,
-      store: store,
-      deletes: deletes,
-      targetsStore: buckets,
-    );
+    // Whatever is already in the bucket was uploaded in the clear. It
+    // goes, but only once the carrier is in every bucket: until then it
+    // is the only copy off this phone.
+    await transition.settleHide(record.localId);
   }
   // Their encrypted copies go up now if the album's key is on hand,
   // otherwise when it is next opened.

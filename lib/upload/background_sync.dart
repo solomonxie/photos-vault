@@ -14,6 +14,7 @@ import '../settings/backup_targets_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../vault/carrier_upload.dart';
+import '../vault/hidden_transition.dart';
 import '../vault/keys.dart';
 import '../vault/store.dart';
 import 'backup_coordinator.dart';
@@ -197,6 +198,17 @@ class BackgroundSync {
     ThumbnailCache thumbnails,
     Future<void> Function() reload,
   ) async {
+    // A hide or un-hide a kill cut short, finished before anything uploads.
+    try {
+      await HiddenTransition(
+        store: recordStore,
+        loadTargets: targets.loadAll,
+        pendingDeletes: engine.pendingDeletes,
+        thumbnails: thumbnails,
+      ).resume();
+    } catch (_) {
+      // Still journaled.
+    }
     await engine.syncQueue.resume(drain: false);
 
     final access = await library.requestAccess();
@@ -214,11 +226,16 @@ class BackgroundSync {
       recordStore: recordStore,
     );
     try {
+      final configured = await targets.loadAll();
       await DeferredDeletes(
         store: recordStore,
         pending: engine.pendingDeletes,
-      ).release();
-      await engine.pendingDeletes.drain(await targets.loadAll());
+      ).release(configured);
+      await DeferredDeletes.untilCarrier(
+        store: recordStore,
+        pending: engine.pendingDeletes,
+      ).release(configured);
+      await engine.pendingDeletes.drain(configured);
       await AssetRemoval(
         store: recordStore,
         thumbnails: thumbnails,

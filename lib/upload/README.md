@@ -76,6 +76,13 @@ the Flagged Items fixes, `NameMigration`, `HiddenMigration` and the bucket
 browser. Everything short of that — including an ordinary delete — leaves the
 backup alone, because it's the copy that outlives the phone.
 
+`DeferredDeletes` holds a delete until the photo's other copy is in every
+bucket, then queues it naming that copy as the keeper: an un-hide's carriers
+wait for the plain upload, a hide's plain copies (`untilCarrier`) for the
+carrier, a replaced hidden original for its copy's carrier. A plain upload
+never reuses another photo's protocol stem (`safeFileName`), and one that
+lands while the photo is hidden or un-hidden under it is disowned, not kept.
+
 Bucket answers are tri-state (`Probe`: present / absent / unknown). Only a 404
 is absent; unknown never deletes, overwrites, renames, re-points or imports.
 Small requests (HEAD, list, ranged reads, DELETE) go through `bucket_http.dart`

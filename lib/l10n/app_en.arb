@@ -641,6 +641,19 @@
   "settingsRemoveAllAppDataWithHidden": "Remove All, Including Hidden Photos",
   "settingsRemoveAllAppDataConfirm": "Remove All Data",
   "settingsRemoveAllAppDataKeptFiles": "Photos the app stores itself, like imports and edits, were kept: the app couldn't confirm which of them exist nowhere else.",
+  "settingsRemoveAllAppDataRefused": "Nothing was removed. Some of the photos you chose to keep aren't confirmed in your buckets yet. Let the backup finish, or remove everything including hidden photos.",
+  "flaggedGroupReview": "To look at",
+  "flaggedReviewNote": "Found by a one-time check. Nothing was changed, and there is nothing to run.",
+  "flaggedCarrierStemTitle": "Bucket copy under an old hidden name",
+  "flaggedCarrierStemBody": "This photo was un-hidden by an earlier version, which may have sent it in the clear over its encrypted copy. Check the bucket copy if this photo matters.",
+  "privateAlbumTwoCarriers": "{count, plural, one{1 photo here has a second encrypted copy in your buckets, left by an earlier version. Nothing was changed.} other{{count} photos here have a second encrypted copy in your buckets, left by an earlier version. Nothing was changed.}}",
+  "@privateAlbumTwoCarriers": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "settingsICloudNotEntitled": "This build of the app isn't signed for iCloud",
   "settingsICloudDriveOff": "iCloud Drive is off on this device",
   "settingsICloudDriveOffFix": "Settings → your name → iCloud → Drive → turn on",

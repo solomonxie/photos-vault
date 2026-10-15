@@ -52,6 +52,25 @@ class _RecordingS3Uploader implements S3Uploader {
   }
 }
 
+/// Runs [during] mid-upload: a hide landing while the bytes go up.
+class _HidingUploader implements S3Uploader {
+  _HidingUploader(this._inner, this.during);
+  final S3Uploader _inner;
+  final Future<void> Function() during;
+  final keys = <String>[];
+
+  @override
+  Future<bool> put({
+    required String filePath,
+    required String key,
+    required S3BackupTarget target,
+  }) async {
+    keys.add(key);
+    await during();
+    return _inner.put(filePath: filePath, key: key, target: target);
+  }
+}
+
 /// The one target an upload in these tests went to, from its row.
 Future<String> oneTargetId(AssetRecordStore store) async =>
     (await store.uploadRows()).first['target_id']! as String;
@@ -88,6 +107,111 @@ void main() {
     await targetsStore.setBackupFormat(format);
     return targetsStore;
   }
+
+  group('hiding and un-hiding under an upload', () {
+    test('a photo hidden since it was read never goes up plain', () async {
+      final store = newRecordStore();
+      final stale = await store.upsert(
+        localId: 'photo:p',
+        contentHash: 'p',
+        platform: 'ios',
+      );
+      await store.setPasscodeHash('photo:p', 'h');
+      final uploader = _FakeS3Uploader(true);
+
+      final sent =
+          await BackupCoordinator(
+            targetsStore: await oneTarget(),
+            recordStore: store,
+            s3Uploader: uploader,
+            hashFile: (_) async => 'x',
+          ).backUpDerivative(
+            record: stale,
+            kind: DerivativeKind.original,
+            filePath: '/tmp/IMG_1.JPG',
+          );
+
+      expect(sent, 0);
+      expect(uploader.keys, isEmpty);
+    });
+
+    test('hidden while it went up, the plain copy is not its backup and '
+        'waits for the carrier', () async {
+      final store = newRecordStore();
+      final record = await store.upsert(
+        localId: 'photo:p',
+        contentHash: 'p',
+        platform: 'ios',
+      );
+      final uploader = _RecordingS3Uploader((_, _, _) => true);
+      final hiding = _HidingUploader(uploader, () async {
+        await store.setPasscodeHash('photo:p', 'h');
+      });
+
+      final sent =
+          await BackupCoordinator(
+            targetsStore: await oneTarget(),
+            recordStore: store,
+            s3Uploader: hiding,
+            hashFile: (_) async => 'x',
+          ).backUpDerivative(
+            record: record,
+            kind: DerivativeKind.original,
+            filePath: '/tmp/IMG_1.JPG',
+          );
+
+      expect(sent, 0);
+      expect(
+        await store.targetsHolding('photo:p', DerivativeKind.original),
+        isEmpty,
+      );
+      final after = (await store.getByLocalId('photo:p'))!;
+      expect(after.isFullyBackedUp, isFalse, reason: 'its carrier is owed');
+      final held = (await DeferredDeletes.untilCarrier(store: store)
+          .waiting())['photo:p']!;
+      expect(held.single.objectKey, hiding.keys.single);
+      expect(held.single.carrier, isFalse);
+    });
+
+    test(
+      'a plain upload never lands on the carrier key it was read with',
+      () async {
+        final store = newRecordStore();
+        await store.upsert(
+          localId: 'photo:p',
+          contentHash: 'p',
+          platform: 'ios',
+        );
+        // An un-hide whose keys were read before the reset.
+        const carrier =
+            'originals/20170309082303_cccccccccccccccccccccccccccccccc.jpg';
+        await store.updateDerivative(
+          'photo:p',
+          DerivativeKind.original,
+          const DerivativeState(
+            status: UploadStatus.pending,
+            destinationKey: carrier,
+          ),
+        );
+        final uploader = _FakeS3Uploader(true);
+
+        await BackupCoordinator(
+          targetsStore: await oneTarget(),
+          recordStore: store,
+          s3Uploader: uploader,
+          hashFile: (_) async => 'x',
+        ).backUpDerivative(
+          record: (await store.getByLocalId('photo:p'))!,
+          kind: DerivativeKind.original,
+          filePath: '/tmp/IMG_1.JPG',
+        );
+
+        expect(uploader.keys, [
+          'originals/${await _base(store, 'photo:p')}.JPG',
+        ]);
+      },
+    );
+  });
 
   group('a shrunken copy never goes over the full original', () {
     Future<({AssetRecordStore store, String key})> optimized() async {

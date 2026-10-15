@@ -11,6 +11,7 @@ import '../upload/object_keys.dart';
 import '../upload/pending_deletes.dart';
 import 'album_index.dart';
 import 'bucket.dart';
+import 'hidden_transition.dart';
 import 'keys.dart';
 import 'object_key.dart';
 import 'store.dart';
@@ -53,19 +54,52 @@ class HiddenRemoval {
   final PendingDeletes _pendingDeletes;
   final ThumbnailCache _thumbnails;
 
+  late final _deferred = DeferredDeletes(
+    store: store,
+    pending: _pendingDeletes,
+  );
+  late final _holds = DeferredDeletes.untilCarrier(
+    store: store,
+    pending: _pendingDeletes,
+  );
+
+  /// Takes un-hidden [records] that an earlier build adopted out of the
+  /// album index, so their tiles don't come back as photos to re-adopt.
+  /// False when the index couldn't be rewritten.
+  Future<bool> unlistRecords(
+    AlbumKeys keys,
+    List<AssetRecord> records, {
+    List<PassphraseEntry> passphrases = const [],
+  }) async {
+    final keysOf = <String>{
+      for (final r in records)
+        if (isAdopted(r)) ...relativeCarrierKeys(r, null),
+    };
+    if (keysOf.isEmpty) return true;
+    return _unlist(keys, keysOf, passphrases);
+  }
+
   /// Removes [records] (hidden, not yet filed) and [entries] (filed into the
   /// album index) from [keys]' album. [passphrases] are written back with
   /// the index unchanged.
   /// False when nothing was deleted because the index couldn't be
   /// rewritten.
+  ///
+  /// [replacedBy] maps a record's `localId` or an entry's key to the
+  /// `localId` of the copy replacing it: its bucket objects then wait
+  /// until that copy's carrier is in every bucket.
   Future<bool> delete({
     required AlbumKeys? keys,
     List<AssetRecord> records = const [],
     List<IndexEntry> entries = const [],
     List<PassphraseEntry> passphrases = const [],
+    Map<String, String> replacedBy = const {},
   }) async {
     final filedKeys = <String>{
       for (final e in entries) ...siblingKeys(e.objectKey),
+      // An adopted photo is still listed under the key it came in by.
+      for (final r in records)
+        if (isAdopted(r)) ...relativeCarrierKeys(r, null),
     };
     final recordCarrierKeys = <String>{
       if (keys != null)
@@ -101,15 +135,21 @@ class HiddenRemoval {
     // Before the rows go: removing one takes with it the per-bucket upload
     // rows that say which key each bucket holds.
     final targets = await _loadTargets();
-    final recordTasks = <PendingDelete>[];
+    final recordTasks = <String, Set<PendingDelete>>{};
+    final heldPlain = <String, List<PendingDelete>>{};
     for (final record in records) {
-      recordTasks.addAll(
-        deletionTasksFor(
+      recordTasks[record.localId] = {
+        for (final t in deletionTasksFor(
           record,
           targets,
           await heldKeysOf(store, record.localId),
-        ),
-      );
+        ))
+          t.asCarrier(),
+        ...carrierTasksFor(record, keys, targets),
+      };
+      // Plain copies a hide was holding for the carrier: the photo is
+      // going, so they go too, still checked for being carriers.
+      heldPlain[record.localId] = await _holds.take(record.localId);
     }
 
     for (final record in records) {
@@ -131,10 +171,28 @@ class HiddenRemoval {
     }
 
     // Carriers, retired by the vault: the guard lets these through.
-    final tasks = [
-      for (final t in recordTasks) t.asCarrier(),
-      ..._sentTasks(targets, sentKeys),
-    ];
+    final tasks = <PendingDelete>[];
+    for (final MapEntry(key: id, value: carriers) in recordTasks.entries) {
+      final copy = replacedBy[id];
+      if (copy == null) {
+        tasks
+          ..addAll(carriers)
+          ..addAll(heldPlain[id]!);
+      } else {
+        await _deferred.add(copy, carriers);
+        await _holds.add(copy, heldPlain[id]!);
+      }
+    }
+    for (final e in entries) {
+      if (!sentKeys.contains(e.objectKey)) continue;
+      final sent = _sentTasks(targets, siblingKeys(e.objectKey));
+      final copy = replacedBy[e.objectKey];
+      if (copy == null) {
+        tasks.addAll(sent);
+      } else {
+        await _deferred.add(copy, sent);
+      }
+    }
     if (tasks.isEmpty) return true;
     await _pendingDeletes.add(tasks);
     // Queued is enough to answer: the photo is already gone from the

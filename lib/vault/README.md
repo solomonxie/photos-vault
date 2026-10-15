@@ -30,6 +30,8 @@ carrier_probe.dart  is this object a carrier? a JPEG's first 64 KB, or an
                  MP4's top-level boxes by tiny ranged reads. Never a download
 hidden_bucket_scan.dart  adds carriers of this album found in the bucket
 hidden_migration.dart    gives old carrier names protocol names, album open
+hidden_transition.dart   the one owner of hide / un-hide, journaled in sqlite
+hidden_repair.dart       one-time list of what older builds left; changes nothing
 store.dart       <AppSupport>/vault — the carriers themselves, durable and
                  out of the device backup. **The local copy.**
 cache.dart       Library/Caches, encrypted, TTL + LRU per pool — for what
@@ -86,9 +88,21 @@ Rules worth not rediscovering:
   sync still sends them with no album open.
 - **The index records motion** (`IndexEntry.hasMotion`), so a still un-hides
   offline. Entries filed before that ask the buckets.
+- **Hide and un-hide go through `HiddenTransition`**, step by step in the
+  `hidden_transition` table, so a kill is finished on the next launch.
+  Hide: hidden first; the plain bucket copies wait for the carrier in every
+  bucket. Un-hide: the carriers it may have are named first, then keys and
+  hash are reset in one write; the carriers wait for the plain copy, proven
+  live. A copy (resize, edit) of a hidden photo is hidden from its first
+  write.
+- **An adopted photo is unlisted on delete and un-hide**, and both its
+  carriers (the index's and the one re-sent under its protocol name) go.
 - **Un-hiding a filed photo** (`hidden_restore.dart`): Photos takes it back
   first, then `HiddenRemoval.release` unlists it. The bucket's carriers
   wait in `DeferredDeletes` until the plain copy is in every bucket.
+- **Remove All App Data never leaves a hidden photo as an unlisted plain
+  file.** Kept hidden, every one must answer a live HEAD for its carrier in
+  every bucket, or nothing is removed.
 - **`index.bin` carries every passphrase entry and only ever gains them.**
   `VaultBucket.ensurePublished` runs on setup, on adding a passphrase and on
   each sync: a bucket with no index gets one (blank only when every bucket

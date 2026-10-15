@@ -53,8 +53,22 @@ Future<AssetRecord> createDerivedAsset({
   );
   await staged.writeAsBytes(bytes);
 
+  // Hidden from the first write: a copy of a hidden photo is never, even
+  // for a moment, an ordinary row the grid draws or a sync sends plain.
   final created = await (manualAdd ?? ManualAddService(store: store))
-      .enqueueFile(staged.path, createdAt: source.createdAt);
+      .enqueueFile(
+        staged.path,
+        createdAt: source.createdAt,
+        passcodeHash: source.passcodeHash,
+        isHidden: source.isHidden,
+      );
+  if (source.passcodeHash != null &&
+      created.passcodeHash != source.passcodeHash) {
+    // The same bytes are already another photo here; that one is not
+    // this copy's to hide or show.
+    await _discard(staged);
+    throw const FileSystemException('A copy with these bytes already exists');
+  }
 
   final id = created.localId;
   final ownedPath = created.sourcePath;
@@ -68,12 +82,7 @@ Future<AssetRecord> createDerivedAsset({
   if (source.tags.isNotEmpty) await store.setTags(id, source.tags);
   if (source.location != null) await store.setLocation(id, source.location);
   if (source.isFavorite) await store.setFavorite(id, true);
-  if (source.isHidden) await store.setHidden(id, true);
-  // An edit of a private-album photo belongs in that album, not loose in
-  // the library.
-  if (source.passcodeHash != null) {
-    await store.setPasscodeHash(id, source.passcodeHash);
-  }
+  if (source.isHidden && !created.isHidden) await store.setHidden(id, true);
   if (personStore != null) {
     for (final person in await personStore.peopleFor(source.localId)) {
       await personStore.addAssets(person.id, [
@@ -82,12 +91,15 @@ Future<AssetRecord> createDerivedAsset({
     }
   }
 
+  await _discard(staged);
+  return (await store.getByLocalId(id)) ?? created;
+}
+
+Future<void> _discard(File staged) async {
   try {
     await staged.delete();
   } catch (_) {
     // The copy under app support is what matters; a leftover temp file is
     // the OS's to reclaim.
   }
-
-  return (await store.getByLocalId(id)) ?? created;
 }

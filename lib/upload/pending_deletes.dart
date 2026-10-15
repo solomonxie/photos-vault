@@ -31,6 +31,7 @@ class PendingDelete {
     required this.targetId,
     this.localId,
     this.carrier = false,
+    this.keep,
   });
 
   factory PendingDelete.fromJson(Map<String, dynamic> json) => PendingDelete(
@@ -38,6 +39,7 @@ class PendingDelete {
     targetId: json['t'] as String,
     localId: json['l'] as String?,
     carrier: json['c'] == true,
+    keep: json['p'] as String?,
   );
 
   final String objectKey;
@@ -56,11 +58,16 @@ class PendingDelete {
   /// under its key is refused.
   final bool carrier;
 
-  PendingDelete forTarget(String id) => PendingDelete(
-    objectKey: objectKey,
+  /// The copy that stays in its place, in the same bucket: proven live
+  /// (`BucketOps.deleteGuarded`'s keeper) right before this one goes.
+  final String? keep;
+
+  PendingDelete forTarget(String id, {String? key}) => PendingDelete(
+    objectKey: key ?? objectKey,
     targetId: id,
     localId: localId,
     carrier: carrier,
+    keep: keep,
   );
 
   PendingDelete asCarrier() => PendingDelete(
@@ -68,6 +75,15 @@ class PendingDelete {
     targetId: targetId,
     localId: localId,
     carrier: true,
+    keep: keep,
+  );
+
+  PendingDelete keeping(String key, {required bool carrier}) => PendingDelete(
+    objectKey: objectKey,
+    targetId: targetId,
+    localId: localId,
+    carrier: carrier,
+    keep: key,
   );
 
   Map<String, dynamic> toJson() => {
@@ -75,6 +91,7 @@ class PendingDelete {
     't': targetId,
     'l': ?localId,
     if (carrier) 'c': true,
+    'p': ?keep,
   };
 
   @override
@@ -191,7 +208,7 @@ class PendingDeletes {
 
   /// A carrier task made with no bucket names the album's relative key;
   /// each bucket has it under its own prefix.
-  static String _keyIn(S3BackupTarget target, PendingDelete task) =>
+  static String keyIn(S3BackupTarget target, PendingDelete task) =>
       task.carrier && _relative.hasMatch(task.objectKey)
       ? VaultBucket.resolveKey(target, task.objectKey)
       : task.objectKey;
@@ -260,7 +277,7 @@ class PendingDeletes {
       for (final t in tasks)
         if (t.targetId.isEmpty)
           for (final target in targets)
-            (task: t.forTarget(target.id), key: _keyIn(target, t))
+            (task: t.forTarget(target.id), key: keyIn(target, t))
         else
           (task: t, key: t.objectKey),
     ];
@@ -274,10 +291,12 @@ class PendingDeletes {
         done.add(task); // Someone's backup still: never this delete's.
         continue;
       }
+      final keep = task.keep;
       final outcome = await _ops.deleteGuarded(
         target,
         key,
         store: store,
+        keep: keep == null ? null : Keeper(keep),
         carrierProof: task.carrier,
       );
       switch (outcome) {
@@ -290,6 +309,9 @@ class PendingDeletes {
           }
         case DeleteOutcome.held || DeleteOutcome.carrier:
           done.add(task);
+        case DeleteOutcome.keeperUnproven:
+          // Waits for its keeper; not the bucket failing.
+          break;
         case _:
           attempted[target.id] = (attempted[target.id] ?? 0) + 1;
       }
@@ -326,23 +348,39 @@ class PendingDeletes {
   }
 }
 
-/// Carrier copies an un-hidden photo leaves in the buckets, held back until
-/// that photo's plain upload has reached every bucket. Until then the
-/// carrier is the only remote copy, and deleting it first is a window in
-/// which losing the phone loses the photo.
+/// Deletes held back until another copy of the photo is in every bucket,
+/// keyed by the `localId` of the photo whose upload that copy is. Each is
+/// released with that copy as its keeper, proven live by the drain.
 ///
-/// Keyed by the plain photo's `localId`. A photo that never comes back (its
-/// record gone) leaves its group waiting: an unused object, never a lost
-/// photo.
+/// Two lists, one rule:
+///
+/// - the default: carriers an un-hide (or a hidden photo's replaced
+///   original) leaves behind, waiting for the plain copy (or the new
+///   copy's carrier). Until then the carrier is the only remote copy.
+/// - [DeferredDeletes.untilCarrier]: plain copies a hide retracts, waiting
+///   for the photo's carrier. Dropped, not deleted, if the photo is
+///   un-hidden first: they are its backup again.
+///
+/// A photo that never comes back (its record gone) leaves its group
+/// waiting: an unused object, never a lost photo.
 class DeferredDeletes {
   DeferredDeletes({required this.store, PendingDeletes? pending})
-    : _pending = pending ?? PendingDeletes(store: store);
+    : _pending = pending ?? PendingDeletes(store: store),
+      _key = 'deferred_object_deletes',
+      _forHide = false;
+
+  DeferredDeletes.untilCarrier({required this.store, PendingDeletes? pending})
+    : _pending = pending ?? PendingDeletes(store: store),
+      _key = 'hide_held_deletes',
+      _forHide = true;
 
   final AssetRecordStore store;
   final PendingDeletes _pending;
+  final String _key;
+  final bool _forHide;
 
-  static const _key = 'deferred_object_deletes';
-  static final _lock = _Lock();
+  static final _locks = <String, _Lock>{};
+  _Lock get _lock => _locks[_key] ??= _Lock();
 
   Future<Map<String, List<PendingDelete>>> waiting() async {
     final raw = await store.getAppState(_key);
@@ -369,41 +407,89 @@ class DeferredDeletes {
     });
   }
 
-  /// Hands every group whose photo is now fully backed up to
-  /// [PendingDeletes]. A key the photo's own upload now holds is dropped,
-  /// not deleted: a plain JPEG goes up under the name its carrier had, and
-  /// overwrote it. Returns how many tasks were released.
+  /// Takes [localId]'s group out without deleting anything, and returns it.
+  Future<List<PendingDelete>> take(String localId) async {
+    if (!(await waiting()).containsKey(localId)) return const [];
+    return _lock.run(() async {
+      final all = {...await waiting()};
+      final group = all.remove(localId);
+      if (group != null) await _write(all);
+      return group ?? const [];
+    });
+  }
+
+  /// Hands every task whose keeper is up to [PendingDeletes], each naming
+  /// that keeper. A key the photo itself now holds is dropped, not
+  /// deleted: an upload landed on it. A task made with no bucket is
+  /// expanded over [targets], and waits while there are none. Returns how
+  /// many tasks were released.
   ///
-  /// One lookup per waiting photo — bounded by photos un-hidden and not yet
-  /// re-uploaded, never by library size.
-  Future<int> release() async {
+  /// One lookup per waiting photo — bounded by photos in transition, never
+  /// by library size.
+  Future<int> release([List<S3BackupTarget> targets = const []]) async {
     final groups = await waiting();
     if (groups.isEmpty) return 0;
     final ready = <PendingDelete>[];
-    final released = <String>{};
+    final settled = <String, List<PendingDelete>>{};
     for (final MapEntry(key: localId, value: tasks) in groups.entries) {
       final record = await store.getByLocalId(localId);
-      if (record == null || !record.isFullyBackedUp) continue;
+      if (record == null) continue;
+      if (_forHide && record.passcodeHash == null) {
+        settled[localId] = const [];
+        continue;
+      }
+      if (!record.isFullyBackedUp) continue;
+      final keepers = await store.targetsHolding(
+        localId,
+        DerivativeKind.original,
+      );
       final held = <String>{
         for (final kind in DerivativeKind.values) ...[
           ...(await store.targetsHolding(localId, kind)).values,
           ?record.stateOf(kind).destinationKey,
         ],
       };
-      // Carriers by construction: what an un-hide left behind.
-      ready.addAll([
-        for (final t in tasks)
-          if (!held.contains(t.objectKey)) t.asCarrier(),
-      ]);
-      released.add(localId);
+      final left = <PendingDelete>[];
+      for (final task in tasks) {
+        final each = task.targetId.isNotEmpty
+            ? [task]
+            : [
+                for (final t in targets)
+                  task.forTarget(t.id, key: PendingDeletes.keyIn(t, task)),
+              ];
+        if (each.isEmpty) left.add(task);
+        for (final t in each) {
+          if (held.contains(t.objectKey)) continue;
+          final keep =
+              keepers[t.targetId] ??
+              keepers[''] ??
+              record.stateOf(DerivativeKind.original).destinationKey;
+          if (keep == null || keep == t.objectKey) {
+            left.add(t);
+            continue;
+          }
+          // Un-hide groups are carriers by construction; hide groups are
+          // plain copies, which the guard refuses if they turn out not to be.
+          ready.add(t.keeping(keep, carrier: !_forHide));
+        }
+      }
+      settled[localId] = left;
     }
-    if (released.isEmpty) return 0;
-    await _pending.add(ready);
+    if (settled.isEmpty) return 0;
+    if (ready.isNotEmpty) await _pending.add(ready);
     // Re-read: a group added meanwhile must survive this write.
     await _lock.run(() async {
-      final left = {...await waiting()}
-        ..removeWhere((id, _) => released.contains(id));
-      await _write(left);
+      final all = {...await waiting()};
+      for (final MapEntry(key: id, value: left) in settled.entries) {
+        final added = {...?all[id]}.difference({...?groups[id]});
+        final rest = [...left, ...added];
+        if (rest.isEmpty) {
+          all.remove(id);
+        } else {
+          all[id] = rest;
+        }
+      }
+      await _write(all);
     });
     return ready.length;
   }

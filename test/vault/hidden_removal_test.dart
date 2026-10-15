@@ -9,6 +9,7 @@ import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/vault/album_index.dart';
 import 'package:photos_vault/vault/bucket.dart';
 import 'package:photos_vault/vault/hidden_removal.dart';
+import 'package:photos_vault/vault/hidden_transition.dart';
 import 'package:photos_vault/vault/keys.dart';
 import 'package:photos_vault/vault/store.dart';
 
@@ -178,5 +179,141 @@ void main() {
     await pending.drain(await targets.loadAll());
     expect(deleted, contains('photos/$gone'));
     expect(await pending.pending(), isEmpty);
+  });
+
+  group('an adopted filed photo', () {
+    const filed =
+        'originals/20150903064804_f6abd6aaaaaaaaaaaaaaaaaaaaaaaaaa.jpg';
+    const resent =
+        'originals/20180114044141_94eb9fbbbbbbbbbbbbbbbbbbbbbbbbbb.jpg';
+    const other = 'originals/b.jpg';
+    late String targetId;
+
+    Future<AssetRecord> adopted() async {
+      targetId = (await targets.loadAll()).first.id;
+      const id = 'manual:vault-20150903064804_f6abd6aaaaaaaaaaaaaaaaaaaaaaaaaa';
+      await records.upsert(
+        localId: id,
+        contentHash: 'v',
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+      );
+      await records.setPasscodeHash(id, 'hash');
+      // What adopt recorded, and the second carrier a later backup sent.
+      await records.updateDerivative(
+        id,
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: filed,
+        ),
+      );
+      await records.recordUpload(
+        localId: id,
+        kind: DerivativeKind.original,
+        targetId: targetId,
+        destinationKey: 'photos/$resent',
+      );
+      await bucket.writeAlbum(
+        keys: keys,
+        entries: [_entry(filed), _entry(other)],
+        passphrases: [keys.entry],
+      );
+      return (await records.getByLocalId(id))!;
+    }
+
+    test('deleted, it leaves every index entry and both carriers go', () async {
+      final record = await adopted();
+
+      expect(await removal.delete(keys: keys, records: [record]), isTrue);
+      await pumpEventQueue();
+
+      final album = await bucket.readAlbum(keys);
+      expect(album.entries.map((e) => e.objectKey), [other]);
+      expect(deleted, containsAll(['photos/$filed', 'photos/$resent']));
+    });
+
+    test('un-hidden, it leaves the index and both carriers wait for the '
+        'plain copy', () async {
+      final record = await adopted();
+      final transition = HiddenTransition(
+        store: records,
+        loadTargets: targets.loadAll,
+      );
+
+      final ok = await transition.unhideRecord(
+        record,
+        keys: keys,
+        unlist: (r) => removal.unlistRecords(keys, [r]),
+      );
+
+      expect(ok, isTrue);
+      final album = await bucket.readAlbum(keys);
+      expect(album.entries.map((e) => e.objectKey), [other]);
+      final waiting = (await DeferredDeletes(store: records)
+          .waiting())[record.localId]!;
+      expect(
+        waiting.map((t) => t.objectKey),
+        containsAll(['photos/$filed', 'photos/$resent']),
+      );
+      expect(waiting.every((t) => t.carrier), isTrue);
+      expect(deleted, isEmpty);
+    });
+  });
+
+  test('a replaced original\'s carrier waits for its copy\'s', () async {
+    final targetId = (await targets.loadAll()).first.id;
+    for (final id in ['photo:orig', 'manual:copy']) {
+      await records.upsert(localId: id, contentHash: id, platform: 'ios');
+      await records.setPasscodeHash(id, 'hash');
+    }
+    await records.updateDerivative(
+      'photo:orig',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'photos/originals/orig.jpg',
+      ),
+    );
+    final original = (await records.getByLocalId('photo:orig'))!;
+
+    await removal.delete(
+      keys: keys,
+      records: [original],
+      replacedBy: {'photo:orig': 'manual:copy'},
+    );
+    await pumpEventQueue();
+
+    expect(deleted, isEmpty, reason: 'the copy is on this phone only');
+    final deferred = DeferredDeletes(
+      store: records,
+      pending: PendingDeletes(store: records),
+    );
+    expect((await deferred.waiting())['manual:copy'], isNotEmpty);
+
+    await records.recordUpload(
+      localId: 'manual:copy',
+      kind: DerivativeKind.original,
+      targetId: targetId,
+      destinationKey: 'photos/originals/copy.jpg',
+    );
+    await records.updateDerivative(
+      'manual:copy',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'photos/originals/copy.jpg',
+      ),
+    );
+    await deferred.release(await targets.loadAll());
+    final released = await PendingDeletes(store: records).pending();
+    expect(
+      released.map((t) => t.objectKey),
+      contains('photos/originals/orig.jpg'),
+    );
+    expect(
+      released.every((t) => t.keep == 'photos/originals/copy.jpg' && t.carrier),
+      isTrue,
+    );
   });
 }

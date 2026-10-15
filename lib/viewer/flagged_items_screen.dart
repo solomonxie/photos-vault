@@ -12,6 +12,7 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/bucket_flagged.dart';
 import '../upload/bucket_import.dart';
+import '../vault/hidden_repair.dart';
 import 'flagged_action_screen.dart';
 import 'flagged_copy.dart';
 
@@ -83,7 +84,60 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
     _loadDuplicates();
     _loadRecords();
     _loadBucket();
+    _loadReview();
   }
+
+  /// What the one-time repair listed, ordinary photos only: a hidden one
+  /// is shown inside its album, never here.
+  List<RepairItem> _review = const [];
+
+  Future<void> _loadReview() async {
+    try {
+      final found = await HiddenRepair(store: widget.store).findings() ?? [];
+      if (!mounted) return;
+      setState(
+        () => _review = [
+          for (final f in found)
+            if (!f.hidden && f.kind == RepairKind.carrierStem) f,
+        ],
+      );
+    } catch (_) {
+      // Nothing to say.
+    }
+  }
+
+  List<Widget> _reviewSection(AppLocalizations l10n) => [
+    Padding(
+      padding: const EdgeInsets.only(top: 24, bottom: 6, left: 4),
+      child: Text(
+        l10n.flaggedGroupReview.toUpperCase(),
+        style: settingsHintStyle,
+      ),
+    ),
+    Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 8),
+      child: Text(l10n.flaggedReviewNote, style: settingsHintStyle),
+    ),
+    Container(
+      decoration: BoxDecoration(
+        color: settingsControlFill,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          for (final item in _review)
+            _ActionRow(
+              key: ValueKey('flagged-review-${item.localId}'),
+              icon: CupertinoIcons.info,
+              title: l10n.flaggedCarrierStemTitle,
+              body: l10n.flaggedCarrierStemBody,
+              amount: '',
+              onTap: () => widget.onOpenAsset?.call(item.localId),
+            ),
+        ],
+      ),
+    ),
+  ];
 
   /// Cloud-only records: no thumbnail, or no bucket that has them.
   List<Flag> _records = const [];
@@ -351,7 +405,8 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final nothing = _phone.isEmpty && _inBucket.isEmpty && !_loading;
+    final nothing =
+        _phone.isEmpty && _inBucket.isEmpty && _review.isEmpty && !_loading;
     return CupertinoPageScaffold(
       backgroundColor: settingsPageBackground,
       navigationBar: CupertinoNavigationBar(
@@ -378,6 +433,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
               ..._section(l10n.flaggedGroupPhone, null, _phone),
             if (_inBucket.isNotEmpty)
               ..._section(l10n.flaggedGroupBucket, null, _inBucket),
+            if (_review.isNotEmpty) ..._reviewSection(l10n),
             if (nothing)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 48),

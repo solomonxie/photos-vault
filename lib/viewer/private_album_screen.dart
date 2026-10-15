@@ -19,7 +19,9 @@ import '../vault/filed_photos.dart';
 import '../vault/hidden_notes.dart';
 import '../vault/object_key.dart';
 import '../vault/hidden_removal.dart';
+import '../vault/hidden_repair.dart';
 import '../vault/hidden_restore.dart';
+import '../vault/hidden_transition.dart';
 import '../vault/passphrase_sheet.dart';
 import '../vault/private_lifecycle.dart';
 import '../upload/bucket_import.dart';
@@ -107,6 +109,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     _loadFromBucket();
     _loadTarget();
     _loadNotes();
+    _loadRepairs();
     _watchBackup();
     _screenshotHook();
   }
@@ -119,6 +122,30 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     if (!mounted || _records.isEmpty) return;
     if (screen == 'hidden-backup') unawaited(_hiddenBackup?.run());
     if (screen == 'hidden-detail') _open(_records.first);
+  }
+
+  /// Photos the one-time repair listed as adopted with a second carrier.
+  /// Shown here only, behind the code.
+  Set<String> _repairIds = const {};
+
+  int get _twoCarriers =>
+      _records.where((r) => _repairIds.contains(r.localId)).length;
+
+  Future<void> _loadRepairs() async {
+    try {
+      final found =
+          await HiddenRepair(store: widget.assetRecordStore).findings() ??
+          const [];
+      if (!mounted) return;
+      setState(
+        () => _repairIds = {
+          for (final f in found)
+            if (f.kind == RepairKind.twoCarriers) f.localId,
+        },
+      );
+    } catch (_) {
+      // Nothing to say.
+    }
   }
 
   late final HiddenNotes? _notesStore = widget.albumKeys == null
@@ -591,25 +618,53 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
   /// photo out of Photos, so taking it out of hiding puts it back. A photo
   /// the library refuses is still un-hidden here — it just stays this
   /// app's alone, which is the state it was already in.
+  ///
+  /// [localIds] is read once, here: the selection can change while this
+  /// runs, and what was tapped is what goes.
   Future<void> _removeManyFromAlbum(Iterable<String> localIds) async {
+    if (_busy) return;
+    final ids = localIds.toList();
+    setState(() => _busy = true);
     var failed = 0;
-    for (final id in localIds) {
-      final record = await widget.assetRecordStore.getByLocalId(id);
-      await widget.assetRecordStore.setPasscodeHash(id, null);
-      if (record == null) continue;
-      await resetBackupAfterUnhide(
-        record,
-        widget.assetRecordStore,
-        loadTargets: widget.targetsStore?.loadAll,
-      );
-      if (await _custody.putBack(record) == CustodyResult.failed) failed++;
+    try {
+      for (final id in ids) {
+        final record = await widget.assetRecordStore.getByLocalId(id);
+        if (record == null || record.passcodeHash != widget.passcodeHash) {
+          continue;
+        }
+        final keys = widget.albumKeys;
+        final unhidden = await _transition.unhideRecord(
+          record,
+          keys: keys,
+          unlist: keys == null || !isAdopted(record)
+              ? null
+              : (r) => _removal.unlistRecords(keys, [
+                  r,
+                ], passphrases: _passphrases),
+        );
+        if (!unhidden ||
+            await _custody.putBack(record) == CustodyResult.failed) {
+          failed++;
+        }
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
     }
     if (failed > 0 && mounted) {
       final l10n = AppLocalizations.of(context)!;
       await _showNote(l10n.privateAlbumReturnFailed(failed));
     }
-    await _reload();
+    if (mounted) await _reload();
   }
+
+  /// A Move to Library under way: the bar is dead until it ends, so a
+  /// second tap can't put the same photos back twice.
+  bool _busy = false;
+
+  late final HiddenTransition _transition = HiddenTransition(
+    store: widget.assetRecordStore,
+    loadTargets: widget.targetsStore?.loadAll,
+  );
 
   Future<void> _showNote(String message) => showCupertinoDialog<void>(
     context: context,
@@ -668,14 +723,18 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     _selectedIds = {};
   });
 
+  /// A new set, never the one a running Move to Library was handed.
   void _toggleSelected(AssetRecord record) => setState(() {
-    if (!_selectedIds.remove(record.localId)) _selectedIds.add(record.localId);
+    final id = record.localId;
+    _selectedIds = _selectedIds.contains(id)
+        ? _selectedIds.difference({id})
+        : {..._selectedIds, id};
   });
 
   Future<void> _moveSelectedToLibrary() async {
-    if (_selectedIds.isEmpty) return;
-    await _removeManyFromAlbum(_selectedIds);
-    _exitSelectMode();
+    if (_selectedIds.isEmpty || _busy) return;
+    await _removeManyFromAlbum(_selectedIds.toList());
+    if (mounted) _exitSelectMode();
   }
 
   /// Permanent, not the library's bin: Recently Deleted opens without a
@@ -690,6 +749,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
   Future<bool> _deleteHidden({
     List<AssetRecord> records = const [],
     List<IndexEntry> entries = const [],
+    Map<String, String> replacedBy = const {},
   }) async {
     final count = records.length + entries.length;
     if (count == 0 || !await _confirmHiddenDelete(count)) return false;
@@ -699,6 +759,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       records: records,
       entries: entries,
       passphrases: _passphrases,
+      replacedBy: replacedBy,
     );
     if (!mounted) return done;
     await _reload();
@@ -788,6 +849,9 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       for (final r in _records)
         if (_selectedIds.contains(r.localId) && !r.countsAsVideo) r,
     ];
+    // Which copy stands in for which original: an original's backup goes
+    // only once its copy's is up.
+    final copies = <String, String>{};
     final created = await resizePhotos<AssetRecord>(
       context,
       records: chosen,
@@ -795,19 +859,24 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
         final path = r.sourcePath;
         return path == null ? null : File(path).readAsBytes();
       },
-      saveCopy: (source, bytes, extension) => createDerivedAsset(
-        source: source,
-        bytes: bytes,
-        extension: extension,
-        keepMotion: true,
-        store: widget.assetRecordStore,
-      ),
+      saveCopy: (source, bytes, extension) async {
+        final copy = await createDerivedAsset(
+          source: source,
+          bytes: bytes,
+          extension: extension,
+          keepMotion: true,
+          store: widget.assetRecordStore,
+        );
+        copies[source.localId] = copy.localId;
+        return copy;
+      },
       replaceOriginals: (originals) {
         _dropFromView(records: originals);
         return _removal.delete(
           keys: widget.albumKeys,
           records: originals,
           passphrases: _passphrases,
+          replacedBy: copies,
         );
       },
       replaceNote: l10n.resizeBodyHidden,
@@ -821,6 +890,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     final gallery = _gallery;
     if (gallery == null) return;
     final l10n = AppLocalizations.of(context)!;
+    final copies = <String, String>{};
     final created = await resizePhotos<IndexEntry>(
       context,
       records: [
@@ -830,25 +900,30 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       readBytes: gallery.original,
       // A filed photo has no record left; the copy is a new one in this
       // album, filed the usual way.
-      saveCopy: (entry, bytes, extension) => createDerivedAsset(
-        source: AssetRecord(
-          localId: 'vault:${entry.objectKey}',
-          contentHash: entry.objectKey,
-          platform: 'ios',
-          createdAt: entry.takenAt,
-          updatedAt: entry.takenAt,
-          passcodeHash: widget.passcodeHash,
-        ),
-        bytes: bytes,
-        extension: extension,
-        store: widget.assetRecordStore,
-      ),
+      saveCopy: (entry, bytes, extension) async {
+        final copy = await createDerivedAsset(
+          source: AssetRecord(
+            localId: 'vault:${entry.objectKey}',
+            contentHash: entry.objectKey,
+            platform: 'ios',
+            createdAt: entry.takenAt,
+            updatedAt: entry.takenAt,
+            passcodeHash: widget.passcodeHash,
+          ),
+          bytes: bytes,
+          extension: extension,
+          store: widget.assetRecordStore,
+        );
+        copies[entry.objectKey] = copy.localId;
+        return copy;
+      },
       replaceOriginals: (originals) {
         _dropFromView(entries: originals);
         return _removal.delete(
           keys: widget.albumKeys,
           entries: originals,
           passphrases: _passphrases,
+          replacedBy: copies,
         );
       },
       replaceNote: l10n.resizeBodyHidden,
@@ -935,6 +1010,8 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
               initialIndex: _records.indexOf(record),
               assetRecordStore: widget.assetRecordStore,
               onDelete: _delete,
+              onReplaceWithCopies: (originals, copies) =>
+                  _deleteHidden(records: originals, replacedBy: copies),
             ),
           ),
         )
@@ -1513,6 +1590,18 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
               ),
             ),
           ],
+          if (_twoCarriers > 0) ...[
+            const SizedBox(height: 12),
+            Text(
+              l10n.privateAlbumTwoCarriers(_twoCarriers),
+              key: const ValueKey('hiddenTwoCarriers'),
+              style: const TextStyle(
+                fontSize: 13,
+                height: 1.45,
+                color: CupertinoColors.systemGrey,
+              ),
+            ),
+          ],
           const SizedBox(height: 12),
           Text(
             l10n.privateAlbumBackupRecentlyDeleted,
@@ -1703,7 +1792,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                       children: [
                         Expanded(
                           child: CupertinoButton.filled(
-                            onPressed: _selectedIds.isEmpty
+                            onPressed: _selectedIds.isEmpty || _busy
                                 ? null
                                 : _moveSelectedToLibrary,
                             child: Text(
@@ -1716,7 +1805,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                         const SizedBox(width: 8),
                         CupertinoButton(
                           color: const Color(0xFF2C2C2E),
-                          onPressed: _selectedIds.isEmpty
+                          onPressed: _selectedIds.isEmpty || _busy
                               ? null
                               : _resizeSelected,
                           child: const Icon(CupertinoIcons.fullscreen_exit),
@@ -1724,7 +1813,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                         const SizedBox(width: 8),
                         CupertinoButton(
                           color: const Color(0xFF2C2C2E),
-                          onPressed: _selectedIds.isEmpty
+                          onPressed: _selectedIds.isEmpty || _busy
                               ? null
                               : _deleteSelected,
                           child: const Icon(

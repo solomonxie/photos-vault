@@ -4,7 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/upload/pending_deletes.dart';
-import 'package:photos_vault/viewer/private_album_gate.dart';
+import 'package:photos_vault/vault/hidden_transition.dart';
 
 import '../support/fake_asset_record_store.dart';
 import '../support/scripted_deletes.dart';
@@ -81,19 +81,27 @@ void main() {
     await records.setSourcePath('photo:a', file.path);
     await markUploaded('p/originals/photo_a.jpg');
 
-    await resetBackupAfterUnhide(
-      (await records.getByLocalId('photo:a'))!,
-      records,
-      deferred: deferred,
-    );
+    await HiddenTransition(
+      store: records,
+      loadTargets: () async => const [],
+      pendingDeletes: pending,
+    ).unhideRecord((await records.getByLocalId('photo:a'))!);
 
     expect(
       await records.targetsHolding('photo:a', DerivativeKind.original),
       isEmpty,
     );
-    expect((await deferred.waiting())['photo:a'], const [
-      PendingDelete(objectKey: 'p/originals/photo_a.jpg', targetId: 't1'),
-    ]);
+    final waiting = (await deferred.waiting())['photo:a']!;
+    expect(
+      waiting,
+      contains(
+        const PendingDelete(
+          objectKey: 'p/originals/photo_a.jpg',
+          targetId: 't1',
+        ),
+      ),
+    );
+    expect(waiting.every((t) => t.carrier), isTrue);
   });
 
   test(
@@ -120,17 +128,19 @@ void main() {
         prefix: 'p/',
       );
 
-      await resetBackupAfterUnhide(
-        (await records.getByLocalId('photo:a'))!,
-        records,
-        deferred: deferred,
+      await HiddenTransition(
+        store: records,
         loadTargets: () async => [target('t1'), target('t2')],
-      );
+        pendingDeletes: pending,
+      ).unhideRecord((await records.getByLocalId('photo:a'))!);
 
-      expect((await deferred.waiting())['photo:a'], const [
-        PendingDelete(objectKey: 'p/originals/photo_a.jpg', targetId: 't1'),
-        PendingDelete(objectKey: 'p/originals/photo_a.jpg', targetId: 't2'),
-      ]);
+      expect(
+        (await deferred.waiting())['photo:a'],
+        containsAll(const [
+          PendingDelete(objectKey: 'p/originals/photo_a.jpg', targetId: 't1'),
+          PendingDelete(objectKey: 'p/originals/photo_a.jpg', targetId: 't2'),
+        ]),
+      );
     },
   );
 }

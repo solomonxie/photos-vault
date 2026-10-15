@@ -13,6 +13,7 @@ import 'package:photos_vault/settings/app_data_removal.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/s3_target_drafts_store.dart';
 import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/upload/bucket_ops.dart';
 import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/upload/sync_job.dart';
 import 'package:photos_vault/vault/cache.dart';
@@ -24,6 +25,7 @@ import '../support/fake_asset_record_store.dart';
 import '../support/fake_local_vault.dart';
 import '../support/fake_person_store.dart';
 import '../support/fake_sync_job_store.dart';
+import '../support/memory_bucket.dart';
 import 'fake_secure_store.dart';
 
 /// An iCloud container in a map, holding whatever the wipe archived.
@@ -66,7 +68,7 @@ class _FakeDrive implements ICloudDrive {
   Future<bool> delete(String name) async => archives.remove(name) != null;
 }
 
-({
+typedef _Subject = ({
   AppDataRemoval removal,
   FakeAssetRecordStore assets,
   FakeSyncJobStore jobs,
@@ -75,8 +77,10 @@ class _FakeDrive implements ICloudDrive {
   _FakeDrive drive,
   Directory support,
   Directory cache,
-})
-_subject() {
+  BackupTargetsStore targets,
+});
+
+_Subject _subject({BucketOps? ops}) {
   final assets = FakeAssetRecordStore();
   final snapshots = AppSnapshotIo(
     assetRecordStore: assets,
@@ -107,6 +111,7 @@ _subject() {
     drive: drive,
     support: support,
     cache: cache,
+    targets: targets,
     removal: AppDataRemoval(
       snapshots: snapshots,
       settings: assets,
@@ -122,6 +127,7 @@ _subject() {
       draftsStore: S3TargetDraftsStore(store: keychain),
       aiSettingsStore: AiSettingsStore(store: keychain),
       vaultKeys: VaultKeys(store: keychain),
+      ops: ops,
       supportDirectory: () async => support,
       cacheDirectory: () async => cache,
     ),
@@ -225,7 +231,7 @@ void main() {
     final checked = await s.removal.run(includeHidden: true);
 
     // Which ones exist nowhere else is unknown, so every one stays.
-    expect(checked, isFalse);
+    expect(checked, AppDataOutcome.keptOwnFiles);
     expect(owned.existsSync(), isTrue);
   });
 
@@ -429,5 +435,95 @@ void main() {
     // or the wipe would be half done and say nothing about it.
     expect(await s.keychain.read('backup_targets_v1'), isNull);
     expect(await s.assets.getAppState(ICloudBackup.restoredKey), isNotNull);
+  });
+
+  group('keeping hidden photos', () {
+    Future<(File, String)> hiddenPhoto(
+      _Subject s, {
+      bool backedUp = true,
+    }) async {
+      // Named the way hiding names a file it takes out of Photos: not one
+      // the owned-file sweep would ever match.
+      final file = File(p.join(s.support.path, 'photo_X_L0_001-IMG_1.JPG'))
+        ..writeAsBytesSync(const [1, 2, 3]);
+      await s.assets.upsert(
+        localId: 'photo:X',
+        contentHash: 'x',
+        platform: 'ios',
+        sourcePath: file.path,
+      );
+      await s.assets.setPasscodeHash('photo:X', 'hash');
+      const key =
+          'p/originals/20170309082303_cccccccccccccccccccccccccccccccc.jpg';
+      if (backedUp) {
+        await s.targets.add(
+          accessKeyId: 'a',
+          secretAccessKey: 'b',
+          region: 'us-east-1',
+          bucket: 'bucket',
+          prefix: 'p/',
+        );
+        await s.assets.recordUpload(
+          localId: 'photo:X',
+          kind: DerivativeKind.original,
+          targetId: (await s.targets.loadAll()).single.id,
+          destinationKey: key,
+        );
+        await s.assets.updateDerivative(
+          'photo:X',
+          DerivativeKind.original,
+          const DerivativeState(
+            status: UploadStatus.uploaded,
+            destinationKey: key,
+          ),
+        );
+      }
+      return (file, key);
+    }
+
+    test('one not yet in a bucket refuses the wipe: nothing goes', () async {
+      final s = _subject(ops: MemoryBucket());
+      final (file, _) = await hiddenPhoto(s, backedUp: false);
+      s.keychain.seed('ai_keys_v1', '[]');
+
+      expect(await s.removal.run(), AppDataOutcome.refused);
+
+      expect(file.existsSync(), isTrue);
+      expect(await s.assets.getByLocalId('photo:X'), isNotNull);
+      expect(await s.keychain.read('ai_keys_v1'), isNotNull);
+    });
+
+    test('one the bucket says it has, but does not, refuses too', () async {
+      final s = _subject(ops: MemoryBucket());
+      final (file, _) = await hiddenPhoto(s);
+
+      expect(await s.removal.run(), AppDataOutcome.refused);
+      expect(file.existsSync(), isTrue);
+    });
+
+    test('proven in every bucket, its plain file goes with its row: no '
+        'unlisted plaintext is left', () async {
+      final bucket = MemoryBucket();
+      final s = _subject(ops: bucket);
+      final (file, key) = await hiddenPhoto(s);
+      bucket.objects[key] = Uint8List(64);
+
+      expect(await s.removal.run(), AppDataOutcome.done);
+
+      expect(file.existsSync(), isFalse);
+      expect(await s.assets.getByLocalId('photo:X'), isNull);
+      expect(bucket.deleted, isEmpty, reason: 'the bucket is never touched');
+    });
+
+    test(
+      'removing hidden photos too takes every plain file of theirs',
+      () async {
+        final s = _subject(ops: MemoryBucket());
+        final (file, _) = await hiddenPhoto(s, backedUp: false);
+
+        expect(await s.removal.run(includeHidden: true), AppDataOutcome.done);
+        expect(file.existsSync(), isFalse);
+      },
+    );
   });
 }

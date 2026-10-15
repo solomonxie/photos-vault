@@ -63,7 +63,15 @@ class ManualAddService {
   /// the share extension's intent handler. Copies it into app-owned storage
   /// first, keyed by content hash, so re-adding the same content is a no-op
   /// and the record never points at a path this app doesn't control.
-  Future<AssetRecord> enqueueFile(String path, {DateTime? createdAt}) async {
+  ///
+  /// [passcodeHash] and [isHidden] make a new row hidden from its first
+  /// write (a copy of a hidden photo).
+  Future<AssetRecord> enqueueFile(
+    String path, {
+    DateTime? createdAt,
+    String? passcodeHash,
+    bool isHidden = false,
+  }) async {
     final hash = await hashFile(path);
     final dir = await _targetDirectory();
     final owned = File(p.join(dir.path, '$hash${p.extension(path)}'));
@@ -79,6 +87,8 @@ class ManualAddService {
       // Not a date from the file name: a hidden photo's object is named
       // with its decoy's date.
       createdAt: createdAt ?? await fileCaptureDate(owned),
+      passcodeHash: passcodeHash,
+      isHidden: isHidden,
     );
   }
 }

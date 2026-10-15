@@ -63,6 +63,8 @@ import '../upload/background_sync.dart' show ForegroundHeartbeat;
 import '../upload/sync_engine.dart';
 import '../upload/backup_verifier.dart';
 import '../upload/library_restore.dart';
+import '../vault/hidden_repair.dart';
+import '../vault/hidden_transition.dart';
 import '../vault/hidden_backup.dart';
 import '../vault/bucket.dart';
 import '../vault/carrier_upload.dart';
@@ -785,6 +787,13 @@ class LibraryScreenState extends State<LibraryScreen>
     // Photos Yet" over a library that was on disk the whole time.
     unawaited(_heartbeat.beat().then((_) {}, onError: (_) {}));
     await reload();
+    // A hide or un-hide a kill cut short, finished before anything uploads.
+    await _finishTransitions();
+    unawaited(
+      HiddenRepair(store: assetRecordStore)
+          .runOnce()
+          .then((_) {}, onError: (_) {}),
+    );
     // A fresh install pulls its own work back from iCloud, once, without
     // asking: there's nothing to overwrite and no context yet for a
     // "restore from backup?" question. Safe behind the reload above — it
@@ -1557,16 +1566,36 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
+  Future<void> _finishTransitions() async {
+    try {
+      await HiddenTransition(
+        store: assetRecordStore,
+        loadTargets: _backupTargetsStore.loadAll,
+        pendingDeletes: _pendingDeletes,
+        analysisStore: _aiAnalysisStore,
+        thumbnails: _thumbnailCache,
+      ).resume();
+    } catch (_) {
+      // Still journaled; the next launch tries again.
+    }
+  }
+
   /// Best-effort and unawaited: a delete that cannot land today is still
   /// on the list tomorrow.
   Future<void> _drainPendingDeletes() async {
     try {
-      // Un-hidden photos' carriers, now that their plain copy is up.
+      final targets = await _backupTargetsStore.loadAll();
+      // Un-hidden photos' carriers, now that their plain copy is up; hidden
+      // ones' plain copies, now that their carrier is.
       await DeferredDeletes(
         store: assetRecordStore,
         pending: _pendingDeletes,
-      ).release();
-      await _pendingDeletes.drain(await _backupTargetsStore.loadAll());
+      ).release(targets);
+      await DeferredDeletes.untilCarrier(
+        store: assetRecordStore,
+        pending: _pendingDeletes,
+      ).release(targets);
+      await _pendingDeletes.drain(targets);
       await _removal.expireBin();
     } catch (_) {
       // Nothing to report — the tasks stay queued.
@@ -3006,21 +3035,25 @@ class LibraryScreenState extends State<LibraryScreen>
     );
     if (includeHidden == null || !mounted) return;
     setState(() => _removingAppData = true);
-    var filesChecked = true;
+    var outcome = AppDataOutcome.done;
     try {
       // No prompt, no share sheet: the copies are simply taken, and then
       // everything goes — rows, files, queue, credentials. See
       // `../settings/app_data_removal.dart` for why the order is what it is.
-      filesChecked = await _appDataRemoval.run(includeHidden: includeHidden);
+      outcome = await _appDataRemoval.run(includeHidden: includeHidden);
     } finally {
       if (mounted) setState(() => _removingAppData = false);
     }
     if (mounted) await reload();
-    if (!filesChecked && mounted) {
+    if (outcome != AppDataOutcome.done && mounted) {
       await showCupertinoDialog<void>(
         context: context,
         builder: (dialogContext) => CupertinoAlertDialog(
-          content: Text(l10n.settingsRemoveAllAppDataKeptFiles),
+          content: Text(
+            outcome == AppDataOutcome.refused
+                ? l10n.settingsRemoveAllAppDataRefused
+                : l10n.settingsRemoveAllAppDataKeptFiles,
+          ),
           actions: [
             CupertinoDialogAction(
               isDefaultAction: true,
