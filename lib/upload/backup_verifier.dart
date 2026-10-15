@@ -1,9 +1,9 @@
 import 'dart:convert';
-import 'dart:typed_data';
+import 'dart:isolate';
 
-import 'package:crypto/crypto.dart';
 import 'package:http/http.dart' as http;
 
+import '../photos/file_hash.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
 import '../settings/s3_listing.dart';
@@ -11,6 +11,7 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'bucket_http.dart';
 import 'lost_originals.dart';
+import 's3_uploader.dart';
 import 'signing.dart';
 
 /// What a bucket said when asked whether it really has a copy.
@@ -171,6 +172,7 @@ class BackupVerifier {
     required this.recordStore,
     Future<http.Response> Function(Uri url)? head,
     Future<http.Response> Function(Uri url)? get,
+    FetchToFile? download,
     Future<S3ListingResult> Function({
       required S3BackupTarget target,
       String prefix,
@@ -178,7 +180,9 @@ class BackupVerifier {
     })?
     list,
   }) : _head = head ?? http.head,
-       _get = get ?? http.get,
+       _download =
+           download ??
+           (get != null ? fetchThroughGet(get) : S3Downloader().fetch),
        _list =
            list ??
            (({required target, prefix = '', continuationToken}) => listBucket(
@@ -191,7 +195,10 @@ class BackupVerifier {
   final AssetRecordStore recordStore;
 
   final Future<http.Response> Function(Uri url) _head;
-  final Future<http.Response> Function(Uri url) _get;
+
+  /// A drill's whole original, to a file on the background transfer: one
+  /// sampled video can be gigabytes.
+  final FetchToFile _download;
   final Future<S3ListingResult> Function({
     required S3BackupTarget target,
     String prefix,
@@ -327,19 +334,24 @@ class BackupVerifier {
     final state = record.stateOf(DerivativeKind.original);
     final key = state.destinationKey!;
     for (final target in await _targets()) {
+      final file = await downloadScratchFile(key);
       try {
-        final response = await _get(
-          await presignGetUrl(target: target, key: key),
-        );
-        if (response.statusCode != 200) continue;
-        final bytes = response.bodyBytes;
+        if (!(await _download(target, key, file.path)).saved) continue;
+        final path = file.path;
+        final size = await file.length();
         return DrilledPhoto(
           localId: record.localId,
-          downloadedBytes: bytes.length,
-          byteIdentical: _identical(bytes, state.backedUpHash, key),
+          downloadedBytes: size,
+          byteIdentical: _identical(
+            size == 0 ? null : await Isolate.run(() => hashFile(path)),
+            state.backedUpHash,
+            key,
+          ),
         );
       } catch (_) {
         // Next target.
+      } finally {
+        await dropScratch(file);
       }
     }
     return DrilledPhoto(
@@ -355,11 +367,11 @@ class BackupVerifier {
   /// supposed to differ. Reporting that as a mismatch would fail every
   /// drill on the default format. Converted uploads are `.heif`; a HEIC
   /// sent as it was keeps `.heic` and must match.
-  static bool? _identical(Uint8List bytes, String? backedUpHash, String key) {
+  static bool? _identical(String? hash, String? backedUpHash, String key) {
     if (backedUpHash == null) return null;
     final lower = key.toLowerCase();
     if (lower.endsWith('.webp') || lower.endsWith('.heif')) return null;
-    return sha256.convert(bytes).toString() == backedUpHash;
+    return hash == backedUpHash;
   }
 
   /// [count] records taken at even intervals across [all], so a sample of

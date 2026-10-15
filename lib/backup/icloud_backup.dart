@@ -90,12 +90,14 @@ class ICloudBackup {
   /// Writes today's snapshot. Silent about an unusable container: this runs
   /// unattended, and a destination that isn't configured is not an error to
   /// interrupt anyone with.
-  Future<bool> backUpNow() async {
+  ///
+  /// [payload] is the copy a pause already built for every destination.
+  Future<bool> backUpNow({SnapshotPayload? payload}) async {
     if (await drive.status() != ICloudState.available) return false;
-    final snapshot = await snapshots.export();
+    final built = payload ?? await SnapshotPayload.build(snapshots);
     final wrote = await drive.writeBytes(
       dailyArchiveName(DateTime.now()),
-      zipSnapshot(snapshot, changeLog: await snapshots.changeLog()),
+      built.zip,
     );
     if (!wrote) return false;
     // Loose beside the zips, overwritten each time: this folder is visible
@@ -104,7 +106,7 @@ class ICloudBackup {
     // Never pruned — `isSnapshotArchiveName` only matches `.zip` names.
     await drive.writeBytes(
       indexEntryName,
-      Uint8List.fromList(utf8.encode(indexCsv(snapshot))),
+      Uint8List.fromList(utf8.encode(built.csv)),
     );
     await schedule.recordSuccess();
     await _pruneOldCopies();
@@ -175,19 +177,37 @@ class ICloudBackup {
   /// point of having taken the copy. Guarded twice — the library has to be
   /// empty, *and* a restore has to not have happened before — because
   /// running it a second time would layer a stale snapshot over live work.
-  Future<int> restoreIfFreshInstall() async {
-    if (await settings.getAppState(restoredKey) != null) return 0;
-    if ((await settings.listAll()).isNotEmpty) return 0;
-    if (await drive.status() != ICloudState.available) return 0;
-    final snapshot = await _latestSnapshot();
-    if (snapshot == null || snapshot.isEmpty) return 0;
+  Future<int> restoreIfFreshInstall({bool scannedRows = false}) async {
+    final candidate = await candidateForFreshInstall(scannedRows: scannedRows);
+    if (candidate == null) return 0;
+    return restoreFrom(candidate.snapshot);
+  }
+
+  /// This folder's copy for a fresh install, or null. Restores nothing.
+  Future<RestoreCandidate?> candidateForFreshInstall({
+    bool scannedRows = false,
+  }) async {
+    if (await settings.getAppState(restoredKey) != null) return null;
+    if (!await snapshots.isFreshInstall(scannedRows: scannedRows)) {
+      return null;
+    }
+    if (await drive.status() != ICloudState.available) return null;
+    final found = await _latestSnapshot();
+    if (found == null || found.snapshot.isEmpty) return null;
+    return found;
+  }
+
+  Future<int> restoreFrom(AppSnapshot snapshot) async {
     final restored = await snapshots.import(snapshot);
-    await settings.setAppState(restoredKey, DateTime.now().toIso8601String());
+    await markRestored();
     // Switched on for whoever restored: they plainly want the copy kept,
     // and asking again is asking a question already answered.
     await settings.setAppState(enabledKey, 'true');
     return restored;
   }
+
+  Future<void> markRestored() =>
+      settings.setAppState(restoredKey, DateTime.now().toIso8601String());
 
   /// The archive worth restoring from, of any naming generation, or — for
   /// a backup taken before this app wrote zips at all — the single
@@ -196,24 +216,30 @@ class ICloudBackup {
   /// Chosen here rather than by the folder handing back whatever sorts
   /// last: a pre-deletion copy outranks a newer daily one. See
   /// [latestArchiveName].
-  Future<AppSnapshot?> _latestSnapshot() async {
+  Future<RestoreCandidate?> _latestSnapshot() async {
     final name = latestArchiveName(await drive.list());
     if (name != null) {
       final bytes = await drive.readBytes(name);
       if (bytes != null) {
-        final snapshot = unzipSnapshot(bytes);
-        if (snapshot != null) return snapshot;
+        final snapshot = await unzipSnapshotAside(bytes);
+        if (snapshot != null) {
+          return RestoreCandidate(
+            snapshot,
+            preDeletion: isPreDeletionArchiveName(name),
+          );
+        }
       }
     }
     // A folder this build can't make sense of — an archive named by a
     // later build, or a listing that didn't come back.
     final bytes = await drive.readLatestBytes();
     if (bytes != null) {
-      final snapshot = unzipSnapshot(bytes);
-      if (snapshot != null) return snapshot;
+      final snapshot = await unzipSnapshotAside(bytes);
+      if (snapshot != null) return RestoreCandidate(snapshot);
     }
     final contents = await drive.readLatest();
-    return contents == null ? null : AppSnapshot.decode(contents);
+    final snapshot = contents == null ? null : AppSnapshot.decode(contents);
+    return snapshot == null ? null : RestoreCandidate(snapshot);
   }
 
   /// What older builds wrote, and what [restoreIfFreshInstall] still reads.

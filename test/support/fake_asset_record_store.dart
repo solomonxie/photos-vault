@@ -441,6 +441,66 @@ class FakeAssetRecordStore implements AssetRecordStore {
 
   final merged = <String, String>{};
 
+  /// Restored rows waiting for their asset, as the real `relink_pending`.
+  final relinkPending = <String, DateTime>{};
+
+  @override
+  Future<void> markRelinkPending(String localId, DateTime createdAt) async {
+    relinkPending[localId] = createdAt;
+  }
+
+  @override
+  Future<void> clearRelinkPending([String? localId]) async {
+    if (localId == null) {
+      relinkPending.clear();
+    } else {
+      relinkPending.remove(localId);
+    }
+  }
+
+  static bool _fits(AssetRecord r, bool isVideo, int? width, int? height) =>
+      r.isVideo == isVideo &&
+      (r.width == null || width == null || r.width == width) &&
+      (r.height == null || height == null || r.height == height);
+
+  @override
+  Future<AssetRecord?> relinkCandidate({
+    required DateTime createdAt,
+    required bool isVideo,
+    int? width,
+    int? height,
+  }) async {
+    final fits = [
+      for (final MapEntry(key: id, value: at) in relinkPending.entries)
+        if (at == createdAt &&
+            _records[id] != null &&
+            _fits(_records[id]!, isVideo, width, height))
+          _records[id]!,
+    ];
+    return fits.length == 1 ? fits.single : null;
+  }
+
+  @override
+  Future<AssetRecord?> scannedTwin({
+    required DateTime createdAt,
+    required bool isVideo,
+    required String except,
+    int? width,
+    int? height,
+  }) async {
+    final fits = [
+      for (final r in _records.values)
+        if (r.createdAt == createdAt &&
+            r.localId != except &&
+            r.libraryId != null &&
+            r.sourceType == AssetSourceType.photoManager &&
+            !relinkPending.containsKey(r.localId) &&
+            _fits(r, isVideo, width, height))
+          r,
+    ];
+    return fits.length == 1 ? fits.single : null;
+  }
+
   @override
   Future<Map<String, String>> mergedInto() async => {...merged};
 
@@ -740,6 +800,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     _appState.clear();
     _placeNames.clear();
     swaps.clear();
+    relinkPending.clear();
   }
 
   @override

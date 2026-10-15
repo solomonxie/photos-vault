@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
@@ -8,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 import 'app.dart';
 import 'demo/demo_mode.dart';
 import 'settings/app_store_region.dart';
+import 'settings/secure_store.dart';
 import 'upload/background_sync.dart';
 
 Future<void> main() async {
@@ -31,6 +33,8 @@ Future<void> main() async {
     }
   }
   runApp(const App());
+  // Foreground only: background passes read whichever item exists.
+  unawaited(const FlutterSecureStore().migrate().catchError((_) => false));
 }
 
 /// Older builds could delete `tmp` itself; SQLite and every encoder need it.

@@ -574,6 +574,97 @@ void main() {
     });
   });
 
+  group('capacity per kind, uploads first', () {
+    SyncQueue queueOver(SyncJobStore store) => SyncQueue(
+      store: store,
+      settings: BackupTargetsStore(store: FakeSecureStore()),
+      process: (_) async {},
+    );
+
+    Future<bool> add(SyncQueue q, String id, SyncJobKind kind) => q.enqueue(
+      localId: id,
+      kind: kind,
+      displayName: '$id.jpg',
+      assetCreatedAt: DateTime(2024),
+    );
+
+    test('a queue full of change checks still takes uploads', () async {
+      final store = newStore();
+      final queue = queueOver(store);
+      for (var i = 0; i < SyncQueue.capacity; i++) {
+        expect(await add(queue, 'c$i', SyncJobKind.checkChanges), isTrue);
+      }
+      expect(await add(queue, 'one-more', SyncJobKind.checkChanges), isFalse);
+      expect(await add(queue, 'z', SyncJobKind.analyzePhoto), isTrue);
+
+      // A killed app's hundred checks don't turn away the night's uploads.
+      expect(await add(queue, 'new', SyncJobKind.uploadThumbnail), isTrue);
+      expect(await add(queue, 'new', SyncJobKind.uploadOriginal), isTrue);
+      expect(await add(queue, 'new', SyncJobKind.uploadLivePhoto), isTrue);
+    });
+
+    test('the three upload kinds share one capacity', () async {
+      final store = newStore();
+      final queue = queueOver(store);
+      for (var i = 0; i < SyncQueue.capacity; i++) {
+        final kind = [
+          SyncJobKind.uploadOriginal,
+          SyncJobKind.uploadThumbnail,
+          SyncJobKind.uploadLivePhoto,
+        ][i % 3];
+        expect(await add(queue, 'u$i', kind), isTrue);
+      }
+      expect(await add(queue, 'x', SyncJobKind.uploadThumbnail), isFalse);
+      expect(await add(queue, 'x', SyncJobKind.checkChanges), isTrue);
+    });
+
+    test('an upload is claimed before an older-queued change check', () async {
+      final store = newStore();
+      await store.enqueue(
+        localId: 'old',
+        kind: SyncJobKind.checkChanges,
+        displayName: 'old.jpg',
+        assetCreatedAt: DateTime(2026),
+      );
+      await store.enqueue(
+        localId: 'new',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'new.jpg',
+        assetCreatedAt: DateTime(2020),
+      );
+
+      final first = await store.dequeueNextPending();
+      expect(first!.kind, SyncJobKind.uploadOriginal);
+    });
+
+    test('resume leaves a live background run its own jobs', () async {
+      final store = newStore();
+      await store.enqueue(
+        localId: 'dead',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'dead.jpg',
+        assetCreatedAt: DateTime(2024),
+      );
+      await store.dequeueNextPending();
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      final since = DateTime.now();
+      await Future<void>.delayed(const Duration(milliseconds: 5));
+      await store.enqueue(
+        localId: 'live',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'live.jpg',
+        assetCreatedAt: DateTime(2023),
+      );
+      await store.dequeueNextPending();
+
+      await queueOver(store).resume(drain: false, runningSince: since);
+
+      final byId = {for (final j in await store.all()) j.localId: j.status};
+      expect(byId['dead'], SyncJobStatus.pending);
+      expect(byId['live'], SyncJobStatus.running);
+    });
+  });
+
   group('a failure is retried, not duplicated', () {
     test('re-queueing a failed job resets it in place', () async {
       final store = newStore();

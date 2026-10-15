@@ -83,6 +83,14 @@ class ICloudDriveChannel {
         return
       }
       result(delete(name: name))
+    case "beginBackgroundTask":
+      DispatchQueue.main.async { result(beginTask()) }
+    case "endBackgroundTask":
+      let raw = (call.arguments as? [String: Any])?["id"] as? Int
+      DispatchQueue.main.async {
+        if let raw { endTask(raw) }
+        result(nil)
+      }
     default:
       result(FlutterMethodNotImplemented)
     }
@@ -195,12 +203,24 @@ class ICloudDriveChannel {
   /// from the app's own records because the folder is the only thing that
   /// knows what is really up there — a device restored from a year-old
   /// backup has no idea.
+  ///
+  /// A file still only in iCloud (a new phone) lists as `.name.icloud`;
+  /// it is reported as `name`, which is what reads and deletes take.
   private static func list() -> [String] {
     guard let root = containerURL() else { return [] }
     let files = (try? FileManager.default.contentsOfDirectory(
       at: root, includingPropertiesForKeys: nil
     )) ?? []
-    return files.map { $0.lastPathComponent }
+    let names = Set(files.map { itemName($0.lastPathComponent) })
+    return names.filter { !$0.isEmpty }.sorted()
+  }
+
+  private static func itemName(_ listed: String) -> String {
+    let suffix = ".icloud"
+    guard listed.hasPrefix("."), listed.hasSuffix(suffix),
+          listed.count > suffix.count
+    else { return listed }
+    return String(listed.dropFirst().dropLast(suffix.count))
   }
 
   /// Removes one file by name. `lastPathComponent` on the way in, so a
@@ -214,7 +234,11 @@ class ICloudDriveChannel {
       try FileManager.default.removeItem(at: file)
       return true
     } catch {
-      return false
+      // Not downloaded: only its placeholder is here.
+      let placeholder = root.appendingPathComponent(
+        "." + file.lastPathComponent + ".icloud"
+      )
+      return (try? FileManager.default.removeItem(at: placeholder)) != nil
     }
   }
 
@@ -223,13 +247,11 @@ class ICloudDriveChannel {
   /// file without having to stat every one of them.
   private static func latestFile(withExtension ext: String) -> URL? {
     guard let root = containerURL() else { return nil }
-    let files = (try? FileManager.default.contentsOfDirectory(
-      at: root, includingPropertiesForKeys: nil
-    )) ?? []
-    return files
-      .filter { $0.pathExtension == ext }
-      .sorted { $0.lastPathComponent < $1.lastPathComponent }
+    guard let name = list()
+      .filter({ URL(fileURLWithPath: $0).pathExtension == ext })
       .last
+    else { return nil }
+    return root.appendingPathComponent(name)
   }
 
   /// Whichever kind is newer. `.json` is the single rolling file older
@@ -249,17 +271,39 @@ class ICloudDriveChannel {
   }
 
   private static func readLatest() -> String? {
-    guard let file = latestFile(withExtension: "json") else { return nil }
-    // The file may be in the cloud and not yet on this device — which is
-    // exactly the fresh-install case this exists for.
-    try? FileManager.default.startDownloadingUbiquitousItem(at: file)
-    return try? String(contentsOf: file, encoding: .utf8)
+    guard let file = latestFile(withExtension: "json"),
+          let data = coordinatedData(at: file)
+    else { return nil }
+    return String(data: data, encoding: .utf8)
   }
 
   private static func readLatestBytes() -> Data? {
     guard let file = latestFile(withExtension: "zip") else { return nil }
+    return coordinatedData(at: file)
+  }
+
+  /// The file may be in the cloud and not yet on this device — exactly the
+  /// fresh-install case this exists for. A coordinated read waits for
+  /// iCloud to bring it down, where a plain read returns nothing; it is
+  /// cancelled after [timeout] seconds.
+  private static func coordinatedData(
+    at file: URL,
+    timeout: TimeInterval = 60
+  ) -> Data? {
     try? FileManager.default.startDownloadingUbiquitousItem(at: file)
-    return try? Data(contentsOf: file)
+    let coordinator = NSFileCoordinator(filePresenter: nil)
+    DispatchQueue.global(qos: .utility).asyncAfter(
+      deadline: .now() + timeout
+    ) {
+      coordinator.cancel()
+    }
+    var data: Data?
+    var error: NSError?
+    coordinator.coordinate(readingItemAt: file, options: [], error: &error) {
+      url in
+      data = try? Data(contentsOf: url)
+    }
+    return data
   }
 
   /// One archive by name. Which archive to restore from is a question the
@@ -272,10 +316,7 @@ class ICloudDriveChannel {
     let file = root.appendingPathComponent(
       URL(fileURLWithPath: name).lastPathComponent
     )
-    // May be in the cloud and not yet on this device — exactly the
-    // fresh-install case this exists for.
-    try? FileManager.default.startDownloadingUbiquitousItem(at: file)
-    return try? Data(contentsOf: file)
+    return coordinatedData(at: file)
   }
 
   private static func latestWriteAt() -> Int? {
@@ -286,5 +327,33 @@ class ICloudDriveChannel {
           let date = values.contentModificationDate
     else { return nil }
     return Int(date.timeIntervalSince1970 * 1000)
+  }
+
+  // MARK: - Background time
+
+  /// Main thread only.
+  private static var tasks: [Int: UIBackgroundTaskIdentifier] = [:]
+
+  /// Time to finish the app-data copy after the app leaves the foreground.
+  /// Nil when iOS grants none.
+  private static func beginTask() -> Int? {
+    let id = UIApplication.shared.beginBackgroundTask(
+      withName: "app-data copy"
+    ) {
+      // Out of time: handed back, or iOS ends the app for holding it.
+      endAllTasks()
+    }
+    guard id != .invalid else { return nil }
+    tasks[id.rawValue] = id
+    return id.rawValue
+  }
+
+  private static func endAllTasks() {
+    for raw in Array(tasks.keys) { endTask(raw) }
+  }
+
+  private static func endTask(_ raw: Int) {
+    guard let id = tasks.removeValue(forKey: raw) else { return }
+    UIApplication.shared.endBackgroundTask(id)
   }
 }

@@ -16,6 +16,12 @@ class FakeSyncJobStore implements SyncJobStore {
 
   final _priority = <String, int>{};
 
+  static const _uploads = {
+    SyncJobKind.uploadOriginal,
+    SyncJobKind.uploadLivePhoto,
+    SyncJobKind.uploadThumbnail,
+  };
+
   @override
   Future<SyncJob> enqueue({
     required String localId,
@@ -48,8 +54,16 @@ class FakeSyncJobStore implements SyncJobStore {
   Future<List<SyncJob>> all() async => List.unmodifiable(_jobs);
 
   @override
-  Future<int> countWhere(Iterable<SyncJobStatus> statuses) async =>
-      _jobs.where((j) => statuses.contains(j.status)).length;
+  Future<int> countWhere(
+    Iterable<SyncJobStatus> statuses, {
+    Set<SyncJobKind>? kinds,
+  }) async => _jobs
+      .where(
+        (j) =>
+            statuses.contains(j.status) &&
+            (kinds == null || kinds.contains(j.kind)),
+      )
+      .length;
 
   /// Newest photo first, like the real store's `ORDER BY
   /// asset_created_at DESC`.
@@ -61,9 +75,14 @@ class FakeSyncJobStore implements SyncJobStore {
       if (kinds != null && !kinds.contains(_jobs[i].kind)) continue;
       final pi = _priority[_jobs[i].id] ?? 0;
       final pIndex = index < 0 ? 0 : _priority[_jobs[index].id] ?? 0;
+      // Uploads ahead of change checks and analysis, as the real store.
+      final ui = _uploads.contains(_jobs[i].kind);
+      final uIndex = index >= 0 && _uploads.contains(_jobs[index].kind);
       if (index < 0 ||
           pi > pIndex ||
+          (pi == pIndex && ui && !uIndex) ||
           (pi == pIndex &&
+              ui == uIndex &&
               _jobs[i].assetCreatedAt.isAfter(_jobs[index].assetCreatedAt))) {
         index = i;
       }
@@ -112,9 +131,10 @@ class FakeSyncJobStore implements SyncJobStore {
   }
 
   @override
-  Future<void> requeueStaleRunning() async {
+  Future<void> requeueStaleRunning({DateTime? before}) async {
     for (var i = 0; i < _jobs.length; i++) {
-      if (_jobs[i].status == SyncJobStatus.running) {
+      if (_jobs[i].status == SyncJobStatus.running &&
+          (before == null || _jobs[i].updatedAt.isBefore(before))) {
         _jobs[i] = _copy(_jobs[i], SyncJobStatus.pending);
       }
     }

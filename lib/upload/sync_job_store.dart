@@ -147,12 +147,19 @@ class SyncJobStore {
     return rows.map(_fromRow).toList();
   }
 
-  Future<int> countWhere(Iterable<SyncJobStatus> statuses) async {
+  Future<int> countWhere(
+    Iterable<SyncJobStatus> statuses, {
+    Set<SyncJobKind>? kinds,
+  }) async {
     final db = await _open();
     final placeholders = List.filled(statuses.length, '?').join(', ');
+    final kindClause = kinds == null
+        ? ''
+        : ' AND kind IN (${List.filled(kinds.length, '?').join(', ')})';
     final rows = await db.rawQuery(
-      'SELECT COUNT(*) AS c FROM $_table WHERE status IN ($placeholders)',
-      statuses.map((s) => s.name).toList(),
+      'SELECT COUNT(*) AS c FROM $_table '
+      'WHERE status IN ($placeholders)$kindClause',
+      [...statuses.map((s) => s.name), ...?kinds?.map((k) => k.name)],
     );
     return sqflite.Sqflite.firstIntValue(rows) ?? 0;
   }
@@ -177,7 +184,13 @@ class SyncJobStore {
             ? 'status = ?'
             : 'status = ? AND kind IN (${List.filled(kinds.length, '?').join(',')})',
         whereArgs: [SyncJobStatus.pending.name, ...?kinds?.map((k) => k.name)],
-        orderBy: 'priority DESC, asset_created_at DESC, created_at ASC',
+        // Uploads ahead of change checks and analysis: a new photo with no
+        // copy anywhere outranks re-hashing one that has.
+        orderBy:
+            'priority DESC, '
+            "kind NOT IN ('uploadOriginal', 'uploadLivePhoto', "
+            "'uploadThumbnail'), "
+            'asset_created_at DESC, created_at ASC',
         limit: 1,
       );
       if (rows.isEmpty) return null;
@@ -303,7 +316,8 @@ class SyncJobStore {
 
   /// A crash mid-sync leaves rows stuck as `running` with no worker behind
   /// them — put them back in line at startup rather than stranding them.
-  Future<void> requeueStaleRunning() async {
+  /// With [before], only rows claimed before it.
+  Future<void> requeueStaleRunning({DateTime? before}) async {
     final db = await _open();
     await db.update(
       _table,
@@ -311,8 +325,8 @@ class SyncJobStore {
         'status': SyncJobStatus.pending.name,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
-      where: 'status = ?',
-      whereArgs: [SyncJobStatus.running.name],
+      where: before == null ? 'status = ?' : 'status = ? AND updated_at < ?',
+      whereArgs: [SyncJobStatus.running.name, ?before?.millisecondsSinceEpoch],
     );
   }
 

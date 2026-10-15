@@ -3,6 +3,7 @@ import 'dart:io';
 import 'package:photos_vault/backup/app_snapshot.dart';
 import 'package:photos_vault/backup/backup_schedule.dart';
 import 'package:photos_vault/backup/local_vault.dart';
+import 'package:photos_vault/backup/snapshot_archive.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
 
 /// A vault that records what it was asked to do and touches no disk.
@@ -32,7 +33,7 @@ class FakeLocalVault implements LocalVault {
   }
 
   @override
-  Future<bool> copyNow() async => keepDailyCopy();
+  Future<bool> copyNow({SnapshotPayload? payload}) async => keepDailyCopy();
 
   @override
   Future<void> prune() async {}

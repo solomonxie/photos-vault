@@ -7,6 +7,7 @@ import 'dart:typed_data';
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import '../upload/s3_uploader.dart';
 import 'album_index.dart';
 import 'bucket.dart';
 import 'cache.dart';
@@ -146,9 +147,16 @@ class VaultGallery {
   /// The local carrier, read and opened together off the UI isolate when
   /// it is big, so its bytes are never copied across.
   Future<OpenedCarrier?> _openLocal(String objectKey) async {
-    final File file;
     try {
-      file = await _store.carrierFile(keys, objectKey);
+      return await _openFile(await _store.carrierFile(keys, objectKey));
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// A carrier file, local or just downloaded.
+  Future<OpenedCarrier?> _openFile(File file) async {
+    try {
       if (!await file.exists()) return null;
       if (await file.length() < _offloadBytes) {
         return await _openBytes(await file.readAsBytes());
@@ -235,9 +243,10 @@ class VaultGallery {
     final cached = await _cache.read(pool, keys, entry.objectKey);
     if (cached != null) return cached;
 
-    final object = await _bucket.object(entry.objectKey);
+    final object = await _bucket.objectFile(entry.objectKey);
     if (object == null) return null;
-    final opened = await _openBytes(object);
+    final opened = await _openFile(object);
+    await dropScratch(object);
     if (opened == null) return null;
     await _cache.write(pool, keys, entry.objectKey, opened.original);
     return opened.original;
@@ -251,13 +260,17 @@ class VaultGallery {
   /// Fetches [entry]'s carrier back from the bucket and keeps it, so the
   /// photo is on this phone again. The opposite of [sendBackToBucket].
   Future<bool> download(IndexEntry entry) async {
-    final object = await _bucket.object(entry.objectKey);
+    final object = await _bucket.objectFile(entry.objectKey);
     if (object == null) return false;
-    // Only a carrier this album's key can open: anything else is somebody
-    // else's object, or a truncated download, and storing it would leave a
-    // photo that claims to be here and opens as nothing.
-    if (await _openBytes(object) == null) return false;
-    return await _store.putCarrierBytes(keys, entry.objectKey, object) != null;
+    try {
+      // Only a carrier this album's key can open: anything else is somebody
+      // else's object, or a truncated download, and storing it would leave a
+      // photo that claims to be here and opens as nothing.
+      if (await _openFile(object) == null) return false;
+      return await _store.putCarrier(keys, entry.objectKey, object) != null;
+    } finally {
+      await dropScratch(object);
+    }
   }
 
   /// Drops the full local copy and keeps the tile, for a photo the user is
@@ -302,10 +315,14 @@ class VaultGallery {
     if (await _store.hasCarrier(keys, objectKey)) {
       return (opened: await _openLocal(objectKey), absent: false);
     }
-    final fetched = await _bucket.fetch(objectKey);
-    final bytes = fetched.bytes;
-    if (bytes == null) return (opened: null, absent: fetched.absent);
-    return (opened: await _openBytes(bytes), absent: false);
+    final fetched = await _bucket.fetchFile(objectKey);
+    final file = fetched.file;
+    if (file == null) return (opened: null, absent: fetched.absent);
+    try {
+      return (opened: await _openFile(file), absent: false);
+    } finally {
+      await dropScratch(file);
+    }
   }
 
   Uint8List? _openPrefix(Uint8List prefix) {

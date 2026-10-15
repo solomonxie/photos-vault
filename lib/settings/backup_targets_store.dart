@@ -140,7 +140,61 @@ class BackupTargetsStore {
     );
   }
 
-  /// Adds a target, assigning it a fresh id, and persists the updated list.
+  /// Which bucket and folder a target is, whatever its credentials.
+  static String identityOf(
+    BackupStorageType provider,
+    String bucket,
+    String prefix,
+  ) {
+    var folder = prefix.trim();
+    while (folder.startsWith('/')) {
+      folder = folder.substring(1);
+    }
+    while (folder.endsWith('/')) {
+      folder = folder.substring(0, folder.length - 1);
+    }
+    return '${provider.name}|${bucket.trim().toLowerCase()}|$folder';
+  }
+
+  /// The id a bucket gets every time it is added: derived from where it
+  /// is, so removing and re-adding it finds the deletes still owed to it
+  /// (and its per-bucket upload rows) rather than leaving them dormant.
+  /// Targets added before ids were derived are remembered on removal.
+  Future<String> _idFor(String identity) async =>
+      (await _rememberedIds())[identity] ??
+      _uuid.v5(Namespace.url.value, 'photos-vault:target:$identity');
+
+  /// Names only, no credentials. Outlives Remove All App Data on purpose:
+  /// the deletes owed to a bucket do too (`AppDataRemoval`).
+  static const _idsKey = 'backup_target_ids_v1';
+
+  Future<Map<String, String>> _rememberedIds() async {
+    try {
+      final raw = await _store.read(_idsKey);
+      if (raw == null || raw.isEmpty) return {};
+      return (jsonDecode(raw) as Map).cast<String, String>();
+    } catch (_) {
+      return {};
+    }
+  }
+
+  Future<void> _remember(Iterable<S3BackupTarget> targets) async {
+    final ids = await _rememberedIds();
+    var changed = false;
+    for (final t in targets) {
+      final identity = identityOf(t.provider, t.bucket, t.prefix);
+      if (ids[identity] == t.id) continue;
+      ids[identity] = t.id;
+      changed = true;
+    }
+    if (changed) await _store.write(_idsKey, jsonEncode(ids));
+  }
+
+  /// Adds a target and persists the updated list. The same bucket and
+  /// folder again is not a second target — every upload would go twice to
+  /// the same key, and one's superseded-delete would remove what the
+  /// other's row still points at — so it replaces that one's credentials
+  /// and keeps its id.
   Future<S3BackupTarget> add({
     required String accessKeyId,
     required String secretAccessKey,
@@ -149,8 +203,13 @@ class BackupTargetsStore {
     required String prefix,
     BackupStorageType provider = BackupStorageType.s3,
   }) async {
+    final identity = identityOf(provider, bucket, prefix);
+    final targets = await loadAll();
+    final same = targets
+        .where((t) => identityOf(t.provider, t.bucket, t.prefix) == identity)
+        .firstOrNull;
     final target = S3BackupTarget(
-      id: _uuid.v4(),
+      id: same?.id ?? await _idFor(identity),
       accessKeyId: accessKeyId,
       secretAccessKey: secretAccessKey,
       region: region,
@@ -158,13 +217,16 @@ class BackupTargetsStore {
       prefix: prefix,
       provider: provider,
     );
-    final targets = await loadAll();
-    await _saveAll([...targets, target]);
+    await _saveAll([
+      for (final t in targets) t.id == same?.id ? target : t,
+      if (same == null) target,
+    ]);
     return target;
   }
 
   Future<void> remove(String id) async {
     final targets = await loadAll();
+    await _remember(targets.where((t) => t.id == id));
     await _saveAll(targets.where((t) => t.id != id).toList());
   }
 
@@ -183,6 +245,11 @@ class BackupTargetsStore {
   ];
 
   Future<void> clearAll() async {
+    try {
+      await _remember(await loadAll());
+    } catch (_) {
+      // Derived ids come back anyway; only an older target's is lost.
+    }
     for (final key in _allKeys) {
       await _store.delete(key);
     }

@@ -29,12 +29,27 @@ class SyncQueue {
 
   final Future<void> Function(SyncJob job) _process;
 
-  /// The most unfinished jobs the queue will hold. Past this, [enqueue]
-  /// refuses rather than growing: a camera roll is hundreds of thousands of
-  /// assets, and a queue that long is neither reviewable nor cancellable —
-  /// it's just a list nobody can act on. Work is picked up a queueful at a
-  /// time instead, topped up as it drains.
+  /// The most unfinished jobs the queue will hold **per lane** (see
+  /// [laneOf]). Past this, [enqueue] refuses rather than growing: a camera
+  /// roll is hundreds of thousands of assets, and a queue that long is
+  /// neither reviewable nor cancellable — it's just a list nobody can act
+  /// on. Work is picked up a queueful at a time instead, topped up as it
+  /// drains.
+  ///
+  /// Per lane, so a hundred change checks or analyses left by a killed app
+  /// can't turn away the uploads the background pass is there to make.
   static const capacity = 100;
+
+  static const uploadKinds = {
+    SyncJobKind.uploadOriginal,
+    SyncJobKind.uploadLivePhoto,
+    SyncJobKind.uploadThumbnail,
+  };
+
+  /// The kinds sharing [kind]'s [capacity]: uploads, change checks, or
+  /// analysis.
+  static Set<SyncJobKind> laneOf(SyncJobKind kind) =>
+      uploadKinds.contains(kind) ? uploadKinds : {kind};
 
   /// What counts against [capacity]: work still to be done. A *failed* job
   /// isn't — it's a row waiting for someone to look at it, and letting
@@ -93,17 +108,22 @@ class SyncQueue {
   /// [drain] false repairs and reloads the queue but starts nothing — what
   /// a "Manual" sync frequency means on launch. The jobs stay visible and
   /// countable; none of them goes up until somebody asks.
-  Future<void> resume({bool drain = true}) async {
+  ///
+  /// [runningSince] leaves alone rows another engine claimed after it: the
+  /// background pass shares this database, and its in-flight uploads finish
+  /// whatever happens here. Requeued, they would go up twice at once.
+  Future<void> resume({bool drain = true, DateTime? runningSince}) async {
     await _loadSettings();
-    await store.requeueStaleRunning();
+    await store.requeueStaleRunning(before: runningSince);
     await store.trimHistory();
     await refresh();
     if (drain) unawaited(start());
   }
 
-  /// How many jobs are still to be done — waiting or running. What
-  /// [capacity] is measured against.
-  Future<int> unfinishedCount() => store.countWhere(_outstanding);
+  /// How many jobs are still to be done — waiting or running. [kinds]
+  /// narrows it to one lane, which is what [capacity] is measured against.
+  Future<int> unfinishedCount({Set<SyncJobKind>? kinds}) =>
+      store.countWhere(_outstanding, kinds: kinds);
 
   /// Returns whether the job was taken. `false` means the queue is paused
   /// or full — both of which the caller should read as "not now", not as a
@@ -120,7 +140,7 @@ class SyncQueue {
     // Paused means paused: a queue that keeps growing while stopped is
     // just a delayed surprise.
     if (paused.value) return false;
-    if (await unfinishedCount() >= capacity) return false;
+    if (await unfinishedCount(kinds: laneOf(kind)) >= capacity) return false;
     await store.enqueue(
       localId: localId,
       kind: kind,

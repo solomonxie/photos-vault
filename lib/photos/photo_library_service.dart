@@ -174,7 +174,12 @@ class PhotoLibraryService {
       if (entities.length < _pageSize) break;
     }
 
-    if (reconcileDeletions) updated += await _reconcileDeletions(seen);
+    if (reconcileDeletions) {
+      // Every asset has been offered to the restored rows: what is left
+      // waiting has no asset on this phone.
+      await store.clearRelinkPending();
+      updated += await _reconcileDeletions(seen);
+    }
     return PhotoLibrarySyncResult(added: added, updated: updated);
   }
 
@@ -436,6 +441,8 @@ class PhotoLibraryService {
   }
 
   Future<AssetRecord> _insert(AssetEntity entity, String localId) async {
+    final restored = await _adoptRestored(entity);
+    if (restored != null) return restored;
     final latLng = _coordinatesOf(entity);
     final record = await store.upsert(
       localId: localId,
@@ -456,6 +463,42 @@ class PhotoLibraryService {
     if (record.localId != localId || !entity.isFavorite) return record;
     await store.setFavorite(localId, true);
     return record.withFavorite(true);
+  }
+
+  /// A row restored from another phone's backup, for the asset it was there:
+  /// the same capture second and shape, and an old asset id this phone
+  /// doesn't have. Taken over rather than a second record added beside it
+  /// with none of its captions, albums or people. Any doubt adds the record.
+  Future<AssetRecord?> _adoptRestored(AssetEntity entity) async {
+    try {
+      final twin = await store.relinkCandidate(
+        createdAt: entity.createDateTime,
+        isVideo: entity.type == AssetType.video,
+        width: entity.width > 0 ? entity.width : null,
+        height: entity.height > 0 ? entity.height : null,
+      );
+      if (twin == null) return null;
+      final old = twin.libraryId;
+      if (old != null && old != entity.id) {
+        final here = await hasAsset(old);
+        // Its own asset is on this phone: not a stranger's record.
+        if (here == true) await store.clearRelinkPending(twin.localId);
+        // A failed lookup decides nothing either.
+        if (here != false) return null;
+      }
+      if (!await store.adoptAsset(
+        twin.localId,
+        entity.id,
+        width: entity.width > 0 ? entity.width : null,
+        height: entity.height > 0 ? entity.height : null,
+      )) {
+        return null;
+      }
+      await store.clearRelinkPending(twin.localId);
+      return await store.getByLocalId(twin.localId);
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Writes anything the library knows and the record doesn't. Blanks

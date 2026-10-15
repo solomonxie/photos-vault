@@ -1,8 +1,10 @@
-import '../demo/demo_bucket.dart';
+import 'dart:io';
 
 import 'package:background_downloader/background_downloader.dart';
+import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
+import '../demo/demo_bucket.dart';
 import '../settings/s3_backup_target.dart';
 import 'signing.dart';
 
@@ -56,7 +58,15 @@ class S3Downloader {
     required String key,
     required S3BackupTarget target,
     required String toPath,
-  }) async {
+  }) async => (await fetch(target, key, toPath)).saved;
+
+  /// [get], saying what the bucket answered: [FetchResult.status] 404 is
+  /// the one answer meaning "not there".
+  Future<FetchResult> fetch(
+    S3BackupTarget target,
+    String key,
+    String toPath,
+  ) async {
     try {
       final url = await presignGetUrl(target: target, key: key);
       final task = DownloadTask(
@@ -66,9 +76,54 @@ class S3Downloader {
         baseDirectory: BaseDirectory.root,
       );
       final result = await _downloader.download(task);
-      return result.status == TaskStatus.complete;
+      return switch (result.status) {
+        TaskStatus.complete => (saved: true, status: 200),
+        TaskStatus.notFound => (saved: false, status: 404),
+        _ => (saved: false, status: result.responseStatusCode),
+      };
     } catch (_) {
-      return false;
+      return (saved: false, status: null);
     }
   }
+}
+
+/// One object to a file: saved, and what the bucket said (null when
+/// nothing answered).
+typedef FetchResult = ({bool saved, int? status});
+
+typedef FetchToFile = Future<FetchResult> Function(
+  S3BackupTarget target,
+  String key,
+  String toPath,
+);
+
+/// The transfer as a test's `get` fake answers it. Never the production
+/// path: bodies there stay on [S3Downloader].
+FetchToFile fetchThroughGet(Future<http.Response> Function(Uri url) get) =>
+    (target, key, toPath) async {
+      try {
+        final response = await get(
+          await presignGetUrl(target: target, key: key),
+        );
+        if (response.statusCode != 200) {
+          return (saved: false, status: response.statusCode);
+        }
+        await File(toPath).writeAsBytes(response.bodyBytes, flush: true);
+        return (saved: true, status: 200);
+      } catch (_) {
+        return (saved: false, status: null);
+      }
+    };
+
+/// A private file for one download, under the app's temp directory.
+Future<File> downloadScratchFile(String name) async {
+  final dir = await Directory.systemTemp.createTemp('pv_dl_');
+  return File(p.join(dir.path, p.basename(name)));
+}
+
+/// Removes a [downloadScratchFile] and its directory.
+Future<void> dropScratch(File file) async {
+  try {
+    await file.parent.delete(recursive: true);
+  } catch (_) {}
 }

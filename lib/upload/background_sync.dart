@@ -59,6 +59,43 @@ class ForegroundHeartbeat {
   }
 }
 
+/// The background run's own beat, so the foreground can tell its jobs
+/// from a dead run's: one in flight within [live] is still working.
+class BackgroundHeartbeat {
+  BackgroundHeartbeat(this.store);
+
+  final AssetRecordStore store;
+
+  static const key = 'background_heartbeat';
+  static const live = Duration(minutes: 1);
+
+  Future<void> beat() =>
+      store.setAppState(key, DateTime.now().toIso8601String());
+
+  /// When the live background run started its jobs, or null when none is
+  /// live. Its `running` rows are newer than that; the rest are a dead
+  /// run's.
+  Future<DateTime?> runningSince({
+    DateTime Function() now = DateTime.now,
+  }) async {
+    try {
+      final at = DateTime.tryParse(await store.getAppState(key) ?? '');
+      if (at == null || now().difference(at) > live) return null;
+      final started = DateTime.tryParse(
+        await store.getAppState(startedKey) ?? '',
+      );
+      return started ?? at.subtract(live);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  static const startedKey = 'background_started';
+
+  Future<void> start() =>
+      store.setAppState(startedKey, DateTime.now().toIso8601String());
+}
+
 /// Whether a background run should start, and if not, why. Pure so the
 /// rules are tested without a phone.
 BackgroundSkip? backgroundSkipReason({
@@ -178,7 +215,11 @@ class BackgroundSync {
 
     // The app coming to the foreground cancels the run: two engines and
     // one database is a race the user should never lose.
+    final own = BackgroundHeartbeat(recordStore);
+    await _try<void>(own.start, null);
+    await _try<void>(own.beat, null);
     final watch = Timer.periodic(const Duration(seconds: 15), (_) async {
+      await _try<void>(own.beat, null);
       final at = await heartbeat.last();
       if (at != null && at.isAfter(started)) cancel();
     });

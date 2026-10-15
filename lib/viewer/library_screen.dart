@@ -34,6 +34,7 @@ import '../backup/app_snapshot.dart';
 import '../backup/bucket_backup.dart';
 import '../backup/icloud_backup.dart';
 import '../backup/local_vault.dart';
+import '../backup/pause_backup.dart';
 import '../photos/library_custody.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/record_fixer.dart';
@@ -58,7 +59,8 @@ import '../storage/asset_record_store.dart';
 import '../storage/bucket_object.dart';
 import '../storage/membership_sweep.dart';
 import '../upload/backup_coordinator.dart';
-import '../upload/background_sync.dart' show ForegroundHeartbeat;
+import '../upload/background_sync.dart'
+    show BackgroundHeartbeat, ForegroundHeartbeat;
 import '../upload/sync_engine.dart';
 import '../upload/backup_verifier.dart';
 import '../upload/library_restore.dart';
@@ -278,6 +280,14 @@ class LibraryScreenState extends State<LibraryScreen>
     albumStore: _albumStore,
     personStore: _personStore,
     aiAnalysisStore: _aiAnalysisStore,
+    hasAsset: (id) => _photoLibraryService.hasAsset(id),
+  );
+
+  late final PauseBackup _pauseBackup = PauseBackup(
+    snapshots: _snapshots,
+    vault: _vault,
+    icloud: _icloudBackup,
+    bucket: _bucketBackup,
   );
 
   /// Remove All App Data, from the button at the foot of this page.
@@ -416,7 +426,13 @@ class LibraryScreenState extends State<LibraryScreen>
   late final LibraryScanner _libraryScanner = LibraryScanner(
     scan: _syncPhotoLibrary,
     scanRecent: _syncRecentPhotos,
+    before: () => _restoreFirst ?? Future<void>.value(),
   );
+
+  /// A fresh install's restore, which the scan waits on (bounded by
+  /// [_restoreHold]); null once there is nothing to wait for.
+  Future<void>? _restoreFirst;
+  static const _restoreHold = Duration(seconds: 30);
 
   /// The other queue: looking at the photos the scanner found.
   /// Separate from [syncQueue] because it answers a different question —
@@ -552,9 +568,9 @@ class LibraryScreenState extends State<LibraryScreen>
       // The copy in the app's own container first, and unconditionally —
       // it needs no switch, no network and no credentials, and it's the
       // one that gets used when an operation goes wrong an hour from now.
-      unawaited(_vault.keepDailyCopy());
-      unawaited(_icloudBackup.backUpIfEnabled());
-      unawaited(_bucketBackup.backUpIfEnabled());
+      // One snapshot for all three, zipped off the UI isolate, inside the
+      // time iOS grants on the way out.
+      unawaited(_pauseBackup.run());
       unawaited(_refreshBucketListing());
       return;
     }
@@ -810,11 +826,15 @@ class LibraryScreenState extends State<LibraryScreen>
     // On an empty library the restore goes *first*, capped: both restores
     // refuse a library that already has rows, so a scan that got in ahead
     // of the network would make a fresh install skip its own backup.
+    // The scans wait on it for longer (see [_restoreHold]) and the import
+    // merges with whatever got in ahead, so a slow download costs neither
+    // metadata nor a second record.
     if (_all.isEmpty) {
-      await _restoreAppDataThenReload().timeout(
-        const Duration(seconds: 10),
-        onTimeout: () {},
-      );
+      final restore = _restoreAppDataThenReload(scannedRows: true)
+          .timeout(_restoreHold, onTimeout: () {});
+      _restoreFirst = restore;
+      unawaited(restore.whenComplete(() => _restoreFirst = null));
+      await restore.timeout(const Duration(seconds: 10), onTimeout: () {});
     } else {
       unawaited(_restoreAppDataThenReload());
     }
@@ -893,8 +913,8 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  Future<void> _restoreAppDataThenReload() async {
-    await _restoreAppData();
+  Future<void> _restoreAppDataThenReload({bool scannedRows = false}) async {
+    await _restoreAppData(scannedRows: scannedRows);
     if (mounted) await reload();
   }
 
@@ -902,10 +922,13 @@ class LibraryScreenState extends State<LibraryScreen>
   /// it needs no credentials to be readable; the bucket is asked only if
   /// that came back with nothing, and each guards itself against running
   /// over a library that isn't empty.
-  Future<void> _restoreAppData() async {
+  Future<void> _restoreAppData({bool scannedRows = false}) async {
     try {
-      if (await _icloudBackup.restoreIfFreshInstall() > 0) return;
-      await _bucketBackup.restoreIfFreshInstall();
+      await restoreNewestOnFreshInstall(
+        icloud: _icloudBackup,
+        bucket: _bucketBackup,
+        scannedRows: scannedRows,
+      );
     } catch (_) {
       // No container, no channel, no bucket, nothing in any of them — an
       // empty library is the same empty library it would have been.
@@ -1687,7 +1710,10 @@ class LibraryScreenState extends State<LibraryScreen>
     } catch (_) {
       // The queue shows them until the next launch; nothing is lost.
     }
-    await syncQueue.resume(drain: true);
+    await syncQueue.resume(
+      drain: true,
+      runningSince: await BackgroundHeartbeat(assetRecordStore).runningSince(),
+    );
   }
 
   /// Opportunistic: fires whenever the app (or this screen) comes to the
@@ -1740,8 +1766,9 @@ class LibraryScreenState extends State<LibraryScreen>
     unawaited(RecordFixer.checkImports(assetRecordStore).catchError((_) {}));
     unawaited(_repairBackupsIfDue());
     _forgetFailures();
-    await _enqueueChangeChecks();
+    // New photos first: they have no copy anywhere yet.
     await _backUpRecords(_pendingAndFailed);
+    await _enqueueChangeChecks();
     try {
       await _backupTargetsStore.setLastSyncAt(DateTime.now());
     } catch (_) {

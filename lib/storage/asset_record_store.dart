@@ -64,7 +64,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 23,
+        version: 24,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createLibraryIdIndexSql);
@@ -77,6 +77,8 @@ class AssetRecordStore {
           await db.execute(_createBucketObjectTableSql);
           await db.execute(_createBucketScanTableSql);
           await db.execute(_createBucketScanObjectTableSql);
+          await db.execute(_createRelinkTableSql);
+          await db.execute(_createRelinkIndexSql);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -210,6 +212,10 @@ class AssetRecordStore {
             await db.execute(_createLibraryIdIndexSql);
             await db.execute(_createPendingSwapTableSql);
             await _migrateSwapJson(db);
+          }
+          if (oldVersion < 24) {
+            await db.execute(_createRelinkTableSql);
+            await db.execute(_createRelinkIndexSql);
           }
         },
       ),
@@ -559,6 +565,24 @@ class AssetRecordStore {
     }
     await _putAppState(db, _unlinkedKey, jsonEncode(unlinked));
   }
+
+  /// Restored rows not yet matched to an asset on this phone. A new
+  /// phone gives every asset a new id, so the scan adopts one by capture
+  /// time and size instead of adding a second record (see
+  /// [relinkCandidate]). Its own table: no change-log rows for bookkeeping.
+  static const _relinkTable = 'relink_pending';
+
+  static const _createRelinkTableSql =
+      '''
+    CREATE TABLE IF NOT EXISTS $_relinkTable (
+      local_id TEXT PRIMARY KEY,
+      created_at INTEGER NOT NULL
+    )
+  ''';
+
+  static const _createRelinkIndexSql =
+      'CREATE INDEX IF NOT EXISTS relink_pending_created '
+      'ON $_relinkTable (created_at)';
 
   static const _pendingSwapTable = 'pending_swap';
 
@@ -1362,9 +1386,92 @@ class AssetRecordStore {
       ..delete(_bucketObjectTable)
       ..delete(_bucketScanTable)
       ..delete(_bucketScanObjectTable)
+      ..delete(_relinkTable)
       ..delete(changeLogTable);
     await batch.commit(noResult: true);
     _dropCache();
+  }
+
+  /// Marks restored [localId] as waiting for its asset on this phone.
+  Future<void> markRelinkPending(String localId, DateTime createdAt) async {
+    final db = await _open();
+    await db.insert(_relinkTable, {
+      'local_id': localId,
+      'created_at': createdAt.millisecondsSinceEpoch,
+    }, conflictAlgorithm: ConflictAlgorithm.replace);
+  }
+
+  Future<void> clearRelinkPending([String? localId]) async {
+    final db = await _open();
+    await db.delete(
+      _relinkTable,
+      where: localId == null ? null : 'local_id = ?',
+      whereArgs: localId == null ? null : [localId],
+    );
+  }
+
+  /// The one restored row waiting for an asset taken at [createdAt] with
+  /// this shape. Null when none, or when two could be it: a wrong merge is
+  /// worse than a second record.
+  Future<AssetRecord?> relinkCandidate({
+    required DateTime createdAt,
+    required bool isVideo,
+    int? width,
+    int? height,
+  }) async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT a.* FROM $_relinkTable r JOIN $_table a '
+      'ON a.local_id = r.local_id WHERE r.created_at = ?',
+      [createdAt.millisecondsSinceEpoch],
+    );
+    final fits = [
+      for (final row in rows)
+        if (_sameShape(row, isVideo, width, height)) _fromRow(row),
+    ];
+    return fits.length == 1 ? fits.single : null;
+  }
+
+  /// The one scanned row (not restored, not [except]) on an asset taken at
+  /// [createdAt] with this shape — what a restored row from another phone
+  /// takes over.
+  Future<AssetRecord?> scannedTwin({
+    required DateTime createdAt,
+    required bool isVideo,
+    required String except,
+    int? width,
+    int? height,
+  }) async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT * FROM $_table WHERE created_at = ? AND local_id <> ? '
+      'AND library_id IS NOT NULL AND source_type = ? '
+      'AND local_id NOT IN (SELECT local_id FROM $_relinkTable)',
+      [
+        createdAt.millisecondsSinceEpoch,
+        except,
+        AssetSourceType.photoManager.name,
+      ],
+    );
+    final fits = [
+      for (final row in rows)
+        if (_sameShape(row, isVideo, width, height)) _fromRow(row),
+    ];
+    return fits.length == 1 ? fits.single : null;
+  }
+
+  /// Unknown sizes don't disagree; known ones must match.
+  static bool _sameShape(
+    Map<String, Object?> row,
+    bool isVideo,
+    int? width,
+    int? height,
+  ) {
+    if ((row['is_video'] == 1) != isVideo) return false;
+    final w = row['width'] as int?;
+    final h = row['height'] as int?;
+    return (w == null || width == null || w == width) &&
+        (h == null || height == null || h == height);
   }
 
   /// Which targets already hold [kind] of [localId], as `targetId` →

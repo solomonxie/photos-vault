@@ -39,6 +39,7 @@ class _FakeBucket {
   Future<S3ListingResult> list({
     required S3BackupTarget target,
     String prefix = '',
+    String? continuationToken,
   }) async => S3ListingResult(
     S3ListingOutcome.ok,
     page: S3ListingPage(

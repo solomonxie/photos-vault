@@ -140,8 +140,8 @@ class LocalVault {
 
   /// The copy, unconditionally — what the gate calls once it has decided,
   /// and what a test can call without arranging a date.
-  Future<bool> copyNow() async {
-    final wrote = await _writeZip(dailyFileName);
+  Future<bool> copyNow({SnapshotPayload? payload}) async {
+    final wrote = await _writeZip(dailyFileName, payload: payload);
     if (!wrote) return false;
     await _copyDatabases();
     await prune();
@@ -181,12 +181,9 @@ class LocalVault {
   /// One payload, written wherever tier 1 wants it. The same bytes iCloud
   /// and the bucket get — which is what makes a file dragged out of Files
   /// importable, and a file imported from anywhere restorable.
-  Future<bool> _writeZip(String name) async {
+  Future<bool> _writeZip(String name, {SnapshotPayload? payload}) async {
     try {
-      final bytes = zipSnapshot(
-        await snapshots.export(),
-        changeLog: await snapshots.changeLog(),
-      );
+      final bytes = (payload ?? await SnapshotPayload.build(snapshots)).zip;
       final directory = await _documentsDirectory();
       await directory.create(recursive: true);
       await File(p.join(directory.path, name)).writeAsBytes(bytes, flush: true);

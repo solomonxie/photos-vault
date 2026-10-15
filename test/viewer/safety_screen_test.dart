@@ -199,6 +199,14 @@ void main() {
     await tester.pumpAndSettle();
 
     await tester.tap(find.text('Test Restore'));
+    // The drill downloads to a file and hashes it on another isolate: real
+    // I/O, which the fake clock alone never completes.
+    for (var i = 0; i < 40; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
     await tester.pumpAndSettle();
 
     expect(find.textContaining('The backup is real'), findsOneWidget);

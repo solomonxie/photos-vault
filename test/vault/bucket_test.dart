@@ -174,8 +174,8 @@ void main() {
       ),
       get: (url, {headers}) async => http.Response('', 404),
     );
-    final fetched = await none.fetch('originals/a.mov');
-    expect(fetched.bytes, isNull);
+    final fetched = await none.fetchFile('originals/a.mov');
+    expect(fetched.file, isNull);
     expect(fetched.absent, isFalse);
   });
 }

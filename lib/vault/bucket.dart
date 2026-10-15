@@ -32,7 +32,13 @@ class VaultBucket {
     Future<http.Response> Function(Uri url, {Map<String, String>? headers})?
     get,
     S3Uploader? uploader,
+    FetchToFile? download,
   }) : _targetsStore = targetsStore ?? BackupTargetsStore(),
+       _download =
+           download ??
+           (get != null
+               ? fetchThroughGet((url) => get(url))
+               : S3Downloader().fetch),
        _cipher = cipher ?? PlatformCipher(),
        _store = store ?? VaultStore(),
        _put = put ?? http.put,
@@ -54,6 +60,11 @@ class VaultBucket {
   final Future<http.Response> Function(Uri url, {Object? body}) _put;
   final Future<http.Response> Function(Uri url, {Map<String, String>? headers})?
   _getOverride;
+
+  /// Whole carriers, to a file on the background transfer: a hidden video
+  /// is gigabytes, and must neither sit in memory nor stop in the
+  /// background.
+  final FetchToFile _download;
 
   /// One connection pool for every read: a grid of ranged GETs each paying
   /// its own TLS handshake is most of what scrolling an album waits on.
@@ -476,30 +487,33 @@ class VaultBucket {
     return true;
   }
 
-  /// A whole carrier, or [absent] when every bucket answered 404. Unreachable is neither: a caller deciding "there is no
-  /// such object" must not mistake a dead network for it.
-  Future<({Uint8List? bytes, bool absent})> fetch(String objectKey) async {
+  /// A whole carrier in a scratch file, or [absent] when every bucket
+  /// answered 404. Unreachable is neither: a caller deciding "there is no
+  /// such object" must not mistake a dead network for it. The caller drops
+  /// the file with [dropScratch].
+  Future<({File? file, bool absent})> fetchFile(String objectKey) =>
+      _fetchFrom(_targetsStore.loadAll(), objectKey);
+
+  Future<({File? file, bool absent})> _fetchFrom(
+    Future<List<S3BackupTarget>> loading,
+    String objectKey,
+  ) async {
     var missing = 0;
-    final targets = await _targetsStore.loadAll();
+    final targets = await loading;
     for (final target in targets) {
-      try {
-        final response = await _get(
-          await presignGetUrl(
-            target: target,
-            key: resolveKey(target, objectKey),
-          ),
-        );
-        if (response.statusCode == 200) {
-          return (bytes: response.bodyBytes, absent: false);
-        }
-        if (response.statusCode == 404) missing++;
-      } catch (_) {
-        // Next target.
-      }
+      final file = await downloadScratchFile(objectKey);
+      final got = await _download(
+        target,
+        resolveKey(target, objectKey),
+        file.path,
+      );
+      if (got.saved) return (file: file, absent: false);
+      await dropScratch(file);
+      if (got.status == 404) missing++;
     }
     // No bucket to ask (a keychain that didn't answer) is not "absent".
     return (
-      bytes: null,
+      file: null,
       absent: targets.isNotEmpty && missing == targets.length,
     );
   }
@@ -522,21 +536,7 @@ class VaultBucket {
     return wrote == targets.length;
   }
 
-  /// A whole carrier, for opening the photo itself.
-  Future<Uint8List?> object(String objectKey) async {
-    for (final target in await _loadTargets()) {
-      try {
-        final response = await _get(
-          await presignGetUrl(
-            target: target,
-            key: resolveKey(target, objectKey),
-          ),
-        );
-        if (response.statusCode == 200) return response.bodyBytes;
-      } catch (_) {
-        // Next target.
-      }
-    }
-    return null;
-  }
+  /// A whole carrier in a scratch file, for opening the photo itself.
+  Future<File?> objectFile(String objectKey) async =>
+      (await _fetchFrom(_loadTargets(), objectKey)).file;
 }

@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:archive/archive.dart';
@@ -162,4 +163,70 @@ AppSnapshot? unzipSnapshot(List<int> bytes) {
     // Not a zip, or not one of ours.
   }
   return null;
+}
+
+/// The day's copy, built once and shared by every destination a pause
+/// writes to.
+class SnapshotPayload {
+  const SnapshotPayload({required this.zip, required this.csv});
+
+  final Uint8List zip;
+
+  /// [indexCsv] of the same snapshot, for the loose `index.csv`.
+  final String csv;
+
+  /// The rows are read here; the JSON, the CSV and the deflate run on
+  /// another isolate — a whole library of each.
+  static Future<SnapshotPayload> build(AppSnapshotIo snapshots) async {
+    final snapshot = await snapshots.export();
+    final changeLog = await snapshots.changeLog();
+    try {
+      return await Isolate.run(() => _encode(snapshot, changeLog));
+    } on ArgumentError {
+      // A row that can't cross isolates: encoded here, late but whole.
+      return _encode(snapshot, changeLog);
+    }
+  }
+}
+
+SnapshotPayload _encode(AppSnapshot snapshot, Map<String, Object?> changeLog) =>
+    SnapshotPayload(
+      zip: zipSnapshot(snapshot, changeLog: changeLog),
+      csv: indexCsv(snapshot),
+    );
+
+/// One destination's best copy for a fresh install.
+class RestoreCandidate {
+  const RestoreCandidate(this.snapshot, {this.preDeletion = false});
+
+  final AppSnapshot snapshot;
+
+  /// Taken just before Remove All App Data: outranks any daily copy, which
+  /// after a wipe is of an empty library (see [latestArchiveName]).
+  final bool preDeletion;
+
+  /// Whether this is the one to restore rather than [other]: a pre-deletion
+  /// copy first, then the newest `exportedAt`.
+  bool beats(RestoreCandidate? other) {
+    if (other == null) return true;
+    if (preDeletion != other.preDeletion) return preDeletion;
+    return snapshot.exportedAt.isAfter(other.snapshot.exportedAt);
+  }
+
+  static RestoreCandidate? best(Iterable<RestoreCandidate?> all) {
+    RestoreCandidate? best;
+    for (final c in all) {
+      if (c != null && c.beats(best)) best = c;
+    }
+    return best;
+  }
+}
+
+/// [unzipSnapshot] on another isolate: a whole library's inflate and JSON.
+Future<AppSnapshot?> unzipSnapshotAside(List<int> bytes) async {
+  try {
+    return await Isolate.run(() => unzipSnapshot(bytes));
+  } on ArgumentError {
+    return unzipSnapshot(bytes);
+  }
 }

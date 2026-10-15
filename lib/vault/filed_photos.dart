@@ -1,7 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
-import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -10,6 +9,7 @@ import '../photos/file_hash.dart' as file_hash;
 import '../photos/photo_library_service.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/s3_uploader.dart';
 import 'album_index.dart';
 import 'bucket.dart';
 import 'carrier.dart';
@@ -79,10 +79,7 @@ class FiledPhotos {
     final existing = await records.getByLocalId(localId);
     if (existing != null && existing.passcodeHash != passcodeHash) return null;
     var opened = await _openLocal(keys, key);
-    if (opened == null && download) {
-      final bytes = await _bucket.object(key);
-      if (bytes != null) opened = await _openBytes(keys, bytes);
-    }
+    if (opened == null && download) opened = await _openRemote(keys, key);
     if (opened == null) return null;
     final path = await _write(key, opened);
     // An entry filed before the index recorded motion says null, not
@@ -184,10 +181,11 @@ class FiledPhotos {
     if (motionKey == null) return false;
     var opened = await _openLocal(keys, motionKey);
     if (opened == null) {
-      final fetched = await _bucket.fetch(motionKey);
-      final bytes = fetched.bytes;
-      if (bytes == null) return fetched.absent ? false : null;
-      opened = await _openBytes(keys, bytes);
+      final fetched = await _bucket.fetchFile(motionKey);
+      final file = fetched.file;
+      if (file == null) return fetched.absent ? false : null;
+      opened = await _openPath(keys, file.path);
+      await dropScratch(file);
       if (opened == null) return false;
     }
     await File(PhotoLibraryService.heldLiveVideoPath(path))
@@ -212,10 +210,7 @@ class FiledPhotos {
     bool download = false,
   }) async {
     var opened = await _openLocal(keys, key);
-    if (opened == null && download) {
-      final bytes = await _bucket.object(key);
-      if (bytes != null) opened = await _openBytes(keys, bytes);
-    }
+    if (opened == null && download) opened = await _openRemote(keys, key);
     if (opened == null) return false;
     await File(PhotoLibraryService.heldLiveVideoPath(stillPath))
         .writeAsBytes(opened.original, flush: true);
@@ -225,22 +220,26 @@ class FiledPhotos {
   Future<OpenedCarrier?> _openLocal(AlbumKeys keys, String key) async {
     final file = await _store.carrierFile(keys, key);
     if (!await file.exists()) return null;
+    return _openPath(keys, file.path);
+  }
+
+  /// The bucket's copy, by way of a scratch file dropped once opened.
+  Future<OpenedCarrier?> _openRemote(AlbumKeys keys, String key) async {
+    final file = await _bucket.objectFile(key);
+    if (file == null) return null;
+    try {
+      return await _openPath(keys, file.path);
+    } finally {
+      await dropScratch(file);
+    }
+  }
+
+  Future<OpenedCarrier?> _openPath(AlbumKeys keys, String path) {
     final cipher = _cipher;
     final carrierKeys = keys.carrier;
-    final path = file.path;
     // MAC and decryption of the whole file: off the UI isolate.
     return Isolate.run(() async {
       final payload = payloadOf(await File(path).readAsBytes());
-      if (payload == null) return null;
-      return openCarrier(cipher: cipher, keys: carrierKeys, payload: payload);
-    });
-  }
-
-  Future<OpenedCarrier?> _openBytes(AlbumKeys keys, Uint8List bytes) {
-    final cipher = _cipher;
-    final carrierKeys = keys.carrier;
-    return Isolate.run(() {
-      final payload = payloadOf(bytes);
       if (payload == null) return null;
       return openCarrier(cipher: cipher, keys: carrierKeys, payload: payload);
     });

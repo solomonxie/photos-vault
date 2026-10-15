@@ -6,6 +6,8 @@ import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
 import '../settings/s3_listing.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/bucket_http.dart';
+import '../upload/s3_uploader.dart';
 import '../upload/signing.dart';
 import 'app_snapshot.dart';
 import 'backup_schedule.dart';
@@ -40,17 +42,24 @@ class BucketBackup {
     required this.targetsStore,
     Future<http.Response> Function(Uri url, {Object? body})? put,
     Future<http.Response> Function(Uri url)? get,
+    FetchToFile? download,
     Future<S3ListingResult> Function({
       required S3BackupTarget target,
       String prefix,
+      String? continuationToken,
     })?
     list,
   }) : _put = put ?? http.put,
-       _get = get ?? http.get,
+       _download =
+           download ??
+           (get != null ? fetchThroughGet(get) : S3Downloader().fetch),
        _list =
            list ??
-           (({required target, prefix = ''}) =>
-               listBucket(target: target, prefix: prefix));
+           (({required target, prefix = '', continuationToken}) => listBucket(
+             target: target,
+             prefix: prefix,
+             continuationToken: continuationToken,
+           ));
 
   final AppSnapshotIo snapshots;
   final BackupTargetsStore targetsStore;
@@ -68,12 +77,18 @@ class BucketBackup {
   /// temporary file first to hand a background upload a path would be work
   /// for nothing.
   final Future<http.Response> Function(Uri url, {Object? body}) _put;
-  final Future<http.Response> Function(Uri url) _get;
+
+  /// Archives come down to a file on the background transfer.
+  final FetchToFile _download;
   final Future<S3ListingResult> Function({
     required S3BackupTarget target,
     String prefix,
+    String? continuationToken,
   })
   _list;
+
+  /// A day's archive is megabytes: a longer leash than a HEAD, never none.
+  static const putTimeout = Duration(seconds: 60);
 
   static const enabledKey = 'bucket_backup_enabled';
   static const restoredKey = 'bucket_backup_restored_at';
@@ -124,12 +139,14 @@ class BucketBackup {
   /// Writes the current snapshot to every configured bucket. Silent about
   /// failure: this runs unattended, and a bucket that can't be reached
   /// right now is not an error to interrupt anyone with.
-  Future<bool> backUpNow() async {
+  ///
+  /// [payload] is the copy a pause already built for every destination.
+  Future<bool> backUpNow({SnapshotPayload? payload}) async {
     final targets = await targetsStore.loadAll();
     if (targets.isEmpty) return false;
-    final snapshot = await snapshots.export();
-    final body = zipSnapshot(snapshot, changeLog: await snapshots.changeLog());
-    final index = indexCsv(snapshot);
+    final built = payload ?? await SnapshotPayload.build(snapshots);
+    final body = built.zip;
+    final index = built.csv;
     final name = dailyArchiveName(DateTime.now());
     var wrote = false;
     for (final target in targets) {
@@ -138,7 +155,10 @@ class BucketBackup {
           target: target,
           key: keyFor(target, name),
         );
-        final response = await _put(url, body: body);
+        final response = await bucketRequest(
+          _put(url, body: body),
+          timeout: putTimeout,
+        );
         wrote = wrote || response.statusCode == 200;
       } catch (_) {
         // Unreachable bucket, expired credentials — the next one may work,
@@ -163,15 +183,18 @@ class BucketBackup {
   /// failure: the zip is the copy that restores.
   Future<void> _writeIndex(S3BackupTarget target, String csv) async {
     try {
-      await _put(
-        await presignPutUrl(
-          target: target,
-          key: keyFor(target, indexEntryName),
+      await bucketRequest(
+        _put(
+          await presignPutUrl(
+            target: target,
+            key: keyFor(target, indexEntryName),
+          ),
+          // Bytes, like every other body this class PUTs — a String body
+          // leaves the charset to the HTTP client, and this file holds
+          // captions in whatever language they were typed in.
+          body: utf8.encode(csv),
         ),
-        // Bytes, like every other body this class PUTs — a String body
-        // leaves the charset to the HTTP client, and this file holds
-        // captions in whatever language they were typed in.
-        body: utf8.encode(csv),
+        timeout: putTimeout,
       );
     } catch (_) {
       // See above.
@@ -195,7 +218,10 @@ class BucketBackup {
           target: target,
           key: keyFor(target, name),
         );
-        final response = await _put(url, body: body);
+        final response = await bucketRequest(
+          _put(url, body: body),
+          timeout: putTimeout,
+        );
         wrote = wrote || response.statusCode == 200;
       } catch (_) {
         // The remaining destinations may still preserve the final copy.
@@ -211,46 +237,80 @@ class BucketBackup {
   }
 
   /// Pulls the snapshot back on a fresh install. Guarded the same way the
-  /// iCloud one is — the library has to be empty *and* a restore must not
-  /// have happened already — because running it twice would layer a stale
-  /// snapshot over live work.
-  Future<int> restoreIfFreshInstall() async {
-    if (await settings.getAppState(restoredKey) != null) return 0;
-    if ((await settings.listAll()).isNotEmpty) return 0;
+  /// iCloud one is — nothing a restore could overwrite, *and* a restore
+  /// must not have happened already — because running it twice would layer
+  /// a stale snapshot over live work.
+  Future<int> restoreIfFreshInstall({bool scannedRows = false}) async {
+    final candidate = await candidateForFreshInstall(scannedRows: scannedRows);
+    if (candidate == null) return 0;
+    return restoreFrom(candidate.snapshot);
+  }
+
+  /// The newest copy across every bucket, or null when this install isn't
+  /// fresh or none has one. Restores nothing.
+  Future<RestoreCandidate?> candidateForFreshInstall({
+    bool scannedRows = false,
+  }) async {
+    if (await settings.getAppState(restoredKey) != null) return null;
+    if (!await snapshots.isFreshInstall(scannedRows: scannedRows)) {
+      return null;
+    }
+    final found = <RestoreCandidate?>[];
     for (final target in await targetsStore.loadAll()) {
       try {
-        final snapshot = await _latestSnapshotIn(target);
-        if (snapshot == null || snapshot.isEmpty) continue;
-        final restored = await snapshots.import(snapshot);
-        await settings.setAppState(
-          restoredKey,
-          DateTime.now().toIso8601String(),
-        );
-        // Switched on for whoever restored: they plainly want the copy
-        // kept, and asking again asks a question already answered.
-        await settings.setAppState(enabledKey, 'true');
-        return restored;
+        found.add(await _latestSnapshotIn(target));
       } catch (_) {
         // Wrong bucket, expired credentials, network — try the next one.
       }
     }
-    return 0;
+    return RestoreCandidate.best(found);
   }
+
+  Future<int> restoreFrom(AppSnapshot snapshot) async {
+    final restored = await snapshots.import(snapshot);
+    await markRestored();
+    // Switched on for whoever restored: they plainly want the copy kept,
+    // and asking again asks a question already answered.
+    await settings.setAppState(enabledKey, 'true');
+    return restored;
+  }
+
+  Future<void> markRestored() =>
+      settings.setAppState(restoredKey, DateTime.now().toIso8601String());
 
   /// The archive worth restoring from in [target], of any naming
   /// generation, or the single `library.json` an older build left there.
   ///
   /// Listed rather than guessed at: what is really in the folder is the
   /// only answer, and a device that has been off for two months has no way
-  /// to know it. A pre-deletion copy is taken over a newer daily one (see
-  /// [latestArchiveName]); past that the dates decide, and each candidate
-  /// is tried in turn because a download can fail or a zip be truncated.
-  Future<AppSnapshot?> _latestSnapshotIn(S3BackupTarget target) async {
-    final listing = await _list(target: target, prefix: keyFor(target, ''));
-    final names = (listing.page?.objects ?? const <S3Object>[])
-        .map((object) => object.key.split('/').last)
-        .where(isSnapshotArchiveName)
-        .toList();
+  /// to know it. Every page of it: the folder is never pruned, and after a
+  /// thousand days the newest archives are past the first. A pre-deletion
+  /// copy is taken over a newer daily one (see [latestArchiveName]); past
+  /// that the dates decide, and each candidate is tried in turn because a
+  /// download can fail or a zip be truncated.
+  Future<RestoreCandidate?> _latestSnapshotIn(S3BackupTarget target) async {
+    final names = <String>[];
+    String? token;
+    for (var page = 0; page < maxListingPages; page++) {
+      final listing = await _list(
+        target: target,
+        prefix: keyFor(target, ''),
+        continuationToken: token,
+      );
+      // A bucket that didn't answer has nothing to offer, legacy file
+      // included.
+      if (listing.outcome != S3ListingOutcome.ok) {
+        if (page == 0) return null;
+        break;
+      }
+      names.addAll(
+        (listing.page?.objects ?? const <S3Object>[])
+            .map((object) => object.key.split('/').last)
+            .where(isSnapshotArchiveName),
+      );
+      token = listing.page?.nextToken;
+      if (token == null) break;
+    }
     final first = latestArchiveName(names);
     final archives = [
       ...(names.where((name) => name != first).toList()..sort()),
@@ -259,21 +319,38 @@ class BucketBackup {
     for (final name in archives.reversed) {
       final bytes = await _fetch(target, name);
       if (bytes == null) continue;
-      final snapshot = unzipSnapshot(bytes);
-      if (snapshot != null) return snapshot;
+      final snapshot = await unzipSnapshotAside(bytes);
+      if (snapshot == null) continue;
+      // An empty library's copy restores nothing; nor does an older one
+      // stand in for it.
+      return snapshot.isEmpty
+          ? null
+          : RestoreCandidate(
+              snapshot,
+              preDeletion: isPreDeletionArchiveName(name),
+            );
     }
     final legacy = await _fetch(target, legacyFileName);
-    return legacy == null ? null : AppSnapshot.decode(utf8.decode(legacy));
+    final snapshot = legacy == null
+        ? null
+        : AppSnapshot.decode(utf8.decode(legacy));
+    return snapshot == null || snapshot.isEmpty
+        ? null
+        : RestoreCandidate(snapshot);
   }
 
+  /// Ten thousand objects of `app-data/`: decades of dailies.
+  static const maxListingPages = 10;
+
   Future<List<int>?> _fetch(S3BackupTarget target, String name) async {
+    final file = await downloadScratchFile(name);
     try {
-      final response = await _get(
-        await presignGetUrl(target: target, key: keyFor(target, name)),
-      );
-      return response.statusCode == 200 ? response.bodyBytes : null;
+      final got = await _download(target, keyFor(target, name), file.path);
+      return got.saved ? await file.readAsBytes() : null;
     } catch (_) {
       return null;
+    } finally {
+      await dropScratch(file);
     }
   }
 

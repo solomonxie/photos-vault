@@ -234,14 +234,20 @@ class SyncEngine {
       if (unresolvable.contains(r.localId)) return false;
       return r.stateOf(DerivativeKind.original).status == UploadStatus.uploaded;
     }).toList();
+    var queued = false;
     for (final record in newestFirst(uploaded)) {
-      await syncQueue.enqueue(
+      // Full or paused: the rest wait for the next pass.
+      if (!await syncQueue.enqueue(
         localId: record.localId,
         kind: SyncJobKind.checkChanges,
         displayName: displayName(record),
         assetCreatedAt: record.createdAt,
-      );
+      )) {
+        break;
+      }
+      queued = true;
     }
+    if (queued) unawaited(syncQueue.start());
     return uploaded.length;
   }
 

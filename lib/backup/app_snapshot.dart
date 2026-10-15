@@ -146,7 +146,12 @@ class AppSnapshotIo {
     required this.albumStore,
     required this.personStore,
     this.aiAnalysisStore,
+    this.hasAsset,
   });
+
+  /// Whether Photos on this phone has an asset id (null: couldn't tell).
+  /// Without it a restored row never takes over a scanned twin by shape.
+  final Future<bool?> Function(String libraryId)? hasAsset;
 
   final AssetRecordStore assetRecordStore;
   final AlbumStore albumStore;
@@ -288,6 +293,34 @@ class AppSnapshotIo {
   Future<int> import(AppSnapshot snapshot) =>
       RestoreGuard.run(() => _import(snapshot));
 
+  /// Nothing here a restore could overwrite: no album, no person, and no
+  /// record. With [scannedRows] — a launch that began on an empty library —
+  /// records a scan of Photos made since are allowed, so long as they carry
+  /// nothing anybody did: the import merges with them.
+  Future<bool> isFreshInstall({bool scannedRows = false}) async {
+    if ((await albumStore.listAll()).isNotEmpty) return false;
+    if ((await personStore.listAll()).isNotEmpty) return false;
+    final records = await assetRecordStore.listAll();
+    return scannedRows ? records.every(carriesNothing) : records.isEmpty;
+  }
+
+  /// A row only a scan wrote: nothing on it to lose to a merge.
+  static bool carriesNothing(AssetRecord r) =>
+      r.sourceType == AssetSourceType.photoManager &&
+      r.passcodeHash == null &&
+      !r.isHidden &&
+      !r.isLocked &&
+      !r.isDeleted &&
+      !r.localDeleted &&
+      r.description.isEmpty &&
+      r.tags.isEmpty &&
+      r.location == null &&
+      DerivativeKind.values.every((k) {
+        final state = r.stateOf(k);
+        return state.status != UploadStatus.uploaded &&
+            state.destinationKey == null;
+      });
+
   Future<int> _import(AppSnapshot snapshot) async {
     var restored = 0;
     for (final row in snapshot.assets) {
@@ -370,11 +403,22 @@ class AppSnapshotIo {
     },
   };
 
+  /// One restored row. A scan that got there first is merged with, never
+  /// overwritten: same id, the backup fills what the scanned row lacks; the
+  /// same asset (or, from another phone, its twin by capture time and
+  /// shape) under another id, the restored row takes the asset over. A row
+  /// carrying anything of its own is left alone.
   Future<bool> _importAsset(Map<String, Object?> row) async {
     final localId = row['localId'] as String?;
     if (localId == null || localId.isEmpty) return false;
-    if (await assetRecordStore.getByLocalId(localId) != null) return false;
-    await assetRecordStore.upsert(
+    final existing = await assetRecordStore.getByLocalId(localId);
+    if (existing != null) {
+      if (!carriesNothing(existing)) return false;
+      await _fill(existing, row, fresh: false);
+      return true;
+    }
+    final libraryId = row['libraryId'] as String?;
+    final inserted = await assetRecordStore.upsert(
       localId: localId,
       contentHash: row['contentHash'] as String? ?? localId,
       platform: row['platform'] as String? ?? 'ios',
@@ -390,44 +434,104 @@ class AppSnapshotIo {
       isGif: row['isGif'] as bool? ?? false,
       createdAt: _date(row['createdAt']),
       addedAt: _date(row['addedAt']),
-      libraryId: row['libraryId'] as String?,
-      // Its asset already held here: kept unlinked, metadata and all.
+      libraryId: libraryId,
+      // Its asset already held here: kept unlinked, metadata and all, until
+      // [_takeOverScanned] decides.
       keepOnLibraryConflict: true,
       latitude: (row['latitude'] as num?)?.toDouble(),
       longitude: (row['longitude'] as num?)?.toDouble(),
       width: row['width'] as int?,
       height: row['height'] as int?,
     );
+    await _fill(inserted, row, fresh: true);
+    if (inserted.sourceType == AssetSourceType.photoManager &&
+        row['passcodeHash'] == null) {
+      await _takeOverScanned(inserted, libraryId);
+    }
+    return true;
+  }
+
+  /// The scanned record on this row's asset, folded into it. When none is
+  /// found the row waits for the scan to bring its asset (another phone
+  /// gives it a new id: see `PhotoLibraryService`).
+  Future<void> _takeOverScanned(AssetRecord restored, String? libraryId) async {
+    if (libraryId == null) return;
+    final found = await assetRecordStore.getByLibraryId(libraryId);
+    final holder = found?.localId == restored.localId ? null : found;
+    if (holder != null) {
+      if (carriesNothing(holder)) {
+        await assetRecordStore.adoptAsset(restored.localId, libraryId);
+      }
+      return;
+    }
+    if (await hasAsset?.call(libraryId) == false) {
+      final twin = await assetRecordStore.scannedTwin(
+        createdAt: restored.createdAt,
+        isVideo: restored.isVideo,
+        width: restored.width,
+        height: restored.height,
+        except: restored.localId,
+      );
+      final twinAsset = twin?.libraryId;
+      if (twin != null && twinAsset != null && carriesNothing(twin)) {
+        if (await assetRecordStore.adoptAsset(restored.localId, twinAsset)) {
+          return;
+        }
+      }
+    }
+    await assetRecordStore.markRelinkPending(
+      restored.localId,
+      restored.createdAt,
+    );
+  }
+
+  /// What the backup says about [current] and [current] doesn't: blanks
+  /// filled, nothing replaced. [fresh] is a row this restore just made;
+  /// otherwise a scan made it from the photo as it is in Photos now, so
+  /// "cloud-only" and "binned because Photos lost it" are stale.
+  Future<void> _fill(
+    AssetRecord current,
+    Map<String, Object?> row, {
+    required bool fresh,
+  }) async {
+    final localId = current.localId;
     final description = row['description'] as String? ?? '';
-    if (description.isNotEmpty) {
+    if (description.isNotEmpty && current.description.isEmpty) {
       await assetRecordStore.setDescription(localId, description);
     }
     final tags = (row['tags'] as List<dynamic>? ?? const []).cast<String>();
-    if (tags.isNotEmpty) await assetRecordStore.setTags(localId, tags);
+    if (tags.any((t) => !current.tags.contains(t))) {
+      await assetRecordStore.setTags(
+        localId,
+        {...current.tags, ...tags}.toList(),
+      );
+    }
     final location = row['location'] as String?;
-    if (location != null) await assetRecordStore.setLocation(localId, location);
+    if (location != null && current.location == null) {
+      await assetRecordStore.setLocation(localId, location);
+    }
     // Only in snapshots from before hidden rows were left out. Its old-form
     // tag still opens the album, and is upgraded the first time it does.
     final passcodeHash = row['passcodeHash'] as String?;
-    if (passcodeHash != null) {
+    if (passcodeHash != null && current.passcodeHash == null) {
       await assetRecordStore.setPasscodeHash(localId, passcodeHash);
     }
-    if (row['isFavorite'] as bool? ?? false) {
+    if ((row['isFavorite'] as bool? ?? false) && !current.isFavorite) {
       await assetRecordStore.setFavorite(localId, true);
     }
-    if (row['isHidden'] as bool? ?? false) {
+    if ((row['isHidden'] as bool? ?? false) && !current.isHidden) {
       await assetRecordStore.setHidden(localId, true);
     }
-    if (row['localDeleted'] as bool? ?? false) {
+    if (fresh && (row['localDeleted'] as bool? ?? false)) {
       await assetRecordStore.setLocalDeleted(localId, true);
     }
-    final deletedAt = _date(row['deletedAt']);
-    if (deletedAt != null) {
-      await assetRecordStore.softDelete(
-        localId,
-        byLibrary: row['binnedByLibrary'] as bool? ?? false,
-      );
+    final byLibrary = row['binnedByLibrary'] as bool? ?? false;
+    if (_date(row['deletedAt']) != null &&
+        !current.isDeleted &&
+        (fresh || !byLibrary)) {
+      await assetRecordStore.softDelete(localId, byLibrary: byLibrary);
     }
+    final filled = <DerivativeKind>{};
     final derivatives = row['derivatives'] as Map<String, Object?>? ?? const {};
     for (final kind in DerivativeKind.values) {
       final state = derivatives[kind.name] as Map<String, Object?>?;
@@ -436,6 +540,8 @@ class AppSnapshotIo {
         state['status'] as String? ?? UploadStatus.pending.name,
       );
       if (status == UploadStatus.pending) continue;
+      if (current.stateOf(kind).status != UploadStatus.pending) continue;
+      filled.add(kind);
       await assetRecordStore.updateDerivative(
         localId,
         kind,
@@ -452,6 +558,8 @@ class AppSnapshotIo {
       final kind = DerivativeKind.values.asNameMap()[upload['kind']];
       final key = upload['key'] as String?;
       if (kind == null || key == null) continue;
+      // A merged row keeps its own uploads; a fresh one takes every key.
+      if (!fresh && !filled.contains(kind)) continue;
       await assetRecordStore.recordUpload(
         localId: localId,
         kind: kind,
@@ -460,7 +568,6 @@ class AppSnapshotIo {
         sourceHash: upload['sourceHash'] as String?,
       );
     }
-    return true;
   }
 
   // ----------------------------------------------------------------- albums

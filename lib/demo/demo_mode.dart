@@ -1,11 +1,11 @@
 import 'dart:io';
 
 import 'package:flutter/foundation.dart';
-import 'package:flutter_secure_storage/flutter_secure_storage.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider_platform_interface/path_provider_platform_interface.dart';
 import 'package:sqflite/sqflite.dart' as sqflite;
 
+import '../settings/secure_store.dart';
 import 'demo_flag.dart';
 import 'demo_seed.dart';
 
@@ -100,10 +100,7 @@ class DemoMode {
       }
     }
     try {
-      const storage = FlutterSecureStorage();
-      for (final key in (await storage.readAll()).keys) {
-        if (key.startsWith('$namespace.')) await storage.delete(key: key);
-      }
+      await const FlutterSecureStore().deleteWhere('$namespace.');
     } catch (_) {
       // No keychain (tests).
     }

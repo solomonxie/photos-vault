@@ -15,8 +15,14 @@ class LibraryScanner {
     required this.scan,
     this.scanRecent,
     this.interval = const Duration(minutes: 5),
+    this.before,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
+
+  /// Awaited before every pass: a fresh install's restore, so the scan
+  /// doesn't race it to every asset (the restore merges with what it finds
+  /// either way; this just leaves it less to merge).
+  final Future<void> Function()? before;
 
   /// The pass itself, owned by whoever redraws as its pages arrive.
   final Future<void> Function() scan;
@@ -54,7 +60,10 @@ class LibraryScanner {
     if (scan == null) return;
     final inFlight = _recentInFlight;
     if (inFlight != null) return inFlight;
-    final future = _guarded(scan);
+    final future = _guarded(() async {
+      await _waitBefore();
+      await scan();
+    });
     _recentInFlight = future;
     try {
       await future;
@@ -87,7 +96,14 @@ class LibraryScanner {
     }
   }
 
+  Future<void> _waitBefore() async {
+    try {
+      await before?.call();
+    } catch (_) {}
+  }
+
   Future<void> _run() async {
+    await _waitBefore();
     running.value = true;
     try {
       await scan();

@@ -207,6 +207,13 @@ void main() {
     // Flipping it back on writes the copy at once, rather than waiting for
     // the next change — which could be days off.
     await tester.tap(find.byType(CupertinoSwitch).first);
+    // Zipped on another isolate, which the fake clock alone never finishes.
+    for (var i = 0; i < 40; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 20)),
+      );
+      await tester.pump();
+    }
     await tester.pumpAndSettle();
 
     expect(await bucket.backup.isEnabled(), isTrue);

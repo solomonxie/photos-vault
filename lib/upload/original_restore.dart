@@ -11,6 +11,7 @@ import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'object_keys.dart';
+import 's3_uploader.dart';
 import 'signing.dart';
 
 /// Pulls a backed-up original back down to the device — the other half of
@@ -27,9 +28,13 @@ class OriginalRestore {
     required this.recordStore,
     Future<Directory> Function()? directory,
     Future<http.Response> Function(Uri url)? get,
+    FetchToFile? download,
     Future<bool> Function(Map<String, Object> args)? frame,
   }) : _directory = directory ?? getApplicationSupportDirectory,
        _get = get ?? http.get,
+       _download =
+           download ??
+           (get != null ? fetchThroughGet(get) : S3Downloader().fetch),
        _getHead =
            get ?? ((url) => http.get(url, headers: {'Range': _headRange})),
        _frame = frame ?? _nativeFrame;
@@ -38,8 +43,14 @@ class OriginalRestore {
   final AssetRecordStore recordStore;
   final Future<Directory> Function() _directory;
 
-  /// Overridable for tests so they never make a real network call.
+  /// Overridable for tests so they never make a real network call. Small
+  /// objects only (thumbnails): a whole original goes through [_download].
   final Future<http.Response> Function(Uri url) _get;
+
+  /// Originals and `.mov`s, to a file on the background transfer: a video
+  /// can be gigabytes, and must neither sit in memory nor stop when the app
+  /// is backgrounded.
+  final FetchToFile _download;
 
   /// The first [headBytes] of an object.
   final Future<http.Response> Function(Uri url) _getHead;
@@ -124,20 +135,24 @@ class OriginalRestore {
   ) async {
     {
       try {
-        final url = await presignGetUrl(target: target, key: key);
-        final response = await _get(url);
-        if (response.statusCode != 200) {
-          heard.add(
-            response.statusCode == 404
-                ? 'not in ${target.bucket}'
-                : '${target.bucket} said ${response.statusCode}',
-          );
-          return null;
-        }
-
         final dir = await _directory();
         final file = File(p.join(dir.path, p.basename(key)));
-        await file.writeAsBytes(response.bodyBytes);
+        // Beside it until whole: a cut transfer never sits at the name a
+        // record points at.
+        final part = File('${file.path}.part');
+        final got = await _download(target, key, part.path);
+        if (!got.saved) {
+          heard.add(
+            got.status == 404
+                ? 'not in ${target.bucket}'
+                : got.status == null
+                ? '${target.bucket} unreachable'
+                : '${target.bucket} said ${got.status}',
+          );
+          if (await part.exists()) await part.delete();
+          return null;
+        }
+        await part.rename(file.path);
         await recordStore.setSourcePath(record.localId, file.path);
         await recordStore.setLocalDeleted(record.localId, false);
         // Whatever the device had before — nothing, or a shrunken copy —
@@ -257,11 +272,12 @@ class OriginalRestore {
     try {
       final file = File(p.join(dir.path, p.basename(key)));
       if (await file.exists()) return;
-      final response = await _get(
-        await presignGetUrl(target: target, key: key),
-      );
-      if (response.statusCode != 200) return;
-      await file.writeAsBytes(response.bodyBytes);
+      final part = File('${file.path}.part');
+      if (!(await _download(target, key, part.path)).saved) {
+        if (await part.exists()) await part.delete();
+        return;
+      }
+      await part.rename(file.path);
     } catch (_) {
       // See above — the still is back either way.
     }
