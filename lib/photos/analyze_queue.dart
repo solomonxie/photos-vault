@@ -99,6 +99,7 @@ class AnalyzeQueue {
     required this.displayNameFor,
     this.faceIdentity,
     this.taggedPeople,
+    this.taggedPeopleOf,
     this.rest = const Duration(milliseconds: 400),
   });
 
@@ -121,6 +122,10 @@ class AnalyzeQueue {
   /// Who is already tagged in each photo, `localId` → person ids. Feeds
   /// [AnalyzeStep.learnFaces]. Absent, the backfill simply doesn't run.
   final Future<Map<String, List<String>>> Function()? taggedPeople;
+
+  /// Who is tagged in one photo, read fresh per job. Absent, the whole
+  /// [taggedPeople] map is read instead.
+  final Future<List<String>> Function(String localId)? taggedPeopleOf;
 
   /// The wait between batches. The whole point of this queue is that it
   /// never makes the phone hot: a pass that finishes in an hour instead of
@@ -225,21 +230,110 @@ class AnalyzeQueue {
   /// filter, not a pass over the photos themselves.
   Future<void> refresh() async {
     await load();
-    final outstanding = await _outstanding();
-    remaining.value = outstanding.length;
+    _backlog = await _outstanding();
+    _backlogIds = {for (final spec in _backlog) spec.id};
+    _refreshedAt = DateTime.now();
+    _publish();
+  }
+
+  /// Everything outstanding, in order: worked out once per [refresh] and
+  /// then patched per batch ([_advance]), not re-derived from the whole
+  /// library every 0.4 s.
+  List<_Spec> _backlog = [];
+  Set<String> _backlogIds = {};
+  DateTime? _refreshedAt;
+  List<AssetRecord>? _records;
+
+  /// What [_outstanding] read, kept to re-derive a photo after its batch.
+  Map<String, AiPhotoAnalysis> _analyzed = {};
+  Map<String, List<FaceRect>> _faces = {};
+  Set<String> _matched = {};
+  Set<String> _learned = {};
+  Map<String, List<String>> _tagged = const {};
+
+  /// [jobs] from the head of [_backlog]: only the rows shown get a name.
+  void _publish() {
+    remaining.value = _backlog.length;
     if (_listCleared) {
       jobs.value = const [];
       return;
     }
-    final ids = outstanding.map((job) => job.id).toSet();
+    final head = [
+      for (final spec in _backlog.take(capacity))
+        AnalyzeJob(
+          id: spec.id,
+          localId: spec.record.localId,
+          step: spec.step,
+          displayName: displayNameFor(spec.record),
+        ),
+    ];
+    final ids = _backlogIds;
     jobs.value = [
-      ...outstanding.take(capacity),
+      ...head,
       // What just happened stays on screen under what's next: a pass that
       // erases its own work as it goes looks like a pass that did nothing.
       ...jobs.value
           .where((job) => job.isFinished && !ids.contains(job.id))
           .take(_finishedShown),
     ];
+  }
+
+  /// After a batch: what the batch's photos still owe, worked out from
+  /// what they just did, in their old place. A library that moved (a scan,
+  /// a delete) gets a full [refresh], at most twice a minute.
+  Future<void> _advance(List<AnalyzeJob> batch) async {
+    try {
+      final all = await assetRecordStore.listAll();
+      final stale = DateTime.now().difference(_refreshedAt ?? DateTime(0));
+      if (libraryDelta(_records, all).shape &&
+          stale >= const Duration(seconds: 30)) {
+        return await refresh();
+      }
+    } catch (_) {
+      // Patched from what is known.
+    }
+    for (final job in batch) {
+      final id = job.localId!;
+      if (job.status == AnalyzeJobStatus.done) {
+        switch (job.step) {
+          case AnalyzeStep.findFaces:
+            try {
+              final analysis = await analysisStore.get(id);
+              if (analysis != null) _analyzed[id] = analysis;
+              if (faceIdentity != null) {
+                final faces = await analysisStore.facesFor(id);
+                if (faces.isEmpty) {
+                  _faces.remove(id);
+                } else {
+                  _faces[id] = faces;
+                }
+              }
+            } catch (_) {
+              // Left as it was; the next refresh reads it again.
+            }
+          case AnalyzeStep.learnFaces:
+            _learned.add(id);
+          case AnalyzeStep.matchFaces:
+            _matched.add(id);
+        }
+      }
+    }
+    final photos = {for (final job in batch) job.localId!};
+    final backlog = _backlog;
+    for (final id in photos) {
+      // Near the head: batches are taken from it.
+      final at = backlog.indexWhere((s) => s.record.localId == id);
+      if (at == -1) continue;
+      var end = at;
+      while (end < backlog.length && backlog[end].record.localId == id) {
+        _backlogIds.remove(backlog[end].id);
+        end++;
+      }
+      final next = _specsFor(backlog[at].record);
+      backlog.replaceRange(at, end, next);
+      _backlogIds.addAll(next.map((s) => s.id));
+    }
+    _publish();
   }
 
   /// Throws away everything the free pass has ever worked out — the faces
@@ -283,23 +377,22 @@ class AnalyzeQueue {
     jobs.value = const [];
   }
 
-  Future<List<AnalyzeJob>> _outstanding() async {
+  Future<List<_Spec>> _outstanding() async {
     List<AssetRecord> records;
-    Map<String, AiPhotoAnalysis> analyzed;
     try {
       records = await _activeRecords();
-      analyzed = await analysisStore.listAll();
+      _analyzed = Map.of(await analysisStore.listAll());
     } catch (_) {
-      return const [];
+      return [];
     }
-    Map<String, List<FaceRect>> faces = const {};
-    Set<String> matched = const {};
-    Set<String> learned = const {};
-    Map<String, List<String>> tagged = const {};
+    _faces = {};
+    _matched = {};
+    _learned = {};
+    _tagged = const {};
     if (faceIdentity != null) {
       try {
-        faces = await analysisStore.facesByAsset();
-        matched = await analysisStore.matchedAssets()
+        _faces = Map.of(await analysisStore.facesByAsset());
+        _matched = Set.of(await analysisStore.matchedAssets())
           ..removeAll(
             // Described in a space this build no longer speaks. Worth
             // another look, or they sit there being incomparable.
@@ -307,8 +400,8 @@ class AnalyzeQueue {
               FaceDescriptor.livePipelines,
             ),
           );
-        learned = await analysisStore.assetsWithDescriptors();
-        tagged = await taggedPeople?.call() ?? const {};
+        _learned = Set.of(await analysisStore.assetsWithDescriptors());
+        _tagged = await taggedPeople?.call() ?? const {};
       } catch (_) {
         // No analysis database — nothing to match against either.
       }
@@ -324,38 +417,24 @@ class AnalyzeQueue {
     // The cost is that an early guess is made against fewer confirmed
     // faces than a late one. That is what naming somebody re-opening
     // every unanswered guess is for.
+    return [for (final record in records) ..._specsFor(record)];
+  }
+
+  List<_Spec> _specsFor(AssetRecord record) {
+    final id = record.localId;
     return [
-      for (final record in records) ...[
-        if (!record.isVideo &&
-            (analyzed[record.localId]?.needsLookingAt ?? true))
-          AnalyzeJob(
-            id: 'faces:${record.localId}',
-            localId: record.localId,
-            step: AnalyzeStep.findFaces,
-            displayName: displayNameFor(record),
-          ),
-        // One face, one person, or nothing. iOS won't say whose face is
-        // whose, so a group shot with three faces and one name in it
-        // can't say which of the three is theirs — and a reference set
-        // built on a guess makes every later guess worse.
-        if (faces[record.localId]?.length == 1 &&
-            tagged[record.localId]?.length == 1 &&
-            !learned.contains(record.localId))
-          AnalyzeJob(
-            id: 'learn:${record.localId}',
-            localId: record.localId,
-            step: AnalyzeStep.learnFaces,
-            displayName: displayNameFor(record),
-          ),
-        if (faces.containsKey(record.localId) &&
-            !matched.contains(record.localId))
-          AnalyzeJob(
-            id: 'match:${record.localId}',
-            localId: record.localId,
-            step: AnalyzeStep.matchFaces,
-            displayName: displayNameFor(record),
-          ),
-      ],
+      if (!record.isVideo && (_analyzed[id]?.needsLookingAt ?? true))
+        (step: AnalyzeStep.findFaces, record: record),
+      // One face, one person, or nothing. iOS won't say whose face is
+      // whose, so a group shot with three faces and one name in it
+      // can't say which of the three is theirs — and a reference set
+      // built on a guess makes every later guess worse.
+      if (_faces[id]?.length == 1 &&
+          _tagged[id]?.length == 1 &&
+          !_learned.contains(id))
+        (step: AnalyzeStep.learnFaces, record: record),
+      if (_faces.containsKey(id) && !_matched.contains(id))
+        (step: AnalyzeStep.matchFaces, record: record),
     ];
   }
 
@@ -365,9 +444,12 @@ class AnalyzeQueue {
   /// month, which are the ones anybody is going to open. The rest is
   /// enqueued behind them and gets there eventually.
   Future<List<AssetRecord>> _activeRecords() async {
-    final all = await assetRecordStore.listAll();
-    return all.where((r) => r.isVisibleInLibrary && !r.localDeleted).toList()
-      ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final all = _records = await assetRecordStore.listAll();
+    // `listAll` is oldest first already: walked backwards, not re-sorted.
+    return [
+      for (var i = all.length - 1; i >= 0; i--)
+        if (all[i].isVisibleInLibrary && !all[i].localDeleted) all[i],
+    ];
   }
 
   // ---------------------------------------------------------------- running
@@ -460,7 +542,10 @@ class AnalyzeQueue {
         if (paused.value) break;
         // A breath between batches. See [rest].
         await Future<void>.delayed(rest);
-        await refresh();
+        await _advance([
+          for (final job in jobs.value)
+            if (batch.any((b) => b.id == job.id)) job,
+        ]);
       }
       _lastRunAt = DateTime.now();
       await _write(lastRunKey, _lastRunAt!.toIso8601String());
@@ -520,7 +605,9 @@ class AnalyzeQueue {
     final record = await assetRecordStore.getByLocalId(job.localId!);
     if (record == null) return;
     final faces = await analysisStore.facesFor(record.localId);
-    final people = (await taggedPeople?.call())?[record.localId];
+    final people = taggedPeopleOf != null
+        ? await taggedPeopleOf!(record.localId)
+        : (await taggedPeople?.call())?[record.localId];
     // Re-checked rather than trusted from the list: it was built before
     // this batch, and somebody may have been tagged since.
     if (faces.length != 1 || people?.length != 1) return;
@@ -557,4 +644,15 @@ class AnalyzeQueue {
     frequency.dispose();
     remaining.dispose();
   }
+}
+
+typedef _Spec = ({AnalyzeStep step, AssetRecord record});
+
+extension on _Spec {
+  String get id =>
+      '${switch (step) {
+        AnalyzeStep.findFaces => 'faces',
+        AnalyzeStep.learnFaces => 'learn',
+        AnalyzeStep.matchFaces => 'match',
+      }}:${record.localId}';
 }

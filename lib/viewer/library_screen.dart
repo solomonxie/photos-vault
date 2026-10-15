@@ -78,6 +78,7 @@ import '../upload/pending_deletes.dart';
 import '../upload/sync_job_store.dart';
 import '../upload/s3_uploader.dart';
 import '../upload/sync_queue.dart';
+import 'library_index.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
 import 'grid_skeleton.dart';
@@ -446,6 +447,9 @@ class LibraryScreenState extends State<LibraryScreen>
         onDeviceAnalysis: _onDeviceAnalysis,
         faceIdentity: _faceIdentity,
         taggedPeople: _taggedPeopleByAsset,
+        taggedPeopleOf: (localId) async => [
+          for (final p in await _personStore.peopleFor(localId)) p.id,
+        ],
         resolvePath: _filePathFor,
         displayNameFor: _displayNameFor,
       );
@@ -786,7 +790,7 @@ class LibraryScreenState extends State<LibraryScreen>
   /// landing, the failures hold their places in the queue, the refill is
   /// refused, and nothing loops.
   Future<void> _onQueueDrained() async {
-    await reload();
+    await reload(statusOnly: true);
     if (!mounted || syncQueue.paused.value) return;
     // Only ever *continues* a sync that was already running. A drain that
     // found nothing to do must not go looking for work — the sync-frequency
@@ -1249,16 +1253,62 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
+  Future<void>? _reloading;
+  Future<void>? _reloadQueued;
+  bool _queuedFaces = false;
+  bool? _queuedStatusOnly;
+
   /// [faces] forces the strangers row to be worked out again — for a
-  /// caller that knows the analysis database moved under it.
-  Future<void> reload({bool faces = false}) async {
+  /// caller that knows the analysis database moved under it. [statusOnly]
+  /// is a caller that wrote nothing but upload state (a drain ending):
+  /// unless the library says otherwise, albums, people and faces are left
+  /// as they are.
+  ///
+  /// One at a time, and at most one more behind it that every caller
+  /// arriving meanwhile shares: two running together could finish out of
+  /// order and put the older library back on screen. What it awaits has
+  /// read the library after the call was made.
+  Future<void> reload({bool faces = false, bool statusOnly = false}) {
+    _queuedFaces = _queuedFaces || faces;
+    _queuedStatusOnly = (_queuedStatusOnly ?? true) && statusOnly;
+    final queued = _reloadQueued;
+    if (queued != null) return queued;
+    final running = _reloading;
+    if (running == null) return _startReload();
+    final next = running.catchError((Object _) {}).then((_) {
+      _reloadQueued = null;
+      return _startReload();
+    });
+    return _reloadQueued = next;
+  }
+
+  Future<void> _startReload() {
+    final faces = _queuedFaces;
+    final statusOnly = _queuedStatusOnly ?? false;
+    _queuedFaces = false;
+    _queuedStatusOnly = null;
+    late final Future<void> run;
+    run = _reloadOnce(faces: faces, statusOnly: statusOnly).whenComplete(() {
+      if (identical(_reloading, run)) _reloading = null;
+    });
+    return _reloading = run;
+  }
+
+  Future<void> _reloadOnce({
+    required bool faces,
+    required bool statusOnly,
+  }) async {
     final all = await assetRecordStore.listAll();
     // The same list instance back means the library itself hasn't moved
     // (see [AssetRecordStore.listAll]) — so everything derived from it is
     // still good, down to the grid's own layout, which memoises on the
     // identity of the list it was given.
     final libraryChanged = !identical(all, _all);
-    final active = libraryChanged ? _activeOf(all) : _active;
+    final delta = libraryDelta(_loaded ? _all : null, all);
+    final index = libraryChanged || !_loaded
+        ? LibraryIndex.of(all, DateTime.now())
+        : null;
+    final active = index?.active ?? _active;
 
     // The photos are in, and on the first load they are the whole reason
     // the app was opened. Everything below this reads three more
@@ -1271,8 +1321,14 @@ class LibraryScreenState extends State<LibraryScreen>
       if (!mounted) return;
       setState(() {
         _loaded = true;
-        _applyLibrary(all, active);
+        _applyLibrary(index!);
       });
+    } else if (statusOnly && !delta.shape && !faces) {
+      // Only upload state moved (a backup queued or landed): the tiles
+      // need the new records, nothing else on the page does.
+      if (!mounted) return;
+      if (index != null) setState(() => _applyLibrary(index));
+      return;
     }
 
     if (libraryChanged) await _forgetRemovedMemberships(all);
@@ -1321,6 +1377,11 @@ class LibraryScreenState extends State<LibraryScreen>
     var personPhotoCounts = _personPhotoCounts;
     var personFirstPhotos = _personFirstPhotos;
     var unnamed = (faces: _unnamedFaces, found: 0);
+    // A scan page adds photos nobody has looked at for faces yet: the
+    // strangers row only moves when one is hidden, binned or removed, the
+    // people change, or the analysis did.
+    final strangersStale =
+        firstLoad || faces || peopleChanged || delta.visibility;
     if (libraryChanged || peopleChanged || faces) {
       final counts = <String, int>{};
       final firsts = <String, String>{};
@@ -1340,7 +1401,7 @@ class LibraryScreenState extends State<LibraryScreen>
       // One at a time. A camera-roll scan reloads once a second, and each
       // round would otherwise start another pass over every face in the
       // library on top of the one still running.
-      if (!_findingFaces) {
+      if (strangersStale && !_findingFaces) {
         _findingFaces = true;
         try {
           unnamed = await findUnnamedFaces(
@@ -1358,7 +1419,7 @@ class LibraryScreenState extends State<LibraryScreen>
     if (!mounted) return;
     setState(() {
       _loaded = true;
-      if (libraryChanged && !firstLoad) _applyLibrary(all, active);
+      if (index != null && !firstLoad) _applyLibrary(index);
       _albums = albums;
       _albumAssets = albumAssets;
       _builtInCovers = builtInCovers;
@@ -1372,20 +1433,14 @@ class LibraryScreenState extends State<LibraryScreen>
   /// Everything the screen derives from the library itself — a pass over
   /// the whole of it each, which is why they are held rather than read in
   /// `build`. Call inside [setState].
-  void _applyLibrary(List<AssetRecord> all, List<AssetRecord> active) {
-    _all = all;
-    _active = active;
-    _videos = [
-      for (final record in active)
-        if (record.countsAsVideo) record,
-    ];
-    _favorites = [
-      for (final record in active)
-        if (record.isFavorite) record,
-    ];
-    _recentlyAdded = recentlyAdded(active, DateTime.now());
-    _places = _groupedBy(active, (r) => r.location);
-    _deletedCount = all.where(isInBin).length;
+  void _applyLibrary(LibraryIndex index) {
+    _all = index.all;
+    _active = index.active;
+    _videos = index.videos;
+    _favorites = index.favorites;
+    _recentlyAdded = index.recentlyAdded;
+    _places = index.places;
+    _deletedCount = index.deletedCount;
   }
 
   /// The card asks "who's this?", so a tap answers it. Opening the photo
@@ -1405,41 +1460,29 @@ class LibraryScreenState extends State<LibraryScreen>
     if (mounted) await reload(faces: true);
   }
 
-  static List<AssetRecord> _activeOf(List<AssetRecord> all) =>
-      all.where((r) => r.isVisibleInLibrary).toList()
-        // Oldest first, newest at the bottom — Photos' order, with Albums
-        // just below the latest photo (see [AssetGridView]).
-        ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-
-  /// The one derived list that can't be precomputed — it depends on what
-  /// is typed. Free while nothing is (the common case), and a single
-  /// unsorted pass while something is.
+  /// The one derived list that depends on what is typed. Free while
+  /// nothing is, and one pass per new query or library — not per build:
+  /// the grid lays itself out again for every new list it is handed.
   List<AssetRecord> get _filtered {
     if (_query.isEmpty) return _active;
+    final cached = _filteredCache;
+    if (cached != null &&
+        cached.query == _query &&
+        identical(cached.from, _active)) {
+      return cached.list;
+    }
     final needle = _query.toLowerCase();
-    return _active
+    final list = _active
         .where(
           (r) => (r.sourcePath ?? r.localId).toLowerCase().contains(needle),
         )
         .toList();
+    _filteredCache = (query: _query, from: _active, list: list);
+    return list;
   }
 
-  /// Grouped by one free-text field the user filled in, biggest group first
-  /// — the place you have five hundred photos of is the one you mean.
-  static Map<String, List<AssetRecord>> _groupedBy(
-    List<AssetRecord> records,
-    String? Function(AssetRecord) of,
-  ) {
-    final groups = <String, List<AssetRecord>>{};
-    for (final record in records) {
-      final key = of(record);
-      if (key == null || key.isEmpty) continue;
-      groups.putIfAbsent(key, () => []).add(record);
-    }
-    final sorted = groups.entries.toList()
-      ..sort((a, b) => b.value.length.compareTo(a.value.length));
-    return {for (final entry in sorted) entry.key: entry.value};
-  }
+  ({String query, List<AssetRecord> from, List<AssetRecord> list})?
+  _filteredCache;
 
   void _openGroup(String title, List<AssetRecord> records) => _push(
     AssetGroupScreen(

@@ -91,12 +91,14 @@ class PhotoGridLayout {
     var offset = 0.0;
     var row = 0;
     var i = 0;
+    final keyOf = _dayKeyOf(dateOf);
     while (i < records.length) {
-      final day = _midnight(dateOf(records[i]));
-      var end = i;
-      while (end < records.length && _midnight(dateOf(records[end])) == day) {
+      final key = keyOf(records[i]);
+      var end = i + 1;
+      while (end < records.length && keyOf(records[end]) == key) {
         end++;
       }
+      final day = _midnight(dateOf(records[i]));
       final count = end - i;
       final tileRows = (count + columns - 1) ~/ columns;
       final extent = headerExtent + tileRows * rowExtent;
@@ -152,6 +154,30 @@ class PhotoGridLayout {
   static DateTime addedAt(AssetRecord r) => r.addedAt;
 
   bool get isEmpty => rowCount == 0;
+
+  /// The local day as `y·512 + m·32 + d`, kept per record: a record is
+  /// the same object across reloads while its row is unchanged, so a
+  /// re-layout after a scan page costs a lookup per photo, not a
+  /// time-zone conversion and two allocations.
+  static int Function(AssetRecord) _dayKeyOf(
+    DateTime Function(AssetRecord) dateOf,
+  ) {
+    final memo = identical(dateOf, takenAt)
+        ? _takenDays
+        : identical(dateOf, addedAt)
+        ? _addedDays
+        : null;
+    int compute(AssetRecord r) {
+      final local = dateOf(r).toLocal();
+      return local.year * 512 + local.month * 32 + local.day;
+    }
+
+    if (memo == null) return compute;
+    return (r) => memo[r] ??= compute(r);
+  }
+
+  static final _takenDays = Expando<int>();
+  static final _addedDays = Expando<int>();
 
   static DateTime _midnight(DateTime dt) {
     final local = dt.toLocal();

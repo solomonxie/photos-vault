@@ -340,8 +340,6 @@ class AssetGridViewState extends State<AssetGridView> {
       _restChanged = false;
       final wasResting = !_anchored || restChanged || isAtNewest;
       final sameWidth = _laidOutWidth == width;
-      final grew =
-          _layout.records.length != widget.records.length || !sameWidth;
       final pinned = wasResting ? null : _viewportPin();
       final pastGrid = wasResting || pinned != null ? null : _pastGridPin();
       final old = _layout;
@@ -353,6 +351,12 @@ class AssetGridViewState extends State<AssetGridView> {
       );
       _laidOut = widget.records;
       _laidOutWidth = width;
+      // Height, not count: a date edit merging two days, or one photo in
+      // and one out, moves everything below just the same.
+      final grew =
+          old.records.length != widget.records.length ||
+          !sameWidth ||
+          old.totalExtent != _layout.totalExtent;
       final growth = old.isEmpty || _layout.isEmpty || !sameWidth
           ? null
           : _layout.totalExtent - old.totalExtent;

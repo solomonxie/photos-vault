@@ -227,6 +227,12 @@ class PersonStore {
     );
     _db = db;
     unawaited(_purgePrivateLog(db));
+    unawaited(
+      Future<void>.delayed(
+        const Duration(seconds: 30),
+        () => pruneChangeLog(db),
+      ),
+    );
     return db;
   }
 

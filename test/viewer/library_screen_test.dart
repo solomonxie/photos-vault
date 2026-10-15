@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 
 import 'package:photos_vault/l10n/app_localizations.dart';
@@ -62,6 +63,20 @@ class _FakeS3Uploader implements S3Uploader {
 ThumbnailCache _noThumbnails(AssetRecordStore store) =>
     ThumbnailCache(store: store, encode: (_) async => null);
 
+/// Holds [listAll] open on demand, and counts the reloads' reads.
+class _GatedRecordStore extends FakeAssetRecordStore {
+  int reads = 0;
+  Completer<void>? gate;
+
+  @override
+  Future<List<AssetRecord>> listAll() async {
+    // The orphan sweep's own read, which a reload may make, isn't one.
+    if (!'${StackTrace.current}'.contains('membership_sweep')) reads++;
+    await gate?.future;
+    return super.listAll();
+  }
+}
+
 Widget _wrap(Widget child) => CupertinoApp(
   localizationsDelegates: AppLocalizations.localizationsDelegates,
   supportedLocales: AppLocalizations.supportedLocales,
@@ -97,6 +112,8 @@ Future<void> _settleScan(WidgetTester tester) async {
 }
 
 void main() {
+  _reloadCoalescing();
+
   testWidgets('shows the empty placeholder with no manual adds yet', (
     tester,
   ) async {
@@ -1948,4 +1965,56 @@ class _RecordingSyncJobStore extends FakeSyncJobStore {
       priority: priority,
     );
   }
+}
+
+void _reloadCoalescing() {
+  testWidgets('reloads run one at a time; callers meanwhile share one more, '
+      'which sees what they wrote', (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = _GatedRecordStore();
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final state = tester.state<LibraryScreenState>(find.byType(LibraryScreen));
+
+    recordStore.gate = Completer<void>();
+    final before = recordStore.reads;
+    final first = state.reload();
+    await tester.pump();
+    await recordStore.upsert(
+      localId: 'manual:late',
+      contentHash: 'late',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/late.jpg',
+    );
+    final second = state.reload();
+    final third = state.reload(faces: true);
+    expect(identical(second, third), isTrue);
+    expect(identical(first, second), isFalse);
+
+    recordStore.gate!.complete();
+    recordStore.gate = null;
+    await tester.pumpAndSettle();
+    await first;
+    await third;
+
+    expect(recordStore.reads - before, 2);
+    expect(find.byType(AssetTile), findsOneWidget);
+  });
 }

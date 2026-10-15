@@ -21,3 +21,15 @@ final _container = RegExp(
 final String? _currentContainer = _container
     .firstMatch('${Directory.systemTemp.path}/')
     ?.group(1);
+
+/// This run's container folder name, or null outside one.
+String? get currentContainerId {
+  final current = _currentContainer;
+  return current?.substring(current.length - 36);
+}
+
+/// Where a path's container folder name starts — the marker `GLOB`s on.
+const containerMarker = '/Containers/Data/Application/';
+
+/// Whether [path] is inside an app container (any run's).
+bool inAContainer(String path) => _container.hasMatch(path);

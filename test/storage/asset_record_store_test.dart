@@ -628,8 +628,10 @@ void main() {
       await current.softDelete('photo:old', byLibrary: true);
       await current.close();
       final raw = await databaseFactoryFfi.openDatabase(path);
-      for (final op in ['insert', 'update', 'delete']) {
-        await raw.execute('DROP TRIGGER IF EXISTS change_log_asset_record_$op');
+      for (final t in await raw.rawQuery(
+        "SELECT name FROM sqlite_master WHERE type = 'trigger'",
+      )) {
+        await raw.execute('DROP TRIGGER ${t['name']}');
       }
       await raw.execute('ALTER TABLE asset_record DROP COLUMN binned_by');
       await raw.setVersion(19);

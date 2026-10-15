@@ -226,6 +226,13 @@ class FakeAssetRecordStore implements AssetRecordStore {
   final removed = <String>{};
 
   @override
+  Future<void> removeMany(Iterable<String> localIds) async {
+    for (final id in localIds.toList()) {
+      await remove(id);
+    }
+  }
+
+  @override
   Future<Set<String>> removedIds() async => {...removed};
 
   @override
@@ -671,6 +678,12 @@ class FakeAssetRecordStore implements AssetRecordStore {
       key: destinationKey,
       hash: sourceHash,
     );
+    final edits = bucketEdits[targetId];
+    if (edits != null &&
+        edits.containsKey(destinationKey) &&
+        edits[destinationKey] == null) {
+      edits.remove(destinationKey);
+    }
   }
 
   final bucketObjects = <String, List<BucketObject>>{};
@@ -679,7 +692,13 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<void> replaceBucketObjects(
     String targetId,
     List<BucketObject> objects,
-  ) async => bucketObjects[targetId] = objects;
+  ) async {
+    bucketObjects[targetId] = objects;
+    bucketEdits.remove(targetId);
+  }
+
+  /// As the real store's `bucket_edit`: null is a key gone.
+  final bucketEdits = <String, Map<String, BucketObject?>>{};
 
   @override
   Future<bool> isListed(String targetId, String key) async =>
@@ -696,8 +715,10 @@ class FakeAssetRecordStore implements AssetRecordStore {
   ];
 
   @override
-  Future<void> forgetBucketObject(String targetId, String key) async =>
-      bucketObjects[targetId]?.removeWhere((o) => o.key == key);
+  Future<void> forgetBucketObject(String targetId, String key) async {
+    bucketObjects[targetId]?.removeWhere((o) => o.key == key);
+    (bucketEdits[targetId] ??= {})[key] = null;
+  }
 
   @override
   Future<void> moveBucketObject(BucketObject from, BucketObject to) async {
@@ -705,6 +726,8 @@ class FakeAssetRecordStore implements AssetRecordStore {
     (bucketObjects[to.targetId] ??= [])
       ..removeWhere((o) => o.key == to.key)
       ..add(to);
+    (bucketEdits[from.targetId] ??= {})[from.key] = null;
+    (bucketEdits[to.targetId] ??= {})[to.key] = to;
   }
 
   final bucketScans = <String, Map<String, String?>>{};
@@ -736,7 +759,16 @@ class FakeAssetRecordStore implements AssetRecordStore {
 
   @override
   Future<void> commitBucketScan(String targetId) async {
-    bucketObjects[targetId] = [...?bucketStaged[targetId]?.values];
+    final listed = {...?bucketStaged[targetId]};
+    for (final MapEntry(:key, :value)
+        in (bucketEdits.remove(targetId) ?? {}).entries) {
+      if (value == null) {
+        listed.remove(key);
+      } else {
+        listed[key] = value;
+      }
+    }
+    bucketObjects[targetId] = [...listed.values];
     await discardBucketScan(targetId);
   }
 

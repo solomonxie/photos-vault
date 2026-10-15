@@ -29,6 +29,9 @@ class AssetRecordStore {
   final DatabaseFactory _databaseFactory;
   final String? _path;
 
+  static var _instances = 0;
+  final int _id = _instances++;
+
   /// Where `ManualAddService`/`DemoAssetsService` copy owned files into —
   /// used to re-resolve a `manualFile` record's `sourcePath` by filename
   /// when its stored absolute path goes stale (the app container's UUID
@@ -64,7 +67,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 24,
+        version: 25,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createLibraryIdIndexSql);
@@ -79,6 +82,8 @@ class AssetRecordStore {
           await db.execute(_createBucketScanObjectTableSql);
           await db.execute(_createRelinkTableSql);
           await db.execute(_createRelinkIndexSql);
+          await db.execute(_createBucketEditTableSql);
+          await _addRevisions(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -217,6 +222,19 @@ class AssetRecordStore {
             await db.execute(_createRelinkTableSql);
             await db.execute(_createRelinkIndexSql);
           }
+          if (oldVersion < 25) {
+            // Every row starts at 0: the first read after this is a full
+            // one, and every write from here on is above it.
+            final columns = await db.rawQuery('PRAGMA table_info($_table)');
+            if (!columns.any((c) => c['name'] == 'rev')) {
+              await db.execute(
+                'ALTER TABLE $_table ADD COLUMN rev INTEGER NOT NULL '
+                'DEFAULT 0',
+              );
+            }
+            await _addRevisions(db);
+            await db.execute(_createBucketEditTableSql);
+          }
         },
       ),
     );
@@ -235,6 +253,8 @@ class AssetRecordStore {
       db,
       const [_table],
       private: const {_table: privateRowSql},
+      quiet: const {_table: _quietColumns},
+      silent: const {_table: _silentColumns},
     );
     await _rehomePaths(db);
     await _dropSquareThumbnails(db);
@@ -397,18 +417,38 @@ class AssetRecordStore {
   /// iOS gives the container a new UUID whenever the app is reinstalled
   /// (and a bundle-ID change does the same), so every absolute path this
   /// app has ever stored — originals it owns, cached thumbnails — dies at
-  /// that moment while the files themselves move across intact. A record
-  /// with a dead path reads as "this file is no longer available" and a
-  /// cloud-only tile draws as a grey square, with the bytes sitting right
-  /// there under the new UUID.
+  /// that moment while the files themselves move across intact.
+  /// [rebaseContainerPath] already fixes what [_fromRow] hands out; this
+  /// keeps the stored paths current too, for the queries that match on
+  /// them ([plainIdsUnder], [sourcePathShared]).
   ///
-  /// Once per launch, and filtered in SQL to the rows that are actually
-  /// stale — on an ordinary launch that is none of them, and the pass
-  /// costs one indexed query. It used to be a `File.existsSync()` per
-  /// record inside every `listAll()`: a library's worth of blocking
-  /// syscalls on the UI isolate every time the grid reloaded, which is
-  /// the thing CLAUDE.md's rule about sync I/O exists to forbid.
+  /// The container's UUID is swapped in SQL, one statement per column, no
+  /// file checks: the files move together. Path columns are quiet in the
+  /// change log, so a reinstall no longer writes the library into it
+  /// twice. Only paths with no container in them (none on a phone) go
+  /// through the per-row check.
   Future<void> _rehomePaths(Database db) async {
+    final container = currentContainerId;
+    final inContainer =
+        '*$containerMarker${List.filled(36, '[0-9A-Fa-f-]').join()}/*';
+    if (container != null) {
+      for (final column in const ['source_path', 'thumbnail_path']) {
+        final at = "instr($column, '$containerMarker')";
+        final start = '$at + ${containerMarker.length}';
+        await db.rawUpdate(
+          'UPDATE $_table SET $column = '
+          'substr($column, 1, $start - 1) || ? || substr($column, $start + 36), '
+          'updated_at = ? '
+          'WHERE $column GLOB ? AND substr($column, $start, 36) <> ?',
+          [
+            container,
+            DateTime.now().millisecondsSinceEpoch,
+            inContainer,
+            container,
+          ],
+        );
+      }
+    }
     final Directory root;
     try {
       root = _appSupport ??= await _appSupportDirectory();
@@ -420,18 +460,23 @@ class AssetRecordStore {
     final rows = await db.query(
       _table,
       columns: ['local_id', 'source_path', 'thumbnail_path'],
+      // Not what the SQL above already moved.
       where:
-          '(source_path IS NOT NULL AND source_path NOT LIKE ?) OR '
-          '(thumbnail_path IS NOT NULL AND thumbnail_path NOT LIKE ?)',
-      whereArgs: [under, under],
+          '(source_path IS NOT NULL AND source_path NOT LIKE ? '
+          'AND source_path NOT GLOB ?) OR '
+          '(thumbnail_path IS NOT NULL AND thumbnail_path NOT LIKE ? '
+          'AND thumbnail_path NOT GLOB ?)',
+      whereArgs: [under, inContainer, under, inContainer],
     );
+    String? outside(Object? path) =>
+        path is String && !inAContainer(path) ? path : null;
     final updates = <(String, Map<String, Object?>)>[];
     for (final row in rows) {
       final values = <String, Object?>{};
-      final source = await _rehomed(row['source_path'] as String?, root.path);
+      final source = await _rehomed(outside(row['source_path']), root.path);
       if (source != null) values['source_path'] = source;
       final thumbnail = await _rehomed(
-        row['thumbnail_path'] as String?,
+        outside(row['thumbnail_path']),
         root.path,
       );
       if (thumbnail != null) values['thumbnail_path'] = thumbnail;
@@ -440,8 +485,6 @@ class AssetRecordStore {
       updates.add((row['local_id'] as String, values));
     }
     if (updates.isEmpty) return;
-    // One transaction: after a reinstall this is hundreds of rows, and one
-    // commit each was a second of the grid waiting on every launch.
     await db.transaction((txn) async {
       final batch = txn.batch();
       for (final (localId, values) in updates) {
@@ -517,9 +560,79 @@ class AssetRecordStore {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       added_at INTEGER,
-      held_name TEXT
+      held_name TEXT,
+      rev INTEGER NOT NULL DEFAULT 0
     )
   ''';
+
+  static const _revTable = 'record_rev';
+
+  /// A counter that only goes up, stamped on every row a write touches:
+  /// [listAll]'s "what moved since" without trusting a clock. Its own row,
+  /// not `MAX(rev)`, which steps back when the newest row is deleted.
+  /// Triggers, so no write path can forget it; the inner update changes
+  /// only `rev`, which the change log ignores.
+  static Future<void> _addRevisions(Database db) async {
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS $_revTable '
+      '(id INTEGER PRIMARY KEY CHECK (id = 0), n INTEGER NOT NULL)',
+    );
+    await db.execute('INSERT OR IGNORE INTO $_revTable (id, n) VALUES (0, 0)');
+    const stamp =
+        'UPDATE $_revTable SET n = n + 1 WHERE id = 0; '
+        'UPDATE $_table SET rev = (SELECT n FROM $_revTable WHERE id = 0) '
+        'WHERE rowid = NEW.rowid;';
+    await db.execute(
+      'CREATE TRIGGER IF NOT EXISTS ${_table}_rev_insert AFTER INSERT ON '
+      '$_table BEGIN $stamp END',
+    );
+    await db.execute(
+      'CREATE TRIGGER IF NOT EXISTS ${_table}_rev_update AFTER UPDATE ON '
+      '$_table WHEN NEW.rev IS OLD.rev BEGIN $stamp END',
+    );
+    for (final sql in _indexSql) {
+      await db.execute(sql);
+    }
+  }
+
+  /// [listAll]'s incremental read, the grid's order, and the key lookups a
+  /// bulk delete makes per photo ([keyHeldByOthers], [originalStemHeld]).
+  static const _indexSql = [
+    'CREATE INDEX IF NOT EXISTS asset_record_rev ON $_table (rev)',
+    'CREATE INDEX IF NOT EXISTS asset_record_created ON $_table '
+        '(created_at, local_id)',
+    'CREATE INDEX IF NOT EXISTS asset_record_original_key ON $_table '
+        '(original_key)',
+    'CREATE INDEX IF NOT EXISTS asset_record_thumbnail_key ON $_table '
+        '(thumbnail_key)',
+    'CREATE INDEX IF NOT EXISTS asset_record_medium_key ON $_table '
+        '(medium_key)',
+    'CREATE INDEX IF NOT EXISTS asset_record_live_key ON $_table (live_key)',
+    'CREATE INDEX IF NOT EXISTS derivative_target_key ON '
+        '$_derivativeTargetTable (destination_key)',
+  ];
+
+  /// Upload state: a backup carries it, so a write moves the change mark,
+  /// but no log row — it is most of the writes and none of them the user's.
+  static const _quietColumns = {'source_path', ..._uploadColumns};
+
+  static const _uploadColumns = {
+    'thumbnail_status',
+    'thumbnail_key',
+    'thumbnail_hash',
+    'medium_status',
+    'medium_key',
+    'medium_hash',
+    'original_status',
+    'original_key',
+    'original_hash',
+    'live_status',
+    'live_key',
+    'live_hash',
+  };
+
+  /// A cache path and the bookkeeping stamps: nothing a backup carries.
+  static const _silentColumns = {'thumbnail_path', 'updated_at', 'rev'};
 
   /// One record per Photos asset. Two rows on one asset is how a stray
   /// copy record came to have the keeper's asset deleted (Remove Extra
@@ -719,6 +832,22 @@ class AssetRecordStore {
     )
   ''';
 
+  /// Deletes and moves made here since the listing being staged began
+  /// (null size: gone). Its pages may predate them, so the commit applies
+  /// them on top; a forgotten key never comes back with the scan.
+  static const _bucketEditTable = 'bucket_edit';
+
+  static const _createBucketEditTableSql =
+      '''
+    CREATE TABLE IF NOT EXISTS $_bucketEditTable (
+      target_id TEXT NOT NULL,
+      key TEXT NOT NULL,
+      size INTEGER,
+      last_modified INTEGER,
+      PRIMARY KEY (target_id, key)
+    )
+  ''';
+
   /// A half-done listing older than this is dropped rather than resumed:
   /// keys added behind the saved position would be missed.
   static const bucketScanMaxAge = Duration(minutes: 30);
@@ -794,11 +923,21 @@ class AssetRecordStore {
         'FROM $_bucketScanObjectTable WHERE target_id = ?',
         [targetId],
       );
-      await txn.delete(
-        _bucketScanObjectTable,
-        where: 'target_id = ?',
-        whereArgs: [targetId],
+      await txn.rawDelete(
+        'DELETE FROM $_bucketObjectTable WHERE target_id = ? AND key IN '
+        '(SELECT key FROM $_bucketEditTable WHERE target_id = ? '
+        'AND size IS NULL)',
+        [targetId, targetId],
       );
+      await txn.rawInsert(
+        'INSERT OR REPLACE INTO $_bucketObjectTable '
+        'SELECT target_id, key, size, last_modified FROM $_bucketEditTable '
+        'WHERE target_id = ? AND size IS NOT NULL',
+        [targetId],
+      );
+      for (final table in [_bucketScanObjectTable, _bucketEditTable]) {
+        await txn.delete(table, where: 'target_id = ?', whereArgs: [targetId]);
+      }
       await txn.delete(
         _bucketScanTable,
         where: 'target_id = ?',
@@ -825,11 +964,9 @@ class AssetRecordStore {
   ) async {
     final db = await _open();
     await db.transaction((txn) async {
-      await txn.delete(
-        _bucketObjectTable,
-        where: 'target_id = ?',
-        whereArgs: [targetId],
-      );
+      for (final table in [_bucketObjectTable, _bucketEditTable]) {
+        await txn.delete(table, where: 'target_id = ?', whereArgs: [targetId]);
+      }
       final batch = txn.batch();
       for (final o in objects) {
         batch.insert(_bucketObjectTable, {
@@ -847,18 +984,32 @@ class AssetRecordStore {
   /// as still in the bucket before the next listing.
   Future<void> moveBucketObject(BucketObject from, BucketObject to) async {
     final db = await _open();
+    final row = {
+      'target_id': to.targetId,
+      'key': to.key,
+      'size': to.size,
+      'last_modified': to.lastModified.millisecondsSinceEpoch,
+    };
     final batch = db.batch()
       ..delete(
         _bucketObjectTable,
         where: 'target_id = ? AND key = ?',
         whereArgs: [from.targetId, from.key],
       )
-      ..insert(_bucketObjectTable, {
-        'target_id': to.targetId,
-        'key': to.key,
-        'size': to.size,
-        'last_modified': to.lastModified.millisecondsSinceEpoch,
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+      ..insert(
+        _bucketObjectTable,
+        row,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      )
+      ..insert(_bucketEditTable, {
+        'target_id': from.targetId,
+        'key': from.key,
+      }, conflictAlgorithm: ConflictAlgorithm.replace)
+      ..insert(
+        _bucketEditTable,
+        row,
+        conflictAlgorithm: ConflictAlgorithm.replace,
+      );
     await batch.commit(noResult: true);
   }
 
@@ -866,11 +1017,17 @@ class AssetRecordStore {
   /// listing that still names a deleted file offers it forever.
   Future<void> forgetBucketObject(String targetId, String key) async {
     final db = await _open();
-    await db.delete(
-      _bucketObjectTable,
-      where: 'target_id = ? AND key = ?',
-      whereArgs: [targetId, key],
-    );
+    final batch = db.batch()
+      ..delete(
+        _bucketObjectTable,
+        where: 'target_id = ? AND key = ?',
+        whereArgs: [targetId, key],
+      )
+      ..insert(_bucketEditTable, {
+        'target_id': targetId,
+        'key': key,
+      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    await batch.commit(noResult: true);
   }
 
   /// Buckets with a listing on file.
@@ -952,7 +1109,7 @@ class AssetRecordStore {
       for (final kind in DerivativeKind.values) {
         final prefix = _columnPrefix(kind);
         if (row['${prefix}_status'] != UploadStatus.uploaded.name) continue;
-        final key = row['${prefix}_destination_key'] as String?;
+        final key = row['${prefix}_key'] as String?;
         if (key == null || key.isEmpty) continue;
         batch.insert(_derivativeTargetTable, {
           'local_id': row['local_id'],
@@ -961,7 +1118,7 @@ class AssetRecordStore {
           // only honest answer for a row written before this table existed.
           'target_id': '',
           'destination_key': key,
-          'source_hash': row['${prefix}_backed_up_hash'],
+          'source_hash': row['${prefix}_hash'],
           'uploaded_at': now,
         }, conflictAlgorithm: sqflite.ConflictAlgorithm.ignore);
       }
@@ -1336,12 +1493,7 @@ class AssetRecordStore {
       }
       return true;
     });
-    if (ok && dropped.isNotEmpty) {
-      final cached = _cached;
-      if (cached != null && dropped.any((id) => cached.remove(id) != null)) {
-        _rebuildSorted();
-      }
-    }
+    if (ok) _forgetCached(dropped);
     return ok;
   }
 
@@ -1359,6 +1511,7 @@ class AssetRecordStore {
   Future<void> close() async {
     await _db?.close();
     _db = null;
+    _opening = null;
     _dropCache();
   }
 
@@ -1386,6 +1539,7 @@ class AssetRecordStore {
       ..delete(_bucketObjectTable)
       ..delete(_bucketScanTable)
       ..delete(_bucketScanObjectTable)
+      ..delete(_bucketEditTable)
       ..delete(_relinkTable)
       ..delete(changeLogTable);
     await batch.commit(noResult: true);
@@ -1569,14 +1723,23 @@ class AssetRecordStore {
     String? sourceHash,
   }) async {
     final db = await _open();
-    await db.insert(_derivativeTargetTable, {
-      'local_id': localId,
-      'kind': kind.name,
-      'target_id': targetId,
-      'destination_key': destinationKey,
-      'source_hash': sourceHash,
-      'uploaded_at': DateTime.now().millisecondsSinceEpoch,
-    }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+    final batch = db.batch()
+      ..insert(_derivativeTargetTable, {
+        'local_id': localId,
+        'kind': kind.name,
+        'target_id': targetId,
+        'destination_key': destinationKey,
+        'source_hash': sourceHash,
+        'uploaded_at': DateTime.now().millisecondsSinceEpoch,
+      }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace)
+      // Uploaded again under a key forgotten earlier: the scan's word
+      // stands for it, not the forget.
+      ..delete(
+        _bucketEditTable,
+        where: 'target_id = ? AND key = ? AND size IS NULL',
+        whereArgs: [targetId, destinationKey],
+      );
+    await batch.commit(noResult: true);
   }
 
   /// Points an existing upload row at a new key, leaving its hash and time
@@ -1752,7 +1915,7 @@ class AssetRecordStore {
       'passcode_hash': passcodeHash,
       'is_hidden': isHidden ? 1 : 0,
       'created_at': now.millisecondsSinceEpoch,
-      'updated_at': now.millisecondsSinceEpoch,
+      'updated_at': DateTime.now().millisecondsSinceEpoch,
       'added_at': added.millisecondsSinceEpoch,
     };
     try {
@@ -2201,7 +2364,11 @@ class AssetRecordStore {
   /// exists" role as [allLocations], for the Tags field.
   Future<Set<String>> allTags() async {
     final db = await _open();
-    final rows = await db.query(_table, columns: ['tags']);
+    final rows = await db.query(
+      _table,
+      columns: ['tags'],
+      where: "tags != '[]'",
+    );
     final result = <String>{};
     for (final row in rows) {
       final tags = jsonDecode(row['tags'] as String? ?? '[]') as List<dynamic>;
@@ -2431,58 +2598,188 @@ class AssetRecordStore {
     );
   }
 
-  /// Every record, oldest first.
+  /// Every record, oldest first (ties by id).
   ///
   /// Incremental, because the library screen reloads on every camera-roll
   /// page, every change iOS reports and every background round, and a
   /// full read is not cheap: twenty thousand rows of thirty columns come
   /// back over the platform channel as twenty thousand maps, which is a
-  /// third of a second of the UI isolate on a phone. Every write here
-  /// bumps `updated_at` and deletes go through [remove], so after the
-  /// first read only the rows that moved are fetched.
+  /// third of a second of the UI isolate on a phone. Every write stamps a
+  /// fresh `rev` (see [_addRevisions]), so after the first read only rows
+  /// above the last one seen are fetched — whatever their dates, whatever
+  /// the clock says. Only those are rebuilt; the order is patched, not
+  /// re-sorted. Deletes leave through [remove]/[removeMany]; one made by
+  /// another instance shows as a row count that doesn't add up.
   ///
   /// **Nothing changed means the same list instance back.** Callers lean
   /// on that: `identical` is how the library screen skips recomputing
   /// what it derives from this, and how the grid skips re-laying itself
-  /// out. Treat the result as read-only.
+  /// out. Treat the result as read-only. [libraryDelta] says what moved
+  /// between two of them.
   ///
   /// No per-record path repair either — that is [_rehomePaths], once per
   /// launch, for the same reason.
   Future<List<AssetRecord>> listAll() async {
     final db = await _open();
-    final cached = _cached;
-    if (cached == null) {
-      final rows = await db.query(_table, orderBy: 'created_at ASC');
-      _cached = {for (final row in rows) row['local_id'] as String: row};
-      _cachedThrough = _highWaterOf(rows, 0);
-      return _sorted = List.unmodifiable(rows.map(_fromRow));
+    if (_rows == null) {
+      final rows = await db.query(_table, orderBy: 'created_at, local_id');
+      final records = <String, AssetRecord>{};
+      final byId = <String, Map<String, Object?>>{};
+      final order = <AssetRecord>[];
+      for (final row in rows) {
+        final record = _fromRow(row);
+        byId[record.localId] = row;
+        records[record.localId] = record;
+        order.add(record);
+      }
+      // SQLite orders text by bytes, Dart by UTF-16 units; the same for
+      // any id this app writes, but [_indexOf] must agree with the list.
+      order.sort(_byDate);
+      _rows = byId;
+      _records = records;
+      _order = order;
+      _rev = _maxRev(rows, 0);
+      return _publish(shape: true, visibility: true);
     }
-    // `>=` rather than `>`: two writes can land in the same millisecond,
-    // and re-reading the one row on the mark is cheaper than a lost edit.
-    final rows = await db.query(
-      _table,
-      where: 'updated_at >= ?',
-      whereArgs: [_cachedThrough],
-    );
-    final moved = rows.where((row) => !_sameRow(cached[row['local_id']], row));
-    if (moved.isEmpty) return _sorted!;
-    for (final row in moved) {
-      cached[row['local_id'] as String] = row;
+    final rows = await db.query(_table, where: 'rev > ?', whereArgs: [_rev]);
+    _rev = _maxRev(rows, _rev);
+    var shape = false;
+    var visibility = false;
+    final moved = <Map<String, Object?>>[];
+    for (final row in rows) {
+      final held = _rows![row['local_id']];
+      if (_sameRow(held, row)) continue;
+      moved.add(row);
+      if (held == null || !_onlyStatus(held, row)) shape = true;
+      if (held != null && _visibilityMoved(held, row)) visibility = true;
     }
-    _cachedThrough = _highWaterOf(rows, _cachedThrough);
-    return _rebuildSorted();
+    if (_gone.isNotEmpty) {
+      final gone = _gone.toSet();
+      _gone.clear();
+      _order!.removeWhere((r) => gone.contains(r.localId));
+      shape = visibility = true;
+    }
+    if (moved.isNotEmpty) _apply(moved);
+    if (await _lostRows(db)) shape = visibility = true;
+    if (!shape && !visibility && moved.isEmpty && _published != null) {
+      return _published!;
+    }
+    return _publish(shape: shape, visibility: visibility);
   }
 
-  /// Rows as last read, by `local_id` — kept as rows rather than records
-  /// so an unchanged one is recognised without rebuilding it.
-  Map<String, Map<String, Object?>>? _cached;
-  List<AssetRecord>? _sorted;
-  int _cachedThrough = 0;
+  /// Rows as last read, by `local_id`, and the records built from them —
+  /// an unchanged row is recognised without rebuilding it, and keeps its
+  /// record (what the grid's day keys are memoised on).
+  Map<String, Map<String, Object?>>? _rows;
+  Map<String, AssetRecord> _records = {};
 
-  static int _highWaterOf(List<Map<String, Object?>> rows, int start) {
+  /// [_records] in [_byDate] order.
+  List<AssetRecord>? _order;
+  List<AssetRecord>? _published;
+  int _rev = 0;
+
+  /// Removed since the last [listAll]; taken out of [_order] in one pass.
+  final _gone = <String>{};
+
+  int _shapeGen = 0;
+  int _visibilityGen = 0;
+
+  static int _byDate(AssetRecord a, AssetRecord b) {
+    final byDate = a.createdAt.millisecondsSinceEpoch.compareTo(
+      b.createdAt.millisecondsSinceEpoch,
+    );
+    return byDate != 0 ? byDate : a.localId.compareTo(b.localId);
+  }
+
+  List<AssetRecord> _publish({required bool shape, required bool visibility}) {
+    if (shape) _shapeGen++;
+    if (visibility) _visibilityGen++;
+    final published = List<AssetRecord>.unmodifiable(_order!);
+    _generations[published] = (
+      store: _id,
+      shape: _shapeGen,
+      visibility: _visibilityGen,
+    );
+    return _published = published;
+  }
+
+  /// Patches [_order] for [moved]: in place when the date held, else out
+  /// and back in at its new place. A big batch (a first scan's pages) is
+  /// cheaper as one sort of records already built.
+  void _apply(List<Map<String, Object?>> moved) {
+    final rows = _rows!;
+    final order = _order!;
+    if (moved.length > 256) {
+      for (final row in moved) {
+        final record = _fromRow(row);
+        rows[record.localId] = row;
+        _records[record.localId] = record;
+      }
+      _order = _records.values.toList()..sort(_byDate);
+      return;
+    }
+    for (final row in moved) {
+      final record = _fromRow(row);
+      final old = _records[record.localId];
+      rows[record.localId] = row;
+      _records[record.localId] = record;
+      if (old != null) {
+        final at = _indexOf(order, old);
+        if (at != -1 && old.createdAt == record.createdAt) {
+          order[at] = record;
+          continue;
+        }
+        if (at != -1) order.removeAt(at);
+      }
+      order.insert(_insertionPoint(order, record), record);
+    }
+  }
+
+  static int _insertionPoint(List<AssetRecord> order, AssetRecord record) {
+    var lo = 0;
+    var hi = order.length;
+    while (lo < hi) {
+      final mid = (lo + hi) >> 1;
+      if (_byDate(order[mid], record) < 0) {
+        lo = mid + 1;
+      } else {
+        hi = mid;
+      }
+    }
+    return lo;
+  }
+
+  static int _indexOf(List<AssetRecord> order, AssetRecord record) {
+    final at = _insertionPoint(order, record);
+    if (at < order.length && identical(order[at], record)) return at;
+    return order.indexOf(record);
+  }
+
+  /// Rows deleted under this cache by someone else: dropped. One count,
+  /// and a read of ids only when it is off.
+  Future<bool> _lostRows(Database db) async {
+    final count = sqflite.Sqflite.firstIntValue(
+      await db.rawQuery('SELECT COUNT(*) FROM $_table'),
+    );
+    if (count == null || count == _records.length) return false;
+    final ids = {
+      for (final row in await db.query(_table, columns: ['local_id']))
+        row['local_id'] as String,
+    };
+    final lost = _records.keys.where((id) => !ids.contains(id)).toSet();
+    if (lost.isEmpty) return false;
+    for (final id in lost) {
+      _records.remove(id);
+      _rows!.remove(id);
+    }
+    _order!.removeWhere((r) => lost.contains(r.localId));
+    return true;
+  }
+
+  static int _maxRev(List<Map<String, Object?>> rows, int start) {
     var high = start;
     for (final row in rows) {
-      final at = row['updated_at'] as int? ?? 0;
+      final at = row['rev'] as int? ?? 0;
       if (at > high) high = at;
     }
     return high;
@@ -2491,46 +2788,85 @@ class AssetRecordStore {
   static bool _sameRow(Map<String, Object?>? held, Map<String, Object?> row) {
     if (held == null) return false;
     for (final entry in row.entries) {
+      if (entry.key == 'rev') continue;
       if (held[entry.key] != entry.value) return false;
     }
     return true;
   }
 
-  List<AssetRecord> _rebuildSorted() {
-    final records = _cached!.values.map(_fromRow).toList()
-      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
-    return _sorted = List.unmodifiable(records);
+  /// Only upload state and stamps moved: tiles redraw, nothing else does.
+  static bool _onlyStatus(Map<String, Object?> held, Map<String, Object?> row) {
+    for (final entry in row.entries) {
+      if (held[entry.key] == entry.value) continue;
+      if (!_statusColumns.contains(entry.key)) return false;
+    }
+    return true;
   }
+
+  static const _statusColumns = {'updated_at', 'rev', ..._uploadColumns};
+
+  static const _visibilityColumns = [
+    'passcode_hash',
+    'is_hidden',
+    'deleted_at',
+    'local_deleted',
+  ];
+
+  static bool _visibilityMoved(
+    Map<String, Object?> held,
+    Map<String, Object?> row,
+  ) => _visibilityColumns.any((c) => held[c] != row[c]);
 
   /// Whatever the cache holds is now a guess — the next [listAll] reads
   /// the library again from scratch.
   void _dropCache() {
-    _cached = null;
-    _sorted = null;
-    _cachedThrough = 0;
+    _rows = null;
+    _records = {};
+    _order = null;
+    _published = null;
+    _gone.clear();
+    _rev = 0;
+  }
+
+  void _forgetCached(Iterable<String> localIds) {
+    final rows = _rows;
+    if (rows == null) return;
+    for (final id in localIds) {
+      if (rows.remove(id) == null) continue;
+      _records.remove(id);
+      _gone.add(id);
+      _published = null;
+    }
   }
 
   /// Permanently deletes — used for real deletion from "Recently Deleted",
   /// or (today) the Library's own delete action until that also routes
   /// through the trash.
-  Future<void> remove(String localId) async {
+  Future<void> remove(String localId) => removeMany([localId]);
+
+  /// [remove] for many in one transaction; the cache patched once.
+  Future<void> removeMany(Iterable<String> localIds) async {
+    final ids = localIds.toSet();
+    if (ids.isEmpty) return;
     final db = await _open();
-    final batch = db.batch()
-      ..delete(_table, where: 'local_id = ?', whereArgs: [localId])
-      ..delete(
-        _derivativeTargetTable,
-        where: 'local_id = ?',
-        whereArgs: [localId],
-      )
-      // Albums and people live in other databases; see [removedIds].
-      ..insert(_appStateTable, {
-        'key': '$_removedKeyPrefix$localId',
-        'value': '1',
-      }, conflictAlgorithm: ConflictAlgorithm.replace);
+    final batch = db.batch();
+    for (final localId in ids) {
+      batch
+        ..delete(_table, where: 'local_id = ?', whereArgs: [localId])
+        ..delete(
+          _derivativeTargetTable,
+          where: 'local_id = ?',
+          whereArgs: [localId],
+        )
+        // Albums and people live in other databases; see [removedIds].
+        ..insert(_appStateTable, {
+          'key': '$_removedKeyPrefix$localId',
+          'value': '1',
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+    }
     await batch.commit(noResult: true);
-    // A delete leaves no row to notice, so it is the one change [listAll]
-    // cannot catch up on by itself.
-    if (_cached?.remove(localId) != null) _rebuildSorted();
+    // A delete leaves no row to notice.
+    _forgetCached(ids);
   }
 
   static const _removedKeyPrefix = 'removed:';
@@ -2681,6 +3017,25 @@ extension VisibleRecords on AssetRecordStore {
   /// moved.
   Future<Set<String>> visibleLocalIds() async => visibleIdsOf(await listAll());
 }
+
+/// What moved between two [AssetRecordStore.listAll] results: [shape] is
+/// anything but upload state (rows in or out, dates, flags, places);
+/// [visibility] is a row hidden, binned or removed. Both for lists this
+/// can't vouch for.
+({bool shape, bool visibility}) libraryDelta(
+  List<AssetRecord>? before,
+  List<AssetRecord> after,
+) {
+  if (identical(before, after)) return (shape: false, visibility: false);
+  final a = before == null ? null : _generations[before];
+  final b = _generations[after];
+  if (a == null || b == null || a.store != b.store) {
+    return (shape: true, visibility: true);
+  }
+  return (shape: a.shape != b.shape, visibility: a.visibility != b.visibility);
+}
+
+final _generations = Expando<({int store, int shape, int visibility})>();
 
 final _visibleIds = Expando<Set<String>>();
 

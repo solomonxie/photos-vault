@@ -15,12 +15,17 @@ existing = getByLocalId(localId)
   │                                  existing.withSourcePath()   asset_record.dart
   └─ not found ──► INSERT row ──► new AssetRecord(...)
 
-getByLocalId() / listAll() route every row through:
+getByLocalId() / getByLocalIds() route every row through:
   _healed(record)                                asset_record_store.dart:_healed()
     │ manualFile record whose sourcePath no longer exists on disk
     ▼ re-resolve by filename under _appSupportDirectory()
     UPDATE source_path if the healed path exists; else return unchanged
 ```
+
+`listAll()`: cached per row; each read fetches `rev > last` (a trigger-kept
+counter, not a clock), patches the sorted list, same instance when nothing
+moved. Deletes go through `remove`/`removeMany`. `libraryDelta(a, b)` says
+whether more than upload state moved between two results.
 
 - `asset_record.dart` — the `AssetRecord` model (immutable, `_copyWith`-based
   `withX()` helpers) and the `DerivativeKind`/`UploadStatus` enums.

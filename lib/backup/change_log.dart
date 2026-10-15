@@ -35,20 +35,30 @@ const changeLogTable = 'change_log';
 /// passcode. A write touching one logs nothing of it: the row's earlier
 /// entries go, and only the mark moves (see [changeLogMark]), so a backup
 /// still notices that something changed.
+///
+/// [quiet] columns are bookkeeping a backup still carries (upload state):
+/// an update touching only those moves the mark and logs no row. [silent]
+/// ones (a cache path, a revision) do neither.
 Future<void> installChangeLog(
   Database db,
   List<String> tables, {
   Map<String, String> private = const {},
+  Map<String, Set<String>> quiet = const {},
+  Map<String, Set<String>> silent = const {},
 }) =>
     // One transaction: two stores opening the same file at once would
     // otherwise interleave their DROP and CREATE, and the loser throws
     // "trigger already exists" out of `open` — and the library never loads.
-    db.transaction((txn) => _installChangeLog(txn, tables, private));
+    db.transaction(
+      (txn) => _installChangeLog(txn, tables, private, quiet, silent),
+    );
 
 Future<void> _installChangeLog(
   DatabaseExecutor db,
   List<String> tables,
   Map<String, String> private,
+  Map<String, Set<String>> quiet,
+  Map<String, Set<String>> silent,
 ) async {
   await db.execute('''
     CREATE TABLE IF NOT EXISTS $changeLogTable (
@@ -85,6 +95,22 @@ Future<void> _installChangeLog(
         'json_object(${names.map((name) => "'$name', $row.$name").join(', ')})';
 
     final test = private[table];
+    final quietSet = quiet[table] ?? const {};
+    final silentSet = silent[table] ?? const {};
+    String? changed(bool Function(String) counts) {
+      final cols = names.where(counts).toList();
+      if (cols.isEmpty) return null;
+      return cols.map((c) => 'OLD.$c IS NOT NEW.$c').join(' OR ');
+    }
+
+    // Null: no filter, every update counts.
+    final userChanged = quietSet.isEmpty && silentSet.isEmpty
+        ? null
+        : changed((c) => !quietSet.contains(c) && !silentSet.contains(c));
+    final anyChanged = silentSet.isEmpty
+        ? null
+        : changed((c) => !silentSet.contains(c));
+    final quietChanged = quietSet.isEmpty ? null : changed(quietSet.contains);
     for (final op in const ['insert', 'update', 'delete']) {
       final name = '${changeLogTable}_${table}_$op';
       final on = switch (op) {
@@ -99,12 +125,21 @@ Future<void> _installChangeLog(
       final isPrivate = test == null
           ? null
           : rows.map((r) => '(${test.replaceAll('{row}', r)})').join(' OR ');
+      final isUpdate = op == 'update';
+      String when(List<String?> parts) {
+        final all = parts.nonNulls.toList();
+        return all.isEmpty
+            ? ''
+            : 'WHEN ${all.map((p) => '($p)').join(' AND ')}';
+      }
+
       await db.execute('DROP TRIGGER IF EXISTS $name');
       await db.execute('DROP TRIGGER IF EXISTS ${name}_private');
+      await db.execute('DROP TRIGGER IF EXISTS ${name}_quiet');
       if (isPrivate != null) {
         await db.execute('''
           CREATE TRIGGER ${name}_private $on ON $table
-          WHEN $isPrivate
+          ${when([isPrivate, if (isUpdate) anyChanged])}
           BEGIN
             DELETE FROM $changeLogTable
               WHERE table_name = '$table' AND row_key IN (
@@ -115,9 +150,20 @@ Future<void> _installChangeLog(
           END
         ''');
       }
+      if (isUpdate && quietChanged != null) {
+        await db.execute('''
+          CREATE TRIGGER ${name}_quiet $on ON $table
+          ${when([if (isPrivate != null) 'NOT ($isPrivate)', 'NOT (${userChanged ?? '0'})', quietChanged])}
+          BEGIN
+            INSERT INTO $changeLogTable (table_name, row_key, op, at)
+              VALUES ('$table', '', '$_quietOp', '');
+            DELETE FROM $changeLogTable WHERE seq = last_insert_rowid();
+          END
+        ''');
+      }
       await db.execute('''
         CREATE TRIGGER $name $on ON $table
-        ${isPrivate == null ? '' : 'WHEN NOT ($isPrivate)'}
+        ${when([if (isPrivate != null) 'NOT ($isPrivate)', if (isUpdate) userChanged ?? anyChanged])}
         BEGIN
           INSERT INTO $changeLogTable
             (table_name, row_key, op, before, after, at)
@@ -136,6 +182,7 @@ Future<void> _installChangeLog(
 }
 
 const _privateOp = 'private';
+const _quietOp = 'quiet';
 
 /// Entries a build before [installChangeLog]'s `private` wrote about rows
 /// behind a passcode, and the earlier history of rows behind one now. Once.

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 
@@ -26,9 +27,22 @@ class AlbumStore {
   static const _albumTable = 'album';
   static const _memberTable = 'album_asset';
 
+  Future<Database>? _opening;
+
+  /// One open at a time: concurrent callers share it.
   Future<Database> _open() async {
     final existing = _db;
     if (existing != null) return existing;
+    final opening = _opening ??= _openOnce();
+    try {
+      return await opening;
+    } catch (_) {
+      _opening = null;
+      rethrow;
+    }
+  }
+
+  Future<Database> _openOnce() async {
     final path =
         _path ??
         p.join(await _databaseFactory.getDatabasesPath(), 'photo_albums.db');
@@ -77,13 +91,23 @@ class AlbumStore {
     // After the migrations, never inside them: a trigger has to describe
     // the schema the app just finished upgrading to.
     await installChangeLog(db, const [_albumTable, _memberTable]);
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS album_asset_local ON $_memberTable (local_id)',
+    );
     _db = db;
+    unawaited(
+      Future<void>.delayed(
+        const Duration(seconds: 30),
+        () => pruneChangeLog(db),
+      ),
+    );
     return db;
   }
 
   Future<void> close() async {
     await _db?.close();
     _db = null;
+    _opening = null;
   }
 
   /// Empties this database. The log goes last, after the deletes above
