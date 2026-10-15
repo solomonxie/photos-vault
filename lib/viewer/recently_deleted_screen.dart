@@ -53,21 +53,12 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
     _reload();
   }
 
+  /// Read-only: opening the page never purges anything. Expiry runs with
+  /// the sync, where it can check Photos first.
   Future<void> _reload() async {
-    // Housekeeping first, but a failure in it must not hide the bin: the
-    // page used to stay "empty" for good when either of these threw.
-    try {
-      await _removal.expireBin();
-    } catch (_) {}
-    final inBin = (await widget.assetRecordStore.listAll())
+    final binned = (await widget.assetRecordStore.listAll())
         .where(isInBin)
         .toList();
-    List<AssetRecord> binned;
-    try {
-      binned = await _removal.purgeVanished(inBin);
-    } catch (_) {
-      binned = inBin;
-    }
     if (!mounted) return;
     setState(() {
       _loaded = true;
@@ -118,10 +109,12 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
 
   Future<void> _emptyBin() async {
     final l10n = AppLocalizations.of(context)!;
+    // What is on screen now: anything binned while the dialog is up stays.
+    final shown = [for (final r in _records) r.localId];
     final confirmed = await showCupertinoDialog<bool>(
       context: context,
       builder: (context) => CupertinoAlertDialog(
-        title: Text(l10n.libraryEmptyBinTitle),
+        title: Text(l10n.libraryEmptyBinTitle(shown.length)),
         content: Text(l10n.libraryEmptyBinBody),
         actions: [
           CupertinoDialogAction(
@@ -137,7 +130,7 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
       ),
     );
     if (confirmed != true) return;
-    await _removal.emptyBin();
+    await _removal.emptyBin(shown);
     await _reload();
   }
 

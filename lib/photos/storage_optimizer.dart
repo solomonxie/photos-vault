@@ -10,6 +10,7 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/backup_verifier.dart';
 import '../upload/pending_deletes.dart';
+import 'asset_removal.dart' show originalStands;
 import 'file_hash.dart';
 import 'image_pipeline.dart';
 import 'photo_library_service.dart';
@@ -201,6 +202,7 @@ class StorageOptimizer {
     ], report);
     freed += dupes.freedBytes;
     skipped += dupes.skipped;
+    unverified += dupes.unverified;
 
     return StorageFixResult(
       freedBytes: freed,
@@ -309,12 +311,16 @@ class StorageOptimizer {
   /// Exact copies into Recently Deleted, like any delete: the kept copy is
   /// untouched and the bin can still bring one back. Camera-roll ones leave
   /// Photos too, one iOS prompt per batch.
+  ///
+  /// Only where the kept copy is shown, live, to still have its original;
+  /// the rest are reported unverified and left alone.
   Future<StorageFixResult> _removeDuplicates(
-    List<StorageItem> items,
+    List<StorageItem> candidates,
     void Function(StorageItem item, StorageItemOutcome outcome) report,
   ) async {
     var freed = 0;
     var skipped = 0;
+    final items = await _withKeeper(candidates, report);
     bool inLibrary(StorageItem i) =>
         i.record.sourceType == AssetSourceType.photoManager &&
         !i.record.localDeleted &&
@@ -355,7 +361,37 @@ class StorageOptimizer {
       freed += item.bytes;
       report(item, StorageItemOutcome.freed);
     }
-    return StorageFixResult(freedBytes: freed, skipped: skipped);
+    return StorageFixResult(
+      freedBytes: freed,
+      skipped: skipped,
+      unverified: candidates.length - items.length,
+    );
+  }
+
+  Future<List<StorageItem>> _withKeeper(
+    List<StorageItem> items,
+    void Function(StorageItem item, StorageItemOutcome outcome) report,
+  ) async {
+    if (items.isEmpty) return items;
+    final kept = await store.getByLocalIds(items.map((i) => i.keptId).nonNulls);
+    final proven = <String, bool>{};
+    final out = <StorageItem>[];
+    for (final item in items) {
+      final keeper = kept[item.keptId];
+      final stands =
+          keeper != null &&
+          (proven[keeper.localId] ??= await originalStands(
+            keeper,
+            library: library,
+            verifier: verifier,
+          ));
+      if (stands) {
+        out.add(item);
+      } else {
+        report(item, StorageItemOutcome.unverified);
+      }
+    }
+    return out;
   }
 
   /// A camera-roll asset can't be rewritten in place — PhotoKit owns its

@@ -274,6 +274,7 @@ class AppSnapshotIo {
     'isFavorite': record.isFavorite,
     'isHidden': record.isHidden,
     'deletedAt': record.deletedAt?.toIso8601String(),
+    if (record.binnedByLibrary) 'binnedByLibrary': true,
     'localDeleted': record.localDeleted,
     'description': record.description,
     'tags': record.tags,
@@ -350,7 +351,12 @@ class AppSnapshotIo {
       await assetRecordStore.setLocalDeleted(localId, true);
     }
     final deletedAt = _date(row['deletedAt']);
-    if (deletedAt != null) await assetRecordStore.softDelete(localId);
+    if (deletedAt != null) {
+      await assetRecordStore.softDelete(
+        localId,
+        byLibrary: row['binnedByLibrary'] as bool? ?? false,
+      );
+    }
     final derivatives = row['derivatives'] as Map<String, Object?>? ?? const {};
     for (final kind in DerivativeKind.values) {
       final state = derivatives[kind.name] as Map<String, Object?>?;

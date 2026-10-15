@@ -74,6 +74,7 @@ class AssetRecord {
     this.isLocked = false,
     this.localOptimized = false,
     this.deletedAt,
+    this.binnedByLibrary = false,
     this.description = '',
     this.tags = const [],
     this.location,
@@ -169,6 +170,10 @@ class AssetRecord {
   /// store is the separate, permanent delete.
   final DateTime? deletedAt;
 
+  /// Binned by the scan, not by the user: the photo left Photos. The scan
+  /// takes it back out of the bin if the photo turns up again.
+  final bool binnedByLibrary;
+
   final String description;
   final List<String> tags;
 
@@ -222,8 +227,7 @@ class AssetRecord {
   /// nothing.
   ///
   /// A cached thumbnail, or one in the bucket, doesn't count: it is a
-  /// preview, and Recover can't make a photo out of it. A record like this
-  /// has nothing to give back, so the bin doesn't keep it.
+  /// preview, and Recover can't make a photo out of it.
   ///
   /// An original with a key counts even when not `uploaded`: that is one
   /// that reached some buckets and not all, or is being sent again — either
@@ -246,6 +250,7 @@ class AssetRecord {
     bool? isLocked,
     bool? localOptimized,
     DateTime? Function()? deletedAt,
+    bool? binnedByLibrary,
     String? sourcePath,
     String? Function()? thumbnailPath,
     bool? localDeleted,
@@ -280,6 +285,7 @@ class AssetRecord {
     isLocked: isLocked ?? this.isLocked,
     localOptimized: localOptimized ?? this.localOptimized,
     deletedAt: deletedAt != null ? deletedAt() : this.deletedAt,
+    binnedByLibrary: binnedByLibrary ?? this.binnedByLibrary,
     description: description ?? this.description,
     tags: tags ?? this.tags,
     location: location != null ? location() : this.location,
@@ -305,8 +311,11 @@ class AssetRecord {
   AssetRecord withLocalOptimized(bool value) =>
       _copyWith(localOptimized: value);
 
-  AssetRecord withDeletedAt(DateTime? value) =>
-      _copyWith(deletedAt: () => value);
+  AssetRecord withDeletedAt(DateTime? value, {bool byLibrary = false}) =>
+      _copyWith(
+        deletedAt: () => value,
+        binnedByLibrary: value != null && byLibrary,
+      );
 
   AssetRecord withCreatedAt(DateTime value) => _copyWith(createdAt: value);
 

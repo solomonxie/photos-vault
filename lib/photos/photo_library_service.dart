@@ -255,13 +255,7 @@ class PhotoLibraryService {
           await store.setFavorite(existing.localId, entity.isFavorite);
           updated++;
         }
-        // Back from the OS's own Recently Deleted, or restored some other
-        // way: it has a local original again.
-        if (existing.localDeleted && existing.sourcePath == null) {
-          await store.setLocalDeleted(existing.localId, false);
-          if (existing.isDeleted) await store.restore(existing.localId);
-          updated++;
-        }
+        if (await _cameBack(existing)) updated++;
         // Photos tracked before this app started keeping coordinates and
         // pixel sizes: the entity is right here, so the backfill is the
         // scan itself rather than a separate pass over the library.
@@ -302,26 +296,64 @@ class PhotoLibraryService {
         await store.setFavorite(existing.localId, entity.isFavorite);
         updated++;
       }
-      if (existing.localDeleted && existing.sourcePath == null) {
-        await store.setLocalDeleted(existing.localId, false);
-        if (existing.isDeleted) await store.restore(existing.localId);
-        updated++;
-      }
+      if (await _cameBack(existing)) updated++;
       if (await _fillLibraryMetadata(existing, entity)) updated++;
     }
 
-    for (final id in change.deleted) {
-      final record = await store.getByLibraryId(id);
-      if (record == null) continue;
-      if (await _markGone(record)) updated++;
-    }
-
+    updated += await _markMissing(change.deleted);
     return PhotoLibrarySyncResult(added: added, updated: updated);
   }
 
+  /// Listed again: back from the OS's own Recently Deleted, or restored
+  /// some other way. A bin entry the scan made comes back out; one the user
+  /// made stays where they put it.
+  Future<bool> _cameBack(AssetRecord record) async {
+    var moved = false;
+    if (record.localDeleted && record.sourcePath == null) {
+      await store.setLocalDeleted(record.localId, false);
+      moved = true;
+    }
+    if (record.isDeleted && record.binnedByLibrary) {
+      await store.restore(record.localId);
+      moved = true;
+    }
+    return moved;
+  }
+
+  /// Library ids something says are gone: a deletion notice, or a grid
+  /// tile whose thumbnail didn't come back. Neither is proof. Full access
+  /// only (a deselected photo looks deleted too), and each id is asked
+  /// about again; a failed lookup means still there.
+  Future<int> _markMissing(Set<String> libraryIds) async {
+    if (libraryIds.isEmpty || !await hasFullAccess()) return 0;
+    final records = await store.getByLibraryIds(libraryIds);
+    var changed = 0;
+    for (final MapEntry(key: id, value: record) in records.entries) {
+      if (await _missingFromLibrary(id) == null) continue;
+      if (await _markGone(record)) changed++;
+    }
+    return changed;
+  }
+
+  /// Whether an absence from the library can mean anything. Under
+  /// "Selected Photos" every unselected photo looks deleted.
+  Future<bool> hasFullAccess() async {
+    try {
+      return await requestAccess() == PhotoLibraryAccess.granted;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Photos answered it has no asset [libraryId]. A failed lookup is
+  /// false. Pair with [hasFullAccess].
+  Future<bool> isGone(String libraryId) async =>
+      await _missingFromLibrary(libraryId) != null;
+
   /// Deals with camera-roll records the library no longer has an asset for.
   ///
-  /// Never by deleting the row. The row is where this app's own work lives
+  /// Only with full access, and only for a record a live lookup confirms is
+  /// gone. Never by deleting the row. The row is where this app's own work lives
   /// — captions, tags, people, album membership — and a photo deleted in
   /// Photos can come back out of the OS's 30-day Recently Deleted, at which
   /// point throwing that away would have been unrecoverable. What happens
@@ -335,9 +367,10 @@ class PhotoLibraryService {
   ///    whole point of the app, and it's the same state "Remove from
   ///    Device" produces.
   ///  * **not backed up** → soft-deleted into this app's own Recently
-  ///    Deleted. Nothing about it survives anywhere, so leaving it in the
-  ///    main grid would claim it's still yours; binning it keeps the record
-  ///    (and its metadata) recoverable without pretending.
+  ///    Deleted, marked as binned by the library. Leaving it in the main
+  ///    grid would claim it's still yours; binning it keeps the record (and
+  ///    its metadata) recoverable, and the scan takes it back out if the
+  ///    photo returns.
   ///
   /// [newerThan] bounds the check to records created after that moment —
   /// how [syncRecent] limits itself to the part of the library it actually
@@ -347,36 +380,26 @@ class PhotoLibraryService {
     Set<String> seen, {
     DateTime? newerThan,
   }) async {
+    if (!await hasFullAccess()) return 0;
     var changed = 0;
     for (final record in await store.listAll()) {
       if (record.sourceType != AssetSourceType.photoManager) continue;
       if (seen.contains(record.localId)) continue;
       if (newerThan != null && !record.createdAt.isAfter(newerThan)) continue;
-      // A hidden photo is out of the library on purpose — this app took it
-      // out itself, and holds the only copy. Nothing to reconcile.
-      if (record.libraryId == null && record.sourcePath != null) continue;
+      // No library id: hidden (taken out on purpose) or nothing to ask
+      // about. Either way absence proves nothing.
+      final libraryId = record.libraryId;
+      if (libraryId == null) continue;
       // Absent from the listing isn't the same as gone. Pages shift under a
       // scan as photos arrive and leave, so a photo can fall through the
       // gap between two of them and be perfectly fine — ask about this one
       // before writing it off, which costs a metadata lookup and only for
-      // the handful the listing didn't account for.
-      final libraryId = record.libraryId;
-      if (libraryId != null && await _stillInLibrary(libraryId)) continue;
+      // the handful the listing didn't account for. A failed lookup is not
+      // an answer: still there.
+      if (await _missingFromLibrary(libraryId) == null) continue;
       if (await _markGone(record)) changed++;
     }
     return changed;
-  }
-
-  /// Whether the library still has this asset. A lookup that *fails* —
-  /// no channel, permission pulled mid-pass — is not an answer, and the
-  /// listing's verdict stands rather than the check quietly cancelling
-  /// reconciliation altogether.
-  Future<bool> _stillInLibrary(String libraryId) async {
-    try {
-      return await _loadEntity(libraryId) != null;
-    } catch (_) {
-      return false;
-    }
   }
 
   Future<AssetRecord> _insert(AssetEntity entity, String localId) async {
@@ -444,13 +467,14 @@ class PhotoLibraryService {
   }
 
   /// The "no longer in the photo library" rule, shared by the scan and the
-  /// change notification. Returns whether anything actually moved.
+  /// change notification. Returns whether anything actually moved. Only
+  /// ever cloud-only or the bin, never the row: see [_reconcileDeletions].
   Future<bool> _markGone(AssetRecord record) async {
     // Already accounted for, or holding a local copy of its own — an
     // original restored from the bucket lives in app storage, not in the
     // photo library, so its absence there says nothing.
     if (record.isDeleted || record.localDeleted) return false;
-    if (record.sourcePath != null) return false;
+    if (record.sourcePath != null || record.passcodeHash != null) return false;
     // A Live Photo counts only with both halves up — see
     // [AssetRecord.isFullyBackedUp]. Calling one cloud-only on the
     // strength of its still would claim a photo is safe when its motion
@@ -460,14 +484,11 @@ class PhotoLibraryService {
       // The row says it is backed up; the bucket hasn't been asked. The next
       // sync proves it, and flags the photo Lost if the bucket has let go.
       await ProofQueue(store).add(record.localId);
-    } else if (record.hasNothingLeft) {
-      // Deleted over in Photos before it was ever backed up: no bytes here,
-      // none in the bucket, and none left in the library. Binning it would
-      // put an empty tile in Recently Deleted whose Recover button hands
-      // back nothing, so the record goes with it.
-      await store.remove(record.localId);
     } else {
-      await store.softDelete(record.localId);
+      // Even with nothing left to give back: the row holds the captions,
+      // albums and people, and the photo may come back out of Photos'
+      // own Recently Deleted.
+      await store.softDelete(record.localId, byLibrary: true);
     }
     return true;
   }

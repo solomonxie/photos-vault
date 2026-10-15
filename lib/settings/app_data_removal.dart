@@ -222,7 +222,7 @@ class AppDataRemoval {
   /// album keys, and asking would reveal that a hidden album exists. So it
   /// stays, encrypted, and opens again with the passphrase and code;
   /// deleting hidden photos is done inside the hidden album.
-  Future<void> deleteOwnedFiles({Set<String>? keeping = const {}}) async {
+  Future<void> deleteOwnedFiles({required Set<String>? keeping}) async {
     final support = supportDirectory;
     if (support != null) {
       final root = await support();

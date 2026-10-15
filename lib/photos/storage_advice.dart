@@ -76,10 +76,15 @@ class StorageItem {
     required this.fixes,
     StorageFix? fix,
     this.duplicateOf,
+    this.keptId,
   }) : fix = fix ?? fixes.first;
 
   /// For a [StorageIssue.duplicate]: the name of the copy that is kept.
   final String? duplicateOf;
+
+  /// For a [StorageIssue.duplicate]: the kept copy's `localId`, checked
+  /// live before this one goes.
+  final String? keptId;
 
   final AssetRecord record;
 
@@ -110,6 +115,7 @@ class StorageItem {
     fixes: fixes,
     fix: chosen,
     duplicateOf: duplicateOf,
+    keptId: keptId,
   );
 
   /// Exact for a removal, a guess for the two re-encodes — nothing knows
@@ -398,6 +404,7 @@ class StorageAdvisor {
             issues: const {StorageIssue.duplicate},
             fixes: const [StorageFix.removeDuplicate],
             duplicateOf: keptName,
+            keptId: kept.localId,
           ),
         );
       }

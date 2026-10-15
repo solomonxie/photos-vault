@@ -197,10 +197,23 @@ class FakeAssetRecordStore implements AssetRecordStore {
   }
 
   @override
-  Future<void> softDelete(String localId) async {
+  Future<void> softDelete(String localId, {bool byLibrary = false}) async {
     final existing = _records[localId];
     if (existing == null) return;
-    _records[localId] = existing.withDeletedAt(DateTime.now());
+    _records[localId] = existing.withDeletedAt(
+      DateTime.now(),
+      byLibrary: byLibrary,
+    );
+  }
+
+  /// Back-dates a bin entry, keeping who binned it.
+  void binnedAt(String localId, DateTime at) {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withDeletedAt(
+      at,
+      byLibrary: existing.binnedByLibrary,
+    );
   }
 
   @override
@@ -303,6 +316,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
       isLocked: existing.isLocked,
       localOptimized: existing.localOptimized,
       deletedAt: existing.deletedAt,
+      binnedByLibrary: existing.binnedByLibrary,
       description: existing.description,
       tags: existing.tags,
       location: existing.location,

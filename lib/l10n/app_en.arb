@@ -39,7 +39,14 @@
   "libraryDeletePermanentlyAction": "Delete Permanently",
   "libraryDeletePermanentlyEverywhereBody": "This deletes the photo from this phone and from every bucket. This can't be undone.",
   "libraryEmptyBin": "Empty",
-  "libraryEmptyBinTitle": "Empty Recently Deleted?",
+  "libraryEmptyBinTitle": "{count, plural, =1{Delete 1 item for good?} other{Delete {count} items for good?}}",
+  "@libraryEmptyBinTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "libraryEmptyBinBody": "Everything here is deleted from this phone and from every bucket. This can't be undone.",
   "libraryRecentlyDeletedNote": "Items are deleted for good after 30 days.",
   "pendingDeletesBlocked": "{count, plural, =1{Can't delete 1 item from {bucket}.} other{Can't delete {count} items from {bucket}.}} Check its access, or forget them.",

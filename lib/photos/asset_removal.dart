@@ -250,27 +250,66 @@ class AssetRemoval {
     return true;
   }
 
-  /// Everything in the bin, for good. Returns how many went.
-  Future<int> emptyBin() =>
-      _purgeBinned((r) => r.isDeleted && r.passcodeHash == null && !r.isLocked);
-
-  /// Purges what has sat in the bin for [binRetention]. Run on every sync.
-  Future<int> expireBin() {
-    final cutoff = DateTime.now().subtract(binRetention);
-    return _purgeBinned(
-      (r) =>
-          r.deletedAt != null &&
-          r.deletedAt!.isBefore(cutoff) &&
-          r.passcodeHash == null &&
-          !r.isLocked,
-    );
+  /// Exactly [localIds] — the entries the user was shown — for good, and
+  /// only those still in the bin. Returns how many went.
+  Future<int> emptyBin(Iterable<String> localIds) async {
+    final shown = await store.getByLocalIds(localIds);
+    return _purge([
+      for (final r in shown.values)
+        if (isInBin(r) && !r.isLocked) r,
+    ]);
   }
 
-  Future<int> _purgeBinned(bool Function(AssetRecord) test) async {
-    final victims = [
-      for (final r in await store.listAll())
-        if (test(r)) r,
+  /// Purges what has sat in the bin for [binRetention]. Run on every sync.
+  ///
+  /// Nothing goes on a guess: an entry whose photo Photos may still have
+  /// (limited access, failed lookup, or there) waits, and so does an exact
+  /// copy whose kept twin can't be shown to hold the original — its bucket
+  /// objects may be the only ones left.
+  Future<int> expireBin() async {
+    final cutoff = DateTime.now().subtract(binRetention);
+    final all = await store.listAll();
+    final due = [
+      for (final r in all)
+        if (r.deletedAt != null &&
+            r.deletedAt!.isBefore(cutoff) &&
+            r.passcodeHash == null &&
+            !r.isLocked)
+          r,
     ];
+    if (due.isEmpty) return 0;
+    final twins = <String, List<AssetRecord>>{};
+    for (final r in all) {
+      if (r.isDeleted || r.passcodeHash != null) continue;
+      final hash = r.stateOf(DerivativeKind.original).backedUpHash;
+      if (hash != null) (twins[hash] ??= []).add(r);
+    }
+    bool? fullAccess;
+    final victims = <AssetRecord>[];
+    for (final r in due) {
+      final libraryId = r.libraryId;
+      if (libraryId != null) {
+        fullAccess ??= await library.hasFullAccess();
+        if (!fullAccess || !await library.isGone(libraryId)) continue;
+      }
+      final hash = r.stateOf(DerivativeKind.original).backedUpHash;
+      final kept = hash == null ? null : twins[hash];
+      if (kept != null && !await _anyStands(kept)) continue;
+      victims.add(r);
+    }
+    return _purge(victims);
+  }
+
+  Future<bool> _anyStands(List<AssetRecord> records) async {
+    for (final r in records) {
+      if (await originalStands(r, library: library, verifier: verifier)) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  Future<int> _purge(List<AssetRecord> victims) async {
     if (victims.isEmpty) return 0;
     final targets = await _loadTargets();
     final held = groupUploads(await store.uploadRows());
@@ -348,22 +387,6 @@ class AssetRemoval {
     }
   }
 
-  /// Drops bin entries that can't be given back and returns what's left to
-  /// show. Kept here rather than in the bin screen because "is there
-  /// anything left of this photo" is a question about the photo.
-  Future<List<AssetRecord>> purgeVanished(List<AssetRecord> records) async {
-    final kept = <AssetRecord>[];
-    List<S3BackupTarget>? targets;
-    for (final record in records) {
-      if (await isRecoverable(record)) {
-        kept.add(record);
-      } else {
-        await _discard(record, targets ??= await _loadTargets(), null);
-      }
-    }
-    return kept;
-  }
-
   /// Whether Recover would bring the photo back: the original in a bucket,
   /// its own file on this phone, or Photos still holding it. A thumbnail
   /// alone is a preview, not the photo.
@@ -397,9 +420,9 @@ class AssetRemoval {
         missingCountsAsDeleted: true,
       );
     } catch (_) {
-      // No plugin, or it's already gone from the library — either way
-      // there's nothing over there left to delete.
-      return true;
+      // Couldn't ask: not deleted. Purging on a guess would queue the
+      // bucket's copies while Photos still has the photo.
+      return false;
     }
   }
 
@@ -415,5 +438,32 @@ class AssetRemoval {
     } catch (_) {
       return null;
     }
+  }
+}
+
+/// Whether [record] can be shown, live, to still have its original: in
+/// Photos, in its own file here, or in a bucket. Unknown is false.
+Future<bool> originalStands(
+  AssetRecord record, {
+  required PhotoLibraryService library,
+  BackupVerifier? verifier,
+}) async {
+  if (record.isDeleted || record.passcodeHash != null) return false;
+  if (!record.localDeleted) {
+    if (record.libraryId != null) {
+      try {
+        if (await library.entityFor(record) != null) return true;
+      } catch (_) {
+        // Not an answer; try the other copies.
+      }
+    }
+    final path = record.sourcePath;
+    if (path != null && await File(path).exists()) return true;
+  }
+  if (verifier == null) return false;
+  try {
+    return await verifier.proveOriginal(record) == CopyProof.present;
+  } catch (_) {
+    return false;
   }
 }

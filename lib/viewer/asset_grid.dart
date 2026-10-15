@@ -849,7 +849,8 @@ class PhotoManagerThumbnail extends StatefulWidget {
 
   /// Called once when the library turns out not to have this asset at all.
   /// The grid is where a deleted photo is *noticed* — long before the next
-  /// full scan — so it's the grid that says so.
+  /// full scan — so it's the grid that says so. A hint only: the receiver
+  /// checks access and asks again before acting on it.
   final VoidCallback? onMissing;
 
   /// What to draw with nothing to draw yet. A grid tile's light grey is

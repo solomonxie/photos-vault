@@ -670,6 +670,93 @@ void main() {
       out.deleteSync();
     });
   });
+
+  group('removing a duplicate', () {
+    Future<StorageItem> pair(FakeAssetRecordStore store) async {
+      for (final id in ['kept', 'dup']) {
+        await store.upsert(
+          localId: id,
+          contentHash: id,
+          platform: 'ios',
+          libraryId: '$id-asset',
+        );
+        await store.updateDerivative(
+          id,
+          DerivativeKind.original,
+          const DerivativeState(
+            status: UploadStatus.uploaded,
+            backedUpHash: 'same',
+          ),
+        );
+      }
+      return StorageItem(
+        record: (await store.getByLocalId('dup'))!,
+        bytes: 100,
+        name: 'dup',
+        appOwned: false,
+        issues: const {StorageIssue.duplicate},
+        fixes: const [StorageFix.removeDuplicate],
+        duplicateOf: 'kept',
+        keptId: 'kept',
+      );
+    }
+
+    PhotoLibraryService libraryWith(Set<String> present) => PhotoLibraryService(
+      store: FakeAssetRecordStore(),
+      loadEntity: (id) async => present.contains(id)
+          ? AssetEntity(id: id, typeInt: 1, width: 1, height: 1)
+          : null,
+      deleteAssets: (ids) async {
+        deleted.add(ids);
+        return ids;
+      },
+    );
+
+    test('a kept copy Photos no longer has stops it', () async {
+      final store = FakeAssetRecordStore();
+      final item = await pair(store);
+      final outcomes = <StorageItemOutcome>[];
+
+      final result = await optimizerOver(
+        store,
+        library: libraryWith({'dup-asset'}),
+      ).apply([item], onItem: (_, outcome) => outcomes.add(outcome));
+
+      expect(deleted, isEmpty);
+      expect((await store.getByLocalId('dup'))!.isDeleted, isFalse);
+      expect(outcomes, [StorageItemOutcome.unverified]);
+      expect(result.unverified, 1);
+    });
+
+    test('so does a kept copy whose row is gone', () async {
+      final store = FakeAssetRecordStore();
+      final item = await pair(store);
+      await store.remove('kept');
+
+      await optimizerOver(
+        store,
+        library: libraryWith({'dup-asset', 'kept-asset'}),
+      ).apply([item]);
+
+      expect(deleted, isEmpty);
+      expect((await store.getByLocalId('dup'))!.isDeleted, isFalse);
+    });
+
+    test('a kept copy still in Photos lets it go', () async {
+      final store = FakeAssetRecordStore();
+      final item = await pair(store);
+
+      await optimizerOver(
+        store,
+        library: libraryWith({'dup-asset', 'kept-asset'}),
+      ).apply([item]);
+
+      expect(deleted, [
+        ['dup-asset'],
+      ]);
+      expect((await store.getByLocalId('dup'))!.isDeleted, isTrue);
+    });
+  });
 }
 
 class _FakeWriter extends LibraryWriter {

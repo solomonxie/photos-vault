@@ -638,6 +638,7 @@ void main() {
       expect(copies.map((i) => i.record.localId), ['a']);
       expect(copies.single.fix, StorageFix.removeDuplicate);
       expect(copies.single.duplicateOf, 'b');
+      expect(copies.single.keptId, 'b');
     },
   );
 

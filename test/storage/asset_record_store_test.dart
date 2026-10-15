@@ -589,4 +589,65 @@ void main() {
       expect(saved.addedAt.isBefore(before), isFalse);
     },
   );
+
+  group('who binned it', () {
+    test('round-trips, and Recover forgets it', () async {
+      final store = newStore();
+      await store.upsert(localId: 'photo:A', contentHash: 'a', platform: 'ios');
+      await store.upsert(localId: 'photo:B', contentHash: 'b', platform: 'ios');
+
+      await store.softDelete('photo:A', byLibrary: true);
+      await store.softDelete('photo:B');
+
+      expect((await store.getByLocalId('photo:A'))!.binnedByLibrary, isTrue);
+      expect((await store.getByLocalId('photo:B'))!.binnedByLibrary, isFalse);
+      await store.restore('photo:A');
+      final back = (await store.getByLocalId('photo:A'))!;
+      expect(back.isDeleted, isFalse);
+      expect(back.binnedByLibrary, isFalse);
+    });
+
+    test('a v19 database gains the column; old bin entries count as the '
+        'user\'s', () async {
+      final dir = await Directory.systemTemp.createTemp('pv_v19_');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = p.join(dir.path, 'photos_vault.db');
+
+      // Today's schema, taken back to v19: the column dropped, the version
+      // wound back.
+      final current = AssetRecordStore(
+        databaseFactory: databaseFactoryFfi,
+        path: path,
+      );
+      await current.upsert(
+        localId: 'photo:old',
+        contentHash: 'old',
+        platform: 'ios',
+      );
+      await current.softDelete('photo:old', byLibrary: true);
+      await current.close();
+      final raw = await databaseFactoryFfi.openDatabase(path);
+      for (final op in ['insert', 'update', 'delete']) {
+        await raw.execute('DROP TRIGGER IF EXISTS change_log_asset_record_$op');
+      }
+      await raw.execute('ALTER TABLE asset_record DROP COLUMN binned_by');
+      await raw.setVersion(19);
+      await raw.close();
+
+      final upgraded = AssetRecordStore(
+        databaseFactory: databaseFactoryFfi,
+        path: path,
+      );
+      addTearDown(upgraded.close);
+
+      final old = (await upgraded.getByLocalId('photo:old'))!;
+      expect(old.isDeleted, isTrue);
+      expect(old.binnedByLibrary, isFalse);
+      await upgraded.softDelete('photo:old', byLibrary: true);
+      expect(
+        (await upgraded.getByLocalId('photo:old'))!.binnedByLibrary,
+        isTrue,
+      );
+    });
+  });
 }

@@ -63,7 +63,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 19,
+        version: 20,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createPlaceNameTableSql);
@@ -178,6 +178,11 @@ class AssetRecordStore {
           if (oldVersion < 19) {
             await db.execute(_createBucketScanTableSql);
             await db.execute(_createBucketScanObjectTableSql);
+          }
+          if (oldVersion < 20) {
+            // Null on rows binned before: who did it is unknown, so the
+            // scan treats them as the user's and never un-bins them.
+            await db.execute('ALTER TABLE $_table ADD COLUMN binned_by TEXT');
           }
           if (oldVersion < 10) {
             await db.execute('ALTER TABLE $_table ADD COLUMN latitude REAL');
@@ -414,6 +419,7 @@ class AssetRecordStore {
       is_locked INTEGER NOT NULL DEFAULT 0,
       local_optimized INTEGER NOT NULL DEFAULT 0,
       deleted_at INTEGER,
+      binned_by TEXT,
       description TEXT NOT NULL DEFAULT '',
       tags TEXT NOT NULL DEFAULT '[]',
       location TEXT,
@@ -1569,13 +1575,14 @@ class AssetRecordStore {
   }
 
   /// Moves a record to "Recently Deleted" — `remove` is the separate,
-  /// permanent delete.
-  Future<void> softDelete(String localId) async {
+  /// permanent delete. [byLibrary]: the scan binned it, not the user.
+  Future<void> softDelete(String localId, {bool byLibrary = false}) async {
     final db = await _open();
     await db.update(
       _table,
       {
         'deleted_at': DateTime.now().millisecondsSinceEpoch,
+        'binned_by': byLibrary ? _binnedByLibrary : _binnedByUser,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
       where: 'local_id = ?',
@@ -1583,11 +1590,18 @@ class AssetRecordStore {
     );
   }
 
+  static const _binnedByLibrary = 'library';
+  static const _binnedByUser = 'user';
+
   Future<void> restore(String localId) async {
     final db = await _open();
     await db.update(
       _table,
-      {'deleted_at': null, 'updated_at': DateTime.now().millisecondsSinceEpoch},
+      {
+        'deleted_at': null,
+        'binned_by': null,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
       where: 'local_id = ?',
       whereArgs: [localId],
     );
@@ -1797,6 +1811,7 @@ class AssetRecordStore {
       deletedAt: deletedAtMillis == null
           ? null
           : DateTime.fromMillisecondsSinceEpoch(deletedAtMillis),
+      binnedByLibrary: row['binned_by'] == _binnedByLibrary,
       description: row['description'] as String? ?? '',
       tags: tags,
       location: row['location'] as String?,

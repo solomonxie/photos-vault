@@ -267,56 +267,172 @@ void main() {
     expect(await store.getByLocalId('photo:2'), isNull);
   });
 
-  test('opening the bin drops what is gone everywhere', () async {
-    final store = FakeAssetRecordStore();
-    await store.upsert(
-      localId: 'photo:2',
-      contentHash: '2',
-      platform: 'ios',
-      libraryId: 'lib-2',
-    );
-    await store.softDelete('photo:2');
-    final binned = [(await store.getByLocalId('photo:2'))!];
+  group('the bin', () {
+    final longAgo = DateTime.now().subtract(const Duration(days: 40));
+    AssetEntity present(String id) =>
+        AssetEntity(id: id, typeInt: 1, width: 1, height: 1);
 
-    expect(await removalOver(store).purgeVanished(binned), isEmpty);
-    expect(await store.getByLocalId('photo:2'), isNull);
+    Future<void> binned(
+      FakeAssetRecordStore store,
+      String id, {
+      bool byLibrary = false,
+      String? hash,
+      DateTime? at,
+    }) async {
+      await store.upsert(
+        localId: 'photo:$id',
+        contentHash: id,
+        platform: 'ios',
+        libraryId: 'lib-$id',
+      );
+      if (hash != null) {
+        await store.updateDerivative(
+          'photo:$id',
+          DerivativeKind.original,
+          DerivativeState(
+            status: UploadStatus.uploaded,
+            destinationKey: 'photos/originals/$id.jpg',
+            backedUpHash: hash,
+          ),
+        );
+      }
+      await store.softDelete('photo:$id', byLibrary: byLibrary);
+      if (at != null) store.binnedAt('photo:$id', at);
+    }
+
+    AssetRemoval withAccess(
+      FakeAssetRecordStore store,
+      PermissionState access, {
+      Future<AssetEntity?> Function(String id)? loadEntity,
+      BackupVerifier? verifier,
+    }) => AssetRemoval(
+      store: store,
+      verifier: verifier,
+      library: PhotoLibraryService(
+        store: store,
+        requestPermission: () async => access,
+        loadEntity: loadEntity ?? (_) async => null,
+        deleteAssets: (ids) async => ids,
+      ),
+    );
+
+    test('Empty purges exactly the entries shown', () async {
+      final store = FakeAssetRecordStore();
+      await binned(store, 'shown');
+      // Binned after the page drew.
+      await binned(store, 'late');
+
+      expect(await removalOver(store).emptyBin(['photo:shown']), 1);
+
+      expect(await store.getByLocalId('photo:shown'), isNull);
+      expect((await store.getByLocalId('photo:late'))!.isDeleted, isTrue);
+    });
+
+    test('Empty skips a shown entry recovered since', () async {
+      final store = FakeAssetRecordStore();
+      await binned(store, 'a');
+      await store.restore('photo:a');
+
+      expect(await removalOver(store).emptyBin(['photo:a']), 0);
+      expect(await store.getByLocalId('photo:a'), isNotNull);
+    });
+
+    test('expiry purges what Photos confirms is gone', () async {
+      final store = FakeAssetRecordStore();
+      await binned(store, 'a', at: longAgo);
+
+      expect(
+        await withAccess(store, PermissionState.authorized).expireBin(),
+        1,
+      );
+      expect(await store.getByLocalId('photo:a'), isNull);
+    });
+
+    test('expiry waits under limited access', () async {
+      final store = FakeAssetRecordStore();
+      await binned(store, 'a', byLibrary: true, at: longAgo);
+
+      expect(await withAccess(store, PermissionState.limited).expireBin(), 0);
+      expect(await store.getByLocalId('photo:a'), isNotNull);
+    });
+
+    test('expiry waits when Photos has the photo, or cannot say', () async {
+      final store = FakeAssetRecordStore();
+      await binned(store, 'a', at: longAgo);
+
+      expect(
+        await withAccess(
+          store,
+          PermissionState.authorized,
+          loadEntity: (id) async => present(id),
+        ).expireBin(),
+        0,
+      );
+      expect(
+        await withAccess(
+          store,
+          PermissionState.authorized,
+          loadEntity: (_) async => throw StateError('no channel'),
+        ).expireBin(),
+        0,
+      );
+      expect(await store.getByLocalId('photo:a'), isNotNull);
+    });
+
+    test('a duplicate whose kept copy is unproven is not expired', () async {
+      final store = FakeAssetRecordStore();
+      await binned(store, 'copy', hash: 'same', at: longAgo);
+      await store.upsert(
+        localId: 'photo:kept',
+        contentHash: 'kept',
+        platform: 'ios',
+        libraryId: 'lib-kept',
+      );
+      await store.updateDerivative(
+        'photo:kept',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'photos/originals/kept.jpg',
+          backedUpHash: 'same',
+        ),
+      );
+      await store.setLocalDeleted('photo:kept', true);
+
+      final unproven = withAccess(
+        store,
+        PermissionState.authorized,
+        verifier: await verifierOver(store, answer: 404),
+      );
+      expect(await unproven.expireBin(), 0);
+      expect(await store.getByLocalId('photo:copy'), isNotNull);
+
+      final proven = withAccess(
+        store,
+        PermissionState.authorized,
+        verifier: await verifierOver(store),
+      );
+      expect(await proven.expireBin(), 1);
+      expect(await store.getByLocalId('photo:copy'), isNull);
+    });
   });
 
-  test('a cached thumbnail alone does not keep a photo in the bin', () async {
+  test('a delete Photos fails on is not a delete', () async {
     final store = FakeAssetRecordStore();
-    await store.upsert(
-      localId: 'photo:t',
-      contentHash: 't',
-      platform: 'ios',
-      libraryId: 'lib-t',
+    final record = await backedUp(store);
+    final removal = AssetRemoval(
+      store: store,
+      library: PhotoLibraryService(
+        store: store,
+        loadEntity: (_) async => null,
+        deleteAssets: (_) async => throw StateError('PhotoKit error'),
+      ),
     );
-    await store.setThumbnailPath('photo:t', '/tmp/thumb-t.jpg');
-    await store.softDelete('photo:t');
-    final binned = [(await store.getByLocalId('photo:t'))!];
 
-    expect(await removalOver(store).purgeVanished(binned), isEmpty);
-    expect(await store.getByLocalId('photo:t'), isNull);
-  });
-
-  test('a bin entry the library still holds is left alone', () async {
-    final store = FakeAssetRecordStore();
-    await store.upsert(
-      localId: 'photo:2',
-      contentHash: '2',
-      platform: 'ios',
-      libraryId: 'lib-2',
-    );
-    await store.softDelete('photo:2');
-    final binned = [(await store.getByLocalId('photo:2'))!];
-
-    final kept = await removalOver(
-      store,
-      loadEntity: (_) async =>
-          AssetEntity(id: 'lib-2', typeInt: 1, width: 1, height: 1),
-    ).purgeVanished(binned);
-
-    expect(kept, hasLength(1));
-    expect(await store.getByLocalId('photo:2'), isNotNull);
+    expect(await removal.deletePermanently(record), isFalse);
+    expect(await removal.deleteEverywhere(record), isFalse);
+    final after = (await store.getByLocalId('photo:1'))!;
+    expect(after.isDeleted, isFalse);
   });
 
   test('deleting everywhere bins it here and takes it out of Photos', () async {

@@ -302,7 +302,9 @@ void main() {
       List<AssetEntity> Function() listing,
     ) async => PhotoLibraryService(
       store: store,
+      requestPermission: () async => PermissionState.authorized,
       listAssetPage: pagedBy(() => listing()),
+      loadEntity: (id) async => listing().where((e) => e.id == id).firstOrNull,
     );
 
     test('a backed-up one becomes cloud-only, keeping its place', () async {
@@ -327,26 +329,21 @@ void main() {
       expect(result.updated, 1);
     });
 
-    test(
-      'one that never made it to the bucket is forgotten, not binned',
-      () async {
-        final store = FakeAssetRecordStore();
-        var listing = [_entity('a1')];
-        final service = await serviceWith(store, () => listing);
-        await service.syncAll();
+    test('one that never made it to the bucket is binned, row kept', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [_entity('a1')];
+      final service = await serviceWith(store, () => listing);
+      await service.syncAll();
+      await store.setDescription('photo:a1', 'caption');
 
-        listing = [];
-        await service.syncAll(reconcileDeletions: true);
+      listing = [];
+      await service.syncAll(reconcileDeletions: true);
 
-        expect(
-          await store.getByLocalId('photo:a1'),
-          isNull,
-          reason:
-              'no bytes here, none in the bucket, none in the library — '
-              'Recently Deleted would only hold an empty tile',
-        );
-      },
-    );
+      final record = (await store.getByLocalId('photo:a1'))!;
+      expect(record.isDeleted, isTrue);
+      expect(record.binnedByLibrary, isTrue);
+      expect(record.description, 'caption', reason: 'metadata survives');
+    });
 
     test('and coming back out of Photos\' own trash undoes it', () async {
       final store = FakeAssetRecordStore();
@@ -430,6 +427,7 @@ void main() {
       ];
       final service = PhotoLibraryService(
         store: store,
+        requestPermission: () async => PermissionState.authorized,
         listAssetPage: pagedBy(() => listing),
         loadEntity: (id) async => listing.where((e) => e.id == id).firstOrNull,
       );
@@ -459,6 +457,7 @@ void main() {
         var listing = all;
         final service = PhotoLibraryService(
           store: store,
+          requestPermission: () async => PermissionState.authorized,
           listAssetPage: (page, size) async =>
               listing.skip(page * size).take(size).toList(),
           loadEntity: (id) async =>
@@ -473,7 +472,7 @@ void main() {
         expect(await store.getByLocalId('photo:a399'), isNotNull);
 
         await service.syncAll(reconcileDeletions: true);
-        expect(await store.getByLocalId('photo:a399'), isNull);
+        expect((await store.getByLocalId('photo:a399'))!.isDeleted, isTrue);
       },
     );
 
@@ -482,6 +481,7 @@ void main() {
       var listing = [_entity('a1', createSecond: 100)];
       final service = PhotoLibraryService(
         store: store,
+        requestPermission: () async => PermissionState.authorized,
         listAssetPage: pagedBy(() => listing),
         loadEntity: (id) async => listing.where((e) => e.id == id).firstOrNull,
       );
@@ -490,7 +490,7 @@ void main() {
       listing = [];
       await service.syncRecent(reconcileDeletions: true);
 
-      expect(await store.getByLocalId('photo:a1'), isNull);
+      expect((await store.getByLocalId('photo:a1'))!.isDeleted, isTrue);
     });
 
     test(
@@ -504,6 +504,7 @@ void main() {
         final library = {for (final e in listing) e.id: e};
         final service = PhotoLibraryService(
           store: store,
+          requestPermission: () async => PermissionState.authorized,
           listAssetPage: pagedBy(() => listing),
           loadEntity: (id) async => library[id],
         );
@@ -526,6 +527,7 @@ void main() {
       Map<String, AssetEntity> library,
     ) => PhotoLibraryService(
       store: store,
+      requestPermission: () async => PermissionState.authorized,
       // Never lists: the whole point is that a change costs nothing
       // proportional to library size.
       listAssetPage: (page, size) async => throw StateError('should not scan'),
@@ -573,6 +575,7 @@ void main() {
         const DerivativeState(status: UploadStatus.uploaded),
       );
 
+      library.clear();
       await service.applyChange(
         const PhotoLibraryChange(deleted: {'a1', 'a2'}),
       );
@@ -583,9 +586,9 @@ void main() {
         reason: 'backed up — stays as a cloud-only item',
       );
       expect(
-        await store.getByLocalId('photo:a2'),
-        isNull,
-        reason: 'never backed up — nothing left of it to bin',
+        (await store.getByLocalId('photo:a2'))!.isDeleted,
+        isTrue,
+        reason: 'never backed up — binned, row kept',
       );
     });
 
@@ -610,6 +613,141 @@ void main() {
       );
 
       expect(result.isEmpty, isTrue);
+    });
+  });
+
+  group('absence never deletes', () {
+    PhotoLibraryService serviceOver(
+      FakeAssetRecordStore store, {
+      required List<AssetEntity> Function() listing,
+      PermissionState access = PermissionState.authorized,
+      Future<AssetEntity?> Function(String id)? loadEntity,
+    }) => PhotoLibraryService(
+      store: store,
+      requestPermission: () async => access,
+      listAssetPage: pagedBy(listing),
+      loadEntity:
+          loadEntity ??
+          (id) async => listing().where((e) => e.id == id).firstOrNull,
+    );
+
+    Future<void> expectUntouched(FakeAssetRecordStore store) async {
+      final record = (await store.getByLocalId('photo:a1'))!;
+      expect(record.isDeleted, isFalse);
+      expect(record.localDeleted, isFalse);
+    }
+
+    test('limited access marks nothing gone', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [_entity('a1')];
+      await serviceOver(store, listing: () => listing).syncAll();
+
+      listing = [];
+      final limited = serviceOver(
+        store,
+        listing: () => listing,
+        access: PermissionState.limited,
+      );
+      await limited.syncAll(reconcileDeletions: true);
+      await limited.applyChange(const PhotoLibraryChange(deleted: {'a1'}));
+
+      await expectUntouched(store);
+    });
+
+    test('a failed lookup marks nothing gone', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [_entity('a1')];
+      await serviceOver(store, listing: () => listing).syncAll();
+
+      listing = [];
+      final failing = serviceOver(
+        store,
+        listing: () => listing,
+        loadEntity: (id) async => throw StateError('no channel'),
+      );
+      await failing.syncAll(reconcileDeletions: true);
+      await failing.applyChange(const PhotoLibraryChange(deleted: {'a1'}));
+
+      await expectUntouched(store);
+    });
+
+    test('a failed permission check marks nothing gone', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [_entity('a1')];
+      await serviceOver(store, listing: () => listing).syncAll();
+
+      listing = [];
+      final service = PhotoLibraryService(
+        store: store,
+        requestPermission: () async => throw StateError('no plugin'),
+        listAssetPage: pagedBy(() => listing),
+        loadEntity: (id) async => null,
+      );
+      await service.syncAll(reconcileDeletions: true);
+      await service.applyChange(const PhotoLibraryChange(deleted: {'a1'}));
+
+      await expectUntouched(store);
+    });
+
+    test('a missing notice for a photo Photos still has is ignored', () async {
+      final store = FakeAssetRecordStore();
+      final listing = [_entity('a1')];
+      final service = serviceOver(store, listing: () => listing);
+      await service.syncAll();
+
+      // A tile whose thumbnail didn't come back.
+      await service.applyChange(const PhotoLibraryChange(deleted: {'a1'}));
+
+      await expectUntouched(store);
+    });
+
+    test(
+      'a row the scan binned comes back out when the photo returns',
+      () async {
+        final store = FakeAssetRecordStore();
+        var listing = [_entity('a1')];
+        final service = serviceOver(store, listing: () => listing);
+        await service.syncAll();
+        listing = [];
+        await service.syncAll(reconcileDeletions: true);
+        expect((await store.getByLocalId('photo:a1'))!.binnedByLibrary, isTrue);
+
+        listing = [_entity('a1')];
+        final result = await service.syncAll(reconcileDeletions: true);
+
+        final record = (await store.getByLocalId('photo:a1'))!;
+        expect(record.isDeleted, isFalse);
+        expect(record.binnedByLibrary, isFalse);
+        expect(result.updated, 1);
+      },
+    );
+
+    test('and through a change notice too', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [_entity('a1')];
+      final service = serviceOver(store, listing: () => listing);
+      await service.syncAll();
+      listing = [];
+      await service.applyChange(const PhotoLibraryChange(deleted: {'a1'}));
+      expect((await store.getByLocalId('photo:a1'))!.isDeleted, isTrue);
+
+      listing = [_entity('a1')];
+      await service.applyChange(const PhotoLibraryChange(updated: {'a1'}));
+
+      expect((await store.getByLocalId('photo:a1'))!.isDeleted, isFalse);
+    });
+
+    test('a row the user binned stays binned', () async {
+      final store = FakeAssetRecordStore();
+      final listing = [_entity('a1')];
+      final service = serviceOver(store, listing: () => listing);
+      await service.syncAll();
+      await store.softDelete('photo:a1');
+
+      await service.syncAll(reconcileDeletions: true);
+      await service.applyChange(const PhotoLibraryChange(updated: {'a1'}));
+
+      expect((await store.getByLocalId('photo:a1'))!.isDeleted, isTrue);
     });
   });
 

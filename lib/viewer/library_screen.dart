@@ -1101,9 +1101,9 @@ class LibraryScreenState extends State<LibraryScreen>
     _missingLibraryIds.clear();
     if (ids.isEmpty || !mounted) return;
     try {
-      // The same path an iOS deletion notification takes: backed up becomes
-      // cloud-only, not backed up goes to this app's Recently Deleted.
-      // Never a row deleted — see `PhotoLibraryService._reconcileDeletions`.
+      // The same path an iOS deletion notification takes, so the same
+      // gate: full access and a second lookup, or nothing. Backed up becomes
+      // cloud-only, the rest goes to the bin; never a row deleted.
       final result = await _photoLibraryService.applyChange(
         PhotoLibraryChange(deleted: ids),
       );

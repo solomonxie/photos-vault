@@ -90,10 +90,12 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
   for. One place, because that eligibility is a property of the photo, and
   every grid screen working it out for itself is how Favorites ended up
   offering a plain delete for something the library offered to keep.
-  Also the third way, which isn't a choice: a photo with no bucket copy,
-  no cached thumbnail and no file left anywhere is dropped outright rather
-  than binned — Recently Deleted would only hold an empty tile with
-  nothing to recover.
+  A user delete of a photo with no bucket copy and no file left is dropped
+  outright. Absence never deletes: a photo gone from Photos is only ever
+  made cloud-only or binned (`binned_by = library`), with full access and a
+  second lookup, and the scan un-bins it if it returns. Opening Recently
+  Deleted purges nothing; Empty purges the ids shown; expiry waits on a
+  live "gone" from Photos and a proven kept copy for exact duplicates.
 - `storage_advice.dart` / `storage_optimizer.dart` — what's costing space and
   what to do about it.
 - `fix_queue.dart` — the Flagged Items page's fixes, phone and bucket alike:

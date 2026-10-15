@@ -4,7 +4,9 @@ import 'package:photos_vault/viewer/asset_grid.dart';
 import 'package:photos_vault/viewer/recently_deleted_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photo_manager/photo_manager.dart';
 import 'package:photos_vault/photos/asset_removal.dart';
+import 'package:photos_vault/photos/photo_library_service.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/upload/pending_deletes.dart';
 
@@ -105,6 +107,82 @@ void main() {
       await deletePermanently(tester);
 
       expect(await store.getByLocalId('manual:gone'), isNull);
+    });
+  });
+
+  group('never purges on its own', () {
+    Future<void> binnedRollPhoto(
+      FakeAssetRecordStore store,
+      String id, {
+      DateTime? at,
+    }) async {
+      await store.upsert(
+        localId: 'photo:$id',
+        contentHash: id,
+        platform: 'ios',
+        libraryId: 'lib-$id',
+      );
+      await store.softDelete('photo:$id', byLibrary: true);
+      if (at != null) store.binnedAt('photo:$id', at);
+    }
+
+    Widget screenOver(FakeAssetRecordStore store) {
+      final targets = BackupTargetsStore(store: FakeSecureStore());
+      return _wrap(
+        RecentlyDeletedScreen(
+          assetRecordStore: store,
+          removal: AssetRemoval(
+            store: store,
+            targetsStore: targets,
+            pendingDeletes: PendingDeletes(store: store),
+            // Full access and nothing found: the worst case for a purge.
+            library: PhotoLibraryService(
+              store: store,
+              requestPermission: () async => PermissionState.authorized,
+              loadEntity: (_) async => null,
+            ),
+          ),
+          pendingDeletes: PendingDeletes(store: store),
+          targetsStore: targets,
+        ),
+      );
+    }
+
+    testWidgets('opening it purges nothing, expired or not', (tester) async {
+      final store = FakeAssetRecordStore();
+      await binnedRollPhoto(
+        store,
+        'old',
+        at: DateTime.now().subtract(const Duration(days: 40)),
+      );
+      await binnedRollPhoto(store, 'empty');
+
+      await tester.pumpWidget(screenOver(store));
+      await tester.pumpAndSettle();
+
+      expect(await store.getByLocalId('photo:old'), isNotNull);
+      expect(await store.getByLocalId('photo:empty'), isNotNull);
+      expect(find.byKey(const ValueKey('photo:old')), findsOneWidget);
+      expect(find.byKey(const ValueKey('photo:empty')), findsOneWidget);
+    });
+
+    testWidgets('Empty purges only what was shown', (tester) async {
+      final store = FakeAssetRecordStore();
+      await binnedRollPhoto(store, 'shown');
+
+      await tester.pumpWidget(screenOver(store));
+      await tester.pumpAndSettle();
+      // Binned by a background sync while the page is open.
+      await binnedRollPhoto(store, 'late');
+
+      await tester.tap(find.text('Empty'));
+      await tester.pumpAndSettle();
+      expect(find.text('Delete 1 item for good?'), findsOneWidget);
+      await tester.tap(find.text('Empty').last);
+      await tester.pumpAndSettle();
+
+      expect(await store.getByLocalId('photo:shown'), isNull);
+      expect((await store.getByLocalId('photo:late'))!.isDeleted, isTrue);
     });
   });
 }

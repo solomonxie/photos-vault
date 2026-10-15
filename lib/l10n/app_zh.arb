@@ -26,7 +26,7 @@
   "libraryDeletePermanentlyAction": "永久删除",
   "libraryDeletePermanentlyEverywhereBody": "将从本机和所有存储桶中删除这张照片，无法恢复。",
   "libraryEmptyBin": "清空",
-  "libraryEmptyBinTitle": "清空最近删除？",
+  "libraryEmptyBinTitle": "{count, plural, other{永久删除 {count} 个项目？}}",
   "libraryEmptyBinBody": "这里的所有项目将从本机和所有存储桶中删除，无法恢复。",
   "libraryRecentlyDeletedNote": "项目将在 30 天后永久删除。",
   "pendingDeletesBlocked": "无法从 {bucket} 删除 {count} 个项目。请检查访问权限，或放弃删除。",
