@@ -36,12 +36,13 @@ class PlainFiles {
     final dir = Directory(
       p.join((await _directory()).path, VaultStore.root, dirName),
     );
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-      await _exclusion.exclude(dir.path);
-    }
+    if (!await dir.exists()) await dir.create(recursive: true);
+    // Once per instance, so a failed call is retried next launch.
+    await (_excluded ??= _exclusion.exclude(dir.path));
     return dir;
   }
+
+  Future<bool>? _excluded;
 
   static String neutralName(String localId, String extension) =>
       '${sha256.convert(utf8.encode('plain:$localId')).toString().substring(0, 32)}'

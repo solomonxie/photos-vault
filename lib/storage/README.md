@@ -17,25 +17,26 @@ existing = getByLocalId(localId)
 
 getByLocalId() / getByLocalIds() route every row through:
   _healed(record)                                asset_record_store.dart:_healed()
-    │ manualFile record whose sourcePath no longer exists on disk
+    │ a record whose sourcePath no longer exists on disk
     ▼ re-resolve by filename under _appSupportDirectory()
     UPDATE source_path if the healed path exists; else return unchanged
 ```
 
 `listAll()`: cached per row; each read fetches `rev > last` (a trigger-kept
 counter, not a clock), patches the sorted list, same instance when nothing
-moved. Deletes go through `remove`/`removeMany`. `libraryDelta(a, b)` says
+moved. Deletes go through `remove`/`removeMany`. The cache is per
+instance: a delete through another `AssetRecordStore` (background sync,
+demo seed) is not seen by the UI's until it restarts. `libraryDelta(a, b)` says
 whether more than upload state moved between two results.
 
 - `asset_record.dart` — the `AssetRecord` model (immutable, `_copyWith`-based
   `withX()` helpers) and the `DerivativeKind`/`UploadStatus` enums.
 - `asset_record_store.dart` — the sqlite table, all reads/writes, and the
   stale-path healing above.
-- `private_album.dart` / `private_album_store.dart` — passcode-gated hidden
-  folders (Utilities' "Hidden" row); a join table over `asset_record`, same
-  shape as `album_store.dart`, plus a `moved` flag per row (moved assets are
-  also `setHidden(true)` by the caller; copied ones stay visible in the main
-  library too). See `../viewer/private_album_gate.dart` and DESIGN.md.
+- `album_store.dart` — albums and their memberships, in their own db file.
+- Hidden photos are ordinary rows tagged with `passcode_hash`; their
+  journals (`hidden_transition`, `hidden_note`) live in this db. See
+  `../vault/` and `../viewer/private_album_gate.dart`.
 - `passcode_hash.dart` — the passcode tag (HMAC under a Keychain key; the
   tag doubles as the album id) shared by private albums and person-profile
   locks, and the old `sha256` form still read for upgrade. See

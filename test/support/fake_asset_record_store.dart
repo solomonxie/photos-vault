@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:path/path.dart' as p;
 
 import 'package:photos_vault/storage/asset_record.dart';
@@ -640,11 +638,8 @@ class FakeAssetRecordStore implements AssetRecordStore {
       _records.values.where((r) => r.passcodeHash == hash).toList()
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
-  /// No file and no log: these fakes are maps, and the tier-1 copy has
-  /// nothing to copy. `LocalVault` treats both as "nothing to snapshot".
-  @override
-  Future<File?> checkpointedFile() async => null;
-
+  /// No log: these fakes are maps. `LocalVault` reads it as "nothing to
+  /// snapshot".
   /// Settable, so a test can say "something changed" without arranging a
   /// write for every table the real triggers watch.
   var mark = 0;

@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:uuid/uuid.dart';
@@ -51,17 +50,17 @@ class AlbumStore {
       options: OpenDatabaseOptions(
         version: 3,
         onUpgrade: (db, oldVersion, newVersion) async {
-          if (oldVersion < 3) {
-            await db.execute(
-              'ALTER TABLE $_albumTable ADD COLUMN cover_local_id TEXT',
-            );
-          }
           if (oldVersion < 2) {
             await db.execute(
               "ALTER TABLE $_albumTable ADD COLUMN description TEXT NOT NULL DEFAULT ''",
             );
             await db.execute(
               "ALTER TABLE $_albumTable ADD COLUMN tags TEXT NOT NULL DEFAULT '[]'",
+            );
+          }
+          if (oldVersion < 3) {
+            await db.execute(
+              'ALTER TABLE $_albumTable ADD COLUMN cover_local_id TEXT',
             );
           }
         },
@@ -88,6 +87,8 @@ class AlbumStore {
         },
       ),
     );
+    // A wiped membership is zeroed, not left in a free page.
+    await db.execute('PRAGMA secure_delete = ON');
     // After the migrations, never inside them: a trigger has to describe
     // the schema the app just finished upgrading to.
     await installChangeLog(db, const [_albumTable, _memberTable]);
@@ -119,22 +120,6 @@ class AlbumStore {
       ..delete(_albumTable)
       ..delete(changeLogTable);
     await batch.commit(noResult: true);
-  }
-
-  /// This store's database file, with the write-ahead log folded back in
-  /// first — a copy taken without the checkpoint is missing the newest
-  /// writes, which are still sitting in the `-wal` sidecar.
-  ///
-  /// `null` for an in-memory database, which has no file to copy.
-  Future<File?> checkpointedFile() async {
-    final db = await _open();
-    try {
-      await db.execute('PRAGMA wal_checkpoint(FULL)');
-    } catch (_) {
-      // Not in WAL mode, or a factory that doesn't support the pragma.
-    }
-    final file = File(db.path);
-    return file.existsSync() ? file : null;
   }
 
   /// A compact copy at [dest] without [hiddenIds]' memberships or covers.
@@ -296,8 +281,10 @@ class AlbumStore {
   /// contained are untouched (they live in `asset_record`, not here).
   Future<void> remove(String albumId) async {
     final db = await _open();
-    await db.delete(_memberTable, where: 'album_id = ?', whereArgs: [albumId]);
-    await db.delete(_albumTable, where: 'id = ?', whereArgs: [albumId]);
+    final batch = db.batch()
+      ..delete(_memberTable, where: 'album_id = ?', whereArgs: [albumId])
+      ..delete(_albumTable, where: 'id = ?', whereArgs: [albumId]);
+    await batch.commit(noResult: true);
   }
 
   String newId() => const Uuid().v4();

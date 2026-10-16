@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
 import '../vault/bucket.dart';
+import 'bucket_http.dart';
 import 'signing.dart';
 
 /// Which configured target actually holds [objectKey].
@@ -34,12 +35,14 @@ Future<S3BackupTarget?> targetHolding(
   if (targets.isEmpty) lastLookupDetail = 'no bucket saved';
   for (final target in targets) {
     try {
-      final response = await fetch(
-        await presignGetUrl(
-          target: target,
-          key: VaultBucket.resolveKey(target, objectKey),
+      final response = await bucketRequest(
+        fetch(
+          await presignGetUrl(
+            target: target,
+            key: VaultBucket.resolveKey(target, objectKey),
+          ),
+          headers: {'Range': 'bytes=0-0'},
         ),
-        headers: {'Range': 'bytes=0-0'},
       );
       if (response.statusCode == 206 || response.statusCode == 200) {
         return target;

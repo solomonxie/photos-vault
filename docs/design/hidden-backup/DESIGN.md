@@ -1,10 +1,11 @@
 # Hidden photos live in the bucket, disguised as ordinary photos
 
-A photo in a hidden album leaves the phone entirely. What lands in the
+A photo in a hidden album goes to the bucket disguised. What lands in the
 bucket is **a JPEG that opens as a photo** — an unrelated picture from the
 user's own library, at its own resolution and its own date — carrying the
-real photo's bytes inside it, encrypted. Nothing about the hidden photo
-stays on the device: no file, no thumbnail, no database row.
+real photo's bytes inside it, encrypted. On the phone the photo keeps its
+row (tagged, never in an app-data copy) and its file under the
+backup-excluded `vault/`; no backup carries it unencrypted.
 
 Today's behaviour, which the footer copy states plainly: same folders,
 filename replaced by an id, **not encrypted**. The id hides *which* photo it
@@ -128,7 +129,7 @@ subtle once you know to look. **The design does not pretend otherwise.**
 | someone **browsing** the bucket — a console, a family member on a shared account, a provider's content scan | the decoy: every object is a photo that opens as a photo | yes |
 | someone **counting** carriers, who has read this repo | nothing — they run the detector and get a count | **no, accepted** |
 | someone **opening** a hidden photo, holding the bucket, the snapshot and this repo | the passphrase, which is in none of them | yes |
-| someone **imaging the phone** | nothing is there to find | yes, after the upload lands |
+| someone **imaging the phone** | nothing: the row and the plain file are on it, kept out of the device backup and every app-data copy | **no, accepted** |
 
 The fully-undetectable version — splitting every photo across many objects
 so none is anomalous — is not worth it: it doesn't reach undetectable

@@ -251,6 +251,33 @@ void main() {
       expect(item.likelyDuplicateOf, current);
     });
 
+    test('an old copy under the kept name keeps the thumbnail, which is the '
+        "kept photo's own", () async {
+      const old = 'photos-vault/originals/20260920124044_abc.heic';
+      const current = 'photos-vault/originals/20260920124044_abc.heif';
+      const thumb = 'photos-vault/thumbnails/20260920124044_abc.jpg';
+      bucket.objects[old] = video;
+      bucket.objects[current] = video;
+      bucket.objects[thumb] = video;
+      await relist();
+      await store.upsert(localId: 'photo:X', contentHash: 'x', platform: 'ios');
+      await store.updateDerivative(
+        'photo:X',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: current,
+        ),
+      );
+      final item = (await BucketFlags(
+        store: store,
+      ).detect()).singleWhere((f) => f.object.key == old);
+      expect(item.kind, FlagKind.oldCopy);
+
+      expect((await fixer().removeOldCopy(item)).ok, isTrue);
+      expect(bucket.objects.keys, unorderedEquals([current, thumb]));
+    });
+
     test('a video from the same second as a library video is never its old '
         'copy unless it is the same file', () async {
       const kept =
@@ -540,6 +567,37 @@ void main() {
       expect(await f.canReformat(item), isFalse);
       expect((await f.reformat(item)).ok, isFalse);
       expect(offline.objects.keys, [key]);
+    });
+
+    test('downloads on the background transfer, and a file that turns out '
+        'to be a carrier is left alone', () async {
+      const key = 'photos-vault/originals/IMG_0005.jpg';
+      bucket.objects[key] = decoyJpeg();
+      final item = offProtocol(key, bucket.objects[key]!.length);
+      final downloader = _FileDownloader(carrier(salt: knownSalt));
+      final f = BucketFixer(
+        store: store,
+        targetsStore: targets,
+        passphrases: () async => [known],
+        ops: bucket,
+        uploader: _BucketUploader(bucket),
+        downloader: downloader,
+      );
+
+      final result = await f.reformat(item);
+      expect(result.ok, isFalse);
+      expect(result.detail, 'hidden photo');
+      expect(downloader.keys, [key]);
+      expect(bucket.objects.keys, [key]);
+    });
+
+    test('with no background transfer, nothing is downloaded', () async {
+      const key = 'photos-vault/originals/IMG_0006.jpg';
+      bucket.objects[key] = decoyJpeg();
+      final item = offProtocol(key, bucket.objects[key]!.length);
+
+      expect((await over(bucket).reformat(item)).ok, isFalse);
+      expect(bucket.objects.keys, [key]);
     });
 
     test('a file the scan found to be a carrier stays one', () async {
@@ -1101,6 +1159,32 @@ class _BucketUploader implements S3Uploader {
     bucket.objects[key] = File(filePath).readAsBytesSync();
     return true;
   }
+}
+
+/// The background transfer, writing [bytes] wherever it is asked to.
+class _FileDownloader implements S3Downloader {
+  _FileDownloader(this.bytes);
+  final Uint8List bytes;
+  final keys = <String>[];
+
+  @override
+  Future<bool> get({
+    required String key,
+    required S3BackupTarget target,
+    required String toPath,
+  }) async {
+    keys.add(key);
+    await File(toPath).writeAsBytes(bytes, flush: true);
+    return true;
+  }
+
+  @override
+  Future<FetchResult> fetch(
+    S3BackupTarget target,
+    String key,
+    String toPath,
+  ) async =>
+      (saved: await get(key: key, target: target, toPath: toPath), status: 200);
 }
 
 /// Lists fine, but every header read fails, like a dropped connection.

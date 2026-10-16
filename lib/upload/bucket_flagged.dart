@@ -5,7 +5,6 @@ import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:crypto/crypto.dart';
-import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 
 import '../photos/image_pipeline.dart';
@@ -24,7 +23,6 @@ import 'bucket_ops.dart';
 import 'capture_date.dart';
 import 'pending_deletes.dart';
 import 's3_uploader.dart';
-import 'signing.dart';
 
 enum FlagKind {
   /// Not one of ours: the name does not fit the protocol.
@@ -1048,7 +1046,10 @@ class BucketFixer {
   /// to be carriers - re-encoding one destroys what it holds.
   Future<FixResult> reformat(FlaggedObject f) async {
     final uploader = _uploader;
-    if (uploader == null || !await canReformat(f, fresh: true)) {
+    final downloader = _downloader;
+    if (uploader == null ||
+        downloader == null ||
+        !await canReformat(f, fresh: true)) {
       return const FixResult(FixOutcome.failed);
     }
     final target = await _target(f.object.targetId);
@@ -1059,14 +1060,16 @@ class BucketFixer {
       final date = await _dateOf(target, f);
       final base = _ordinaryBase(date, f.object.key);
       final input = File(p.join(dir.path, 'in.${_ext(f.object.key)}'));
-      final response = await http.get(
-        await presignGetUrl(target: target, key: f.object.key),
-      );
-      if (response.statusCode != 200) return const FixResult(FixOutcome.failed);
-      if (await _carries(response.bodyBytes)) {
+      if (!await downloader.get(
+        key: f.object.key,
+        target: target,
+        toPath: input.path,
+      )) {
+        return const FixResult(FixOutcome.failed);
+      }
+      if (await _carries(input)) {
         return const FixResult(FixOutcome.failed, detail: 'hidden photo');
       }
-      await input.writeAsBytes(response.bodyBytes, flush: true);
 
       final output = p.join(dir.path, '$base.heif');
       final wrote = await encodeFileNatively(
@@ -1093,8 +1096,9 @@ class BucketFixer {
           newThumbKey = candidate;
         }
       } else {
+        final path = input.path;
         final bytes = await Isolate.run(
-          () => encodeThumbnail(response.bodyBytes),
+          () => encodeThumbnail(File(path).readAsBytesSync()),
         );
         if (bytes != null) {
           final file = File(p.join(dir.path, '$base.jpg'));
@@ -1144,18 +1148,25 @@ class BucketFixer {
     }
   }
 
-  /// The downloaded bytes asked once more, with nothing left to fail.
-  Future<bool> _carries(Uint8List bytes) async =>
-      await _probe.probe(
-        read: (start, end) async => Uint8List.sublistView(
-          bytes,
-          start.clamp(0, bytes.length),
-          end.clamp(0, bytes.length),
-        ),
-        size: bytes.length,
-        isVideo: false,
-      ) !=
-      null;
+  /// The downloaded file asked once more, with nothing left to fail.
+  Future<bool> _carries(File file) async {
+    final raf = await file.open();
+    try {
+      final size = await raf.length();
+      return await _probe.probe(
+            read: (start, end) async {
+              final from = start.clamp(0, size);
+              await raf.setPosition(from);
+              return raf.read(end.clamp(from, size) - from);
+            },
+            size: size,
+            isVideo: false,
+          ) !=
+          null;
+    } finally {
+      await raf.close();
+    }
+  }
 
   /// [record]'s original from whichever bucket holds it, to [toPath] — for
   /// Optimize in the bucket when this phone has no copy of its own.
@@ -1347,7 +1358,10 @@ class BucketFixer {
     if (!outcome.isGone) {
       return FixResult(FixOutcome.failed, detail: _why(outcome));
     }
-    final thumb = await _thumbnailOf(f);
+    // Same stem: the thumbnail is the kept copy's own.
+    final thumb = _stem(current) == _stem(f.object.key)
+        ? null
+        : await _thumbnailOf(f);
     if (thumb != null) await _delete(target, thumb.key);
     return const FixResult(FixOutcome.removed);
   }

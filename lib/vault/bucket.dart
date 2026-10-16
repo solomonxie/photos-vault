@@ -143,7 +143,8 @@ class VaultBucket {
     S3BackupTarget target,
   ) async {
     try {
-      // 2 MB: a longer leash than a HEAD, but never none.
+      // Dart http on purpose: a fixed-size 2 MB object the album open waits
+      // on, not a photo body. Bounded by size and a 60 s leash.
       final response = await bucketRequest(
         _get(await presignGetUrl(target: target, key: _indexKey(target))),
         timeout: const Duration(seconds: 60),
@@ -160,9 +161,13 @@ class VaultBucket {
 
   Future<bool> _putIndex(S3BackupTarget target, Uint8List index) async {
     try {
-      final response = await _put(
-        await presignPutUrl(target: target, key: _indexKey(target)),
-        body: index,
+      // Same bound as the read: 2 MB, 60 s.
+      final response = await bucketRequest(
+        _put(
+          await presignPutUrl(target: target, key: _indexKey(target)),
+          body: index,
+        ),
+        timeout: const Duration(seconds: 60),
       );
       return response.statusCode == 200;
     } catch (_) {

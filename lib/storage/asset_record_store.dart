@@ -127,8 +127,35 @@ class AssetRecordStore {
               'ALTER TABLE $_table ADD COLUMN is_live_photo INTEGER NOT NULL DEFAULT 0',
             );
           }
+          if (oldVersion < 10) {
+            await db.execute('ALTER TABLE $_table ADD COLUMN latitude REAL');
+            await db.execute('ALTER TABLE $_table ADD COLUMN longitude REAL');
+            await db.execute('ALTER TABLE $_table ADD COLUMN width INTEGER');
+            await db.execute('ALTER TABLE $_table ADD COLUMN height INTEGER');
+            await db.execute(_createPlaceNameTableSql);
+          }
+          if (oldVersion < 11) {
+            await db.execute('ALTER TABLE $_table ADD COLUMN library_id TEXT');
+            // Every camera-roll record so far carried the library's id
+            // inside its own — 'photo:<id>'. Lift it out so the two can
+            // part ways when a hidden photo leaves the library.
+            await db.execute(
+              "UPDATE $_table SET library_id = substr(local_id, 7) "
+              "WHERE source_type = 'photoManager' AND local_id LIKE 'photo:%'",
+            );
+          }
           if (oldVersion < 12) {
             await db.execute(_createAppStateTableSql);
+          }
+          if (oldVersion < 13) {
+            // Backfilled where the name gives it away; camera-roll GIFs
+            // scanned before this get theirs on the next scan.
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN is_gif INTEGER NOT NULL DEFAULT 0',
+            );
+            await db.execute(
+              "UPDATE $_table SET is_gif = 1 WHERE lower(source_path) LIKE '%.gif'",
+            );
           }
           if (oldVersion < 14) {
             // The moving half of a Live Photo. Every Live Photo backed up
@@ -141,26 +168,6 @@ class AssetRecordStore {
             );
             await db.execute('ALTER TABLE $_table ADD COLUMN live_key TEXT');
             await db.execute('ALTER TABLE $_table ADD COLUMN live_hash TEXT');
-          }
-          if (oldVersion < 13) {
-            // Backfilled where the name gives it away; camera-roll GIFs
-            // scanned before this get theirs on the next scan.
-            await db.execute(
-              'ALTER TABLE $_table ADD COLUMN is_gif INTEGER NOT NULL DEFAULT 0',
-            );
-            await db.execute(
-              "UPDATE $_table SET is_gif = 1 WHERE lower(source_path) LIKE '%.gif'",
-            );
-          }
-          if (oldVersion < 11) {
-            await db.execute('ALTER TABLE $_table ADD COLUMN library_id TEXT');
-            // Every camera-roll record so far carried the library's id
-            // inside its own — 'photo:<id>'. Lift it out so the two can
-            // part ways when a hidden photo leaves the library.
-            await db.execute(
-              "UPDATE $_table SET library_id = substr(local_id, 7) "
-              "WHERE source_type = 'photoManager' AND local_id LIKE 'photo:%'",
-            );
           }
           if (oldVersion < 15) {
             await db.execute(
@@ -203,13 +210,6 @@ class AssetRecordStore {
             if (!columns.any((c) => c['name'] == 'held_name')) {
               await db.execute('ALTER TABLE $_table ADD COLUMN held_name TEXT');
             }
-          }
-          if (oldVersion < 10) {
-            await db.execute('ALTER TABLE $_table ADD COLUMN latitude REAL');
-            await db.execute('ALTER TABLE $_table ADD COLUMN longitude REAL');
-            await db.execute('ALTER TABLE $_table ADD COLUMN width INTEGER');
-            await db.execute('ALTER TABLE $_table ADD COLUMN height INTEGER');
-            await db.execute(_createPlaceNameTableSql);
           }
           if (oldVersion < 23) {
             await _unlinkDuplicateLibraryIds(db);
@@ -266,7 +266,7 @@ class AssetRecordStore {
       Future<void>.delayed(const Duration(seconds: 30), () async {
         await _purgePrivateLog(db);
         await pruneChangeLog(db);
-        await _compactOnce(db);
+        await compact(db);
       }),
     );
     return db;
@@ -294,17 +294,22 @@ class AssetRecordStore {
     }
   }
 
-  static const _compactedKey = 'compacted_v1';
-
-  /// Free pages still hold what was deleted before `secure_delete`: wiped
-  /// rows, hidden rows, the log's old copies. One `VACUUM` rewrites the file
-  /// without them. Knowingly holds the connection for the seconds it takes,
-  /// once ever, half a minute after launch.
-  Future<void> _compactOnce(Database db) async {
+  /// Free pages hold what was deleted before `secure_delete` (wiped rows,
+  /// hidden rows, the log's old copies) and keep the file at its largest.
+  /// Once: `auto_vacuum = INCREMENTAL` and the `VACUUM` that applies it,
+  /// knowingly holding the connection for the seconds it takes, half a
+  /// minute after launch. After that, each launch hands back what the
+  /// log prune freed.
+  static Future<void> compact(Database db) async {
     try {
-      if (await _appState(db, _compactedKey) != null) return;
-      await db.execute('VACUUM');
-      await _putAppState(db, _compactedKey, '1');
+      final mode = await db.rawQuery('PRAGMA auto_vacuum');
+      if (mode.first.values.first != 2) {
+        await db.execute('PRAGMA auto_vacuum = INCREMENTAL');
+        await db.execute('VACUUM');
+      } else {
+        // Stepped to the end by rawQuery: one page per step.
+        await db.rawQuery('PRAGMA incremental_vacuum');
+      }
     } catch (_) {
       // A full disk; next launch.
     }
@@ -1824,22 +1829,6 @@ class AssetRecordStore {
       where: 'local_id = ?',
       whereArgs: [localId],
     );
-  }
-
-  /// This store's database file, with the write-ahead log folded back in
-  /// first — a copy taken without the checkpoint is missing the newest
-  /// writes, which are still sitting in the `-wal` sidecar.
-  ///
-  /// `null` for an in-memory database, which has no file to copy.
-  Future<File?> checkpointedFile() async {
-    final db = await _open();
-    try {
-      await db.execute('PRAGMA wal_checkpoint(FULL)');
-    } catch (_) {
-      // Not in WAL mode, or a factory that doesn't support the pragma.
-    }
-    final file = File(db.path);
-    return file.existsSync() ? file : null;
   }
 
   /// How far this database's change log has got. See `change_log.dart`.

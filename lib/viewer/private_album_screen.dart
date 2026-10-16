@@ -328,11 +328,9 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     super.dispose();
   }
 
-  /// The album as the bucket knows it. This is the whole album once the
-  /// uploads have landed — a hidden photo's record is deleted the moment
-  /// its carrier is confirmed, so the phone stops knowing anything about
-  /// it. Local records only exist in the window between hiding and the
-  /// upload.
+  /// The album as the bucket's index knows it: entries filed by older
+  /// builds or other phones, which have no row here. Photos hidden on this
+  /// phone keep their rows.
   Future<void> _loadFromBucket() async {
     final keys = widget.albumKeys;
     if (keys == null) return;

@@ -10,6 +10,7 @@ import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import 'bucket_http.dart';
 import 'object_keys.dart';
 import 's3_uploader.dart';
 import 'signing.dart';
@@ -155,9 +156,9 @@ class OriginalRestore {
         await part.rename(file.path);
         await recordStore.setSourcePath(record.localId, file.path);
         await recordStore.setLocalDeleted(record.localId, false);
-        // Whatever the device had before — nothing, or a shrunken copy —
-        // what it has now came out of the bucket, which only ever held the
-        // original.
+        // The device now holds the bucket's own copy (the original, or what
+        // Optimize in bucket left there), so nothing it sends is smaller
+        // than what the bucket has.
         await recordStore.setLocalOptimized(record.localId, false);
         // The moving half comes with it, or the photo comes back as a
         // still — which is the thing backing it up was supposed to
@@ -215,7 +216,7 @@ class OriginalRestore {
         if (record.isVideo) {
           args = {'url': '$url', 'output': out};
         } else {
-          final head = await _getHead(url);
+          final head = await bucketRequest(_getHead(url));
           if (head.statusCode != 200 && head.statusCode != 206) continue;
           args = {'bytes': head.bodyBytes, 'output': out};
         }
@@ -236,7 +237,8 @@ class OriginalRestore {
     for (final target in await targetsStore.loadAll()) {
       try {
         final url = await presignGetUrl(target: target, key: key);
-        final response = await _get(url);
+        // Dart http on purpose: a thumbnail object, tens of KB, on a timeout.
+        final response = await bucketRequest(_get(url));
         if (response.statusCode != 200) continue;
 
         final dir = Directory(

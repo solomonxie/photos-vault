@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:isolate';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
@@ -85,6 +86,51 @@ class VaultCache {
     p.join((await _poolDirectory(pool)).path, _fileName(keys, objectKey)),
   );
 
+  /// From here up the cipher runs off the UI isolate: a video is gigabytes.
+  static const _offloadBytes = 1024 * 1024;
+
+  static Future<T> _offload<T>(T Function() work) async {
+    try {
+      return await Isolate.run(work);
+    } on ArgumentError {
+      // A cipher that can't cross isolates (a test double): run it here.
+      return work();
+    }
+  }
+
+  static Uint8List _unseal(VaultCipher cipher, Uint8List key, Uint8List s) =>
+      cipher.transform(
+        key: key,
+        iv: Uint8List.sublistView(s, 0, 16),
+        data: Uint8List.sublistView(s, 16),
+      );
+
+  static Uint8List _seal(VaultCipher cipher, Uint8List key, Uint8List data) {
+    final iv = randomBytes(16);
+    return (BytesBuilder(copy: false)
+          ..add(iv)
+          ..add(cipher.transform(key: key, iv: iv, data: data)))
+        .takeBytes();
+  }
+
+  // Static, so the closures sent to the isolate capture no `this`.
+  static Future<Uint8List> _unsealFile(
+    VaultCipher cipher,
+    Uint8List key,
+    String path,
+  ) => _offload(() => _unseal(cipher, key, File(path).readAsBytesSync()));
+
+  static Future<int> _sealToFile(
+    VaultCipher cipher,
+    Uint8List key,
+    Uint8List data,
+    String path,
+  ) => _offload(() {
+    final sealed = _seal(cipher, key, data);
+    File(path).writeAsBytesSync(sealed, flush: true);
+    return sealed.length;
+  });
+
   Future<Uint8List?> read(
     CachePool pool,
     AlbumKeys keys,
@@ -98,13 +144,13 @@ class VaultCache {
         await file.delete();
         return null;
       }
-      final bytes = await file.readAsBytes();
-      if (bytes.length <= 16) return null;
-      final plain = _cipher.transform(
-        key: keys.carrier.encKey,
-        iv: Uint8List.sublistView(bytes, 0, 16),
-        data: Uint8List.sublistView(bytes, 16),
-      );
+      if (stat.size <= 16) return null;
+      final cipher = _cipher;
+      final key = keys.carrier.encKey;
+      final path = file.path;
+      final plain = stat.size < _offloadBytes
+          ? _unseal(cipher, key, await file.readAsBytes())
+          : await _unsealFile(cipher, key, path);
       // Touch it, so LRU means what it says.
       await file.setLastModified(DateTime.now());
       return plain;
@@ -121,25 +167,23 @@ class VaultCache {
     Uint8List bytes,
   ) async {
     try {
-      final iv = randomBytes(16);
       final file = await _fileFor(pool, keys, objectKey);
-      final sealed =
-          (BytesBuilder(copy: false)
-                ..add(iv)
-                ..add(
-                  _cipher.transform(
-                    key: keys.carrier.encKey,
-                    iv: iv,
-                    data: bytes,
-                  ),
-                ))
-              .takeBytes();
-      await file.writeAsBytes(sealed, flush: true);
+      final cipher = _cipher;
+      final key = keys.carrier.encKey;
+      final path = file.path;
+      final int written;
+      if (bytes.length < _offloadBytes) {
+        final sealed = _seal(cipher, key, bytes);
+        await file.writeAsBytes(sealed, flush: true);
+        written = sealed.length;
+      } else {
+        written = await _sealToFile(cipher, key, bytes, path);
+      }
       final total = _totals[pool];
-      if (total == null || total + sealed.length > pool.capBytes) {
+      if (total == null || total + written > pool.capBytes) {
         await _evict(pool);
       } else {
-        _totals[pool] = total + sealed.length;
+        _totals[pool] = total + written;
       }
     } catch (_) {
       // Failing to cache is not failing. A pool deleted underneath is

@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:photos_vault/storage/album.dart';
 import 'package:photos_vault/storage/album_store.dart';
 
@@ -87,11 +85,8 @@ class FakeAlbumStore implements AlbumStore {
     _members.remove(albumId);
   }
 
-  /// No file and no log: these fakes are maps, and the tier-1 copy has
-  /// nothing to copy. `LocalVault` treats both as "nothing to snapshot".
-  @override
-  Future<File?> checkpointedFile() async => null;
-
+  /// No log: these fakes are maps. `LocalVault` reads it as "nothing to
+  /// snapshot".
   @override
   Future<int> changeMark() async => 0;
 

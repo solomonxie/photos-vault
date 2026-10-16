@@ -449,4 +449,30 @@ void main() {
       );
     }
   });
+
+  test('compacting once turns on incremental vacuum; later launches hand '
+      'freed pages back', () async {
+    final store = open();
+    for (var i = 0; i < 300; i++) {
+      await store.upsert(
+        localId: 'p$i',
+        contentHash: 'x' * 2000,
+        platform: 'ios',
+      );
+    }
+    await store.close();
+    final db = await databaseFactoryFfi.openDatabase(dbPath());
+    addTearDown(db.close);
+    Future<int> pragma(String name) async =>
+        (await db.rawQuery('PRAGMA $name')).first.values.first! as int;
+
+    await AssetRecordStore.compact(db);
+    expect(await pragma('auto_vacuum'), 2);
+
+    await db.delete('asset_record');
+    await db.delete(changeLogTable);
+    expect(await pragma('freelist_count'), greaterThan(0));
+    await AssetRecordStore.compact(db);
+    expect(await pragma('freelist_count'), 0);
+  });
 }

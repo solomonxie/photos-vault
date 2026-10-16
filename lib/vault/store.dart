@@ -102,14 +102,14 @@ class VaultStore {
   static const unpublishedFileName = 'index.unpublished';
   static const indexMarksFileName = 'index.marks';
 
+  Future<bool>? _excluded;
+
   Future<Directory> _root() async {
     final dir = Directory(p.join((await _directory()).path, root));
-    if (!await dir.exists()) {
-      await dir.create(recursive: true);
-      // Every file created inside inherits it, so this is the only place it
-      // has to be set — and it is set on creation rather than remembered.
-      await _exclusion.exclude(dir.path);
-    }
+    if (!await dir.exists()) await dir.create(recursive: true);
+    // Inherited by every file inside. Once per store, not only on creation:
+    // a call that failed once is tried again next launch.
+    await (_excluded ??= _exclusion.exclude(dir.path));
     return dir;
   }
 

@@ -235,4 +235,19 @@ void main() {
     // 1024 plus the 16-byte IV in front of it.
     expect(usage.thumbnailBytes, 1024 + 16);
   });
+
+  test('a directory made by an earlier launch is still taken out of the '
+      'backup', () async {
+    await store.writeIndex(emptyIndex());
+    final again = <String>[];
+    final next = VaultStore(
+      directory: () async => tempDir,
+      exclusion: _RecordingExclusion(again),
+    );
+    await next.writeIndex(emptyIndex());
+    await next.readIndex();
+
+    expect(again, hasLength(1));
+    expect(again.single, endsWith('/${VaultStore.root}'));
+  });
 }

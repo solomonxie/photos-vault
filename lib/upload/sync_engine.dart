@@ -277,7 +277,6 @@ class SyncEngine {
             filePath: path,
           );
           final after = await recordStore.getByLocalId(record.localId);
-          await _queueOrphanedKey(record, after);
           // Failed, or nothing landed: not handed back by every refill.
           if (after?.stateOf(DerivativeKind.original).status !=
               UploadStatus.uploaded) {
@@ -420,29 +419,6 @@ class SyncEngine {
     await backUpRecords([record]);
   }
 
-  /// An edit that changed the file's extension uploads under a new name and
-  /// leaves the old object behind; queue its removal. Only for a name the
-  /// record held before and no longer does, in the buckets that held it.
-  Future<void> _queueOrphanedKey(AssetRecord before, AssetRecord? after) async {
-    final oldKey = before.stateOf(DerivativeKind.original).destinationKey;
-    final newKey = after?.stateOf(DerivativeKind.original).destinationKey;
-    if (oldKey == null || newKey == null || oldKey == newKey) return;
-    if (before.passcodeHash != null) return;
-    if (after!.stateOf(DerivativeKind.original).status !=
-        UploadStatus.uploaded) {
-      return;
-    }
-    final held = await recordStore.targetsHolding(
-      before.localId,
-      DerivativeKind.original,
-    );
-    await pendingDeletes.add([
-      for (final e in held.entries)
-        if (e.value == oldKey && e.value != newKey)
-          PendingDelete(objectKey: e.value, targetId: e.key),
-    ]);
-  }
-
   /// A Live Photo can be edited in its motion alone, which the still's hash
   /// never shows. Compared only when a motion hash was recorded; one that
   /// wasn't is not guessed at.
@@ -518,6 +494,7 @@ class SyncEngine {
     // Checked, not assumed: a job that hands the uploader a path to
     // nothing fails loudly and stays failed, which is how one moved file
     // turned into a permanent red row in the queue.
+    // Knowingly sync: one stat per job, bounded by the queue's concurrency.
     if (path != null && File(path).existsSync()) return path;
     if (record.sourceType != AssetSourceType.photoManager) return null;
     final file = await library.fileFor(record);
