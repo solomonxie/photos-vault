@@ -34,6 +34,7 @@ class PersonPageScreen extends StatefulWidget {
     required this.personStore,
     required this.assetRecordStore,
     this.aiAnalysisStore,
+    this.faceIdentity,
   });
 
   final Person person;
@@ -43,6 +44,10 @@ class PersonPageScreen extends StatefulWidget {
   /// Where a confirmed face is looked up when picking a profile photo.
   /// Absent, one is opened on demand — see [faceOfPersonIn].
   final AiAnalysisStore? aiAnalysisStore;
+
+  /// The library's own, so Find More shares its database and matcher;
+  /// absent, one is made for the page.
+  final FaceIdentityService? faceIdentity;
 
   @override
   State<PersonPageScreen> createState() => _PersonPageScreenState();
@@ -143,7 +148,9 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
   /// photos like any of them, which is what makes tagging compound rather
   /// than plateau.
   Future<void> _findMore() async {
-    final analysisStore = widget.aiAnalysisStore ?? AiAnalysisStore();
+    final identity = widget.faceIdentity;
+    final analysisStore =
+        identity?.analysisStore ?? widget.aiAnalysisStore ?? AiAnalysisStore();
     await Navigator.of(context).push(
       CupertinoPageRoute(
         builder: (_) => FaceGroupScreen(
@@ -151,10 +158,12 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
           personStore: widget.personStore,
           assetRecordStore: widget.assetRecordStore,
           grouping: FaceGrouping(analysisStore: analysisStore),
-          faceIdentity: FaceIdentityService(
-            analysisStore: analysisStore,
-            resolvePath: (r) async => r.sourcePath,
-          ),
+          faceIdentity:
+              identity ??
+              FaceIdentityService(
+                analysisStore: analysisStore,
+                resolvePath: (r) async => r.sourcePath,
+              ),
         ),
       ),
     );

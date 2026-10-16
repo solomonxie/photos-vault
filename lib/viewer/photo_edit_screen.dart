@@ -1,14 +1,19 @@
 import 'dart:io';
 import 'dart:math' as math;
 import 'dart:typed_data';
-import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/photo_editor.dart';
+import 'encoded_image_size.dart';
 
 enum PhotoEditMode { crop, rotate }
+
+/// The preview never needs more pixels than the screen has.
+int _previewWidth(BuildContext context) =>
+    (MediaQuery.sizeOf(context).width * MediaQuery.devicePixelRatioOf(context))
+        .round();
 
 /// Crop/rotate editor over one still image. Pops the edited bytes (already
 /// re-encoded in the source's format), or `null` if the user cancels —
@@ -53,16 +58,20 @@ class _PhotoEditScreenState extends State<PhotoEditScreen> {
 
   Future<void> _load() async {
     final read = widget.readBytes ?? (file) => file.readAsBytes();
-    final bytes = await read(widget.file);
-    final codec = await ui.instantiateImageCodec(bytes);
-    final frame = await codec.getNextFrame();
+    Uint8List? bytes;
+    Size? size;
+    try {
+      bytes = await read(widget.file);
+      size = await encodedImageSize(bytes);
+    } catch (_) {}
     if (!mounted) return;
     setState(() {
+      if (size == null || size.isEmpty) {
+        _error = AppLocalizations.of(context)!.editFailed;
+        return;
+      }
       _bytes = bytes;
-      _imageSize = Size(
-        frame.image.width.toDouble(),
-        frame.image.height.toDouble(),
-      );
+      _imageSize = size;
     });
   }
 
@@ -144,14 +153,19 @@ class _PhotoEditScreenState extends State<PhotoEditScreen> {
             ),
             Expanded(
               child: bytes == null || size == null
-                  ? const Center(child: CupertinoActivityIndicator())
+                  ? (_error == null
+                        ? const Center(child: CupertinoActivityIndicator())
+                        : const SizedBox.shrink())
                   : Padding(
                       padding: const EdgeInsets.all(16),
                       child: widget.mode == PhotoEditMode.rotate
                           ? Center(
                               child: Transform.rotate(
                                 angle: _angle * math.pi / 180,
-                                child: Image.memory(bytes),
+                                child: Image.memory(
+                                  bytes,
+                                  cacheWidth: _previewWidth(context),
+                                ),
                               ),
                             )
                           : _CropCanvas(
@@ -250,7 +264,11 @@ class _CropCanvas extends StatelessWidget {
               child: Stack(
                 fit: StackFit.expand,
                 children: [
-                  Image.memory(bytes, fit: BoxFit.fill),
+                  Image.memory(
+                    bytes,
+                    fit: BoxFit.fill,
+                    cacheWidth: _previewWidth(context),
+                  ),
                   CustomPaint(painter: _CropPainter(rect)),
                 ],
               ),

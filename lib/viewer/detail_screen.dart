@@ -1,7 +1,6 @@
 import 'dart:math' as math;
 import 'dart:async';
 import 'dart:io';
-import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
 import 'package:url_launcher/url_launcher.dart';
@@ -42,6 +41,7 @@ import 'person_avatar.dart';
 import 'person_page_screen.dart';
 import '../photos/smaller_export.dart';
 import 'resize_photos.dart';
+import 'encoded_image_size.dart';
 import 'gif_view.dart';
 import 'live_photo_view.dart';
 import 'motion_playback.dart';
@@ -714,6 +714,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 onPageChanged: (i) => setState(() => _index = i),
                 itemBuilder: (context, i) => _MediaPage(
                   record: _records[i],
+                  current: i == _index,
                   onPull: _onPull,
                   onPullMayStart: _onPullMayStart,
 
@@ -817,6 +818,7 @@ class _MediaPage extends StatefulWidget {
     required this.onPullMayStart,
     required this.onZoomChanged,
     required this.motionPlayback,
+    this.current = true,
     this.onDeviceAnalysis,
     this.resolveFile,
     this.resolveLiveVideo,
@@ -826,6 +828,10 @@ class _MediaPage extends StatefulWidget {
   });
 
   final AssetRecord record;
+
+  /// The page the pager is on. A Photos video is only exported for it —
+  /// one swiped past is an iCloud download nobody watches.
+  final bool current;
   final VoidCallback onDelete;
   final Future<File?> Function(AssetRecord record)? resolveFile;
 
@@ -1149,11 +1155,34 @@ class _MediaPageState extends State<_MediaPage>
       // during initState, before the first build, so the field's starting
       // value is picked up without needing to mark the tree dirty.
       _resolvingPath = true;
-      _resolvePath();
+      if (!widget.record.isVideo || widget.current) _resolvePath();
     }
   }
 
+  /// A video that became current waits for the swipe to rest on it.
+  static const _videoSettle = Duration(milliseconds: 250);
+  Timer? _videoWait;
+
+  @override
+  void didUpdateWidget(_MediaPage oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (!widget.current) {
+      _videoWait?.cancel();
+      _videoWait = null;
+      return;
+    }
+    if (oldWidget.current || !_resolvingPath || _resolveStarted) return;
+    _videoWait ??= Timer(_videoSettle, () {
+      _videoWait = null;
+      if (mounted && widget.current) _resolvePath();
+    });
+  }
+
+  bool _resolveStarted = false;
+
   Future<void> _resolvePath() async {
+    if (_resolveStarted) return;
+    _resolveStarted = true;
     final resolver = widget.resolveFile ?? PhotoLibraryService.resolveFile;
     File? file;
     try {
@@ -1184,6 +1213,7 @@ class _MediaPageState extends State<_MediaPage>
 
   @override
   void dispose() {
+    _videoWait?.cancel();
     _videoController?.dispose();
     _settle.dispose();
     _drag.dispose();
@@ -1724,16 +1754,18 @@ class _ZoomableImageState extends State<_ZoomableImage>
       fit: StackFit.passthrough,
       children: [
         screenSized,
-        Positioned.fill(child: _file(width: null)),
+        // Never more than the zoom can show; ResizeImage doesn't upscale.
+        Positioned.fill(
+          child: _file(width: _decodeWidth(context) * _zoomedScale.toInt()),
+        ),
       ],
     );
   }
 
-  /// [width] null is the sensor's own resolution. Otherwise decoded to the
-  /// screen: a 12 MP photo is a 48 MB texture, and drawn into a
-  /// 1170-pixel-wide phone it is the same picture at an eighth of the cost.
-  /// The big one exists only while zoomed, and goes when the zoom does.
-  Widget _file({required int? width}) => Image.file(
+  /// Decoded to [width]: a 12 MP photo is a 48 MB texture, and drawn into
+  /// a 1170-pixel-wide phone it is the same picture at an eighth of the
+  /// cost. The big one exists only while zoomed, and goes when the zoom does.
+  Widget _file({required int width}) => Image.file(
     widget.file,
     fit: BoxFit.contain,
     cacheWidth: width,
@@ -2361,10 +2393,9 @@ class _InfoPanelState extends State<_InfoPanel> {
     } catch (_) {}
     if (!widget.record.isVideo && _width == null) {
       try {
-        final codec = await ui.instantiateImageCodec(await file.readAsBytes());
-        final frame = await codec.getNextFrame();
-        width = frame.image.width;
-        height = frame.image.height;
+        final size = await encodedImageSize(await file.readAsBytes());
+        width = size?.width.toInt();
+        height = size?.height.toInt();
       } catch (_) {}
     }
     if (!mounted) return;

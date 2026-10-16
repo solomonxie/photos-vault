@@ -160,6 +160,7 @@ Widget _tileFor(
   onSelectDragEnd: onSelectDragEnd,
   actions: actionsFor(record),
   selected: selectedIds?.contains(record.localId),
+  marked: record.localId == markedId,
 );
 
 class _DayHeader extends StatelessWidget {
@@ -251,7 +252,7 @@ Widget assetImage(
   return cached();
 }
 
-class _CloudThumbnail extends StatelessWidget {
+class _CloudThumbnail extends StatefulWidget {
   const _CloudThumbnail({
     required this.record,
     required this.fit,
@@ -263,21 +264,45 @@ class _CloudThumbnail extends StatelessWidget {
   final Widget Function() placeholder;
 
   @override
+  State<_CloudThumbnail> createState() => _CloudThumbnailState();
+}
+
+/// Asks while on screen and only rebuilds for its own photo.
+class _CloudThumbnailState extends State<_CloudThumbnail> {
+  final _fetcher = CloudThumbnails.instance;
+
+  @override
+  void initState() {
+    super.initState();
+    _fetcher?.request(widget.record, _onLanded);
+  }
+
+  @override
+  void didUpdateWidget(_CloudThumbnail oldWidget) {
+    super.didUpdateWidget(oldWidget);
+    if (oldWidget.record.localId == widget.record.localId) return;
+    _fetcher?.cancel(oldWidget.record.localId, _onLanded);
+    _fetcher?.request(widget.record, _onLanded);
+  }
+
+  @override
+  void dispose() {
+    _fetcher?.cancel(widget.record.localId, _onLanded);
+    super.dispose();
+  }
+
+  void _onLanded() {
+    if (mounted) setState(() {});
+  }
+
+  @override
   Widget build(BuildContext context) {
-    final fetcher = CloudThumbnails.instance;
-    if (fetcher == null) return placeholder();
-    fetcher.request(record);
-    return ValueListenableBuilder<Map<String, String>>(
-      valueListenable: fetcher.fetched,
-      builder: (context, fetched, _) {
-        final path = fetched[record.localId];
-        if (path == null) return placeholder();
-        return Image.file(
-          File(path),
-          fit: fit,
-          errorBuilder: (context, error, stackTrace) => placeholder(),
-        );
-      },
+    final path = _fetcher?.pathOf(widget.record.localId);
+    if (path == null) return widget.placeholder();
+    return Image.file(
+      File(path),
+      fit: widget.fit,
+      errorBuilder: (context, error, stackTrace) => widget.placeholder(),
     );
   }
 }
@@ -865,10 +890,16 @@ class PhotoManagerThumbnail extends StatefulWidget {
 /// The OS library's own thumbnail for a `photoManager` asset, cached for
 /// the session. `null` when the asset is gone from the library, or the
 /// plugin isn't there (tests).
+///
+/// [cancelToken] lets a tile that leaves the screen drop its request, so a
+/// fling or a scrubber drag doesn't leave a backlog ahead of what is
+/// visible once it stops; [abandoned] says it did.
 Future<Uint8List?> photoManagerThumbnailBytes(
   String assetId, {
   int? size,
   bool fitted = false,
+  PMCancelToken? cancelToken,
+  bool Function()? abandoned,
 }) async {
   // Asked for and found missing once already. Without this, every rebuild
   // of a tile whose photo is gone is two platform round trips that can
@@ -878,28 +909,34 @@ Future<Uint8List?> photoManagerThumbnailBytes(
   final key = _thumbnailKey(assetId, size, fitted);
   final cached = _thumbnailBytes.remove(key);
   if (cached != null) return _thumbnailBytes[key] = cached;
+  final held = fitted ? _fittedThumbnails[assetId] : null;
+  if (held != null && held.size == size) return held.bytes;
   try {
     // Asked by id alone first: a thumbnail needs nothing else, and the
     // lookup that builds a full entity was a second round trip per tile.
     Uint8List? bytes;
     if (size != null) {
-      bytes = await AssetEntity(
-        id: assetId,
-        typeInt: 1,
-        width: 0,
-        height: 0,
-      ).thumbnailDataWithOption(thumbnailOption(size, fitted: fitted));
+      bytes = await AssetEntity(id: assetId, typeInt: 1, width: 0, height: 0)
+          .thumbnailDataWithOption(
+            thumbnailOption(size, fitted: fitted),
+            cancelToken: cancelToken,
+          );
     }
+    if (abandoned?.call() ?? false) return null;
     if (bytes == null) {
       final entity = await AssetEntity.fromId(assetId);
       bytes = size == null
           ? await entity?.thumbnailData
           : await entity?.thumbnailDataWithOption(
               thumbnailOption(size, fitted: fitted),
+              cancelToken: cancelToken,
             );
     }
+    if (abandoned?.call() ?? false) return null;
     if (bytes != null) {
-      _remember(key, bytes);
+      // A full-screen stand-in is ten tiles' worth; it lives only in the
+      // small fitted cache, never in the one counted in tiles.
+      if (size == null || size <= _tileSizedThumbnail) _remember(key, bytes);
       if (fitted) _rememberFitted(assetId, size!, bytes);
     }
     return bytes;
@@ -978,6 +1015,7 @@ final _knownMissing = <String>{};
 /// screenfuls, so ordinary scrolling back and forth never re-fetches and
 /// only a long sweep through the library drops anything.
 const _thumbnailCacheEntries = 2000;
+const _tileSizedThumbnail = 400;
 final _thumbnailBytes = <String, Uint8List>{};
 
 void _remember(String key, Uint8List bytes) {
@@ -1029,6 +1067,13 @@ void _rememberFitted(String assetId, int size, Uint8List bytes) {
 
 class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
   Uint8List? _bytes;
+  _Request? _request;
+
+  @override
+  void dispose() {
+    _request?.cancel();
+    super.dispose();
+  }
 
   @override
   void initState() {
@@ -1067,11 +1112,16 @@ class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
   }
 
   Future<void> _load() async {
+    _request?.cancel();
+    final request = _request = _Request();
     final bytes = await photoManagerThumbnailBytes(
       widget.assetId,
       size: widget.size,
       fitted: widget.fitted,
+      cancelToken: request.token,
+      abandoned: () => request.cancelled,
     );
+    if (request.cancelled) return;
     if (bytes == null) {
       if (await photoManagerAssetMissing(widget.assetId)) {
         widget.onMissing?.call();
@@ -1097,5 +1147,18 @@ class _PhotoManagerThumbnailState extends State<PhotoManagerThumbnail> {
         child: Icon(CupertinoIcons.photo),
       ),
     );
+  }
+}
+
+/// One tile's thumbnail request, dropped when the tile goes.
+class _Request {
+  final token = PMCancelToken();
+  bool cancelled = false;
+
+  void cancel() {
+    if (cancelled) return;
+    cancelled = true;
+    // No plugin in tests; nothing to cancel then.
+    token.cancelRequest().catchError((Object _) {});
   }
 }

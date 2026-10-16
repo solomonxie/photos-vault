@@ -320,14 +320,4 @@ class PhotoGridLayout {
     if (sections.isEmpty) return null;
     return sections[sectionAtOffset(offset.clamp(0, totalExtent))].day;
   }
-
-  /// Scroll offset that puts [day]'s section header at the top — used to
-  /// jump the grid to a year/month picked on the scrubber.
-  double offsetOfDay(DateTime day) {
-    final target = _midnight(day);
-    for (final s in sections) {
-      if (!s.day.isBefore(target)) return s.offset;
-    }
-    return totalExtent;
-  }
 }

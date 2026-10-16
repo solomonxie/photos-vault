@@ -46,6 +46,16 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     await _reload();
   }
 
+  /// The viewer's heart toggles, so one tapped by mistake can be tapped back.
+  Future<void> _toggleFavorite(AssetRecord record) async {
+    await setFavoriteEverywhere(
+      widget.assetRecordStore,
+      record,
+      !record.isFavorite,
+    );
+    await _reload();
+  }
+
   /// Deleting is the same decision on every screen: keep the cloud copy
   /// and free the space, or bin it. See `../photos/asset_removal.dart`.
   late final AssetRemoval _removal = AssetRemoval(
@@ -90,7 +100,7 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
           initialIndex: _records.indexOf(record),
           assetRecordStore: widget.assetRecordStore,
           onDelete: _delete,
-          onToggleFavorite: _unfavorite,
+          onToggleFavorite: _toggleFavorite,
         ),
       ),
     );

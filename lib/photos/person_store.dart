@@ -608,6 +608,42 @@ class PersonStore {
     return rows.map(_fromRow).toList();
   }
 
+  /// Whether anything besides the name was written for [id], in any set —
+  /// what decides that a person left nameless may be dropped.
+  Future<bool> hasAnyRecord(String id) async {
+    final db = await _open();
+    Future<bool> any(String table, String where, List<Object> args) async =>
+        (await db.query(
+          table,
+          columns: ['1'],
+          where: where,
+          whereArgs: args,
+          limit: 1,
+        )).isNotEmpty;
+    for (final table in const [
+      _memberTable,
+      _locationTable,
+      _historyTable,
+      _eventTable,
+      _groupTable,
+    ]) {
+      if (await any(table, 'person_id = ?', [id])) return true;
+    }
+    if (await any(
+      _relationshipTable,
+      'person_id = ? OR related_person_id = ?',
+      [id, id],
+    )) {
+      return true;
+    }
+    if (await any(_detailTable, "person_id = ? AND passcode_hash != ''", [
+      id,
+    ])) {
+      return true;
+    }
+    return !(await detailFor(id)).isEmpty;
+  }
+
   /// Deletes the person, their photo tags, every relationship touching
   /// them, their location history, and their education/job history.
   /// Tagged photos themselves are untouched — same "membership only"

@@ -90,4 +90,46 @@ void main() {
 
     expect(popped, isNull);
   });
+
+  testWidgets('a file that will not decode says so, not a spinner forever', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        _wrap(
+          PhotoEditScreen(
+            file: File('/tmp/unused.png'),
+            mode: PhotoEditMode.crop,
+            readBytes: (_) async => Uint8List.fromList([1, 2, 3, 4]),
+          ),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pump();
+
+    expect(find.text("Couldn't apply this edit."), findsOneWidget);
+    expect(find.byType(CupertinoActivityIndicator), findsNothing);
+  });
+
+  testWidgets('the preview is decoded to the screen, not the sensor', (
+    tester,
+  ) async {
+    await tester.runAsync(() async {
+      await tester.pumpWidget(
+        _wrap(
+          PhotoEditScreen(
+            file: File('/tmp/unused.png'),
+            mode: PhotoEditMode.rotate,
+            readBytes: _photoBytes(),
+          ),
+        ),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 50));
+    });
+    await tester.pump();
+
+    final image = tester.widget<Image>(find.byType(Image));
+    expect(image.image, isA<ResizeImage>());
+  });
 }

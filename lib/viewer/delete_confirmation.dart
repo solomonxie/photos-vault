@@ -231,6 +231,23 @@ Future<DeleteOutcome> deleteAsset(
   required AssetRecord record,
   required AssetRemoval removal,
 }) async {
+  // Said, not swallowed: the lock is why nothing happens.
+  if (record.isLocked) {
+    final l10n = AppLocalizations.of(context)!;
+    await showCupertinoDialog<void>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        content: Text(l10n.lockBlockedDelete),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(l10n.actionOk),
+          ),
+        ],
+      ),
+    );
+    return DeleteOutcome.none;
+  }
   final choice = await chooseDelete(
     context,
     canRemoveFromDevice: removal.canRemoveFromDevice(record),

@@ -550,7 +550,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
       ),
     );
     final saved = await widget.personStore.getById(person.id);
+    // Dropped only when nothing else was written: a blank name must not
+    // take places, links or notes already entered with it.
     if ((saved?.name ?? '').trim().isEmpty &&
+        !await widget.personStore.hasAnyRecord(person.id) &&
         !await personHasHiddenFolder(widget.assetRecordStore, person.id)) {
       await widget.personStore.remove(person.id);
       await forgetPersonFaces(
@@ -570,6 +573,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
               person: person,
               personStore: widget.personStore,
               assetRecordStore: widget.assetRecordStore,
+              aiAnalysisStore: widget.aiAnalysisStore,
+              faceIdentity: widget.faceIdentity,
             ),
           ),
         )

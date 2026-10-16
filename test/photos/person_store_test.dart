@@ -1,4 +1,5 @@
 import 'package:photos_vault/photos/person.dart';
+import 'package:photos_vault/photos/person_detail.dart';
 import 'package:photos_vault/photos/person_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -491,5 +492,45 @@ void main() {
       sets[b.id]!.relationships.single.type,
       (await store.relationshipsFor(b.id)).single.type,
     );
+  });
+
+  test('hasAnyRecord: a bare name is nothing, a place or a bio is', () async {
+    final store = newStore();
+    final bare = await store.create(name: '');
+    final placed = await store.create(name: '');
+    final described = await store.create(name: '');
+    final linked = await store.create(name: 'Sam');
+    await store.addLocation(
+      PersonLocation(
+        id: 'l1',
+        personId: placed.id,
+        kind: LocationKind.relocation,
+        place: 'Vancouver',
+        since: DateTime(2020),
+      ),
+      scope: PersonScope.open,
+    );
+    await store.saveDetail(
+      described.id,
+      const PersonDetail(bio: 'Met at work.'),
+      scope: PersonScope.open,
+    );
+    await store.saveDetail(
+      bare.id,
+      PersonDetail.empty,
+      scope: PersonScope.open,
+    );
+    final other = await store.create(name: '');
+    await store.addRelationship(
+      linked.id,
+      other.id,
+      RelationshipType.friend,
+      scope: PersonScope.open,
+    );
+
+    expect(await store.hasAnyRecord(bare.id), isFalse);
+    expect(await store.hasAnyRecord(placed.id), isTrue);
+    expect(await store.hasAnyRecord(described.id), isTrue);
+    expect(await store.hasAnyRecord(other.id), isTrue, reason: 'linked to');
   });
 }

@@ -114,20 +114,6 @@ void main() {
         reason: 'past the end still reads as the newest day',
       );
     });
-
-    test('offsetOfDay lands on the first section on or after that day', () {
-      final layout = layoutOf([
-        _record('a', DateTime(2019, 5, 4)),
-        _record('b', DateTime(2021, 8, 9)),
-      ]);
-
-      expect(layout.offsetOfDay(DateTime(2019, 5, 4)), 0);
-      expect(
-        layout.offsetOfDay(DateTime(2020, 1, 1)),
-        layout.sections[1].offset,
-      );
-      expect(layout.offsetOfDay(DateTime(2030, 1, 1)), layout.totalExtent);
-    });
   });
 
   test('a decade-sized library resolves lookups without walking it', () {

@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
@@ -8,6 +10,7 @@ import '../l10n/app_localizations.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
 import '../settings/settings_section.dart';
+import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/backup_verifier.dart';
 import '../upload/library_restore.dart';
@@ -62,8 +65,9 @@ class SafetyScreen extends StatefulWidget {
 class _SafetyScreenState extends State<SafetyScreen> {
   List<S3BackupTarget> _targets = const [];
   int _photos = 0;
-  int _backedUp = 0;
-  int _notBackedUp = 0;
+
+  /// Target id → visible photos whose original that bucket holds.
+  Map<String, int> _heldBy = const {};
   int _cloudOnly = 0;
 
   DateTime? _icloudAt;
@@ -99,10 +103,30 @@ class _SafetyScreenState extends State<SafetyScreen> {
     _load();
   }
 
+  /// Which targets hold one original. A row from before per-bucket rows
+  /// (`''`) goes to every target whose prefix its key carries.
+  static Set<String> _holders(
+    Map<String, String> held,
+    List<S3BackupTarget> targets,
+  ) => {
+    for (final e in held.entries)
+      if (e.key.isNotEmpty)
+        e.key
+      else
+        for (final t in targets)
+          if (e.value.startsWith(t.prefix)) t.id,
+  };
+
+  /// Per bucket: a new, empty one must not read as holding everything.
+  int _heldIn(S3BackupTarget target) =>
+      math.min(_heldBy[target.id] ?? 0, _photos);
+
   Future<void> _load() async {
     final records = await widget.recordStore.listAll();
+    final holdings = await widget.recordStore.allHoldings();
+    final targets = await widget.targetsStore.loadAll();
     var photos = 0;
-    var backedUp = 0;
+    final heldBy = <String, int>{};
     var cloudOnly = 0;
     for (final record in records) {
       if (record.isDeleted) continue;
@@ -111,19 +135,22 @@ class _SafetyScreenState extends State<SafetyScreen> {
       // album exists not to answer.
       if (record.passcodeHash != null || record.isHidden) continue;
       photos++;
-      if (record.isFullyBackedUp) backedUp++;
+      final held = holdings[record.localId]?[DerivativeKind.original];
+      if (held != null) {
+        for (final id in _holders(held, targets)) {
+          heldBy[id] = (heldBy[id] ?? 0) + 1;
+        }
+      }
       if (record.localDeleted) cloudOnly++;
     }
 
-    final targets = await widget.targetsStore.loadAll();
     final icloudState = await widget.icloudBackup.drive.status();
 
     if (!mounted) return;
     setState(() {
       _targets = targets;
       _photos = photos;
-      _backedUp = backedUp;
-      _notBackedUp = photos - backedUp;
+      _heldBy = heldBy;
       _cloudOnly = cloudOnly;
       _loading = false;
     });
@@ -361,9 +388,9 @@ class _SafetyScreenState extends State<SafetyScreen> {
                 color: CupertinoColors.systemTeal,
               ),
               title: target.bucket,
-              subtitle: l10n.safetyBucketOriginals(_backedUp, _photos),
-              detail: _notBackedUp > 0
-                  ? l10n.safetyBucketWaiting(_notBackedUp)
+              subtitle: l10n.safetyBucketOriginals(_heldIn(target), _photos),
+              detail: _photos > _heldIn(target)
+                  ? l10n.safetyBucketWaiting(_photos - _heldIn(target))
                   : l10n.safetyBucketComplete,
             ),
             const SettingsHairline(indent: settingsRowIndent),

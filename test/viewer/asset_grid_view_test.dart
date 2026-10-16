@@ -583,4 +583,27 @@ void main() {
       expect(rect.top, lessThan(tester.view.physicalSize.height / 3));
     });
   });
+
+  testWidgets('the marked photo, and only it, carries the ring', (
+    tester,
+  ) async {
+    final records = _daily(3);
+    await tester.pumpWidget(
+      _wrap(
+        AssetGridView(
+          records: records,
+          markedId: 'manual:day1',
+          onTap: (_) {},
+          actionsFor: (_) => _actions,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    bool marked(String id) =>
+        tester.widget<AssetTile>(find.byKey(ValueKey(id))).marked;
+    expect(marked('manual:day1'), isTrue);
+    expect(marked('manual:day0'), isFalse);
+    expect(marked('manual:day2'), isFalse);
+  });
 }

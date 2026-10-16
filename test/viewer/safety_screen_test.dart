@@ -47,6 +47,13 @@ Future<void> _backedUp(
     DerivativeKind.original,
     DerivativeState(status: UploadStatus.uploaded, destinationKey: key),
   );
+  // As adopted from before per-bucket rows: whichever target the key names.
+  await store.recordUpload(
+    localId: localId,
+    kind: DerivativeKind.original,
+    targetId: '',
+    destinationKey: key,
+  );
 }
 
 Widget _screen({
@@ -104,6 +111,48 @@ void main() {
       find.textContaining('Never checked with your bucket'),
       findsOneWidget,
     );
+  });
+
+  testWidgets('each bucket counts what it holds, not what any holds', (
+    tester,
+  ) async {
+    final assets = FakeAssetRecordStore();
+    final targets = await _targets();
+    final first = (await targets.loadAll()).single;
+    await targets.add(
+      accessKeyId: 'c',
+      secretAccessKey: 'd',
+      region: 'ca-central-1',
+      bucket: 'brand-new',
+      prefix: 'phone/',
+    );
+    await assets.upsert(localId: 'photo:1', contentHash: '1', platform: 'ios');
+    await assets.updateDerivative(
+      'photo:1',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'photos/originals/a',
+      ),
+    );
+    await assets.recordUpload(
+      localId: 'photo:1',
+      kind: DerivativeKind.original,
+      targetId: first.id,
+      destinationKey: 'photos/originals/a',
+    );
+
+    await tester.pumpWidget(
+      _screen(
+        assets: assets,
+        targets: targets,
+        verifier: BackupVerifier(targetsStore: targets, recordStore: assets),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 of 1 originals backed up'), findsOneWidget);
+    expect(find.text('0 of 1 originals backed up'), findsOneWidget);
   });
 
   testWidgets('with no bucket, the warning row leads and the checks are dead', (

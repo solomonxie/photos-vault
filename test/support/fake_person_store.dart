@@ -171,6 +171,20 @@ class FakePersonStore implements PersonStore {
         ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
 
   @override
+  Future<bool> hasAnyRecord(String id) async =>
+      (_members[id]?.isNotEmpty ?? false) ||
+      (_relationships[id]?.isNotEmpty ?? false) ||
+      _relationships.values.any((m) => m.containsKey(id)) ||
+      (_locations[id]?.isNotEmpty ?? false) ||
+      _history.values.any((e) => e.personId == id) ||
+      events.values.any((e) => e.personId == id) ||
+      (groups[id]?.isNotEmpty ?? false) ||
+      details.entries.any(
+        (e) => e.key.startsWith('$id/') && !e.value.isEmpty,
+      ) ||
+      (sealedRows[id]?.isNotEmpty ?? false);
+
+  @override
   Future<void> remove(String id) async {
     _people.remove(id);
     _members.remove(id);

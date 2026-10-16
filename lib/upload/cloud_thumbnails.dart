@@ -21,41 +21,72 @@ class CloudThumbnails {
   final Future<String?> Function(AssetRecord record) fetch;
   final int concurrency;
 
-  /// localId → fetched path. A new map on every landing, so a listening
-  /// tile rebuilds.
-  final ValueNotifier<Map<String, String>> fetched = ValueNotifier(const {});
+  final _paths = <String, String>{};
+  final _waiters = <String, Set<VoidCallback>>{};
 
-  final _asked = <String>{};
+  /// Newest last; may hold stale entries, skipped unless still [_queued].
   final _waiting = <AssetRecord>[];
+  final _queued = <String>{};
+  final _started = <String>{};
   var _running = 0;
 
-  void request(AssetRecord record) {
-    if (!_asked.add(record.localId)) return;
+  String? pathOf(String localId) => _paths[localId];
+
+  /// [onLanded] runs when [record]'s thumbnail arrives, until [cancel].
+  void request(AssetRecord record, VoidCallback onLanded) {
+    final id = record.localId;
+    if (_paths.containsKey(id)) return;
+    (_waiters[id] ??= {}).add(onLanded);
+    if (_started.contains(id)) return;
+    _queued.add(id);
     _waiting.add(record);
     _pump();
+  }
+
+  /// A tile that left the screen: its fetch is dropped unless under way.
+  void cancel(String localId, VoidCallback onLanded) {
+    final waiters = _waiters[localId];
+    if (waiters == null || !waiters.remove(onLanded) || waiters.isNotEmpty) {
+      return;
+    }
+    _waiters.remove(localId);
+    _queued.remove(localId);
   }
 
   /// A thumbnail made elsewhere (Flagged Items), for tiles already showing
   /// their placeholder.
   void landed(String localId, String path) {
-    _asked.add(localId);
-    fetched.value = {...fetched.value, localId: path};
+    _started.add(localId);
+    _queued.remove(localId);
+    _land(localId, path);
+  }
+
+  void _land(String localId, String path) {
+    _paths[localId] = path;
+    final waiters = _waiters.remove(localId);
+    if (waiters == null) return;
+    for (final notify in waiters) {
+      notify();
+    }
   }
 
   void _pump() {
     while (_running < concurrency && _waiting.isNotEmpty) {
       final record = _waiting.removeLast();
+      if (!_queued.remove(record.localId)) continue;
+      _started.add(record.localId);
       _running++;
       unawaited(_one(record));
     }
+    // Only stale entries left: drop them rather than hold every record
+    // scrolled past.
+    if (_queued.isEmpty) _waiting.clear();
   }
 
   Future<void> _one(AssetRecord record) async {
     try {
       final path = await fetch(record);
-      if (path != null) {
-        fetched.value = {...fetched.value, record.localId: path};
-      }
+      if (path != null) _land(record.localId, path);
     } catch (_) {
       // Offline or no such object: the placeholder stays.
     } finally {

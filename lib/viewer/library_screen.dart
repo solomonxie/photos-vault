@@ -663,7 +663,6 @@ class LibraryScreenState extends State<LibraryScreen>
     _trickle?.cancel();
     _missingDebounce?.cancel();
     syncQueue.draining.removeListener(_onDrainingChanged);
-    _analyzeQueue.remaining.removeListener(_onReviewCountChanged);
     _fixQueue.removeListener(_onFixQueueChanged);
     syncQueue.dispose();
     if (widget.analyzeQueue == null) _analyzeQueue.dispose();
@@ -684,7 +683,6 @@ class LibraryScreenState extends State<LibraryScreen>
     _searchFocus.addListener(_onSearchFocusChanged);
     _watchPhotoLibrary();
     syncQueue.draining.addListener(_onDrainingChanged);
-    _analyzeQueue.remaining.addListener(_onReviewCountChanged);
     _fixQueue.addListener(_onFixQueueChanged);
     _init();
     _screenshotHook();
@@ -772,12 +770,6 @@ class LibraryScreenState extends State<LibraryScreen>
     if (running == _fixRunning && left == _fixLeft) return;
     _fixRunning = running;
     _fixLeft = left;
-    if (mounted) setState(() {});
-  }
-
-  /// The Utilities badge counts what's left to look at, and that number
-  /// moves while the pass runs rather than when anyone asks.
-  void _onReviewCountChanged() {
     if (mounted) setState(() {});
   }
 
@@ -1460,25 +1452,36 @@ class LibraryScreenState extends State<LibraryScreen>
   /// nothing is, and one pass per new query or library — not per build:
   /// the grid lays itself out again for every new list it is handed.
   List<AssetRecord> get _filtered {
-    if (_query.isEmpty) return _active;
+    if (_query.isEmpty) {
+      _searchText = null;
+      return _active;
+    }
     final cached = _filteredCache;
     if (cached != null &&
         cached.query == _query &&
         identical(cached.from, _active)) {
       return cached.list;
     }
+    final active = _active;
+    var text = _searchText;
+    if (text == null || !identical(text.from, active)) {
+      text = (from: active, text: [for (final r in active) searchTextOf(r)]);
+      _searchText = text;
+    }
     final needle = _query.toLowerCase();
-    final list = _active
-        .where(
-          (r) => (r.sourcePath ?? r.localId).toLowerCase().contains(needle),
-        )
-        .toList();
-    _filteredCache = (query: _query, from: _active, list: list);
+    final list = [
+      for (var i = 0; i < active.length; i++)
+        if (text.text[i].contains(needle)) active[i],
+    ];
+    _filteredCache = (query: _query, from: active, list: list);
     return list;
   }
 
   ({String query, List<AssetRecord> from, List<AssetRecord> list})?
   _filteredCache;
+
+  /// Lowercased once per library while a search is open, not per keystroke.
+  ({List<AssetRecord> from, List<String> text})? _searchText;
 
   void _openGroup(String title, List<AssetRecord> records) => _push(
     AssetGroupScreen(
@@ -2647,6 +2650,8 @@ class LibraryScreenState extends State<LibraryScreen>
       person: person,
       personStore: _personStore,
       assetRecordStore: assetRecordStore,
+      aiAnalysisStore: _aiAnalysisStore,
+      faceIdentity: _faceIdentity,
     ),
   );
 
@@ -3293,12 +3298,26 @@ class _AlbumCard extends StatelessWidget {
     if (records.isEmpty) return null;
     final chosen = album.coverLocalId;
     if (chosen != null) {
+      // Built-in lists are library-sized, and cards rebuild with home.
+      final hit = _chosenCovers[records];
+      if (hit != null && hit.id == chosen) return hit.record ?? _fallback;
+      AssetRecord? found;
       for (final record in records) {
-        if (record.localId == chosen) return record;
+        if (record.localId == chosen) {
+          found = record;
+          break;
+        }
       }
+      _chosenCovers[records] = (id: chosen, record: found);
+      if (found != null) return found;
     }
-    return builtIn != null ? null : records.last;
+    return _fallback;
   }
+
+  AssetRecord? get _fallback => builtIn != null ? null : records.last;
+
+  /// Keyed on the list itself: each reload hands over new lists.
+  static final _chosenCovers = Expando<({String id, AssetRecord? record})>();
 
   @override
   Widget build(BuildContext context) {

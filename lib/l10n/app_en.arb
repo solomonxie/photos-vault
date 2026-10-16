@@ -1411,6 +1411,7 @@
   "stringPickerTypeToCreate": "Type to search, or enter a new value.",
   "locationAddTitle": "Add Location",
   "locationEditTitle": "Edit Location",
+  "locationDeleteConfirmTitle": "Remove this location?",
   "locationPlaceLabel": "Place",
   "personGraphTitle": "Relationship Graph",
   "personGraphEmpty": "Add relationships to see the graph.",

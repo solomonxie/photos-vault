@@ -10,7 +10,7 @@ import 'package:flutter/cupertino.dart';
 /// Reports 1 January of the year picked, so entries written with a full date
 /// keep it in the database and simply display as their year — no migration,
 /// and nothing already recorded is coarsened.
-class YearWheel extends StatelessWidget {
+class YearWheel extends StatefulWidget {
   const YearWheel({
     super.key,
     required this.initial,
@@ -23,20 +23,34 @@ class YearWheel extends StatelessWidget {
   final int earliest;
 
   @override
-  Widget build(BuildContext context) {
-    final latest = DateTime.now().year;
-    final years = [for (var y = latest; y >= earliest; y--) y];
-    final start = years.indexOf(initial.year.clamp(earliest, latest));
-    return CupertinoPicker(
-      scrollController: FixedExtentScrollController(
-        initialItem: start < 0 ? 0 : start,
-      ),
-      itemExtent: 36,
-      onSelectedItemChanged: (index) => onChanged(DateTime(years[index])),
-      children: [
-        for (final year in years)
-          Center(child: Text('$year', style: const TextStyle(fontSize: 20))),
-      ],
-    );
+  State<YearWheel> createState() => _YearWheelState();
+}
+
+class _YearWheelState extends State<YearWheel> {
+  late final int _latest = DateTime.now().year;
+  late final List<int> _years = [
+    for (var y = _latest; y >= widget.earliest; y--) y,
+  ];
+  late final FixedExtentScrollController _controller =
+      FixedExtentScrollController(
+        initialItem:
+            _latest - widget.initial.year.clamp(widget.earliest, _latest),
+      );
+
+  @override
+  void dispose() {
+    _controller.dispose();
+    super.dispose();
   }
+
+  @override
+  Widget build(BuildContext context) => CupertinoPicker(
+    scrollController: _controller,
+    itemExtent: 36,
+    onSelectedItemChanged: (index) => widget.onChanged(DateTime(_years[index])),
+    children: [
+      for (final year in _years)
+        Center(child: Text('$year', style: const TextStyle(fontSize: 20))),
+    ],
+  );
 }

@@ -886,6 +886,7 @@
   "stringPickerTypeToCreate": "输入以搜索或创建新值。",
   "locationAddTitle": "添加地点",
   "locationEditTitle": "编辑地点",
+  "locationDeleteConfirmTitle": "移除该地点?",
   "locationPlaceLabel": "地点",
   "collectionsStorageRow": "待处理项目",
   "privateAlbumFewDecoysTitle": "可用于伪装的照片太少",

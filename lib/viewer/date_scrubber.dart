@@ -221,10 +221,12 @@ class _DateScrubberState extends State<DateScrubber> {
     _scheduleHide();
   }
 
+  static final _monthYear = DateFormat.yMMM();
+
   String? _label(ScrollPosition position) {
     final day = widget.layout.dayAtOffset(position.pixels - widget.gridOffset);
     if (day == null) return null;
-    return DateFormat.yMMM().format(day);
+    return _monthYear.format(day);
   }
 
   @override
@@ -269,7 +271,7 @@ class _DateScrubberState extends State<DateScrubber> {
     final position = _position;
     if (position == null) return const SizedBox.shrink();
     final top = _fraction(position) * (trackHeight - _thumbHeight);
-    final label = _label(position);
+    final label = _dragging ? _label(position) : null;
 
     return AnimatedOpacity(
       opacity: _visible || _dragging ? 1 : 0,
@@ -301,8 +303,7 @@ class _DateScrubberState extends State<DateScrubber> {
                     mainAxisSize: MainAxisSize.min,
                     crossAxisAlignment: CrossAxisAlignment.center,
                     children: [
-                      if (_dragging && label != null)
-                        _ScrubberBubble(label: label),
+                      if (label != null) _ScrubberBubble(label: label),
                       const _ScrubberThumb(
                         width: _thumbWidth,
                         height: _thumbHeight,

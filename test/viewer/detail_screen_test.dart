@@ -649,6 +649,13 @@ void main() {
     // And two in the whole tree, so none outside it. The stand-in is what
     // used to be out there, and it is the copy that doesn't pan.
     expect(find.byType(Image), findsNWidgets(2));
+    // The sharp copy is capped at what a 3x zoom can show, never the
+    // sensor's full resolution.
+    final widths = [
+      for (final image in tester.widgetList<Image>(insideViewer))
+        (image.image as ResizeImage).width!,
+    ]..sort();
+    expect(widths.last, widths.first * 3);
   });
 
   testWidgets('editing the date/time via the header persists it', (

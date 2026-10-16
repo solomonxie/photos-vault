@@ -68,3 +68,15 @@ class LibraryIndex {
   final Map<String, List<AssetRecord>> places;
   final int deletedCount;
 }
+
+/// What search matches: caption, tags, place and file name — never the
+/// PhotoKit id, whose hex matches almost any short query.
+String searchTextOf(AssetRecord r) {
+  final path = r.sourcePath;
+  return [
+    r.description,
+    ...r.tags,
+    r.location ?? '',
+    if (path != null) path.substring(path.lastIndexOf('/') + 1),
+  ].join('\n').toLowerCase();
+}

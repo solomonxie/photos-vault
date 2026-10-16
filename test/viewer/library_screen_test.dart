@@ -1782,6 +1782,65 @@ void main() {
       expect(find.byKey(const ValueKey('manual:beta')), findsNothing);
     });
 
+    testWidgets('matches what a photo says, never its PhotoKit id', (
+      tester,
+    ) async {
+      final store = FakeAssetRecordStore();
+      // Hex ids contain almost any short query.
+      await store.upsert(
+        localId: 'photo:CAFE-BEAD/L0/001',
+        contentHash: 'h1',
+        platform: 'ios',
+        libraryId: 'CAFE-BEAD/L0/001',
+        createdAt: DateTime(2024, 1, 1),
+      );
+      await store.upsert(
+        localId: 'photo:0000-1111/L0/001',
+        contentHash: 'h2',
+        platform: 'ios',
+        libraryId: '0000-1111/L0/001',
+        createdAt: DateTime(2024, 1, 2),
+      );
+      await store.setDescription('photo:0000-1111/L0/001', 'Cafe at dawn');
+      await store.upsert(
+        localId: 'photo:2222-3333/L0/001',
+        contentHash: 'h3',
+        platform: 'ios',
+        libraryId: '2222-3333/L0/001',
+        createdAt: DateTime(2024, 1, 3),
+      );
+      await store.setTags('photo:2222-3333/L0/001', ['Beach']);
+      await pump(tester, store);
+      await tester.tap(find.byIcon(CupertinoIcons.search));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(CupertinoSearchTextField), 'cafe');
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('photo:0000-1111/L0/001')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('photo:CAFE-BEAD/L0/001')),
+        findsNothing,
+      );
+      expect(
+        find.byKey(const ValueKey('photo:2222-3333/L0/001')),
+        findsNothing,
+      );
+
+      await tester.enterText(find.byType(CupertinoSearchTextField), 'beach');
+      await tester.pumpAndSettle();
+      expect(
+        find.byKey(const ValueKey('photo:2222-3333/L0/001')),
+        findsOneWidget,
+      );
+      expect(
+        find.byKey(const ValueKey('photo:0000-1111/L0/001')),
+        findsNothing,
+      );
+    });
+
     testWidgets('closing it puts the whole library back', (tester) async {
       await pump(tester, await libraryOf(['alpha', 'beta']));
       await tester.tap(find.byIcon(CupertinoIcons.search));

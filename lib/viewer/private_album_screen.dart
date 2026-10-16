@@ -593,16 +593,24 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       _loaded = true;
       _records = records;
       _rowKeys = _keysOf(records);
-      // Best-effort: only sums files already resolvable on disk
-      // (`manualFile` records, or `photoManager` ones already downloaded) —
-      // doesn't trigger an iCloud fetch just to render a header stat.
-      _totalBytes = records.fold(0, (sum, r) {
-        final path = r.sourcePath;
-        if (path == null) return sum;
-        final file = File(path);
-        return sum + (file.existsSync() ? file.lengthSync() : 0);
-      });
     });
+    unawaited(_sumBytes(records));
+  }
+
+  /// Best-effort: only files already on disk, never an iCloud fetch for a
+  /// header stat. Async stats after the grid is up, not one sync call per
+  /// record on the UI isolate.
+  Future<void> _sumBytes(List<AssetRecord> records) async {
+    final sizes = await Future.wait([
+      for (final r in records)
+        if (r.sourcePath case final path?)
+          File(path).stat().then(
+            (s) => s.type == FileSystemEntityType.notFound ? 0 : s.size,
+            onError: (_) => 0,
+          ),
+    ]);
+    if (!mounted || !identical(records, _records)) return;
+    setState(() => _totalBytes = sizes.fold(0, (a, b) => a + b));
   }
 
   String _formatSize(int bytes) {

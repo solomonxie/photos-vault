@@ -607,6 +607,26 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   }
 
   Future<void> _removeLocation(PersonLocation location) async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(l10n.locationDeleteConfirmTitle),
+        content: Text(location.place),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.actionDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
     await widget.personStore.removeLocation(location.id, scope: _scope);
     await _reload();
   }

@@ -1034,6 +1034,52 @@ void main() {
     expect(locations.single.place, 'Beijing');
   });
 
+  testWidgets('removing a place asks first, and Cancel keeps it', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.addLocation(
+      PersonLocation(
+        id: 'loc-1',
+        personId: mia.id,
+        kind: LocationKind.origin,
+        place: 'Shanghai',
+        since: DateTime(1995),
+      ),
+      scope: PersonScope.open,
+    );
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _scrollTo(tester, find.text('Shanghai', skipOffstage: false));
+    await tester.pumpAndSettle();
+    final remove = find.descendant(
+      of: find.widgetWithText(CupertinoListTile, 'Shanghai'),
+      matching: find.byIcon(CupertinoIcons.xmark_circle),
+    );
+
+    await tester.tap(remove);
+    await tester.pumpAndSettle();
+    expect(find.text('Remove this location?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(await personStore.locationsFor(mia.id), hasLength(1));
+
+    await tester.tap(remove);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete'));
+    await tester.pumpAndSettle();
+    expect(await personStore.locationsFor(mia.id), isEmpty);
+  });
+
   testWidgets('More details sits after Places Lived, Relationships after it', (
     tester,
   ) async {
