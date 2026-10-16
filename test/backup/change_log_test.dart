@@ -1,3 +1,4 @@
+import 'package:photos_vault/backup/change_log.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -91,5 +92,61 @@ void main() {
         column['name'],
     ];
     expect(logged, columns);
+  });
+
+  group('triggers on open', () {
+    Future<int> schemaVersion(Database db) async =>
+        (await db.rawQuery('PRAGMA schema_version')).first.values.first as int;
+
+    test('left alone when they already match', () async {
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+      addTearDown(db.close);
+      await db.execute('CREATE TABLE t (id TEXT PRIMARY KEY, a TEXT)');
+      await installChangeLog(
+        db,
+        const ['t'],
+        quiet: const {
+          't': {'a'},
+        },
+      );
+      final installed = await schemaVersion(db);
+
+      await installChangeLog(
+        db,
+        const ['t'],
+        quiet: const {
+          't': {'a'},
+        },
+      );
+
+      expect(await schemaVersion(db), installed, reason: 'no DDL ran');
+      await db.insert('t', {'id': '1', 'a': 'x'});
+      expect(await db.query(changeLogTable), hasLength(1));
+    });
+
+    test('rebuilt when a column or a rule moved', () async {
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+      addTearDown(db.close);
+      await db.execute('CREATE TABLE t (id TEXT PRIMARY KEY, a TEXT)');
+      await installChangeLog(db, const ['t']);
+      await db.execute('ALTER TABLE t ADD COLUMN b TEXT');
+
+      await installChangeLog(
+        db,
+        const ['t'],
+        private: const {'t': '{row}.b = 1'},
+      );
+      await db.insert('t', {'id': '1', 'a': 'x', 'b': 'y'});
+
+      final row = (await db.query(changeLogTable)).single;
+      expect(row['after'] as String, contains('"b":"y"'));
+      final names = [
+        for (final r in await db.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type = 'trigger'",
+        ))
+          r['name'],
+      ];
+      expect(names, contains('change_log_t_insert_private'));
+    });
   });
 }

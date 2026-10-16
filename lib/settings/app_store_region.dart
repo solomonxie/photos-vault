@@ -24,13 +24,17 @@ enum AppStoreRegion {
 
   /// Before `runApp`. Anything unreadable stays [us], nothing chosen.
   static Future<void> load() async {
-    try {
-      final name = await _channel.invokeMethod<String>('region');
-      current = values.firstWhere((r) => r.name == name, orElse: () => us);
-      languageChosen =
-          await _channel.invokeMethod<bool>('languageChosen') ?? false;
-      language.value = await _channel.invokeMethod<String>('language');
-    } catch (_) {}
+    // In flight together: three answers for one round trip's wait.
+    Future<T?> ask<T>(String method) =>
+        _channel.invokeMethod<T>(method).catchError((_) => null);
+    final (name, chosen, picked) = await (
+      ask<String>('region'),
+      ask<bool>('languageChosen'),
+      ask<String>('language'),
+    ).wait;
+    current = values.firstWhere((r) => r.name == name, orElse: () => us);
+    languageChosen = chosen ?? false;
+    language.value = picked;
   }
 
   static Future<void> setLanguage(String? code) async {

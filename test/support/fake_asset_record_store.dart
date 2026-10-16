@@ -226,6 +226,13 @@ class FakeAssetRecordStore implements AssetRecordStore {
   }
 
   @override
+  Future<List<AssetRecord>> listNewest(int limit) async {
+    final all = _records.values.toList()
+      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    return all.sublist(all.length > limit ? all.length - limit : 0);
+  }
+
+  @override
   Future<void> remove(String localId) async {
     _records.remove(localId);
     // As the real store: its upload rows go with it.

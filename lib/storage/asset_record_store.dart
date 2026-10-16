@@ -1,6 +1,7 @@
 import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' show max;
 
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
@@ -22,9 +23,11 @@ class AssetRecordStore {
     DatabaseFactory? databaseFactory,
     this._path,
     Future<Directory> Function()? appSupportDirectory,
+    String? container,
   }) : _databaseFactory = databaseFactory ?? sqflite.databaseFactory,
        _appSupportDirectory =
-           appSupportDirectory ?? getApplicationSupportDirectory;
+           appSupportDirectory ?? getApplicationSupportDirectory,
+       _container = container ?? currentContainerId;
 
   final DatabaseFactory _databaseFactory;
   final String? _path;
@@ -38,6 +41,9 @@ class AssetRecordStore {
   /// isn't stable across reinstalls, even though the files inside it move
   /// together).
   final Future<Directory> Function() _appSupportDirectory;
+
+  /// This run's container folder name ([currentContainerId]).
+  final String? _container;
 
   Database? _db;
   Directory? _appSupport;
@@ -258,7 +264,7 @@ class AssetRecordStore {
       quiet: const {_table: _quietColumns},
       silent: const {_table: _silentColumns},
     );
-    await _rehomePaths(db);
+    await _rehomeOnce(db);
     await _dropSquareThumbnails(db);
     await _undoRedate(db);
     _db = db;
@@ -419,6 +425,25 @@ class AssetRecordStore {
     }, conflictAlgorithm: ConflictAlgorithm.replace);
   }
 
+  static const _rehomedForKey = 'paths_rehomed_for';
+
+  /// [_rehomePaths] once per container rather than once per launch: three
+  /// full scans otherwise, before the first query. Every path this app
+  /// writes is under the container it runs in, so only a new container
+  /// (or a database from another one) has any to move. The mark lives in
+  /// the same file, so a database copied in brings its own. Outside a
+  /// container (tests, no phone) it runs every time, as before.
+  Future<void> _rehomeOnce(Database db) async {
+    final container = _container;
+    if (container != null && await _appState(db, _rehomedForKey) == container) {
+      return;
+    }
+    final done = await _rehomePaths(db);
+    if (done && container != null) {
+      await _putAppState(db, _rehomedForKey, container);
+    }
+  }
+
   /// Paths into a *previous* app container, pointed at the current one.
   ///
   /// iOS gives the container a new UUID whenever the app is reinstalled
@@ -434,8 +459,9 @@ class AssetRecordStore {
   /// change log, so a reinstall no longer writes the library into it
   /// twice. Only paths with no container in them (none on a phone) go
   /// through the per-row check.
-  Future<void> _rehomePaths(Database db) async {
-    final container = currentContainerId;
+  /// False when the per-row check couldn't run.
+  Future<bool> _rehomePaths(Database db) async {
+    final container = _container;
     final inContainer =
         '*$containerMarker${List.filled(36, '[0-9A-Fa-f-]').join()}/*';
     if (container != null) {
@@ -461,7 +487,7 @@ class AssetRecordStore {
       root = _appSupport ??= await _appSupportDirectory();
     } catch (_) {
       // No platform to ask (a pure-Dart test) — paths stay as they are.
-      return;
+      return false;
     }
     final under = '${root.path}%';
     final rows = await db.query(
@@ -491,7 +517,7 @@ class AssetRecordStore {
       values['updated_at'] = DateTime.now().millisecondsSinceEpoch;
       updates.add((row['local_id'] as String, values));
     }
-    if (updates.isEmpty) return;
+    if (updates.isEmpty) return true;
     await db.transaction((txn) async {
       final batch = txn.batch();
       for (final (localId, values) in updates) {
@@ -504,6 +530,7 @@ class AssetRecordStore {
       }
       await batch.commit(noResult: true);
     });
+    return true;
   }
 
   /// [path] as it would be under the current container, or null if it
@@ -2688,40 +2715,35 @@ class AssetRecordStore {
   /// between two of them.
   ///
   /// No per-record path repair either — that is [_rehomePaths], once per
-  /// launch, for the same reason.
+  /// container, for the same reason.
   Future<List<AssetRecord>> listAll() async {
     final db = await _open();
-    if (_rows == null) {
-      final rows = await db.query(_table, orderBy: 'created_at, local_id');
-      final records = <String, AssetRecord>{};
-      final byId = <String, Map<String, Object?>>{};
-      final order = <AssetRecord>[];
-      for (final row in rows) {
-        final record = _fromRow(row);
-        byId[record.localId] = row;
-        records[record.localId] = record;
-        order.add(record);
-      }
-      // SQLite orders text by bytes, Dart by UTF-16 units; the same for
-      // any id this app writes, but [_indexOf] must agree with the list.
-      order.sort(_byDate);
-      _rows = byId;
-      _records = records;
-      _order = order;
-      _rev = _maxRev(rows, 0);
-      return _publish(shape: true, visibility: true);
+    var fresh = false;
+    if (_order == null) {
+      await (_reading ??= _readAll(db).whenComplete(() => _reading = null));
+      // Dropped while it read (a wipe, a close): read again.
+      if (_order == null) return listAll();
+      fresh = true;
     }
-    final rows = await db.query(_table, where: 'rev > ?', whereArgs: [_rev]);
+    final rows = await db.query(
+      _table,
+      columns: _recordColumns,
+      where: 'rev > ?',
+      whereArgs: [_rev],
+    );
     _rev = _maxRev(rows, _rev);
-    var shape = false;
-    var visibility = false;
-    final moved = <Map<String, Object?>>[];
+    var shape = fresh;
+    var visibility = fresh;
+    final moved = <AssetRecord>[];
     for (final row in rows) {
-      final held = _rows![row['local_id']];
-      if (_sameRow(held, row)) continue;
-      moved.add(row);
-      if (held == null || !_onlyStatus(held, row)) shape = true;
-      if (held != null && _visibilityMoved(held, row)) visibility = true;
+      final record = _fromRow(row);
+      final held = _records[record.localId];
+      if (held != null && _sameRecord(held, record)) continue;
+      moved.add(record);
+      if (held == null || !_sameRecord(held, record, status: false)) {
+        shape = true;
+      }
+      if (held != null && _visibilityMoved(held, record)) visibility = true;
     }
     if (_gone.isNotEmpty) {
       final gone = _gone.toSet();
@@ -2737,10 +2759,127 @@ class AssetRecordStore {
     return _publish(shape: shape, visibility: visibility);
   }
 
-  /// Rows as last read, by `local_id`, and the records built from them —
-  /// an unchanged row is recognised without rebuilding it, and keeps its
-  /// record (what the grid's day keys are memoised on).
-  Map<String, Map<String, Object?>>? _rows;
+  /// The newest [limit] records, oldest first — what the grid draws while
+  /// the first [listAll] is still reading. Not the library: no
+  /// [libraryDelta] generation, so nothing takes it for one.
+  Future<List<AssetRecord>> listNewest(int limit) async {
+    final order = _order;
+    if (order != null) {
+      return List.unmodifiable(order.sublist(max(0, order.length - limit)));
+    }
+    final db = await _open();
+    final rows = await db.query(
+      _table,
+      columns: _recordColumns,
+      orderBy: 'created_at DESC, local_id DESC',
+      limit: limit,
+    );
+    final newest = [for (final row in rows.reversed) _fromRow(row)]
+      ..sort(_byDate);
+    return List.unmodifiable(newest);
+  }
+
+  /// The first full read, in pages on `(created_at, local_id)`, so no one
+  /// platform message holds the UI isolate for the whole library. Rows
+  /// written meanwhile are above the counter read first, and the [listAll]
+  /// pass after this one picks them up; one deleted meanwhile shows as a
+  /// count that doesn't add up ([_lostRows]).
+  Future<void> _readAll(Database db) async {
+    final epoch = _epoch;
+    final start =
+        sqflite.Sqflite.firstIntValue(
+          await db.rawQuery('SELECT n FROM $_revTable WHERE id = 0'),
+        ) ??
+        0;
+    final records = <String, AssetRecord>{};
+    var order = <AssetRecord>[];
+    var repeated = false;
+    List<Object?>? after;
+    while (true) {
+      final rows = await db.query(
+        _table,
+        columns: _recordColumns,
+        where: after == null
+            ? null
+            : 'created_at > ? OR (created_at = ? AND local_id > ?)',
+        whereArgs: after,
+        orderBy: 'created_at, local_id',
+        limit: _readPage,
+      );
+      for (final row in rows) {
+        final record = _fromRow(row);
+        // Re-dated between two pages: met again further on.
+        if (records[record.localId] != null) repeated = true;
+        records[record.localId] = record;
+        order.add(record);
+      }
+      if (rows.length < _readPage) break;
+      final last = rows.last;
+      after = [last['created_at'], last['created_at'], last['local_id']];
+    }
+    if (epoch != _epoch) return;
+    // SQLite orders text by bytes, Dart by UTF-16 units; the same for any
+    // id this app writes, but [_indexOf] must agree with the list.
+    if (repeated || !_inOrder(order)) {
+      order = records.values.toList()..sort(_byDate);
+    }
+    _records = records;
+    _order = order;
+    _rev = start;
+  }
+
+  static const _readPage = 2000;
+
+  Future<void>? _reading;
+
+  /// Bumped by [_dropCache], so a read already under way can't put back
+  /// what was dropped.
+  int _epoch = 0;
+
+  static bool _inOrder(List<AssetRecord> order) {
+    for (var i = 1; i < order.length; i++) {
+      if (_byDate(order[i - 1], order[i]) > 0) return false;
+    }
+    return true;
+  }
+
+  /// Every column [_fromRow] reads, and `rev`.
+  static const _recordColumns = [
+    'local_id',
+    'content_hash',
+    'platform',
+    'source_type',
+    'source_path',
+    'thumbnail_path',
+    'local_deleted',
+    'is_video',
+    'is_live_photo',
+    'is_gif',
+    ..._uploadColumns,
+    'is_favorite',
+    'is_hidden',
+    'is_locked',
+    'local_optimized',
+    'deleted_at',
+    'binned_by',
+    'description',
+    'tags',
+    'location',
+    'passcode_hash',
+    'library_id',
+    'latitude',
+    'longitude',
+    'width',
+    'height',
+    'created_at',
+    'updated_at',
+    'added_at',
+    'rev',
+  ];
+
+  /// The records built from the rows as last read, by `local_id`. An
+  /// unchanged row keeps its record (what the grid's day keys are
+  /// memoised on); no raw row is kept beside it.
   Map<String, AssetRecord> _records = {};
 
   /// [_records] in [_byDate] order.
@@ -2776,22 +2915,17 @@ class AssetRecordStore {
   /// Patches [_order] for [moved]: in place when the date held, else out
   /// and back in at its new place. A big batch (a first scan's pages) is
   /// cheaper as one sort of records already built.
-  void _apply(List<Map<String, Object?>> moved) {
-    final rows = _rows!;
+  void _apply(List<AssetRecord> moved) {
     final order = _order!;
     if (moved.length > 256) {
-      for (final row in moved) {
-        final record = _fromRow(row);
-        rows[record.localId] = row;
+      for (final record in moved) {
         _records[record.localId] = record;
       }
       _order = _records.values.toList()..sort(_byDate);
       return;
     }
-    for (final row in moved) {
-      final record = _fromRow(row);
+    for (final record in moved) {
       final old = _records[record.localId];
-      rows[record.localId] = row;
       _records[record.localId] = record;
       if (old != null) {
         final at = _indexOf(order, old);
@@ -2840,7 +2974,6 @@ class AssetRecordStore {
     if (lost.isEmpty) return false;
     for (final id in lost) {
       _records.remove(id);
-      _rows!.remove(id);
     }
     _order!.removeWhere((r) => lost.contains(r.localId));
     return true;
@@ -2855,42 +2988,71 @@ class AssetRecordStore {
     return high;
   }
 
-  static bool _sameRow(Map<String, Object?>? held, Map<String, Object?> row) {
-    if (held == null) return false;
-    for (final entry in row.entries) {
-      if (entry.key == 'rev') continue;
-      if (held[entry.key] != entry.value) return false;
+  /// Field by field, as the row's columns were compared before: a field
+  /// added to [AssetRecord] belongs here too. Without [status], upload
+  /// state and `updatedAt` don't count — only they moved, tiles redraw and
+  /// nothing else does.
+  static bool _sameRecord(AssetRecord a, AssetRecord b, {bool status = true}) {
+    if (status) {
+      if (a.updatedAt != b.updatedAt) return false;
+      for (final kind in DerivativeKind.values) {
+        final x = a.stateOf(kind);
+        final y = b.stateOf(kind);
+        if (x.status != y.status ||
+            x.destinationKey != y.destinationKey ||
+            x.backedUpHash != y.backedUpHash) {
+          return false;
+        }
+      }
+    }
+    return a.localId == b.localId &&
+        a.contentHash == b.contentHash &&
+        a.platform == b.platform &&
+        a.sourceType == b.sourceType &&
+        a.sourcePath == b.sourcePath &&
+        a.thumbnailPath == b.thumbnailPath &&
+        a.localDeleted == b.localDeleted &&
+        a.isVideo == b.isVideo &&
+        a.isLivePhoto == b.isLivePhoto &&
+        a.isGif == b.isGif &&
+        a.createdAt == b.createdAt &&
+        a.addedAt == b.addedAt &&
+        a.isFavorite == b.isFavorite &&
+        a.isLocked == b.isLocked &&
+        a.localOptimized == b.localOptimized &&
+        a.isHidden == b.isHidden &&
+        a.deletedAt == b.deletedAt &&
+        a.binnedByLibrary == b.binnedByLibrary &&
+        a.description == b.description &&
+        _sameTags(a.tags, b.tags) &&
+        a.location == b.location &&
+        a.passcodeHash == b.passcodeHash &&
+        a.libraryId == b.libraryId &&
+        a.latitude == b.latitude &&
+        a.longitude == b.longitude &&
+        a.width == b.width &&
+        a.height == b.height;
+  }
+
+  static bool _sameTags(List<String> a, List<String> b) {
+    if (identical(a, b)) return true;
+    if (a.length != b.length) return false;
+    for (var i = 0; i < a.length; i++) {
+      if (a[i] != b[i]) return false;
     }
     return true;
   }
 
-  /// Only upload state and stamps moved: tiles redraw, nothing else does.
-  static bool _onlyStatus(Map<String, Object?> held, Map<String, Object?> row) {
-    for (final entry in row.entries) {
-      if (held[entry.key] == entry.value) continue;
-      if (!_statusColumns.contains(entry.key)) return false;
-    }
-    return true;
-  }
-
-  static const _statusColumns = {'updated_at', 'rev', ..._uploadColumns};
-
-  static const _visibilityColumns = [
-    'passcode_hash',
-    'is_hidden',
-    'deleted_at',
-    'local_deleted',
-  ];
-
-  static bool _visibilityMoved(
-    Map<String, Object?> held,
-    Map<String, Object?> row,
-  ) => _visibilityColumns.any((c) => held[c] != row[c]);
+  static bool _visibilityMoved(AssetRecord a, AssetRecord b) =>
+      a.passcodeHash != b.passcodeHash ||
+      a.isHidden != b.isHidden ||
+      a.deletedAt != b.deletedAt ||
+      a.localDeleted != b.localDeleted;
 
   /// Whatever the cache holds is now a guess — the next [listAll] reads
   /// the library again from scratch.
   void _dropCache() {
-    _rows = null;
+    _epoch++;
     _records = {};
     _order = null;
     _published = null;
@@ -2899,11 +3061,9 @@ class AssetRecordStore {
   }
 
   void _forgetCached(Iterable<String> localIds) {
-    final rows = _rows;
-    if (rows == null) return;
+    if (_order == null) return;
     for (final id in localIds) {
-      if (rows.remove(id) == null) continue;
-      _records.remove(id);
+      if (_records.remove(id) == null) continue;
       _gone.add(id);
       _published = null;
     }

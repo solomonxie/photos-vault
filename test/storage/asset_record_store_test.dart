@@ -572,6 +572,56 @@ void main() {
     );
   });
 
+  test('container paths are repaired once per container', () async {
+    final root = await Directory.systemTemp.createTemp('support_');
+    addTearDown(() => root.delete(recursive: true));
+    final dbPath = p.join(root.path, 'records.db');
+    const a = '11111111-1111-1111-1111-111111111111';
+    const b = '22222222-2222-2222-2222-222222222222';
+    const c = '33333333-3333-3333-3333-333333333333';
+    String at(String container) =>
+        '/var/mobile/Containers/Data/Application/$container/Library/x.jpg';
+
+    Future<String?> storedAfterOpen(String container) async {
+      final store = AssetRecordStore(
+        databaseFactory: databaseFactoryFfi,
+        path: dbPath,
+        appSupportDirectory: () async => root,
+        container: container,
+      );
+      final path = (await store.getByLocalId('manual:x'))?.sourcePath;
+      await store.close();
+      return path;
+    }
+
+    final first = AssetRecordStore(
+      databaseFactory: databaseFactoryFfi,
+      path: dbPath,
+      appSupportDirectory: () async => root,
+      container: a,
+    );
+    await first.upsert(
+      localId: 'manual:x',
+      contentHash: 'x',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: at(a),
+    );
+    await first.close();
+
+    // A new container: moved.
+    expect(await storedAfterOpen(b), at(b));
+
+    // Same container: settled, so a relaunch skips the scans.
+    final db = await databaseFactoryFfi.openDatabase(dbPath);
+    await db.update('asset_record', {'source_path': at(a)});
+    await db.close();
+    expect(await storedAfterOpen(b), at(a));
+
+    // A new container (a reinstall) repairs again.
+    expect(await storedAfterOpen(c), at(c));
+  });
+
   test(
     'a record remembers when it arrived, apart from when it was taken',
     () async {

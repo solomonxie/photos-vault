@@ -128,6 +128,69 @@ void main() {
       },
     );
 
+    test('the first read pages through a big library, in order', () async {
+      await open().listAll();
+      final db = await databaseFactoryFfi.openDatabase(dbPath());
+      final batch = db.batch();
+      // Ties on the capture time straddle every page boundary.
+      for (var i = 0; i < 4500; i++) {
+        batch.insert('asset_record', {
+          'local_id': 'photo:${(4500 - i).toString().padLeft(5, '0')}',
+          'content_hash': 'h$i',
+          'platform': 'ios',
+          'created_at': i ~/ 3,
+          'updated_at': 0,
+        });
+      }
+      await batch.commit(noResult: true);
+
+      final s = open();
+      final newest = await s.listNewest(4);
+      final all = await s.listAll();
+
+      expect(all, hasLength(4500));
+      expect(all.map((r) => r.localId).toSet(), hasLength(4500));
+      for (var i = 1; i < all.length; i++) {
+        final a = all[i - 1];
+        final b = all[i];
+        final byDate = a.createdAt.compareTo(b.createdAt);
+        expect(
+          byDate < 0 || (byDate == 0 && a.localId.compareTo(b.localId) < 0),
+          isTrue,
+        );
+      }
+      expect(
+        newest.map((r) => r.localId),
+        all.sublist(4496).map((r) => r.localId),
+      );
+      expect(libraryDelta(null, newest), (shape: true, visibility: true));
+      expect(identical(await s.listAll(), all), isTrue);
+    });
+
+    test('a write during the first read is in the next one', () async {
+      final s = open();
+      await add(s, 'photo:a', at: DateTime(2020));
+      final reading = s.listAll();
+      await add(s, 'photo:b', at: DateTime(2019));
+      await s.setDescription('photo:a', 'beach');
+      await reading;
+
+      final all = await s.listAll();
+      expect(all.map((r) => r.localId), ['photo:b', 'photo:a']);
+      expect(all.last.description, 'beach');
+    });
+
+    test('a removal during the first read never shows', () async {
+      final s = open();
+      await add(s, 'photo:a');
+      await add(s, 'photo:b');
+      final reading = s.listAll();
+      await s.removeMany(['photo:a']);
+      await reading;
+
+      expect((await s.listAll()).map((r) => r.localId), ['photo:b']);
+    });
+
     test('libraryDelta: upload state alone is not a shape change', () async {
       final s = open();
       await add(s, 'photo:a');

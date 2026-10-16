@@ -14,14 +14,15 @@ import 'upload/background_sync.dart';
 
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
-  await _ensureTemp();
   if (kProfileMode) _reportJank();
-  await AppStoreRegion.load();
-  try {
-    await DemoMode.init(seedLater: true);
-  } catch (_) {
-    // Demo plumbing must never be why the real app doesn't open.
-  }
+  // Independent platform calls, so one round trip rather than a chain.
+  await Future.wait([
+    _ensureTemp(),
+    AppStoreRegion.load(),
+    DemoMode.init(seedLater: true).catchError((_) {
+      // Demo plumbing must never be why the real app doesn't open.
+    }),
+  ]);
   // Simulator screenshots only: /tmp/pv-screenshot ("<screen> <lang>") can't exist on a phone.
   final shot = screenshotRequest();
   if (shot != null) {

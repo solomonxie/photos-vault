@@ -132,6 +132,7 @@ class LibraryScreen extends StatefulWidget {
     this.appDataRemoval,
     this.vaultStore,
     this.backgroundPassInterval,
+    this.launchSettle,
     this.personStore,
     this.hashFile,
     this.thumbnailCache,
@@ -195,6 +196,11 @@ class LibraryScreen extends StatefulWidget {
   /// opts into, and a widget test that never asked for one would otherwise
   /// wait for it forever.
   final Duration? backgroundPassInterval;
+
+  /// How long the screen has to sit untouched before each stage of the
+  /// launch work starts (queue resume, then the full scan, faces and the
+  /// scheduled sync). Null starts them all at once, as tests expect.
+  final Duration? launchSettle;
 
   /// Overridable for tests so they never open the real file picker.
   final ManualAddService? manualAddService;
@@ -661,6 +667,10 @@ class LibraryScreenState extends State<LibraryScreen>
     PhotoManager.removeChangeCallback(_onPhotoLibraryChanged);
     WidgetsBinding.instance.removeObserver(this);
     _trickle?.cancel();
+    if (_settle case (final timer, final done)?) {
+      timer.cancel();
+      done.complete();
+    }
     _missingDebounce?.cancel();
     syncQueue.draining.removeListener(_onDrainingChanged);
     _fixQueue.removeListener(_onFixQueueChanged);
@@ -837,6 +847,14 @@ class LibraryScreenState extends State<LibraryScreen>
     } else {
       unawaited(_restoreAppDataThenReload());
     }
+    // The newest end of the camera roll now: it is what somebody opening
+    // the app is looking at. The rest waits for the screen to settle —
+    // all of it queues on the one database connection, and every row it
+    // reads comes back through the isolate drawing the first frames.
+    final recent = _libraryScanner.runRecent().catchError((_) {});
+    unawaited(_forgetHiddenJobs());
+    await _launchSettled();
+    if (!mounted) return;
     // Picks up whatever a previous run left queued — including jobs left
     // `running` by a kill mid-sync. Whether it then *drains* is the sync
     // frequency's call: on "Manual" the jobs stay visible and nothing goes
@@ -850,17 +868,45 @@ class LibraryScreenState extends State<LibraryScreen>
           .then((_) => _hiddenBackup.run())
           .catchError((_) {}),
     );
+    await _launchSettled();
+    if (!mounted) return;
     // Fire-and-forget: a full camera-roll scan (and any iCloud downloads it
     // triggers for backup) can be slow, and must never block showing the
     // manually-added assets already on hand. Re-`reload()`s itself once
-    // done.
-    unawaited(_scanRecentThenAll());
+    // done. After the recent lane, as [_scanRecentThenAll].
+    unawaited(recent.then((_) => _libraryScanner.run(force: true)));
     unawaited(_analyzeQueue.startIfDue());
     // Independent of camera-roll access: retries whatever's already
     // pending/failed if the configured sync frequency says it's due — the
     // other natural "app came to the foreground" moment, alongside
     // returning to this screen from Cloud Backups (see `_openCloudBackups`).
     unawaited(_runScheduledSyncIfDue());
+  }
+
+  /// Set by a touch or a scroll anywhere on the screen.
+  bool _touched = false;
+
+  /// The wait under way; cut short by [dispose].
+  (Timer, Completer<void>)? _settle;
+
+  /// Launch stages still start if the screen never goes quiet.
+  static const _launchStageCap = Duration(seconds: 30);
+
+  /// Until a whole [LibraryScreen.launchSettle] has passed untouched, at
+  /// most [_launchStageCap]. At once without one.
+  Future<void> _launchSettled() async {
+    final quiet = widget.launchSettle;
+    if (quiet == null) return;
+    _touched = false;
+    for (var waited = Duration.zero; waited < _launchStageCap;) {
+      final done = Completer<void>();
+      _settle = (Timer(quiet, done.complete), done);
+      await done.future;
+      _settle = null;
+      if (!mounted || !_touched) return;
+      _touched = false;
+      waited += quiet;
+    }
   }
 
   DateTime? _bucketListedAt;
@@ -1286,14 +1332,16 @@ class LibraryScreenState extends State<LibraryScreen>
     required bool faces,
     required bool statusOnly,
   }) async {
+    final firstLoad = !_loaded;
+    if (firstLoad) await _paintNewest();
     final all = await assetRecordStore.listAll();
     // The same list instance back means the library itself hasn't moved
     // (see [AssetRecordStore.listAll]) — so everything derived from it is
     // still good, down to the grid's own layout, which memoises on the
     // identity of the list it was given.
     final libraryChanged = !identical(all, _all);
-    final delta = libraryDelta(_loaded ? _all : null, all);
-    final index = libraryChanged || !_loaded
+    final delta = libraryDelta(firstLoad ? null : _all, all);
+    final index = libraryChanged || firstLoad
         ? LibraryIndex.of(all, DateTime.now())
         : null;
     final active = index?.active ?? _active;
@@ -1304,7 +1352,6 @@ class LibraryScreenState extends State<LibraryScreen>
     // over every analysis — which is a second or two on a real library,
     // and the grid used to spend all of it blank. Put the grid up now and
     // let the rest land in the second paint.
-    final firstLoad = !_loaded;
     if (firstLoad) {
       if (!mounted) return;
       setState(() {
@@ -1416,6 +1463,27 @@ class LibraryScreenState extends State<LibraryScreen>
       _personFirstPhotos = personFirstPhotos;
       _unnamedFaces = unnamed.faces;
     });
+  }
+
+  /// Enough for the first screenful or two, a few milliseconds to read.
+  static const _firstPaintCount = 600;
+
+  /// The newest photos, up before the first full read of a big library is
+  /// in. Older ones land above the viewport, which [AssetGridView] holds
+  /// its place against. A subset in [_all] for that moment: everything
+  /// reading it then only does less (fewer uploads queued, fewer
+  /// thumbnails owed), never more.
+  Future<void> _paintNewest() async {
+    try {
+      final newest = await assetRecordStore.listNewest(_firstPaintCount);
+      if (newest.isEmpty || !mounted || _loaded) return;
+      setState(() {
+        _loaded = true;
+        _applyLibrary(LibraryIndex.of(newest, DateTime.now()));
+      });
+    } catch (_) {
+      // The full read below says what is wrong.
+    }
   }
 
   /// Everything the screen derives from the library itself — a pass over
@@ -1744,6 +1812,16 @@ class LibraryScreenState extends State<LibraryScreen>
   /// and their rows — even finished ones, even nameless — said on an open
   /// page that hidden photos exist; they're dropped before it loads.
   Future<void> _resumeQueue() async {
+    await _forgetHiddenJobs();
+    await syncQueue.resume(
+      drain: true,
+      runningSince: await BackgroundHeartbeat(assetRecordStore).runningSince(),
+    );
+  }
+
+  /// Queued jobs for photos hidden since: dropped before anything can show
+  /// the queue, even when its resume waits for the screen to settle.
+  Future<void> _forgetHiddenJobs() async {
     try {
       await syncQueue.store.forget([
         for (final r in await assetRecordStore.listAll())
@@ -1752,10 +1830,6 @@ class LibraryScreenState extends State<LibraryScreen>
     } catch (_) {
       // The queue shows them until the next launch; nothing is lost.
     }
-    await syncQueue.resume(
-      drain: true,
-      runningSince: await BackgroundHeartbeat(assetRecordStore).runningSince(),
-    );
   }
 
   /// Opportunistic: fires whenever the app (or this screen) comes to the
@@ -2697,6 +2771,24 @@ class LibraryScreenState extends State<LibraryScreen>
     final filtered = _filtered;
     final selection = _selection;
 
+    return Listener(
+      onPointerDown: (_) => _touched = true,
+      child: NotificationListener<ScrollNotification>(
+        onNotification: (_) {
+          _touched = true;
+          return false;
+        },
+        child: _page(context, l10n, filtered, selection),
+      ),
+    );
+  }
+
+  Widget _page(
+    BuildContext context,
+    AppLocalizations l10n,
+    List<AssetRecord> filtered,
+    Set<String>? selection,
+  ) {
     return Stack(
       children: [
         CupertinoPageScaffold(

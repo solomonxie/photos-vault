@@ -13,9 +13,9 @@ import 'package:sqflite/sqflite.dart' show Database, DatabaseExecutor;
 /// Written by SQLite triggers rather than by hand at every call site.
 /// There are forty-odd of those across the three databases, and a log
 /// missing the one write nobody remembered to record is worse than no log,
-/// because it looks complete. Triggers are rebuilt from `PRAGMA table_info`
-/// on every open, so a migration that adds a column can't leave them
-/// describing the old shape.
+/// because it looks complete. Triggers are checked against `PRAGMA
+/// table_info` on every open and rebuilt when they differ, so a migration
+/// that adds a column can't leave them describing the old shape.
 ///
 /// Local only. It travels *inside* the backup zip so the record outlives
 /// the phone, but a restore never replays it: the ids in it were remapped
@@ -111,6 +111,8 @@ Future<void> _installChangeLog(
         ? null
         : changed((c) => !silentSet.contains(c));
     final quietChanged = quietSet.isEmpty ? null : changed(quietSet.contains);
+    final drops = <String>[];
+    final creates = <String, String>{};
     for (final op in const ['insert', 'update', 'delete']) {
       final name = '${changeLogTable}_${table}_$op';
       final on = switch (op) {
@@ -133,11 +135,10 @@ Future<void> _installChangeLog(
             : 'WHEN ${all.map((p) => '($p)').join(' AND ')}';
       }
 
-      await db.execute('DROP TRIGGER IF EXISTS $name');
-      await db.execute('DROP TRIGGER IF EXISTS ${name}_private');
-      await db.execute('DROP TRIGGER IF EXISTS ${name}_quiet');
+      drops.addAll([name, '${name}_private', '${name}_quiet']);
       if (isPrivate != null) {
-        await db.execute('''
+        creates['${name}_private'] =
+            '''
           CREATE TRIGGER ${name}_private $on ON $table
           ${when([isPrivate, if (isUpdate) anyChanged])}
           BEGIN
@@ -148,10 +149,11 @@ Future<void> _installChangeLog(
               VALUES ('$table', '', '$_privateOp', '');
             DELETE FROM $changeLogTable WHERE seq = last_insert_rowid();
           END
-        ''');
+        ''';
       }
       if (isUpdate && quietChanged != null) {
-        await db.execute('''
+        creates['${name}_quiet'] =
+            '''
           CREATE TRIGGER ${name}_quiet $on ON $table
           ${when([if (isPrivate != null) 'NOT ($isPrivate)', 'NOT (${userChanged ?? '0'})', quietChanged])}
           BEGIN
@@ -159,9 +161,10 @@ Future<void> _installChangeLog(
               VALUES ('$table', '', '$_quietOp', '');
             DELETE FROM $changeLogTable WHERE seq = last_insert_rowid();
           END
-        ''');
+        ''';
       }
-      await db.execute('''
+      creates[name] =
+          '''
         CREATE TRIGGER $name $on ON $table
         ${when([if (isPrivate != null) 'NOT ($isPrivate)', if (isUpdate) userChanged ?? anyChanged])}
         BEGIN
@@ -176,10 +179,45 @@ Future<void> _installChangeLog(
             strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
           );
         END
-      ''');
+      ''';
+    }
+    // Rebuilt only when they differ: each DDL is a schema write, on every
+    // open.
+    if (await _installed(db, table, drops.toSet(), creates)) continue;
+    for (final name in drops) {
+      await db.execute('DROP TRIGGER IF EXISTS $name');
+    }
+    for (final sql in creates.values) {
+      await db.execute(sql);
     }
   }
 }
+
+/// Whether [table]'s log triggers among [names] are exactly [creates].
+Future<bool> _installed(
+  DatabaseExecutor db,
+  String table,
+  Set<String> names,
+  Map<String, String> creates,
+) async {
+  final rows = await db.rawQuery(
+    "SELECT name, sql FROM sqlite_master WHERE type = 'trigger' "
+    'AND tbl_name = ?',
+    [table],
+  );
+  final found = {
+    for (final row in rows)
+      if (names.contains(row['name'])) row['name'] as String: row['sql'],
+  };
+  if (found.length != creates.length) return false;
+  for (final MapEntry(:key, :value) in creates.entries) {
+    final sql = found[key];
+    if (sql is! String || _squashed(sql) != _squashed(value)) return false;
+  }
+  return true;
+}
+
+String _squashed(String sql) => sql.replaceAll(RegExp(r'\s+'), ' ').trim();
 
 const _privateOp = 'private';
 const _quietOp = 'quiet';

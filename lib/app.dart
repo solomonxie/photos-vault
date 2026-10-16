@@ -99,6 +99,8 @@ class App extends StatelessWidget {
           // The real app keeps working in the background while it's open:
           // uploads still owed, then the camera roll, then faces.
           backgroundPassInterval: const Duration(seconds: 20),
+          // Launch work in stages, once the first screen has settled.
+          launchSettle: const Duration(seconds: 4),
         ),
       ),
     );

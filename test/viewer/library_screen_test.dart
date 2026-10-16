@@ -2027,6 +2027,92 @@ class _RecordingSyncJobStore extends FakeSyncJobStore {
 }
 
 void _reloadCoalescing() {
+  testWidgets('the newest photos are up before the first full read is in', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = _GatedRecordStore()..gate = Completer<void>();
+    await recordStore.upsert(
+      localId: 'manual:new',
+      contentHash: 'new',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/new.jpg',
+    );
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pump();
+    await tester.pump();
+
+    expect(find.byKey(const ValueKey('manual:new')), findsOneWidget);
+
+    recordStore.gate!.complete();
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('manual:new')), findsOneWidget);
+  });
+
+  testWidgets('launch work waits for the screen to go quiet', (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    var listed = 0;
+    final photoLibraryService = PhotoLibraryService(
+      store: recordStore,
+      requestPermission: () async => PermissionState.authorized,
+      listAssetPage: (page, size) async {
+        listed++;
+        return const [];
+      },
+      loadEntity: (_) async => null,
+    );
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+          photoLibraryService: photoLibraryService,
+          launchSettle: const Duration(seconds: 4),
+        ),
+      ),
+    );
+    await tester.pump(const Duration(milliseconds: 100));
+    expect(listed, 1, reason: 'the recent lane, at once');
+
+    // Second stage due at 8 s; a touch at 6 s puts it back to 12 s.
+    await tester.pump(const Duration(seconds: 6));
+    final touch = await tester.startGesture(const Offset(5, 5));
+    await touch.up();
+    await tester.pump(const Duration(seconds: 3));
+    expect(listed, 1, reason: 'not while somebody is using it');
+
+    await tester.pump(const Duration(seconds: 3));
+    expect(listed, 2, reason: 'then the full pass');
+    await tester.pumpWidget(const SizedBox());
+  });
+
   testWidgets('reloads run one at a time; callers meanwhile share one more, '
       'which sees what they wrote', (tester) async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
