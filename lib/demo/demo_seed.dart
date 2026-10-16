@@ -33,10 +33,11 @@ class DemoSeed {
   static const seedAsset = 'demo/seed.json';
   static const _doneKey = 'demo_seeded_v1';
 
-  Future<void> ensure() async {
-    if (!DemoFlag.active) return;
+  /// Whether it seeded anything this call.
+  Future<bool> ensure() async {
+    if (!DemoFlag.active) return false;
     final records = AssetRecordStore();
-    if (await records.getAppState(_doneKey) == '1') return;
+    if (await records.getAppState(_doneKey) == '1') return false;
     final seed = jsonDecode(
       await rootBundle.loadString(seedAsset),
     ) as Map<String, dynamic>;
@@ -61,6 +62,7 @@ class DemoSeed {
     await _addHidden(records, seed, photos);
     await _addCredentials();
     await records.setAppState(_doneKey, '1');
+    return true;
   }
 
   static String localIdOf(Map<String, dynamic> photo) => 'demo:${photo['id']}';

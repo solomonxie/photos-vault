@@ -29,10 +29,8 @@
   "libraryFavorite": "Favorite",
   "libraryUnfavorite": "Unfavorite",
   "libraryHide": "Hide",
-  "libraryUnhide": "Unhide",
   "libraryRecover": "Recover",
   "libraryFavoritesEmpty": "No favorites yet.",
-  "libraryHiddenEmpty": "Nothing hidden.",
   "libraryRecentlyDeletedEmpty": "No recently deleted items.",
   "libraryDeletePermanentlyTitle": "Delete Permanently?",
   "libraryDeletePermanentlyBody": "This can't be undone.",
@@ -106,7 +104,6 @@
   "detailShareOriginalOption": "Share Original",
   "detailExportAsOption": "Export As…",
   "detailExportFailed": "Couldn't export this photo.",
-  "detailEditNotInLibrary": "This photo isn't in your Photos library, so it can't be edited in Photos.",
   "detailEditCropOption": "Crop",
   "detailEditRotateOption": "Rotate",
   "detailEditVideoUnsupported": "Only photos can be edited.",
@@ -142,7 +139,6 @@
   "detailTagsHeader": "Tags",
   "detailPeopleHeader": "People",
   "detailPeopleTagPickerTitle": "Tag Person",
-  "collectionsCollections": "Collections",
   "albumsVideosName": "Videos",
   "albumsNewTitle": "New Album",
   "albumsNewNamePlaceholder": "Album name",
@@ -178,14 +174,6 @@
   },
   "collectionsShowLess": "Show Less",
   "collectionsPlacesEmpty": "Photos with a place set will show up here.",
-  "collectionsGroupPhotoCount": "{count, plural, one{1 photo} other{{count} photos}}",
-  "@collectionsGroupPhotoCount": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "selectionTitle": "{count, plural, one{1 Selected} other{{count} Selected}}",
   "selectionAddTag": "Add Tag",
   "selectionSetPlace": "Set Place",
@@ -227,14 +215,6 @@
   "selectionDone": "Done",
   "selectionSelectAll": "Select All",
   "selectionDeselectAll": "Deselect All",
-  "selectionSelectBatch": "Select {count}",
-  "@selectionSelectBatch": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "selectionHint": "Touch and hold a photo to select more.",
   "@selectionTitle": {
     "placeholders": {
@@ -250,25 +230,10 @@
   "collectionsSafetyRow": "Where Your Photos Are",
   "collectionsCloudSettingsRow": "Cloud Settings",
   "collectionsAiSettingsRow": "AI Settings",
-  "collectionsImportPhotosRow": "Import Photos",
   "privacyHeading": "Your Copies, Your Privacy",
   "privacyTitle": "Your photos always belong to you.",
   "privacyBody": "Your photos go to a bucket you own, as ordinary files. Alongside them sits an index.csv listing every photo by date, album, person, caption and place — so you can find any one of them again with a spreadsheet and nothing else. No account, no export tool, no us. The app deletes from your bucket only to carry out what you asked: deleting a photo, hiding or un-hiding one (the old copy goes once the new one is in every bucket), or a fix you confirm.\n\nNothing is ever sent to the developer. There is no server and no account: your library, its records and its face data stay in a database on this iPhone, and all processing — grouping, search, face recognition — happens here. Photos go only where you send them: your own bucket, your own iCloud, your own AI key. Keys are kept in the Keychain, never in the app's own backups; like every Keychain item, they are part of an encrypted iPhone backup.",
-  "backupQueueTitle": "Sync Queue",
   "backupQueueClearButton": "Empty Queue",
-  "backupQueueRetryFailedButton": "Retry Failed",
-  "backupQueueHeader": "Queue ({count})",
-  "@backupQueueHeader": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "backupQueueFullNote": "Full",
-  "@backupQueueFullNote": {
-    "description": "Muted suffix on the queue header when the queue is at capacity"
-  },
   "backupQueueWaiting": "Waiting",
   "backupQueueSpeed": "{count} at a time",
   "@backupQueueSpeed": {
@@ -279,41 +244,15 @@
     }
   },
   "backupQueuePauseAction": "Pause",
-  "backupQueueResumeAction": "Resume",
   "backupQueueSlowerShort": "Slower",
   "backupQueueFasterShort": "Faster",
-  "backupQueueSlower": "Slower (one fewer at a time)",
-  "backupQueueFaster": "Faster (one more at a time)",
-  "backupQueueCheckingMessage": "{count, plural, one{Checking 1 photo for changes…} other{Checking {count} photos for changes…}}",
-  "@backupQueueCheckingMessage": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "settingsCloudSyncHeading": "Cloud Sync",
-  "settingsSyncScheduleRow": "Schedule",
-  "settingsBackupFormatRow": "Format",
-  "settingsSyncSpeedRow": "Upload speed",
-  "settingsSyncFrequencyHeading": "Sync Frequency",
-  "settingsSyncFrequencyHint": "Syncs while the app is open. iOS may also run a pass in the background, usually overnight on power and Wi-Fi. It chooses when, so it isn't guaranteed.",
   "settingsSyncFrequencyManual": "Manual Only",
   "settingsSyncFrequencyEvery15Minutes": "Every 15 Minutes",
   "settingsSyncFrequencyEveryHour": "Every Hour",
   "settingsSyncFrequencyEvery6Hours": "Every 6 Hours",
   "settingsSyncFrequencyDaily": "Daily",
-  "settingsSyncNowMessage": "{count, plural, =0{Nothing to sync} one{Backed up 1 photo} other{Backed up {count} photos}}",
-  "@settingsSyncNowMessage": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "settingsCloudVendorLabel": "Cloud vendor",
   "settingsCloudVendorHint": "The provider that hosts your bucket: Amazon S3, Tencent COS or Alibaba OSS. Google Cloud Storage, Azure Blob and Backblaze B2 are coming soon.",
-  "settingsBackupFormatHint": "What gets uploaded for each photo.",
   "settingsBackupFormatHeading": "Backup Format",
   "settingsBackupFormatOriginal": "Original",
   "settingsBackupFormatOriginalDescription": "Full quality, exactly as stored on your device. Larger uploads and more storage used.",
@@ -325,7 +264,6 @@
   "settingsAppDataHint": "Albums, people, tags, captions and places — everything except the photos themselves. On in both places by default: a copy is saved once a day when something has changed, and restored automatically if you reinstall the app. Each copy carries an index.csv listing every photo by date, album and person, so it opens without this app. This isn't sync between devices, and your bucket keys are never included.",
   "settingsICloudRow": "iCloud Drive",
   "settingsBucketDataRow": "Your Cloud Bucket",
-  "settingsBucketDataPath": "Saved as app-data/YYYYMMDD.zip in every bucket",
   "privateAlbumBackUpProblems": "{count, plural, one{1 photo wasn't backed up: {reason}} other{{count} photos weren't backed up. First: {reason}}}",
   "@privateAlbumBackUpProblems": {
     "placeholders": {
@@ -346,7 +284,6 @@
       }
     }
   },
-  "flaggedKeep": "Hide from List",
   "flaggedTitle": "Flagged Items",
   "flaggedRescan": "Rescan",
   "flaggedNone": "Nothing flagged",
@@ -424,25 +361,6 @@
   },
   "flaggedHowOptimizeRemote": "Replaces the original in your bucket with a smaller copy, for good. Any copy on this iPhone is kept as it is.",
   "flaggedConfirmOptimizeRemoteBody": "In your bucket, photos become HEIF up to 2560 px and videos 1080p HEVC, replacing the original for good. Any copy on this iPhone isn't touched; a photo only in the bucket has no full-quality copy left.",
-  "flaggedGroupBackup": "Backup",
-  "flaggedBackupQueue": "Backup Queue",
-  "flaggedQueueClear": "Nothing waiting. New photos go up on their own.",
-  "flaggedQueueWaiting": "{count, plural, =0{Nothing waiting to upload.} one{1 item waiting to upload.} other{{count} items waiting to upload.}}",
-  "@flaggedQueueWaiting": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "flaggedQueueFailed": "{count, plural, one{1 couldn't upload} other{{count} couldn't upload}}",
-  "@flaggedQueueFailed": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "flaggedEtaSeconds": "a few seconds",
   "flaggedEtaUnderMinute": "under a minute",
   "flaggedEtaMinutes": "{minutes, plural, one{about 1 min} other{about {minutes} min}}",
@@ -498,22 +416,6 @@
     }
   },
   "flaggedBatchStop": "Stop",
-  "flaggedBatchRenameBody": "Rename {count} objects into the app's layout and import them. Ones that can't be fixed stay listed.",
-  "@flaggedBatchRenameBody": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "flaggedBatchRemoveBody": "Delete {count} orphan thumbnails from the bucket. This can't be undone.",
-  "@flaggedBatchRemoveBody": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "flaggedBatchLeft": "{count} could not be fixed and are still listed.",
   "@flaggedBatchLeft": {
     "placeholders": {
@@ -551,16 +453,6 @@
     }
   },
   "privateAlbumHideDownloadContinue": "Download and Hide",
-  "settingsBucketImportRow": "Scan bucket for new files",
-  "settingsBucketImportHint": "Scan for photos and videos added straight to the bucket",
-  "settingsBucketImportOffer": "{count, plural, =1{1 new file found in the bucket — tap to import} other{{count} new files found in the bucket — tap to import}}",
-  "@settingsBucketImportOffer": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "flaggedUnclaimedReason": "In the bucket, but not in your library",
   "flaggedLeftoverReason": "Probably an old copy of a photo you already have: it has no date of its own, only the day it was uploaded",
   "flaggedIgnore": "Hide from List",
@@ -575,7 +467,6 @@
     }
   },
   "settingsBucketDataNoBucket": "Add a bucket below first",
-  "settingsICloudPath": "Files → iCloud Drive → Photos Vault",
   "settingsICloudNever": "No backup yet",
   "settingsICloudLastBackup": "Last copy {when}",
   "@settingsICloudLastBackup": {
@@ -587,7 +478,6 @@
   },
   "settingsAppDataExportButton": "Export File",
   "settingsAppDataRestoreButton": "Restore from File",
-  "settingsAppDataLocalCopies": "A copy is also kept on this iPhone, in Files → On My iPhone → Photos Vault. The last 7 days are kept, plus a copy taken before any large change. Deleting the app deletes these too.",
   "settingsAppDataExportFailed": "Couldn't save the file. Check that you have free space and try again.",
   "settingsAppDataRestoreUnreadable": "This file isn't a backup that this version of the app can read.",
   "settingsAppDataRestoreConfirmTitle": "Restore this backup?",
@@ -648,7 +538,6 @@
   "settingsRemoveAllAppDataBody": "This removes your photos, albums, people, sync queue, bucket connections and API keys — everything, as if the app were newly installed. A copy is saved first — look for pre-deletion in the file name — on this iPhone and in iCloud Drive and your buckets while they can still be reached. Choose whether hidden photos stored on this iPhone are kept (encrypted, opening again with your passphrase and code) or removed too. Hidden photos already in your buckets are never touched.",
   "settingsRemoveAllAppDataKeepHidden": "Remove All, Keep Hidden Photos",
   "settingsRemoveAllAppDataWithHidden": "Remove All, Including Hidden Photos",
-  "settingsRemoveAllAppDataConfirm": "Remove All Data",
   "settingsRemoveAllAppDataKeptFiles": "Photos the app stores itself, like imports and edits, were kept: the app couldn't confirm which of them exist nowhere else.",
   "settingsRemoveAllAppDataRefused": "Nothing was removed. Some of the photos you chose to keep aren't confirmed in your buckets yet. Let the backup finish, or remove everything including hidden photos.",
   "flaggedGroupReview": "To look at",
@@ -668,45 +557,15 @@
   "settingsICloudDriveOffFix": "Settings → your name → iCloud → Drive → turn on",
   "settingsICloudNotReady": "iCloud isn't ready yet. Try again in a moment.",
   "settingsCloudBucketsHeading": "Cloud Buckets",
-  "settingsCloudHeading": "Cloud",
-  "settingsCloudHint": "Photos are uploaded to storage you own. Your credentials stay on this device and are sent only to the bucket. Sync runs while the app is open, and iOS may run it in the background, usually overnight on power and Wi-Fi.",
   "settingsBucketOrderHeading": "Bucket Order",
   "settingsBucketOrderHint": "Every photo is backed up to every bucket either way. This only changes the order the buckets are filled in.",
-  "settingsBucketOrderOneBucketNote": "This only matters once you have more than one bucket.",
   "settingsBucketOrderFileByFile": "Photo by Photo",
   "settingsBucketOrderFileByFileDescription": "Each photo is uploaded to every bucket before the next photo starts, so all buckets stay equally up to date.",
   "settingsBucketOrderBucketByBucket": "Bucket by Bucket",
   "settingsBucketOrderBucketByBucketDescription": "The whole library is uploaded to one bucket before the next one starts, so you get a complete backup sooner.",
-  "settingsSyncQueueButton": "Queue ({count})",
-  "@settingsSyncQueueButton": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "settingsEmptyTitle": "No Cloud Buckets Yet",
-  "settingsEmptyNote": "Add one to start backing up your photos and videos.",
   "settingsAddButton": "Add Cloud Bucket",
-  "settingsAddedMessage": "Cloud bucket added",
   "settingsDeleteConfirmTitle": "Remove this bucket?",
   "settingsDeleteConfirmBody": "Files already in the bucket won't be deleted. This only removes the bucket from this app.",
-  "settingsCloudBucketsHint": "Photos are uploaded to storage you own. Your credentials stay on this device and are sent only to the bucket.",
-  "settingsCloudBucketsFooter": "{buckets, plural, one{1 bucket} other{{buckets} buckets}} · {backedUp} of {total} photos backed up",
-  "@settingsCloudBucketsFooter": {
-    "placeholders": {
-      "buckets": {
-        "type": "int"
-      },
-      "backedUp": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
-  "settingsBrowseFilesAction": "Browse Files",
   "settingsDeleteConnectionAction": "Remove Bucket",
   "backupQueueHiddenItem": "Hidden photo",
   "collectionsAnalyzeQueueRow": "Analyze Queue",
@@ -723,7 +582,6 @@
   "analyzeQueueRescanConfirmTitle": "Rescan all photos?",
   "analyzeQueueRescanConfirmBody": "All photos will be scanned for faces again, starting with the newest. Names you've assigned are kept. Nothing is sent to any service and nothing is charged.",
   "analyzeQueueRunNowButton": "Analyze Now",
-  "analyzeQueueRunningMessage": "Analyzing…",
   "analyzeQueueEmpty": "Nothing left to analyze. New photos are added to the queue as they arrive.",
   "analyzeQueueSkipped": "Later",
   "analyzeQueueFaceModelOff": "The face model didn't load ({reason}). Faces are still found and kept, but matched less accurately, until an app update loads it.",
@@ -742,15 +600,6 @@
   "analyzeReviewSuggestionTitle": "Suggested",
   "analyzeReviewAccept": "Keep",
   "analyzeReviewDismiss": "Dismiss",
-  "settingsSyncQueueRow": "Sync queue",
-  "settingsSyncQueuePending": "{pending} pending",
-  "@settingsSyncQueuePending": {
-    "placeholders": {
-      "pending": {
-        "type": "int"
-      }
-    }
-  },
   "settingsAccessKeyIdLabel": "Access key ID",
   "settingsLengthHint": "{actual} characters. AWS keys are usually {expected}. Check that it was pasted correctly.",
   "@settingsLengthHint": {
@@ -797,6 +646,7 @@
   "settingsRegionRequiredError": "Choose the region this bucket is in.",
   "settingsBucketAppIdHint": "Including the APPID suffix, e.g. my-photos-1250000000.",
   "settingsRequiredFieldError": "Required",
+  "settingsBucketDotsError": "A bucket with dots in its name can't be reached over HTTPS. Use one without dots.",
   "settingsSaveButton": "Save",
   "settingsValidatingMessage": "Validating bucket access…",
   "settingsAccessCheckForbidden": "Access denied. Check the access key and secret, and that they have permission for this bucket.",
@@ -804,6 +654,7 @@
   "settingsAccessCheckNotFoundRegion": "Bucket not found. Check the bucket name and region.",
   "settingsAccessCheckNetworkError": "Could not reach the bucket. Check your network and try again.",
   "settingsRegionDetectionError": "Couldn't detect this bucket's region automatically. Check the bucket name.",
+  "settingsAddSaveFailed": "Couldn't save this bucket. Try again.",
   "settingsDraftsTitle": "DRAFTS",
   "settingsDraftUntitled": "(no bucket yet)",
   "settingsDraftDeleteTooltip": "Delete draft",
@@ -821,7 +672,6 @@
     }
   },
   "settingsAddAiKeyLink": "Add AI Key",
-  "settingsAiVendorLabel": "Vendor",
   "settingsAiGetKeyLink": "Get one",
   "settingsAiKeyCheckFailed": "Couldn't verify this key: {error}",
   "@settingsAiKeyCheckFailed": {
@@ -842,8 +692,6 @@
   },
   "settingsAiApiKeyLabel": "API key",
   "settingsAiClearButton": "Remove Key",
-  "settingsAiSavedMessage": "API key saved",
-  "settingsAiClearedMessage": "API key removed",
   "settingsAiUsageWarning": "This sends photo data to the AI provider whose key handles the request. API usage is billed to your account with that provider.",
   "bucketBrowserStats": "{folders, plural, =0{} =1{1 folder · } other{{folders} folders · }}{files, plural, =0{no files} =1{1 file} other{{files} files}}{size}",
   "@bucketBrowserStats": {
@@ -868,7 +716,6 @@
       }
     }
   },
-  "bucketBrowserDeleteBody": "This permanently deletes the selected files from the bucket. Photos on this device aren't affected, but anything that existed only in the bucket will be lost.",
   "bucketBrowserDeleteFailed": "{count, plural, one{1 file couldn't be deleted.} other{{count} files couldn't be deleted.}}",
   "@bucketBrowserDeleteFailed": {
     "placeholders": {
@@ -905,7 +752,6 @@
   "privateAlbumFewDecoysTitle": "Few photos to hide among",
   "privateAlbumFewDecoysBody": "Your library has fewer than 100 photos. Hidden photos are disguised as copies of your other photos, so with this few the same decoys repeat and are easy to spot. They're still encrypted with your code, so nobody can open them.",
   "privateAlbumFewDecoysContinue": "Continue",
-  "collectionsImportFilesRow": "Import from Files",
   "collectionsLanguageRow": "Language",
   "languageSystem": "System",
   "@collectionsStorageRow": {
@@ -930,7 +776,6 @@
       }
     }
   },
-  "storageFilterAll": "All",
   "storageIssueOnDevice": "On device",
   "storageIssueLargeFile": "Large file",
   "storageIssueHighResolution": "High resolution",
@@ -973,8 +818,6 @@
   },
   "libraryHideStillInPhotos": "Hidden in this app, but it's still in Photos because you didn't allow it to be removed.",
   "libraryHideFailed": "Couldn't copy the original, so the photo wasn't hidden.",
-  "libraryHideNote": "Hidden photos are removed from Photos and kept only in this app.",
-  "libraryDeleteBackupFailed": "Couldn't delete the backup from your bucket. The photo is still here. Try again when you're back online.",
   "libraryDeleteBackupMissing": "Your bucket hasn't got this photo, so nothing was removed. The app had it marked as backed up — it's back in the sync queue now.",
   "libraryDeleteBackupUnverifiable": "Couldn't reach your bucket to confirm the backup, so nothing was removed. Try again when you're back online.",
   "libraryDeleteBatchCapped": "Photos can only delete {limit} at a time. The rest are still selected. Tap Delete again to continue.",
@@ -1054,7 +897,6 @@
   "vaultAddPassphraseTitle": "Add a passphrase",
   "vaultAddPassphraseBody": "Photos backed up with an older passphrase can be opened once you enter it.",
   "vaultPassphraseWrong": "No photos here open with that passphrase.",
-  "vaultPassphrasesHeading": "PASSPHRASES",
   "vaultPassphraseInUse": "In use",
   "vaultPassphraseAdded": "Added",
   "vaultPassphraseHint": "Hint: {hint}",
@@ -1070,17 +912,7 @@
   "vaultLockedItem": "Locked",
   "vaultNeedsNetwork": "Hidden photos are stored in your bucket. This album needs an internet connection.",
   "vaultCarrierMissing": "This photo is no longer in your bucket. It was probably deleted from the bucket outside the app, and no copy is left on this phone.",
-  "vaultNoBucket": "Without a bucket, hidden photos stay on this phone unencrypted.",
-  "vaultHeldUpload": "{count} will upload once this album is opened",
-  "@vaultHeldUpload": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "peopleScreenTitle": "People",
-  "peopleNamePromptTitle": "New Person",
   "peopleUnnamedFace": "Who's this?",
   "faceGroupTitle": "Who is this?",
   "faceGroupNamePlaceholder": "Enter a name, or search people you've already named",
@@ -1095,7 +927,6 @@
     }
   },
   "personPageFindMore": "Find More Photos",
-  "faceGroupNoneForPerson": "No other matching faces found yet.",
   "faceGroupMoreTitle": "More photos of {name}",
   "@faceGroupMoreTitle": {
     "placeholders": {
@@ -1115,9 +946,7 @@
     }
   },
   "faceGroupNone": "No other matching photos found yet.",
-  "faceGroupNotScanned": "This face hasn't been analyzed yet. Use Analyze Now in the Analyze Queue.",
   "faceGroupHint": "Nothing is saved until you enter a name. Tap any photo that isn't this person to remove it.",
-  "faceGroupNeedsName": "Enter a name for this person first.",
   "peopleSuggestedFace": "{name}?",
   "@peopleSuggestedFace": {
     "placeholders": {
@@ -1126,7 +955,6 @@
       }
     }
   },
-  "peopleSuggestedBadge": "Suggested",
   "peopleSuggestionAccepted": "Added to {name}",
   "@peopleSuggestionAccepted": {
     "placeholders": {
@@ -1159,7 +987,6 @@
   "genderFemale": "Female",
   "personProfileEducationLabel": "Education",
   "personProfileJobLabel": "Job",
-  "personProfileBioLabel": "About",
   "personProfileBioEmpty": "No bio yet.",
   "personProfileAvatarPickerTitle": "Profile Picture",
   "personProfileAvatarPickerEmpty": "Tag this person in a photo first, then choose a profile picture here.",
@@ -1206,7 +1033,6 @@
   "eventsNotSet": "Not set",
   "eventsTypeLabel": "Type",
   "eventsDateLabel": "Date",
-  "eventsTagsLabel": "Tags",
   "eventsTagsPlaceholder": "Comma separated",
   "eventsNotesLabel": "Notes",
   "eventsDeleteConfirmTitle": "Remove this event?",
@@ -1277,7 +1103,6 @@
   "groupKindCircle": "Circle",
   "peopleSectionNamed": "PEOPLE",
   "peopleSectionGroups": "GROUPS",
-  "peopleSectionUnnamed": "FACES TO NAME",
   "peopleFilterAll": "All",
   "peopleFilterMale": "Male",
   "peopleFilterFemale": "Female",
@@ -1300,6 +1125,7 @@
   "askAiSendButton": "Ask",
   "askAiThinking": "Asking…",
   "askAiNoKey": "Add an AI key in More → AI Settings first.",
+  "errorOffline": "Couldn't connect. Check your network and try again.",
   "askAiSendsNote": "Your question and the details below are sent to your AI provider.",
   "askAiContextHeading": "SENT AS CONTEXT",
   "askAiAnswerHeading": "ANSWER",
@@ -1308,7 +1134,6 @@
   "autofillPickButton": "Choose a file",
   "autofillReading": "Reading…",
   "autofillAsking": "Asking AI…",
-  "autofillUnreadable": "That file isn't plain text. A .txt or .md file works; PDF and Word aren't read.",
   "autofillUnsupportedFormat": "That format can't be read. Plain text, Markdown, Word (.docx) and PDF work — older .doc files don't.",
   "autofillScannedPdf": "That PDF has no text in it, so it's a scan or a photo of a page. A text PDF or a .txt file works.",
   "autofillEmptyFile": "That file is empty.",
@@ -1319,14 +1144,6 @@
   "autofillRejectAll": "Reject all",
   "autofillApply": "{count, plural, =0{Nothing selected} one{Add 1 item} other{Add {count} items}}",
   "@autofillApply": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "autofillApplied": "{count, plural, one{Added 1 item.} other{Added {count} items.}}",
-  "@autofillApplied": {
     "placeholders": {
       "count": {
         "type": "int"
@@ -1425,20 +1242,10 @@
   "actionLess": "Less",
   "libraryLock": "Lock",
   "libraryUnlock": "Unlock",
-  "lockLockedBadge": "Locked",
   "lockBlockedDelete": "This photo is locked. Unlock it to delete it.",
   "lockBlockedEdit": "This photo is locked. Unlock it to edit it.",
-  "lockRestoringOriginal": "Putting the original back…",
   "lockRestoreFailed": "The full-quality copy is in your bucket and couldn't be fetched, so this photo isn't locked. Try again when you're back online.",
   "lockNoOriginal": "There's no full-quality copy left to keep — this one was shrunk and nothing has a backup of the original.",
-  "storageResultLocked": "{count, plural, one{1 is locked and was left alone.} other{{count} are locked and were left alone.}}",
-  "@storageResultLocked": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "safetyTitle": "Where Your Photos Are",
   "safetyCopiesHeading": "Copies",
   "safetyCopiesHint": "Every photo this app knows about lives in one or more of these. The bucket is the copy that outlives this phone — and the only one this app has no permission to delete from.",
@@ -1872,79 +1679,12 @@
   },
   "demoModeEnterRow": "Demo Mode",
   "demoModeExitRow": "Exit Demo Mode",
-  "demoModeExitBody": "Back to your own library. The demo library stays as it is for next time.",
-  "demoModeEnterAction": "Open Demo",
-  "demoModeExitAction": "Exit Demo",
   "settingsDemoResetRow": "Reset Demo Data",
   "settingsDemoResetTitle": "Reset demo data?",
   "settingsDemoResetBody": "The demo library goes back to its sample photos, albums, people and notes. Your own library isn't touched.",
   "settingsDemoResetConfirm": "Reset",
-  "cloudStatusAllDone": "All backed up",
-  "cloudStatusNone": "Not backed up yet",
-  "cloudStatusSyncing": "Backing up… {count} left",
-  "@cloudStatusSyncing": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "cloudStatusPaused": "Paused · {count} waiting",
-  "@cloudStatusPaused": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "cloudStatusFailed": "{count, plural, one{1 upload failed} other{{count} uploads failed}}",
-  "@cloudStatusFailed": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "cloudStatusWaiting": "{count, plural, one{1 upload waiting} other{{count} uploads waiting}}",
-  "@cloudStatusWaiting": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "cloudStatusStuck": "{count, plural, one{1 photo not backed up yet} other{{count} photos not backed up yet}}",
-  "@cloudStatusStuck": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "cloudStatusLost": "{count, plural, one{1 photo is missing from the bucket} other{{count} photos are missing from the bucket}}",
   "@cloudStatusLost": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "cloudStatusProgress": "{backedUp} backed up · {left} to go · {buckets, plural, one{1 bucket} other{{buckets} buckets}}",
-  "@cloudStatusProgress": {
-    "placeholders": {
-      "backedUp": {
-        "type": "int"
-      },
-      "left": {
-        "type": "int"
-      },
-      "buckets": {
-        "type": "int"
-      }
-    }
-  },
-  "cloudQueueLink": "Queue · {count}",
-  "@cloudQueueLink": {
     "placeholders": {
       "count": {
         "type": "int"
@@ -1979,8 +1719,6 @@
   "flaggedProblemLeftover": "Likely old copy",
   "flaggedRunDone": "Done",
   "flaggedRunHint": "Keeps going while you use the rest of the app. Large videos can take minutes each. When everything is done, iOS asks once to delete the originals.",
-  "flaggedWaiting": "Waiting",
-  "flaggedRetry": "Retry",
   "flaggedUnverified": "Your bucket couldn't confirm it has the full-quality copy, so this was left alone.",
   "flaggedConfirmTitle": "{action}: {count, plural, one{1 item} other{{count} items}}?",
   "@flaggedConfirmTitle": {

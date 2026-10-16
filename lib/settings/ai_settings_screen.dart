@@ -3,6 +3,7 @@ import 'package:http/http.dart' as http;
 import 'package:url_launcher/url_launcher.dart';
 
 import '../l10n/app_localizations.dart';
+import '../l10n/failure_text.dart';
 import '../photos/ai_chat.dart';
 import '../photos/ai_vendor.dart';
 import 'ai_settings_store.dart';
@@ -315,7 +316,7 @@ class _AddAiKeySheetState extends State<_AddAiKeySheet> {
       if (mounted) {
         setState(() {
           _checking = false;
-          _error = '$e';
+          _error = failureText(AppLocalizations.of(context)!, e);
         });
       }
     }

@@ -5,6 +5,7 @@ import 'package:url_launcher/url_launcher.dart';
 
 import '../demo/demo_bucket.dart';
 import '../l10n/app_localizations.dart';
+import '../l10n/failure_text.dart';
 import '../upload/signing.dart' as signing;
 import 's3_backup_target.dart';
 
@@ -49,7 +50,8 @@ class BucketObjectPreviewScreen extends StatefulWidget {
 class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
   Uri? _url;
   Uint8List? _demoBytes;
-  String? _error;
+  Object? _error;
+  ImageProvider? _image;
 
   @override
   void initState() {
@@ -76,8 +78,26 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
       setState(() => _url = url);
     } catch (e) {
       if (!mounted) return;
-      setState(() => _error = e.toString());
+      setState(() => _error = e);
     }
+  }
+
+  /// Decoded at twice the screen width at most: a 48 MP original at full
+  /// size is ~190 MB of pixels, and stays in the image cache after.
+  ImageProvider _imageFor(BuildContext context, Uri url) =>
+      _image ??= ResizeImage(
+        NetworkImage(url.toString()),
+        width:
+            (MediaQuery.sizeOf(context).width *
+                    MediaQuery.devicePixelRatioOf(context) *
+                    2)
+                .round(),
+      );
+
+  @override
+  void dispose() {
+    _image?.evict();
+    super.dispose();
   }
 
   bool get _isImage {
@@ -103,7 +123,7 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
       child: Center(
         child: _error != null
             ? Text(
-                _error!,
+                failureText(l10n, _error!),
                 style: const TextStyle(color: CupertinoColors.white),
               )
             : demo != null
@@ -112,8 +132,8 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
             ? const CupertinoActivityIndicator()
             : _isImage
             ? InteractiveViewer(
-                child: Image.network(
-                  url.toString(),
+                child: Image(
+                  image: _imageFor(context, url),
                   errorBuilder: (context, error, stackTrace) =>
                       _openExternally(l10n, url),
                   loadingBuilder: (context, child, progress) => progress == null

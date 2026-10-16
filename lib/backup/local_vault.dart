@@ -266,9 +266,11 @@ class LocalVault {
     bool Function(String name) mine,
   ) async {
     try {
-      if (!directory.existsSync()) return;
+      if (!await directory.exists()) return;
       final byStamp = <String, List<File>>{};
-      for (final file in directory.listSync().whereType<File>()) {
+      await for (final entity in directory.list()) {
+        if (entity is! File) continue;
+        final file = entity;
         final name = p.basename(file.path);
         if (!mine(name)) continue;
         final stamp = _stampIn.firstMatch(name)?.group(0);
@@ -297,11 +299,11 @@ class LocalVault {
     DateTime cutoff,
   ) async {
     try {
-      if (!directory.existsSync()) return;
-      for (final entity in directory.listSync()) {
+      if (!await directory.exists()) return;
+      for (final entity in await directory.list().toList()) {
         if (entity is! File) continue;
         if (!mine(p.basename(entity.path))) continue;
-        if (entity.statSync().modified.isAfter(cutoff)) continue;
+        if ((await entity.stat()).modified.isAfter(cutoff)) continue;
         await entity.delete();
       }
     } catch (_) {
@@ -315,19 +317,16 @@ class LocalVault {
   Future<List<File>> localCopies() async {
     try {
       final directory = await _documentsDirectory();
-      if (!directory.existsSync()) return const [];
-      final files =
-          directory
-              .listSync()
-              .whereType<File>()
-              .where(
-                (file) => p.basename(file.path).startsWith('photos-vault-'),
-              )
-              .toList()
-            ..sort(
-              (a, b) => b.statSync().modified.compareTo(a.statSync().modified),
-            );
-      return files;
+      if (!await directory.exists()) return const [];
+      // Files-visible, so anything may be in here: one stat per file.
+      final modified = <File, DateTime>{};
+      await for (final entity in directory.list()) {
+        if (entity is! File) continue;
+        if (!p.basename(entity.path).startsWith('photos-vault-')) continue;
+        modified[entity] = (await entity.stat()).modified;
+      }
+      return modified.keys.toList()
+        ..sort((a, b) => modified[b]!.compareTo(modified[a]!));
     } catch (_) {
       return const [];
     }

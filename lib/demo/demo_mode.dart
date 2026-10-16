@@ -34,7 +34,10 @@ class DemoMode {
   static String? _realDatabases;
 
   /// Before `runApp`. Installs the redirects and restores the last choice.
-  static Future<void> init() async {
+  /// With [seedLater], a seed still owed (a kill mid-seed) runs after the
+  /// first frame and rebuilds the library when done, instead of holding
+  /// the launch.
+  static Future<void> init({bool seedLater = false}) async {
     final current = PathProviderPlatform.instance;
     if (current is! _DemoPaths) {
       _realPaths = current;
@@ -47,12 +50,28 @@ class DemoMode {
     }
     final on = await (await _markerFile())?.exists() == true;
     await _apply(on);
-    if (on) await DemoSeed().ensure();
+    if (on && !seedLater) await DemoSeed().ensure();
     shown.value = on;
+    if (on && seedLater) {
+      _seeding = DemoSeed().ensure().then((seeded) {
+        if (seeded) resets.value++;
+      }, onError: (_) {});
+    }
+  }
+
+  /// A late seed in flight. Switching or wiping waits for it, so its writes
+  /// never land in the other library.
+  static Future<void>? _seeding;
+
+  static Future<void> _settled() async {
+    final seeding = _seeding;
+    _seeding = null;
+    await seeding;
   }
 
   /// Switches the whole app; seeds the demo library on the way in.
   static Future<void> setActive(bool on) async {
+    await _settled();
     final marker = await _markerFile();
     if (marker != null) {
       if (on) {
@@ -69,6 +88,7 @@ class DemoMode {
   /// Wipes the demo store — databases, files, `demo.` keychain keys — and
   /// seeds it again if it's showing. The real store is never touched.
   static Future<void> reset() async {
+    await _settled();
     final databases = _realDatabases;
     if (databases != null) {
       final dir = Directory(p.join(databases, namespace));

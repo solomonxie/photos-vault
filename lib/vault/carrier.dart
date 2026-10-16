@@ -422,6 +422,8 @@ OpenedCarrier? openCarrier({
   final head = Uint8List.sublistView(payload, 0, header.length);
   final fullMacAt = header.length + _macBytes + header.thumbLength;
   final fullAt = fullMacAt + _macBytes;
+  // A u64 past 2^63 reads negative.
+  if (header.originalLength < 0) return null;
   if (payload.length < fullAt + header.originalLength) return null;
   final encFull = Uint8List.sublistView(
     payload,

@@ -18,7 +18,7 @@ Future<void> main() async {
   if (kProfileMode) _reportJank();
   await AppStoreRegion.load();
   try {
-    await DemoMode.init();
+    await DemoMode.init(seedLater: true);
   } catch (_) {
     // Demo plumbing must never be why the real app doesn't open.
   }
@@ -87,7 +87,9 @@ void _reportJank() {
   });
 }
 
+/// Debug builds only, so release never pays the sync reads.
 (String, String)? screenshotRequest() {
+  if (!kDebugMode) return null;
   final file = File('/tmp/pv-screenshot');
   if (!file.existsSync()) return null;
   final parts = file.readAsStringSync().trim().split(' ');

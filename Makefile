@@ -65,11 +65,13 @@ run: install-ios ## Same as install-ios
 
 archive: ## Archive a Release build without uploading it (never forced to China)
 	@echo "APP_STORE_REGION = us" > ios/Flutter/Store.xcconfig
-	$(FLUTTER) build ipa --release --build-number=$$(date +%Y%m%d%H%M) \
-	  --obfuscate --split-debug-info=build/symbols/$$(date +%Y%m%d%H%M)
+	BUILD=$$(date +%Y%m%d%H%M); \
+	  $(FLUTTER) build ipa --release --build-number=$$BUILD \
+	  --obfuscate --split-debug-info=build/symbols/$$BUILD
 	./scripts/check-no-demo-secrets.sh $(APP)
 
 upload: ## Upload the archive that already exists, without rebuilding
+	./scripts/check-no-demo-secrets.sh $(APP)
 	xcodebuild -exportArchive \
 	  -archivePath build/ios/archive/Runner.xcarchive \
 	  -exportOptionsPlist ios/ExportOptions.plist \

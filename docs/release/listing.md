@@ -131,14 +131,18 @@ Fill the pages in [App Store Connect pages](#app-store-connect-pages). Screensho
 make release
 ```
 
-Formats, analyses, runs the suite, then archives and uploads. One command: archives Release (obfuscated, split debug info), signs for App
-Store, and uploads — `ios/ExportOptions.plist` carries `destination=upload`,
-so the export step is the upload. Verified end to end except the upload
-itself, which needs the app to exist in App Store Connect first (step 5).
+Formats, analyses, runs the suite, then archives Release (obfuscated, split
+debug info) and exports it locally. The demo-secret scan and the 33 MB size
+check run on that local archive; only then does `xcodebuild -exportArchive`
+with `ios/ExportOptions.plist` (`destination=upload`) upload it. Verified
+end to end except the upload itself, which needs the app to exist in App
+Store Connect first (step 5).
 Processing takes 15–60 min, then an email: "build has completed processing".
 
-Keep `build/symbols/<build-number>/` — an obfuscated build's crash reports are
-unreadable without it.
+Symbols are copied to
+`~/Library/Developer/Xcode/Archives/photos-vault-symbols/<build-number>/`,
+outside `build/` — an obfuscated build's crash reports are unreadable
+without them.
 
 If only the upload failed, retry without rebuilding:
 

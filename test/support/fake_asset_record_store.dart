@@ -40,7 +40,17 @@ class FakeAssetRecordStore implements AssetRecordStore {
   );
 
   @override
-  Future<List<Map<String, Object?>>> uploadRows() async => const [];
+  Future<List<Map<String, Object?>>> uploadRows() async => [
+    for (final MapEntry(:key, :value) in uploads.entries)
+      for (final e in value.entries)
+        {
+          'local_id': key.substring(0, key.lastIndexOf('/')),
+          'kind': key.substring(key.lastIndexOf('/') + 1),
+          'target_id': e.key,
+          'destination_key': e.value.key,
+          'source_hash': e.value.hash,
+        },
+  ];
 
   @override
   Future<Map<String, Map<DerivativeKind, Map<String, String>>>>
@@ -61,7 +71,9 @@ class FakeAssetRecordStore implements AssetRecordStore {
     String localId,
     DerivativeKind kind,
     String targetId,
-  ) async {}
+  ) async {
+    uploads['$localId/${kind.name}']?.remove(targetId);
+  }
 
   @override
   Future<AssetRecord> upsert({
@@ -733,6 +745,12 @@ class FakeAssetRecordStore implements AssetRecordStore {
 
   /// As the real store's `bucket_edit`: null is a key gone.
   final bucketEdits = <String, Map<String, BucketObject?>>{};
+
+  @override
+  Future<void> forgetBucketListing(String targetId) async {
+    bucketObjects.remove(targetId);
+    bucketEdits.remove(targetId);
+  }
 
   @override
   Future<bool> isListed(String targetId, String key) async =>

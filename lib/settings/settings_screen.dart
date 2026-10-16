@@ -276,6 +276,12 @@ class _SettingsScreenState extends State<SettingsScreen>
   /// dialog here would be asking twice.
   Future<void> _delete(S3BackupTarget target) async {
     await _store.remove(target.id);
+    try {
+      // A stale listing would be trusted again if the bucket is re-added.
+      await _assetRecordStore.forgetBucketListing(target.id);
+    } catch (_) {
+      // The next full listing replaces it anyway.
+    }
     await _reload();
   }
 

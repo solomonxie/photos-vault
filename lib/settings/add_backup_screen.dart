@@ -359,6 +359,9 @@ class _AddBackupScreenState extends State<AddBackupScreen> {
       if (secretAccessKey.isEmpty)
         secretAccessKeyFieldKey: l10n.settingsRequiredFieldError,
       if (bucket.isEmpty) bucketFieldKey: l10n.settingsRequiredFieldError,
+      // The bucket is in the hostname, and *.s3… certificates cover one
+      // label only.
+      if (bucket.contains('.')) bucketFieldKey: l10n.settingsBucketDotsError,
       // Its own field says it, rather than a line at the foot of the form.
       if (!_meta.detectsRegion && pickedRegion.isEmpty)
         regionFieldKey: l10n.settingsRegionRequiredError,
@@ -414,15 +417,31 @@ class _AddBackupScreenState extends State<AddBackupScreen> {
       return;
     }
 
-    await widget.store.add(
-      accessKeyId: accessKeyId,
-      secretAccessKey: secretAccessKey,
-      region: region,
-      bucket: bucket,
-      prefix: prefix,
-      provider: _provider,
-    );
-    await _draftsStore.removeMatching(accessKeyId: accessKeyId, bucket: bucket);
+    try {
+      await widget.store.add(
+        accessKeyId: accessKeyId,
+        secretAccessKey: secretAccessKey,
+        region: region,
+        bucket: bucket,
+        prefix: prefix,
+        provider: _provider,
+      );
+    } catch (_) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = l10n.settingsAddSaveFailed;
+      });
+      return;
+    }
+    try {
+      await _draftsStore.removeMatching(
+        accessKeyId: accessKeyId,
+        bucket: bucket,
+      );
+    } catch (_) {
+      // Saved; a leftover draft is only a quick-fill entry.
+    }
 
     if (!mounted) return;
     Navigator.of(context).pop(true);

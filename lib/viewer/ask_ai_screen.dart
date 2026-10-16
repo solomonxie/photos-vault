@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import '../l10n/failure_text.dart';
 import '../photos/ai_ask_service.dart';
 import '../settings/settings_section.dart';
 
@@ -59,7 +60,11 @@ class _AskAiScreenState extends State<AskAiScreen> {
       );
       if (mounted) setState(() => _answer = answer);
     } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+      if (mounted) {
+        setState(
+          () => _error = failureText(AppLocalizations.of(context)!, error),
+        );
+      }
     } finally {
       if (mounted) setState(() => _asking = false);
     }

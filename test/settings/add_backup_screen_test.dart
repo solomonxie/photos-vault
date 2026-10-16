@@ -62,6 +62,7 @@ Future<void> _pasteBlock(WidgetTester tester, String text) async {
 }
 
 void main() {
+  _saveGuardTests();
   _pasteToFillTests();
   _prefixTests();
   _providerTests();
@@ -674,5 +675,61 @@ SecretKey: shh
       expect(find.text('AKIDexample'), findsOneWidget);
       expect(find.text('ap-shanghai'), findsOneWidget);
     });
+  });
+}
+
+class _BrokenKeychain extends FakeSecureStore {
+  @override
+  Future<void> write(String key, String value) async =>
+      throw StateError('keychain');
+}
+
+void _saveGuardTests() {
+  testWidgets('a bucket name with dots is refused before any request', (
+    tester,
+  ) async {
+    var asked = false;
+    await tester.pumpWidget(
+      _wrap(
+        AddBackupScreen(
+          store: BackupTargetsStore(store: FakeSecureStore()),
+          checkAccess: _okAccess,
+          detectRegion: (bucket) async {
+            asked = true;
+            return _okRegion(bucket);
+          },
+          draftsStore: _fakeDraftsStore(),
+        ),
+      ),
+    );
+    await _fillForm(tester);
+    await tester.enterText(find.byKey(bucketFieldKey), 'photos.example.com');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('dots in its name'), findsOneWidget);
+    expect(asked, isFalse);
+  });
+
+  testWidgets('a keychain that will not save leaves the form usable', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      _wrap(
+        AddBackupScreen(
+          store: BackupTargetsStore(store: _BrokenKeychain()),
+          checkAccess: _okAccess,
+          detectRegion: _okRegion,
+          draftsStore: _fakeDraftsStore(),
+        ),
+      ),
+    );
+    await _fillForm(tester);
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(tester.takeException(), isNull);
+    expect(find.text("Couldn't save this bucket. Try again."), findsOneWidget);
+    expect(find.byType(CupertinoActivityIndicator), findsNothing);
   });
 }

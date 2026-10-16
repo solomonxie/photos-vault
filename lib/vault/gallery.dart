@@ -178,9 +178,15 @@ class VaultGallery {
   static Future<OpenedCarrier?> _offload(OpenedCarrier? Function() work) async {
     try {
       return await Isolate.run(work);
-    } on ArgumentError {
-      // A cipher that can't cross isolates (a test double): open it here.
-      return work();
+    } on ArgumentError catch (e) {
+      // Only a cipher that can't cross isolates (a test double) opens here;
+      // a RangeError or bad key from the work itself is just a failure.
+      if (e is RangeError || !'$e'.contains('isolate message')) return null;
+      try {
+        return work();
+      } catch (_) {
+        return null;
+      }
     } catch (_) {
       return null;
     }

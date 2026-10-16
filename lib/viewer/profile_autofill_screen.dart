@@ -2,6 +2,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import '../l10n/failure_text.dart';
 import '../photos/ai_ask_service.dart';
 import '../photos/document_text.dart';
 import '../photos/person.dart';
@@ -119,7 +120,7 @@ class _ProfileAutofillScreenState extends State<ProfileAutofillScreen> {
       if (mounted) {
         setState(() {
           _stage = AutofillStage.idle;
-          _error = '$error';
+          _error = failureText(AppLocalizations.of(context)!, error);
         });
       }
     }

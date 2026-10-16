@@ -1035,6 +1035,23 @@ class AssetRecordStore {
     await batch.commit(noResult: true);
   }
 
+  /// A removed bucket's listing, staged scan and edits. Its upload rows
+  /// stay: they are what a re-added bucket (same derived id) and the
+  /// delete guard read.
+  Future<void> forgetBucketListing(String targetId) async {
+    final db = await _open();
+    await db.transaction((txn) async {
+      for (final table in [
+        _bucketObjectTable,
+        _bucketEditTable,
+        _bucketScanObjectTable,
+        _bucketScanTable,
+      ]) {
+        await txn.delete(table, where: 'target_id = ?', whereArgs: [targetId]);
+      }
+    });
+  }
+
   /// Buckets with a listing on file.
   Future<Set<String>> bucketTargetIds() async {
     final db = await _open();

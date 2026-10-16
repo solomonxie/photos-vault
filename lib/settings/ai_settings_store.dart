@@ -79,20 +79,22 @@ class AiSettingsStore {
   Future<List<AiKeyMeta>> listKeys() async {
     final raw = await _store.read(_keysKey);
     if (raw != null) {
-      final list = jsonDecode(raw) as List<dynamic>;
       // A vendor a later build dropped is skipped, not a crash; the next
-      // write forgets it.
+      // write forgets it. An unreadable list reads as none rather than
+      // breaking every AI screen.
       final known = {for (final v in AiVendor.values) v.name};
-      return [
-        for (final e in list.cast<Map<String, dynamic>>())
-          if (known.contains(e['vendor'])) AiKeyMeta.fromJson(e),
-      ];
+      try {
+        return [
+          for (final e in (jsonDecode(raw) as List).cast<Map>())
+            if (known.contains(e['vendor']))
+              AiKeyMeta.fromJson(e.cast<String, Object?>()),
+        ];
+      } catch (_) {
+        return const [];
+      }
     }
     final legacy = await _store.read(_legacyOpenAiKey);
-    if (legacy == null || legacy.isEmpty) {
-      await _writeKeys(const []);
-      return const [];
-    }
+    if (legacy == null || legacy.isEmpty) return const [];
     final migrated = [
       AiKeyMeta(id: _uuid.v4(), vendor: AiVendor.openai, secret: legacy),
     ];
@@ -152,12 +154,19 @@ class AiSettingsStore {
   });
 
   /// Swaps a key with its neighbor — the reordering UI is a pair of ↑/↓
-  /// buttons per row rather than a drag gesture.
+  /// buttons per row rather than a drag gesture. The neighbor is the next
+  /// key on screen: one this storefront hides is stepped over.
   Future<void> moveKey(String id, int direction) => _serial(() async {
     final keys = await listKeys();
     final idx = keys.indexWhere((k) => k.id == id);
-    final swapWith = idx + direction;
-    if (idx < 0 || swapWith < 0 || swapWith >= keys.length) return;
+    if (idx < 0 || direction == 0) return;
+    var swapWith = idx + direction.sign;
+    while (swapWith >= 0 &&
+        swapWith < keys.length &&
+        !aiVendorAllowed(keys[swapWith].vendor, region)) {
+      swapWith += direction.sign;
+    }
+    if (swapWith < 0 || swapWith >= keys.length) return;
     final next = [...keys];
     final tmp = next[idx];
     next[idx] = next[swapWith];

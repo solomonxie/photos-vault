@@ -16,10 +16,8 @@
   "libraryFavorite": "收藏",
   "libraryUnfavorite": "取消收藏",
   "libraryHide": "隐藏",
-  "libraryUnhide": "取消隐藏",
   "libraryRecover": "恢复",
   "libraryFavoritesEmpty": "暂无收藏。",
-  "libraryHiddenEmpty": "暂无隐藏项目。",
   "libraryRecentlyDeletedEmpty": "最近删除为空。",
   "libraryDeletePermanentlyTitle": "永久删除?",
   "libraryDeletePermanentlyBody": "此操作无法撤销。",
@@ -59,7 +57,6 @@
   "detailShareOriginalOption": "分享原图",
   "detailExportAsOption": "导出为…",
   "detailExportFailed": "导出失败。",
-  "detailEditNotInLibrary": "该项目不在您的“照片”图库中,无法在那里编辑。",
   "detailEditCropOption": "裁剪",
   "detailEditRotateOption": "旋转",
   "detailEditVideoUnsupported": "仅照片可编辑。",
@@ -92,7 +89,6 @@
   "detailTagsHeader": "标签",
   "detailPeopleHeader": "人物",
   "detailPeopleTagPickerTitle": "标记人物",
-  "collectionsCollections": "合集",
   "albumsVideosName": "视频",
   "albumsNewTitle": "新建相册",
   "albumsNewNamePlaceholder": "相册名称",
@@ -114,14 +110,6 @@
   "collectionsShowAll": "全部显示（{count}）",
   "collectionsShowLess": "收起",
   "collectionsPlacesEmpty": "给照片设置地点后会显示在这里。",
-  "collectionsGroupPhotoCount": "{count, plural, one{1 张照片} other{{count} 张照片}}",
-  "@collectionsGroupPhotoCount": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "selectionTitle": "已选 {count} 项",
   "selectionAddTag": "添加标签",
   "selectionSetPlace": "设置地点",
@@ -135,7 +123,6 @@
   "selectionDone": "完成",
   "selectionSelectAll": "全选",
   "selectionDeselectAll": "取消全选",
-  "selectionSelectBatch": "选择 {count} 张",
   "selectionHint": "长按照片可继续多选。",
   "@selectionTitle": {
     "placeholders": {
@@ -151,39 +138,22 @@
   "collectionsSafetyRow": "你的照片在哪里",
   "collectionsCloudSettingsRow": "云设置",
   "collectionsAiSettingsRow": "AI 设置",
-  "collectionsImportPhotosRow": "导入照片",
   "privacyHeading": "你的副本，你的隐私",
   "privacyTitle": "你的照片始终属于你。",
   "privacyBody": "你的照片以普通文件的形式存入你自己的存储桶，旁边还有一份 index.csv，按日期、相册、人物、描述和地点列出每一张照片——只用一个表格应用就能重新找到任意一张。不需要账号，不需要导出工具，也不需要我们。本应用只在执行你要求的操作时才会从存储桶删除内容：删除照片、隐藏或取消隐藏照片（新副本进入每个存储桶后才删除旧副本），或你确认的修复。\n\n任何内容都不会发送给开发者。没有服务器，也没有账号：你的图库、记录与人脸数据都保存在这台 iPhone 的数据库中，分组、搜索与人脸识别等处理全部在本机完成。照片只会去你指定的地方：你自己的存储桶、你自己的 iCloud、你自己的 AI 密钥。密钥保存在钥匙串中，从不进入本应用自己的备份；与所有钥匙串项目一样，它们会包含在加密的 iPhone 备份里。",
-  "backupQueueTitle": "同步队列",
   "backupQueueClearButton": "清空队列",
-  "backupQueueRetryFailedButton": "重试失败项",
-  "backupQueueHeader": "队列({count})",
-  "backupQueueFullNote": "已满",
   "backupQueueWaiting": "等待中",
   "backupQueueSpeed": "同时 {count} 个",
   "backupQueuePauseAction": "暂停",
-  "backupQueueResumeAction": "继续",
   "backupQueueSlowerShort": "慢一点",
   "backupQueueFasterShort": "快一点",
-  "backupQueueSlower": "更慢(减少一个并发)",
-  "backupQueueFaster": "更快(增加一个并发)",
-  "backupQueueCheckingMessage": "{count, plural, other{正在检查 {count} 张照片是否有更改…}}",
-  "settingsCloudSyncHeading": "云同步",
-  "settingsSyncScheduleRow": "计划",
-  "settingsBackupFormatRow": "格式",
-  "settingsSyncSpeedRow": "上传速度",
-  "settingsSyncFrequencyHeading": "同步频率",
-  "settingsSyncFrequencyHint": "应用打开时会同步；iOS 也可能在后台运行一次，通常是夜间充电并连接 Wi-Fi 时。何时运行由系统决定，不保证。",
   "settingsSyncFrequencyManual": "仅手动",
   "settingsSyncFrequencyEvery15Minutes": "每 15 分钟",
   "settingsSyncFrequencyEveryHour": "每小时",
   "settingsSyncFrequencyEvery6Hours": "每 6 小时",
   "settingsSyncFrequencyDaily": "每天",
-  "settingsSyncNowMessage": "{count, plural, =0{没有需要同步的内容} other{已备份 {count} 张照片}}",
   "settingsCloudVendorLabel": "云服务商",
   "settingsCloudVendorHint": "存储桶所在的云——Amazon S3、腾讯云 COS、阿里云 OSS。Google Cloud Storage、Azure Blob 与 Backblaze B2 即将支持。",
-  "settingsBackupFormatHint": "每张照片实际上传的内容。",
   "settingsBackupFormatHeading": "备份格式",
   "settingsBackupFormatOriginal": "原始文件",
   "settingsBackupFormatOriginalDescription": "完整画质,与设备上的文件完全一致——上传体积更大,占用存储也更多。",
@@ -195,7 +165,6 @@
   "settingsAppDataHint": "相册、人物、标签、描述和地点——除照片本身以外的一切。两处默认均已开启：有变动时每天保存一份副本，重装应用后自动恢复。每份副本都带有一份 index.csv，按日期、相册和人物列出每张照片，因此不用本应用也能打开。这不是设备间同步，你的存储桶密钥也从不包含在内。",
   "settingsICloudRow": "iCloud 云盘",
   "settingsBucketDataRow": "你的云存储桶",
-  "settingsBucketDataPath": "每个存储桶中的 app-data/YYYYMMDD.zip",
   "privateAlbumBackUpProblems": "{count} 张照片未备份：{reason}",
   "privateAlbumFindInBucket": "在存储桶中查找隐藏照片",
   "privateAlbumFindInBucketDone": "{count, plural, =0{没有发现新内容} other{已添加 {count} 张照片}}",
@@ -206,7 +175,6 @@
       }
     }
   },
-  "flaggedKeep": "不再显示",
   "flaggedTitle": "待处理项目",
   "flaggedRescan": "重新扫描",
   "flaggedNone": "没有待处理项目",
@@ -242,11 +210,6 @@
   "flaggedDuplicateOf": "与 {name} 完全相同，保留该文件。",
   "flaggedHowOptimizeRemote": "将存储桶中的原件永久替换为较小的副本。本 iPhone 上若有副本则保持不变。",
   "flaggedConfirmOptimizeRemoteBody": "在存储桶中，照片转为最长边 2560 像素的 HEIF，视频转为 1080p HEVC，并永久替换原件。本 iPhone 上的副本不受影响；只在存储桶中的照片将不再有完整画质的副本。",
-  "flaggedGroupBackup": "备份",
-  "flaggedBackupQueue": "备份队列",
-  "flaggedQueueClear": "没有待上传的项目。新照片会自动上传。",
-  "flaggedQueueWaiting": "{count} 项等待上传。",
-  "flaggedQueueFailed": "{count} 项上传失败",
   "flaggedEtaSeconds": "几秒",
   "flaggedEtaUnderMinute": "不到 1 分钟",
   "flaggedEtaMinutes": "约 {minutes} 分钟",
@@ -275,22 +238,6 @@
     }
   },
   "flaggedBatchStop": "停止",
-  "flaggedBatchRenameBody": "将 {count} 个对象重命名为应用的目录结构并导入。无法修复的会继续保留在列表中。",
-  "@flaggedBatchRenameBody": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "flaggedBatchRemoveBody": "从存储桶删除 {count} 个孤立缩略图，无法撤销。",
-  "@flaggedBatchRemoveBody": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "flaggedBatchLeft": "{count} 个无法修复，仍在列表中。",
   "@flaggedBatchLeft": {
     "placeholders": {
@@ -314,16 +261,6 @@
     }
   },
   "privateAlbumHideDownloadContinue": "下载并隐藏",
-  "settingsBucketImportRow": "扫描存储桶中的新文件",
-  "settingsBucketImportHint": "扫描直接放入存储桶的照片和视频",
-  "settingsBucketImportOffer": "存储桶中发现 {count} 个新文件，点按导入",
-  "@settingsBucketImportOffer": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "flaggedUnclaimedReason": "在存储桶中，但不在你的图库里",
   "flaggedLeftoverReason": "可能是已有照片的旧副本：它没有自己的拍摄日期，只有上传那天的日期",
   "flaggedIgnore": "不再显示",
@@ -338,12 +275,10 @@
     }
   },
   "settingsBucketDataNoBucket": "请先在下方添加存储桶",
-  "settingsICloudPath": "文件 → iCloud 云盘 → Photos Vault",
   "settingsICloudNever": "尚未备份",
   "settingsICloudLastBackup": "上次备份于 {when}",
   "settingsAppDataExportButton": "导出文件",
   "settingsAppDataRestoreButton": "从文件恢复",
-  "settingsAppDataLocalCopies": "本机也留有副本——文件 → 我的 iPhone → Photos Vault。保留最近 7 天，外加每次大批量改写之前的一份。删除 App 时这些副本也会一并删除。",
   "settingsAppDataExportFailed": "文件写入失败。请确认存储空间充足后重试。",
   "settingsAppDataRestoreUnreadable": "该文件不是当前版本能读取的备份。",
   "settingsAppDataRestoreConfirmTitle": "恢复这份备份？",
@@ -404,7 +339,6 @@
   "settingsRemoveAllAppDataBody": "此操作会清除照片、相册、人物、同步队列、存储桶连接和 API 密钥——全部数据，恢复到刚安装时的状态。删除前会先自动保存一份副本，文件名中带有 pre-deletion，保存在本机；iCloud 云盘和存储桶在仍可连接时也会各存一份。请选择是保留存储在本机的隐藏照片（保持加密，输入密语和密码后可再次打开），还是一并删除。存储桶中的隐藏照片不会被改动。",
   "settingsRemoveAllAppDataKeepHidden": "移除全部，保留隐藏照片",
   "settingsRemoveAllAppDataWithHidden": "移除全部，包括隐藏照片",
-  "settingsRemoveAllAppDataConfirm": "移除所有数据",
   "settingsRemoveAllAppDataKeptFiles": "应用自身存储的照片（如导入和编辑的照片）已保留：应用无法确认其中哪些在别处没有副本。",
   "settingsRemoveAllAppDataRefused": "未删除任何内容：你选择保留的部分照片尚未确认已在存储桶中。请等待备份完成，或选择连同隐藏照片一起删除。",
   "flaggedGroupReview": "待查看",
@@ -417,45 +351,15 @@
   "settingsICloudDriveOffFix": "设置 → 你的姓名 → iCloud → 云盘 → 打开",
   "settingsICloudNotReady": "iCloud 尚未就绪，请稍后再试",
   "settingsCloudBucketsHeading": "云存储桶",
-  "settingsCloudHeading": "云端",
-  "settingsCloudHint": "照片会上传到你自己的存储空间。凭据只保存在本机,直接发往存储桶。应用打开时会同步，iOS 也可能在后台运行，通常是夜间充电并连接 Wi-Fi 时。",
   "settingsBucketOrderHeading": "存储桶顺序",
   "settingsBucketOrderHint": "无论哪种方式,每张照片最终都会进入每个桶——这里只决定写入的顺序。",
-  "settingsBucketOrderOneBucketNote": "添加第二个桶后才会起作用。",
   "settingsBucketOrderFileByFile": "逐张照片",
   "settingsBucketOrderFileByFileDescription": "每张照片先传完所有桶,再传下一张——各个桶的进度始终一致。",
   "settingsBucketOrderBucketByBucket": "逐个存储桶",
   "settingsBucketOrderBucketByBucketDescription": "先把整个图库传完一个桶,再传下一个——更早拿到一份完整副本。",
-  "settingsSyncQueueButton": "队列({count})",
-  "@settingsSyncQueueButton": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "settingsEmptyTitle": "暂无云存储桶",
-  "settingsEmptyNote": "添加一个以开始备份您的照片和视频。",
   "settingsAddButton": "添加云存储桶",
-  "settingsAddedMessage": "云存储桶已添加",
   "settingsDeleteConfirmTitle": "移除此存储桶？",
   "settingsDeleteConfirmBody": "不会删除存储桶中已有的文件，只会将该存储桶从本应用中移除。",
-  "settingsCloudBucketsHint": "照片将上传到你自己拥有的存储空间。凭据保存在本机,只会直接发送给存储桶。",
-  "settingsCloudBucketsFooter": "{buckets} 个存储桶 · 已备份 {backedUp}/{total} 张照片",
-  "@settingsCloudBucketsFooter": {
-    "placeholders": {
-      "buckets": {
-        "type": "int"
-      },
-      "backedUp": {
-        "type": "int"
-      },
-      "total": {
-        "type": "int"
-      }
-    }
-  },
-  "settingsBrowseFilesAction": "浏览文件",
   "settingsDeleteConnectionAction": "移除存储桶",
   "backupQueueHiddenItem": "隐藏的照片",
   "collectionsAnalyzeQueueRow": "分析队列",
@@ -472,7 +376,6 @@
   "analyzeQueueRescanConfirmTitle": "重新扫描所有照片？",
   "analyzeQueueRescanConfirmBody": "将从最新的照片开始重新查找人脸。你已命名的人物会保留，不会上传或产生费用。",
   "analyzeQueueRunNowButton": "立即分析",
-  "analyzeQueueRunningMessage": "分析中…",
   "analyzeQueueEmpty": "没有待分析的照片。新照片会自动加入队列。",
   "analyzeQueueSkipped": "稍后",
   "analyzeQueueFaceModelOff": "人脸模型未能加载（{reason}）。仍会找到并保留人脸，但匹配不够准确，直到应用更新后加载成功。",
@@ -491,15 +394,6 @@
   "analyzeReviewSuggestionTitle": "建议",
   "analyzeReviewAccept": "保留",
   "analyzeReviewDismiss": "忽略",
-  "settingsSyncQueueRow": "同步队列",
-  "settingsSyncQueuePending": "{pending} 个待处理",
-  "@settingsSyncQueuePending": {
-    "placeholders": {
-      "pending": {
-        "type": "int"
-      }
-    }
-  },
   "settingsAccessKeyIdLabel": "访问密钥 ID",
   "settingsLengthHint": "当前 {actual} 个字符 —— AWS 密钥通常是 {expected} 个字符,请检查是否粘贴有误。",
   "settingsSecretAccessKeyLabel": "私有访问密钥",
@@ -521,6 +415,7 @@
   "settingsRegionRequiredError": "请选择该存储桶所在的地域。",
   "settingsBucketAppIdHint": "需带 APPID 后缀，例如 my-photos-1250000000。",
   "settingsRequiredFieldError": "必填项",
+  "settingsBucketDotsError": "名称含点号的存储桶无法通过 HTTPS 访问，请换用名称不含点号的存储桶。",
   "settingsSaveButton": "保存",
   "settingsValidatingMessage": "正在验证存储桶访问权限…",
   "settingsAccessCheckForbidden": "访问被拒绝。请检查访问密钥、私有密钥,以及该存储桶是否允许访问。",
@@ -528,6 +423,7 @@
   "settingsAccessCheckNotFoundRegion": "未找到存储桶。请检查存储桶名称和地域。",
   "settingsAccessCheckNetworkError": "无法连接到存储桶。请检查网络后重试。",
   "settingsRegionDetectionError": "无法自动检测该存储桶所在区域,请检查存储桶名称。",
+  "settingsAddSaveFailed": "无法保存此存储桶，请重试。",
   "settingsDraftsTitle": "草稿",
   "settingsDraftUntitled": "(尚未填写存储桶)",
   "settingsDraftDeleteTooltip": "删除草稿",
@@ -538,20 +434,16 @@
   "settingsAiKeyStrategyRoundRobin": "轮询",
   "settingsAiKeyRequestCount": "{count} 次请求",
   "settingsAddAiKeyLink": "添加 AI 密钥",
-  "settingsAiVendorLabel": "服务商",
   "settingsAiGetKeyLink": "去获取",
   "settingsAiNoKeyYet": "还没有 {vendor} 密钥？",
   "settingsAiKeyCheckFailed": "无法验证此密钥：{error}",
   "settingsAiSaveAnyway": "仍然保存",
   "settingsAiApiKeyLabel": "API 密钥",
   "settingsAiClearButton": "移除密钥",
-  "settingsAiSavedMessage": "API 密钥已保存",
-  "settingsAiClearedMessage": "API 密钥已移除",
   "settingsAiUsageWarning": "启用后会将照片数据发送给处理该请求的 AI 供应商,并产生记入您该账户的 API 使用费用。",
   "bucketBrowserStats": "{folders} 个文件夹 · {files} 个文件{size}",
   "bucketBrowserSelect": "选择",
   "bucketBrowserDeleteSelected": "删除 {count} 个文件？",
-  "bucketBrowserDeleteBody": "它们将从存储桶中永久删除。本机上的照片不受影响——但仅存在于此处的副本将会丢失。",
   "bucketBrowserDeleteFailed": "有 {count} 个文件删除失败。",
   "bucketBrowserDeleteRefused": "有 {count} 个文件无法在此删除：图库中的照片正在使用、其中藏有隐藏照片，或存储桶没有响应。已原样保留。",
   "bucketBrowserDeleteNamed": "从存储桶中永久删除：\n{names}\n\n本机上的照片不受影响——但仅存在于存储桶中的内容将会丢失。",
@@ -567,8 +459,6 @@
   "privateAlbumReturnFailed": "有 {count} 张照片未能放回“照片”，仍保留在这里。",
   "libraryHideStillInPhotos": "已在此隐藏，但“照片”中仍然保留——移除被取消。",
   "libraryHideFailed": "无法复制原图，未做任何更改。",
-  "libraryHideNote": "隐藏的照片会从“照片”中移除，仅由本应用保管。",
-  "libraryDeleteBackupFailed": "无法从存储桶中删除已备份的副本。照片仍保留在此——请在恢复联网后重试。",
   "libraryDeleteBackupMissing": "存储桶中没有这张照片，因此未删除任何内容。此前应用将它标记为已备份——现已重新加入同步队列。",
   "libraryDeleteBackupUnverifiable": "无法连接存储桶以确认备份，因此未删除任何内容。请在恢复联网后重试。",
   "libraryDeleteBatchCapped": "「照片」每次最多删除 {limit} 项。其余仍处于选中状态——再删一次即可继续。",
@@ -606,7 +496,6 @@
   "vaultAddPassphraseTitle": "添加密语",
   "vaultAddPassphraseBody": "用旧密语备份的照片，输入该密语后即可打开。",
   "vaultPassphraseWrong": "这个密语在这里什么也打不开。",
-  "vaultPassphrasesHeading": "密语",
   "vaultPassphraseInUse": "使用中",
   "vaultPassphraseAdded": "已添加",
   "vaultPassphraseHint": "提示：{hint}",
@@ -615,10 +504,7 @@
   "vaultLockedItem": "已锁定",
   "vaultNeedsNetwork": "隐藏照片只存在于你的存储桶。没有网络时，此相册是空的。",
   "vaultCarrierMissing": "这张照片已不在你的存储桶里，很可能是在应用之外被删除了，本机也没有副本。",
-  "vaultNoBucket": "尚未配置存储桶，隐藏照片会以未加密的形式留在本机。",
-  "vaultHeldUpload": "{count} 张将在此相册打开后上传",
   "peopleScreenTitle": "人物",
-  "peopleNamePromptTitle": "新建人物",
   "peopleUnnamedFace": "这是谁？",
   "faceGroupTitle": "这是谁？",
   "faceGroupNamePlaceholder": "输入姓名，或搜索已命名的人物",
@@ -626,17 +512,13 @@
   "personPageHidden": "隐藏",
   "personPageHiddenTitle": "{name} · 隐藏",
   "personPageFindMore": "查找更多照片",
-  "faceGroupNoneForPerson": "暂时没有其他相似的人脸。",
   "faceGroupMoreTitle": "{name} 的更多照片",
   "faceGroupSelectAll": "全选",
   "faceGroupDeselectAll": "取消全选",
   "faceGroupCount": "{count, plural, one{1 张照片与这张脸相似} other{{count} 张照片与这张脸相似}}",
   "faceGroupNone": "暂时没有其他照片与这张脸相似。",
-  "faceGroupNotScanned": "这张脸还没有被分析。请在“分析队列”中点击“立即分析”。",
   "faceGroupHint": "在命名之前不会保存任何内容。点击不是同一个人的照片即可移除。",
-  "faceGroupNeedsName": "请先为这个人命名。",
   "peopleSuggestedFace": "{name}？",
-  "peopleSuggestedBadge": "推测",
   "peopleSuggestionAccepted": "已添加到 {name}",
   "actionUndo": "撤销",
   "peopleUnnamedHeading": "待识别的人脸",
@@ -655,7 +537,6 @@
   "genderFemale": "女",
   "personProfileEducationLabel": "教育经历",
   "personProfileJobLabel": "职业",
-  "personProfileBioLabel": "简介",
   "personProfileBioEmpty": "这个人还没有简介",
   "personProfileAvatarPickerTitle": "头像",
   "personProfileAvatarPickerEmpty": "先在照片中标记这个人，就可以在这里挑选头像了。",
@@ -702,7 +583,6 @@
   "eventsNotSet": "未填写",
   "eventsTypeLabel": "类型",
   "eventsDateLabel": "日期",
-  "eventsTagsLabel": "标签",
   "eventsTagsPlaceholder": "用逗号分隔",
   "eventsNotesLabel": "备注",
   "eventsDeleteConfirmTitle": "删除这个事件？",
@@ -773,7 +653,6 @@
   "groupKindCircle": "圈子",
   "peopleSectionNamed": "人物",
   "peopleSectionGroups": "群组",
-  "peopleSectionUnnamed": "待命名的人脸",
   "peopleFilterAll": "全部",
   "peopleFilterMale": "男",
   "peopleFilterFemale": "女",
@@ -796,6 +675,7 @@
   "askAiSendButton": "询问",
   "askAiThinking": "正在询问…",
   "askAiNoKey": "请先在「更多 → AI 设置」中添加 AI 密钥。",
+  "errorOffline": "无法连接。请检查网络后重试。",
   "askAiSendsNote": "你的问题和下面的资料会发送给你的 AI 服务商。",
   "askAiContextHeading": "作为上下文发送",
   "askAiAnswerHeading": "回答",
@@ -804,7 +684,6 @@
   "autofillPickButton": "选择文件",
   "autofillReading": "正在读取…",
   "autofillAsking": "正在询问 AI…",
-  "autofillUnreadable": "这个文件不是纯文本。可以用 .txt 或 .md；PDF 和 Word 无法读取。",
   "autofillUnsupportedFormat": "无法读取这种格式。支持纯文本、Markdown、Word（.docx）和 PDF；旧版 .doc 不支持。",
   "autofillScannedPdf": "这个 PDF 里没有文字，应该是扫描件或页面照片。请用含文字的 PDF 或 .txt 文件。",
   "autofillEmptyFile": "这个文件是空的。",
@@ -815,14 +694,6 @@
   "autofillRejectAll": "全部拒绝",
   "autofillApply": "{count, plural, =0{未选择} other{添加 {count} 项}}",
   "@autofillApply": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "autofillApplied": "{count, plural, other{已添加 {count} 项。}}",
-  "@autofillApplied": {
     "placeholders": {
       "count": {
         "type": "int"
@@ -892,12 +763,10 @@
   "privateAlbumFewDecoysTitle": "可用于伪装的照片太少",
   "privateAlbumFewDecoysBody": "你的图库少于 100 张照片。隐藏的照片会伪装成你其他照片的副本，照片这么少时伪装会重复，很容易被发现。它们仍由你的密码加密，别人无法打开。",
   "privateAlbumFewDecoysContinue": "继续",
-  "collectionsImportFilesRow": "从“文件”导入",
   "collectionsLanguageRow": "语言",
   "languageSystem": "跟随系统",
   "storageScanning": "正在检查新照片 {done}/{total}…",
   "storageScannedAt": "扫描于 {when}",
-  "storageFilterAll": "全部",
   "storageIssueOnDevice": "占用本机",
   "storageIssueLargeFile": "大文件",
   "storageIssueHighResolution": "分辨率过高",
@@ -927,20 +796,10 @@
   "actionLess": "收起",
   "libraryLock": "锁定",
   "libraryUnlock": "解锁",
-  "lockLockedBadge": "已锁定",
   "lockBlockedDelete": "这张照片已锁定。要删除请先解锁。",
   "lockBlockedEdit": "这张照片已锁定。要编辑请先解锁。",
-  "lockRestoringOriginal": "正在取回原图…",
   "lockRestoreFailed": "原图在你的存储桶里，这次没能取回来，所以没有锁定。等联网后再试。",
   "lockNoOriginal": "已经没有原图可留了——这张被压缩过，而且没有任何备份保存着原件。",
-  "storageResultLocked": "{count, plural, one{1 张已锁定，未作改动。} other{{count} 张已锁定，未作改动。}}",
-  "@storageResultLocked": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
   "safetyTitle": "你的照片在哪里",
   "safetyCopiesHeading": "副本",
   "safetyCopiesHint": "此应用中的每张照片都存放在下列一处或多处。存储桶中的副本比这台手机更长久，而且是本应用无权删除的一份。",
@@ -1311,23 +1170,11 @@
   "exportSmallerSkipped": "{count, plural, other{有 {count} 张照片无法导出,已保持原样。}}",
   "demoModeEnterRow": "演示模式",
   "demoModeExitRow": "退出演示模式",
-  "demoModeExitBody": "返回您自己的图库。演示图库会保留,供下次使用。",
-  "demoModeEnterAction": "打开演示",
-  "demoModeExitAction": "退出演示",
   "settingsDemoResetRow": "重置演示数据",
   "settingsDemoResetTitle": "要重置演示数据吗？",
   "settingsDemoResetBody": "演示资料库将恢复为示例照片、相簿、人物和笔记。你自己的资料库不受影响。",
   "settingsDemoResetConfirm": "重置",
-  "cloudStatusAllDone": "已全部备份",
-  "cloudStatusNone": "尚未备份",
-  "cloudStatusSyncing": "正在备份…还剩 {count} 项",
-  "cloudStatusPaused": "已暂停 · {count} 项等待中",
-  "cloudStatusFailed": "{count} 项上传失败",
-  "cloudStatusWaiting": "{count} 项上传等待中",
-  "cloudStatusStuck": "{count} 张照片尚未备份",
   "cloudStatusLost": "{count} 张照片已从存储桶中丢失",
-  "cloudStatusProgress": "已备份 {backedUp} 张 · 剩余 {left} 张 · {buckets} 个存储桶",
-  "cloudQueueLink": "队列 · {count}",
   "cloudUploadsHeading": "上传",
   "cloudAutoBackupFooter": "自动备份：App 打开时新照片会自动上传，iOS 也可能在后台补一次，通常在夜间充电并连接 Wi-Fi 时。",
   "cloudQualityRow": "上传画质",
@@ -1342,8 +1189,6 @@
   "flaggedProblemLeftover": "可能是旧副本",
   "flaggedRunDone": "已完成",
   "flaggedRunHint": "离开此页面也会继续处理。大视频每个可能需要几分钟。全部完成后，iOS 只会询问一次是否删除原件。",
-  "flaggedWaiting": "等待中",
-  "flaggedRetry": "重试",
   "flaggedUnverified": "存储桶无法确认已保存原图，因此未做处理。",
   "flaggedConfirmTitle": "{action}：{count} 项？",
   "flaggedConfirmRemoveBody": "从本 iPhone 删除完整照片以释放空间。存储桶保留完整原图，iPhone 保留小预览，打开时会重新下载原图。",

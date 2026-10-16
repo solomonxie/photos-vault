@@ -12,6 +12,7 @@ class S3TargetDraft {
     this.prefix = '',
     this.region = '',
     this.provider = BackupStorageType.s3,
+    this.savedAt,
   });
 
   final String id;
@@ -25,6 +26,20 @@ class S3TargetDraft {
 
   final BackupStorageType provider;
 
+  /// Null in drafts saved before drafts aged out.
+  final DateTime? savedAt;
+
+  S3TargetDraft stamped(DateTime at) => S3TargetDraft(
+    id: id,
+    accessKeyId: accessKeyId,
+    secretAccessKey: secretAccessKey,
+    bucket: bucket,
+    prefix: prefix,
+    region: region,
+    provider: provider,
+    savedAt: at,
+  );
+
   Map<String, dynamic> toJson() => {
     'id': id,
     'accessKeyId': accessKeyId,
@@ -33,6 +48,7 @@ class S3TargetDraft {
     'prefix': prefix,
     'region': region,
     'provider': provider.name,
+    if (savedAt case final at?) 'savedAt': at.millisecondsSinceEpoch,
   };
 
   factory S3TargetDraft.fromJson(Map<String, dynamic> json) => S3TargetDraft(
@@ -43,5 +59,9 @@ class S3TargetDraft {
     prefix: json['prefix'] as String? ?? '',
     region: json['region'] as String? ?? '',
     provider: backupStorageTypeFromName(json['provider'] as String?),
+    savedAt: switch (json['savedAt']) {
+      final int ms => DateTime.fromMillisecondsSinceEpoch(ms),
+      _ => null,
+    },
   );
 }

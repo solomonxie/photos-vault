@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
 
 import '../l10n/app_localizations.dart';
+import '../l10n/failure_text.dart';
 import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
 import '../photos/profile_csv.dart';
@@ -87,7 +88,11 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
       await (widget.share ?? _shareWithSystemSheet)(file);
       if (mounted) setState(() => _done = l10n.profileCsvExported(rows.length));
     } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+      if (mounted) {
+        setState(
+          () => _error = failureText(AppLocalizations.of(context)!, error),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -119,7 +124,11 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
         }
       });
     } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+      if (mounted) {
+        setState(
+          () => _error = failureText(AppLocalizations.of(context)!, error),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }
@@ -155,7 +164,11 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
         _accepted.clear();
       });
     } catch (error) {
-      if (mounted) setState(() => _error = '$error');
+      if (mounted) {
+        setState(
+          () => _error = failureText(AppLocalizations.of(context)!, error),
+        );
+      }
     } finally {
       if (mounted) setState(() => _busy = false);
     }

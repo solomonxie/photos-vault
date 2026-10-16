@@ -10,16 +10,39 @@ import 'secure_store.dart';
 /// a failed or abandoned attempt doesn't mean retyping everything from
 /// scratch. Shown as a quick-fill list on the add screen.
 class S3TargetDraftsStore {
-  S3TargetDraftsStore({SecureStore? store, Uuid? uuid})
-    : _store = store ?? const FlutterSecureStore(),
-      _uuid = uuid ?? const Uuid();
+  S3TargetDraftsStore({
+    SecureStore? store,
+    Uuid? uuid,
+    DateTime Function()? now,
+  }) : _store = store ?? const FlutterSecureStore(),
+       _uuid = uuid ?? const Uuid(),
+       _now = now ?? DateTime.now;
 
   final SecureStore _store;
   final Uuid _uuid;
+  final DateTime Function() _now;
+
+  /// A draft holds a secret key, typos included: only the last few, and
+  /// not for long.
+  static const keep = 3;
+  static const maxAge = Duration(days: 30);
 
   static const _key = 's3_target_drafts_v1';
 
   Future<List<S3TargetDraft>> loadAll() async {
+    final stored = await _stored();
+    final fresh = stored.where((d) => !_expired(d)).toList();
+    if (fresh.length < stored.length) {
+      try {
+        await _saveAll(fresh);
+      } catch (_) {
+        // Gone from the list either way; the next save drops it.
+      }
+    }
+    return fresh;
+  }
+
+  Future<List<S3TargetDraft>> _stored() async {
     final raw = await _store.read(_key);
     if (raw == null || raw.isEmpty) return const [];
     try {
@@ -31,6 +54,10 @@ class S3TargetDraftsStore {
       return const [];
     }
   }
+
+  /// Undated drafts predate aging; they get a date at the next save.
+  bool _expired(S3TargetDraft d) =>
+      d.savedAt != null && _now().difference(d.savedAt!) > maxAge;
 
   Future<void> clearAll() => _store.delete(_key);
 
@@ -51,6 +78,7 @@ class S3TargetDraftsStore {
     String region = '',
     BackupStorageType provider = BackupStorageType.s3,
   }) async {
+    final now = _now();
     final drafts = await loadAll();
     final existingIndex = drafts.indexWhere(
       (d) => d.bucket == bucket && d.accessKeyId == accessKeyId,
@@ -63,14 +91,24 @@ class S3TargetDraftsStore {
       prefix: prefix,
       region: region,
       provider: provider,
+      savedAt: now,
     );
-    final updated = [...drafts];
+    final updated = [
+      for (final d
+          in drafts) // Just older than this one, so the cap never drops it for them.
+        d.savedAt == null
+            ? d.stamped(now.subtract(const Duration(milliseconds: 1)))
+            : d,
+    ];
     if (existingIndex >= 0) {
       updated[existingIndex] = draft;
     } else {
       updated.add(draft);
     }
-    await _saveAll(updated);
+    final newest = ([
+      ...updated,
+    ]..sort((a, b) => b.savedAt!.compareTo(a.savedAt!))).take(keep).toSet();
+    await _saveAll(updated.where(newest.contains).toList());
   }
 
   Future<void> remove(String id) async {
