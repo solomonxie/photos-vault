@@ -592,6 +592,55 @@ void main() {
   );
 
   group('who binned it', () {
+    test('unbinListed takes out the scan\'s and legacy entries, never the '
+        'user\'s or a hidden one (04#1)', () async {
+      final dir = await Directory.systemTemp.createTemp('pv_unbin_');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = p.join(dir.path, 'photos_vault.db');
+      final store = AssetRecordStore(
+        databaseFactory: databaseFactoryFfi,
+        path: path,
+      );
+      addTearDown(store.close);
+      for (final id in ['lib', 'old', 'user', 'hidden', 'kept']) {
+        await store.upsert(
+          localId: 'photo:$id',
+          contentHash: id,
+          platform: 'ios',
+        );
+      }
+      await store.softDelete('photo:lib', byLibrary: true);
+      await store.softDelete('photo:old');
+      await store.softDelete('photo:user');
+      await store.softDelete('photo:hidden');
+      await store.setPasscodeHash('photo:hidden', 'h');
+      final raw = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(singleInstance: false),
+      );
+      await raw.rawUpdate(
+        "UPDATE asset_record SET binned_by = NULL "
+        "WHERE local_id IN ('photo:old', 'photo:hidden')",
+      );
+      await raw.close();
+
+      final out = {
+        for (final id in ['lib', 'old', 'user', 'hidden', 'kept'])
+          id: await store.unbinListed('photo:$id'),
+      };
+
+      expect(out, {
+        'lib': true,
+        'old': true,
+        'user': false,
+        'hidden': false,
+        'kept': false,
+      });
+      expect((await store.getByLocalId('photo:old'))!.isDeleted, isFalse);
+      expect((await store.getByLocalId('photo:user'))!.isDeleted, isTrue);
+      expect((await store.getByLocalId('photo:hidden'))!.isDeleted, isTrue);
+    });
+
     test('round-trips, and Recover forgets it', () async {
       final store = newStore();
       await store.upsert(localId: 'photo:A', contentHash: 'a', platform: 'ios');

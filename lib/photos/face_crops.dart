@@ -11,12 +11,9 @@ import 'person.dart' show FaceRect;
 
 /// Cuts the detected faces out of a photo so they can be shown and tapped.
 ///
-/// The app can find faces for free (Vision) but can't tell whose they are —
-/// iOS keeps face *identity* to itself, and a model that could do it is a
-/// download and a pile of clustering nobody asked for. So the face is the
-/// question and the user is the answer: here's a face, who is this? One tap
-/// links it to a person, which is both more accurate than any clustering
-/// and, for the handful of people anyone actually tags, no slower.
+/// The app can find faces for free (Vision); whose they are is the user's
+/// answer, helped by the bundled SFace model's guesses. Here's a face, who
+/// is this? One tap links it to a person.
 class FaceCrops {
   /// How much room to leave around Vision's box. It hugs the features, and
   /// a crop that tight is a nose and two eyes — hard to recognise at

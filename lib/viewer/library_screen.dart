@@ -545,15 +545,6 @@ class LibraryScreenState extends State<LibraryScreen>
   final _searchController = TextEditingController();
   final _searchFocus = FocusNode();
 
-  /// A camera-roll scan walks the whole library, so the resume hook must
-  /// not start a second one on top of the one still running.
-  bool _syncingLibrary = false;
-
-  /// The head pass has its own guard rather than sharing [_syncingLibrary]:
-  /// the whole point of it is that it runs while a full pass is still
-  /// walking the library.
-  bool _syncingRecent = false;
-
   /// iOS is short of memory and asking for some back. Thumbnails are the
   /// obvious thing to hand over: every byte of them can be fetched from
   /// the library again, and the alternative to answering is being killed
@@ -676,7 +667,6 @@ class LibraryScreenState extends State<LibraryScreen>
     _fixQueue.removeListener(_onFixQueueChanged);
     syncQueue.dispose();
     if (widget.analyzeQueue == null) _analyzeQueue.dispose();
-    _libraryScanner.dispose();
     super.dispose();
   }
 
@@ -962,9 +952,8 @@ class LibraryScreenState extends State<LibraryScreen>
   /// outside it. Both of those happen at the newest end, which is a couple
   /// of pages: read them, apply them, and account for anything newer than
   /// the oldest one that the library no longer has.
+  /// Single-flight through [_libraryScanner], as is [_syncPhotoLibrary].
   Future<void> _syncRecentPhotos() async {
-    if (_syncingRecent) return;
-    _syncingRecent = true;
     try {
       final access = await _photoLibraryService.requestAccess();
       if (access == PhotoLibraryAccess.denied) return;
@@ -981,8 +970,6 @@ class LibraryScreenState extends State<LibraryScreen>
     } catch (_) {
       // No platform channel, or the permission flow failed — the full pass
       // covers the same ground, just not as promptly.
-    } finally {
-      _syncingRecent = false;
     }
   }
 
@@ -990,8 +977,6 @@ class LibraryScreenState extends State<LibraryScreen>
   /// silent on every launch after. Backs up anything newly seen the same
   /// way a manual add is, so granting access alone starts a backup.
   Future<void> _syncPhotoLibrary() async {
-    if (_syncingLibrary) return;
-    _syncingLibrary = true;
     try {
       final access = await _photoLibraryService.requestAccess();
       if (access == PhotoLibraryAccess.denied) return;
@@ -1035,8 +1020,6 @@ class LibraryScreenState extends State<LibraryScreen>
       // No `photo_manager` platform channel (tests, unsupported platform)
       // or the permission flow failed — leave the camera roll unsynced
       // rather than crash; manually added photos still work.
-    } finally {
-      _syncingLibrary = false;
     }
   }
 

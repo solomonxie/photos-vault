@@ -553,7 +553,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
     if ((saved?.name ?? '').trim().isEmpty &&
         !await personHasHiddenFolder(widget.assetRecordStore, person.id)) {
       await widget.personStore.remove(person.id);
-      await widget.faceIdentity?.forget(person.id);
+      await forgetPersonFaces(
+        person.id,
+        analysisStore: widget.faceIdentity?.analysisStore,
+      );
     }
     if (!mounted) return;
     await _reload();

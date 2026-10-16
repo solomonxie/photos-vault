@@ -431,7 +431,7 @@ class AssetRemoval {
   Future<String?> localPathOf(AssetRecord record) async {
     if (record.localDeleted) return null;
     final path = record.sourcePath;
-    if (path != null && File(path).existsSync()) return path;
+    if (path != null && await File(path).exists()) return path;
     if (record.sourceType != AssetSourceType.photoManager) return null;
     try {
       return (await library.fileFor(record))?.path;

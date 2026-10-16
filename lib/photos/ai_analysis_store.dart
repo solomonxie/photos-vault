@@ -1,5 +1,4 @@
 import 'dart:convert';
-import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
@@ -41,9 +40,9 @@ Map<FaceRect, FaceRect> carryFaces(List<FaceRect> old, List<FaceRect> found) {
   return out;
 }
 
-/// Local `sqflite` cache of per-asset AI analysis results, keyed by
-/// `AssetRecord.localId` — avoids re-billing OpenAI for a photo already
-/// analyzed. See IMPLEMENTATION_PLAN.md T4.4.
+/// Local `sqflite` store of what the on-device pass found per photo (faces,
+/// their descriptors and guesses), keyed by `AssetRecord.localId`, plus the
+/// legacy vendor tags and captions.
 class AiAnalysisStore {
   AiAnalysisStore({DatabaseFactory? databaseFactory, String? path})
     : this._(databaseFactory, path);
@@ -62,12 +61,8 @@ class AiAnalysisStore {
 
   static const _table = 'ai_analysis';
 
-  /// One row per face the user has confirmed belongs to a person — the
-  /// reference set a suggestion is matched against.
-  ///
-  /// Only confirmed faces. A descriptor is a few kilobytes; one per face
-  /// across a real camera roll is hundreds of megabytes, and every one of
-  /// them would be a vector with nothing to compare it to.
+  /// One row per described face; `person_id` set on the confirmed ones,
+  /// which are the reference set a suggestion is matched against.
   static const _descriptorTable = 'face_descriptor';
 
   /// One row per face the matcher has looked at, named or not.
@@ -641,30 +636,11 @@ class AiAnalysisStore {
     );
   }
 
-  /// This database's file, safe to copy — see the other stores.
-  ///
-  /// It is in the backup for two reasons that have nothing to do with
-  /// each other. The faces and their vectors take hours of the phone's
-  /// time to work out again, and they are small: a rectangle is thirty
-  /// bytes and an SFace vector five hundred, so a library with four
-  /// thousand faces in it costs about two megabytes to keep.
-  ///
-  /// And the *paid* half lives here too — which vendor suggestions were
-  /// already answered. Losing that doesn't cost time, it costs money:
-  /// every dismissed photo gets asked about, and billed for, a second
-  /// time.
-  Future<File?> checkpointedFile() async {
-    final db = await _open();
-    try {
-      await db.execute('PRAGMA wal_checkpoint(FULL)');
-    } catch (_) {
-      // Not in WAL mode, or a factory that doesn't support the pragma.
-    }
-    final file = File(db.path);
-    return file.existsSync() ? file : null;
-  }
-
   /// A compact copy at [dest] without anything of [hiddenIds].
+  ///
+  /// In the backup because faces take hours of the phone's time to work
+  /// out again and are small, and because which vendor suggestions were
+  /// answered is here: losing that re-bills them.
   Future<bool> copyTo(String dest, Set<String> hiddenIds) async => copyDatabase(
     await _open(),
     _factory,
@@ -874,30 +850,6 @@ class AiAnalysisStore {
     return [for (final part in value.split(';')) ?FaceRect.decode(part)];
   }
 
-  /// The other half: what a vendor call came back with, waiting to be
-  /// accepted or thrown away. Leaves the face count alone.
-  Future<void> saveSuggestion(AiPhotoAnalysis analysis) async {
-    final db = await _open();
-    final row = {
-      'tags': jsonEncode(analysis.tags),
-      'description': analysis.description,
-      'reviewed': 0,
-      'analyzed_at': analysis.analyzedAt.millisecondsSinceEpoch,
-    };
-    final updated = await db.update(
-      _table,
-      row,
-      where: 'local_id = ?',
-      whereArgs: [analysis.localId],
-    );
-    if (updated > 0) return;
-    await db.insert(_table, {
-      'local_id': analysis.localId,
-      'people_count': analysis.peopleCount,
-      ...row,
-    }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
-  }
-
   /// Answered — kept rather than deleted so the same photo isn't offered
   /// again on the next pass.
   Future<void> markReviewed(String localId) async {
@@ -908,20 +860,6 @@ class AiAnalysisStore {
       where: 'local_id = ?',
       whereArgs: [localId],
     );
-  }
-
-  /// Suggestions nobody has looked at yet, oldest first — the review list.
-  Future<List<AiPhotoAnalysis>> unreviewed() async {
-    final db = await _open();
-    final rows = await db.query(
-      _table,
-      where: 'reviewed = 0',
-      orderBy: 'analyzed_at ASC',
-    );
-    return [
-      for (final row in rows)
-        if (_fromRow(row).hasSuggestions) _fromRow(row),
-    ];
   }
 
   /// One photo's row, or `null` if it has never been looked at.

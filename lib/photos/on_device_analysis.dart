@@ -8,10 +8,9 @@ import 'on_device_vision.dart';
 /// It used to suggest tags from Vision's scene labels too. Tried against a
 /// real library, those were poor enough to be worse than nothing —
 /// confident, plausible and wrong often enough that every tag then had to
-/// be checked, which is more work than typing the right one. Tagging is
-/// left to the vendor models, which are good at it and are paid for by the
-/// photo; faces are left here, where detection is genuinely reliable and
-/// genuinely free.
+/// be checked, which is more work than typing the right one. Tags are typed
+/// by the user; faces are left here, where detection is genuinely reliable
+/// and genuinely free.
 ///
 /// Identity still isn't answered — iOS won't say whose face it is — so what
 /// comes back is "here are the faces", for the user to put names to.

@@ -138,6 +138,38 @@ void main() {
       expect(item.fixes, [StorageFix.optimize, StorageFix.optimizeRemote]);
     });
 
+    test('an app-held Live Photo is offered the bucket only: a Dart '
+        're-encode would lose its motion (04#11)', () {
+      final live = AssetRecord(
+        localId: 'manual:live',
+        contentHash: 'live',
+        platform: 'ios',
+        createdAt: DateTime(2026, 2, 14),
+        updatedAt: DateTime(2026, 2, 14),
+        isLivePhoto: true,
+        sourcePath: '/tmp/live.jpg',
+        width: 8064,
+        height: 6048,
+        derivatives: const {
+          DerivativeKind.original: DerivativeState(
+            status: UploadStatus.uploaded,
+          ),
+          DerivativeKind.livePhoto: DerivativeState(
+            status: UploadStatus.uploaded,
+          ),
+        },
+      );
+
+      final item = advise(
+        live,
+        bytes: 30 * 1024 * 1024,
+        name: 'live.jpg',
+        appOwned: true,
+      )!;
+
+      expect(item.fixes, [StorageFix.optimizeRemote]);
+    });
+
     test('once the bucket copy is smaller, only the phone is offered', () {
       final item = adviseOn(
         record: record(width: 6000, height: 4000),

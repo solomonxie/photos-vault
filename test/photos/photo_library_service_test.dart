@@ -807,6 +807,94 @@ void main() {
       expect(firstPage, hasLength(200));
     });
   });
+
+  group('WP13b: bin entries and dates', () {
+    PhotoLibraryService over(
+      FakeAssetRecordStore store,
+      List<AssetEntity> Function() listing,
+    ) => PhotoLibraryService(
+      store: store,
+      requestPermission: () async => PermissionState.authorized,
+      listAssetPage: pagedBy(() => listing()),
+      loadEntity: (id) async => listing().where((e) => e.id == id).firstOrNull,
+    );
+
+    test('a bin entry from before binned_by comes out when Photos lists '
+        'the asset; the user\'s own stays (04#1)', () async {
+      final store = FakeAssetRecordStore();
+      final listing = [_entity('a1'), _entity('a2')];
+      final service = over(store, () => listing);
+      await service.syncAll();
+      store.binLegacy('photo:a1');
+      await store.softDelete('photo:a2');
+
+      await service.syncAll(reconcileDeletions: true);
+
+      expect((await store.getByLocalId('photo:a1'))!.isDeleted, isFalse);
+      expect((await store.getByLocalId('photo:a2'))!.isDeleted, isTrue);
+    });
+
+    test('a hidden legacy bin entry is never taken out', () async {
+      final store = FakeAssetRecordStore();
+      final listing = [_entity('a1')];
+      final service = over(store, () => listing);
+      await service.syncAll();
+      store.binLegacy('photo:a1');
+      await store.setPasscodeHash('photo:a1', 'h');
+
+      await service.syncAll();
+
+      expect((await store.getByLocalId('photo:a1'))!.isDeleted, isTrue);
+    });
+
+    test('a date changed in Photos reaches the record on an edit notice, '
+        'not on a scan or a create (04#12)', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [_entity('a1', createSecond: 1000)];
+      final service = over(store, () => listing);
+      await service.syncAll();
+
+      listing = [_entity('a1', createSecond: 5000)];
+      await service.syncAll();
+      expect(
+        (await store.getByLocalId('photo:a1'))!.createdAt,
+        DateTime.fromMillisecondsSinceEpoch(1000 * 1000),
+      );
+      await service.applyChange(
+        const PhotoLibraryChange(created: {'a1'}, updated: {'a1'}),
+      );
+      expect(
+        (await store.getByLocalId('photo:a1'))!.createdAt,
+        DateTime.fromMillisecondsSinceEpoch(1000 * 1000),
+      );
+
+      final result = await service.applyChange(
+        const PhotoLibraryChange(updated: {'a1'}),
+      );
+
+      expect(result.updated, greaterThan(0));
+      expect(
+        (await store.getByLocalId('photo:a1'))!.createdAt,
+        DateTime.fromMillisecondsSinceEpoch(5000 * 1000),
+      );
+    });
+
+    test('an app-held file keeps its own date', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [_entity('a1', createSecond: 1000)];
+      final service = over(store, () => listing);
+      await service.syncAll();
+      await store.setSourcePath('photo:a1', '/tmp/held.jpg');
+
+      listing = [_entity('a1', createSecond: 5000)];
+      await service.applyChange(const PhotoLibraryChange(updated: {'a1'}));
+
+      expect(
+        (await store.getByLocalId('photo:a1'))!.createdAt,
+        DateTime.fromMillisecondsSinceEpoch(1000 * 1000),
+      );
+    });
+  });
 }
 
 /// A swap landing between the page lookup and its inserts.

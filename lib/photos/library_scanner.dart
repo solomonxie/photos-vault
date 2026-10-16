@@ -1,5 +1,3 @@
-import 'package:flutter/foundation.dart';
-
 /// The camera-roll re-read, on its own and out of sight.
 ///
 /// Deliberately not a row in the analyze queue, and not configurable. It
@@ -35,11 +33,6 @@ class LibraryScanner {
   final Duration interval;
 
   final DateTime Function() _now;
-
-  /// For a caller that wants to show something while it works. Nothing in
-  /// the app does today — that's the point — but a scan that never says
-  /// anything is impossible to debug.
-  final ValueNotifier<bool> running = ValueNotifier(false);
 
   DateTime? _lastAt;
   Future<void>? _inFlight;
@@ -104,17 +97,12 @@ class LibraryScanner {
 
   Future<void> _run() async {
     await _waitBefore();
-    running.value = true;
     try {
       await scan();
       _lastAt = _now();
     } catch (_) {
       // Photos unavailable, permission withdrawn mid-pass — left unmarked
       // so the next round tries again rather than waiting out [interval].
-    } finally {
-      running.value = false;
     }
   }
-
-  void dispose() => running.dispose();
 }

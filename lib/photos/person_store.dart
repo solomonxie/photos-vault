@@ -1,6 +1,5 @@
 import 'dart:async';
 import 'dart:convert';
-import 'dart:io';
 
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart' as sqflite;
@@ -482,22 +481,6 @@ class PersonStore {
     await batch.commit(noResult: true);
   }
 
-  /// This store's database file, with the write-ahead log folded back in
-  /// first — a copy taken without the checkpoint is missing the newest
-  /// writes, which are still sitting in the `-wal` sidecar.
-  ///
-  /// `null` for an in-memory database, which has no file to copy.
-  Future<File?> checkpointedFile() async {
-    final db = await _open();
-    try {
-      await db.execute('PRAGMA wal_checkpoint(FULL)');
-    } catch (_) {
-      // Not in WAL mode, or a factory that doesn't support the pragma.
-    }
-    final file = File(db.path);
-    return file.existsSync() ? file : null;
-  }
-
   /// How far this database's change log has got. See `change_log.dart`.
   Future<int> changeMark() async => changeLogMark(await _open());
 
@@ -631,17 +614,24 @@ class PersonStore {
   /// precedent as `AlbumStore.remove`.
   Future<void> remove(String id) async {
     final db = await _open();
-    await db.delete(_memberTable, where: 'person_id = ?', whereArgs: [id]);
-    await db.delete(_eventTable, where: 'person_id = ?', whereArgs: [id]);
-    await db.delete(_groupTable, where: 'person_id = ?', whereArgs: [id]);
-    await db.delete(
-      _relationshipTable,
-      where: 'person_id = ? OR related_person_id = ?',
-      whereArgs: [id, id],
-    );
-    await db.delete(_locationTable, where: 'person_id = ?', whereArgs: [id]);
-    await db.delete(_historyTable, where: 'person_id = ?', whereArgs: [id]);
-    await db.delete(_personTable, where: 'id = ?', whereArgs: [id]);
+    // One write: a kill part-way left memberships of nobody (05#24).
+    await db.transaction((txn) async {
+      for (final table in [
+        _memberTable,
+        _eventTable,
+        _groupTable,
+        _locationTable,
+        _historyTable,
+      ]) {
+        await txn.delete(table, where: 'person_id = ?', whereArgs: [id]);
+      }
+      await txn.delete(
+        _relationshipTable,
+        where: 'person_id = ? OR related_person_id = ?',
+        whereArgs: [id, id],
+      );
+      await txn.delete(_personTable, where: 'id = ?', whereArgs: [id]);
+    });
   }
 
   // --- Photo membership ---

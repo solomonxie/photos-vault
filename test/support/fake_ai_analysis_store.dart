@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:photos_vault/photos/ai_analysis.dart';
 import 'package:photos_vault/photos/ai_analysis_store.dart';
 import 'package:photos_vault/photos/face_matcher.dart';
@@ -18,11 +16,6 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
 
   @override
   Future<void> close() async {}
-
-  /// No file behind an in-memory fake — the snapshot just has one fewer
-  /// database to copy, which is what it did before this one joined.
-  @override
-  Future<File?> checkpointedFile() async => null;
 
   @override
   Future<void> save(AiPhotoAnalysis analysis) async =>
@@ -115,7 +108,7 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     );
   }
 
-  @override
+  /// Seeds a legacy vendor suggestion: the app no longer writes them.
   Future<void> saveSuggestion(AiPhotoAnalysis analysis) async {
     final existing = _analyses[analysis.localId];
     _analyses[analysis.localId] = AiPhotoAnalysis(
@@ -126,6 +119,11 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
       description: analysis.description,
     );
   }
+
+  Future<List<AiPhotoAnalysis>> unreviewed() async => [
+    for (final analysis in _analyses.values)
+      if (!analysis.reviewed && analysis.hasSuggestions) analysis,
+  ];
 
   @override
   Future<void> markReviewed(String localId) async {
@@ -385,12 +383,6 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   @override
   Future<bool> hasDescriptorsFor(String personId) async =>
       _descriptors.any((d) => d.personId == personId);
-
-  @override
-  Future<List<AiPhotoAnalysis>> unreviewed() async => [
-    for (final analysis in _analyses.values)
-      if (!analysis.reviewed && analysis.hasSuggestions) analysis,
-  ];
 
   @override
   Future<bool> copyTo(String dest, Set<String> hiddenIds) async => false;

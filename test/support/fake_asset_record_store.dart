@@ -292,6 +292,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<void> softDelete(String localId, {bool byLibrary = false}) async {
     final existing = _records[localId];
     if (existing == null) return;
+    _legacyBinned.remove(localId);
     _records[localId] = existing.withDeletedAt(
       DateTime.now(),
       byLibrary: byLibrary,
@@ -312,7 +313,31 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<void> restore(String localId) async {
     final existing = _records[localId];
     if (existing == null) return;
+    _legacyBinned.remove(localId);
     _records[localId] = existing.withDeletedAt(null);
+  }
+
+  /// Bin entries from before `binned_by`: who binned them is unknown.
+  final _legacyBinned = <String>{};
+
+  void binLegacy(String localId) {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _legacyBinned.add(localId);
+    _records[localId] = existing.withDeletedAt(DateTime.now());
+  }
+
+  @override
+  Future<bool> unbinListed(String localId) async {
+    final existing = _records[localId];
+    if (existing == null ||
+        !existing.isDeleted ||
+        existing.passcodeHash != null ||
+        !(existing.binnedByLibrary || _legacyBinned.contains(localId))) {
+      return false;
+    }
+    await restore(localId);
+    return true;
   }
 
   @override

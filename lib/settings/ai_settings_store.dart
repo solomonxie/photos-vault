@@ -125,7 +125,18 @@ class AiSettingsStore {
   Future<void> _writeKeys(List<AiKeyMeta> keys) =>
       _store.write(_keysKey, jsonEncode(keys.map((k) => k.toJson()).toList()));
 
-  Future<String> addKey(AiVendor vendor, String secret) async {
+  /// Every read-modify-write of the key list, one at a time: a count bump
+  /// racing an add or remove could bring a key back or drop one (05#25).
+  /// Per keychain, since screens each make their own store over one.
+  static final _tails = Expando<Future<void>>();
+
+  Future<T> _serial<T>(Future<T> Function() edit) {
+    final run = (_tails[_store] ?? Future.value()).then((_) => edit());
+    _tails[_store] = run.then((_) {}, onError: (_) {});
+    return run;
+  }
+
+  Future<String> addKey(AiVendor vendor, String secret) => _serial(() async {
     final keys = await listKeys();
     final id = _uuid.v4();
     await _writeKeys([
@@ -133,16 +144,16 @@ class AiSettingsStore {
       AiKeyMeta(id: id, vendor: vendor, secret: secret),
     ]);
     return id;
-  }
+  });
 
-  Future<void> removeKey(String id) async {
+  Future<void> removeKey(String id) => _serial(() async {
     final keys = await listKeys();
     await _writeKeys(keys.where((k) => k.id != id).toList());
-  }
+  });
 
   /// Swaps a key with its neighbor — the reordering UI is a pair of ↑/↓
   /// buttons per row rather than a drag gesture.
-  Future<void> moveKey(String id, int direction) async {
+  Future<void> moveKey(String id, int direction) => _serial(() async {
     final keys = await listKeys();
     final idx = keys.indexWhere((k) => k.id == id);
     final swapWith = idx + direction;
@@ -152,15 +163,15 @@ class AiSettingsStore {
     next[idx] = next[swapWith];
     next[swapWith] = tmp;
     await _writeKeys(next);
-  }
+  });
 
-  Future<void> _bumpRequestCount(String id) async {
+  Future<void> _bumpRequestCount(String id) => _serial(() async {
     final keys = await listKeys();
     await _writeKeys([
       for (final k in keys)
         k.id == id ? k.withRequestCount(k.requestCount + 1) : k,
     ]);
-  }
+  });
 
   Future<AiKeyStrategy> getStrategy() async {
     final raw = await _store.read(_strategyKey);

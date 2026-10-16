@@ -272,7 +272,8 @@ class StorageOptimizer {
   /// Returns the bytes saved, or null if nothing was written.
   Future<int?> _rewrite(StorageItem item) async {
     final path = item.record.sourcePath;
-    if (path == null) return null;
+    // Its `.mov` is keyed to the still's path (04#11).
+    if (path == null || item.record.isLivePhoto) return null;
     try {
       final file = File(path);
       final before = await file.length();
@@ -282,12 +283,22 @@ class StorageOptimizer {
       );
       if (encoded == null) return null;
       final (bytes, width, height) = encoded;
-      // A re-encode that grew the file isn't an optimization.
-      if (bytes.length >= before) return null;
+      // A re-encode that grew the file isn't an optimization, and isn't
+      // offered again.
+      if (bytes.length >= before) {
+        notSmaller.add(item.record.localId);
+        return null;
+      }
 
       final hash = hashBytes(bytes);
-      final target = File(p.join(p.dirname(path), '$hash.webp'));
+      final ext = bytes.length > 2 && bytes[0] == 0xFF && bytes[1] == 0xD8
+          ? 'jpg'
+          : 'webp';
+      final target = File(p.join(p.dirname(path), '$hash.$ext'));
       await target.writeAsBytes(bytes);
+      // The record moves before the old file goes: a kill in between
+      // leaves an orphan, not a record on a deleted file.
+      await store.setSourcePath(item.record.localId, target.path);
       if (target.path != path) {
         try {
           await file.delete();
@@ -296,7 +307,6 @@ class StorageOptimizer {
         }
       }
 
-      await store.setSourcePath(item.record.localId, target.path);
       // What is on the device is no longer the original. The backed-up hash
       // is left as it was, so the next change check sees the smaller file
       // and sends it to the bucket too — optimized is optimized everywhere.
@@ -1007,7 +1017,7 @@ class StorageOptimizer {
 
   Future<bool> _hasThumbnail(AssetRecord record) async {
     final existing = record.thumbnailPath;
-    if (existing != null && File(existing).existsSync()) return true;
+    if (existing != null && await File(existing).exists()) return true;
     // A video's poster frame comes from the photo library; exporting the
     // whole movie to make a picture of it would be absurd.
     final path = record.isVideo ? null : await _localPathOf(record);
@@ -1017,7 +1027,7 @@ class StorageOptimizer {
 
   Future<String?> _localPathOf(AssetRecord record) async {
     final path = record.sourcePath;
-    if (path != null && File(path).existsSync()) return path;
+    if (path != null && await File(path).exists()) return path;
     if (record.sourceType != AssetSourceType.photoManager) return null;
     try {
       return (await library.fileFor(record))?.path;

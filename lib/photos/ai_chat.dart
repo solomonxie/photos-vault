@@ -105,7 +105,7 @@ Future<String> _dispatch({
   AiVendor.mistral => _openAiCompatible(
     vendorName: 'Mistral',
     endpoint: 'https://api.mistral.ai/v1/chat/completions',
-    model: 'pixtral-12b-2409',
+    model: 'mistral-small-latest',
     apiKey: apiKey,
     prompt: prompt,
     client: client,
@@ -187,11 +187,7 @@ Future<String> _openAiCompatible({
       ],
     }),
   );
-  if (response.statusCode != 200) {
-    throw AiChatException(
-      '$vendorName request failed (${response.statusCode})',
-    );
-  }
+  if (response.statusCode != 200) throw _failed(vendorName, response);
   final body = jsonDecode(response.body) as Map<String, dynamic>;
   return (body['choices'] as List)[0]['message']['content'] as String;
 }
@@ -222,9 +218,7 @@ Future<String> _anthropic({
       ],
     }),
   );
-  if (response.statusCode != 200) {
-    throw AiChatException('Anthropic request failed (${response.statusCode})');
-  }
+  if (response.statusCode != 200) throw _failed('Anthropic', response);
   final body = jsonDecode(response.body) as Map<String, dynamic>;
   return (body['content'] as List)[0]['text'] as String;
 }
@@ -235,11 +229,13 @@ Future<String> _google({
   required http.Client client,
 }) async {
   final response = await client.post(
+    // The key in a header, never the URL: a failed request's message
+    // carries the URL onto the screen (05#25).
     Uri.parse(
       'https://generativelanguage.googleapis.com/v1beta/models/'
-      'gemini-1.5-flash:generateContent?key=$apiKey',
+      'gemini-2.5-flash:generateContent',
     ),
-    headers: {'Content-Type': 'application/json'},
+    headers: {'Content-Type': 'application/json', 'x-goog-api-key': apiKey},
     body: jsonEncode({
       'contents': [
         {
@@ -250,10 +246,31 @@ Future<String> _google({
       ],
     }),
   );
-  if (response.statusCode != 200) {
-    throw AiChatException('Google request failed (${response.statusCode})');
-  }
+  if (response.statusCode != 200) throw _failed('Google', response);
   final body = jsonDecode(response.body) as Map<String, dynamic>;
   return (body['candidates'] as List)[0]['content']['parts'][0]['text']
       as String;
+}
+
+/// The status and the vendor's own reason, which is what says "model
+/// retired" or "quota" (05#20). Short, and never the request.
+AiChatException _failed(String vendor, http.Response response) {
+  String? reason;
+  try {
+    final body = jsonDecode(response.body);
+    final error = body is Map ? body['error'] : null;
+    reason = switch (error) {
+      {'message': final String m} => m,
+      final String m => m,
+      _ => null,
+    };
+  } catch (_) {
+    // Not JSON: the status alone.
+  }
+  final status = '$vendor request failed (${response.statusCode})';
+  if (reason == null || reason.trim().isEmpty) return AiChatException(status);
+  final short = reason.trim().replaceAll(RegExp(r'\s+'), ' ');
+  return AiChatException(
+    '$status: ${short.length > 160 ? '${short.substring(0, 160)}…' : short}',
+  );
 }

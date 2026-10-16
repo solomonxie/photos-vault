@@ -307,6 +307,11 @@ class PhotoLibraryService {
       }
       if (await _cameBack(existing)) updated++;
       if (await _fillLibraryMetadata(existing, entity)) updated++;
+      if (change.updated.contains(id) &&
+          !change.created.contains(id) &&
+          await _refreshDate(existing, entity)) {
+        updated++;
+      }
     }
 
     updated += await _markMissing(change.deleted);
@@ -333,19 +338,35 @@ class PhotoLibraryService {
   }
 
   /// Listed again: back from the OS's own Recently Deleted, or restored
-  /// some other way. A bin entry the scan made comes back out; one the user
-  /// made stays where they put it.
+  /// some other way. A bin entry the scan made, or one too old to say who
+  /// made it, comes back out; one the user made stays where they put it.
   Future<bool> _cameBack(AssetRecord record) async {
     var moved = false;
     if (record.localDeleted && record.sourcePath == null) {
       await store.setLocalDeleted(record.localId, false);
       moved = true;
     }
-    if (record.isDeleted && record.binnedByLibrary) {
-      await store.restore(record.localId);
+    if (record.isDeleted && await store.unbinListed(record.localId)) {
       moved = true;
     }
     return moved;
+  }
+
+  /// A date changed over in Photos (04#12). Only from an edit iOS reported,
+  /// not from every scan: a scan would also undo a date set here that
+  /// Photos refused, or one a fresh save hasn't been given yet.
+  Future<bool> _refreshDate(AssetRecord record, AssetEntity entity) async {
+    if (record.sourcePath != null || record.passcodeHash != null) {
+      return false;
+    }
+    final listed = entity.createDateTime;
+    if (listed.millisecondsSinceEpoch <= 0) return false;
+    if (listed.millisecondsSinceEpoch ~/ 1000 ==
+        record.createdAt.millisecondsSinceEpoch ~/ 1000) {
+      return false;
+    }
+    await store.setCreatedAt(record.localId, listed);
+    return true;
   }
 
   /// Library ids something says are gone: a deletion notice, or a grid
@@ -570,9 +591,6 @@ class PhotoLibraryService {
     return true;
   }
 
-  /// Resolves a `photoManager` record back to its [AssetEntity], or null if
-  /// it's been deleted from the library since, or [record] isn't
-  /// `photoManager`-sourced.
   /// How long a video runs, off the library entry. A video carrier's decoy
   /// is held for exactly this long: 200 MB over three minutes is an
   /// ordinary capture, the same bytes over two seconds is nothing anyone
@@ -587,6 +605,9 @@ class PhotoLibraryService {
     }
   }
 
+  /// Resolves a `photoManager` record back to its [AssetEntity], or null if
+  /// it's been deleted from the library since, or [record] isn't
+  /// `photoManager`-sourced.
   Future<AssetEntity?> entityFor(AssetRecord record) {
     final id = libraryIdOf(record);
     if (id == null) return Future.value(null);

@@ -240,6 +240,62 @@ void main() {
     expect((await relaunched.finishOptimize(b)).ok, isFalse);
   });
 
+  test('a 1080p clip with the original\'s first frame is a copy only when '
+      'it runs as long (04#16)', () async {
+    final taken = DateTime(2026, 9, 8, 14, 42, 50);
+    final image = img.Image(width: 64, height: 36);
+    for (final px in image) {
+      px
+        ..r = px.x * 4
+        ..g = px.y * 7
+        ..b = 90;
+    }
+    final thumb = File('${tempDir.path}/frame.jpg')
+      ..writeAsBytesSync(img.encodeJpg(image));
+    Future<void> video(String id, int w, int h, DateTime added) async {
+      await store.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        isVideo: true,
+        width: w,
+        height: h,
+        createdAt: taken,
+        addedAt: added,
+        libraryId: '$id/L0/001',
+      );
+      await store.updateDerivative(
+        id,
+        DerivativeKind.original,
+        DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'photos-vault/originals/$id.mov',
+        ),
+      );
+      await store.setThumbnailPath(id, thumb.path);
+    }
+
+    await video('long', 3840, 2160, taken);
+    await video('clip', 1920, 1080, taken.add(const Duration(days: 9)));
+    await listed([
+      'photos-vault/originals/long.mov',
+      'photos-vault/originals/clip.mov',
+    ]);
+    RecordFixer withLengths(Map<String, int> seconds) => RecordFixer(
+      store: store,
+      thumbnail: (_) async => null,
+      inPhotos: (_) async => true,
+      remove: (_) async => true,
+      durationOf: (r) async => Duration(seconds: seconds[r.localId]!),
+    );
+
+    final trimmed = await withLengths({'long': 60, 'clip': 12}).scan();
+    final same = await withLengths({'long': 60, 'clip': 60}).scan();
+
+    expect(trimmed.leftoverCopies, isEmpty);
+    expect(same.leftoverCopies.map((f) => f.asset!.localId), ['long']);
+  });
+
   test('extra copies of an optimized photo are offered for removal, '
       'never the burst frame beside it', () async {
     final taken = DateTime(2026, 9, 8, 14, 42, 50);

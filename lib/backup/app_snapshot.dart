@@ -170,7 +170,7 @@ class AppSnapshotIo {
   /// pages holding deleted rows. Nothing behind a passcode goes in: hidden
   /// rows, their uploads, memberships, faces. The analysis database joined
   /// late and matters more than its size suggests: see
-  /// [AiAnalysisStore.checkpointedFile]. Returns how many were written.
+  /// [AiAnalysisStore.copyTo]. Returns how many were written.
   Future<int> copyDatabases(String directory, String lead) async {
     final hidden = await assetRecordStore.hiddenIds();
     String at(String name) => p.join(directory, '$lead-$name.db');

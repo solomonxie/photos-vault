@@ -23,6 +23,9 @@ img.Image? decodePhoto(Uint8List bytes) {
     return true;
   }
 
+  // Read from the header first: a huge panorama or PNG decodes to
+  // hundreds of MB, and jetsam takes the whole app (05#18).
+  if ((pixelsOf(bytes) ?? 0) > maxDecodePixels) return null;
   if (startsWith([0xFF, 0xD8, 0xFF])) return img.decodeJpg(bytes);
   if (startsWith([0x89, 0x50, 0x4E, 0x47])) return img.decodePng(bytes);
   if (startsWith([0x47, 0x49, 0x46, 0x38])) return img.decodeGif(bytes);
@@ -31,6 +34,60 @@ img.Image? decodePhoto(Uint8List bytes) {
     return img.decodeWebP(bytes);
   }
   if (startsWith([0x42, 0x4D])) return img.decodeBmp(bytes);
+  return null;
+}
+
+/// The most pixels [decodePhoto] will decode: about 400 MB as RGBA.
+const maxDecodePixels = 100 * 1000 * 1000;
+
+/// Width × height from the file header, or null when it can't be read.
+int? pixelsOf(Uint8List b) {
+  int be16(int i) => b[i] << 8 | b[i + 1];
+  int le16(int i) => b[i] | b[i + 1] << 8;
+  int le24(int i) => b[i] | b[i + 1] << 8 | b[i + 2] << 16;
+  int be32(int i) => be16(i) << 16 | be16(i + 2);
+  int le32(int i) => (le16(i) | le16(i + 2) << 16).toSigned(32);
+  final n = b.length;
+  if (n < 12) return null;
+  if (b[0] == 0xFF && b[1] == 0xD8) {
+    var i = 2;
+    while (i + 9 < n) {
+      if (b[i] != 0xFF) return null;
+      final marker = b[i + 1];
+      if (marker == 0xFF) {
+        i++;
+        continue;
+      }
+      if (marker == 0x01 || (marker >= 0xD0 && marker <= 0xD8)) {
+        i += 2;
+        continue;
+      }
+      if (marker >= 0xC0 &&
+          marker <= 0xCF &&
+          marker != 0xC4 &&
+          marker != 0xC8 &&
+          marker != 0xCC) {
+        return be16(i + 5) * be16(i + 7);
+      }
+      i += 2 + be16(i + 2);
+    }
+    return null;
+  }
+  if (b[0] == 0x89 && b[1] == 0x50 && n >= 24) return be32(16) * be32(20);
+  if (b[0] == 0x47 && b[1] == 0x49) return le16(6) * le16(8);
+  if (b[0] == 0x42 && b[1] == 0x4D && n >= 26) {
+    return le32(18).abs() * le32(22).abs();
+  }
+  if (b[0] == 0x52 && b[8] == 0x57 && n >= 30) {
+    final chunk = String.fromCharCodes(b.sublist(12, 16));
+    if (chunk == 'VP8X') return (1 + le24(24)) * (1 + le24(27));
+    if (chunk == 'VP8L') {
+      final w = 1 + (b[21] | (b[22] & 0x3F) << 8);
+      final h = 1 + (b[22] >> 6 | b[23] << 2 | (b[24] & 0x0F) << 10);
+      return w * h;
+    }
+    if (chunk == 'VP8 ') return (le16(26) & 0x3FFF) * (le16(28) & 0x3FFF);
+  }
   return null;
 }
 
@@ -87,10 +144,12 @@ Uint8List _encodeAt(img.Image decoded, int edge, int quality) {
   return Uint8List.fromList(img.encodeJpg(sized, quality: quality));
 }
 
-/// Re-encodes [bytes] as lossy WebP, first shrinking the image so its
-/// longest edge is at most [maxEdge] (null keeps the pixels as they are).
-/// Returns the new bytes with their dimensions, or null if [bytes] isn't a
-/// decodable still image. Pure Dart, so it runs on `Isolate.run`.
+/// Re-encodes [bytes], first shrinking the image so its longest edge is at
+/// most [maxEdge] (null keeps the pixels as they are): JPEG at
+/// [_optimizedQuality], or lossless WebP when it has an alpha channel (the
+/// `image` package writes no lossy WebP). Returns the new bytes with their
+/// dimensions, or null if [bytes] isn't a decodable still image. Pure Dart,
+/// so it runs on `Isolate.run`.
 ///
 /// What the "Optimize Storage" page hands a local copy that's bigger than
 /// it needs to be — see `storage_optimizer.dart`.
@@ -109,8 +168,13 @@ Uint8List _encodeAt(img.Image decoded, int edge, int quality) {
           : img.copyResize(image, height: maxEdge);
     }
   }
-  return (Uint8List.fromList(img.encodeWebP(image)), image.width, image.height);
+  final out = image.hasAlpha
+      ? img.encodeWebP(image)
+      : img.encodeJpg(image, quality: _optimizedQuality);
+  return (Uint8List.fromList(out), image.width, image.height);
 }
+
+const _optimizedQuality = 85;
 
 /// A 64-bit difference hash: near for the same picture at another size or
 /// quality, far for the next frame of a burst only when it moved.

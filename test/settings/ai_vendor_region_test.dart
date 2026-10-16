@@ -87,4 +87,88 @@ void main() {
       throwsA(isA<AiChatException>()),
     );
   });
+
+  test('the Gemini key goes in a header, never the URL (05#25)', () async {
+    late http.Request sent;
+    final client = MockClient((request) async {
+      sent = request;
+      return http.Response(
+        jsonEncode({
+          'candidates': [
+            {
+              'content': {
+                'parts': [
+                  {'text': 'OK'},
+                ],
+              },
+            },
+          ],
+        }),
+        200,
+      );
+    });
+
+    await checkVendorKey(
+      vendor: AiVendor.google,
+      apiKey: 'AIza-secret',
+      client: client,
+    );
+
+    expect(sent.url.toString(), isNot(contains('AIza-secret')));
+    expect(sent.url.path, contains('gemini-2.5-flash'));
+    expect(sent.headers['x-goog-api-key'], 'AIza-secret');
+  });
+
+  test('a vendor\'s own reason is shown with the status (05#20)', () async {
+    final client = MockClient(
+      (_) async => http.Response(
+        jsonEncode({
+          'error': {'message': 'The model  `x` has\nbeen deprecated'},
+        }),
+        404,
+      ),
+    );
+
+    await expectLater(
+      askVendor(
+        vendor: AiVendor.openai,
+        apiKey: 'sk',
+        prompt: 'p',
+        client: client,
+      ),
+      throwsA(
+        isA<AiChatException>().having(
+          (e) => e.message,
+          'message',
+          'OpenAI request failed (404): The model `x` has been deprecated',
+        ),
+      ),
+    );
+  });
+
+  test('key edits and request counts never lose each other (05#25)', () async {
+    final secure = FakeSecureStore();
+    final store = AiSettingsStore(
+      store: secure,
+      fixedRegion: AppStoreRegion.us,
+    );
+    final first = await store.addKey(AiVendor.openai, 'sk-1');
+
+    await Future.wait([
+      store.runWithKeys((_) async => 'ok'),
+      store.addKey(AiVendor.anthropic, 'sk-2'),
+      AiSettingsStore(
+        store: secure,
+        fixedRegion: AppStoreRegion.us,
+      ).addKey(AiVendor.groq, 'sk-3'),
+      store.runWithKeys((_) async => 'ok'),
+    ]);
+
+    final keys = await store.listKeys();
+    expect(
+      keys.map((k) => k.secret),
+      unorderedEquals(['sk-1', 'sk-2', 'sk-3']),
+    );
+    expect(keys.firstWhere((k) => k.id == first).requestCount, 2);
+  });
 }

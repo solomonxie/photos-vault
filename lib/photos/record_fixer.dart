@@ -496,7 +496,11 @@ class RecordFixer {
         ]..sort((a, b) => a.$1.compareTo(b.$1));
         if (near.isNotEmpty &&
             near.first.$1 <= _sameFrame &&
-            (near.length == 1 || near[1].$1 > _otherFrame)) {
+            (near.length == 1 || near[1].$1 > _otherFrame) &&
+            // A trimmed clip has the original's first frame; only the
+            // length tells them apart. Asked here too, or the flag is
+            // offered, refused at Finish, and offered again (04#16).
+            await _sameLength(near.first.$2, c)) {
           // Claimed by the copy itself: the original was filed as its
           // own copy, and Finish Optimize had nothing to file.
           (mine[near.first.$2.localId] ??= []).add((near.first.$1, c));
@@ -553,7 +557,8 @@ class RecordFixer {
             near.isNotEmpty &&
             near.first.$1 <= _sameFrame &&
             (near.length == 1 || near[1].$1 > _otherFrame) &&
-            (!r.localOptimized || r.isVideo);
+            (!r.localOptimized || r.isVideo) &&
+            await _sameLength(near.first.$2, r);
         if (sure) {
           (extras[near.first.$2.localId] ??= []).add(r);
         } else if (r.localOptimized) {

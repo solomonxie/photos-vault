@@ -68,4 +68,45 @@ void main() {
     expect(fitted.length, lessThanOrEqualTo(budget));
     expect(img.decodeImage(fitted), isNotNull);
   });
+
+  group('WP13b: header size and the optimized format', () {
+    test('pixelsOf reads every format decodePhoto takes', () {
+      final image = img.Image(width: 30, height: 20);
+      expect(pixelsOf(Uint8List.fromList(img.encodeJpg(image))), 600);
+      expect(pixelsOf(Uint8List.fromList(img.encodePng(image))), 600);
+      expect(pixelsOf(Uint8List.fromList(img.encodeGif(image))), 600);
+      expect(pixelsOf(Uint8List.fromList(img.encodeBmp(image))), 600);
+      expect(pixelsOf(Uint8List.fromList(img.encodeWebP(image))), 600);
+      expect(pixelsOf(Uint8List(16)), isNull);
+    });
+
+    test('an image too big to decode safely is refused from its header '
+        '(05#18)', () {
+      final png = Uint8List.fromList(
+        img.encodePng(img.Image(width: 4, height: 4)),
+      );
+      // The IHDR says 20000 × 20000; nothing is decoded to find out.
+      ByteData.sublistView(png)
+        ..setUint32(16, 20000)
+        ..setUint32(20, 20000);
+      expect(decodePhoto(png), isNull);
+    });
+
+    test('an opaque photo optimizes to JPEG, one with alpha to WebP '
+        '(05#19)', () {
+      final opaque = Uint8List.fromList(
+        img.encodePng(img.Image(width: 400, height: 200)),
+      );
+      final clear = Uint8List.fromList(
+        img.encodePng(img.Image(width: 400, height: 200, numChannels: 4)),
+      );
+
+      final (jpeg, w, h) = optimizeStill(opaque, maxEdge: 100)!;
+      final (webp, _, _) = optimizeStill(clear)!;
+
+      expect(jpeg.sublist(0, 2), [0xFF, 0xD8]);
+      expect((w, h), (100, 50));
+      expect(String.fromCharCodes(webp.sublist(8, 12)), 'WEBP');
+    });
+  });
 }

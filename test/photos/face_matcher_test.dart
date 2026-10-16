@@ -77,4 +77,26 @@ void main() {
       isNull,
     );
   });
+
+  test('the default line is per space: SFace names a face at 0.35, the '
+      'image print does not (05#21)', () {
+    const byDefault = FaceMatcher();
+    final sface = FaceDescriptor.combineRevision(1, 4);
+    final print = FaceDescriptor.combineRevision(1, 2);
+    // Cosine 0.65: distance 0.35.
+    const near = [0.65, 0.7599342076785331];
+
+    expect(
+      byDefault.match(_of(near, revision: sface), [
+        _face('nina', [1, 0], revision: sface),
+      ])?.personId,
+      'nina',
+    );
+    expect(
+      byDefault.match(_of(near, revision: print), [
+        _face('nina', [1, 0], revision: print),
+      ]),
+      isNull,
+    );
+  });
 }

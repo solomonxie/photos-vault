@@ -198,8 +198,8 @@ class AssetRecordStore {
             await db.execute(_createBucketScanObjectTableSql);
           }
           if (oldVersion < 20) {
-            // Null on rows binned before: who did it is unknown, so the
-            // scan treats them as the user's and never un-bins them.
+            // Null on rows binned before: who did it is unknown. A scan
+            // that lists the asset again takes it out (`unbinListed`).
             await db.execute('ALTER TABLE $_table ADD COLUMN binned_by TEXT');
           }
           if (oldVersion < 21) {
@@ -2627,6 +2627,26 @@ class AssetRecordStore {
       where: 'local_id = ?',
       whereArgs: [localId],
     );
+  }
+
+  /// Out of the bin because Photos lists the asset again: an entry the scan
+  /// made, or one from before `binned_by` (04#1). The user's own stays.
+  /// Never a hidden row.
+  Future<bool> unbinListed(String localId) async {
+    final db = await _open();
+    final changed = await db.update(
+      _table,
+      {
+        'deleted_at': null,
+        'binned_by': null,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where:
+          'local_id = ? AND deleted_at IS NOT NULL AND passcode_hash IS NULL '
+          "AND (binned_by IS NULL OR binned_by = '$_binnedByLibrary')",
+      whereArgs: [localId],
+    );
+    return changed > 0;
   }
 
   /// Every record, oldest first (ties by id).

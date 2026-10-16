@@ -187,6 +187,68 @@ void main() {
       },
     );
 
+    test('a JPEG re-encode is named .jpg', () async {
+      final store = FakeAssetRecordStore();
+      final original = File('${tempDir.path}/a.png')
+        ..writeAsBytesSync(Uint8List(4000));
+      final record = await ownedPhoto(store, path: original.path);
+
+      await optimizerOver(
+        store,
+        encode: (_, _) async =>
+            (Uint8List.fromList([0xFF, 0xD8, 0xFF, 0, 1]), 2560, 1707),
+      ).apply([itemFor(record, 4000, StorageFix.optimize)]);
+
+      final saved = (await store.getByLocalId('manual:a'))!;
+      expect(saved.sourcePath, endsWith('.jpg'));
+      expect(original.existsSync(), isFalse);
+    });
+
+    test('one that grew is remembered as not smaller, so it isn\'t offered '
+        'again', () async {
+      final store = FakeAssetRecordStore();
+      final original = File('${tempDir.path}/a.png')
+        ..writeAsBytesSync(Uint8List(100));
+      final record = await ownedPhoto(store, path: original.path);
+      final optimizer = optimizerOver(
+        store,
+        encode: (_, _) async => (Uint8List(500), 2560, 1707),
+      );
+
+      await optimizer.apply([itemFor(record, 100, StorageFix.optimize)]);
+
+      expect(optimizer.notSmaller, contains('manual:a'));
+    });
+
+    test('an app-held Live Photo is never re-encoded (04#11)', () async {
+      final store = FakeAssetRecordStore();
+      final original = File('${tempDir.path}/live.jpg')
+        ..writeAsBytesSync(Uint8List(4000));
+      final motion = File('${original.path}.live.mov')..writeAsBytesSync([1]);
+      await store.upsert(
+        localId: 'manual:live',
+        contentHash: 'live',
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: original.path,
+        isLivePhoto: true,
+        width: 6000,
+        height: 4000,
+      );
+      final record = (await store.getByLocalId('manual:live'))!;
+
+      final result = await optimizerOver(store)
+          .apply([itemFor(record, 4000, StorageFix.optimize)]);
+
+      expect(result.skipped, 1);
+      expect(original.lengthSync(), 4000);
+      expect(motion.existsSync(), isTrue);
+      expect(
+        (await store.getByLocalId('manual:live'))!.sourcePath,
+        original.path,
+      );
+    });
+
     test('a re-encode that grew the file changes nothing', () async {
       final store = FakeAssetRecordStore();
       final original = File('${tempDir.path}/a.png')

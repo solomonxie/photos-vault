@@ -1,3 +1,4 @@
+import 'face_grouping.dart' show FaceGrouping;
 import 'on_device_vision.dart';
 import 'person.dart' show FaceRect;
 
@@ -56,16 +57,20 @@ class FaceMatch {
 /// because measuring needs labelled faces and the labels are what the user
 /// makes by naming people. See `docs/design/face-recognition/DESIGN.md`.
 class FaceMatcher {
-  const FaceMatcher({this.ceiling = 0.30, this.margin = 0.06});
+  const FaceMatcher({this.ceiling, this.margin = 0.06});
 
   /// The largest cosine distance still worth offering a name for — 0 is
-  /// the same direction, ~1 unrelated.
+  /// the same direction, ~1 unrelated. Null: per space, [_ceilingOf].
   ///
-  /// Deliberately tight, and tight enough to suit the *image print* as
-  /// well as the model: a suggestion puts a name on screen nobody asked
+  /// Deliberately tight: a suggestion puts a name on screen nobody asked
   /// for, where a wrong face in a group is one tap in a list you were
   /// already checking. Silence costs nothing here.
-  final double ceiling;
+  final double? ceiling;
+
+  /// Per space (05#21): the folding line, stricter than SFace's published
+  /// 0.637. One 0.30 across both made SFace suggestions all but never fire.
+  double _ceilingOf(FaceDescriptor d) =>
+      ceiling ?? FaceGrouping.foldingCeilingForPipeline(d.pipeline);
 
   /// How far ahead of the next person the winner must be.
   final double margin;
@@ -97,7 +102,7 @@ class FaceMatcher {
         runnerUp = distance;
       }
     });
-    if (winner == null || winning > ceiling) return null;
+    if (winner == null || winning > _ceilingOf(candidate)) return null;
     if (runnerUp - winning < margin) return null;
     return FaceMatch(personId: winner!, distance: winning);
   }

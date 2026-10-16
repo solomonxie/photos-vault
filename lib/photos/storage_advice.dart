@@ -243,8 +243,11 @@ List<StorageFix> _fixesFor(
                     edge > optimizedMaxEdge &&
                     (appOwned || ext != '.gif')) ||
                 (appOwned && issues.contains(StorageIssue.optimizableFormat)));
+  // An app-held Live Photo's still is paired with its `.mov` by name and by
+  // Apple's metadata; a Dart re-encode would break both (04#11).
+  final heldLive = appOwned && record.isLivePhoto;
   return [
-    if (shrinkable && !smallestAlready) StorageFix.optimize,
+    if (shrinkable && !smallestAlready && !heldLive) StorageFix.optimize,
     if (shrinkable && !remoteOptimized && !smallestAlready)
       StorageFix.optimizeRemote,
   ];
