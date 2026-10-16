@@ -20,14 +20,22 @@ class _FakeVision implements OnDeviceVisionService {
   int calls = 0;
   final Map<String, List<double>> printsByPath = {};
 
+  /// Which space prints come back in; the fallback's when the model is out.
+  int pipeline = FaceDescriptor.currentPipeline;
+  int printCalls = 0;
+
   @override
-  Future<FaceDescriptor> featurePrint(String path, {FaceRect? face}) async =>
-      FaceDescriptor(
-        vector: Float32List.fromList(
-          printsByPath[path] ?? [path.hashCode.toDouble()],
-        ),
-        revision: _currentSpace,
-      );
+  Future<FaceDescriptor> featurePrint(String path, {FaceRect? face}) async {
+    printCalls++;
+    return FaceDescriptor(
+      vector: Float32List.fromList(
+        printsByPath[path] ?? [path.hashCode.toDouble()],
+      ),
+      revision: pipeline == FaceDescriptor.currentPipeline
+          ? _currentSpace
+          : FaceDescriptor.combineRevision(1, pipeline),
+    );
+  }
 
   @override
   Future<bool> get isAvailable async => true;
@@ -37,6 +45,30 @@ class _FakeVision implements OnDeviceVisionService {
 
   @override
   Future<Object?> get faceModelStatus async => 'no model in tests';
+
+  @override
+  Future<List<FaceDescriptor>> featurePrints(
+    String path,
+    List<FaceRect> faces,
+  ) async => [for (final f in faces) await featurePrint(path, face: f)];
+
+  @override
+  Future<String?> get faceModelFailure async => modelFailure;
+
+  String? modelFailure;
+
+  @override
+  Future<int?> orientation(String path) async => orientations[path] ?? 1;
+
+  final Map<String, int> orientations = {};
+
+  @override
+  Future<List<Uint8List>?> crops(
+    String path,
+    List<FaceRect> faces, {
+    required double padding,
+    required int side,
+  }) async => null;
 
   @override
   Future<List<VisionFace>> faces(String path) async {
@@ -301,5 +333,115 @@ void main() {
     expect(reopened.pace.value, 3);
     expect(reopened.frequency.value, SyncFrequency.daily);
     expect(reopened.paused.value, isTrue);
+  });
+
+  group('WP12', () {
+    AnalyzeQueue withFaces({
+      Future<String?> Function(AssetRecord r)? resolve,
+      Future<void> Function(String localId, int orientation)? onReoriented,
+    }) {
+      final path = resolve ?? (r) async => '/tmp/${r.localId}.jpg';
+      return AnalyzeQueue(
+        assetRecordStore: records,
+        analysisStore: analyses,
+        onDeviceAnalysis: OnDeviceAnalysisService(
+          analysisStore: analyses,
+          vision: vision,
+          onReoriented: onReoriented,
+        ),
+        faceIdentity: FaceIdentityService(
+          analysisStore: analyses,
+          resolvePath: path,
+          vision: vision,
+        ),
+        resolvePath: path,
+        displayNameFor: (r) => r.localId,
+        rest: Duration.zero,
+      );
+    }
+
+    test('photos it cannot open never stall the older ones (05#6)', () async {
+      // More stuck photos than the list holds, all newer than the one
+      // that can be done.
+      for (var i = 0; i < AnalyzeQueue.capacity + 10; i++) {
+        await addPhoto('photo:cloud$i', takenAt: DateTime(2026, 9, 1, 0, i));
+      }
+      await addPhoto('photo:local', takenAt: DateTime(2010));
+      final queue = withFaces(
+        resolve: (r) async =>
+            r.localId == 'photo:local' ? '/tmp/local.jpg' : null,
+      );
+
+      await queue.start();
+
+      expect(await analyses.facesFor('photo:local'), isNotEmpty);
+      expect(vision.calls, 1);
+      expect(queue.remaining.value, AnalyzeQueue.capacity + 10);
+      expect(
+        queue.jobs.value.where((j) => j.status == AnalyzeJobStatus.skipped),
+        isNotEmpty,
+        reason: 'shown as skipped, not done',
+      );
+      expect(
+        queue.jobs.value.any((j) => j.status == AnalyzeJobStatus.done),
+        isTrue,
+      );
+    });
+
+    test('without the face model the fallback is kept and reported, not '
+        're-described every run (05#5)', () async {
+      vision
+        ..modelFailure = 'SFace.mlmodelc not in the bundle'
+        ..pipeline = 3;
+      await addPhoto('photo:a');
+      final queue = withFaces();
+
+      await queue.start();
+      expect(queue.faceModelProblem.value, contains('SFace'));
+      expect(vision.printCalls, 1);
+      expect(queue.remaining.value, 0);
+
+      await queue.start();
+      expect(vision.printCalls, 1, reason: 'no endless re-describe');
+      expect(queue.remaining.value, 0);
+
+      // Model back: the fallback's faces are worth describing again.
+      vision
+        ..modelFailure = null
+        ..pipeline = FaceDescriptor.currentPipeline;
+      await queue.start();
+      expect(queue.faceModelProblem.value, isNull);
+      expect(vision.printCalls, 2);
+    });
+
+    test('old raw-buffer boxes are turned upright with their names and '
+        'avatars (05#7)', () async {
+      await addPhoto('photo:portrait');
+      const raw = FaceRect(0.1, 0.2, 0.3, 0.4);
+      analyses.seedLegacy('photo:portrait', const [raw]);
+      await analyses.saveDescriptor(
+        localId: 'photo:portrait',
+        face: raw,
+        personId: 'nina',
+        descriptor: FaceDescriptor(
+          vector: Float32List.fromList(const [1, 0]),
+          revision: _currentSpace,
+        ),
+      );
+      vision.orientations['/tmp/photo:portrait.jpg'] = 6;
+      final reoriented = <(String, int)>[];
+      final queue = withFaces(
+        onReoriented: (id, o) async => reoriented.add((id, o)),
+      );
+
+      await queue.start();
+
+      final upright = raw.oriented(6);
+      expect(await analyses.facesFor('photo:portrait'), [upright]);
+      expect(await analyses.faceOfPersonIn('photo:portrait', 'nina'), upright);
+      expect(reoriented, [('photo:portrait', 6)]);
+      expect(vision.calls, 0, reason: 'turned, not found again');
+      expect((await analyses.get('photo:portrait'))!.legacyBoxes, isFalse);
+    });
   });
 }

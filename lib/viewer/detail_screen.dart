@@ -1990,7 +1990,10 @@ class _InfoPanelState extends State<_InfoPanel> {
 
   late final OnDeviceAnalysisService _onDeviceAnalysis =
       widget.onDeviceAnalysis ??
-      OnDeviceAnalysisService(analysisStore: AiAnalysisStore());
+      OnDeviceAnalysisService(
+        analysisStore: AiAnalysisStore(),
+        onReoriented: widget.personStore.reorientAvatars,
+      );
 
   /// Remembers a face once it's named, and reads back what the analyze
   /// pass guessed. Resolves to the file already open on screen — this

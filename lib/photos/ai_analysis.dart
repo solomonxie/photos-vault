@@ -8,7 +8,12 @@ class AiPhotoAnalysis {
     this.tags = const [],
     this.description = '',
     this.reviewed = false,
+    this.legacyBoxes = false,
   });
+
+  /// Its boxes were measured on the raw sensor buffer and still need
+  /// turning upright (05#7) — see `AiAnalysisStore.reorientFaces`.
+  final bool legacyBoxes;
 
   final String localId;
   final int peopleCount;

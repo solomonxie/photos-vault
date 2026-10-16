@@ -5,6 +5,7 @@ import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
 import 'image_pipeline.dart';
+import 'on_device_vision.dart';
 
 import 'person.dart' show FaceRect;
 
@@ -56,8 +57,22 @@ class FaceCrops {
   /// than Vision's bottom-left `VisionFace`: these crops are made both from
   /// a fresh scan and from boxes read back out of the database, and one of
   /// the two would otherwise be flipped.
-  static Future<List<Uint8List>> of(String path, List<FaceRect> faces) async {
+  ///
+  /// Cut natively where there's a platform (05#15): from the upright,
+  /// downsampled picture, and HEIC too. The Dart decode is the fallback.
+  static Future<List<Uint8List>> of(
+    String path,
+    List<FaceRect> faces, {
+    OnDeviceVisionService? vision,
+  }) async {
     if (faces.isEmpty) return const [];
+    final native = await (vision ?? OnDeviceVisionService()).crops(
+      path,
+      faces,
+      padding: padding,
+      side: _outputSize,
+    );
+    if (native != null) return native;
     try {
       final bytes = await File(path).readAsBytes();
       return await compute(_cropAll, (bytes, faces.map(_toRect).toList()));

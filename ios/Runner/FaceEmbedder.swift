@@ -28,25 +28,36 @@ final class FaceEmbedder {
 
   /// Why it isn't loaded, when it isn't. Kept because "off" on its own
   /// sent us looking in the wrong place once already.
-  private(set) var failure: String?
+  let failure: String?
 
-  private lazy var model: MLModel? = {
+  /// Loaded once, in [init]: `shared` is a `static let`, so Swift runs
+  /// that exactly once however many Vision threads ask at the same time
+  /// (05#14). A `lazy var` read from four threads could load it twice.
+  private let model: MLModel?
+
+  /// One prediction at a time; the analyze pass runs up to four photos at
+  /// once on a concurrent queue.
+  private let lock = NSLock()
+
+  private init() {
     guard let url = Bundle.main.url(
       forResource: "SFace",
       withExtension: "mlmodelc"
     ) else {
+      model = nil
       failure = "SFace.mlmodelc not in the bundle"
-      return nil
+      return
     }
     let configuration = MLModelConfiguration()
     configuration.computeUnits = .all
     do {
-      return try MLModel(contentsOf: url, configuration: configuration)
+      model = try MLModel(contentsOf: url, configuration: configuration)
+      failure = nil
     } catch {
+      model = nil
       failure = "\(error)"
-      return nil
     }
-  }()
+  }
 
   var isAvailable: Bool { model != nil }
 
@@ -75,6 +86,8 @@ final class FaceEmbedder {
     guard let provider = try? MLDictionaryFeatureProvider(
       dictionary: ["data": MLFeatureValue(multiArray: input)]
     ) else { return nil }
+    lock.lock()
+    defer { lock.unlock() }
     guard let out = try? model.prediction(from: provider),
           let name = out.featureNames.first,
           let array = out.featureValue(for: name)?.multiArrayValue

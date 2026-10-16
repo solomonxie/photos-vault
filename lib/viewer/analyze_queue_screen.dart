@@ -134,6 +134,26 @@ class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
                 children: [_controls(l10n)],
               ),
             ),
+            ValueListenableBuilder<String?>(
+              valueListenable: widget.queue.faceModelProblem,
+              builder: (context, problem, _) => problem == null
+                  ? const SizedBox.shrink()
+                  : Padding(
+                      padding: const EdgeInsets.fromLTRB(
+                        settingsPagePadding,
+                        8,
+                        settingsPagePadding,
+                        0,
+                      ),
+                      child: Text(
+                        l10n.analyzeQueueFaceModelOff(problem),
+                        style: const TextStyle(
+                          color: CupertinoColors.systemOrange,
+                          fontSize: 13,
+                        ),
+                      ),
+                    ),
+            ),
             const SettingsSectionDivider(),
             _jobs(l10n),
           ],
@@ -299,6 +319,10 @@ class _JobRow extends StatelessWidget {
             ),
             AnalyzeJobStatus.running => const CupertinoActivityIndicator(
               radius: 9,
+            ),
+            AnalyzeJobStatus.skipped => Text(
+              l10n.analyzeQueueSkipped,
+              style: settingsRowDetailStyle,
             ),
             AnalyzeJobStatus.done => const Icon(
               CupertinoIcons.checkmark_circle_fill,

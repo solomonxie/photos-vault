@@ -19,10 +19,27 @@ class OnDeviceAnalysisService {
   OnDeviceAnalysisService({
     required this.analysisStore,
     OnDeviceVisionService? vision,
+    this.onReoriented,
   }) : vision = vision ?? OnDeviceVisionService();
 
   final AiAnalysisStore analysisStore;
   final OnDeviceVisionService vision;
+
+  /// Told when a photo's old boxes were turned upright, so whatever else
+  /// holds one of them (a person's avatar) can follow.
+  final Future<void> Function(String localId, int orientation)? onReoriented;
+
+  /// Turns boxes measured on the raw sensor buffer upright (05#7), once
+  /// per photo. False when the orientation can't be read yet.
+  Future<bool> settleBoxes(AssetRecord record, String path) async {
+    final existing = await analysisStore.get(record.localId);
+    if (existing == null || !existing.legacyBoxes) return true;
+    final orientation = await vision.orientation(path);
+    if (orientation == null) return false;
+    await analysisStore.reorientFaces(record.localId, orientation);
+    if (orientation > 1) await onReoriented?.call(record.localId, orientation);
+    return true;
+  }
 
   /// Vision reports faces down to a few pixels across — a stadium crowd
   /// behind the subject is not "people in this photo" in any sense the
@@ -35,6 +52,12 @@ class OnDeviceAnalysisService {
       FaceRect(face.x, 1 - face.y - face.height, face.width, face.height);
 
   Future<List<VisionFace>> analyze(AssetRecord record, String path) async {
+    // First, so a fresh look can carry names over to boxes in its own space.
+    try {
+      await settleBoxes(record, path);
+    } catch (_) {
+      // Left marked; the analyze pass tries again.
+    }
     final faces = (await vision.faces(path))
         .where((f) => f.area >= minFaceArea)
         .toList();

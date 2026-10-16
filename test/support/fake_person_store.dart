@@ -214,6 +214,17 @@ class FakePersonStore implements PersonStore {
   }
 
   @override
+  Future<void> reorientAvatars(String localId, int orientation) async {
+    for (final person in _people.values.toList()) {
+      final face = person.avatarFace;
+      if (person.avatarLocalId != localId || face == null) continue;
+      _people[person.id] = person.copyWith(
+        avatarFace: () => face.oriented(orientation),
+      );
+    }
+  }
+
+  @override
   Future<List<String>> localIdsIn(String personId) async =>
       _members[personId]?.toList() ?? const [];
 

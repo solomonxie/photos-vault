@@ -13,6 +13,34 @@ import 'face_matcher.dart' show ConfirmedFace, DescribedFace;
 import 'on_device_vision.dart' show FaceDescriptor;
 import 'person.dart' show FaceRect;
 
+/// Which of [found] each of [old] now is: the same box, or failing that the
+/// one it overlaps most (at least half). Each found box is taken once, in
+/// [old]'s order; an old box with no match is left out.
+Map<FaceRect, FaceRect> carryFaces(List<FaceRect> old, List<FaceRect> found) {
+  const least = 0.5;
+  final free = found.toSet();
+  final out = <FaceRect, FaceRect>{};
+  for (final f in old) {
+    if (free.remove(f)) out[f] = f;
+  }
+  for (final f in old) {
+    if (out.containsKey(f)) continue;
+    FaceRect? best;
+    var bestScore = least;
+    for (final candidate in free) {
+      final score = f.overlap(candidate);
+      if (score >= bestScore) {
+        best = candidate;
+        bestScore = score;
+      }
+    }
+    if (best == null) continue;
+    free.remove(best);
+    out[f] = best;
+  }
+  return out;
+}
+
 /// Local `sqflite` cache of per-asset AI analysis results, keyed by
 /// `AssetRecord.localId` — avoids re-billing OpenAI for a photo already
 /// analyzed. See IMPLEMENTATION_PLAN.md T4.4.
@@ -53,7 +81,7 @@ class AiAnalysisStore {
     final db = await _factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 6,
+        version: 7,
         onCreate: (db, version) => db.execute('''
           CREATE TABLE $_table (
             local_id TEXT PRIMARY KEY,
@@ -62,7 +90,8 @@ class AiAnalysisStore {
             tags TEXT NOT NULL DEFAULT '',
             description TEXT NOT NULL DEFAULT '',
             reviewed INTEGER NOT NULL DEFAULT 0,
-            faces TEXT NOT NULL DEFAULT ''
+            faces TEXT NOT NULL DEFAULT '',
+            upright INTEGER NOT NULL DEFAULT 1
           )
         '''),
         onConfigure: (db) => db.execute('PRAGMA foreign_keys = ON'),
@@ -104,6 +133,16 @@ class AiAnalysisStore {
           // that albums already did better. Rebuilt rather than
           // `DROP COLUMN`, which needs a newer SQLite than every phone has.
           if (from < 6) await _dropEventLabel(db);
+          // v7: boxes found before this were measured on the raw sensor
+          // buffer, not the upright picture (05#7). Marked, and moved by
+          // the analyze pass once the photo's orientation is read.
+          if (from < 7) {
+            await db.execute(
+              'ALTER TABLE $_table '
+              'ADD COLUMN upright INTEGER NOT NULL DEFAULT 0',
+            );
+            await db.execute("UPDATE $_table SET upright = 1 WHERE faces = ''");
+          }
         },
       ),
     );
@@ -254,15 +293,80 @@ class AiAnalysisStore {
   }) async {
     if (descriptor.isEmpty) return;
     final db = await _open();
-    await db.insert(_descriptorTable, {
-      'local_id': localId,
-      'face': face.encode(),
-      'person_id': personId,
-      'revision': descriptor.revision,
-      'vector': descriptor.encode(),
-      'confirmed_at': DateTime.now().millisecondsSinceEpoch,
-    }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+    // A re-description (no [personId]) replaces the vector and keeps the
+    // name and its date: 05#4.
+    await db.rawInsert(
+      'INSERT INTO $_descriptorTable '
+      '(local_id, face, person_id, revision, vector, confirmed_at) '
+      'VALUES (?, ?, ?, ?, ?, ?) '
+      'ON CONFLICT (local_id, face) DO UPDATE SET '
+      'revision = excluded.revision, vector = excluded.vector, '
+      'person_id = COALESCE(excluded.person_id, person_id), '
+      'confirmed_at = CASE WHEN excluded.person_id IS NULL '
+      'THEN confirmed_at ELSE excluded.confirmed_at END',
+      [
+        localId,
+        face.encode(),
+        personId,
+        descriptor.revision,
+        descriptor.encode(),
+        DateTime.now().millisecondsSinceEpoch,
+      ],
+    );
   }
+
+  /// [attachDescriptor] for many faces, in one transaction.
+  Future<void> attachDescriptors(
+    Iterable<({String localId, FaceRect face})> faces,
+    String personId,
+  ) async {
+    final db = await _open();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final batch = db.batch();
+    for (final f in faces) {
+      batch.update(
+        _descriptorTable,
+        {'person_id': personId, 'confirmed_at': now},
+        where: 'local_id = ? AND face = ?',
+        whereArgs: [f.localId, f.face.encode()],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Every stored descriptor of these photos, keyed by [faceKey].
+  Future<Map<String, FaceDescriptor>> descriptorsOf(
+    Iterable<String> localIds,
+  ) async {
+    final all = localIds.toSet().toList();
+    final db = await _open();
+    final out = <String, FaceDescriptor>{};
+    for (var i = 0; i < all.length; i += 900) {
+      final ids = all.skip(i).take(900).toList();
+      final rows = await db.query(
+        _descriptorTable,
+        columns: const ['local_id', 'face', 'revision', 'vector'],
+        where: 'local_id IN (${List.filled(ids.length, '?').join(',')})',
+        whereArgs: ids,
+      );
+      for (final row in rows) {
+        out['${row['local_id']}|${row['face']}'] = FaceDescriptor.decode(
+          row['vector'] as Uint8List?,
+          (row['revision'] as num?)?.toInt() ?? 0,
+        );
+      }
+    }
+    return out;
+  }
+
+  static String faceKey(String localId, FaceRect face) =>
+      '$localId|${face.encode()}';
+
+  /// [clearSuggestions] for many photos.
+  Future<void> clearSuggestionsOf(Iterable<String> localIds) =>
+      _eachChunk(localIds, (batch, where, ids) {
+        batch.delete(_suggestionTable, where: where, whereArgs: ids);
+      });
 
   /// Puts a name to a face already described — what naming does, without
   /// asking Vision about a photo it has already been over.
@@ -610,26 +714,120 @@ class AiAnalysisStore {
   }) async {
     final db = await _open();
     final encoded = encodeFaces(faces);
-    final updated = await db.update(
-      _table,
-      {
-        'people_count': peopleCount,
-        'analyzed_at': analyzedAt.millisecondsSinceEpoch,
-        'faces': encoded,
-      },
+    await db.transaction((txn) async {
+      final updated = await txn.update(
+        _table,
+        {
+          'people_count': peopleCount,
+          'analyzed_at': analyzedAt.millisecondsSinceEpoch,
+          'faces': encoded,
+          'upright': 1,
+        },
+        where: 'local_id = ?',
+        whereArgs: [localId],
+      );
+      if (updated == 0) {
+        await txn.insert(_table, {
+          'local_id': localId,
+          'people_count': peopleCount,
+          'analyzed_at': analyzedAt.millisecondsSinceEpoch,
+          'tags': jsonEncode(const <String>[]),
+          'description': '',
+          'reviewed': 0,
+          'faces': encoded,
+          'upright': 1,
+        }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+      }
+      await _carryDescriptors(txn, localId, (old) => carryFaces(old, faces));
+    });
+  }
+
+  /// Moves this photo's descriptors onto the boxes [map] picks for their
+  /// old ones. A named face nobody's box lands on keeps its old key; an
+  /// unnamed one goes, or "who else" lists the same face twice (05#23).
+  /// Its guesses go too: they are about boxes that moved.
+  static Future<void> _carryDescriptors(
+    sqflite.DatabaseExecutor txn,
+    String localId,
+    Map<FaceRect, FaceRect> Function(List<FaceRect> old) map,
+  ) async {
+    final rows = await txn.query(
+      _descriptorTable,
       where: 'local_id = ?',
       whereArgs: [localId],
     );
-    if (updated > 0) return;
-    await db.insert(_table, {
-      'local_id': localId,
-      'people_count': peopleCount,
-      'analyzed_at': analyzedAt.millisecondsSinceEpoch,
-      'tags': jsonEncode(const <String>[]),
-      'description': '',
-      'reviewed': 0,
-      'faces': encoded,
-    }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+    if (rows.isEmpty) return;
+    final old = [
+      for (final row in rows) FaceRect.decode(row['face'] as String?),
+    ];
+    // Named first, so a name wins the box.
+    final order = List.generate(rows.length, (i) => i)
+      ..sort(
+        (a, b) => (rows[a]['person_id'] == null ? 1 : 0).compareTo(
+          rows[b]['person_id'] == null ? 1 : 0,
+        ),
+      );
+    final moved = map([for (final i in order) ?old[i]]);
+    final unchanged = [
+      for (var i = 0; i < rows.length; i++)
+        if (old[i] != null && moved[old[i]] == old[i]) i,
+    ];
+    if (unchanged.length == rows.length) return;
+    await txn.delete(
+      _descriptorTable,
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+    for (final i in order) {
+      final from = old[i];
+      final to = from == null ? null : moved[from];
+      final named = rows[i]['person_id'] != null;
+      if (to == null && !named) continue;
+      await txn.insert(_descriptorTable, {
+        ...rows[i],
+        if (to != null) 'face': to.encode(),
+      }, conflictAlgorithm: sqflite.ConflictAlgorithm.ignore);
+    }
+    await txn.delete(
+      _suggestionTable,
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  /// Moves a photo's boxes from the raw sensor buffer they were measured
+  /// on to the upright picture, for the EXIF [orientation] (05#7).
+  /// Descriptors and guesses follow, so names stay on their faces.
+  Future<void> reorientFaces(String localId, int orientation) async {
+    final db = await _open();
+    await db.transaction((txn) async {
+      final rows = await txn.query(
+        _table,
+        columns: const ['faces', 'upright'],
+        where: 'local_id = ?',
+        whereArgs: [localId],
+        limit: 1,
+      );
+      if (rows.isEmpty || rows.single['upright'] == 1) return;
+      final faces = decodeFaces(rows.single['faces'] as String?);
+      await txn.update(
+        _table,
+        {
+          'faces': encodeFaces([
+            for (final f in faces) f.oriented(orientation),
+          ]),
+          'upright': 1,
+        },
+        where: 'local_id = ?',
+        whereArgs: [localId],
+      );
+      if (orientation <= 1 || orientation > 8) return;
+      await _carryDescriptors(
+        txn,
+        localId,
+        (old) => {for (final f in old) f: f.oriented(orientation)},
+      );
+    });
   }
 
   /// Where the faces are, per photo — for drawing one, which a count can't.
@@ -751,6 +949,7 @@ class AiAnalysisStore {
     tags: _tags(row['tags']),
     description: row['description'] as String? ?? '',
     reviewed: (row['reviewed'] as int? ?? 0) == 1,
+    legacyBoxes: row['upright'] == 0,
   );
 
   static List<String> _tags(Object? raw) {

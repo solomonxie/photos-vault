@@ -230,15 +230,11 @@ class _FaceGroupScreenState extends State<FaceGroupScreen> {
         ),
       );
     }
-    for (final face in kept) {
-      final record = _byAsset[face.localId];
-      if (record == null) continue;
-      await widget.faceIdentity.remember(
-        record: record,
-        face: face.face,
-        personId: person.id,
-      );
-    }
+    await widget.faceIdentity.rememberMany([
+      for (final face in kept)
+        if (_byAsset[face.localId] case final record?)
+          (record: record, face: face.face),
+    ], person.id);
     if (!mounted) return;
     Navigator.of(context).pop(person);
   }

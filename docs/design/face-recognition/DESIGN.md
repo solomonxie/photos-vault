@@ -129,6 +129,16 @@ still be a page somebody can read rather than the whole library.
   in an iPhone backup), minus hidden photos' faces, which hiding deletes.
 - Cost: one extra Vision pass per unnamed face during analysis, and one per
   face at confirm time. No network, no money.
+- Boxes, crops and descriptors all come from one upright decode (EXIF
+  applied, ≤ 2048 px), one native call per photo. Rows from before
+  analysis v7 were measured on the raw sensor buffer; the analyze pass reads
+  each one's orientation once and turns its boxes, descriptor keys and any
+  avatar box upright.
+- Re-describing (a new pipeline) replaces the vector, never the name.
+- Finding faces again carries each descriptor to the new box it overlaps
+  (IoU ≥ 0.5), names first; an unnamed one with no box is dropped.
+- If SFace doesn't load, the aligned print (pipeline 3) is a live space:
+  kept, not re-described every run. The analyze page says why.
 
 ## Risks / open questions
 - **Accuracy is unproven.** A general descriptor may not separate faces well

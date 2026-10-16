@@ -2330,24 +2330,40 @@ class AssetRecordStore {
   }
 
   /// Photos carrying a GPS tag that nobody — neither the user nor the
-  /// geocoder — has put a name to yet. Oldest-scanned first so a run picks
-  /// up where the last one stopped.
+  /// geocoder — has put a name to yet, newest first. Photos in a cell the
+  /// geocoder recently said is empty are left out, so they can't fill the
+  /// page and hide everything older (05#8).
   Future<List<AssetRecord>> listAwaitingPlaceName({int limit = 200}) async {
     final db = await _open();
-    final rows = await db.query(
-      _table,
-      where:
-          "latitude IS NOT NULL AND longitude IS NOT NULL "
-          "AND (location IS NULL OR location = '') AND deleted_at IS NULL",
-      orderBy: 'created_at DESC',
-      limit: limit,
+    final rows = await db.rawQuery(
+      'SELECT * FROM $_table '
+      'WHERE latitude IS NOT NULL AND longitude IS NOT NULL '
+      "AND (location IS NULL OR location = '') AND deleted_at IS NULL "
+      'AND ${_cellSql('latitude')} || \':\' || ${_cellSql('longitude')} '
+      'NOT IN (SELECT cell FROM $_placeNameTable '
+      'WHERE name IS NULL AND updated_at > ?) '
+      'ORDER BY created_at DESC LIMIT ?',
+      [_emptyCellSince(), limit],
     );
     return rows.map(_fromRow).toList();
   }
 
+  /// `PhotoLocationService.cellFor` in SQL: floor(v / 0.05).
+  static String _cellSql(String column) =>
+      '(CAST($column / 0.05 AS INTEGER) - '
+      '($column / 0.05 < CAST($column / 0.05 AS INTEGER)))';
+
+  /// How long a geocoder's "nothing there" is believed before it is asked
+  /// again.
+  static const emptyCellLifetime = Duration(days: 30);
+
+  static int _emptyCellSince() =>
+      DateTime.now().subtract(emptyCellLifetime).millisecondsSinceEpoch;
+
   /// The name already worked out for a patch of the world, or `null` if
-  /// that patch has never been looked up. The record it returns can itself
-  /// hold a null [PlaceNameEntry.name] — a remembered "nothing there".
+  /// that patch has never been looked up (or its "nothing there" is older
+  /// than [emptyCellLifetime]). The record it returns can itself hold a
+  /// null [PlaceNameEntry.name] — a remembered "nothing there".
   Future<PlaceNameEntry?> cachedPlaceName(String cell) async {
     final db = await _open();
     final rows = await db.query(
@@ -2357,7 +2373,10 @@ class AssetRecordStore {
       limit: 1,
     );
     if (rows.isEmpty) return null;
-    return PlaceNameEntry(rows.single['name'] as String?);
+    final name = rows.single['name'] as String?;
+    final at = (rows.single['updated_at'] as num?)?.toInt() ?? 0;
+    if (name == null && at <= _emptyCellSince()) return null;
+    return PlaceNameEntry(name);
   }
 
   Future<void> cachePlaceName(String cell, String? name) async {

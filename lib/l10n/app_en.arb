@@ -725,6 +725,15 @@
   "analyzeQueueRunNowButton": "Analyze Now",
   "analyzeQueueRunningMessage": "Analyzing…",
   "analyzeQueueEmpty": "Nothing left to analyze. New photos are added to the queue as they arrive.",
+  "analyzeQueueSkipped": "Later",
+  "analyzeQueueFaceModelOff": "The face model didn't load ({reason}). Faces are still found and kept, but matched less accurately, until an app update loads it.",
+  "@analyzeQueueFaceModelOff": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
   "analyzeQueueStepFaces": "Finding faces",
   "analyzeQueueStepLearnFaces": "Learning a face",
   "analyzeQueueStepMatchFaces": "Matching faces to people",

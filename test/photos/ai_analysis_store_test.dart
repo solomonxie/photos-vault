@@ -1,3 +1,5 @@
+import 'dart:io';
+
 import 'package:photos_vault/photos/ai_analysis.dart';
 import 'package:photos_vault/photos/ai_analysis_store.dart';
 
@@ -243,5 +245,101 @@ void main() {
     final store = newStore();
 
     expect(await store.listAll(), isEmpty);
+  });
+
+  group('WP12: faces keep their names', () {
+    FaceDescriptor print(int pipeline, List<double> v) => FaceDescriptor(
+      vector: Float32List.fromList(v),
+      revision: FaceDescriptor.combineRevision(1, pipeline),
+    );
+    const face = FaceRect(0.1, 0.2, 0.3, 0.4);
+
+    test('a re-description replaces the vector, not the name (05#4)', () async {
+      final store = newStore();
+      await store.saveDescriptor(
+        localId: 'p',
+        face: face,
+        personId: 'nina',
+        descriptor: print(3, const [1, 0]),
+      );
+
+      await store.saveDescriptor(
+        localId: 'p',
+        face: face,
+        descriptor: print(4, const [0, 1]),
+      );
+
+      final named = await store.confirmedFacesFor('nina');
+      expect(named.single.descriptor.pipeline, 4);
+      expect(await store.faceOfPersonIn('p', 'nina'), face);
+      expect(
+        await store.staleDescriptorAssets(FaceDescriptor.livePipelines),
+        isEmpty,
+      );
+    });
+
+    test('turning boxes upright moves names with them (05#7)', () async {
+      final dir = Directory.systemTemp.createTempSync('ai_upright_');
+      addTearDown(() => dir.deleteSync(recursive: true));
+      final path = '${dir.path}/ai.db';
+      final store = AiAnalysisStore(
+        databaseFactory: databaseFactoryFfi,
+        path: path,
+      );
+      addTearDown(store.close);
+      await store.saveFaceCount(
+        localId: 'p',
+        peopleCount: 1,
+        analyzedAt: DateTime(2026),
+        faces: const [face],
+      );
+      // As a pre-v7 row: measured on the raw buffer.
+      final db = await databaseFactoryFfi.openDatabase(path);
+      await db.update('ai_analysis', {'upright': 0});
+      await store.saveDescriptor(
+        localId: 'p',
+        face: face,
+        personId: 'nina',
+        descriptor: print(4, const [1, 0]),
+      );
+      expect((await store.get('p'))!.legacyBoxes, isTrue);
+
+      await store.reorientFaces('p', 6);
+      await store.reorientFaces('p', 6);
+
+      final upright = face.oriented(6);
+      expect(await store.facesFor('p'), [upright], reason: 'once only');
+      expect(await store.faceOfPersonIn('p', 'nina'), upright);
+      expect((await store.get('p'))!.legacyBoxes, isFalse);
+    });
+
+    test('finding faces again carries names to the boxes they overlap, and '
+        'drops unnamed leftovers (05#23)', () async {
+      final store = newStore();
+      const gone = FaceRect(0.7, 0.7, 0.1, 0.1);
+      await store.saveDescriptor(
+        localId: 'p',
+        face: face,
+        personId: 'nina',
+        descriptor: print(4, const [1, 0]),
+      );
+      await store.saveDescriptor(
+        localId: 'p',
+        face: gone,
+        descriptor: print(4, const [0, 1]),
+      );
+      const shifted = FaceRect(0.11, 0.21, 0.3, 0.39);
+
+      await store.saveFaceCount(
+        localId: 'p',
+        peopleCount: 1,
+        analyzedAt: DateTime(2026),
+        faces: const [shifted],
+      );
+
+      expect(await store.faceOfPersonIn('p', 'nina'), shifted);
+      final all = await store.allDescribedFaces();
+      expect(all.map((f) => f.face), [shifted], reason: 'no duplicate');
+    });
   });
 }

@@ -474,6 +474,15 @@
   "analyzeQueueRunNowButton": "立即分析",
   "analyzeQueueRunningMessage": "分析中…",
   "analyzeQueueEmpty": "没有待分析的照片。新照片会自动加入队列。",
+  "analyzeQueueSkipped": "稍后",
+  "analyzeQueueFaceModelOff": "人脸模型未能加载（{reason}）。仍会找到并保留人脸，但匹配不够准确，直到应用更新后加载成功。",
+  "@analyzeQueueFaceModelOff": {
+    "placeholders": {
+      "reason": {
+        "type": "String"
+      }
+    }
+  },
   "analyzeQueueStepFaces": "寻找人脸",
   "analyzeQueueStepLearnFaces": "学习人脸",
   "analyzeQueueStepMatchFaces": "匹配人脸到人物",

@@ -63,6 +63,11 @@ class FaceDescriptor {
   /// re-described rather than compared.
   static const livePipelines = {2, 4};
 
+  /// [livePipelines] on a phone where the model didn't load (05#5): the
+  /// aligned print is then the best there is, and re-describing it would
+  /// only make it again. Nothing is stale until the model is back.
+  static const livePipelinesWithoutModel = {2, 3, 4};
+
   static int combineRevision(int visionRevision, int pipeline) =>
       pipeline * 1000 + visionRevision;
 
@@ -71,7 +76,9 @@ class FaceDescriptor {
   /// Described by a preprocessing step this build no longer uses. Worth
   /// describing again — comparing across it would rank an unrelated face
   /// above a real match with no way to tell.
-  bool get isStale => !isEmpty && !livePipelines.contains(pipeline);
+  bool get isStale => isStaleIn(livePipelines);
+
+  bool isStaleIn(Set<int> live) => !isEmpty && !live.contains(pipeline);
 
   /// How far apart two descriptors are, as **cosine distance**: 0 for the
   /// same direction, ~1 for unrelated, 2 for opposite.
@@ -171,6 +178,74 @@ class OnDeviceVisionService {
     }
   }
 
+  /// Why the model didn't load, as the platform said it; null when it
+  /// did, or when there's no platform to ask (tests, not iOS).
+  Future<String?> get faceModelFailure async {
+    try {
+      final status = await _channel.invokeMethod<Object?>('faceModel');
+      return status is String ? status : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// The file's EXIF orientation (1–8), from its header; null off iOS.
+  Future<int?> orientation(String path) async {
+    try {
+      return await _channel.invokeMethod<int>('orientation', {'path': path});
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// [featurePrint] for every one of [faces], from one decode (05#14).
+  /// Same length as [faces]; an empty descriptor where Vision refused.
+  Future<List<FaceDescriptor>> featurePrints(
+    String path,
+    List<FaceRect> faces,
+  ) async {
+    if (faces.isEmpty) return const [];
+    try {
+      final raw = await _channel.invokeListMethod<Object?>('featurePrints', {
+        'path': path,
+        'faces': [
+          for (final f in faces) [f.x, f.y, f.width, f.height],
+        ],
+      });
+      if (raw != null && raw.length == faces.length) {
+        return [for (final item in raw) _descriptorOf(item)];
+      }
+    } catch (_) {
+      // An older platform side, or none: one call per face below.
+    }
+    return [for (final f in faces) await featurePrint(path, face: f)];
+  }
+
+  /// Square JPEG crops of [faces], cut natively from the upright picture
+  /// (05#15: HEIC works, no Dart decode). Null when the platform can't.
+  Future<List<Uint8List>?> crops(
+    String path,
+    List<FaceRect> faces, {
+    required double padding,
+    required int side,
+  }) async {
+    try {
+      final raw = await _channel.invokeListMethod<Object?>('crops', {
+        'path': path,
+        'faces': [
+          for (final f in faces) [f.x, f.y, f.width, f.height],
+        ],
+        'padding': padding,
+        'side': side,
+      });
+      if (raw == null || raw.length != faces.length) return null;
+      final out = [for (final item in raw) ?(item is Uint8List ? item : null)];
+      return out.length == faces.length ? out : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
   Future<List<VisionFace>> faces(String path) async {
     final raw = await _invoke('faces', {'path': path});
     return [
@@ -204,19 +279,24 @@ class OnDeviceVisionService {
           },
         },
       );
-      final vector = raw?['vector'];
-      if (vector is! Float32List) return _noDescriptor;
-      return FaceDescriptor(
-        vector: vector,
-        revision: FaceDescriptor.combineRevision(
-          (raw?['revision'] as num? ?? 0).toInt(),
-          (raw?['pipeline'] as num? ?? FaceDescriptor.currentPipeline).toInt(),
-        ),
-      );
+      return _descriptorOf(raw);
     } catch (_) {
       // See [_invoke].
       return _noDescriptor;
     }
+  }
+
+  static FaceDescriptor _descriptorOf(Object? raw) {
+    if (raw is! Map) return _noDescriptor;
+    final vector = raw['vector'];
+    if (vector is! Float32List) return _noDescriptor;
+    return FaceDescriptor(
+      vector: vector,
+      revision: FaceDescriptor.combineRevision(
+        (raw['revision'] as num? ?? 0).toInt(),
+        (raw['pipeline'] as num? ?? FaceDescriptor.currentPipeline).toInt(),
+      ),
+    );
   }
 
   static final _noDescriptor = FaceDescriptor(

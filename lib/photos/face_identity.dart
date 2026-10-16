@@ -87,45 +87,79 @@ class FaceIdentityService {
   final OnDeviceVisionService vision;
   final FaceMatcher matcher;
 
+  /// Spaces worth keeping. Narrowed to the model's once it is known to be
+  /// loaded; see [FaceDescriptor.livePipelinesWithoutModel].
+  Set<int> livePipelines = FaceDescriptor.livePipelines;
+
+  bool _usable(FaceDescriptor? d) =>
+      d != null && !d.isEmpty && !d.isStaleIn(livePipelines);
+
   /// Records that [face] in [record] is [personId], so the next photo of
   /// them can be guessed. Silent on anything that doesn't work out — a
   /// missed descriptor costs a suggestion, never the link the user just
-  /// made.
-  Future<void> remember({
+  /// made. False when nothing could be saved.
+  Future<bool> remember({
     required AssetRecord record,
     required FaceRect face,
     required String personId,
-  }) async {
+  }) => rememberMany([(record: record, face: face)], personId);
+
+  /// [remember] for many faces at once: one read, one write, one
+  /// transaction for the ones already described (05#16).
+  Future<bool> rememberMany(
+    List<({AssetRecord record, FaceRect face})> faces,
+    String personId,
+  ) async {
+    if (faces.isEmpty) return false;
     try {
-      // Already described, most of the time — the analyze pass describes
-      // every face it finds. Naming one is then a column update, not
-      // another look at the photo.
-      var descriptor = await analysisStore.descriptorFor(record.localId, face);
-      if (descriptor == null || descriptor.isEmpty || descriptor.isStale) {
-        final path = await resolvePath(record);
-        if (path == null) return;
-        descriptor = await vision.featurePrint(
-          path,
-          face: FaceCrops.descriptorRect(face),
-        );
-        if (descriptor.isEmpty) return;
-      }
       // Before the write: their *first* face is what turns "no opinion"
       // into a guess everywhere, so every unmatched photo earns another
       // look. Their tenth changes almost nothing and shouldn't re-run the
       // library.
       final isFirst = !await analysisStore.hasDescriptorsFor(personId);
-      await analysisStore.saveDescriptor(
-        localId: record.localId,
-        face: face,
-        personId: personId,
-        descriptor: descriptor,
+      final stored = await analysisStore.descriptorsOf(
+        faces.map((f) => f.record.localId),
       );
-      // This photo's own guesses are about a question that's now answered.
-      await analysisStore.clearSuggestions(record.localId);
+      final described = <({String localId, FaceRect face})>[];
+      final missing = <String, List<({AssetRecord record, FaceRect face})>>{};
+      for (final f in faces) {
+        final key = AiAnalysisStore.faceKey(f.record.localId, f.face);
+        if (_usable(stored[key])) {
+          described.add((localId: f.record.localId, face: f.face));
+        } else {
+          missing.putIfAbsent(f.record.localId, () => []).add(f);
+        }
+      }
+      final saved = {for (final f in described) f.localId};
+      if (described.isNotEmpty) {
+        await analysisStore.attachDescriptors(described, personId);
+      }
+      // Rare: the analyze pass describes every face it finds.
+      for (final group in missing.values) {
+        final path = await resolvePath(group.first.record);
+        if (path == null) continue;
+        final prints = await vision.featurePrints(path, [
+          for (final f in group) FaceCrops.descriptorRect(f.face),
+        ]);
+        for (var i = 0; i < group.length; i++) {
+          if (prints[i].isEmpty) continue;
+          await analysisStore.saveDescriptor(
+            localId: group[i].record.localId,
+            face: group[i].face,
+            personId: personId,
+            descriptor: prints[i],
+          );
+          saved.add(group[i].record.localId);
+        }
+      }
+      if (saved.isEmpty) return false;
+      // These photos' own guesses are about a question that's now answered.
+      await analysisStore.clearSuggestionsOf(saved);
       if (isFirst) await analysisStore.clearAllSuggestions();
+      return true;
     } catch (_) {
       // No Vision, no file, no database. The person link stands either way.
+      return false;
     }
   }
 
@@ -150,36 +184,52 @@ class FaceIdentityService {
   /// Describes each of [faces], guesses who it is against [confirmed], and
   /// records the answer — including "no opinion", which has to be stored
   /// or the pass asks the same unanswerable question of the same photo
-  /// forever.
-  Future<void> suggestFor({
+  /// forever. False when nothing was recorded (no file for a face that
+  /// still needs describing), so the caller can call it a skip.
+  Future<bool> suggestFor({
     required AssetRecord record,
     required List<FaceRect> faces,
     required List<ConfirmedFace> confirmed,
   }) async {
-    if (faces.isEmpty) return;
-    final byFace = <String, String?>{for (final f in faces) f.encode(): null};
+    if (faces.isEmpty) return false;
+    final stored = await analysisStore.descriptorsOf([record.localId]);
+    final descriptors = {
+      for (final f in faces)
+        f: stored[AiAnalysisStore.faceKey(record.localId, f)],
+    };
     // Described whether or not there is anyone to compare against: the
-    // description is what "who else looks like this?" searches, and it is
-    // the same Vision pass either way.
-    final path = await resolvePath(record);
-    if (path == null) return;
-    for (final face in faces) {
-      var descriptor = await analysisStore.descriptorFor(record.localId, face);
-      if (descriptor == null || descriptor.isEmpty || descriptor.isStale) {
-        descriptor = await vision.featurePrint(
-          path,
-          face: FaceCrops.descriptorRect(face),
-        );
-        if (descriptor.isEmpty) continue;
+    // description is what "who else looks like this?" searches. The file
+    // only when a face needs it (05#13) — after the first naming every
+    // photo is matched again, and almost all are described already.
+    final missing = [
+      for (final f in faces)
+        if (!_usable(descriptors[f])) f,
+    ];
+    if (missing.isNotEmpty) {
+      final path = await resolvePath(record);
+      if (path == null) return false;
+      final prints = await vision.featurePrints(path, [
+        for (final f in missing) FaceCrops.descriptorRect(f),
+      ]);
+      for (var i = 0; i < missing.length; i++) {
+        descriptors[missing[i]] = prints[i];
+        // Keeps the name on a face that had one (05#4).
         await analysisStore.saveDescriptor(
           localId: record.localId,
-          face: face,
-          descriptor: descriptor,
+          face: missing[i],
+          descriptor: prints[i],
         );
       }
-      if (confirmed.isEmpty) continue;
-      byFace[face.encode()] = matcher.match(descriptor, confirmed)?.personId;
     }
+    final byFace = <String, String?>{
+      for (final f in faces)
+        f.encode(): switch (descriptors[f]) {
+          final d? when !d.isEmpty && confirmed.isNotEmpty =>
+            matcher.match(d, confirmed)?.personId,
+          _ => null,
+        },
+    };
     await analysisStore.saveSuggestions(record.localId, byFace);
+    return true;
   }
 }

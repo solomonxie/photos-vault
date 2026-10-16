@@ -34,6 +34,30 @@ class _FakeVision implements OnDeviceVisionService {
   Future<Object?> get faceModelStatus async => 'no model in tests';
 
   @override
+  Future<List<FaceDescriptor>> featurePrints(
+    String path,
+    List<FaceRect> faces,
+  ) async => [for (final f in faces) await featurePrint(path, face: f)];
+
+  @override
+  Future<String?> get faceModelFailure async => modelFailure;
+
+  String? modelFailure;
+
+  @override
+  Future<int?> orientation(String path) async => orientations[path] ?? 1;
+
+  final Map<String, int> orientations = {};
+
+  @override
+  Future<List<Uint8List>?> crops(
+    String path,
+    List<FaceRect> faces, {
+    required double padding,
+    required int side,
+  }) async => null;
+
+  @override
   Future<List<VisionFace>> faces(String path) async => const [];
 
   @override
@@ -220,5 +244,84 @@ void main() {
     await identity.forget('nina');
 
     expect(await analyses.confirmedFaces(), isEmpty);
+  });
+
+  test('re-describing a stale named face keeps its name (05#4)', () async {
+    final group = await photo('g', [1, 0, 0]);
+    const other = FaceRect(0.6, 0.1, 0.2, 0.2);
+    for (final f in [face, other]) {
+      await analyses.saveDescriptor(
+        localId: 'g',
+        face: f,
+        personId: f == face ? 'nina' : null,
+        descriptor: FaceDescriptor(
+          vector: Float32List.fromList(const [1, 0, 0]),
+          revision: FaceDescriptor.combineRevision(1, 3),
+        ),
+      );
+    }
+
+    final recorded = await identity.suggestFor(
+      record: group,
+      faces: const [face, other],
+      confirmed: const [],
+    );
+
+    expect(recorded, isTrue);
+    expect(vision.calls, 2, reason: 'both re-described');
+    expect((await analyses.descriptorFor('g', face))!.isStale, isFalse);
+    expect(await analyses.faceOfPersonIn('g', 'nina'), face);
+  });
+
+  test('matching only opens the file for a face it has to describe '
+      '(05#13)', () async {
+    final described = await photo('d', [1, 0, 0]);
+    await identity.suggestFor(
+      record: described,
+      faces: const [face],
+      confirmed: const [],
+    );
+    var resolved = 0;
+    final lazy = FaceIdentityService(
+      analysisStore: analyses,
+      resolvePath: (r) async {
+        resolved++;
+        return '/tmp/${r.localId}.jpg';
+      },
+      vision: vision,
+    );
+
+    await lazy.suggestFor(
+      record: described,
+      faces: const [face],
+      confirmed: const [],
+    );
+
+    expect(resolved, 0);
+  });
+
+  test('naming many faces at once links every described one', () async {
+    final a = await photo('ma', [1, 0, 0]);
+    final b = await photo('mb', [0, 1, 0]);
+    for (final r in [a, b]) {
+      await identity.suggestFor(
+        record: r,
+        faces: const [face],
+        confirmed: const [],
+      );
+    }
+    final before = vision.calls;
+
+    final saved = await identity.rememberMany([
+      (record: a, face: face),
+      (record: b, face: face),
+    ], 'nina');
+
+    expect(saved, isTrue);
+    expect(vision.calls, before, reason: 'already described');
+    expect(
+      (await analyses.confirmedFacesFor('nina')).map((f) => f.localId),
+      unorderedEquals(['ma', 'mb']),
+    );
   });
 }

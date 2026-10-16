@@ -21,6 +21,34 @@ class FaceRect {
     return FaceRect(numbers[0]!, numbers[1]!, numbers[2]!, numbers[3]!);
   }
 
+  /// This box, measured on the raw sensor buffer, moved to the upright
+  /// picture an EXIF [orientation] (1–8) describes.
+  FaceRect oriented(int orientation) => switch (orientation) {
+    2 => FaceRect(1 - x - width, y, width, height),
+    3 => FaceRect(1 - x - width, 1 - y - height, width, height),
+    4 => FaceRect(x, 1 - y - height, width, height),
+    5 => FaceRect(y, x, height, width),
+    6 => FaceRect(1 - y - height, x, height, width),
+    7 => FaceRect(1 - y - height, 1 - x - width, height, width),
+    8 => FaceRect(y, 1 - x - width, height, width),
+    _ => this,
+  };
+
+  /// Intersection over union: 1 for the same box, 0 for disjoint.
+  double overlap(FaceRect other) {
+    final left = x > other.x ? x : other.x;
+    final top = y > other.y ? y : other.y;
+    final right = x + width < other.x + other.width
+        ? x + width
+        : other.x + other.width;
+    final bottom = y + height < other.y + other.height
+        ? y + height
+        : other.y + other.height;
+    if (right <= left || bottom <= top) return 0;
+    final shared = (right - left) * (bottom - top);
+    return shared / (width * height + other.width * other.height - shared);
+  }
+
   @override
   bool operator ==(Object other) =>
       other is FaceRect &&

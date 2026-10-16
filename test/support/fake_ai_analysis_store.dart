@@ -13,6 +13,9 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   final _analyses = <String, AiPhotoAnalysis>{};
   final _faces = <String, List<FaceRect>>{};
 
+  /// Rows whose boxes are still in raw sensor space (schema v7).
+  final legacy = <String>{};
+
   @override
   Future<void> close() async {}
 
@@ -39,6 +42,16 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     List<FaceRect> faces = const [],
   }) async {
     if (faces.isNotEmpty) _faces[localId] = faces;
+    legacy.remove(localId);
+    final moved = carryFaces([
+      ..._descriptors
+          .where((d) => d.localId == localId && d.personId != null)
+          .map((d) => d.face),
+      ..._descriptors
+          .where((d) => d.localId == localId && d.personId == null)
+          .map((d) => d.face),
+    ], faces);
+    _moveDescriptors(localId, (f) => moved[f]);
     final existing = _analyses[localId];
     _analyses[localId] = AiPhotoAnalysis(
       localId: localId,
@@ -47,6 +60,58 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
       tags: existing?.tags ?? const [],
       description: existing?.description ?? '',
       reviewed: existing?.reviewed ?? false,
+    );
+  }
+
+  void _moveDescriptors(String localId, FaceRect? Function(FaceRect) to) {
+    final mine = _descriptors.where((d) => d.localId == localId).toList();
+    if (mine.every((d) => to(d.face) == d.face)) return;
+    _descriptors.removeWhere((d) => d.localId == localId);
+    for (final d in mine) {
+      final next = to(d.face);
+      if (next == null && d.personId == null) continue;
+      _descriptors.add(
+        DescribedFace(
+          localId: localId,
+          face: next ?? d.face,
+          personId: d.personId,
+          descriptor: d.descriptor,
+        ),
+      );
+    }
+    _suggestions.remove(localId);
+  }
+
+  @override
+  Future<void> reorientFaces(String localId, int orientation) async {
+    if (!legacy.remove(localId)) return;
+    final faces = _faces[localId];
+    if (faces != null) {
+      _faces[localId] = [for (final f in faces) f.oriented(orientation)];
+    }
+    final a = _analyses[localId];
+    if (a != null) {
+      _analyses[localId] = AiPhotoAnalysis(
+        localId: a.localId,
+        peopleCount: a.peopleCount,
+        analyzedAt: a.analyzedAt,
+        tags: a.tags,
+        description: a.description,
+        reviewed: a.reviewed,
+      );
+    }
+    _moveDescriptors(localId, (f) => f.oriented(orientation));
+  }
+
+  /// Seeds a row as a pre-v7 one: boxes measured on the raw buffer.
+  void seedLegacy(String localId, List<FaceRect> faces) {
+    _faces[localId] = faces;
+    legacy.add(localId);
+    _analyses[localId] = AiPhotoAnalysis(
+      localId: localId,
+      peopleCount: faces.length,
+      analyzedAt: DateTime(2026),
+      legacyBoxes: true,
     );
   }
 
@@ -93,15 +158,49 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     required FaceDescriptor descriptor,
     String? personId,
   }) async {
+    if (descriptor.isEmpty) return;
+    final kept = _descriptors
+        .where((d) => d.localId == localId && d.face == face)
+        .firstOrNull
+        ?.personId;
     _descriptors.removeWhere((d) => d.localId == localId && d.face == face);
     _descriptors.add(
       DescribedFace(
         localId: localId,
         face: face,
-        personId: personId,
+        personId: personId ?? kept,
         descriptor: descriptor,
       ),
     );
+  }
+
+  @override
+  Future<void> attachDescriptors(
+    Iterable<({String localId, FaceRect face})> faces,
+    String personId,
+  ) async {
+    for (final f in faces) {
+      await attachDescriptor(f.localId, f.face, personId);
+    }
+  }
+
+  @override
+  Future<Map<String, FaceDescriptor>> descriptorsOf(
+    Iterable<String> localIds,
+  ) async {
+    final ids = localIds.toSet();
+    return {
+      for (final d in _descriptors)
+        if (ids.contains(d.localId))
+          AiAnalysisStore.faceKey(d.localId, d.face): d.descriptor,
+    };
+  }
+
+  @override
+  Future<void> clearSuggestionsOf(Iterable<String> localIds) async {
+    for (final id in localIds) {
+      _suggestions.remove(id);
+    }
   }
 
   @override

@@ -78,9 +78,13 @@ class PhotoLocationService {
       if (cached == null) {
         // Only an unknown cell costs a question, and the pause goes with
         // the question rather than with the photo.
-        final name = await _lookUp(latitude, longitude);
-        await store.cachePlaceName(cell, name);
-        cached = PlaceNameEntry(name);
+        final answer = await _lookUp(latitude, longitude);
+        // Throttled or offline: not an answer, so nothing is cached and
+        // the run stops here rather than hammering a refusing geocoder
+        // (05#8). The next run starts again.
+        if (answer == null) break;
+        await store.cachePlaceName(cell, answer.name);
+        cached = PlaceNameEntry(answer.name);
         await wait(spacing);
       }
       final name = cached.name;
@@ -97,11 +101,13 @@ class PhotoLocationService {
     return named;
   }
 
-  Future<String?> _lookUp(double latitude, double longitude) async {
+  /// The geocoder's answer — a name, or null for "nothing there" — or
+  /// null itself when it didn't answer.
+  Future<({String? name})?> _lookUp(double latitude, double longitude) async {
     try {
       final placemarks = await _reverseGeocode(latitude, longitude);
-      if (placemarks.isEmpty) return null;
-      return placeNameOf(placemarks.first);
+      if (placemarks.isEmpty) return (name: null);
+      return (name: placeNameOf(placemarks.first));
     } catch (_) {
       return null;
     }
@@ -143,9 +149,10 @@ class PhotoLocationService {
       final cell = cellFor(latLng.latitude, latLng.longitude);
       final cached = await store?.cachedPlaceName(cell);
       if (cached != null) return cached.name;
-      final name = await _lookUp(latLng.latitude, latLng.longitude);
-      await store?.cachePlaceName(cell, name);
-      return name;
+      final answer = await _lookUp(latLng.latitude, latLng.longitude);
+      if (answer == null) return null;
+      await store?.cachePlaceName(cell, answer.name);
+      return answer.name;
     } catch (_) {
       // No plugin (tests), no network, or the geocoder is throttling —
       // the field just stays empty and can be typed in by hand.

@@ -75,7 +75,7 @@ class ManualAddService {
     final hash = await hashFile(path);
     final dir = await _targetDirectory();
     final owned = File(p.join(dir.path, '$hash${p.extension(path)}'));
-    if (!await owned.exists()) await File(path).copy(owned.path);
+    await _own(File(path), owned);
     return store.upsert(
       localId: 'manual:$hash',
       contentHash: hash,
@@ -91,6 +91,22 @@ class ManualAddService {
       isHidden: isHidden,
     );
   }
+}
+
+/// Puts a whole copy of [source] at [owned]. Copied to `.part` and renamed,
+/// so a kill mid-copy never leaves a short file under the final name; one
+/// already there at the wrong size (from before this) is copied again
+/// (05#10).
+Future<void> _own(File source, File owned) async {
+  final size = await source.length();
+  if (await owned.exists() && await owned.length() == size) return;
+  final part = File('${owned.path}.part');
+  await source.copy(part.path);
+  if (await part.length() != size) {
+    await part.delete();
+    throw FileSystemException('Copy came out short', owned.path);
+  }
+  await part.rename(owned.path);
 }
 
 /// The camera's date from [file]'s own header, or null. Without it an

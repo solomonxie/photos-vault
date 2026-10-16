@@ -405,7 +405,10 @@ class LibraryScreenState extends State<LibraryScreen>
   late final SyncJobStore _syncJobStore = widget.syncJobStore ?? SyncJobStore();
   late final OnDeviceAnalysisService _onDeviceAnalysis =
       widget.onDeviceAnalysis ??
-      OnDeviceAnalysisService(analysisStore: _aiAnalysisStore);
+      OnDeviceAnalysisService(
+        analysisStore: _aiAnalysisStore,
+        onReoriented: _personStore.reorientAvatars,
+      );
 
   late final ForegroundHeartbeat _heartbeat = ForegroundHeartbeat(
     assetRecordStore,

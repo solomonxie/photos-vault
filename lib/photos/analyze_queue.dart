@@ -36,7 +36,9 @@ enum AnalyzeStep {
   matchFaces,
 }
 
-enum AnalyzeJobStatus { pending, running, done, failed }
+/// [skipped]: nothing to work from yet (no file on the phone, a face not
+/// described). Still outstanding; the next run tries again.
+enum AnalyzeJobStatus { pending, running, done, skipped, failed }
 
 /// One row in the analyze queue.
 class AnalyzeJob {
@@ -62,7 +64,9 @@ class AnalyzeJob {
   final String? note;
 
   bool get isFinished =>
-      status == AnalyzeJobStatus.done || status == AnalyzeJobStatus.failed;
+      status == AnalyzeJobStatus.done ||
+      status == AnalyzeJobStatus.skipped ||
+      status == AnalyzeJobStatus.failed;
 
   AnalyzeJob copyWith({AnalyzeJobStatus? status, String? note}) => AnalyzeJob(
     id: id,
@@ -155,6 +159,10 @@ class AnalyzeQueue {
 
   /// Everything still outstanding, including what didn't fit in [jobs].
   final ValueNotifier<int> remaining = ValueNotifier(0);
+
+  /// Why the face model didn't load, when it didn't (05#5). Faces are then
+  /// described by the fallback and kept; nothing restarts over it.
+  final ValueNotifier<String?> faceModelProblem = ValueNotifier(null);
 
   static const pausedKey = 'analyze_paused';
   static const paceKey = 'analyze_pace';
@@ -251,6 +259,9 @@ class AnalyzeQueue {
   Set<String> _learned = {};
   Map<String, List<String>> _tagged = const {};
 
+  /// Job ids this run has had a go at — see [_run].
+  Set<String> _attempted = {};
+
   /// [jobs] from the head of [_backlog]: only the rows shown get a name.
   void _publish() {
     remaining.value = _backlog.length;
@@ -258,8 +269,11 @@ class AnalyzeQueue {
       jobs.value = const [];
       return;
     }
+    // What this run already tried is left off the head, so a run of photos
+    // that can't be done yet never fills it (05#6).
     final head = [
-      for (final spec in _backlog.take(capacity))
+      for (final spec
+          in _backlog.where((s) => !_attempted.contains(s.id)).take(capacity))
         AnalyzeJob(
           id: spec.id,
           localId: spec.record.localId,
@@ -267,7 +281,7 @@ class AnalyzeQueue {
           displayName: displayNameFor(spec.record),
         ),
     ];
-    final ids = _backlogIds;
+    final ids = {for (final job in head) job.id};
     jobs.value = [
       ...head,
       // What just happened stays on screen under what's next: a pass that
@@ -397,7 +411,7 @@ class AnalyzeQueue {
             // Described in a space this build no longer speaks. Worth
             // another look, or they sit there being incomparable.
             await analysisStore.staleDescriptorAssets(
-              FaceDescriptor.livePipelines,
+              faceIdentity!.livePipelines,
             ),
           );
         _learned = Set.of(await analysisStore.assetsWithDescriptors());
@@ -422,8 +436,15 @@ class AnalyzeQueue {
 
   List<_Spec> _specsFor(AssetRecord record) {
     final id = record.localId;
+    final analysis = _analyzed[id];
+    if (record.isVideo) return const [];
+    // Boxes still to be turned upright: nothing else of this photo runs
+    // alongside, or it would write under the old boxes.
+    if (analysis != null && analysis.legacyBoxes) {
+      return [(step: AnalyzeStep.findFaces, record: record)];
+    }
     return [
-      if (!record.isVideo && (_analyzed[id]?.needsLookingAt ?? true))
+      if (analysis == null || analysis.needsLookingAt)
         (step: AnalyzeStep.findFaces, record: record),
       // One face, one person, or nothing. iOS won't say whose face is
       // whose, so a group shot with three faces and one name in it
@@ -508,7 +529,9 @@ class AnalyzeQueue {
     running.value = true;
     analyzedInLastRun = 0;
     _confirmed = null;
+    _attempted = {};
     try {
+      await _checkFaceModel();
       await refresh();
       // What this run has already had a go at.
       //
@@ -522,7 +545,7 @@ class AnalyzeQueue {
       //
       // Per run, not persisted: the next run should try them again, and by
       // then the iCloud download may have finished.
-      final attempted = <String>{};
+      final attempted = _attempted;
       while (!paused.value) {
         final batch = jobs.value
             .where(
@@ -550,8 +573,26 @@ class AnalyzeQueue {
       _lastRunAt = DateTime.now();
       await _write(lastRunKey, _lastRunAt!.toIso8601String());
     } finally {
+      _attempted = {};
       running.value = false;
     }
+  }
+
+  /// Once per run. Without the model the fallback's space is the live one,
+  /// so its faces are kept rather than re-described forever (05#5).
+  Future<void> _checkFaceModel() async {
+    final identity = faceIdentity;
+    if (identity == null) return;
+    String? problem;
+    try {
+      problem = await identity.vision.faceModelFailure;
+    } catch (_) {
+      problem = null;
+    }
+    faceModelProblem.value = problem;
+    identity.livePipelines = problem == null
+        ? FaceDescriptor.livePipelines
+        : FaceDescriptor.livePipelinesWithoutModel;
   }
 
   void _mark(List<AnalyzeJob> batch, AnalyzeJobStatus status) {
@@ -564,13 +605,14 @@ class AnalyzeQueue {
 
   Future<void> _runOne(AnalyzeJob job) async {
     try {
-      switch (job.step) {
-        case AnalyzeStep.findFaces:
-          await _findFaces(job);
-        case AnalyzeStep.learnFaces:
-          await _learnFaces(job);
-        case AnalyzeStep.matchFaces:
-          await _matchFaces(job);
+      final did = switch (job.step) {
+        AnalyzeStep.findFaces => await _findFaces(job),
+        AnalyzeStep.learnFaces => await _learnFaces(job),
+        AnalyzeStep.matchFaces => await _matchFaces(job),
+      };
+      if (!did) {
+        _mark([job], AnalyzeJobStatus.skipped);
+        return;
       }
       analyzedInLastRun++;
       _mark([job], AnalyzeJobStatus.done);
@@ -585,51 +627,58 @@ class AnalyzeQueue {
     }
   }
 
-  Future<void> _findFaces(AnalyzeJob job) async {
+  /// Each step says whether it did anything; false is a skip.
+  Future<bool> _findFaces(AnalyzeJob job) async {
     final record = await assetRecordStore.getByLocalId(job.localId!);
-    if (record == null) return;
+    if (record == null) return true;
     final path = await resolvePath(record);
     // Nothing on disk to look at yet — a cloud-only photo, or one Photos
     // is still exporting. Left for a later pass rather than failed.
-    if (path == null) return;
+    if (path == null) return false;
+    final existing = _analyzed[record.localId];
+    if (existing != null && !existing.needsLookingAt && existing.legacyBoxes) {
+      return onDeviceAnalysis.settleBoxes(record, path);
+    }
     await onDeviceAnalysis.analyze(record, path);
+    return true;
   }
 
   /// The reference set, read once per run rather than per photo — it only
   /// changes when somebody is named, and that restarts the pass anyway.
   List<ConfirmedFace>? _confirmed;
 
-  Future<void> _learnFaces(AnalyzeJob job) async {
+  Future<bool> _learnFaces(AnalyzeJob job) async {
     final identity = faceIdentity;
-    if (identity == null) return;
+    if (identity == null) return true;
     final record = await assetRecordStore.getByLocalId(job.localId!);
-    if (record == null) return;
+    if (record == null) return true;
     final faces = await analysisStore.facesFor(record.localId);
     final people = taggedPeopleOf != null
         ? await taggedPeopleOf!(record.localId)
         : (await taggedPeople?.call())?[record.localId];
     // Re-checked rather than trusted from the list: it was built before
     // this batch, and somebody may have been tagged since.
-    if (faces.length != 1 || people?.length != 1) return;
-    await identity.remember(
+    if (faces.length != 1 || people?.length != 1) return true;
+    final saved = await identity.remember(
       record: record,
       face: faces.single,
       personId: people!.single,
     );
     // The reference set just grew, so the guesses made without it are
     // worth making again.
-    _confirmed = null;
+    if (saved) _confirmed = null;
+    return saved;
   }
 
-  Future<void> _matchFaces(AnalyzeJob job) async {
+  Future<bool> _matchFaces(AnalyzeJob job) async {
     final identity = faceIdentity;
-    if (identity == null) return;
+    if (identity == null) return true;
     final record = await assetRecordStore.getByLocalId(job.localId!);
-    if (record == null) return;
+    if (record == null) return true;
     final faces = await analysisStore.facesFor(record.localId);
-    if (faces.isEmpty) return;
+    if (faces.isEmpty) return true;
     final confirmed = _confirmed ??= await analysisStore.confirmedFaces();
-    await identity.suggestFor(
+    return identity.suggestFor(
       record: record,
       faces: faces,
       confirmed: confirmed,
@@ -643,6 +692,7 @@ class AnalyzeQueue {
     pace.dispose();
     frequency.dispose();
     remaining.dispose();
+    faceModelProblem.dispose();
   }
 }
 

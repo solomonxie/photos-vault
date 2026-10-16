@@ -707,6 +707,30 @@ class PersonStore {
     await batch.commit(noResult: true);
   }
 
+  /// Turns the avatar boxes taken from [localId] upright, as its face
+  /// boxes just were (05#7). Names and photos are untouched.
+  Future<void> reorientAvatars(String localId, int orientation) async {
+    final db = await _open();
+    final rows = await db.query(
+      _personTable,
+      columns: const ['id', 'avatar_face'],
+      where: 'avatar_local_id = ? AND avatar_face IS NOT NULL',
+      whereArgs: [localId],
+    );
+    final batch = db.batch();
+    for (final row in rows) {
+      final face = FaceRect.decode(row['avatar_face'] as String?);
+      if (face == null) continue;
+      batch.update(
+        _personTable,
+        {'avatar_face': face.oriented(orientation).encode()},
+        where: 'id = ?',
+        whereArgs: [row['id']],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
   Future<List<String>> localIdsIn(String personId) async {
     final db = await _open();
     final rows = await db.query(

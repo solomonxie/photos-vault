@@ -1,4 +1,5 @@
 import Flutter
+import ImageIO
 import UIKit
 import Vision
 
@@ -46,17 +47,23 @@ class VisionAnalysisChannel {
     }
 
     guard let arguments = call.arguments as? [String: Any],
-          let path = arguments["path"] as? String,
-          let image = UIImage(contentsOfFile: path),
-          let cgImage = image.cgImage
+          let path = arguments["path"] as? String
     else {
-      result(
-        FlutterError(
-          code: "unreadable",
-          message: "No image at the given path",
-          details: nil
-        )
-      )
+      result(unreadable())
+      return
+    }
+
+    // Header only: the EXIF orientation, for boxes measured before they
+    // were measured upright.
+    if call.method == "orientation" {
+      result(orientation(path))
+      return
+    }
+
+    // One decode per call, upright and capped (05#7, #14): boxes, crops
+    // and descriptors all live in the picture as it is shown.
+    guard let cgImage = upright(path) else {
+      result(unreadable())
       return
     }
 
@@ -65,46 +72,27 @@ class VisionAnalysisChannel {
       case "faces":
         result(try faces(VNImageRequestHandler(cgImage: cgImage, options: [:])))
       case "featurePrint":
-        // Cropped before the request, not after: the descriptor is meant to
-        // describe the face, and a whole-frame print of a beach portrait
-        // mostly describes the beach.
-        let region = cropped(cgImage, arguments) ?? cgImage
-        // Aligned where the eyes can be found, plain where they can't —
-        // and the two are kept in separate spaces rather than mixed.
-        if let found = try? eyes(cgImage, arguments) {
-          // A model trained on faces, where there is one. It wants its own
-          // square — colour, 112 across, eyes on the template it was
-          // trained against — so the alignment is done twice rather than
-          // shared: the same picture prepared for two different questions.
-          if FaceEmbedder.shared.isAvailable,
-             let face = alignedFace(found.image, found.left, found.right),
-             let embedding = FaceEmbedder.shared.embedding(face) {
-            result(vector(embedding, pipeline: modelPipeline))
+        result(try describe(cgImage, arguments))
+      case "featurePrints":
+        let rects = arguments["faces"] as? [[Double]] ?? []
+        result(rects.map { rect -> [String: Any] in
+          (try? describe(cgImage, rectArguments(rect))) ?? [:]
+        })
+      case "crops":
+        let rects = arguments["faces"] as? [[Double]] ?? []
+        let padding = arguments["padding"] as? Double ?? 0.45
+        let side = arguments["side"] as? Int ?? 160
+        var out: [FlutterStandardTypedData] = []
+        for rect in rects {
+          guard rect.count == 4,
+                let data = crop(cgImage, rect, padding: padding, side: side)
+          else {
+            result(unreadable())
             return
           }
-          if let aligned = alignedSquare(
-            found.image,
-            found.left,
-            found.right
-          ) {
-            result(
-              try featurePrint(
-                VNImageRequestHandler(cgImage: aligned, options: [:]),
-                pipeline: alignedPipeline
-              )
-            )
-            return
-          }
+          out.append(FlutterStandardTypedData(bytes: data))
         }
-        do {
-          let square = normalised(region) ?? region
-          result(
-            try featurePrint(
-              VNImageRequestHandler(cgImage: square, options: [:]),
-              pipeline: pipeline
-            )
-          )
-        }
+        result(out)
       default:
         result(FlutterMethodNotImplemented)
       }
@@ -117,6 +105,142 @@ class VisionAnalysisChannel {
         )
       )
     }
+  }
+
+  private static func unreadable() -> FlutterError {
+    FlutterError(
+      code: "unreadable",
+      message: "No image at the given path",
+      details: nil
+    )
+  }
+
+  private static func rectArguments(_ rect: [Double]) -> [String: Any] {
+    guard rect.count == 4 else { return [:] }
+    return ["x": rect[0], "y": rect[1], "width": rect[2], "height": rect[3]]
+  }
+
+  /// Longest side Vision and the crops work from. Faces small enough to
+  /// count stay over a hundred pixels across; a 48 MP decode doesn't.
+  private static let maxSide = 2048
+
+  /// The picture as shown: EXIF orientation applied, at most [maxSide].
+  private static func upright(_ path: String) -> CGImage? {
+    guard !path.isEmpty,
+          let source = CGImageSourceCreateWithURL(
+            URL(fileURLWithPath: path) as CFURL,
+            nil
+          )
+    else { return nil }
+    let options: [CFString: Any] = [
+      kCGImageSourceCreateThumbnailFromImageAlways: true,
+      kCGImageSourceCreateThumbnailWithTransform: true,
+      kCGImageSourceShouldCacheImmediately: true,
+      kCGImageSourceThumbnailMaxPixelSize: maxSide,
+    ]
+    return CGImageSourceCreateThumbnailAtIndex(
+      source,
+      0,
+      options as CFDictionary
+    )
+  }
+
+  private static func orientation(_ path: String) -> Int {
+    guard let source = CGImageSourceCreateWithURL(
+            URL(fileURLWithPath: path) as CFURL,
+            nil
+          ),
+          let properties = CGImageSourceCopyPropertiesAtIndex(source, 0, nil)
+            as? [CFString: Any]
+    else { return 1 }
+    return (properties[kCGImagePropertyOrientation] as? NSNumber)?.intValue
+      ?? 1
+  }
+
+  /// A square JPEG of one face, padded and slid inside the frame — the
+  /// same cut `FaceCrops` makes in Dart, minus the Dart decode (05#15).
+  private static func crop(
+    _ image: CGImage,
+    _ rect: [Double],
+    padding: Double,
+    side: Int
+  ) -> Data? {
+    let w = Double(image.width)
+    let h = Double(image.height)
+    let padded = max(rect[2] * w, rect[3] * h) * (1 + padding * 2)
+    let box = min(max(padded.rounded(), 1), min(w, h))
+    let centreX = (rect[0] + rect[2] / 2) * w
+    let centreY = (rect[1] + rect[3] / 2) * h
+    let left = min(max((centreX - box / 2).rounded(), 0), w - box)
+    let top = min(max((centreY - box / 2).rounded(), 0), h - box)
+    guard let cut = image.cropping(
+      to: CGRect(x: left, y: top, width: box, height: box)
+    ),
+    let context = CGContext(
+      data: nil,
+      width: side,
+      height: side,
+      bitsPerComponent: 8,
+      bytesPerRow: side * 4,
+      space: CGColorSpace(name: CGColorSpace.sRGB)
+        ?? CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+    ) else { return nil }
+    context.interpolationQuality = .high
+    context.draw(cut, in: CGRect(x: 0, y: 0, width: side, height: side))
+    guard let scaled = context.makeImage() else { return nil }
+    let data = NSMutableData()
+    guard let destination = CGImageDestinationCreateWithData(
+      data as CFMutableData,
+      "public.jpeg" as CFString,
+      1,
+      nil
+    ) else { return nil }
+    CGImageDestinationAddImage(
+      destination,
+      scaled,
+      [kCGImageDestinationLossyCompressionQuality: 0.8] as CFDictionary
+    )
+    guard CGImageDestinationFinalize(destination) else { return nil }
+    return data as Data
+  }
+
+  /// One face's descriptor. Cropped before the request, not after: the
+  /// descriptor is meant to describe the face, and a whole-frame print of
+  /// a beach portrait mostly describes the beach.
+  private static func describe(
+    _ cgImage: CGImage,
+    _ arguments: [String: Any]
+  ) throws -> [String: Any] {
+    let region = cropped(cgImage, arguments) ?? cgImage
+    // Aligned where the eyes can be found, plain where they can't — and
+    // the two are kept in separate spaces rather than mixed.
+    if let found = try? eyes(cgImage, arguments) {
+      if FaceEmbedder.shared.isAvailable {
+        // A model trained on faces. It wants its own square — colour, 112
+        // across, eyes on its template. If it refuses this face, the plain
+        // print below, never the superseded aligned one: that space is
+        // only live while the model is missing (05#5).
+        if let face = alignedFace(found.image, found.left, found.right),
+           let embedding = FaceEmbedder.shared.embedding(face) {
+          return vector(embedding, pipeline: modelPipeline)
+        }
+      } else if let aligned = alignedSquare(
+        found.image,
+        found.left,
+        found.right
+      ) {
+        return try featurePrint(
+          VNImageRequestHandler(cgImage: aligned, options: [:]),
+          pipeline: alignedPipeline
+        )
+      }
+    }
+    let square = normalised(region) ?? region
+    return try featurePrint(
+      VNImageRequestHandler(cgImage: square, options: [:]),
+      pipeline: pipeline
+    )
   }
 
   /// Face rectangles in Vision's normalised, bottom-left-origin space.

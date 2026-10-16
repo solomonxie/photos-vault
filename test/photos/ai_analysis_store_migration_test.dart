@@ -73,4 +73,22 @@ void main() {
     );
     expect(await store.listAll(), hasLength(2));
   });
+
+  test('boxes from before v7 are marked to be turned upright', () async {
+    final path = p.join(dir.path, 'ai_analysis.db');
+    await _seedV5(path);
+    final store = AiAnalysisStore(
+      databaseFactory: databaseFactoryFfi,
+      path: path,
+    );
+    addTearDown(store.close);
+
+    expect((await store.get('manual:a'))!.legacyBoxes, isTrue);
+    await store.saveFaceCount(
+      localId: 'manual:b',
+      peopleCount: 0,
+      analyzedAt: DateTime(2026),
+    );
+    expect((await store.get('manual:b'))!.legacyBoxes, isFalse);
+  });
 }

@@ -1,5 +1,6 @@
 import 'dart:io';
 
+import 'package:photos_vault/photos/file_hash.dart';
 import 'package:photos_vault/photos/manual_add.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
@@ -75,6 +76,33 @@ void main() {
 
     expect(await store.listAll(), hasLength(1));
   });
+
+  test(
+    'a copy killed half-way never becomes the record\'s file (05#10)',
+    () async {
+      final store = newStore();
+      final dir = Directory.systemTemp.createTempSync('manual_add_kill_');
+      addTearDown(() => dir.delete(recursive: true));
+      final source = await File('${dir.path}/clip.mov')
+          .writeAsBytes(List.filled(64 * 1024, 7));
+      final owned = Directory('${dir.path}/owned')..createSync();
+      final hash = await hashFile(source.path);
+      // What a kill mid-copy left: before this fix, a short file under the
+      // final name; now, at most a short `.part`.
+      File('${owned.path}/$hash.mov').writeAsBytesSync(List.filled(1000, 7));
+      File('${owned.path}/$hash.mov.part').writeAsBytesSync(List.filled(10, 7));
+      final service = ManualAddService(
+        store: store,
+        targetDirectory: () async => owned,
+      );
+
+      final record = await service.enqueueFile(source.path);
+
+      expect(await File(record.sourcePath!).length(), 64 * 1024);
+      expect(record.sourcePath, endsWith('$hash.mov'));
+      expect(File('${owned.path}/$hash.mov.part').existsSync(), isFalse);
+    },
+  );
 
   test('pickAndEnqueue enqueues every file returned by the picker', () async {
     final store = newStore();

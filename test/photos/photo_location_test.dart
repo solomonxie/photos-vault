@@ -234,6 +234,69 @@ void main() {
       },
     );
 
+    test(
+      'a failed lookup is retried, not remembered as empty (05#8)',
+      () async {
+        final store = _newStore();
+        addTearDown(store.close);
+        await _addTagged(store, 'a', latitude: 48.86, longitude: 2.35);
+        await _addTagged(store, 'b', latitude: -37.81, longitude: 144.96);
+        var offline = true;
+        var lookups = 0;
+        final service = PhotoLocationService(
+          reverseGeocode: (lat, lng) async {
+            lookups++;
+            if (offline) throw Exception('rate limited');
+            return [_placemark(locality: 'Paris', country: 'France')];
+          },
+        );
+
+        expect(await service.fillMissing(store, wait: (_) async {}), 0);
+        expect(lookups, 1, reason: 'stops at the first refusal');
+        expect(
+          await store.cachedPlaceName(
+            PhotoLocationService.cellFor(48.86, 2.35),
+          ),
+          isNull,
+        );
+
+        offline = false;
+        expect(await service.fillMissing(store, wait: (_) async {}), 2);
+      },
+    );
+
+    test('photos in empty places never hide older ones (05#8)', () async {
+      final store = _newStore();
+      addTearDown(store.close);
+      for (var i = 0; i < 3; i++) {
+        await store.upsert(
+          localId: 'sea$i',
+          contentHash: 'sea$i',
+          platform: 'ios',
+          latitude: -10.0 - i * 0.001,
+          longitude: -20.0,
+          createdAt: DateTime(2026, 9, i + 1),
+        );
+      }
+      await store.upsert(
+        localId: 'old',
+        contentHash: 'old',
+        platform: 'ios',
+        latitude: 48.86,
+        longitude: 2.35,
+        createdAt: DateTime(2010),
+      );
+      final service = PhotoLocationService(
+        reverseGeocode: (lat, lng) async =>
+            lat < 0 ? const [] : [_placemark(locality: 'Paris')],
+      );
+
+      await service.fillMissing(store, limit: 2, wait: (_) async {});
+      await service.fillMissing(store, limit: 2, wait: (_) async {});
+
+      expect((await store.getByLocalId('old'))!.location, 'Paris');
+    });
+
     test('an untagged photo is not waiting for a name at all', () async {
       final store = _newStore();
       addTearDown(store.close);
