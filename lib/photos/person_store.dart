@@ -206,7 +206,9 @@ class PersonStore {
     );
     // After the migrations, never inside them: a trigger has to describe
     // the schema the app just finished upgrading to.
-    await db.execute('PRAGMA secure_delete = ON');
+    await db.rawQuery(
+      'PRAGMA secure_delete = ON',
+    ); // Returns a row: execute fails on iOS.
     await installChangeLog(
       db,
       const [

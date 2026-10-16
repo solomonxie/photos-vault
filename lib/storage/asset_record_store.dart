@@ -242,7 +242,9 @@ class AssetRecordStore {
     // fails and sqflite's queue stalls behind it.
     await db.execute('PRAGMA temp_store = MEMORY');
     // A deleted hidden row is zeroed, not left in a free page.
-    await db.execute('PRAGMA secure_delete = ON');
+    await db.rawQuery(
+      'PRAGMA secure_delete = ON',
+    ); // Returns a row: execute fails on iOS.
     await db.execute(
       'CREATE INDEX IF NOT EXISTS asset_record_passcode_hash '
       'ON $_table (passcode_hash)',
