@@ -16,6 +16,7 @@ import '../demo/demo_flag.dart';
 import '../demo/demo_mode.dart';
 import '../photos/ai_vendor.dart';
 import '../photos/derived_asset.dart';
+import '../photos/flag_scan.dart';
 import '../photos/asset_removal.dart';
 import '../photos/library_metadata.dart';
 import '../photos/library_scanner.dart';
@@ -385,6 +386,14 @@ class LibraryScreenState extends State<LibraryScreen>
     ),
   );
 
+  /// Beside the queue for the same reason: a scan outlives the page.
+  late final FlagScan _flagScan = FlagScan(
+    store: assetRecordStore,
+    targetsStore: _backupTargetsStore,
+    advisor: _storageAdvisor,
+    queue: _fixQueue,
+  );
+
   /// Deleting is the same decision on every screen: keep the cloud copy
   /// and free the space, or bin it. See `../photos/asset_removal.dart`.
   late final AssetRemoval _removal = AssetRemoval(
@@ -734,6 +743,7 @@ class LibraryScreenState extends State<LibraryScreen>
             targetsStore: _backupTargetsStore,
             advisor: _storageAdvisor,
             queue: _fixQueue,
+            scan: _flagScan,
             onOpenAsset: _openById,
           ),
         );
@@ -3038,6 +3048,7 @@ class LibraryScreenState extends State<LibraryScreen>
                 targetsStore: _backupTargetsStore,
                 advisor: _storageAdvisor,
                 queue: _fixQueue,
+                scan: _flagScan,
                 onOpenAsset: _openById,
               ),
             ),

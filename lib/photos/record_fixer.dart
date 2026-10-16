@@ -125,9 +125,13 @@ class RecordFixer {
     return _copies[id];
   }
 
-  Future<RecordScan> scan() async {
-    final records = await store.listAll();
-    final objects = await store.listBucketObjects();
+  /// [records] and [objects] are the caller's snapshot, when it has one.
+  Future<RecordScan> scan({
+    List<AssetRecord>? records,
+    List<BucketObject>? objects,
+  }) async {
+    records ??= await store.listAll();
+    objects ??= await store.listBucketObjects();
     final sizes = {for (final o in objects) o.key: o.size};
     // A key carries the prefix of the bucket it went to; the same file
     // under another prefix of a bucket set up now still counts.
@@ -138,8 +142,11 @@ class RecordFixer {
     await _healKinds(records, objects);
     final holdings = await store.allHoldings();
     final lostIds = await LostOriginals(store).current();
+    // Only rows still in the library: a binned twin is no reason to call
+    // an import a copy.
     final holders = <String, Set<String>>{};
     for (final r in records) {
+      if (r.isDeleted || r.isHidden || r.passcodeHash != null) continue;
       for (final k in [
         ?r.stateOf(DerivativeKind.original).destinationKey,
         ...?holdings[r.localId]?[DerivativeKind.original]?.values,
@@ -152,7 +159,12 @@ class RecordFixer {
     final bare = <(AssetRecord, List<String>)>[];
     final suspects = <(AssetRecord, List<String>)>[];
     for (final r in records) {
-      if (!r.localDeleted || r.isDeleted || r.passcodeHash != null) continue;
+      if (!r.localDeleted ||
+          r.isDeleted ||
+          r.isHidden ||
+          r.passcodeHash != null) {
+        continue;
+      }
       final keys = [
         ?r.stateOf(DerivativeKind.original).destinationKey,
         ...?holdings[r.localId]?[DerivativeKind.original]?.values,
@@ -185,11 +197,29 @@ class RecordFixer {
         if (answers[j]) confirmed.add(batch[j]);
       }
     }
+    final twins = <Flag>[];
+    final byId = {for (final r in records) r.localId: r};
     for (final (r, keys) in confirmed) {
-      if (r.localId.startsWith('bucket:') && _twinned(r, keys, holders)) {
+      final twin = r.localId.startsWith('bucket:')
+          ? _twinOf(r, keys, holders)
+          : null;
+      if (twin != null) {
         // Imported from a listing older than a replace: the photo it names
-        // is already in the library under its new format.
-        await store.remove(r.localId);
+        // is already in the library under its new format. Offered, never
+        // dropped unasked: its tags and albums are the person's.
+        twins.add(
+          Flag.asset(
+            r,
+            problem: FlagProblem.duplicate,
+            solutions: const [FlagSolution.removeImportCopy],
+            name: switch (byId[twin]) {
+              final t? => _nameOf(t, [
+                ?t.stateOf(DerivativeKind.original).destinationKey,
+              ]),
+              null => _nameOf(r, keys),
+            },
+          ),
+        );
         continue;
       }
       // One library lookup per lost record: a handful, not the library.
@@ -237,7 +267,7 @@ class RecordFixer {
       noThumbnail: noThumbnail,
       lost: lost,
       leftoverCopies: await _leftoverCopies(records, sizes),
-      importCopies: await _importCopies(records),
+      importCopies: [...twins, ...await _importCopies(records)],
     );
   }
 
@@ -467,7 +497,9 @@ class RecordFixer {
         if (near.isNotEmpty &&
             near.first.$1 <= _sameFrame &&
             (near.length == 1 || near[1].$1 > _otherFrame)) {
-          (mine[near.first.$2.localId] ??= []).add(near.first);
+          // Claimed by the copy itself: the original was filed as its
+          // own copy, and Finish Optimize had nothing to file.
+          (mine[near.first.$2.localId] ??= []).add((near.first.$1, c));
         }
       }
       for (final o in originals) {
@@ -698,17 +730,18 @@ class RecordFixer {
     );
   }
 
-  static bool _twinned(
+  static String? _twinOf(
     AssetRecord r,
     List<String> keys,
     Map<String, Set<String>> holders,
-  ) => keys.any(
-    (k) =>
-        holders[p.posix.basenameWithoutExtension(k)]?.any(
-          (id) => id != r.localId,
-        ) ??
-        false,
-  );
+  ) {
+    for (final k in keys) {
+      for (final id in holders[p.posix.basenameWithoutExtension(k)] ?? {}) {
+        if (id != r.localId) return id;
+      }
+    }
+    return null;
+  }
 
   Future<bool> _inPhotos(AssetRecord r) async {
     try {

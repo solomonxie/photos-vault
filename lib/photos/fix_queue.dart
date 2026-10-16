@@ -32,6 +32,7 @@ enum FlagProblem {
   missingFromBucket,
   leftoverCopy,
   extraCopies,
+  liveHalf,
 }
 
 /// One way of dealing with a flag — one batch button each.
@@ -54,7 +55,8 @@ enum FlagSolution {
   removeFromLibrary,
   finishOptimize,
   removeExtraCopies,
-  removeImportCopy;
+  removeImportCopy,
+  attachLiveHalf;
 
   bool get onDevice => _storageFix != null;
 
@@ -127,6 +129,7 @@ class Flag {
           FlagKind.likelyLeftover ||
           FlagKind.oldCopy => FlagProblem.likelyLeftover,
           FlagKind.duplicate => FlagProblem.duplicate,
+          FlagKind.liveHalf => FlagProblem.liveHalf,
         },
       },
       solutions: switch (object.kind) {
@@ -137,6 +140,7 @@ class Flag {
           FlagSolution.ignore,
         ],
         FlagKind.unclaimed => [FlagSolution.import],
+        FlagKind.liveHalf => [FlagSolution.attachLiveHalf, FlagSolution.ignore],
         FlagKind.likelyLeftover => [
           FlagSolution.ignore,
           FlagSolution.importAnyway,
@@ -200,6 +204,28 @@ class Flag {
   String get name => storage?.name ?? bucket?.name ?? _name;
   DateTime get date =>
       record?.createdAt ?? bucket!.takenAt ?? bucket!.object.lastModified;
+}
+
+/// What a flag was detected from: the same id found again from the same
+/// facts is the same finding, a changed one is new.
+String flagFingerprint(Flag f) {
+  if (f.bucket case final b?) {
+    return '${b.kind.name}|${b.object.size}|'
+        '${b.object.lastModified.millisecondsSinceEpoch}';
+  }
+  final r = f.record;
+  if (r == null) return '';
+  final original = r.stateOf(DerivativeKind.original);
+  return [
+    r.updatedAt.millisecondsSinceEpoch,
+    r.localDeleted,
+    r.localOptimized,
+    r.isDeleted,
+    original.status.name,
+    original.destinationKey,
+    r.thumbnailPath,
+    f.bytes,
+  ].join('|');
 }
 
 String storageFlagId(String localId) => 'asset:$localId';
@@ -293,6 +319,33 @@ class FixQueue extends ChangeNotifier {
     } catch (_) {
       // Unreadable: offered again, which loses nothing.
     }
+    try {
+      final raw = await store.getAppState(_resolvedKey);
+      if (raw != null) {
+        for (final MapEntry(:key, :value)
+            in (jsonDecode(raw) as Map).cast<String, dynamic>().entries) {
+          _resolved.putIfAbsent(
+            key,
+            () => (
+              at: (value as Map)['at'] as int? ?? 0,
+              fp: value['fp'] as String?,
+            ),
+          );
+        }
+      }
+    } catch (_) {
+      // Unreadable: a fix whose finding the scan still makes is offered
+      // again; nothing is lost.
+    }
+    try {
+      final raw = await store.getAppState(_failuresKey);
+      if (raw != null) {
+        final read = (jsonDecode(raw) as Map).cast<String, String>();
+        for (final MapEntry(:key, :value) in read.entries) {
+          _failureLog.putIfAbsent(key, () => value);
+        }
+      }
+    } catch (_) {}
   }
 
   bool isKept(Flag flag) => _kept.contains(flag.id);
@@ -313,10 +366,76 @@ class FixQueue extends ChangeNotifier {
 
   final LinkedHashMap<String, FixJob> _jobs = LinkedHashMap();
 
-  /// Ids with their solution (`id#solution`) fixed since launch. Keyed by
-  /// solution because Back Up First comes back as Remove from Device once
-  /// the upload lands — the same photo, a new flag.
-  final Set<String> _resolved = {};
+  static const _resolvedKey = 'fix_resolved_v1';
+  static const _failuresKey = 'fix_failures_v1';
+
+  /// Ids with their solution (`id#solution`) fixed, when, and the
+  /// [flagFingerprint] the first scan after found it with (null before).
+  /// Keyed by solution because Back Up First comes back as Remove from
+  /// Device once the upload lands — the same photo, a new flag. Persisted:
+  /// a relaunch doesn't bring back what was fixed. [settle] drops an entry
+  /// once the scan agrees, or finds the item again from new facts.
+  final Map<String, ({int at, String? fp})> _resolved = {};
+
+  bool _settled(String key, Flag flag) => switch (_resolved[key]) {
+    null => false,
+    (fp: null, at: _) => true,
+    (:final fp, at: _) => fp == flagFingerprint(flag),
+  };
+
+  /// Squares the fixed list with a scan begun at [startedAt] that
+  /// found [detected], before anything was filtered out of it.
+  Future<void> settle(Iterable<Flag> detected, DateTime startedAt) async {
+    await loadKept();
+    final byId = {for (final f in detected) f.id: f};
+    final since = startedAt.millisecondsSinceEpoch;
+    var changed = false;
+    for (final MapEntry(:key, :value) in _resolved.entries.toList()) {
+      // Fixed while that scan ran: it can't speak for the fix.
+      if (value.at >= since) continue;
+      final cut = key.lastIndexOf('#');
+      final flag = byId[key.substring(0, cut)];
+      final solution = key.substring(cut + 1);
+      if (flag == null || !flag.solutions.any((s) => s.name == solution)) {
+        _resolved.remove(key);
+        changed = true;
+      } else if (value.fp == null) {
+        _resolved[key] = (at: value.at, fp: flagFingerprint(flag));
+        changed = true;
+      } else if (value.fp != flagFingerprint(flag)) {
+        _resolved.remove(key);
+        changed = true;
+      }
+    }
+    final stale = [
+      for (final id in _failureLog.keys)
+        if (!byId.containsKey(id) && _jobs[id] == null) id,
+    ];
+    for (final id in stale) {
+      _failureLog.remove(id);
+    }
+    if (!changed && stale.isEmpty) return;
+    notifyListeners();
+    await _saveResolved();
+    if (stale.isNotEmpty) await _saveFailures();
+  }
+
+  Future<void> _saveResolved() => store.setAppState(
+    _resolvedKey,
+    jsonEncode({
+      for (final MapEntry(:key, :value) in _resolved.entries)
+        key: {'at': value.at, 'fp': value.fp},
+    }),
+  );
+
+  Future<void> _saveFailures() =>
+      store.setAppState(_failuresKey, jsonEncode(_failureLog));
+
+  /// Failed the last time it was run, this launch or before, and not
+  /// done since.
+  bool failedBefore(String id) =>
+      _jobs[id]?.state == FixJobState.failed ||
+      (_jobs[id] == null && _failureLog.containsKey(id));
 
   int done = 0;
   int total = 0;
@@ -358,7 +477,7 @@ class FixQueue extends ChangeNotifier {
   bool isResolved(Flag flag) =>
       _kept.contains(flag.id) ||
       _filed.containsKey(flag.id) ||
-      flag.solutions.any((s) => _resolved.contains('${flag.id}#${s.name}'));
+      flag.solutions.any((s) => _settled('${flag.id}#${s.name}', flag));
 
   /// Somebody asked: the run ends with the one prompt.
   void enqueue(Iterable<Flag> flags, FlagSolution solution) {
@@ -464,7 +583,8 @@ class FixQueue extends ChangeNotifier {
     FlagSolution.removeFromLibrary ||
     FlagSolution.finishOptimize ||
     FlagSolution.removeExtraCopies ||
-    FlagSolution.removeImportCopy => const Duration(milliseconds: 100),
+    FlagSolution.removeImportCopy ||
+    FlagSolution.attachLiveHalf => const Duration(milliseconds: 100),
     _ => const Duration(milliseconds: 300),
   };
 
@@ -559,6 +679,7 @@ class FixQueue extends ChangeNotifier {
               kind: kind,
               takenAt: DateTime.tryParse(row['takenAt'] as String? ?? ''),
               likelyDuplicateOf: row['duplicateOf'] as String?,
+              ownerId: row['ownerId'] as String?,
             ),
             reformatable: solution == FlagSolution.reformat,
           );
@@ -595,6 +716,7 @@ class FixQueue extends ChangeNotifier {
               'kind': b.kind.name,
               'takenAt': b.takenAt?.toIso8601String(),
               'duplicateOf': b.likelyDuplicateOf,
+              'ownerId': ?b.ownerId,
             },
             if (job.flag.asset case final r?) ...{
               'localId': r.localId,
@@ -644,6 +766,7 @@ class FixQueue extends ChangeNotifier {
         await _countSwaps();
       }
     } finally {
+      await _remeasureTouched();
       _pumping = false;
       _stopping = false;
       _promptAtEnd = false;
@@ -735,8 +858,9 @@ class FixQueue extends ChangeNotifier {
       final job = _filed.remove(id);
       if (seen.every((o) => o == StorageItemOutcome.freed)) {
         for (final s in job == null ? _swapSolutions : [job.solution]) {
-          _resolved.add('$id#${s.name}');
+          _markResolved('$id#${s.name}');
         }
+        if (_failureLog.remove(id) != null) unawaited(_saveFailures());
         continue;
       }
       final unverified = seen.contains(StorageItemOutcome.unverified);
@@ -752,9 +876,22 @@ class FixQueue extends ChangeNotifier {
     }
     await _countSwaps();
     notifyListeners();
+    _touched.addAll(ids);
+  }
+
+  /// Photos a run changed, re-measured once when it ends rather than per
+  /// batch: each is a read and rewrite of the whole storage scan.
+  final Set<String> _touched = {};
+
+  Future<void> _remeasureTouched() async {
+    if (_touched.isEmpty) return;
+    final ids = {..._touched};
+    _touched.clear();
     try {
       await advisor.remeasure(await advisor.cached(), ids);
-    } catch (_) {}
+    } catch (_) {
+      // The cache catches up on the next scan.
+    }
   }
 
   /// Files how long [batch] took, per kind, for [estimate]. A batch mixing
@@ -894,19 +1031,21 @@ class FixQueue extends ChangeNotifier {
     }
     try {
       await advisor.markSmallestAlready(smallest);
-      await advisor.remeasure(await advisor.cached(), {
-        for (final job in batch) job.flag.storage!.record.localId,
-      });
     } catch (_) {
-      // The cache catches up on the next scan.
+      // Offered again, and found not smaller again.
     }
+    _touched.addAll([
+      for (final job in batch) job.flag.storage!.record.localId,
+    ]);
   }
 
   Future<void> _runInBucket(FixJob job) async {
     final object = job.flag.bucket!;
     if (switch (job.solution) {
           FlagSolution.rename => FixAction.renaming,
-          FlagSolution.import || FlagSolution.importAnyway => FixAction.adding,
+          FlagSolution.import ||
+          FlagSolution.importAnyway ||
+          FlagSolution.attachLiveHalf => FixAction.adding,
           FlagSolution.reformat => FixAction.converting,
           FlagSolution.removeThumbnail ||
           FlagSolution.removeOldCopy ||
@@ -920,6 +1059,7 @@ class FixQueue extends ChangeNotifier {
     try {
       result = switch (job.solution) {
         FlagSolution.import => await fixer.adopt(object),
+        FlagSolution.attachLiveHalf => await fixer.attachLiveHalf(object),
         FlagSolution.rename => await fixer.rename(object),
         FlagSolution.reformat => await fixer.reformat(object),
         FlagSolution.removeThumbnail => await fixer.removeOrphan(object),
@@ -1006,31 +1146,31 @@ class FixQueue extends ChangeNotifier {
 
   /// Hidden, locked or binned since the scan: dropped, not fixed, and off
   /// the list, which no longer has anything to offer for it.
-  void _skip(String id) {
-    final job = _jobs.remove(id);
-    if (job == null) return;
-    _resolved.add('$id#${job.solution.name}');
-    done++;
-    notifyListeners();
-  }
+  void _skip(String id) => _resolve(id);
 
   void _resolve(String id) {
     final job = _jobs.remove(id);
     if (job == null) return;
-    _resolved.add('$id#${job.solution.name}');
+    _markResolved('$id#${job.solution.name}');
+    if (_failureLog.remove(id) != null) unawaited(_saveFailures());
     done++;
     notifyListeners();
   }
 
-  /// The last run's failures and why, kept so a bug report can be read off
-  /// the phone rather than guessed at.
+  void _markResolved(String key) {
+    _resolved[key] = (at: DateTime.now().millisecondsSinceEpoch, fp: null);
+    unawaited(_saveResolved());
+  }
+
+  /// Failures and why, until fixed or no longer found: shown on the list
+  /// after a relaunch, and readable off the phone for a bug report.
   final Map<String, String> _failureLog = {};
 
   void _fail(String id, FixFailure failure, {String? detail}) {
     final job = _jobs[id];
     if (job == null || job.state == FixJobState.failed) return;
     _failureLog[id] = '${job.solution.name}: ${failure.name} ${detail ?? ''}';
-    unawaited(store.setAppState('fix_failures_v1', jsonEncode(_failureLog)));
+    unawaited(_saveFailures());
     _jobs[id] = job.withState(
       FixJobState.failed,
       failure: failure,

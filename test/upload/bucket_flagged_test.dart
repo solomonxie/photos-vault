@@ -10,6 +10,7 @@ import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/bucket_object.dart';
 import 'package:photos_vault/upload/bucket_flagged.dart';
 import 'package:photos_vault/upload/bucket_import.dart';
+import 'package:photos_vault/upload/bucket_leftovers.dart';
 import 'package:photos_vault/upload/name_migration.dart';
 import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/upload/s3_uploader.dart';
@@ -821,6 +822,262 @@ void main() {
       );
     },
   );
+
+  group('fix then detect is empty', () {
+    const hex = '0123456789abcdef0123456789abcdef';
+    const hex2 = 'fedcba9876543210fedcba9876543210';
+
+    Future<List<FlaggedObject>> detect() {
+      final f = fixer();
+      return BucketFlags(store: store)
+          .detect(inspect: f.inspect, etag: f.etagOf);
+    }
+
+    Future<void> holds(
+      String id,
+      String key, {
+      String? motion,
+      bool hidden = false,
+    }) async {
+      await store.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        passcodeHash: hidden ? 'tag' : null,
+        isHidden: hidden,
+      );
+      await store.updateDerivative(
+        id,
+        DerivativeKind.original,
+        DerivativeState(status: UploadStatus.uploaded, destinationKey: key),
+      );
+      if (motion != null) {
+        await store.updateDerivative(
+          id,
+          DerivativeKind.livePhoto,
+          DerivativeState(
+            status: UploadStatus.uploaded,
+            destinationKey: motion,
+          ),
+        );
+      }
+    }
+
+    test('off-protocol: renamed, and not offered again', () async {
+      bucket.objects['photos-vault/originals/IMG_0001.mp4'] = video;
+      await relist();
+      final item = (await detect()).single;
+      expect(item.kind, FlagKind.offProtocol);
+
+      expect((await fixer().rename(item)).outcome, FixOutcome.imported);
+      expect(await detect(), isEmpty);
+    });
+
+    test('a rename whose old name could not be deleted is not done', () async {
+      bucket.objects['photos-vault/originals/IMG_0002.mp4'] = video;
+      await relist();
+      final item = (await detect()).single;
+      bucket.failDeletes = true;
+
+      expect((await fixer().rename(item)).ok, isFalse);
+      expect((await detect()).single.object.key, item.object.key);
+    });
+
+    test('orphan thumbnail: removed, and not offered again', () async {
+      bucket.objects['photos-vault/thumbnails/20260101120000_$hex.jpg'] = video;
+      await relist();
+      final item = (await detect()).single;
+      expect(item.kind, FlagKind.orphanThumbnail);
+
+      expect((await fixer().removeOrphan(item)).ok, isTrue);
+      expect(await detect(), isEmpty);
+    });
+
+    test('an orphan by a stale listing: nothing deleted, the listing caught '
+        'up, and not offered again', () async {
+      const thumb = 'photos-vault/thumbnails/20260101120000_$hex.jpg';
+      const original = 'photos-vault/originals/20260101120000_$hex.heic';
+      bucket.objects[thumb] = video;
+      await relist();
+      bucket.objects[original] = video;
+      await holds('a', original);
+      final item = (await detect()).single;
+
+      expect((await fixer().removeOrphan(item)).outcome, FixOutcome.stale);
+      expect(bucket.deleted, isEmpty);
+      expect(await detect(), isEmpty);
+    });
+
+    test('unclaimed: imported, and not offered again', () async {
+      bucket.objects['photos-vault/originals/20260101120000_$hex.heic'] = video;
+      await relist();
+      final item = (await detect()).single;
+      expect(item.kind, FlagKind.unclaimed);
+
+      expect((await fixer().adopt(item)).outcome, FixOutcome.imported);
+      expect(await detect(), isEmpty);
+    });
+
+    test('a likely leftover imported anyway is not offered again', () async {
+      final stamp = objectStamp(bucket.lastModified);
+      bucket.objects['photos-vault/originals/${stamp}_$hex.heic'] = video;
+      await relist();
+      final item = (await detect()).single;
+      expect(item.kind, FlagKind.likelyLeftover);
+
+      expect((await fixer().adopt(item)).ok, isTrue);
+      expect(await detect(), isEmpty);
+    });
+
+    test("a Live Photo's two halves come in as one record", () async {
+      const still = 'photos-vault/originals/20260101120000_$hex.jpg';
+      const motion = 'photos-vault/originals/20260101120000_$hex.mov';
+      bucket.objects[still] = Uint8List.fromList(List.filled(900, 7));
+      bucket.objects[motion] = video;
+      await relist();
+      final items = await detect();
+      expect(items.map((o) => o.object.key), [still]);
+
+      final result = await fixer().adopt(items.single);
+      expect(result.outcome, FixOutcome.imported);
+      final record = (await store.getByLocalId(result.localId!))!;
+      expect(record.isVideo, isFalse);
+      expect(record.stateOf(DerivativeKind.livePhoto).destinationKey, motion);
+      expect(await detect(), isEmpty);
+    });
+
+    test('both halves adopted at once still make one record', () async {
+      const still = 'photos-vault/originals/20260101120000_$hex.jpg';
+      const motion = 'photos-vault/originals/20260101120000_$hex.mov';
+      bucket.objects[still] = Uint8List.fromList(List.filled(900, 7));
+      bucket.objects[motion] = video;
+      final rows = await relist();
+      FlaggedObject unclaimed(String key) => FlaggedObject(
+        object: rows.firstWhere((o) => o.key == key),
+        kind: FlagKind.unclaimed,
+      );
+      final f = fixer();
+
+      final results = await Future.wait([
+        f.adopt(unclaimed(motion)),
+        f.adopt(unclaimed(still)),
+      ]);
+      expect(results.every((r) => r.ok), isTrue);
+      final records = await store.listAll();
+      expect(records, hasLength(1));
+      expect(records.single.isVideo, isFalse);
+      expect(
+        records.single.stateOf(DerivativeKind.livePhoto).destinationKey,
+        motion,
+      );
+    });
+
+    test('a motion half beside a held still is linked, and not offered '
+        'again', () async {
+      const still = 'photos-vault/originals/20260101120000_$hex.heic';
+      const motion = 'photos-vault/originals/20260101120000_$hex.MOV';
+      bucket.objects[still] = Uint8List.fromList(List.filled(900, 7));
+      bucket.objects[motion] = video;
+      await relist();
+      await holds('photo:L', still);
+      final item = (await detect()).single;
+      expect(item.kind, FlagKind.liveHalf);
+      expect(item.ownerId, 'photo:L');
+      expect(Flag.bucket(item).solutions.first, FlagSolution.attachLiveHalf);
+
+      expect((await fixer().attachLiveHalf(item)).ok, isTrue);
+      final r = (await store.getByLocalId('photo:L'))!;
+      expect(r.stateOf(DerivativeKind.livePhoto).destinationKey, motion);
+      expect(r.isLivePhoto, isTrue);
+      expect(await detect(), isEmpty);
+    });
+
+    test("a hidden photo's motion half is never listed", () async {
+      const still = 'photos-vault/originals/20260101120000_$hex.heic';
+      bucket.objects[still] = Uint8List.fromList(List.filled(900, 7));
+      bucket.objects['photos-vault/originals/20260101120000_$hex.MOV'] = video;
+      await relist();
+      await holds('photo:H', still, hidden: true);
+
+      expect(await detect(), isEmpty);
+    });
+
+    test('a name a record holds, with nothing it could be attached to, is '
+        'not offered for an import that would be refused', () async {
+      const still = 'photos-vault/originals/20250616032353_$hex.jpg';
+      const orphan = 'photos-vault/originals/20250616032353_$hex.mov';
+      bucket.objects[still] = Uint8List.fromList(List.filled(900, 7));
+      bucket.objects[orphan] = video;
+      await relist();
+      await holds(
+        'photo:EA10',
+        still,
+        motion: 'photos-vault/originals/20261006162802_$hex2.MOV',
+      );
+
+      expect(await detect(), isEmpty);
+      final asked = FlaggedObject(
+        object: (await store.listBucketObjects()).firstWhere(
+          (o) => o.key == orphan,
+        ),
+        kind: FlagKind.unclaimed,
+      );
+      expect((await fixer().adopt(asked)).ok, isFalse);
+      expect(bucket.deleted, isEmpty);
+    });
+
+    test('an old copy bigger than the one kept is never offered', () async {
+      const old = 'photos-vault/originals/photo_ABC_L0_001.jpg';
+      const current = 'photos-vault/originals/20260101120000_$hex.heic';
+      bucket.objects[old] = Uint8List(9000);
+      bucket.objects[current] = Uint8List(3000);
+      await relist();
+      await holds('photo:ABC/L0/001', current);
+
+      expect(await detect(), isEmpty);
+    });
+
+    test('an old copy no bigger than the one kept: removed, and not offered '
+        'again', () async {
+      const old = 'photos-vault/originals/photo_ABC_L0_001.jpg';
+      const current = 'photos-vault/originals/20260101120000_$hex.heic';
+      bucket.objects[old] = Uint8List(3000);
+      bucket.objects[current] = Uint8List.fromList(List.filled(3000, 1));
+      await relist();
+      await holds('photo:ABC/L0/001', current);
+      final item = (await detect()).single;
+      expect(item.kind, FlagKind.oldCopy);
+
+      expect((await fixer().removeOldCopy(item)).ok, isTrue);
+      expect(await detect(), isEmpty);
+    });
+
+    test('an exact duplicate: removed, the kept one stays, and not offered '
+        'again', () async {
+      const kept = 'photos-vault/originals/20260101120000_$hex.heic';
+      const copy = 'photos-vault/originals/IMG_0003.heic';
+      bucket.objects[kept] = video;
+      bucket.objects[copy] = video;
+      await relist();
+      await holds('a', kept);
+      final item = (await detect()).single;
+      expect(item.kind, FlagKind.duplicate);
+
+      expect((await fixer().removeOldCopy(item)).ok, isTrue);
+      expect(bucket.objects.keys, [kept]);
+      expect(await detect(), isEmpty);
+    });
+
+    test('ignored: not offered again', () async {
+      bucket.objects['photos-vault/originals/IMG_0004.mp4'] = video;
+      await relist();
+      final item = (await detect()).single;
+
+      await IgnoredBucketKeys(store).addAll([item.object.key]);
+      expect(await detect(), isEmpty);
+    });
+  });
 }
 
 AssetRecord _record(String id) => AssetRecord(

@@ -56,8 +56,15 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
 
   bool _closing = false;
 
+  /// Each row's own time, worked out once per queue change, not per build.
+  final Map<String, Duration> _eta = {};
+
+  Duration _etaOf(Flag flag) =>
+      _eta[flag.id] ??= _queue.estimate(widget.solution, [flag]);
+
   void _onQueue() {
     if (_closing) return;
+    _eta.clear();
     final open = _open();
     setState(() {
       _flags = open;
@@ -332,12 +339,8 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
                       if (flag.saving > 0 && flag.saving < flag.bytes)
                         l10n.flaggedSavesAbout(formatBytes(flag.saving)),
                       // A row's own time only once it is worth a glance.
-                      if (_queue.estimate(widget.solution, [flag]).inSeconds >=
-                          60)
-                        etaLabel(
-                          l10n,
-                          _queue.estimate(widget.solution, [flag]),
-                        ),
+                      if (_etaOf(flag) case final eta when eta.inSeconds >= 60)
+                        etaLabel(l10n, eta),
                     ].join(' · '),
                     style: settingsRowSubtitleStyle,
                   ),

@@ -1055,6 +1055,29 @@ class AssetRecordStore {
     ];
   }
 
+  /// Bumped by every write to a record row and never reset: what a result
+  /// worked out from the library is compared against, across launches.
+  Future<int> revision() async {
+    final db = await _open();
+    final rows = await db.rawQuery('SELECT n FROM $_revTable WHERE id = 0');
+    return rows.isEmpty ? 0 : rows.first['n'] as int? ?? 0;
+  }
+
+  /// The bucket index and the upload rows in a few numbers, which move
+  /// when either does. Three aggregate queries, no rows read out.
+  Future<String> bucketStamp() async {
+    final db = await _open();
+    final o = (await db.rawQuery(
+      'SELECT COUNT(*) AS c, TOTAL(size) AS s, MAX(last_modified) AS m, '
+      'TOTAL(length(key)) AS k FROM $_bucketObjectTable',
+    )).first;
+    final d = (await db.rawQuery(
+      'SELECT COUNT(*) AS c, TOTAL(length(destination_key)) AS k '
+      'FROM $_derivativeTargetTable',
+    )).first;
+    return '${o['c']}|${o['s']}|${o['m']}|${o['k']}|${d['c']}|${d['k']}';
+  }
+
   /// Every remote key some record points at - the "known" set a bucket
   /// object is held against.
   Future<Set<String>> referencedKeys() async {

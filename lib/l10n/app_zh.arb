@@ -1364,5 +1364,9 @@
   "flaggedConfirmExtraCopiesBody": "iOS 会询问一次是否删除多余副本。它们会在“照片”的“最近删除”里保留 30 天。",
   "flaggedProblemExtraCopies": "“照片”里有多余副本",
   "flaggedExtraCopiesReason": "优化在“照片”里留下了这张照片的多份副本",
-  "flaggedHowRemoveImportCopy": "从存储桶导入，但资料库里已有这张照片和它的真实日期。删除这份副本，原照片保留。"
+  "flaggedHowRemoveImportCopy": "从存储桶导入，但资料库里已有这张照片和它的真实日期。删除这份副本，原照片保留。",
+  "flaggedAttachLiveHalf": "关联动态部分",
+  "flaggedHowAttachLiveHalf": "资料库里同名实况照片的动态部分。把它关联到那张照片；存储桶里的文件不会改动。",
+  "flaggedProblemLiveHalf": "实况照片的动态部分未关联",
+  "flaggedLiveHalfReason": "资料库里一张实况照片的动态部分"
 }

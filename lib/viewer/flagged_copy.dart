@@ -28,6 +28,7 @@ String solutionLabel(AppLocalizations l10n, FlagSolution s) => switch (s) {
   FlagSolution.finishOptimize => l10n.flaggedFinishOptimize,
   FlagSolution.removeExtraCopies => l10n.flaggedRemoveExtraCopies,
   FlagSolution.removeImportCopy => l10n.flaggedRemoveDuplicates,
+  FlagSolution.attachLiveHalf => l10n.flaggedAttachLiveHalf,
 };
 
 /// One line: what the action will do.
@@ -51,6 +52,7 @@ String solutionHow(AppLocalizations l10n, FlagSolution s) => switch (s) {
   FlagSolution.finishOptimize => l10n.flaggedHowFinishOptimize,
   FlagSolution.removeExtraCopies => l10n.flaggedHowRemoveExtraCopies,
   FlagSolution.removeImportCopy => l10n.flaggedHowRemoveImportCopy,
+  FlagSolution.attachLiveHalf => l10n.flaggedHowAttachLiveHalf,
 };
 
 /// The fine print, shown on the action's page before anything runs.
@@ -120,6 +122,7 @@ IconData solutionIcon(FlagSolution s) => switch (s) {
   FlagSolution.finishOptimize => CupertinoIcons.arrow_down_right_arrow_up_left,
   FlagSolution.removeExtraCopies ||
   FlagSolution.removeImportCopy => CupertinoIcons.square_on_square,
+  FlagSolution.attachLiveHalf => CupertinoIcons.link,
 };
 
 String problemLabel(AppLocalizations l10n, FlagProblem p) => switch (p) {
@@ -136,6 +139,7 @@ String problemLabel(AppLocalizations l10n, FlagProblem p) => switch (p) {
   FlagProblem.missingFromBucket => l10n.flaggedProblemMissing,
   FlagProblem.leftoverCopy => l10n.flaggedProblemLeftoverCopy,
   FlagProblem.extraCopies => l10n.flaggedProblemExtraCopies,
+  FlagProblem.liveHalf => l10n.flaggedProblemLiveHalf,
 };
 
 /// Why this item is listed. A photo's tags explain its size; a bucket file
@@ -188,6 +192,7 @@ String flagReason(AppLocalizations l10n, Flag flag) {
     FlagKind.offProtocol => l10n.flaggedOffProtocolReason,
     FlagKind.orphanThumbnail => l10n.flaggedOrphanReason,
     FlagKind.unclaimed => l10n.flaggedUnclaimedReason,
+    FlagKind.liveHalf => l10n.flaggedLiveHalfReason,
     FlagKind.likelyLeftover ||
     FlagKind.oldCopy ||
     FlagKind.duplicate => l10n.flaggedLeftoverReason,

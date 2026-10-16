@@ -109,3 +109,9 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
   local file so the next change check doesn't upload the shrunken one over
   it. Findings are filed in app state (`storage_scan_v1`) so the page opens
   on last time's answer rather than re-walking the library every visit.
+- `flag_scan.dart` — the one detector behind Flagged Items: every kind from
+  one snapshot, single-flight, persisted (`flag_scan_v1`) with a stamp of
+  its inputs, so the page shows the last result and rescans only when they
+  move. Each kind is flagged only where its fix can succeed; after a scan
+  the queue is settled (`fix_resolved_v1`): a fixed item stays off the list
+  unless found again from new facts.

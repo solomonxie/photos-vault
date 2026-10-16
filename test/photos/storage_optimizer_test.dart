@@ -4,14 +4,18 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:photo_manager/photo_manager.dart';
+import 'package:image/image.dart' as img;
 import 'package:photos_vault/photos/file_hash.dart';
 import 'package:photos_vault/photos/photo_library_service.dart';
+import 'package:photos_vault/photos/record_fixer.dart';
 import 'package:photos_vault/photos/storage_advice.dart';
 import 'package:photos_vault/photos/storage_optimizer.dart';
 import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/photos/thumbnail_cache.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/storage/bucket_object.dart';
+import 'package:photos_vault/upload/bucket_flagged.dart' show FixOutcome;
 import 'package:photos_vault/upload/backup_verifier.dart';
 
 import '../settings/fake_secure_store.dart';
@@ -657,6 +661,96 @@ void main() {
       expect((await store.getByLocalId('cam'))!.libraryId, 'old-asset');
       expect(writer.deletedIds, ['new-asset']);
     });
+  });
+
+  test('Finish Optimize: once the original is out of Photos, the pair is '
+      'not offered again', () async {
+    final store = FakeAssetRecordStore();
+    final taken = DateTime(2026, 9, 8, 14, 42, 50);
+    String picture(String name, int width) {
+      final image = img.Image(width: width, height: width * 3 ~/ 4);
+      for (final px in image) {
+        px
+          ..r = px.x * 255 ~/ width
+          ..g = px.x * 255 ~/ width
+          ..b = px.y * 255 ~/ (width * 3 ~/ 4);
+      }
+      return (File(
+        '${tempDir.path}/$name.jpg',
+      )..writeAsBytesSync(img.encodeJpg(image))).path;
+    }
+
+    Future<void> photo(
+      String id,
+      String asset, {
+      required int width,
+      required DateTime added,
+    }) async {
+      await store.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        libraryId: asset,
+        width: width,
+        height: width * 3 ~/ 4,
+        createdAt: taken,
+        addedAt: added,
+      );
+      await store.updateDerivative(
+        id,
+        DerivativeKind.original,
+        DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'originals/$id.heic',
+        ),
+      );
+      await store.setThumbnailPath(id, picture(id, 80));
+    }
+
+    await photo('cam', 'old-asset', width: 8064, added: taken);
+    await photo(
+      'copy',
+      'copy-asset',
+      width: 2560,
+      added: taken.add(const Duration(days: 30)),
+    );
+    await store.replaceBucketObjects('t', [
+      for (final id in ['cam', 'copy'])
+        BucketObject(
+          targetId: 't',
+          key: 'originals/$id.heic',
+          size: 100,
+          lastModified: taken,
+        ),
+    ]);
+    final optimizer = StorageOptimizer(
+      store: store,
+      thumbnails: ThumbnailCache(
+        store: store,
+        directory: () async => tempDir,
+        encode: (_) async => Uint8List.fromList([1]),
+      ),
+      library: photosWith({'old-asset', 'copy-asset'}),
+      backUp: (_) async {},
+      verifier: await bucketSaying(store),
+      writer: _FakeWriter(tempDir),
+    );
+    final records = RecordFixer(
+      store: store,
+      thumbnail: (_) async => null,
+      inPhotos: (_) async => true,
+      remove: (_) async => true,
+      fileCopies: optimizer.fileFoundCopies,
+    );
+
+    final found = (await records.scan()).leftoverCopies;
+    expect(found.map((f) => f.asset!.localId), ['cam']);
+    final filed = await records.finishOptimize(found.single.asset!);
+    expect(filed.outcome, FixOutcome.filed, reason: filed.detail);
+    await optimizer.finishSwaps();
+
+    expect((await store.getByLocalId('cam'))!.libraryId, 'copy-asset');
+    expect((await records.scan()).leftoverCopies, isEmpty);
   });
 
   group('the swap journal', () {

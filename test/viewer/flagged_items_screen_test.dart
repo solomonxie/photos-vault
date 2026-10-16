@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
@@ -12,6 +13,7 @@ import 'package:photos_vault/photos/storage_optimizer.dart';
 import 'package:photos_vault/photos/thumbnail_cache.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/photos/fix_queue.dart';
+import 'package:photos_vault/photos/flag_scan.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/storage/bucket_object.dart';
 import 'package:photos_vault/upload/bucket_flagged.dart';
@@ -151,6 +153,74 @@ void main() {
     // Nothing here ever deletes a local copy, and a fine photo isn't listed.
     expect(action('removeFromDevice'), findsNothing);
     expect(find.text('big.heic'), findsNothing, reason: 'files are a tap in');
+  });
+
+  testWidgets('Rescan keeps the list on screen until the new one lands', (
+    tester,
+  ) async {
+    final store = await seeded();
+    final targets = BackupTargetsStore(store: FakeSecureStore());
+    final advisor = advisorOver(store);
+    final queue = FixQueue(
+      store: store,
+      advisor: advisor,
+      optimizer: StorageOptimizer(
+        store: store,
+        thumbnails: ThumbnailCache(
+          store: store,
+          directory: () async => tempDir,
+          encode: (_) async => Uint8List.fromList([1]),
+        ),
+        library: PhotoLibraryService(store: store),
+        backUp: (_) async {},
+      ),
+      fixer: BucketFixer(
+        store: store,
+        targetsStore: targets,
+        passphrases: () async => const [],
+      ),
+      refreshBucket: () async {},
+    );
+    var gate = Completer<bool>()..complete(true);
+    final scan = FlagScan(
+      store: store,
+      targetsStore: targets,
+      advisor: advisor,
+      queue: queue,
+      relist: () => gate.future,
+    );
+    await tester.pumpWidget(
+      _wrap(
+        FlaggedItemsScreen(
+          store: store,
+          targetsStore: targets,
+          advisor: advisor,
+          queue: queue,
+          scan: scan,
+        ),
+      ),
+    );
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
+    expect(action('optimize'), findsOneWidget);
+
+    gate = Completer<bool>();
+    await tester.tap(find.text('Rescan'));
+    await tester.pump(const Duration(milliseconds: 200));
+    expect(scan.running, isTrue);
+    expect(action('optimize'), findsOneWidget);
+    expect(find.text('1 item to fix'), findsOneWidget);
+
+    gate.complete(true);
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(milliseconds: 50)),
+    );
+    await tester.pumpAndSettle();
+    expect(scan.running, isFalse);
+    expect(action('optimize'), findsOneWidget);
+    scan.dispose();
   });
 
   testWidgets('what the one-time repair listed is shown as information, '

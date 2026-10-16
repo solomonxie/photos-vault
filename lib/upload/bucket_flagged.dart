@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
@@ -51,6 +52,11 @@ enum FlagKind {
   /// The same bytes as another object in the same bucket (same size and
   /// ETag), and no record points at it. The other one is kept.
   duplicate,
+
+  /// A Live Photo's `.mov` beside the still a record holds under the same
+  /// name, which has no motion half on file: attaching it is the fix,
+  /// never an import (the name is taken).
+  liveHalf,
 }
 
 /// What a header read says about an object: whether it is a hidden photo's
@@ -63,10 +69,14 @@ class FlaggedObject {
     required this.kind,
     this.likelyDuplicateOf,
     this.takenAt,
+    this.ownerId,
   });
 
   final BucketObject object;
   final FlagKind kind;
+
+  /// For a [FlagKind.liveHalf]: the record it belongs to.
+  final String? ownerId;
 
   /// The capture date read from the file's own metadata, when the scan read
   /// its header and found one.
@@ -113,11 +123,21 @@ class BucketFlags {
 
   /// [inspect] reads an object's header once for both questions; without
   /// it, [isCarrier] alone answers the first and no dates are read.
+  ///
+  /// [objects] and [records] are the caller's snapshot, when it has one:
+  /// one read of each per scan, not one per detector.
+  ///
+  /// Every kind is flagged only where its fix can succeed on what the
+  /// listing says, so a fixed file is not offered again: an import never
+  /// for a name a record already holds, an old copy only when the copy
+  /// kept in its place passes the delete guard by size.
   Future<List<FlaggedObject>> detect({
     Future<bool> Function(BucketObject object)? isCarrier,
     Future<ObjectInspection> Function(BucketObject object)? inspect,
     Future<String?> Function(BucketObject object)? etag,
     int probeLimit = 200,
+    List<BucketObject>? objects,
+    List<AssetRecord>? records,
   }) async {
     final look =
         inspect ??
@@ -125,7 +145,8 @@ class BucketFlags {
             ? null
             : (BucketObject o) async =>
                   (carrier: await isCarrier(o), takenAt: null));
-    final objects = await store.listBucketObjects();
+    objects ??= await store.listBucketObjects();
+    final all = records ?? await store.listAll();
     final referenced = await store.referencedKeys();
     final ignored = await IgnoredBucketKeys(store).read();
     // Already on their way out; offering a fix for them races the delete.
@@ -134,10 +155,57 @@ class BucketFlags {
     };
     final present = {for (final o in objects) '${o.targetId}|${o.key}'};
     final live = {
-      for (final r in await store.listAll())
+      for (final r in all)
         if (!r.isDeleted) r.localId: r,
     };
     final holdings = await store.allHoldings();
+    final sizeOf = {for (final o in objects) '${o.targetId}|${o.key}': o.size};
+
+    /// What [BucketFixer.removeOldCopy]'s guard will ask of the copy kept
+    /// in [o]'s place, by the listing: the same size for a video, no
+    /// smaller for a still. One that can't pass is never offered.
+    bool keeperPasses(BucketObject o, String current) {
+      final kept = sizeOf['${o.targetId}|$current'];
+      if (kept == null) return false;
+      return videoExtensions.contains(_ext(o.key))
+          ? kept == o.size
+          : kept >= o.size;
+    }
+
+    // Every name a record's original holds, in any bucket, prefix or
+    // format, binned and hidden rows too: what `adopt` refuses.
+    final heldStems = <String>{};
+    final stillByStem = <String, AssetRecord>{};
+    for (final r in all) {
+      final keys = {
+        ?r.stateOf(DerivativeKind.original).destinationKey,
+        ...?holdings[r.localId]?[DerivativeKind.original]?.values,
+      };
+      for (final k in keys) {
+        final stem = _stem(k);
+        heldStems.add(stem);
+        if (!r.isDeleted &&
+            !r.isVideo &&
+            !r.isHidden &&
+            r.passcodeHash == null &&
+            !videoExtensions.contains(_ext(k))) {
+          stillByStem[stem] = r;
+        }
+      }
+    }
+
+    /// The record a protocol-named `.mov` is the missing motion half of:
+    /// a visible still under the same name with no motion half on file.
+    AssetRecord? liveOwner(BucketObject o) {
+      if (!videoExtensions.contains(_ext(o.key))) return null;
+      final r = stillByStem[_stem(o.key)];
+      if (r == null) return null;
+      final motion = {
+        ?r.stateOf(DerivativeKind.livePhoto).destinationKey,
+        ...?holdings[r.localId]?[DerivativeKind.livePhoto]?.values,
+      };
+      return motion.isEmpty ? r : null;
+    }
 
     /// The current key of the record an old-style name was written for, in
     /// the same bucket, when that copy is there.
@@ -217,6 +285,16 @@ class BucketFlags {
           likelyDuplicateOf: knownBySize['${o.targetId}|${o.size}'],
           takenAt: takenAt,
         );
+    final looseStills = {
+      for (final o in objects)
+        if (o.directory == 'originals' &&
+            stillExtensions.contains(_ext(o.key)) &&
+            !referenced.contains(o.key) &&
+            !ignored.contains(o.key) &&
+            !leaving.contains(o.key) &&
+            fitsProtocol(o.fileName))
+          '${o.targetId}|${p.posix.withoutExtension(o.key)}',
+    };
     final out = <FlaggedObject>[];
     final copies = etag == null
         ? const <String, String>{}
@@ -247,19 +325,46 @@ class BucketFlags {
           continue;
         }
         if ((stillBackedUp(o) ?? heldSibling(o)) case final current?) {
-          out.add(
-            FlaggedObject(
-              object: o,
-              kind: FlagKind.oldCopy,
-              likelyDuplicateOf: current,
-            ),
-          );
+          // A bigger still, or a video that isn't the same size, is never
+          // let go of in favour of the one kept: left alone, not offered.
+          if (keeperPasses(o, current)) {
+            out.add(
+              FlaggedObject(
+                object: o,
+                kind: FlagKind.oldCopy,
+                likelyDuplicateOf: current,
+              ),
+            );
+          }
           continue;
         }
         final isMedia =
             videoExtensions.contains(ext) || stillExtensions.contains(ext);
         if (!isMedia) continue;
         final protocol = fitsProtocol(o.fileName);
+        // Its still comes in with it ([BucketFixer.adopt]); offered alone,
+        // two imports of one photo would race for one record.
+        if (protocol &&
+            videoExtensions.contains(ext) &&
+            looseStills.contains(
+              '${o.targetId}|${p.posix.withoutExtension(o.key)}',
+            )) {
+          continue;
+        }
+        if (protocol && heldStems.contains(_stem(o.key))) {
+          if (liveOwner(o) case final owner?) {
+            out.add(
+              FlaggedObject(
+                object: o,
+                kind: FlagKind.liveHalf,
+                ownerId: owner.localId,
+              ),
+            );
+          }
+          // Otherwise another copy of a photo the library holds by name:
+          // import would refuse it, and nothing else here is safe.
+          continue;
+        }
         // An off-protocol name needs its header read only when its stamp
         // could be an upload stamp; otherwise the name is evidence enough.
         final suspect = _stampNearArrival(o);
@@ -404,6 +509,9 @@ enum FixOutcome {
 
   /// Filed for the run's one iOS prompt; not done until it is answered.
   filed,
+
+  /// Nothing to do: the listing was behind the bucket, and is caught up.
+  stale,
   failed,
 }
 
@@ -599,9 +707,38 @@ class BucketFixer {
     return found != null;
   }
 
+  /// One fix per name at a time: a Live Photo's two halves share it, and
+  /// adopted together both would claim the one record.
+  final _byStemLocks = <String, Future<void>>{};
+
+  Future<T> _byStem<T>(String stem, Future<T> Function() work) async {
+    for (
+      var busy = _byStemLocks[stem];
+      busy != null;
+      busy = _byStemLocks[stem]
+    ) {
+      await busy;
+    }
+    final done = Completer<void>();
+    _byStemLocks[stem] = done.future;
+    try {
+      return await work();
+    } finally {
+      _byStemLocks.remove(stem);
+      done.complete();
+    }
+  }
+
   /// An unclaimed object that already has a protocol name: it becomes a
-  /// cloud-only record as it is, with nothing moved or renamed.
-  Future<FixResult> adopt(FlaggedObject f) async {
+  /// cloud-only record as it is, with nothing moved or renamed. A still
+  /// brings its listed `.mov` in as its motion half; a `.mov` whose still
+  /// came in first is attached to it.
+  Future<FixResult> adopt(FlaggedObject f) {
+    if (f.kind == FlagKind.liveHalf) return attachLiveHalf(f);
+    return _byStem(_stem(f.object.key), () => _adopt(f));
+  }
+
+  Future<FixResult> _adopt(FlaggedObject f) async {
     final leftover =
         f.kind == FlagKind.likelyLeftover && fitsProtocol(f.object.fileName);
     if (f.kind != FlagKind.unclaimed && !leftover) {
@@ -620,7 +757,28 @@ class BucketFixer {
         return const FixResult(FixOutcome.failed, detail: _noAnswer);
       case Probe.present:
     }
+    if (await store.keyHeldByOthers(f.object.key, null)) {
+      return const FixResult(FixOutcome.stale);
+    }
+    final still = f.isVideo ? await _looseStill(target, f.object) : null;
+    if (still != null) {
+      // The still is the record; this comes in with it as its motion.
+      try {
+        if (await isCarrier(still)) {
+          return const FixResult(FixOutcome.failed, detail: 'hidden photo');
+        }
+      } catch (_) {
+        return const FixResult(FixOutcome.failed, detail: _noAnswer);
+      }
+      return _adopt(FlaggedObject(object: still, kind: FlagKind.unclaimed));
+    }
     if (await store.originalStemHeld(base)) {
+      if (f.isVideo) {
+        if (await store.getByLocalId('bucket:$base') case final owner?) {
+          final attached = await _attach(owner, target, f.object);
+          if (attached.ok) return attached;
+        }
+      }
       return const FixResult(FixOutcome.failed, detail: 'already in library');
     }
     final thumb = await _thumbnailOf(f);
@@ -632,7 +790,132 @@ class BucketFixer {
       isVideo: f.isVideo,
       created: await _dateOf(target, f),
     );
+    if (!f.isVideo) await _attachListedMotion(localId, target, f.object);
     return FixResult(FixOutcome.imported, localId: localId);
+  }
+
+  /// A listed still under [motion]'s name that nothing holds, live.
+  Future<BucketObject?> _looseStill(
+    S3BackupTarget target,
+    BucketObject motion,
+  ) async {
+    for (final key in await store.listedSiblings(target.id, motion.key)) {
+      if (!BucketFlags.stillExtensions.contains(_ext(key))) continue;
+      if (await store.keyHeldByOthers(key, null)) continue;
+      final head = await _ops.head(target, key);
+      if (!head.isPresent || head.size == null) continue;
+      return BucketObject(
+        targetId: target.id,
+        key: key,
+        size: head.size!,
+        lastModified: motion.lastModified,
+      );
+    }
+    return null;
+  }
+
+  /// The listed `.mov` beside a still just imported, when nothing holds it.
+  Future<void> _attachListedMotion(
+    String localId,
+    S3BackupTarget target,
+    BucketObject still,
+  ) async {
+    final owner = await store.getByLocalId(localId);
+    if (owner == null) return;
+    for (final key in await store.listedSiblings(target.id, still.key)) {
+      if (!BucketFlags.videoExtensions.contains(_ext(key))) continue;
+      if (await store.keyHeldByOthers(key, null)) continue;
+      final head = await _ops.head(target, key);
+      if (!head.isPresent || head.size == null) continue;
+      await _attach(
+        owner,
+        target,
+        BucketObject(
+          targetId: target.id,
+          key: key,
+          size: head.size!,
+          lastModified: still.lastModified,
+        ),
+      );
+      return;
+    }
+  }
+
+  /// A [FlagKind.liveHalf]: the `.mov` becomes its still's motion half.
+  /// Only a reference is written; nothing in the bucket changes.
+  Future<FixResult> attachLiveHalf(FlaggedObject f) =>
+      _byStem(_stem(f.object.key), () async {
+        final target = await _target(f.object.targetId);
+        final ownerId = f.ownerId;
+        if (target == null || ownerId == null || f.kind != FlagKind.liveHalf) {
+          return const FixResult(FixOutcome.failed);
+        }
+        if (await store.keyHeldByOthers(f.object.key, null)) {
+          return const FixResult(FixOutcome.stale);
+        }
+        final owner = await store.getByLocalId(ownerId);
+        if (owner == null) {
+          return const FixResult(FixOutcome.failed, detail: 'changed since');
+        }
+        switch ((await _ops.head(target, f.object.key)).state) {
+          case Probe.absent:
+            return const FixResult(FixOutcome.removed);
+          case Probe.unknown:
+            return const FixResult(FixOutcome.failed, detail: _noAnswer);
+          case Probe.present:
+        }
+        return _attach(owner, target, f.object);
+      });
+
+  /// Checked live first: a visible still under the same name with no
+  /// motion half, and a `.mov` that is not a hidden photo's carrier.
+  Future<FixResult> _attach(
+    AssetRecord owner,
+    S3BackupTarget target,
+    BucketObject motion,
+  ) async {
+    final original = owner.stateOf(DerivativeKind.original).destinationKey;
+    final fits =
+        !owner.isDeleted &&
+        !owner.isHidden &&
+        owner.passcodeHash == null &&
+        !owner.isVideo &&
+        original != null &&
+        _stem(original) == _stem(motion.key) &&
+        owner.stateOf(DerivativeKind.livePhoto).destinationKey == null &&
+        (await store.targetsHolding(
+          owner.localId,
+          DerivativeKind.livePhoto,
+        )).isEmpty;
+    if (!fits) {
+      return const FixResult(FixOutcome.failed, detail: 'changed since');
+    }
+    try {
+      if (await isCarrier(motion)) {
+        return const FixResult(FixOutcome.failed, detail: 'hidden photo');
+      }
+    } catch (_) {
+      return const FixResult(FixOutcome.failed, detail: _noAnswer);
+    }
+    await store.recordUpload(
+      localId: owner.localId,
+      kind: DerivativeKind.livePhoto,
+      targetId: target.id,
+      destinationKey: motion.key,
+    );
+    await store.updateDerivative(
+      owner.localId,
+      DerivativeKind.livePhoto,
+      DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: motion.key,
+      ),
+    );
+    // A camera-roll photo's own Live flag is the library scan's to set.
+    if (owner.sourceType != AssetSourceType.photoManager) {
+      await store.setLivePhoto(owner.localId, true);
+    }
+    return FixResult(FixOutcome.imported, localId: owner.localId);
   }
 
   /// Whether the file is known not to be a carrier, which is the only case
@@ -745,13 +1028,17 @@ class BucketFixer {
       isVideo: f.isVideo,
       created: date,
     );
-    await _delete(target, f.object.key, keep: kept);
+    final gone = await _delete(target, f.object.key, keep: kept);
     if (thumb != null && newThumbKey != null) {
       await _delete(
         target,
         thumb.key,
         keep: Keeper(newThumbKey, size: thumb.size),
       );
+    }
+    // Still there under its old name, it is flagged again: not done.
+    if (!gone.isGone) {
+      return FixResult(FixOutcome.failed, localId: localId, detail: _why(gone));
     }
     return FixResult(FixOutcome.imported, localId: localId);
   }
@@ -830,9 +1117,20 @@ class BucketFixer {
         isVideo: false,
         created: date,
       );
-      await _delete(target, f.object.key, keep: Keeper(newKey, size: sent));
+      final gone = await _delete(
+        target,
+        f.object.key,
+        keep: Keeper(newKey, size: sent),
+      );
       if (thumb != null && newThumbKey != null) {
         await _delete(target, thumb.key, keep: Keeper(newThumbKey));
+      }
+      if (!gone.isGone) {
+        return FixResult(
+          FixOutcome.failed,
+          localId: localId,
+          detail: _why(gone),
+        );
       }
       return FixResult(FixOutcome.imported, localId: localId);
     } catch (_) {
@@ -1074,7 +1372,18 @@ class BucketFixer {
       return const FixResult(FixOutcome.failed, detail: 'bucket unreachable');
     }
     if (original.isNotEmpty) {
-      return const FixResult(FixOutcome.failed, detail: 'original is there');
+      // The listing missed it: noted, so the thumbnail is no orphan to the
+      // next scan either.
+      for (final o in original) {
+        final listed = BucketObject(
+          targetId: target.id,
+          key: o.key,
+          size: o.size,
+          lastModified: o.lastModified,
+        );
+        await store.moveBucketObject(listed, listed);
+      }
+      return const FixResult(FixOutcome.stale);
     }
     final outcome = await _delete(target, f.object.key);
     return outcome.isGone

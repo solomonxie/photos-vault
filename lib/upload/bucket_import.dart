@@ -262,7 +262,7 @@ class BucketImport {
             .skip(i)
             .take(fixConcurrency)
             .map(
-              (f) => f.kind == FlagKind.unclaimed
+              (f) => f.kind == FlagKind.unclaimed || f.kind == FlagKind.liveHalf
                   ? _fixer.adopt(f)
                   : _fixer.rename(f),
             ),

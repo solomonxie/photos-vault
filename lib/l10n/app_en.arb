@@ -2011,5 +2011,9 @@
   "flaggedConfirmExtraCopiesBody": "iOS asks once to delete the extra copies. They stay in Photos' Recently Deleted for 30 days.",
   "flaggedProblemExtraCopies": "Extra copies in Photos",
   "flaggedExtraCopiesReason": "Optimize left more than one copy of this photo in Photos",
-  "flaggedHowRemoveImportCopy": "Imported from your bucket, but already in your library with its real date. Removes this copy; your photo stays."
+  "flaggedHowRemoveImportCopy": "Imported from your bucket, but already in your library with its real date. Removes this copy; your photo stays.",
+  "flaggedAttachLiveHalf": "Link Motion",
+  "flaggedHowAttachLiveHalf": "The moving half of a Live Photo already in your library, under the same name. Links it to that photo; nothing in your bucket changes.",
+  "flaggedProblemLiveHalf": "Live Photo motion not linked",
+  "flaggedLiveHalfReason": "Motion of a Live Photo already in your library"
 }

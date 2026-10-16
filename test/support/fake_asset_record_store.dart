@@ -688,6 +688,20 @@ class FakeAssetRecordStore implements AssetRecordStore {
 
   final bucketObjects = <String, List<BucketObject>>{};
 
+  /// Records are replaced, never changed in place: their identities are
+  /// the revision.
+  @override
+  Future<int> revision() async =>
+      Object.hashAll([for (final r in _records.values) identityHashCode(r)]);
+
+  @override
+  Future<String> bucketStamp() async => Object.hashAll([
+    for (final MapEntry(:key, :value) in bucketObjects.entries)
+      for (final o in value) Object.hash(key, o.key, o.size, o.lastModified),
+    for (final MapEntry(:key, :value) in uploads.entries)
+      for (final e in value.entries) Object.hash(key, e.key, e.value.key),
+  ]).toString();
+
   @override
   Future<void> replaceBucketObjects(
     String targetId,

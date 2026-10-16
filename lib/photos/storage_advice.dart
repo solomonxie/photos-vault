@@ -6,6 +6,7 @@ import 'package:photo_manager/photo_manager.dart';
 
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/bucket_object.dart';
 import 'photo_library_service.dart';
 
 /// What's costing space on one asset. An asset can carry several — a 40 MB
@@ -351,11 +352,17 @@ class StorageAdvisor {
       (_listed.isNotEmpty &&
           !_listed.contains(r.stateOf(DerivativeKind.original).destinationKey));
 
-  Future<void> _loadRemoteDone() async {
+  Future<void> _loadRemoteDone([List<BucketObject>? objects]) async {
     _listed = {
-      for (final o in await store.listBucketObjects())
+      for (final o in objects ?? await store.listBucketObjects())
         if (o.directory == 'originals') o.key,
     };
+    await _loadIdSets();
+  }
+
+  /// Without the listing: a mark per fixed item is not a read of the
+  /// whole bucket index.
+  Future<void> _loadIdSets() async {
     _remoteDone = await _idSet(_remoteKey);
     _smallest = await _idSet(_smallestKey);
   }
@@ -374,13 +381,13 @@ class StorageAdvisor {
   /// read the set before the others wrote theirs and lost them.
   Future<void> markSmallestAlready(Iterable<String> localIds) async {
     if (localIds.isEmpty) return;
-    await _loadRemoteDone();
+    await _loadIdSets();
     _smallest.addAll(localIds);
     await store.setAppState(_smallestKey, jsonEncode([..._smallest]));
   }
 
   Future<void> markRemoteOptimized(String localId) async {
-    await _loadRemoteDone();
+    await _loadIdSets();
     _remoteDone.add(localId);
     await store.setAppState(_remoteKey, jsonEncode([..._remoteDone]));
   }
@@ -389,16 +396,24 @@ class StorageAdvisor {
   /// library — by the hash taken when each was backed up, so only exact
   /// copies, never look-alikes. One per group is kept: a favourite, else
   /// the first added. Locked and hidden photos are never offered.
-  Future<List<StorageItem>> duplicates() async {
+  ///
+  /// [records] and [sized] are a caller's snapshot (`listAll`, [cached]).
+  Future<List<StorageItem>> duplicates({
+    List<AssetRecord>? records,
+    StorageScan? sized,
+  }) async {
     final groups = <String, List<AssetRecord>>{};
-    for (final r in await store.listAll()) {
-      if (r.isDeleted || r.isLocked || r.passcodeHash != null) continue;
+    for (final r in records ?? await store.listAll()) {
+      if (r.isDeleted || r.isLocked || r.isHidden || r.passcodeHash != null) {
+        continue;
+      }
       final hash = r.stateOf(DerivativeKind.original).backedUpHash;
       if (hash == null) continue;
       (groups[hash] ??= []).add(r);
     }
     final sizes = {
-      for (final item in (await cached()).items) item.record.localId: item,
+      for (final item in (sized ?? await cached(records: records)).items)
+        item.record.localId: item,
     };
     final out = <StorageItem>[];
     for (final group in groups.values) {
@@ -431,13 +446,15 @@ class StorageAdvisor {
   /// Photos with no copy on this phone whose bucket copy could be smaller:
   /// sized from the bucket listing, since there's nothing here to measure.
   /// Only ever offered Optimize in the bucket.
-  Future<List<StorageItem>> cloudOnly() async {
-    await _loadRemoteDone();
-    final sizes = {
-      for (final o in await store.listBucketObjects()) o.key: o.size,
-    };
+  Future<List<StorageItem>> cloudOnly({
+    List<AssetRecord>? records,
+    List<BucketObject>? objects,
+  }) async {
+    objects ??= await store.listBucketObjects();
+    await _loadRemoteDone(objects);
+    final sizes = {for (final o in objects) o.key: o.size};
     final out = <StorageItem>[];
-    for (final r in await store.listAll()) {
+    for (final r in records ?? await store.listAll()) {
       if (!r.localDeleted ||
           r.isDeleted ||
           r.isHidden ||
@@ -487,19 +504,23 @@ class StorageAdvisor {
   /// backed up or not, still on the device, binned since — is re-read off
   /// the current record, because those answers are free and a stale one
   /// would offer a fix for something already fixed.
-  Future<StorageScan> cached() async {
-    await _loadRemoteDone();
+  Future<StorageScan> cached({
+    List<AssetRecord>? records,
+    List<BucketObject>? objects,
+  }) async {
+    await _loadRemoteDone(objects);
     final raw = await store.getAppState(_cacheKey);
     if (raw == null) return const StorageScan();
     try {
       final decoded = jsonDecode(raw) as Map<String, dynamic>;
       final rows = (decoded['items'] as List?) ?? const [];
-      final records = {
-        for (final record in await store.listAll()) record.localId: record,
+      final byId = {
+        for (final record in records ?? await store.listAll())
+          record.localId: record,
       };
       final items = <StorageItem>[];
       for (final row in rows.cast<Map<String, dynamic>>()) {
-        final record = records[row['localId'] as String];
+        final record = byId[row['localId'] as String];
         if (record == null) continue;
         final item = adviseOn(
           record: record,

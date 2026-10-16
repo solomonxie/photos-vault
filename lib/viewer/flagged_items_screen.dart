@@ -5,14 +5,12 @@ import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/fix_queue.dart';
+import '../photos/flag_scan.dart';
 import '../photos/storage_advice.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/settings_section.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import '../upload/bucket_flagged.dart';
-import '../upload/bucket_import.dart';
-import '../vault/hidden_repair.dart';
 import 'flagged_action_screen.dart';
 import 'flagged_copy.dart';
 
@@ -32,6 +30,7 @@ class FlaggedItemsScreen extends StatefulWidget {
     required this.targetsStore,
     required this.advisor,
     required this.queue,
+    this.scan,
     this.onOpenAsset,
   });
 
@@ -39,10 +38,17 @@ class FlaggedItemsScreen extends StatefulWidget {
   final BackupTargetsStore targetsStore;
   final StorageAdvisor advisor;
   final FixQueue queue;
+
+  /// The library screen's, so a scan outlives the page; one of its own
+  /// when none is given.
+  final FlagScan? scan;
   final Future<void> Function(String localId)? onOpenAsset;
 
   /// Simulator screenshots only: opens the first action once it is known.
   static bool demoOpenAction = false;
+
+  /// How often an open page asks whether anything it lists has moved.
+  static Duration pollEvery = const Duration(seconds: 5);
 
   @override
   State<FlaggedItemsScreen> createState() => _FlaggedItemsScreenState();
@@ -51,230 +57,84 @@ class FlaggedItemsScreen extends StatefulWidget {
 class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   FixQueue get _queue => widget.queue;
 
-  List<Flag> _storage = const [];
-  List<Flag> _bucket = const [];
-
-  /// Exact copies of another photo here. A copy's own size or format
-  /// flag gives way to this: it is going, not being shrunk.
-  List<Flag> _duplicates = const [];
-
-  /// Cloud-only photos whose bucket copy could be smaller.
-  List<Flag> _cloudOnly = const [];
-  DateTime? _scannedAt;
-  bool _scanning = false;
-  int _scanned = 0;
-  int _toScan = 0;
-  bool _loadingBucket = true;
+  late final FlagScan _scan =
+      widget.scan ??
+      FlagScan(
+        store: widget.store,
+        targetsStore: widget.targetsStore,
+        advisor: widget.advisor,
+        queue: widget.queue,
+      );
 
   // Derived once per change, not per build — the list can be the library.
   int _problemCount = 0;
   int _saving = 0;
+  int _lost = 0;
+  int _backingUp = 0;
   Map<FlagSolution, List<Flag>> _phone = const {};
   Map<FlagSolution, List<Flag>> _inBucket = const {};
 
-  /// Per action: what it saves and how long it should take, worked out
-  /// with the groups rather than on every build.
-  Map<FlagSolution, (int, Duration)> _totals = const {};
+  /// Per action: what it saves, how long it should take, and how many
+  /// failed last time, worked out with the groups rather than per build.
+  Map<FlagSolution, (int, Duration, int)> _totals = const {};
+
+  Timer? _poll;
+  bool _wasRunning = false;
 
   @override
   void initState() {
     super.initState();
-    _queue.addListener(_derive);
-    _loadStorage();
-    _loadDuplicates();
-    _loadRecords();
-    _loadBucket();
-    _loadReview();
-  }
-
-  /// What the one-time repair listed, ordinary photos only: a hidden one
-  /// is shown inside its album, never here.
-  List<RepairItem> _review = const [];
-
-  Future<void> _loadReview() async {
-    try {
-      final found = await HiddenRepair(store: widget.store).findings() ?? [];
-      if (!mounted) return;
-      setState(
-        () => _review = [
-          for (final f in found)
-            if (!f.hidden && f.kind == RepairKind.carrierStem) f,
-        ],
-      );
-    } catch (_) {
-      // Nothing to say.
-    }
-  }
-
-  List<Widget> _reviewSection(AppLocalizations l10n) => [
-    Padding(
-      padding: const EdgeInsets.only(top: 24, bottom: 6, left: 4),
-      child: Text(
-        l10n.flaggedGroupReview.toUpperCase(),
-        style: settingsHintStyle,
-      ),
-    ),
-    Padding(
-      padding: const EdgeInsets.only(left: 4, bottom: 8),
-      child: Text(l10n.flaggedReviewNote, style: settingsHintStyle),
-    ),
-    Container(
-      decoration: BoxDecoration(
-        color: settingsControlFill,
-        borderRadius: BorderRadius.circular(12),
-      ),
-      child: Column(
-        children: [
-          for (final item in _review)
-            _ActionRow(
-              key: ValueKey('flagged-review-${item.localId}'),
-              icon: CupertinoIcons.info,
-              title: l10n.flaggedCarrierStemTitle,
-              body: l10n.flaggedCarrierStemBody,
-              amount: '',
-              onTap: () => widget.onOpenAsset?.call(item.localId),
-            ),
-        ],
-      ),
-    ),
-  ];
-
-  /// Cloud-only records: no thumbnail, or no bucket that has them.
-  List<Flag> _records = const [];
-
-  /// Photos the bucket turned out not to have — said under the heading as
-  /// well as listed.
-  int _lost = 0;
-
-  Future<void> _loadRecords() async {
-    final fixer = _queue.records;
-    if (fixer == null) return;
-    try {
-      final found = await fixer.scan();
-      if (!mounted) return;
-      _lost = found.lost.length;
-      _records = [
-        ...found.lost,
-        ...found.leftoverCopies,
-        ...found.importCopies,
-        ...found.noThumbnail,
-      ];
-      _derive();
-    } catch (_) {
-      // Unreadable: said nothing rather than something wrong.
-    }
-  }
-
-  Future<void> _loadDuplicates() async {
-    final found = await widget.advisor.duplicates();
-    final cloudOnly = await widget.advisor.cloudOnly();
-    if (!mounted) return;
-    _duplicates = [for (final item in found) Flag.storage(item)];
-    _cloudOnly = [for (final item in cloudOnly) Flag.storage(item)];
-    _derive();
+    _queue.addListener(_onQueue);
+    _scan.addListener(_deriveSoon);
+    _wasRunning = _queue.running;
+    _compute();
+    unawaited(_scan.open());
+    _poll = Timer.periodic(
+      FlaggedItemsScreen.pollEvery,
+      (_) => unawaited(_scan.refreshIfChanged()),
+    );
   }
 
   @override
   void dispose() {
-    _queue.removeListener(_derive);
+    _poll?.cancel();
+    _deriveTimer?.cancel();
+    _queue.removeListener(_onQueue);
+    _scan.removeListener(_deriveSoon);
+    if (widget.scan == null) _scan.dispose();
     super.dispose();
   }
 
-  // ---------------------------------------------------------------- loading
-
-  Future<void> _loadStorage({bool restart = false}) async {
-    if (!restart) {
-      final cached = await widget.advisor.cached();
-      if (!mounted) return;
-      _setStorage(cached);
-      if (cached.complete) return;
-    }
-    // On the page is the one time somebody waits for the answer, so the
-    // pass runs flat out here; off it, it trickles (`StorageAdvisor.sweep`).
-    setState(() => _scanning = true);
-    final found = await widget.advisor.scan(
-      restart: restart,
-      onProgress: (items, done, total) {
-        if (!mounted) return;
-        _scanned = done;
-        _toScan = total;
-        _setStorage(StorageScan(items: items, scannedAt: _scannedAt));
-      },
-    );
-    if (!mounted) return;
-    _scanning = false;
-    _setStorage(found);
+  /// A run ending is what changed the library: scanned again then, so a
+  /// follow-on item (a copy to finish) shows without a Rescan.
+  void _onQueue() {
+    final running = _queue.running;
+    if (_wasRunning && !running) unawaited(_scan.run());
+    _wasRunning = running;
+    _deriveSoon();
   }
 
-  void _setStorage(StorageScan scan) {
-    _scannedAt = scan.scannedAt;
-    _storage = [for (final item in scan.items) Flag.storage(item)];
+  Timer? _deriveTimer;
+  bool _derivePending = false;
+
+  /// The queue says something per item: regrouped at once, then at most
+  /// every 100 ms while it keeps talking.
+  void _deriveSoon() {
+    if (_deriveTimer?.isActive ?? false) {
+      _derivePending = true;
+      return;
+    }
     _derive();
+    _deriveTimer = Timer(const Duration(milliseconds: 100), () {
+      if (!_derivePending) return;
+      _derivePending = false;
+      _deriveSoon();
+    });
   }
 
-  Future<void> _loadBucket({bool refresh = false}) async {
-    if (refresh) setState(() => _loadingBucket = true);
-    final indexer = BucketIndexer(
-      targetsStore: widget.targetsStore,
-      recordStore: widget.store,
-    );
-    final fixer = _queue.fixer;
-    try {
-      if (refresh || (await widget.store.listBucketObjects()).isEmpty) {
-        await indexer.refresh();
-      } else {
-        await indexer.forgetRemovedBuckets();
-      }
-      final objects = await BucketFlags(store: widget.store)
-          .detect(inspect: fixer.inspect, etag: fixer.etagOf);
-      if (!mounted) return;
-      _bucket = [for (final o in objects) Flag.bucket(o)];
-      _loadingBucket = false;
-      _derive();
-      // Re-format is offered only once the header says the file isn't a
-      // hidden photo — a read per object, so it arrives after the list,
-      // a few at a time, and the page doesn't wait on it.
-      final candidates = [
-        for (final o in objects)
-          if (o.kind == FlagKind.offProtocol && !o.isVideo) o,
-      ];
-      for (var i = 0; i < candidates.length; i += 8) {
-        final chunk = candidates.skip(i).take(8).toList();
-        final ok = await Future.wait(chunk.map(fixer.canReformat));
-        if (!mounted) return;
-        final yes = {
-          for (final (j, o) in chunk.indexed)
-            if (ok[j]) bucketFlagId(o.object): o,
-        };
-        if (yes.isEmpty) continue;
-        _bucket = [
-          for (final f in _bucket)
-            if (yes[f.id] case final o?)
-              Flag.bucket(o, reformatable: true)
-            else
-              f,
-        ];
-        _derive();
-      }
-    } catch (_) {
-      // Offline: whatever the index already had stays listed.
-    } finally {
-      // Saved even when the page was left mid-way: what was read stays read.
-      await fixer.saveLooks();
-      if (mounted) setState(() => _loadingBucket = false);
-    }
-  }
-
-  void _rescan() {
-    _loadStorage(restart: true);
-    _loadDuplicates();
-    _loadRecords();
-    _loadBucket(refresh: true);
-  }
+  void _rescan() => unawaited(_scan.run(relist: true, restart: true));
 
   // ---------------------------------------------------------------- derive
-
-  int _backingUp = 0;
 
   static bool _uploading(AssetRecord? r) =>
       switch (r?.stateOf(DerivativeKind.original).status) {
@@ -290,27 +150,21 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
 
   void _derive() {
     if (!mounted) return;
-    final copies = {for (final f in _duplicates) f.id};
-    // A photo whose copy is already in Photos is finished, not optimized
-    // again: that would file a second copy for it.
-    final hasCopy = {
-      for (final f in _records)
-        if (f.solutions.contains(FlagSolution.finishOptimize) ||
-            f.solutions.contains(FlagSolution.removeExtraCopies))
-          ?f.asset?.localId,
-    };
+    setState(_compute);
+    if (FlaggedItemsScreen.demoOpenAction) {
+      final first = [..._phone.entries, ..._inBucket.entries];
+      if (first.isNotEmpty) {
+        FlaggedItemsScreen.demoOpenAction = false;
+        Timer(const Duration(seconds: 2), () {
+          if (mounted) _openAction(first.first.key, first.first.value);
+        });
+      }
+    }
+  }
+
+  void _compute() {
     final live = [
-      for (final f in [
-        ..._duplicates,
-        ..._storage.where(
-          (f) =>
-              !copies.contains(f.id) &&
-              !hasCopy.contains(f.storage?.record.localId),
-        ),
-        ..._cloudOnly,
-        ..._records,
-        ..._bucket,
-      ])
+      for (final f in _scan.result.flags)
         if (!_queue.isResolved(f)) f,
     ];
     // While photos are still uploading, each one landing would add an
@@ -338,32 +192,60 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
         s: (
           flags.fold(0, (sum, f) => sum + f.saving),
           _queue.estimate(s, flags),
+          flags.where((f) => _queue.failedBefore(f.id)).length,
         ),
     };
-    setState(() {
-      _backingUp = backingUp;
-      _totals = totals;
-      _problemCount = problems.length;
-      _saving = problems.fold(0, (sum, f) => sum + f.saving);
-      _phone = {
-        for (final e in groups.entries)
-          if (!e.key.inBucket) e.key: e.value,
-      };
-      _inBucket = {
-        for (final e in groups.entries)
-          if (e.key.inBucket) e.key: e.value,
-      };
-    });
-    if (FlaggedItemsScreen.demoOpenAction) {
-      final first = [..._phone.entries, ..._inBucket.entries];
-      if (first.isNotEmpty) {
-        FlaggedItemsScreen.demoOpenAction = false;
-        Timer(const Duration(seconds: 2), () {
-          if (mounted) _openAction(first.first.key, first.first.value);
-        });
-      }
-    }
+    _backingUp = backingUp;
+    _totals = totals;
+    _problemCount = problems.length;
+    _saving = problems.fold(0, (sum, f) => sum + f.saving);
+    _lost = problems
+        .where((f) => f.problems.contains(FlagProblem.missingFromBucket))
+        .length;
+    _phone = {
+      for (final e in groups.entries)
+        if (!e.key.inBucket) e.key: e.value,
+    };
+    _inBucket = {
+      for (final e in groups.entries)
+        if (e.key.inBucket) e.key: e.value,
+    };
   }
+
+  /// What the one-time repair listed, ordinary photos only: a hidden one
+  /// is shown inside its album, never here.
+  List<Widget> _reviewSection(AppLocalizations l10n) => [
+    Padding(
+      padding: const EdgeInsets.only(top: 24, bottom: 6, left: 4),
+      child: Text(
+        l10n.flaggedGroupReview.toUpperCase(),
+        style: settingsHintStyle,
+      ),
+    ),
+    Padding(
+      padding: const EdgeInsets.only(left: 4, bottom: 8),
+      child: Text(l10n.flaggedReviewNote, style: settingsHintStyle),
+    ),
+    Container(
+      decoration: BoxDecoration(
+        color: settingsControlFill,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: Column(
+        children: [
+          for (final item in _scan.result.review)
+            _ActionRow(
+              key: ValueKey('flagged-review-${item.localId}'),
+              icon: CupertinoIcons.info,
+              title: l10n.flaggedCarrierStemTitle,
+              body: l10n.flaggedCarrierStemBody,
+              amount: '',
+              onTap: () => widget.onOpenAsset?.call(item.localId),
+            ),
+        ],
+      ),
+    ),
+  ];
 
   /// Every action and the items it applies to. An item with two possible
   /// fixes is under both; doing either takes it out of the other.
@@ -400,13 +282,14 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
 
   static const _collapse = Duration(milliseconds: 280);
 
-  bool get _loading => _scanning || _loadingBucket;
+  bool get _loading => _scan.running;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final review = _scan.result.review;
     final nothing =
-        _phone.isEmpty && _inBucket.isEmpty && _review.isEmpty && !_loading;
+        _phone.isEmpty && _inBucket.isEmpty && review.isEmpty && !_loading;
     return CupertinoPageScaffold(
       backgroundColor: settingsPageBackground,
       navigationBar: CupertinoNavigationBar(
@@ -433,7 +316,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
               ..._section(l10n.flaggedGroupPhone, null, _phone),
             if (_inBucket.isNotEmpty)
               ..._section(l10n.flaggedGroupBucket, null, _inBucket),
-            if (_review.isNotEmpty) ..._reviewSection(l10n),
+            if (review.isNotEmpty) ..._reviewSection(l10n),
             if (nothing)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 48),
@@ -455,13 +338,16 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
       // What the last scan found stays the heading; a pass over photos
       // added since is a line under it, not a page that looks rescanned.
       Text(
-        _loading && _problemCount == 0 && _scannedAt == null
+        _loading && _problemCount == 0 && _scan.result.stamp == null
             ? l10n.flaggedLooking
             : l10n.flaggedHeading(_problemCount),
         style: settingsHeadingStyle,
       ),
-      if (_scanning && _toScan > 0)
-        Text(l10n.storageScanning(_scanned, _toScan), style: settingsHintStyle),
+      if (_scan.storageRunning && _scan.toScan > 0)
+        Text(
+          l10n.storageScanning(_scan.scanned, _scan.toScan),
+          style: settingsHintStyle,
+        ),
       if (_lost > 0)
         Text(
           l10n.cloudStatusLost(_lost),
@@ -479,11 +365,9 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
           style: settingsFooterStyle,
         ),
       ],
-      if (_scannedAt != null)
+      if (_scan.result.storageScannedAt case final at?)
         Text(
-          l10n.storageScannedAt(
-            DateFormat.yMMMd().add_jm().format(_scannedAt!),
-          ),
+          l10n.storageScannedAt(DateFormat.yMMMd().add_jm().format(at)),
           style: settingsHintStyle,
         ),
       if (_queue.swapsWaiting > 0 && !_queue.running) _swapsBanner(l10n),
@@ -562,7 +446,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
               title: solutionLabel(AppLocalizations.of(context)!, s),
               body: solutionHow(AppLocalizations.of(context)!, s),
               amount: _amount(AppLocalizations.of(context)!, s, flags),
-              warning: _failedIn(AppLocalizations.of(context)!, flags),
+              warning: _failedIn(AppLocalizations.of(context)!, s),
               onTap: () => _openAction(s, flags),
             ),
           ],
@@ -572,7 +456,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   ];
 
   String _amount(AppLocalizations l10n, FlagSolution s, List<Flag> flags) {
-    final (saving, eta) = _totals[s] ?? (0, Duration.zero);
+    final (saving, eta, _) = _totals[s] ?? (0, Duration.zero, 0);
     return [
       l10n.flaggedItemCount(flags.length),
       if (saving > 0) l10n.flaggedSavesAbout(formatBytes(saving)),
@@ -580,10 +464,8 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
     ].join(' · ');
   }
 
-  String? _failedIn(AppLocalizations l10n, List<Flag> flags) {
-    final failed = flags
-        .where((f) => _queue.jobs[f.id]?.state == FixJobState.failed)
-        .length;
+  String? _failedIn(AppLocalizations l10n, FlagSolution s) {
+    final failed = _totals[s]?.$3 ?? 0;
     return failed == 0 ? null : l10n.flaggedActionFailed(failed);
   }
 

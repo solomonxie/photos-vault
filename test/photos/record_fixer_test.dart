@@ -224,7 +224,7 @@ void main() {
       reason: 'filed for the prompt, not fixed yet',
     );
     expect(filed.single.$1, 'b');
-    expect(filed.single.$3, hasLength(1));
+    expect({filed.single.$2, ...filed.single.$3}, {'copy', 'again'});
 
     // After a relaunch the pair is read back; a photo locked since is left.
     final relaunched = RecordFixer(
@@ -395,9 +395,11 @@ void main() {
     expect(flags.single.solutions, [FlagSolution.removeImportCopy]);
     expect((await f.removeImportCopy(flags.single.asset!)).ok, isTrue);
     expect((await store.getByLocalId('bucket:copy'))!.isDeleted, isTrue);
+    expect((await f.scan()).importCopies, isEmpty);
   });
 
-  test('an import of a key since replaced is dropped, its twin kept', () async {
+  test('an import of a key since replaced is offered as a copy, never '
+      'dropped unasked; once binned it is not offered again', () async {
     await cloudOnly(
       'bucket:20210912023824_abc',
       key: 'photos-vault/originals/20210912023824_abc.heif',
@@ -413,10 +415,44 @@ void main() {
     );
     await listed(['photos-vault/originals/20210912023824_abc.heic']);
 
-    final scan = await fixer().scan();
+    final f = fixer();
+    final scan = await f.scan();
 
     expect(scan.lost, isEmpty);
-    expect((await store.listAll()).map((r) => r.localId), ['photo']);
+    expect(
+      (await store.listAll()).map((r) => r.localId),
+      containsAll(['photo', 'bucket:20210912023824_abc']),
+    );
+    final twin = scan.importCopies.single;
+    expect(twin.asset!.localId, 'bucket:20210912023824_abc');
+    expect(twin.solutions, [FlagSolution.removeImportCopy]);
+
+    expect((await f.removeImportCopy(twin.asset!)).ok, isTrue);
+    final again = await f.scan();
+    expect([...again.lost, ...again.importCopies], isEmpty);
+  });
+
+  test('a twin only in the bin makes no import a copy', () async {
+    await cloudOnly(
+      'bucket:20210912023824_abc',
+      key: 'photos-vault/originals/20210912023824_abc.heif',
+    );
+    await store.upsert(localId: 'photo', contentHash: 'p', platform: 'ios');
+    await store.updateDerivative(
+      'photo',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'photos-vault/originals/20210912023824_abc.heic',
+      ),
+    );
+    await store.softDelete('photo');
+    await listed(['photos-vault/originals/other.heic']);
+
+    final scan = await fixer().scan();
+
+    expect(scan.importCopies, isEmpty);
+    expect(scan.lost.single.asset!.localId, 'bucket:20210912023824_abc');
   });
 
   test('cloud-only with no thumbnail, or a thumbnail file gone, is '
