@@ -227,6 +227,28 @@ class FakeAssetRecordStore implements AssetRecordStore {
   }
 
   @override
+  Map<String, AssetRecord> get visibleById => {
+    for (final r in _records.values)
+      if (r.isVisibleInLibrary) r.localId: r,
+  };
+
+  /// No diffs: every reload works its lists out again.
+  @override
+  List<RecordChange>? changesBetween(
+    List<AssetRecord> before,
+    List<AssetRecord> after,
+  ) => null;
+
+  @override
+  Future<List<AssetRecord>> listOf(Iterable<String> localIds) async {
+    final ids = localIds.toSet();
+    return [
+      for (final r in await listAll())
+        if (ids.contains(r.localId)) r,
+    ];
+  }
+
+  @override
   Future<List<AssetRecord>> listNewest(int limit) async {
     final all = _records.values.toList()
       ..sort((a, b) => a.createdAt.compareTo(b.createdAt));

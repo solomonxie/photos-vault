@@ -1,6 +1,12 @@
+import 'dart:isolate';
+
+import 'package:flutter/foundation.dart' show visibleForTesting;
+
 import '../photos/asset_removal.dart' show isInBin;
 import '../storage/asset_record.dart';
+import '../storage/asset_record_store.dart';
 import 'built_in_album.dart';
+import 'photo_grid_layout.dart';
 
 /// Everything the library screen derives from [AssetRecordStore.listAll],
 /// in one pass, once per change of it.
@@ -18,6 +24,7 @@ class LibraryIndex {
     required this.recentlyAdded,
     required this.places,
     required this.deletedCount,
+    required this.since,
   });
 
   static final empty = LibraryIndex.of(const [], DateTime(0));
@@ -42,20 +49,204 @@ class LibraryIndex {
         (groups[place] ??= []).add(r);
       }
     }
-    recent.sort((a, b) => a.addedAt.compareTo(b.addedAt));
-    // Biggest place first: the one you have five hundred photos of is the
-    // one you mean.
-    final byPlace = groups.entries.toList()
-      ..sort((a, b) => b.value.length.compareTo(a.value.length));
-    return LibraryIndex._(
+    recent.sort(_byArrival);
+    return _byList[all] = LibraryIndex._(
       all: all,
       active: active,
       videos: videos,
       favorites: favorites,
       recentlyAdded: recent,
-      places: {for (final e in byPlace) e.key: e.value},
+      places: _bySize(groups),
       deletedCount: deleted,
+      since: since,
     );
+  }
+
+  /// The index of [all]: the one already worked out for that list, else
+  /// [prev] patched by [changes] (see [AssetRecordStore.changesBetween]),
+  /// else a full pass.
+  factory LibraryIndex.after(
+    LibraryIndex? prev,
+    List<AssetRecord> all,
+    List<RecordChange>? changes,
+    DateTime now,
+  ) {
+    final known = _byList[all];
+    if (known != null) return known;
+    if (prev != null && changes != null) {
+      final patched = patch(prev, all, changes, now);
+      if (patched != null) return _byList[all] = patched;
+    }
+    return LibraryIndex.of(all, now);
+  }
+
+  /// The index of [all], shared: what the library screen already worked
+  /// out, or one pass now.
+  static LibraryIndex forList(List<AssetRecord> all) =>
+      _byList[all] ?? LibraryIndex.of(all, DateTime.now());
+
+  static final _byList = Expando<LibraryIndex>();
+
+  /// Above this many changed records a full pass is about as cheap as
+  /// patching: each move out of or into a list shifts it.
+  static const patchLimit = 256;
+
+  /// [prev] with [changes] applied, list by list, each copied only when a
+  /// change touches it. Null when a change doesn't line up with [prev]
+  /// (the caller's lists weren't the store's), or there are too many.
+  ///
+  /// Every list is in a total order (date then id; arrival then that),
+  /// so a record's place is found by binary search and the result equals
+  /// [LibraryIndex.of] of the same records.
+  @visibleForTesting
+  static LibraryIndex? patch(
+    LibraryIndex prev,
+    List<AssetRecord> all,
+    List<RecordChange> changes,
+    DateTime now,
+  ) {
+    if (changes.length > patchLimit) return null;
+    final since = now.subtract(BuiltInAlbum.recentWindow);
+    // A clock set back widens the window: records [prev] left out are due.
+    if (since.isBefore(prev.since)) return null;
+    List<AssetRecord>? active;
+    List<AssetRecord>? videos;
+    List<AssetRecord>? favorites;
+    List<AssetRecord>? recent;
+    Map<String, List<AssetRecord>>? places;
+    final copiedPlaces = <String>{};
+    var regroup = false;
+    var shifted = false;
+    var deleted = prev.deletedCount;
+
+    for (final (:before, :after) in changes) {
+      if (before != null && isInBin(before)) deleted--;
+      if (after != null && isInBin(after)) deleted++;
+      final out = before != null && before.isVisibleInLibrary ? before : null;
+      final into = after != null && after.isVisibleInLibrary ? after : null;
+      if (out == null && into == null) continue;
+
+      if (out == null || into == null || recordOrder(out, into) != 0) {
+        shifted = true;
+      }
+      if (!editSorted(active ??= [...prev.active], out, into, recordOrder)) {
+        return null;
+      }
+      AssetRecord? only(bool Function(AssetRecord) keep, AssetRecord? r) =>
+          r != null && keep(r) ? r : null;
+      final videoOut = only((r) => r.countsAsVideo, out);
+      final videoIn = only((r) => r.countsAsVideo, into);
+      if ((videoOut != null || videoIn != null) &&
+          !editSorted(
+            videos ??= [...prev.videos],
+            videoOut,
+            videoIn,
+            recordOrder,
+          )) {
+        return null;
+      }
+      final favOut = only((r) => r.isFavorite, out);
+      final favIn = only((r) => r.isFavorite, into);
+      if ((favOut != null || favIn != null) &&
+          !editSorted(
+            favorites ??= [...prev.favorites],
+            favOut,
+            favIn,
+            recordOrder,
+          )) {
+        return null;
+      }
+      final newOut = only((r) => r.addedAt.isAfter(since), out);
+      final newIn = only((r) => r.addedAt.isAfter(since), into);
+      if (newOut != null || newIn != null) {
+        if (!editSorted(
+          recent ??= [...prev.recentlyAdded],
+          newOut,
+          newIn,
+          _byArrival,
+        )) {
+          return null;
+        }
+      }
+      final placeOut = _placeOf(out);
+      final placeIn = _placeOf(into);
+      if (placeOut != null || placeIn != null) {
+        final map = places ??= {...prev.places};
+        List<AssetRecord> group(String place) {
+          if (copiedPlaces.add(place)) {
+            map[place] = [...?map[place]];
+          }
+          return map[place]!;
+        }
+
+        if (placeOut == placeIn) {
+          if (!editSorted(group(placeOut!), out, into, recordOrder)) {
+            return null;
+          }
+          if (recordOrder(out!, into!) != 0) regroup = true;
+        } else {
+          regroup = true;
+          if (placeOut != null) {
+            final g = group(placeOut);
+            if (!editSorted(g, out, null, recordOrder)) return null;
+            if (g.isEmpty) map.remove(placeOut);
+          }
+          if (placeIn != null &&
+              !editSorted(group(placeIn), null, into, recordOrder)) {
+            return null;
+          }
+        }
+      }
+    }
+
+    // The window moves with the clock as well as with the records.
+    final arrived = recent ?? prev.recentlyAdded;
+    var keep = 0;
+    while (keep < arrived.length && !arrived[keep].addedAt.isAfter(since)) {
+      keep++;
+    }
+    if (keep > 0) recent = arrived.sublist(keep);
+
+    if (active != null && !shifted) {
+      PhotoGridLayout.markSameShape(active, prev.active);
+    }
+    return LibraryIndex._(
+      all: all,
+      active: active ?? prev.active,
+      videos: videos ?? prev.videos,
+      favorites: favorites ?? prev.favorites,
+      recentlyAdded: recent ?? prev.recentlyAdded,
+      places: places == null
+          ? prev.places
+          : regroup
+          ? _bySize(places)
+          : places,
+      deletedCount: deleted,
+      since: since,
+    );
+  }
+
+  static String? _placeOf(AssetRecord? r) {
+    final place = r?.location;
+    return place != null && place.isNotEmpty ? place : null;
+  }
+
+  /// Biggest place first: the one you have five hundred photos of is the
+  /// one you mean. Ties by their oldest photo, as they were first met.
+  static Map<String, List<AssetRecord>> _bySize(
+    Map<String, List<AssetRecord>> groups,
+  ) {
+    final byPlace = groups.entries.toList()
+      ..sort((a, b) {
+        final bySize = b.value.length.compareTo(a.value.length);
+        return bySize != 0 ? bySize : recordOrder(a.value.first, b.value.first);
+      });
+    return {for (final e in byPlace) e.key: e.value};
+  }
+
+  static int _byArrival(AssetRecord a, AssetRecord b) {
+    final at = a.addedAt.compareTo(b.addedAt);
+    return at != 0 ? at : recordOrder(a, b);
   }
 
   final List<AssetRecord> all;
@@ -67,16 +258,220 @@ class LibraryIndex {
   final List<AssetRecord> recentlyAdded;
   final Map<String, List<AssetRecord>> places;
   final int deletedCount;
+
+  /// Where [recentlyAdded]'s window began.
+  final DateTime since;
+}
+
+/// [list] (sorted by [order]) with [out] taken out and [into] put in. In
+/// place when both sort the same. False when [out] isn't in [list].
+bool editSorted(
+  List<AssetRecord> list,
+  AssetRecord? out,
+  AssetRecord? into,
+  Comparator<AssetRecord> order,
+) {
+  var at = -1;
+  if (out != null) {
+    at = indexIn(list, out, order);
+    if (at == -1) return false;
+  }
+  if (out != null && into != null && order(out, into) == 0) {
+    list[at] = into;
+    return true;
+  }
+  if (at != -1) list.removeAt(at);
+  if (into != null) list.insert(_lowerBound(list, into, order), into);
+  return true;
+}
+
+/// Where [record]'s id sits in [list] (sorted by [order]), or -1.
+int indexIn(
+  List<AssetRecord> list,
+  AssetRecord record,
+  Comparator<AssetRecord> order,
+) {
+  final at = _lowerBound(list, record, order);
+  return at < list.length && list[at].localId == record.localId ? at : -1;
+}
+
+int _lowerBound(
+  List<AssetRecord> list,
+  AssetRecord record,
+  Comparator<AssetRecord> order,
+) {
+  var lo = 0;
+  var hi = list.length;
+  while (lo < hi) {
+    final mid = (lo + hi) >> 1;
+    if (order(list[mid], record) < 0) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  return lo;
 }
 
 /// What search matches: caption, tags, place and file name — never the
 /// PhotoKit id, whose hex matches almost any short query.
-String searchTextOf(AssetRecord r) {
-  final path = r.sourcePath;
-  return [
-    r.description,
-    ...r.tags,
-    r.location ?? '',
-    if (path != null) path.substring(path.lastIndexOf('/') + 1),
-  ].join('\n').toLowerCase();
+String searchTextOf(AssetRecord r) =>
+    _searchText(r.description, r.tags, r.location, r.sourcePath);
+
+String _searchText(
+  String description,
+  List<String> tags,
+  String? location,
+  String? path,
+) => [
+  description,
+  ...tags,
+  location ?? '',
+  if (path != null) path.substring(path.lastIndexOf('/') + 1),
+].join('\n').toLowerCase();
+
+/// [searchTextOf] per record, kept on the record itself: a record keeps
+/// its instance while its row is unchanged (see
+/// [AssetRecordStore.listAll]), so after the first build only records
+/// that changed are lowercased again. A changed row is a new instance,
+/// so a memo can't outlive what it was made from.
+abstract final class SearchTexts {
+  static final _memo = Expando<String>();
+
+  /// More than this many to make, and [of] leaves it to [warm].
+  static const inlineLimit = 2000;
+
+  /// The texts of [records], or null when too many are missing to make
+  /// here without a stall (call [warm]).
+  static List<String>? of(List<AssetRecord> records) {
+    final texts = List<String>.filled(records.length, '');
+    final missing = <int>[];
+    for (var i = 0; i < records.length; i++) {
+      final text = _memo[records[i]];
+      if (text == null) {
+        if (missing.length == inlineLimit) return null;
+        missing.add(i);
+      } else {
+        texts[i] = text;
+      }
+    }
+    for (final i in missing) {
+      texts[i] = _memo[records[i]] = searchTextOf(records[i]);
+    }
+    return texts;
+  }
+
+  /// Makes the missing texts of [records] in an isolate. Only strings
+  /// cross, not records.
+  static Future<void> warm(List<AssetRecord> records) async {
+    final todo = [
+      for (final r in records)
+        if (_memo[r] == null) r,
+    ];
+    // Few enough for [of] to make on the spot.
+    if (todo.length <= inlineLimit) return;
+    final inputs = [
+      for (final r in todo) (r.description, r.tags, r.location, r.sourcePath),
+    ];
+    final texts = await Isolate.run(
+      () => [for (final (d, t, l, p) in inputs) _searchText(d, t, l, p)],
+    );
+    for (var i = 0; i < todo.length; i++) {
+      _memo[todo[i]] = texts[i];
+    }
+  }
+}
+
+/// A query's matches over one set of [SearchTexts], as indices. A query
+/// containing an earlier one only looks at that one's matches: what
+/// contains "kyoto" contains "kyo". Earlier queries stay, so backspacing
+/// is a lookup.
+class SearchMatches {
+  SearchMatches(this.texts);
+
+  final List<String> texts;
+  final _done = <String, List<int>>{};
+
+  static const _kept = 32;
+
+  List<int> of(String needle) {
+    final known = _done[needle];
+    if (known != null) return known;
+    List<int>? within;
+    for (final MapEntry(:key, :value) in _done.entries) {
+      if (needle.contains(key) &&
+          (within == null || value.length < within.length)) {
+        within = value;
+      }
+    }
+    final hits = within == null
+        ? [
+            for (var i = 0; i < texts.length; i++)
+              if (texts[i].contains(needle)) i,
+          ]
+        : [
+            for (final i in within)
+              if (texts[i].contains(needle)) i,
+          ];
+    if (_done.length == _kept) _done.remove(_done.keys.first);
+    return _done[needle] = hits;
+  }
+}
+
+/// Each album's visible records in grid order, from one pass over
+/// [active]. [albumsOf] is photo id to album ids.
+Map<String, List<AssetRecord>> albumRecordsOf(
+  Iterable<String> albumIds,
+  Map<String, List<String>> albumsOf,
+  List<AssetRecord> active,
+) {
+  final out = {for (final id in albumIds) id: <AssetRecord>[]};
+  for (final record in active) {
+    for (final albumId in albumsOf[record.localId] ?? const <String>[]) {
+      out[albumId]?.add(record);
+    }
+  }
+  return out;
+}
+
+/// [albumRecordsOf] after [changes], with the memberships unchanged:
+/// only albums holding a changed photo get a new list. Null when a change
+/// doesn't line up with [prev].
+Map<String, List<AssetRecord>>? patchAlbumRecords(
+  Map<String, List<AssetRecord>> prev,
+  Map<String, List<String>> albumsOf,
+  List<RecordChange> changes,
+) {
+  Map<String, List<AssetRecord>>? out;
+  final copied = <String>{};
+  for (final (:before, :after) in changes) {
+    final id = (before ?? after)!.localId;
+    final albums = albumsOf[id];
+    if (albums == null) continue;
+    final leaving = before != null && before.isVisibleInLibrary ? before : null;
+    final into = after != null && after.isVisibleInLibrary ? after : null;
+    if (leaving == null && into == null) continue;
+    for (final albumId in albums) {
+      final map = out ??= {...prev};
+      final list = map[albumId];
+      if (list == null) continue;
+      if (copied.add(albumId)) map[albumId] = [...list];
+      if (!editSorted(map[albumId]!, leaving, into, recordOrder)) return null;
+    }
+  }
+  return out ?? prev;
+}
+
+/// Whether any of [changes] shows, hides, adds or removes a photo in
+/// [ids] — what moves a person's count or first photo.
+bool movesAnyOf(Set<String> ids, List<RecordChange> changes) {
+  for (final (:before, :after) in changes) {
+    final id = (before ?? after)!.localId;
+    if (!ids.contains(id)) continue;
+    if ((before?.isVisibleInLibrary ?? false) !=
+        (after?.isVisibleInLibrary ?? false)) {
+      return true;
+    }
+  }
+  return false;
 }

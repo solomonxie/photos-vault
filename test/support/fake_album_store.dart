@@ -90,6 +90,10 @@ class FakeAlbumStore implements AlbumStore {
   @override
   Future<int> changeMark() async => 0;
 
+  /// Never equal: every reload re-reads, as before stamps.
+  @override
+  Future<Object> changeStamp() async => Object();
+
   @override
   @override
   Future<void> clearAll() async {

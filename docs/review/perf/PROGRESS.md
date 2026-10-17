@@ -9,8 +9,8 @@
 | PW4 | Faces without full descriptor reads | done | 3622041 |
 | PW5 | Smaller database | done | abe50f7 |
 | PW6 | Less periodic waste | done | 9c128ab |
-| PW7 | Cheaper grid paint | done | (this commit) |
-| PW8 | Cheaper reload and search | todo | |
+| PW7 | Cheaper grid paint | done | ade2562 |
+| PW8 | Cheaper reload and search | done | (this commit) |
 | PW9 | The rest | todo | |
 
 ## PW3 notes
@@ -77,3 +77,19 @@
 - UI-12: grid rows use `_RowsDelegate`, which rebuilds only when its inputs change (layout, l10n, page colour, today, callbacks, selection, marked id). Library: fix-queue progress in `_fixLeft` (`ValueNotifier<int?>`, only the Flagged row listens); selection membership in `_picked`, listened to by each tile's checkmark and the selection bar. Entering or leaving select mode still rebuilds the screen. Library callbacks are tear-offs, so `_busy` and search rebuilds leave the tiles alone. Not done: `_busy` toggles still rebuild the trailing slivers.
 - UI-15: scrubber arms its single hide timer when `isScrollingNotifier` goes false (or after a programmatic jump), then reuses it for the grab grace. A finger held still keeps the handle up until it lifts (was: hid 3 s after the last move). Scroll guard: one periodic check every 175 ms while in flight; stale after two silent checks (350-525 ms, was exactly 350).
 
+
+## PW8 notes
+
+- UI-5 / DB-14: `listAll` logs each publish's record changes (before/after, kept on the store so a concurrent call's applied changes go out with whichever list publishes first; a fresh read or lost rows break the chain; last 4,096). `changesBetween(_all, all)` feeds the reload:
+  - `LibraryIndex.after`: patched list by list (binary search in the grid's total order; only touched lists copied), <= 256 changes, else a full pass. Recently Added trims by the clock; a clock set back is a full pass. Equal to `LibraryIndex.of` (property test, 200 random rounds). Shared per list (`forList`).
+  - Grid: an in-place patch (same id and capture time) marks the new list `sameShape` as the old; `AssetGridView` swaps records into the old sections, no walk, no re-anchor.
+  - Albums and memberships re-read only when `changeStamp()` (change-log mark + connection; every album/people table is logged) moved since the last read; stamp read before the data. Album lists patched for changed photos in them, else one pass.
+  - Person counts and first photos: redone when the people stamp moved, `faces`, or a tagged photo was shown, hidden, added or removed (`movesAnyOf`); unknown changes count as stale. Strangers row gate unchanged. A heart, an upload, or a scan page of untagged new photos (PW2's skip) touches none of it.
+  - No `setState` when nothing derived moved. People and stranger cards resolve from `visibleById` (live view of the store cache), not a 40k map per list.
+  - DB-14 big batch: the merge from PW2 (`_apply` > 256) stands.
+  - Heart tap now: one `rev >` row, the published list copy (memcpy) and `active` copy, favourites insert, 2 stamp reads, 3 cover reads. Still O(n) memcpy, no per-record pass.
+- UI-6: 150 ms debounce (clearing is immediate). Texts memoised per record instance (`SearchTexts`; a changed row is a new instance); > 2,000 missing are made in `Isolate.run` from strings only, warmed when search opens. `SearchMatches` narrows from any cached query the new one contains; 32 kept, so backspace is a lookup. Until a warm finishes the last answer stays up.
+- UI-14: `SelectSweep.overSorted`: both ends by binary search in the grid (`indexInOrder`), range only. A tile re-dated mid-sweep falls back to one id scan. Small grids keep the map path.
+- UI-17: Favourites from the shared index (no filter, no sort); Recently Deleted no sort; Album and person page from `listOf` (cache, grid order; no row read, no `File.exists`).
+- UI-19: hidden album reloads at most once per 500 ms of `changed` ticks (the tick that starts the window is in that reload); problems redraw only. Carrier keys memoised per id + kind; file sizes kept per path once found (a file rewritten in place keeps its old size until reopen).
+- Not done: a search open during a heart re-scans 40k `contains` (texts reused); filter not in an isolate. `_loadBuiltInCovers` still 3 small reads per reload. Status-only reloads leave album lists on the older instances (counts and covers unaffected).

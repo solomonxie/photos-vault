@@ -691,6 +691,44 @@ void main() {
       expect(find.text('Back Up'), findsNothing);
     });
 
+    testWidgets('uploads landing one after another reload the album once '
+        'per burst, and the last one shows', (tester) async {
+      final store = _CountingReads();
+      for (var i = 0; i < 4; i++) {
+        await store.upsert(
+          localId: 'manual:$i',
+          contentHash: '$i',
+          platform: 'ios',
+          sourceType: AssetSourceType.manualFile,
+          sourcePath: '/tmp/$i.jpg',
+        );
+        await store.setPasscodeHash('manual:$i', _hash);
+      }
+      PrivateAlbumScreen.hiddenBackup = backupWith(store, (record) async {
+        await store.updateDerivative(
+          record.localId,
+          DerivativeKind.original,
+          const DerivativeState(status: UploadStatus.uploaded),
+        );
+      });
+      await tester.pumpWidget(
+        _wrap(PrivateAlbumScreen(passcodeHash: _hash, assetRecordStore: store)),
+      );
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 1));
+      await tester.pumpAndSettle();
+
+      // Opening reads twice; then one for the four that landed, not one
+      // each (which was seven).
+      expect(store.reads, lessThanOrEqualTo(3));
+      for (var i = 0; i < 4; i++) {
+        expect(
+          (await store.getByLocalId('manual:$i'))!.isFullyBackedUp,
+          isTrue,
+        );
+      }
+    });
+
     testWidgets('a failure is one line saying why', (tester) async {
       final store = await twoHidden();
       PrivateAlbumScreen.hiddenBackup = backupWith(
@@ -712,4 +750,14 @@ void main() {
       );
     });
   });
+}
+
+class _CountingReads extends FakeAssetRecordStore {
+  var reads = 0;
+
+  @override
+  Future<List<AssetRecord>> forPasscodeHash(String hash) {
+    reads++;
+    return super.forPasscodeHash(hash);
+  }
 }

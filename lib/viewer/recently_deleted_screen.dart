@@ -62,7 +62,8 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
     if (!mounted) return;
     setState(() {
       _loaded = true;
-      _records = binned..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+      // [listAll] is in grid order already.
+      _records = binned;
     });
     final blocked = await _loadBlocked();
     if (mounted) setState(() => _blocked = blocked);

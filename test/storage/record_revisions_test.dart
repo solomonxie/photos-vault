@@ -196,6 +196,105 @@ void main() {
       expect((await s.listAll()).map((r) => r.localId), ['photo:b']);
     });
 
+    test('changesBetween: record by record, across lists', () async {
+      final s = open();
+      for (final id in ['photo:a', 'photo:b', 'photo:c']) {
+        await add(s, id);
+      }
+      final first = await s.listAll();
+      expect(s.changesBetween(first, first), isEmpty);
+
+      await s.setFavorite('photo:a', true);
+      final second = await s.listAll();
+      final heart = s.changesBetween(first, second)!;
+      expect(heart, hasLength(1));
+      expect(identical(heart.single.before, first[0]), isTrue);
+      expect(identical(heart.single.after, second[0]), isTrue);
+
+      await s.remove('photo:b');
+      await add(s, 'photo:d');
+      final third = await s.listAll();
+      final both = {
+        for (final c in s.changesBetween(first, third)!)
+          (c.before ?? c.after)!.localId: c,
+      };
+      expect(both.keys, unorderedEquals(['photo:a', 'photo:b', 'photo:d']));
+      expect(identical(both['photo:a']!.before, first[0]), isTrue);
+      expect(both['photo:b']!.after, isNull);
+      expect(both['photo:d']!.before, isNull);
+      // Lists not from this store, or not in order: no answer.
+      expect(s.changesBetween([...first], third), isNull);
+      expect(s.changesBetween(third, first), isNull);
+    });
+
+    test('changesBetween: a list published while another call applies '
+        'carries that call\'s changes', () async {
+      final s = open();
+      await add(s, 'photo:a');
+      await add(s, 'photo:b');
+      final first = await s.listAll();
+      await s.setFavorite('photo:a', true);
+      await s.setFavorite('photo:b', true);
+
+      final lists = await Future.wait([s.listAll(), s.listAll()]);
+      for (final list in lists) {
+        final ids = [
+          for (final c in s.changesBetween(first, list)!) c.after!.localId,
+        ];
+        final hearted = [
+          for (final r in list)
+            if (r.isFavorite) r.localId,
+        ];
+        expect(ids, unorderedEquals(hearted));
+      }
+    });
+
+    test('changesBetween: rows lost under the cache break the chain', () async {
+      final s = open();
+      await add(s, 'photo:a');
+      await add(s, 'photo:b');
+      final first = await s.listAll();
+      final other = AssetRecordStore(
+        databaseFactory: databaseFactoryFfi,
+        path: dbPath(),
+      );
+      await other.remove('photo:a');
+      final second = await s.listAll();
+      expect(second.map((r) => r.localId), ['photo:b']);
+      expect(s.changesBetween(first, second), isNull);
+    });
+
+    test('listOf: from the cache, in grid order', () async {
+      final s = open();
+      await add(s, 'photo:new', at: DateTime(2026));
+      await add(s, 'photo:old', at: DateTime(2014));
+      await add(s, 'photo:mid', at: DateTime(2020));
+      for (var i = 0; i < 30; i++) {
+        await add(s, 'photo:$i', at: DateTime(2000 + i));
+      }
+      final some = await s.listOf(['photo:new', 'photo:old', 'photo:gone']);
+      expect(some.map((r) => r.localId), ['photo:old', 'photo:new']);
+      final all = await s.listAll();
+      expect(
+        identical(some.last, all.firstWhere((r) => r.localId == 'photo:new')),
+        isTrue,
+      );
+      final most = await s.listOf([for (final r in all) r.localId]);
+      expect(most, all);
+    });
+
+    test('visibleById reads the cache live, hidden left out', () async {
+      final s = open();
+      await add(s, 'photo:a');
+      await add(s, 'photo:b');
+      await s.listAll();
+      await s.setHidden('photo:b', true);
+      await s.listAll();
+      expect(s.visibleById['photo:a'], isNotNull);
+      expect(s.visibleById['photo:b'], isNull);
+      expect(s.visibleById.keys, ['photo:a']);
+    });
+
     test('libraryDelta: upload state alone is not a shape change', () async {
       final s = open();
       await add(s, 'photo:a');

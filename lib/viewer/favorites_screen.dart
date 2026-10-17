@@ -10,6 +10,7 @@ import 'built_in_album.dart';
 import 'asset_grid_view.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
+import 'library_index.dart';
 import 'zoom_page_route.dart';
 
 class FavoritesScreen extends StatefulWidget {
@@ -34,11 +35,9 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
   Future<void> _reload() async {
     final all = await widget.assetRecordStore.listAll();
     if (!mounted) return;
-    setState(
-      () => _records =
-          all.where((r) => r.isFavorite && r.isVisibleInLibrary).toList()
-            ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
-    );
+    // The library screen's own list for this library when it has one; in
+    // grid order either way, so no sort.
+    setState(() => _records = LibraryIndex.forList(all).favorites);
   }
 
   Future<void> _unfavorite(AssetRecord record) async {

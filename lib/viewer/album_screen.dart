@@ -108,18 +108,16 @@ class _AlbumScreenState extends State<AlbumScreen> {
 
   Future<void> _reload() async {
     final refreshed = await widget.albumStore.getById(_album.id);
-    final memberIds = (await widget.albumStore.localIdsIn(_album.id)).toSet();
-    final all = await widget.assetRecordStore.listAll();
+    final memberIds = await widget.albumStore.localIdsIn(_album.id);
+    // From the library's cache: no row reads.
+    final members = await widget.assetRecordStore.listOf(memberIds);
     if (!mounted) return;
     if (refreshed != null) _album = refreshed;
     setState(
-      () => _records =
-          all
-              .where(
-                (r) => r.isVisibleInLibrary && memberIds.contains(r.localId),
-              )
-              .toList()
-            ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
+      () => _records = [
+        for (final r in members)
+          if (r.isVisibleInLibrary) r,
+      ],
     );
   }
 

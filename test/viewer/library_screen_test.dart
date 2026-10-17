@@ -114,6 +114,9 @@ Future<void> _settleScan(WidgetTester tester) async {
   await tester.pumpAndSettle();
 }
 
+/// Longer than the library's search debounce.
+const _searchSettles = Duration(milliseconds: 200);
+
 void main() {
   _reloadCoalescing();
 
@@ -322,6 +325,7 @@ void main() {
       await tester.tap(find.byIcon(CupertinoIcons.search));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(CupertinoSearchTextField), 'needle');
+      await tester.pump(_searchSettles);
       await tester.pumpAndSettle();
 
       final result = tester.getRect(find.byKey(const ValueKey('manual:0')));
@@ -1429,13 +1433,15 @@ void main() {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     final recordStore = FakeAssetRecordStore();
     const places = ['Kyoto', 'Osaka', 'Nara', 'Tokyo', 'Hakone', 'Nikko'];
-    for (final place in places) {
+    for (final (i, place) in places.indexed) {
       await recordStore.upsert(
         localId: 'manual:$place',
         contentHash: place,
         platform: 'ios',
         sourceType: AssetSourceType.manualFile,
         sourcePath: '/tmp/$place.jpg',
+        // Equal sizes go by their oldest photo.
+        createdAt: DateTime(2020).add(Duration(days: i)),
       );
       await recordStore.setLocation('manual:$place', place);
     }
@@ -1869,10 +1875,27 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(CupertinoSearchTextField), 'alph');
+
+      await tester.pump(_searchSettles);
       await tester.pumpAndSettle();
 
       expect(find.byKey(const ValueKey('manual:alpha')), findsOneWidget);
       expect(find.byKey(const ValueKey('manual:beta')), findsNothing);
+    });
+
+    testWidgets('waits for typing to settle before filtering', (tester) async {
+      await pump(tester, await libraryOf(['alpha', 'beta']));
+      await tester.tap(find.byIcon(CupertinoIcons.search));
+      await tester.pumpAndSettle();
+
+      await tester.enterText(find.byType(CupertinoSearchTextField), 'alph');
+      await tester.pump(const Duration(milliseconds: 50));
+      expect(find.byKey(const ValueKey('manual:beta')), findsOneWidget);
+
+      await tester.pump(_searchSettles);
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('manual:beta')), findsNothing);
+      expect(find.byKey(const ValueKey('manual:alpha')), findsOneWidget);
     });
 
     testWidgets('an empty one closes itself when it loses focus', (
@@ -1894,6 +1917,7 @@ void main() {
       await tester.tap(find.byIcon(CupertinoIcons.search));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(CupertinoSearchTextField), 'alph');
+      await tester.pump(_searchSettles);
       await tester.pumpAndSettle();
 
       FocusManager.instance.primaryFocus?.unfocus();
@@ -1937,6 +1961,8 @@ void main() {
       await tester.pumpAndSettle();
 
       await tester.enterText(find.byType(CupertinoSearchTextField), 'cafe');
+
+      await tester.pump(_searchSettles);
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('photo:0000-1111/L0/001')),
@@ -1952,6 +1978,8 @@ void main() {
       );
 
       await tester.enterText(find.byType(CupertinoSearchTextField), 'beach');
+
+      await tester.pump(_searchSettles);
       await tester.pumpAndSettle();
       expect(
         find.byKey(const ValueKey('photo:2222-3333/L0/001')),
@@ -1968,6 +1996,7 @@ void main() {
       await tester.tap(find.byIcon(CupertinoIcons.search));
       await tester.pumpAndSettle();
       await tester.enterText(find.byType(CupertinoSearchTextField), 'alph');
+      await tester.pump(_searchSettles);
       await tester.pumpAndSettle();
 
       await tester.tap(find.text('Cancel'));
@@ -2284,6 +2313,76 @@ void _reloadCoalescing() {
     expect(recordStore.reads - before, 2);
     expect(find.byType(AssetTile), findsOneWidget);
   });
+
+  testWidgets('a reload re-reads albums only after they were written, and '
+      'the card still follows a heart', (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    for (final id in ['manual:a', 'manual:b']) {
+      await recordStore.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+    }
+    final albums = _StampedAlbums();
+    await albums.upsert(id: 'trip', name: 'Trip');
+    await albums.addAssets('trip', ['manual:a']);
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: albums,
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final state = tester.state<LibraryScreenState>(find.byType(LibraryScreen));
+    final reads = albums.memberReads;
+
+    await recordStore.setFavorite('manual:a', true);
+    await state.reload();
+    await tester.pumpAndSettle();
+    expect(albums.memberReads, reads);
+
+    await albums.addAssets('trip', ['manual:b']);
+    await state.reload();
+    await tester.pumpAndSettle();
+    expect(albums.memberReads, reads + 1);
+    expect(find.text('2', skipOffstage: false), findsWidgets);
+  });
+}
+
+/// Stamps like the real store: equal until something is written.
+class _StampedAlbums extends FakeAlbumStore {
+  var writes = 0;
+  var memberReads = 0;
+
+  @override
+  Future<Object> changeStamp() async => writes;
+
+  @override
+  Future<void> addAssets(String albumId, Iterable<String> localIds) {
+    writes++;
+    return super.addAssets(albumId, localIds);
+  }
+
+  @override
+  Future<Map<String, List<String>>> allMemberships() {
+    memberReads++;
+    return super.allMemberships();
+  }
 }
 
 class _ScriptedChanges extends PhotoChanges {

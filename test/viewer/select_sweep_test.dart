@@ -31,4 +31,43 @@ void main() {
     selection = sweep.over(6, selection, grid) ?? selection;
     expect(selection, {1, 5, 6});
   });
+
+  test('overSorted finds both ends by lookup, never the whole order', () {
+    var lookups = 0;
+    int indexOf(int key) {
+      lookups++;
+      return order.indexOf(key);
+    }
+
+    final sweep = SelectSweep<int>()..begin(3);
+    var selection = {3};
+    selection =
+        sweep.overSorted(
+          6,
+          selection,
+          indexOf: indexOf,
+          keyAt: (i) => order[i],
+        ) ??
+        selection;
+    expect(selection, {3, 4, 5, 6});
+    selection =
+        sweep.overSorted(
+          2,
+          selection,
+          indexOf: indexOf,
+          keyAt: (i) => order[i],
+        ) ??
+        selection;
+    expect(selection, {2, 3});
+    expect(lookups, 4);
+    expect(
+      sweep.overSorted(
+        99,
+        selection,
+        indexOf: (k) => order.indexOf(k),
+        keyAt: (i) => order[i],
+      ),
+      isNull,
+    );
+  });
 }

@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:collection' show MapBase;
 import 'dart:convert';
 import 'dart:io';
 import 'dart:math' show max;
@@ -3246,19 +3247,29 @@ class AssetRecordStore {
     var visibility = fresh;
     var outcome = fresh;
     final moved = <AssetRecord>[];
+    final changes = <String, RecordChange>{
+      for (final MapEntry(:key, :value) in _gone.entries)
+        key: (before: value, after: null),
+    };
     for (final row in rows) {
       final record = _fromRow(row);
       final held = _records[record.localId];
       if (held != null && _sameRecord(held, record)) continue;
       moved.add(record);
+      changes[record.localId] = (
+        before: changes[record.localId]?.before ?? held,
+        after: record,
+      );
       if (held == null || !_sameRecord(held, record, status: false)) {
         shape = true;
       }
       if (held != null && _visibilityMoved(held, record)) visibility = true;
       if (held != null && !_sameOutcome(held, record)) outcome = true;
     }
+    _noteChanges(changes);
+    if (fresh) _pending = null;
     if (_gone.isNotEmpty) {
-      final gone = _gone.toSet();
+      final gone = _gone.keys.toSet();
       _gone.clear();
       _order!.removeWhere((r) => gone.contains(r.localId));
       shape = visibility = true;
@@ -3273,6 +3284,83 @@ class AssetRecordStore {
       visibility: visibility,
       flags: shape || outcome,
     );
+  }
+
+  /// Changes applied to [_order] since the last publish, or null when it
+  /// was rebuilt (a fresh read, rows lost under it). Kept on the store, not
+  /// per call: a [listAll] that publishes while another is between its
+  /// [_apply] and its publish hands out that one's changes too.
+  Map<String, RecordChange>? _pending = {};
+
+  void _noteChanges(Map<String, RecordChange> changes) {
+    final pending = _pending;
+    if (pending == null) return;
+    for (final MapEntry(:key, :value) in changes.entries) {
+      final prior = pending[key];
+      pending[key] = prior == null
+          ? value
+          : (before: prior.before, after: value.after);
+    }
+  }
+
+  /// What changed between two of [listAll]'s lists, one entry per record
+  /// (`before` null: added; `after` null: removed), or null when this
+  /// store can't say: lists from another store, [listNewest], a fresh
+  /// read, or more than [_changeLogLimit] changes ago.
+  List<RecordChange>? changesBetween(
+    List<AssetRecord> before,
+    List<AssetRecord> after,
+  ) {
+    if (identical(before, after)) return const [];
+    final a = _generations[before];
+    final b = _generations[after];
+    if (a == null || b == null || a.store != _id || b.store != _id) {
+      return null;
+    }
+    if (a.publish >= b.publish || _changeLog.isEmpty) return null;
+    if (_changeLog.first.publish > a.publish + 1) return null;
+    if (_changeLog.last.publish < b.publish) return null;
+    final merged = <String, RecordChange>{};
+    for (final entry in _changeLog) {
+      if (entry.publish <= a.publish || entry.publish > b.publish) continue;
+      for (final MapEntry(:key, :value) in entry.changes.entries) {
+        final prior = merged[key];
+        merged[key] = prior == null
+            ? value
+            : (before: prior.before, after: value.after);
+      }
+    }
+    return [
+      for (final c in merged.values)
+        if (c.before != null || c.after != null) c,
+    ];
+  }
+
+  /// Visible records by id, read live from the cache [listAll] keeps (so
+  /// at least as new as its last list). For lookups: no copy per list.
+  late final Map<String, AssetRecord> visibleById = _VisibleById(this);
+
+  /// Each publish's changes, oldest first, contiguous: a publish with no
+  /// diff empties it.
+  final _changeLog = <({int publish, Map<String, RecordChange> changes})>[];
+  int _loggedChanges = 0;
+  int _publishGen = 0;
+  static const _changeLogLimit = 4096;
+
+  /// The records for [localIds] in grid order, from [listAll]'s cache: no
+  /// row read. Ids with no record are left out.
+  Future<List<AssetRecord>> listOf(Iterable<String> localIds) async {
+    final all = await listAll();
+    final ids = localIds.toSet();
+    // Most of the library: one ordered pass beats a sort.
+    if (ids.length * 8 > all.length) {
+      return [
+        for (final r in all)
+          if (ids.contains(r.localId)) r,
+      ];
+    }
+    final records = _records;
+    return [for (final id in ids) ?records[id]]..sort(_byDate);
   }
 
   /// The newest [limit] records, oldest first — what the grid draws while
@@ -3404,8 +3492,9 @@ class AssetRecordStore {
   List<AssetRecord>? _published;
   int _rev = 0;
 
-  /// Removed since the last [listAll]; taken out of [_order] in one pass.
-  final _gone = <String>{};
+  /// Removed since the last [listAll], with the record as last listed;
+  /// taken out of [_order] in one pass.
+  final _gone = <String, AssetRecord>{};
 
   int _shapeGen = 0;
   int _visibilityGen = 0;
@@ -3426,12 +3515,26 @@ class AssetRecordStore {
     if (shape) _shapeGen++;
     if (visibility) _visibilityGen++;
     if (flags) _flagsGen++;
+    _publishGen++;
+    final changes = _pending;
+    _pending = {};
+    if (changes == null) {
+      _changeLog.clear();
+      _loggedChanges = 0;
+    } else {
+      _changeLog.add((publish: _publishGen, changes: changes));
+      _loggedChanges += changes.length;
+      while (_loggedChanges > _changeLogLimit && _changeLog.length > 1) {
+        _loggedChanges -= _changeLog.removeAt(0).changes.length;
+      }
+    }
     final published = List<AssetRecord>.unmodifiable(_order!);
     _generations[published] = (
       store: _id,
       shape: _shapeGen,
       visibility: _visibilityGen,
       flags: _flagsGen,
+      publish: _publishGen,
     );
     return _published = published;
   }
@@ -3518,6 +3621,7 @@ class AssetRecordStore {
       _records.remove(id);
     }
     _order!.removeWhere((r) => lost.contains(r.localId));
+    _pending = null;
     return true;
   }
 
@@ -3621,14 +3725,16 @@ class AssetRecordStore {
     _order = null;
     _published = null;
     _gone.clear();
+    _pending = null;
     _rev = 0;
   }
 
   void _forgetCached(Iterable<String> localIds) {
     if (_order == null) return;
     for (final id in localIds) {
-      if (_records.remove(id) == null) continue;
-      _gone.add(id);
+      final held = _records.remove(id);
+      if (held == null) continue;
+      _gone[id] ??= held;
       _published = null;
     }
   }
@@ -3843,7 +3949,26 @@ extension VisibleRecords on AssetRecordStore {
 }
 
 final _generations =
-    Expando<({int store, int shape, int visibility, int flags})>();
+    Expando<({int store, int shape, int visibility, int flags, int publish})>();
+
+/// One record between two [AssetRecordStore.listAll] lists: [before] null
+/// is an add, [after] null a removal.
+typedef RecordChange = ({AssetRecord? before, AssetRecord? after});
+
+/// [AssetRecordStore.listAll]'s order: capture time, then id.
+int recordOrder(AssetRecord a, AssetRecord b) => AssetRecordStore._byDate(a, b);
+
+/// Where [record] goes in [sorted] (in [recordOrder]): the first index
+/// not before it.
+int insertionPointOf(List<AssetRecord> sorted, AssetRecord record) =>
+    AssetRecordStore._insertionPoint(sorted, record);
+
+/// The index of the entry for [record]'s id in [sorted], found by its date,
+/// or -1.
+int indexInOrder(List<AssetRecord> sorted, AssetRecord record) {
+  final at = AssetRecordStore._insertionPoint(sorted, record);
+  return at < sorted.length && sorted[at].localId == record.localId ? at : -1;
+}
 
 final _visibleIds = Expando<Set<String>>();
 
@@ -3863,3 +3988,31 @@ Map<String, AssetRecord> visibleRecordsOf(List<AssetRecord> records) =>
       for (final r in records)
         if (r.isVisibleInLibrary) r.localId: r,
     };
+
+class _VisibleById extends MapBase<String, AssetRecord> {
+  _VisibleById(this._store);
+
+  final AssetRecordStore _store;
+
+  @override
+  AssetRecord? operator [](Object? key) {
+    final record = _store._records[key];
+    return record != null && record.isVisibleInLibrary ? record : null;
+  }
+
+  @override
+  Iterable<String> get keys => [
+    for (final r in _store._records.values)
+      if (r.isVisibleInLibrary) r.localId,
+  ];
+
+  @override
+  void operator []=(String key, AssetRecord value) =>
+      throw UnsupportedError('read-only');
+
+  @override
+  AssetRecord? remove(Object? key) => throw UnsupportedError('read-only');
+
+  @override
+  void clear() => throw UnsupportedError('read-only');
+}

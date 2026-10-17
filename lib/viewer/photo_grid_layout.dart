@@ -133,6 +133,38 @@ class PhotoGridLayout {
     );
   }
 
+  /// [records] swapped for [next], which [markSameShape] said has the
+  /// same records at the same places: the sections still hold.
+  PhotoGridLayout withRecords(List<AssetRecord> next) => PhotoGridLayout._(
+    records: next,
+    sections: sections,
+    crossAxisCount: crossAxisCount,
+    tileExtent: tileExtent,
+    spacing: spacing,
+    horizontalPadding: horizontalPadding,
+    headerExtent: headerExtent,
+    rowExtent: rowExtent,
+    rowCount: rowCount,
+    totalExtent: totalExtent,
+    dateOf: dateOf,
+  );
+
+  /// Says [next] is [previous] with records replaced in place, each by one
+  /// with the same id and capture time (a heart, a tag, upload state).
+  static void markSameShape(
+    List<AssetRecord> next,
+    List<AssetRecord> previous,
+  ) => _sameShapeAs[next] = previous;
+
+  /// Whether a layout of [previous] fits [next] (see [markSameShape]).
+  /// For [takenAt] only: an arrival date can move with the same record.
+  static bool sameShape(List<AssetRecord> next, List<AssetRecord>? previous) =>
+      previous != null &&
+      identical(_sameShapeAs[next], previous) &&
+      next.length == previous.length;
+
+  static final _sameShapeAs = Expando<List<AssetRecord>>();
+
   final List<AssetRecord> records;
   final List<PhotoGridSection> sections;
   final int crossAxisCount;

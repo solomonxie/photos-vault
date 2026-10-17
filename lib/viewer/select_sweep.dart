@@ -25,27 +25,64 @@ class SelectSweep<K> {
     _base = {...base};
   }
 
+  /// Whether a sweep is under way: [begin] or a first [over] since [end].
+  bool get active => _active;
+
   /// [selection] with the range from the sweep's start to [key], or null
-  /// when nothing changed. [order] is the grid's order, read once a sweep.
+  /// when nothing changed. [order] is the grid's order, read once a sweep
+  /// into a map: for grids of hundreds (see [overSorted]).
   Set<K>? over(K key, Set<K> selection, List<K> Function() order) {
-    if (!_active) {
-      _reset();
-      _active = true;
-      _anchor = key;
-      _selects = !selection.contains(key);
-      _base = {...selection};
-    }
+    _start(key, selection);
     final index = _index ??= {
       for (final (i, k) in (_order = order()).indexed) k: i,
     };
     final start = index[_anchor];
     final end = index[key];
-    if (start == null || end == null || end == _lastEnd) return null;
+    if (start == null || end == null) return null;
+    return _range(start, end, selection, (i) => _order[i]);
+  }
+
+  /// [over] for a grid whose order can be searched: [indexOf] finds a key
+  /// (a binary search), [keyAt] reads one. No index of the whole grid,
+  /// so a library of any size costs the range only.
+  Set<K>? overSorted(
+    K key,
+    Set<K> selection, {
+    required int Function(K key) indexOf,
+    required K Function(int index) keyAt,
+  }) {
+    _start(key, selection);
+    final start = indexOf(_anchor as K);
+    final end = indexOf(key);
+    if (start < 0 || end < 0) return null;
+    return _range(start, end, selection, keyAt);
+  }
+
+  void _start(K key, Set<K> selection) {
+    if (_active) return;
+    _reset();
+    _active = true;
+    _anchor = key;
+    _selects = !selection.contains(key);
+    _base = {...selection};
+  }
+
+  Set<K>? _range(
+    int start,
+    int end,
+    Set<K> selection,
+    K Function(int index) keyAt,
+  ) {
+    if (end == _lastEnd) return null;
     _lastEnd = end;
-    final range = _order.sublist(
-      start < end ? start : end,
-      (start < end ? end : start) + 1,
-    );
+    final range = [
+      for (
+        var i = start < end ? start : end;
+        i <= (start < end ? end : start);
+        i++
+      )
+        keyAt(i),
+    ];
     final next = _selects
         ? {..._base, ...range}
         : ({..._base}..removeAll(range));

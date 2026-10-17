@@ -65,12 +65,14 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
 
   Future<void> _reload() async {
     final ids = await widget.personStore.localIdsIn(_person.id);
-    final visible = await widget.assetRecordStore.getVisibleByLocalIds(ids);
+    // From the library's cache: no rows, no file checks.
+    final members = await widget.assetRecordStore.listOf(ids);
     if (!mounted) return;
     setState(
-      () =>
-          _records = visible.values.toList()
-            ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
+      () => _records = [
+        for (final r in members)
+          if (r.isVisibleInLibrary) r,
+      ],
     );
   }
 

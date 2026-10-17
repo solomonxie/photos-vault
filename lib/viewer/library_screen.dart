@@ -4,6 +4,7 @@ import 'dart:io';
 import '../main.dart' show screenshotRequest;
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/gestures.dart' show HitTestResult;
 import 'package:flutter/rendering.dart' show RenderMetaData;
 import 'package:flutter/services.dart';
@@ -501,6 +502,7 @@ class LibraryScreenState extends State<LibraryScreen>
   );
 
   List<AssetRecord> _all = const [];
+  LibraryIndex? _index;
 
   /// Whether [reload] has finished once. Distinguishes a library that is
   /// empty from one that hasn't been read yet — see the grid's
@@ -664,7 +666,10 @@ class LibraryScreenState extends State<LibraryScreen>
 
   void _toggleSearch() => setState(() {
     _searching = !_searching;
-    if (!_searching) {
+    _searchDebounce?.cancel();
+    if (_searching) {
+      _warmSearch(_active);
+    } else {
       _searchController.clear();
       _query = '';
       _searchFocus.unfocus();
@@ -694,6 +699,7 @@ class LibraryScreenState extends State<LibraryScreen>
       done.complete();
     }
     _missingDebounce?.cancel();
+    _searchDebounce?.cancel();
     syncQueue.draining.removeListener(_onDrainingChanged);
     _fixQueue.removeListener(_onFixQueueChanged);
     _fixLeft.dispose();
@@ -1401,8 +1407,19 @@ class LibraryScreenState extends State<LibraryScreen>
     // identity of the list it was given.
     final libraryChanged = !identical(all, _all);
     final delta = libraryDelta(firstLoad ? null : _all, all);
+    // What moved since the last list, record by record, when the store
+    // can say: the derived lists below are patched by it, not redone.
+    final changes = firstLoad || !libraryChanged
+        ? null
+        : assetRecordStore.changesBetween(_all, all);
+    final small = changes != null && changes.length <= LibraryIndex.patchLimit;
     final index = libraryChanged || firstLoad
-        ? LibraryIndex.of(all, DateTime.now())
+        ? LibraryIndex.after(
+            firstLoad ? null : _index,
+            all,
+            changes,
+            DateTime.now(),
+          )
         : null;
     final active = index?.active ?? _active;
 
@@ -1444,44 +1461,55 @@ class LibraryScreenState extends State<LibraryScreen>
       }
     }
 
-    final albums = await _albumStore.listAll();
-    // One pass over the library for all albums together. Per album it was
-    // a full pass each, so twenty albums meant twenty walks of everything
-    // every time anything reloaded.
-    final albumsOf = <String, List<String>>{};
-    final albumMembers = await _albumStore.allMemberships();
-    for (final album in albums) {
-      for (final localId in albumMembers[album.id] ?? const <String>[]) {
-        albumsOf.putIfAbsent(localId, () => []).add(album.id);
+    // Albums and memberships are re-read only when their database was
+    // written since the last read (its stamp moved). The stamp is read
+    // first: a write landing after it shows here as data newer than the
+    // stamp, and the next reload reads again.
+    final albumStamp = await _albumStore.changeStamp();
+    final albumsMoved = albumStamp != _albumStamp;
+    var albums = _albums;
+    var albumsOf = _albumsOf;
+    if (albumsMoved) {
+      albums = await _albumStore.listAll();
+      final albumMembers = await _albumStore.allMemberships();
+      albumsOf = <String, List<String>>{};
+      for (final album in albums) {
+        for (final localId in albumMembers[album.id] ?? const <String>[]) {
+          albumsOf.putIfAbsent(localId, () => []).add(album.id);
+        }
       }
     }
-    final albumAssets = {for (final album in albums) album.id: <AssetRecord>[]};
-    for (final record in active) {
-      for (final albumId in albumsOf[record.localId] ?? const <String>[]) {
-        albumAssets[albumId]?.add(record);
-      }
-    }
+    // Same memberships and library: the lists stand. Same memberships and
+    // a few records changed: only albums holding one of them change.
+    final albumAssets = !albumsMoved && index == null
+        ? _albumAssets
+        : (!albumsMoved && small
+                  ? patchAlbumRecords(_albumAssets, albumsOf, changes)
+                  : null) ??
+              albumRecordsOf([for (final a in albums) a.id], albumsOf, active);
     final builtInCovers = await _loadBuiltInCovers();
-    final people = await _personStore.listAll();
+
+    final personStamp = await _personStore.changeStamp();
+    final personsMoved = personStamp != _personStamp;
+    final people = personsMoved ? await _personStore.listAll() : _people;
     final peopleChanged = !_samePeople(people, _people);
-    // People and the strangers among them only move when the library or
-    // the people do — and finding the strangers is the most expensive
-    // thing on this screen, so it does not run because a background round
-    // ticked. [faces] is for what changed somewhere this can't see: a
-    // photo analysed, a face named.
+    if (personsMoved) _personMembers = await _personStore.allMemberships();
+    final personMembers = _personMembers;
+    // Counts and first photos move with the memberships, or with a tagged
+    // photo shown, hidden, added or removed. A heart, an upload or a scan
+    // page of new photos moves neither.
+    final tagged = personsMoved
+        ? {for (final p in people) ...?personMembers[p.id]}
+        : _tagged;
+    final countsStale =
+        personsMoved ||
+        faces ||
+        (libraryChanged && (!small || movesAnyOf(tagged, changes)));
     var personPhotoCounts = _personPhotoCounts;
     var personFirstPhotos = _personFirstPhotos;
-    var unnamed = (faces: _unnamedFaces, found: 0);
-    // A scan page adds photos nobody has looked at for faces yet: the
-    // strangers row only moves when one is hidden, binned or removed, the
-    // people change, or the analysis did.
-    final strangersStale =
-        firstLoad || faces || peopleChanged || delta.visibility;
-    if (libraryChanged || peopleChanged || faces) {
+    if (countsStale) {
       final counts = <String, int>{};
       final firsts = <String, String>{};
-      final tagged = <String>{};
-      final personMembers = await _personStore.allMemberships();
       // Visible ones only: a hidden photo in a count gives it away.
       final visible = visibleIdsOf(all);
       for (final person in people) {
@@ -1489,29 +1517,52 @@ class LibraryScreenState extends State<LibraryScreen>
         final shown = localIds.where(visible.contains);
         counts[person.id] = shown.length;
         if (shown.firstOrNull case final first?) firsts[person.id] = first;
-        tagged.addAll(localIds);
       }
       personPhotoCounts = counts;
       personFirstPhotos = firsts;
-      // One at a time. A camera-roll scan reloads once a second, and each
-      // round would otherwise start another pass over every face in the
-      // library on top of the one still running.
-      if (strangersStale && !_findingFaces) {
-        _findingFaces = true;
-        try {
-          unnamed = await findUnnamedFaces(
-            analysisStore: _aiAnalysisStore,
-            records: all,
-            taggedLocalIds: tagged,
-            peopleById: {for (final p in people) p.id: p.name},
-            limit: _unnamedFacesShown,
-          );
-        } finally {
-          _findingFaces = false;
-        }
+    }
+    // People and the strangers among them only move when the library or
+    // the people do — and finding the strangers is the most expensive
+    // thing on this screen, so it does not run because a background round
+    // ticked. [faces] is for what changed somewhere this can't see: a
+    // photo analysed, a face named. A scan page adds photos nobody has
+    // looked at for faces yet: the strangers row only moves when one is
+    // hidden, binned or removed, the people change, or the analysis did.
+    var unnamed = _unnamedFaces;
+    final strangersStale =
+        firstLoad || faces || peopleChanged || delta.visibility;
+    // One at a time. A camera-roll scan reloads once a second, and each
+    // round would otherwise start another pass over every face in the
+    // library on top of the one still running.
+    if (strangersStale && !_findingFaces) {
+      _findingFaces = true;
+      try {
+        unnamed = (await findUnnamedFaces(
+          analysisStore: _aiAnalysisStore,
+          records: all,
+          taggedLocalIds: tagged,
+          peopleById: {for (final p in people) p.id: p.name},
+          limit: _unnamedFacesShown,
+        )).faces;
+      } finally {
+        _findingFaces = false;
       }
     }
     if (!mounted) return;
+    _albumStamp = albumStamp;
+    _albumsOf = albumsOf;
+    _personStamp = personStamp;
+    _tagged = tagged;
+    final same =
+        _loaded &&
+        index == null &&
+        identical(albums, _albums) &&
+        identical(albumAssets, _albumAssets) &&
+        mapEquals(builtInCovers, _builtInCovers) &&
+        identical(people, _people) &&
+        identical(personPhotoCounts, _personPhotoCounts) &&
+        identical(unnamed, _unnamedFaces);
+    if (same) return;
     setState(() {
       _loaded = true;
       if (index != null && !firstLoad) _applyLibrary(index);
@@ -1521,9 +1572,17 @@ class LibraryScreenState extends State<LibraryScreen>
       _people = people;
       _personPhotoCounts = personPhotoCounts;
       _personFirstPhotos = personFirstPhotos;
-      _unnamedFaces = unnamed.faces;
+      _unnamedFaces = unnamed;
     });
   }
+
+  /// What the last [reload] read albums and people at (see
+  /// `changeStamp`), and what it derived from them.
+  Object? _albumStamp;
+  Map<String, List<String>> _albumsOf = const {};
+  Object? _personStamp;
+  Map<String, List<String>> _personMembers = const {};
+  Set<String> _tagged = const {};
 
   /// Enough for the first screenful or two, a few milliseconds to read.
   static const _firstPaintCount = 600;
@@ -1550,6 +1609,7 @@ class LibraryScreenState extends State<LibraryScreen>
   /// the whole of it each, which is why they are held rather than read in
   /// `build`. Call inside [setState].
   void _applyLibrary(LibraryIndex index) {
+    _index = index;
     _all = index.all;
     _active = index.active;
     _videos = index.videos;
@@ -1578,10 +1638,11 @@ class LibraryScreenState extends State<LibraryScreen>
 
   /// The one derived list that depends on what is typed. Free while
   /// nothing is, and one pass per new query or library — not per build:
-  /// the grid lays itself out again for every new list it is handed.
+  /// the grid lays itself out again for every new list it is handed. A
+  /// query that extends the last one only looks at its matches.
   List<AssetRecord> get _filtered {
     if (_query.isEmpty) {
-      _searchText = null;
+      _search = null;
       return _active;
     }
     final cached = _filteredCache;
@@ -1591,16 +1652,18 @@ class LibraryScreenState extends State<LibraryScreen>
       return cached.list;
     }
     final active = _active;
-    var text = _searchText;
-    if (text == null || !identical(text.from, active)) {
-      text = (from: active, text: [for (final r in active) searchTextOf(r)]);
-      _searchText = text;
+    var search = _search;
+    if (search == null || !identical(search.from, active)) {
+      final texts = SearchTexts.of(active);
+      if (texts == null) {
+        _warmSearch(active);
+        // For the few frames until the texts are made: the last answer.
+        return cached?.list ?? const [];
+      }
+      search = _search = (from: active, matches: SearchMatches(texts));
     }
-    final needle = _query.toLowerCase();
-    final list = [
-      for (var i = 0; i < active.length; i++)
-        if (text.text[i].contains(needle)) active[i],
-    ];
+    final hits = search.matches.of(_query.toLowerCase());
+    final list = [for (final i in hits) active[i]];
     _filteredCache = (query: _query, from: active, list: list);
     return list;
   }
@@ -1608,8 +1671,35 @@ class LibraryScreenState extends State<LibraryScreen>
   ({String query, List<AssetRecord> from, List<AssetRecord> list})?
   _filteredCache;
 
-  /// Lowercased once per library while a search is open, not per keystroke.
-  ({List<AssetRecord> from, List<String> text})? _searchText;
+  /// Per library while a search is open, not per keystroke.
+  ({List<AssetRecord> from, SearchMatches matches})? _search;
+
+  Future<void>? _warming;
+
+  /// Search texts for a big library, made off the UI isolate.
+  void _warmSearch(List<AssetRecord> records) {
+    if (_warming != null) return;
+    _warming = SearchTexts.warm(records).whenComplete(() {
+      _warming = null;
+      if (mounted && _query.isNotEmpty) setState(() {});
+    });
+  }
+
+  /// Typing settles before the grid filters: a pass per keystroke is a
+  /// pass nobody sees.
+  static const _searchDelay = Duration(milliseconds: 150);
+  Timer? _searchDebounce;
+
+  void _onQueryChanged(String value) {
+    _searchDebounce?.cancel();
+    if (value.isEmpty) {
+      setState(() => _query = '');
+      return;
+    }
+    _searchDebounce = Timer(_searchDelay, () {
+      if (mounted) setState(() => _query = value);
+    });
+  }
 
   void _openGroup(String title, List<AssetRecord> records) => _push(
     AssetGroupScreen(
@@ -2259,24 +2349,48 @@ class LibraryScreenState extends State<LibraryScreen>
     // The finger is still down: dragging on from here selects the range
     // between this photo and wherever the finger goes.
     _sweep.begin(record.localId);
+    _sweepFrom = record;
   }
 
   final _sweep = SelectSweep<String>();
+
+  /// The tile the sweep began on: found again in the grid by its date.
+  AssetRecord? _sweepFrom;
 
   void _onSelectDragUpdate(Offset globalPosition) {
     final selection = _selection;
     if (selection == null) return;
     final record = _recordUnder(globalPosition);
     if (record == null) return;
-    final next = _sweep.over(
+    if (!_sweep.active) _sweepFrom = record;
+    final from = _sweepFrom;
+    final grid = _filtered;
+    // The grid is in [recordOrder]: two binary searches, no 40k index.
+    // A tile re-dated under the finger isn't where its date says: looked
+    // for by id, once.
+    int find(AssetRecord r) {
+      final at = indexInOrder(grid, r);
+      return at >= 0 ? at : grid.indexWhere((g) => g.localId == r.localId);
+    }
+
+    int indexOf(String id) => switch (id) {
+      _ when id == record.localId => find(record),
+      _ when from != null && id == from.localId => find(from),
+      _ => -1,
+    };
+    final next = _sweep.overSorted(
       record.localId,
       selection,
-      () => [for (final r in _filtered) r.localId],
+      indexOf: indexOf,
+      keyAt: (i) => grid[i].localId,
     );
     if (next != null) _select(next);
   }
 
-  void _onSelectDragEnd() => _sweep.end();
+  void _onSelectDragEnd() {
+    _sweep.end();
+    _sweepFrom = null;
+  }
 
   /// Which tile is under [globalPosition], asked of the tiles themselves:
   /// each one carries its record in a `MetaData` (see `AssetTile`), so this
@@ -2975,7 +3089,7 @@ class LibraryScreenState extends State<LibraryScreen>
                     controller: _searchController,
                     focusNode: _searchFocus,
                     autofocus: true,
-                    onChanged: (v) => setState(() => _query = v),
+                    onChanged: _onQueryChanged,
                   ),
                 ),
               ),
@@ -3150,7 +3264,7 @@ class LibraryScreenState extends State<LibraryScreen>
                         child: UnnamedFaceCard(
                           face: face,
                           assetRecordStore: assetRecordStore,
-                          records: visibleRecordsOf(_all),
+                          records: assetRecordStore.visibleById,
                           label: face.hasSuggestion
                               ? l10n.peopleSuggestedFace(face.suggestedName!)
                               : l10n.peopleUnnamedFace,
@@ -3164,7 +3278,7 @@ class LibraryScreenState extends State<LibraryScreen>
                       child: _PersonCard(
                         person: person,
                         assetRecordStore: assetRecordStore,
-                        records: visibleRecordsOf(_all),
+                        records: assetRecordStore.visibleById,
                         photoCount: _personPhotoCounts[person.id] ?? 0,
                         firstPhoto: _personFirstPhotos[person.id],
                         onTap: () => _openPerson(person),

@@ -335,6 +335,15 @@ class AssetGridViewState extends State<AssetGridView> {
     // day, so it happens when the list or the width actually changes —
     // not on every rebuild the screen above happens to do. Identity, not
     // equality: the screens here hand down a list they computed once.
+    // Same records at the same places (a heart): no walk, no re-anchor.
+    if (!identical(_laidOut, widget.records) &&
+        _laidOutWidth == width &&
+        identical(_layout.dateOf, PhotoGridLayout.takenAt) &&
+        identical(widget.dateOf, PhotoGridLayout.takenAt) &&
+        PhotoGridLayout.sameShape(widget.records, _laidOut)) {
+      _layout = _layout.withRecords(widget.records);
+      _laidOut = widget.records;
+    }
     if (!identical(_laidOut, widget.records) || _laidOutWidth != width) {
       // Re-anchor when photos arrive *while the view is still resting on
       // the anchor* — the camera-roll scan lands after the first paint,

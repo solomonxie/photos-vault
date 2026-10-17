@@ -499,6 +499,15 @@ class PersonStore {
   /// How far this database's change log has got. See `change_log.dart`.
   Future<int> changeMark() async => changeLogMark(await _open());
 
+  /// Equal to an earlier one only while nothing here was written: every
+  /// table is logged, so the mark moves with any write, from any
+  /// instance. The connection too, so a file reopened from scratch
+  /// never matches.
+  Future<Object> changeStamp() async {
+    final db = await _open();
+    return (db, await changeLogMark(db));
+  }
+
   /// The tail of this database's change log, for the copy in the backup.
   Future<List<Map<String, Object?>>> changeLogRows({
     bool decode = true,

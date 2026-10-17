@@ -323,6 +323,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
 
   @override
   void dispose() {
+    _backupTick?.cancel();
     _unwatchBackup();
     _gallery?.dispose();
     super.dispose();
@@ -441,11 +442,18 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     final keys = widget.albumKeys;
     return {
       for (final r in records) ...[
-        if (keys != null) vaultCarrierKey(r, keys.carrier),
+        if (keys != null)
+          // A keyed hash of the id and the extension, so worked out once.
+          _carrierKeys['${r.countsAsVideo}|${r.localId}'] ??= vaultCarrierKey(
+            r,
+            keys.carrier,
+          ),
         ?_relativeKey(r.stateOf(DerivativeKind.original).destinationKey),
       ],
     };
   }
+
+  final _carrierKeys = <String, String>{};
 
   /// `originals/<name>` from a key that may carry the bucket's prefix.
   String? _relativeKey(String? key) {
@@ -464,7 +472,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     if (backup == null) return;
     backup.uploading.addListener(_onUploading);
     backup.changed.addListener(_onBackupChanged);
-    backup.problems.addListener(_onBackupChanged);
+    backup.problems.addListener(_onProblems);
     unawaited(backup.run());
   }
 
@@ -473,7 +481,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     if (backup == null) return;
     backup.uploading.removeListener(_onUploading);
     backup.changed.removeListener(_onBackupChanged);
-    backup.problems.removeListener(_onBackupChanged);
+    backup.problems.removeListener(_onProblems);
   }
 
   void _onUploading() {
@@ -484,9 +492,24 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     }
   }
 
+  /// Uploads land one after another: at most one reload per
+  /// [_backupSettle], and the change that started it is in that one.
   void _onBackupChanged() {
-    if (mounted) unawaited(_reload());
+    if (!mounted || _backupTick != null) return;
+    _backupTick = Timer(_backupSettle, () {
+      _backupTick = null;
+      if (mounted) unawaited(_reload());
+    });
   }
+
+  static const _backupSettle = Duration(milliseconds: 500);
+
+  /// Read in `build` ([_backupProblems]): a redraw, not a reload.
+  void _onProblems() {
+    if (mounted) setState(() {});
+  }
+
+  Timer? _backupTick;
 
   /// This album's photos that didn't go up on the last pass, and why the
   /// first one didn't.
@@ -600,18 +623,26 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
   /// Best-effort: only files already on disk, never an iCloud fetch for a
   /// header stat. Async stats after the grid is up, not one sync call per
   /// record on the UI isolate.
+  /// A size found is kept per path, so a reload stats only new paths and
+  /// ones not found before; a file rewritten under the same path keeps its
+  /// old size until the screen is opened again.
   Future<void> _sumBytes(List<AssetRecord> records) async {
     final sizes = await Future.wait([
       for (final r in records)
         if (r.sourcePath case final path?)
-          File(path).stat().then(
-            (s) => s.type == FileSystemEntityType.notFound ? 0 : s.size,
-            onError: (_) => 0,
-          ),
+          if (_sizes[path] case final known?)
+            Future.value(known)
+          else
+            File(path).stat().then((s) {
+              if (s.type == FileSystemEntityType.notFound) return 0;
+              return _sizes[path] = s.size;
+            }, onError: (_) => 0),
     ]);
     if (!mounted || !identical(records, _records)) return;
     setState(() => _totalBytes = sizes.fold(0, (a, b) => a + b));
   }
+
+  final _sizes = <String, int>{};
 
   String _formatSize(int bytes) {
     if (bytes < 1024) return '$bytes B';
