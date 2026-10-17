@@ -361,6 +361,31 @@ class RecordFixer {
     }
   }
 
+  /// Drops [ids]' prints now (a hide), and again after a check in flight,
+  /// which may write back what it read before.
+  static Future<void> forgetPrints(Iterable<String> ids) async {
+    final drop = ids.toSet();
+    if (drop.isEmpty) return;
+    final String path;
+    try {
+      path = p.join((await printsDirectory()).path, _printsFile);
+    } catch (_) {
+      return;
+    }
+    Future<void> once() => Isolate.run(() {
+      final prints = _readPrints(path);
+      final before = prints.length;
+      prints.removeWhere((key, _) => drop.contains(key.split('\t').first));
+      if (prints.length != before) _writePrints(path, prints);
+    });
+    final running = _checking;
+    await once();
+    if (running != null) {
+      await running.catchError((_) {});
+      await once();
+    }
+  }
+
   /// Compares each bucket import not yet compared against every thumbnail
   /// here, off the UI isolate, and keeps the answer. Slow on a big library
   /// (every thumbnail decoded), so it runs in the background after a sync

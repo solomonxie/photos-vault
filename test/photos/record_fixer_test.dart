@@ -508,6 +508,10 @@ void main() {
     expect(entries(), 1, reason: 'the old print dropped');
     expect(prints.lastModifiedSync(), isNot(kept));
 
+    // Hidden: gone from the file at once, not at the next check.
+    await RecordFixer.forgetPrints([lib]);
+    expect(entries(), 0, reason: 'a hidden photo leaves no print');
+
     await store.softDelete(lib);
     await cloudOnly(
       'bucket:three',

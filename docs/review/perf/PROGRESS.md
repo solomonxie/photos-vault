@@ -10,8 +10,8 @@
 | PW5 | Smaller database | done | abe50f7 |
 | PW6 | Less periodic waste | done | 9c128ab |
 | PW7 | Cheaper grid paint | done | ade2562 |
-| PW8 | Cheaper reload and search | done | (this commit) |
-| PW9 | The rest | todo | |
+| PW8 | Cheaper reload and search | done | 1822915 |
+| PW9 | The rest | done | see notes |
 
 ## PW3 notes
 
@@ -93,3 +93,22 @@
 - UI-17: Favourites from the shared index (no filter, no sort); Recently Deleted no sort; Album and person page from `listOf` (cache, grid order; no row read, no `File.exists`).
 - UI-19: hidden album reloads at most once per 500 ms of `changed` ticks (the tick that starts the window is in that reload); problems redraw only. Carrier keys memoised per id + kind; file sizes kept per path once found (a file rewritten in place keeps its old size until reopen).
 - Not done: a search open during a heart re-scans 40k `contains` (texts reused); filter not in an isolate. `_loadBuiltInCovers` still 3 small reads per reload. Status-only reloads leave album lists on the older instances (counts and covers unaffected).
+
+
+## PW9 notes
+
+All nine work packages done. PW9: streamed carriers, batched PhotoKit lookups, a sliding upload window, the remaining indexes; WAL and the WITHOUT ROWID rebuild skipped (below).
+
+- BG-13: `carrier_stream.dart` writes JPEG/MP4 carriers from the original's file a 1 MB chunk at a time (MAC slot patched after the stream) and opens them the same way (MAC checked over the stream first, then decrypted to a file or one buffer). Byte for byte `buildJpegCarrier`/`buildMp4Carrier` (test with the same header). CommonCrypto's CTR counts in the low 64 bits and wraps without carry (measured); `ctrIvAt` matches. Used by `CarrierBuilder`, `FiledPhotos` (straight to the plain file; a failed write leaves no `.part`), `Gallery` (> 1 MB) and the vault cache's big entries. Optimizer reads the still inside its isolate. Not done: `Gallery.original` still returns bytes (the viewer shows `Image.memory`).
+- BG-14: `PhotoChangesChannel` `assets(ids)`: one `fetchAssets(withLocalIdentifiers:)` per 200, mapped as photo_manager maps (`PhotoChanges.entityOf`). A missing id is gone, a failed call asks per id (8 at a time; a failed lookup is never gone). Used by `applyChange` (plus one `getByLibraryIds`), `_markMissing`, `_reconcileDeletions` (re-read the gone rows before marking), `deleteManyFromLibrary`, and the Optimize scan (entities per 50-page, measures 4 at a time; size and filename stay per photo: the extension is part of the advice). Place names: cells asked once per run, names written in one guarded `UPDATE` transaction per geocode (`fillLocations`). The background engine has no such channel: per id there, as before.
+- BG-16: `newestFirst` walks a list already in `listAll` order backwards (one pass to tell), sorts only otherwise.
+- BG-17: per-id fallback is a pool of 8.
+- BG-18: sliding window of `concurrency` jobs; pause still lets the ones in flight finish.
+- DB-11: `originalStemHeld(stem, prefixes:)` first tries `<prefix>originals/<stem>.` as a range on the key indexes; a miss still runs the full GLOB scan (another prefix or folder must not be missed).
+- DB-12 / DB-13: schema v30: partial indexes `asset_record_source_path` and `asset_record_awaiting_place` (plans tested). `plainIdsUnder` is a range with `+passcode_hash` (and no longer treats `_`/`%` in a folder as wildcards). `allTags`/`allLocations` memoised on revision + row count.
+- DB-16: single-flight `_open` in `PersonStore` and `AiAnalysisStore`. Follow-up (b): the analysis revision moves on every open and close, so a restored or replaced file invalidates the strangers memo.
+- Follow-up (a): a hide drops the photo's grey print from `grey_prints_v1.bin` at once (and again after a check in flight), also when a restore re-hides a row.
+- WAL (DB-6) skipped. Doubtful on three counts: hidden rows are written from ~15 call sites in three stores, and a missed checkpoint leaves pre-hide pages in a `-wal` that persists, where today's per-commit journal is unlinked (and its per-file key dropped by iOS); raw database copies restore by a manual file swap, which a lingering `-wal` from the old file would replay onto; and with `synchronous=FULL` the win is the journal create/delete only, while batching (PW2) already took most commits. `VACUUM INTO` copies would have been fine.
+- DB-15 skipped: ~20 MB at 40k is below what PW5 already freed, and it rewrites `derivative_target` (the delete guard's truth) and `bucket_object` in a migration on every phone.
+- Size: Flutter prints decimal MB on macOS (`getSizeAsPlatformMB`): 33.3 MB is 31.8 MiB, and `make size`/CLAUDE.md measure `du -sm`: 32, inside 33. Growth since 31.0 is ~0.8 MiB, likely the Dart snapshot. No cut applied. Candidates: `aws_signature_v4`+`aws_common` (est. 300-600 KB AOT; SigV4 on `crypto`, needs signature vectors), the PNG/WebP export encoders (`detail_screen`, `photo_editor`, `image_pipeline:172`), `uuid` (v4 + v5, ids persisted). One `--analyze-size` build says which.
+

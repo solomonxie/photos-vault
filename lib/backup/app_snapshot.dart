@@ -6,6 +6,7 @@ import '../photos/ai_analysis_store.dart';
 import '../photos/person.dart';
 import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
+import '../photos/record_fixer.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
@@ -518,6 +519,7 @@ class AppSnapshotIo {
     final passcodeHash = row['passcodeHash'] as String?;
     if (passcodeHash != null && current.passcodeHash == null) {
       await assetRecordStore.setPasscodeHash(localId, passcodeHash);
+      await RecordFixer.forgetPrints([localId]);
     }
     if ((row['isFavorite'] as bool? ?? false) && !current.isFavorite) {
       await assetRecordStore.setFavorite(localId, true);

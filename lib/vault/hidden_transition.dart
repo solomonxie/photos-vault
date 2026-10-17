@@ -1,7 +1,9 @@
+import 'dart:async';
 import 'dart:convert';
 
 import '../photos/ai_analysis_store.dart';
 import '../photos/face_identity.dart';
+import '../photos/record_fixer.dart';
 import '../photos/thumbnail_cache.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
@@ -68,9 +70,12 @@ class HiddenTransition {
     Iterable<String> localIds,
     String passcodeHash,
   ) async {
-    for (final id in localIds) {
+    final ids = localIds.toList();
+    for (final id in ids) {
       await store.openTransition(id, hide, passcodeHash: passcodeHash);
     }
+    // Not awaited: the hide never waits on a cache file.
+    unawaited(RecordFixer.forgetPrints(ids).catchError((_) {}));
   }
 
   /// A hide that didn't take (nothing was copied out): ordinary again,
