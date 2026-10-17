@@ -78,6 +78,29 @@ void main() {
     expect(path, isNotNull);
   });
 
+  test('a thumbnail that keeps failing is given up on for the session, '
+      'until cleared', () {
+    final tries = ThumbnailTries();
+    tries
+      ..failed('a')
+      ..failed('a')
+      ..failed('b');
+    expect(tries.givenUp, isEmpty);
+    tries.failed('a');
+    expect(tries.givenUp, {'a'});
+
+    tries.succeeded('b');
+    tries
+      ..failed('b')
+      ..failed('b');
+    expect(tries.givenUp, {'a'}, reason: 'a success starts the count again');
+
+    tries.clear();
+    expect(tries.givenUp, isEmpty);
+    tries.failed('a');
+    expect(tries.givenUp, isEmpty);
+  });
+
   group('canThumbnail', () {
     AssetRecord video({String? libraryId, String? thumbnailPath}) =>
         AssetRecord(

@@ -59,6 +59,7 @@ class FlagScan extends ChangeNotifier {
     required this.advisor,
     required this.queue,
     this._relist,
+    this.uploading,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
 
@@ -68,6 +69,12 @@ class FlagScan extends ChangeNotifier {
   final FixQueue queue;
   final Future<bool> Function()? _relist;
   final DateTime Function() _now;
+
+  /// The upload queue draining: [refreshIfChanged] waits [uploadingGap]
+  /// between scans, as every upload landing moves the inputs.
+  final ValueListenable<bool>? uploading;
+
+  static const uploadingGap = Duration(minutes: 2);
 
   static const stateKey = 'flag_scan_v1';
 
@@ -116,15 +123,26 @@ class FlagScan extends ChangeNotifier {
   /// The inputs in one string: the record revision, the bucket index and
   /// upload rows, and the app state the detectors read. A few aggregate
   /// queries and small reads, cheap enough to ask while the page is open.
-  Future<String> stamp() async {
+  Future<String> stamp() async => '${await store.revision()}|${await _rest()}';
+
+  /// [stamp] without the records.
+  Future<String> _rest() async {
     final digest = sha1.convert(
       utf8.encode(
         [for (final key in _inputs) (await store.getAppState(key)) ?? '']
             .join('\u0000'),
       ),
     );
-    return '${await store.revision()}|${await store.bucketStamp()}|$digest';
+    return '${await store.bucketStamp()}|$digest';
   }
+
+  /// The inputs as the last scan of this session began reading them: the
+  /// records as a [AssetRecordStore.listAll] instance, compared by
+  /// [libraryDelta]'s `flags` (every record field but `updatedAt` and a
+  /// status between pending and uploading, which no detector tells apart),
+  /// and the rest of [stamp]. Taken before the scan reads, so a write
+  /// during it shows as moved.
+  ({List<AssetRecord> records, String rest})? _seen;
 
   /// The page opening: the last result at once, then a scan only if
   /// something it was worked out from has moved.
@@ -149,14 +167,26 @@ class FlagScan extends ChangeNotifier {
   DateTime? _lastRun;
 
   /// While the page is open: scans again when an input moved, at most
-  /// every [minGap], and never under a running fix (the run's end does).
+  /// every [minGap] ([uploadingGap] while uploads run), and never under a
+  /// running fix (the run's end does). Moved is judged against [_seen]
+  /// once this session has scanned, else against the saved [stamp].
   Future<void> refreshIfChanged({
     Duration minGap = const Duration(seconds: 15),
   }) async {
     if (running || queue.running) return;
+    final gap = (uploading?.value ?? false) && minGap < uploadingGap
+        ? uploadingGap
+        : minGap;
     final last = _lastRun;
-    if (last != null && _now().difference(last) < minGap) return;
-    if (await stamp() == _result.stamp) return;
+    if (last != null && _now().difference(last) < gap) return;
+    if (_seen case final seen?) {
+      if (!libraryDelta(seen.records, await store.listAll()).flags &&
+          await _rest() == seen.rest) {
+        return;
+      }
+    } else if (await stamp() == _result.stamp) {
+      return;
+    }
     await run();
   }
 
@@ -198,6 +228,7 @@ class FlagScan extends ChangeNotifier {
     final started = _now();
     _lastRun = started;
     var whole = true;
+    final seen = (records: await store.listAll(), rest: await _rest());
 
     var objects = await store.listBucketObjects();
     if (relist || objects.isEmpty) {
@@ -287,6 +318,7 @@ class FlagScan extends ChangeNotifier {
     final at = await stamp();
     _publish(await store.listAll(), stamp: at);
     await _save();
+    _seen = seen;
     if (whole && _storageAt != null) {
       await queue.settle(_result.flags, started);
     }

@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:isolate';
 
 import 'package:http/http.dart' as http;
@@ -696,7 +695,6 @@ class BackupVerifier {
   // ------------------------------------------------------------ spot check
 
   static const spotCheckRanAtKey = 'spot_check_ran_at';
-  static const _spotCheckedKey = 'spot_checked_at';
 
   /// A few cloud-only photos asked of the bucket, oldest-checked first —
   /// the bucket can lose an object any day, and a cloud-only photo is the
@@ -718,7 +716,6 @@ class BackupVerifier {
     }
     await recordStore.setAppState(spotCheckRanAtKey, now.toIso8601String());
 
-    final checkedAt = await _spotCheckedAt();
     final records = await recordStore.listAll();
     final byId = {for (final r in records) r.localId: r};
     final queue = ProofQueue(recordStore);
@@ -726,22 +723,30 @@ class BackupVerifier {
       for (final id in await queue.take(limit))
         if (byId[id] != null) byId[id]!,
     ];
-    final candidates =
-        [
-          for (final r in records)
-            if (r.localDeleted &&
-                !r.isDeleted &&
-                r.passcodeHash == null &&
-                r.isFullyBackedUp &&
-                !picked.any((p) => p.localId == r.localId))
-              r,
-        ]..sort(
-          (a, b) =>
-              (checkedAt[a.localId] ?? 0).compareTo(checkedAt[b.localId] ?? 0),
-        );
-    picked.addAll(candidates.take(limit - picked.length));
+    // Ordered in SQL by `spot_checked`; each confirmed here, so the
+    // query's looser rule only ever offers more.
+    final pickedIds = {for (final r in picked) r.localId};
+    const page = 64;
+    for (var offset = 0; picked.length < limit; offset += page) {
+      final ids = await recordStore.spotCheckOrder(limit: page, offset: offset);
+      for (final id in ids) {
+        final r = byId[id];
+        if (r == null ||
+            !r.localDeleted ||
+            r.isDeleted ||
+            r.passcodeHash != null ||
+            !r.isFullyBackedUp ||
+            !pickedIds.add(id)) {
+          continue;
+        }
+        picked.add(r);
+        if (picked.length >= limit) break;
+      }
+      if (ids.length < page) break;
+    }
 
     final lostIds = LostOriginals(recordStore);
+    final checkedAt = <String, int>{};
     var checked = 0;
     var lost = 0;
     for (final record in picked) {
@@ -774,13 +779,7 @@ class BackupVerifier {
       }
       await _spotCheckThumbnail(record);
     }
-    await recordStore.setAppState(
-      _spotCheckedKey,
-      jsonEncode({
-        for (final e in checkedAt.entries)
-          if (byId.containsKey(e.key)) e.key: e.value,
-      }),
-    );
+    await recordStore.markSpotChecked(checkedAt);
     return SpotCheckResult(checked: checked, lost: lost);
   }
 
@@ -806,16 +805,6 @@ class BackupVerifier {
         DerivativeKind.thumbnail,
         id,
       );
-    }
-  }
-
-  Future<Map<String, int>> _spotCheckedAt() async {
-    final raw = await recordStore.getAppState(_spotCheckedKey);
-    if (raw == null || raw.isEmpty) return {};
-    try {
-      return (jsonDecode(raw) as Map).cast<String, int>();
-    } catch (_) {
-      return {};
     }
   }
 

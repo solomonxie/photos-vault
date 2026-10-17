@@ -2,8 +2,11 @@ import 'dart:async';
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
+import 'package:path_provider/path_provider.dart';
 
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
@@ -298,6 +301,66 @@ class RecordFixer {
 
   static Future<void>? _checking;
 
+  /// Where [checkImports] keeps its thumbnail prints. Caches: derivable,
+  /// out of the device backup, and emptied with app data.
+  @visibleForTesting
+  static Future<Directory> Function() printsDirectory =
+      getApplicationCacheDirectory;
+
+  static const _printsFile = 'grey_prints_v1.bin';
+  static final _printsMagic = ascii.encode('GP1\n');
+
+  /// Isolate side. Anything unreadable is an empty cache.
+  static Map<String, Uint8List> _readPrints(String path) {
+    final out = <String, Uint8List>{};
+    try {
+      final file = File(path);
+      if (!file.existsSync()) return out;
+      final bytes = file.readAsBytesSync();
+      for (var i = 0; i < _printsMagic.length; i++) {
+        if (bytes.length <= i || bytes[i] != _printsMagic[i]) return out;
+      }
+      final data = ByteData.sublistView(bytes);
+      var at = _printsMagic.length;
+      while (at + 4 <= bytes.length) {
+        final keyLength = data.getUint16(at);
+        final printLength = data.getUint16(at + 2);
+        at += 4;
+        if (at + keyLength + printLength > bytes.length) return {};
+        final key = utf8.decode(bytes.sublist(at, at + keyLength));
+        at += keyLength;
+        out[key] = Uint8List.fromList(bytes.sublist(at, at + printLength));
+        at += printLength;
+      }
+    } catch (_) {
+      return {};
+    }
+    return out;
+  }
+
+  static void _writePrints(String path, Map<String, Uint8List> prints) {
+    try {
+      final out = BytesBuilder(copy: false)..add(_printsMagic);
+      for (final MapEntry(:key, value: print) in prints.entries) {
+        final k = utf8.encode(key);
+        out
+          ..add(
+            (ByteData(4)
+                  ..setUint16(0, k.length)
+                  ..setUint16(2, print.length))
+                .buffer
+                .asUint8List(),
+          )
+          ..add(k)
+          ..add(print);
+      }
+      final tmp = File('$path.tmp')..writeAsBytesSync(out.takeBytes());
+      tmp.renameSync(path);
+    } catch (_) {
+      // Unwritten: decoded again next time.
+    }
+  }
+
   /// Compares each bucket import not yet compared against every thumbnail
   /// here, off the UI isolate, and keeps the answer. Slow on a big library
   /// (every thumbnail decoded), so it runs in the background after a sync
@@ -322,6 +385,12 @@ class RecordFixer {
             r.thumbnailPath != null)
           r.localId: r.thumbnailPath!,
     };
+    String? cachePath;
+    try {
+      cachePath = p.join((await printsDirectory()).path, _printsFile);
+    } catch (_) {
+      // No cache directory (tests): every thumbnail decoded, as before.
+    }
     final found = await Isolate.run(() {
       List<int>? grey(String path) {
         try {
@@ -331,16 +400,48 @@ class RecordFixer {
         }
       }
 
+      // Prints of the library's thumbnails, by id, path, date and size:
+      // a file written again is a new key, so a print is only reused for
+      // the very bytes it was taken from. Empty: undecodable.
+      final cache = cachePath == null
+          ? <String, Uint8List>{}
+          : _readPrints(cachePath);
+      final kept = <String, Uint8List>{};
+      var added = false;
+      List<int>? cached(String id, String path) {
+        try {
+          final stat = File(path).statSync();
+          if (stat.type == FileSystemEntityType.notFound) return null;
+          final key =
+              '$id\t$path\t${stat.modified.microsecondsSinceEpoch}\t'
+              '${stat.size}';
+          var print = cache[key];
+          if (print == null) {
+            print = Uint8List.fromList(grey(path) ?? const []);
+            added = true;
+          }
+          kept[key] = print;
+          return print.isEmpty ? null : print;
+        } catch (_) {
+          return null;
+        }
+      }
+
       final mine = {for (final e in asked.entries) e.key: grey(e.value)};
       final near = {for (final id in asked.keys) id: <(double, String)>[]};
       for (final MapEntry(key: id, value: path) in others.entries) {
-        final theirs = grey(path);
+        final theirs = cached(id, path);
         if (theirs == null) continue;
         for (final MapEntry(key: a, value: print) in mine.entries) {
           if (print == null) continue;
           final d = printDistance(print, theirs);
           if (d <= _otherFrame) near[a]!.add((d, id));
         }
+      }
+      // Rewritten when a print was added or one dropped (a photo gone,
+      // hidden, or its thumbnail re-made), so none outlives its photo.
+      if (cachePath != null && (added || kept.length != cache.length)) {
+        _writePrints(cachePath, kept);
       }
       // Only the same frame, and only when nothing else comes close.
       return {

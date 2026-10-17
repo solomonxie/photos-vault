@@ -164,7 +164,11 @@ void main() {
         newest.map((r) => r.localId),
         all.sublist(4496).map((r) => r.localId),
       );
-      expect(libraryDelta(null, newest), (shape: true, visibility: true));
+      expect(libraryDelta(null, newest), (
+        shape: true,
+        visibility: true,
+        flags: true,
+      ));
       expect(identical(await s.listAll(), all), isTrue);
     });
 
@@ -207,16 +211,54 @@ void main() {
       );
       final b = await s.listAll();
       expect(identical(a, b), isFalse);
-      expect(libraryDelta(a, b), (shape: false, visibility: false));
+      expect(libraryDelta(a, b), (
+        shape: false,
+        visibility: false,
+        flags: true,
+      ));
 
       await s.setFavorite('photo:a', true);
       final c = await s.listAll();
-      expect(libraryDelta(b, c), (shape: true, visibility: false));
+      expect(libraryDelta(b, c), (shape: true, visibility: false, flags: true));
 
       await s.softDelete('photo:a');
       final d = await s.listAll();
-      expect(libraryDelta(c, d), (shape: true, visibility: true));
+      expect(libraryDelta(c, d), (shape: true, visibility: true, flags: true));
       expect(libraryDelta(null, d).shape, isTrue);
+    });
+
+    test('libraryDelta: pending to uploading and back moves no flag; an '
+        'outcome does', () async {
+      final s = open();
+      await add(s, 'photo:a');
+      final a = await s.listAll();
+
+      Future<List<AssetRecord>> set(UploadStatus status, {String? key}) async {
+        await s.updateDerivative(
+          'photo:a',
+          DerivativeKind.original,
+          DerivativeState(status: status, destinationKey: key),
+        );
+        return s.listAll();
+      }
+
+      final uploading = await set(UploadStatus.uploading);
+      expect(identical(a, uploading), isFalse);
+      expect(libraryDelta(a, uploading).flags, isFalse);
+      final back = await set(UploadStatus.pending);
+      expect(libraryDelta(a, back).flags, isFalse);
+
+      final failed = await set(UploadStatus.failed);
+      expect(libraryDelta(back, failed).flags, isTrue);
+      final retried = await set(UploadStatus.pending);
+      expect(libraryDelta(failed, retried).flags, isTrue);
+
+      final up = await set(UploadStatus.uploaded, key: 'originals/a.jpg');
+      expect(libraryDelta(retried, up).flags, isTrue);
+      expect(libraryDelta(retried, up).shape, isFalse);
+
+      await s.setThumbnailPath('photo:a', '/tmp/a.jpg');
+      expect(libraryDelta(up, await s.listAll()).flags, isTrue);
     });
   });
 
@@ -512,6 +554,58 @@ void main() {
         },
       );
     }
+  });
+
+  test('v28 to v29: the spot check\'s dates move into change_check, and '
+      'order its picks', () async {
+    final s = open();
+    for (final (id, day) in [('a', 1), ('b', 2), ('c', 3), ('d', 4)]) {
+      await add(s, 'photo:$id', at: DateTime(2020, 1, day));
+      await s.updateDerivative(
+        'photo:$id',
+        DerivativeKind.original,
+        DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'originals/$id.jpg',
+        ),
+      );
+      await s.setLocalDeleted('photo:$id', true);
+    }
+    await s.markChecked('photo:b', 7);
+    await s.close();
+    final legacy = await databaseFactoryFfi.openDatabase(dbPath());
+    await legacy.execute('ALTER TABLE change_check DROP COLUMN spot_checked');
+    await legacy.insert('app_state', {
+      'key': 'spot_checked_at',
+      'value': jsonEncode({'photo:a': 300, 'photo:b': 100, 'photo:gone': 5}),
+    });
+    await legacy.setVersion(28);
+    await legacy.close();
+
+    final upgraded = open();
+    expect(await upgraded.getAppState('spot_checked_at'), isNull);
+    // Never checked first (by date), then the longest ago.
+    expect(await upgraded.spotCheckOrder(limit: 10), [
+      'photo:c',
+      'photo:d',
+      'photo:b',
+      'photo:a',
+    ]);
+    expect(await upgraded.checkedModified('photo:b'), 7, reason: 'kept');
+    expect(await upgraded.spotCheckOrder(limit: 2, offset: 2), [
+      'photo:b',
+      'photo:a',
+    ]);
+
+    await upgraded.markSpotChecked({'photo:c': 400, 'photo:d': 50});
+    expect(await upgraded.spotCheckOrder(limit: 10), [
+      'photo:d',
+      'photo:b',
+      'photo:a',
+      'photo:c',
+    ]);
+    await upgraded.markChecked('photo:d', 9);
+    expect((await upgraded.spotCheckOrder(limit: 1)).single, 'photo:d');
   });
 
   test('v27 to v28: whole-row log entries slim to diffs after open', () async {

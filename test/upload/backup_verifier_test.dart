@@ -561,4 +561,72 @@ void main() {
       expect(await verifier.lastVerifiedAt(), isNull);
     });
   });
+
+  group('spotCheck', () {
+    test('never-checked cloud-only photos first, then the longest ago; '
+        'only whole backups, and nothing written but the few rows', () async {
+      final store = FakeAssetRecordStore();
+      Future<void> cloudOnly(String id, int day, {bool live = false}) async {
+        await store.upsert(
+          localId: id,
+          contentHash: id,
+          platform: 'ios',
+          isLivePhoto: live,
+          createdAt: DateTime(2026, 1, day),
+        );
+        await store.updateDerivative(
+          id,
+          DerivativeKind.original,
+          DerivativeState(
+            status: UploadStatus.uploaded,
+            destinationKey: 'photos/originals/$id.heic',
+          ),
+        );
+        await store.setLocalDeleted(id, true);
+      }
+
+      for (final (id, day) in [('a', 1), ('b', 2), ('c', 3)]) {
+        await cloudOnly(id, day);
+      }
+      // Its motion half not up: no whole backup to ask about.
+      await cloudOnly('half', 0, live: true);
+      await store.upsert(
+        localId: 'hidden',
+        contentHash: 'hidden',
+        platform: 'ios',
+        passcodeHash: 'x',
+      );
+      final asked = <String>[];
+      var status = 200;
+      final verifier = BackupVerifier(
+        targetsStore: await _targets(),
+        recordStore: store,
+        head: (uri) async {
+          asked.add(uri.path.split('/').last);
+          return http.Response('', status);
+        },
+      );
+      Future<List<String>> round() async {
+        asked.clear();
+        await verifier.spotCheck(limit: 2, every: Duration.zero);
+        return [...asked];
+      }
+
+      expect(await round(), ['a.heic', 'b.heic']);
+      expect(await round(), ['c.heic', 'a.heic']);
+      expect(store.spotChecked.keys, {'a', 'b', 'c'});
+
+      store.spotChecked.addAll({'a': 300, 'b': 100, 'c': 200});
+      status = 500;
+      expect(await round(), ['b.heic', 'c.heic']);
+      status = 200;
+      expect(await round(), [
+        'b.heic',
+        'c.heic',
+      ], reason: 'no answer is not a check');
+      expect(store.spotChecked['b'], greaterThan(300));
+      expect(store.spotChecked['a'], 300);
+      expect(await store.getAppState('spot_checked_at'), isNull);
+    });
+  });
 }

@@ -356,11 +356,23 @@ class StorageAdvisor {
           !_listed.contains(r.stateOf(DerivativeKind.original).destinationKey));
 
   Future<void> _loadRemoteDone([List<BucketObject>? objects]) async {
+    _listedStamp = null;
     _listed = {
       for (final o in objects ?? await store.listBucketObjects())
         if (o.directory == 'originals') o.key,
     };
     await _loadIdSets();
+  }
+
+  /// [AssetRecordStore.bucketStamp] [_listed] was read at, when [_scan]
+  /// read it: a round re-reads the bucket index only once it moved.
+  String? _listedStamp;
+
+  Future<void> _loadListingIfMoved() async {
+    final stamp = await store.bucketStamp();
+    if (stamp == _listedStamp) return _loadIdSets();
+    await _loadRemoteDone();
+    _listedStamp = stamp;
   }
 
   /// Without the listing: a mark per fixed item is not a read of the
@@ -386,12 +398,14 @@ class StorageAdvisor {
     if (localIds.isEmpty) return;
     await _loadIdSets();
     _smallest.addAll(localIds);
+    _writes++;
     await store.setAppState(_smallestKey, jsonEncode([..._smallest]));
   }
 
   Future<void> markRemoteOptimized(String localId) async {
     await _loadIdSets();
     _remoteDone.add(localId);
+    _writes++;
     await store.setAppState(_remoteKey, jsonEncode([..._remoteDone]));
   }
 
@@ -513,7 +527,11 @@ class StorageAdvisor {
     List<BucketObject>? objects,
   }) async {
     await _loadRemoteDone(objects);
-    final raw = await store.getAppState(_cacheKey);
+    return _fromCache(records);
+  }
+
+  Future<StorageScan> _fromCache(List<AssetRecord>? records) async {
+    final raw = _savedRaw = await store.getAppState(_cacheKey);
     if (raw == null) return const StorageScan();
     try {
       final decoded = jsonDecode(raw) as Map<String, dynamic>;
@@ -620,9 +638,10 @@ class StorageAdvisor {
     required void Function(List<StorageItem> found, int done, int total)
     onProgress,
   }) async {
-    await _loadRemoteDone();
-    final previous = restart ? const StorageScan() : await cached();
-    final candidates = (await store.listAll()).where(worthMeasuring).toList();
+    await _loadListingIfMoved();
+    final records = await store.listAll();
+    final previous = restart ? const StorageScan() : await _fromCache(records);
+    final candidates = records.where(worthMeasuring).toList();
     final measured = {...previous.measured};
     final found = [...previous.items];
     final todo = candidates
@@ -682,7 +701,37 @@ class StorageAdvisor {
   /// keeping its own answer fresh, and it has all day to do it.
   static const sweepSize = 50;
 
-  Future<StorageScan> sweep() => scan(limit: sweepSize);
+  ///
+  /// A finished pass is not walked again until something it read moved:
+  /// the records (every insert or update bumps [AssetRecordStore.revision];
+  /// a delete alone shows in the count), the bucket index
+  /// ([AssetRecordStore.bucketStamp]) or anything this advisor filed
+  /// ([_writes]). With all of them as they were, a round reads the same
+  /// inputs and returns the same answer.
+  Future<StorageScan> sweep() async {
+    final stamp = (
+      rev: await store.revision(),
+      count: (await store.listAll()).length,
+      bucket: await store.bucketStamp(),
+      writes: _writes,
+    );
+    final last = _swept;
+    if (last != null && last.stamp == stamp) return last.scan;
+    final scan = await this.scan(limit: sweepSize);
+    _swept = scan.complete && stamp.writes == _writes
+        ? (stamp: stamp, scan: scan)
+        : null;
+    return scan;
+  }
+
+  ({({int rev, int count, String bucket, int writes}) stamp, StorageScan scan})?
+  _swept;
+
+  /// Bumped by every write this advisor makes to its app state.
+  int _writes = 0;
+
+  /// The cache as last read or written: a save of the same text is skipped.
+  String? _savedRaw;
 
   /// Re-measures only the assets a fix just touched and files the result
   /// back. Walking the whole library again to find out what one removal
@@ -725,31 +774,38 @@ class StorageAdvisor {
   }
 
   Future<StorageScan> _save(StorageScan scan) async {
-    await store.setAppState(
-      _cacheKey,
-      jsonEncode({
-        'scannedAt': scan.scannedAt?.toIso8601String(),
-        'complete': scan.complete,
-        'measured': scan.measured.toList(),
-        'items': [
-          for (final item in scan.items)
-            {
-              'localId': item.record.localId,
-              'bytes': item.bytes,
-              'name': item.name,
-              'appOwned': item.appOwned,
-            },
-        ],
-      }),
-    );
+    final raw = jsonEncode({
+      'scannedAt': scan.scannedAt?.toIso8601String(),
+      'complete': scan.complete,
+      'measured': scan.measured.toList(),
+      'items': [
+        for (final item in scan.items)
+          {
+            'localId': item.record.localId,
+            'bytes': item.bytes,
+            'name': item.name,
+            'appOwned': item.appOwned,
+          },
+      ],
+    });
+    if (raw == _savedRaw) return scan;
+    _writes++;
+    await store.setAppState(_cacheKey, raw);
+    _savedRaw = raw;
     return scan;
   }
 
   /// Biggest file first. The page is about where the space went, and the
   /// answer to that is the size on disk — not how much of it a particular
   /// fix happens to give back.
-  static List<StorageItem> _ranked(List<StorageItem> items) =>
-      [...items]..sort((a, b) => b.bytes.compareTo(a.bytes));
+  static List<StorageItem> _ranked(List<StorageItem> items) => [...items]
+    ..sort((a, b) {
+      final bySize = b.bytes.compareTo(a.bytes);
+      // A fixed order, so an unchanged result saves as the same text.
+      return bySize != 0
+          ? bySize
+          : a.record.localId.compareTo(b.record.localId);
+    });
 
   Future<AssetMeasure?> _measureOne(AssetRecord record) async {
     final measure = _measure;

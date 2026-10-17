@@ -707,4 +707,124 @@ void main() {
     expect(items.single.fixes, [StorageFix.optimizeRemote]);
     expect(items.single.bytes, 30 * 1024 * 1024);
   });
+
+  group('StorageAdvisor.sweep', () {
+    Future<_CountingStore> library(int n) async {
+      final store = _CountingStore();
+      for (var i = 0; i < n; i++) {
+        await store.upsert(
+          localId: 'photo:$i',
+          contentHash: '$i',
+          platform: 'ios',
+          width: 6000,
+          height: 4000,
+          createdAt: DateTime(2026, 1, i + 1),
+        );
+        await store.updateDerivative(
+          'photo:$i',
+          DerivativeKind.original,
+          const DerivativeState(status: UploadStatus.uploaded),
+        );
+      }
+      return store;
+    }
+
+    StorageAdvisor advisor(_CountingStore store, List<String> measured) =>
+        StorageAdvisor(
+          store: store,
+          measure: (r) async {
+            measured.add(r.localId);
+            return AssetMeasure(
+              bytes: largePhotoBytes,
+              name: '${r.localId}.heic',
+              appOwned: false,
+            );
+          },
+        );
+
+    test('a finished pass is not walked, read or written again until '
+        'something it read moves', () async {
+      final store = await library(3);
+      final measured = <String>[];
+      final a = advisor(store, measured);
+
+      final first = await a.sweep();
+      expect(first.complete, isTrue);
+      expect(measured, hasLength(3));
+      // The round after the last measure only confirms it: nothing new.
+      await a.sweep();
+      final writes = store.cacheWrites;
+      final listings = store.listings;
+
+      for (var i = 0; i < 3; i++) {
+        final again = await a.sweep();
+        expect(again.items.map((i) => i.record.localId), [
+          for (final i in first.items) i.record.localId,
+        ]);
+      }
+      expect(store.cacheWrites, writes, reason: 'same answer, not rewritten');
+      expect(store.listings, listings, reason: 'bucket index not re-read');
+      expect(measured, hasLength(3));
+
+      // A new photo is a new input: measured, and the answer filed.
+      await store.upsert(
+        localId: 'photo:new',
+        contentHash: 'new',
+        platform: 'ios',
+        width: 6000,
+        height: 4000,
+      );
+      final after = await a.sweep();
+      expect(measured.last, 'photo:new');
+      expect(after.measured, contains('photo:new'));
+      expect(store.cacheWrites, writes + 1);
+
+      // A photo binned since: its row drops out of the answer.
+      await store.softDelete('photo:0');
+      final binned = await a.sweep();
+      expect(
+        binned.items.map((i) => i.record.localId),
+        isNot(contains('photo:0')),
+      );
+    });
+
+    test('a bucket listing that moved is read again, once per round', () async {
+      final store = await library(2);
+      final a = advisor(store, []);
+      await a.sweep();
+      await a.sweep();
+      final listings = store.listings;
+
+      await store.replaceBucketObjects('t', [
+        BucketObject(
+          targetId: 't',
+          key: 'photos-vault/originals/photo_0.heic',
+          size: 9000,
+          lastModified: DateTime(2026),
+        ),
+      ]);
+      await a.sweep();
+      expect(store.listings, listings + 1);
+      await a.sweep();
+      expect(store.listings, listings + 1);
+    });
+  });
+}
+
+/// Counts what a sweep costs: cache writes and bucket-index reads.
+class _CountingStore extends FakeAssetRecordStore {
+  int cacheWrites = 0;
+  int listings = 0;
+
+  @override
+  Future<void> setAppState(String key, String value) {
+    if (key == 'storage_scan_v1') cacheWrites++;
+    return super.setAppState(key, value);
+  }
+
+  @override
+  Future<List<BucketObject>> listBucketObjects() {
+    listings++;
+    return super.listBucketObjects();
+  }
 }

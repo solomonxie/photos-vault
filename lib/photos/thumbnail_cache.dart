@@ -72,6 +72,32 @@ List<AssetRecord> needingThumbnails(
   return owed;
 }
 
+/// Failed thumbnail attempts per photo, for one session: after [limit]
+/// in a row a photo is [givenUp], which the background pass skips until
+/// [clear] (the camera roll re-read, or an explicit sync).
+class ThumbnailTries {
+  ThumbnailTries({this.limit = 3});
+
+  final int limit;
+  final _failures = <String, int>{};
+  final givenUp = <String>{};
+
+  void failed(String localId) {
+    final n = _failures[localId] = (_failures[localId] ?? 0) + 1;
+    if (n >= limit) givenUp.add(localId);
+  }
+
+  void succeeded(String localId) {
+    _failures.remove(localId);
+    givenUp.remove(localId);
+  }
+
+  void clear() {
+    _failures.clear();
+    givenUp.clear();
+  }
+}
+
 /// App-owned thumbnails, one per photo, kept in their own directory under
 /// application support.
 ///

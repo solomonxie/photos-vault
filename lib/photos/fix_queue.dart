@@ -324,13 +324,11 @@ class FixQueue extends ChangeNotifier {
       if (raw != null) {
         for (final MapEntry(:key, :value)
             in (jsonDecode(raw) as Map).cast<String, dynamic>().entries) {
-          _resolved.putIfAbsent(
-            key,
-            () => (
-              at: (value as Map)['at'] as int? ?? 0,
-              fp: value['fp'] as String?,
-            ),
-          );
+          if (_resolved.containsKey(key)) continue;
+          _putResolved(key, (
+            at: (value as Map)['at'] as int? ?? 0,
+            fp: value['fp'] as String?,
+          ));
         }
       }
     } catch (_) {
@@ -377,6 +375,30 @@ class FixQueue extends ChangeNotifier {
   /// once the scan agrees, or finds the item again from new facts.
   final Map<String, ({int at, String? fp})> _resolved = {};
 
+  /// How many [_resolved] keys each flag id has: [isResolved] builds a key
+  /// only for an id that has one.
+  final Map<String, int> _resolvedIds = {};
+
+  static String _idOf(String key) => key.substring(0, key.lastIndexOf('#'));
+
+  void _putResolved(String key, ({int at, String? fp}) value) {
+    if (_resolved[key] == null) {
+      _resolvedIds.update(_idOf(key), (n) => n + 1, ifAbsent: () => 1);
+    }
+    _resolved[key] = value;
+  }
+
+  void _removeResolved(String key) {
+    if (_resolved.remove(key) == null) return;
+    final id = _idOf(key);
+    final n = (_resolvedIds[id] ?? 1) - 1;
+    if (n <= 0) {
+      _resolvedIds.remove(id);
+    } else {
+      _resolvedIds[id] = n;
+    }
+  }
+
   bool _settled(String key, Flag flag) => switch (_resolved[key]) {
     null => false,
     (fp: null, at: _) => true,
@@ -397,13 +419,13 @@ class FixQueue extends ChangeNotifier {
       final flag = byId[key.substring(0, cut)];
       final solution = key.substring(cut + 1);
       if (flag == null || !flag.solutions.any((s) => s.name == solution)) {
-        _resolved.remove(key);
+        _removeResolved(key);
         changed = true;
       } else if (value.fp == null) {
         _resolved[key] = (at: value.at, fp: flagFingerprint(flag));
         changed = true;
       } else if (value.fp != flagFingerprint(flag)) {
-        _resolved.remove(key);
+        _removeResolved(key);
         changed = true;
       }
     }
@@ -477,7 +499,8 @@ class FixQueue extends ChangeNotifier {
   bool isResolved(Flag flag) =>
       _kept.contains(flag.id) ||
       _filed.containsKey(flag.id) ||
-      flag.solutions.any((s) => _settled('${flag.id}#${s.name}', flag));
+      (_resolvedIds.containsKey(flag.id) &&
+          flag.solutions.any((s) => _settled('${flag.id}#${s.name}', flag)));
 
   /// Somebody asked: the run ends with the one prompt.
   void enqueue(Iterable<Flag> flags, FlagSolution solution) {
@@ -1158,7 +1181,7 @@ class FixQueue extends ChangeNotifier {
   }
 
   void _markResolved(String key) {
-    _resolved[key] = (at: DateTime.now().millisecondsSinceEpoch, fp: null);
+    _putResolved(key, (at: DateTime.now().millisecondsSinceEpoch, fp: null));
     unawaited(_saveResolved());
   }
 

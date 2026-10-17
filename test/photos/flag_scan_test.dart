@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:typed_data';
 
+import 'package:flutter/foundation.dart' show ValueNotifier;
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/photos/fix_queue.dart';
 import 'package:photos_vault/photos/flag_scan.dart';
@@ -255,6 +256,50 @@ void main() {
 
     expect(most, 1);
     expect(calls, 2, reason: 'the asks made while one ran share one more');
+  });
+
+  test('while uploads run, a moved input waits the longer gap; once they '
+      'stop, the usual one', () async {
+    await big('photo:a');
+    await listed({thumb: 10});
+    var now = DateTime(2026, 10, 1, 12);
+    final uploading = ValueNotifier(true);
+    final q = queue();
+    final scan = FlagScan(
+      store: store,
+      targetsStore: targets,
+      advisor: q.advisor,
+      queue: q,
+      relist: () async => true,
+      uploading: uploading,
+      now: () => now,
+    );
+    var runs = 0;
+    var was = false;
+    scan.addListener(() {
+      if (scan.running && !was) runs++;
+      was = scan.running;
+    });
+    await scan.run();
+    final ran = runs;
+
+    Future<void> moveAndAsk(Duration later) async {
+      await store.setFavorite(
+        'photo:a',
+        !(await store.getByLocalId('photo:a'))!.isFavorite,
+      );
+      now = now.add(later);
+      await scan.refreshIfChanged();
+    }
+
+    await moveAndAsk(const Duration(minutes: 1));
+    expect(runs, ran, reason: 'within the uploading gap');
+    await moveAndAsk(FlagScan.uploadingGap);
+    expect(runs, ran + 1);
+
+    uploading.value = false;
+    await moveAndAsk(const Duration(seconds: 20));
+    expect(runs, ran + 2);
   });
 
   test('hidden photos are never listed, from a scan or from the saved '

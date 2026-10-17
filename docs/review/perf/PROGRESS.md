@@ -7,8 +7,8 @@
 | PW3 | No re-renders for thumbnails, Vision, hashing | done | a354f05 |
 | PW3b | Upload true originals (+ edited render) | done | 9191d15 |
 | PW4 | Faces without full descriptor reads | done | 3622041 |
-| PW5 | Smaller database | done | (this commit) |
-| PW6 | Less periodic waste | todo | |
+| PW5 | Smaller database | done | abe50f7 |
+| PW6 | Less periodic waste | done | (this commit) |
 | PW7 | Cheaper grid paint | todo | |
 | PW8 | Cheaper reload and search | todo | |
 | PW9 | The rest | todo | |
@@ -55,3 +55,16 @@
 - DB-8: backups read the tails as JSON text (`rawChangeLog`); decode and hidden filter run in the zip isolate. Pre-deletion and share exports still decode on the caller (rare).
 - DB-9: daily copies (`slim`) cap the log at 5,000 and drop `bucket_object`, `bucket_scan`, `bucket_scan_object`, `bucket_edit`: a zip restore also starts with no listing, and the flag scan re-lists when it finds none. Pre-deletion copies keep everything. Retention unchanged. The 5k tail stays (~0.5-2 MB) so a copy is whole without its zip.
 - Not done: prune after bulk passes (diffs make a pass ~100-300 B per row); `auto_vacuum` in `onConfigure` for new files (their first VACUUM is tiny).
+
+
+## PW6 notes
+
+- BG-7: `sweep` returns the last finished answer while the record revision, record count (deletes), `bucketStamp` and the advisor's own writes are unchanged. `_save` skips a write of identical text (ranking tie-broken by id, so it is stable). `_scan` reads the bucket index only when `bucketStamp` moved, and the cache once per round.
+- BG-9: the analyze queue patches its backlog from `listAll` by record identity (unchanged rows keep their instance), at most every 30 s; a full `refresh` at run start and at most every 5 min. Analysis maps may lag other writers: `findFaces` re-reads the photo's row first and skips one analysed meanwhile; learn/match already re-check.
+- BG-11: `checkImports` keeps 16x16 grey prints in `Caches/grey_prints_v1.bin`, keyed by id, path, mtime (us) and size, read and written in its isolate. Only prints of current non-hidden, non-binned library photos are written back. Only imports not yet compared are compared (as before).
+- BG-12: `libraryDelta(...).flags`: every record field but `updatedAt` and a status between pending and uploading (no detector or the page tells them apart). `refreshIfChanged` compares against the inputs as the session's last scan began reading them (records instance + bucket stamp + app-state digest); before any scan this session, the saved stamp as before. While `syncQueue.draining`, at most every 2 min. The persisted stamp (open) is unchanged.
+- UI-11: `isResolved` builds `id#solution` keys only for ids with an entry (`_resolvedIds` count). The page regroups at most every 400 ms while a fix run is going (100 ms otherwise), coalesced.
+- UI-18: `ThumbnailTries`: 3 failures in a session and a photo is skipped until the camera roll is re-read or a sync forgets failures; videos with no poster count too. The library reloads only when a thumbnail was made.
+- BG-15: schema v29: `change_check.spot_checked`; the old `spot_checked_at` JSON imported in SQL (`json_each`) and removed. `spotCheckOrder` orders in SQL with a looser rule (original up); each pick is confirmed in Dart, paged by 64. A round writes only its rows.
+- Not done: `_pendingAndFailed` (UI-18's 3 ms `where` per round); `_markResolved` still rewrites the whole resolved map per fixed item.
+

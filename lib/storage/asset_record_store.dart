@@ -115,7 +115,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 28,
+        version: 29,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createLibraryIdIndexSql);
@@ -132,6 +132,7 @@ class AssetRecordStore {
           await db.execute(_createRelinkIndexSql);
           await db.execute(_createBucketEditTableSql);
           await db.execute(_createChangeCheckTableSql);
+          await _addSpotChecked(db);
           await _addRevisions(db);
           await db.execute(_editedKeyIndexSql);
         },
@@ -315,6 +316,12 @@ class AssetRecordStore {
             // PW5: entries so far hold whole rows; [_slimLog] cuts the ones
             // below this to diffs after the first frame.
             await _markLogToSlim(db);
+          }
+          if (oldVersion < 29) {
+            // PW6: the spot check's dates move from one app-state JSON
+            // into `change_check`, so a round writes its few rows only.
+            await _addSpotChecked(db);
+            await _importSpotChecks(db);
           }
         },
       ),
@@ -915,6 +922,48 @@ class AssetRecordStore {
       checked INTEGER
     )
   ''';
+
+  /// `spot_checked`: when the spot check last had an answer from the
+  /// bucket for a cloud-only photo (ms). Beside the change check: the same
+  /// key, cleared with the record and scrubbed from copies with it.
+  static Future<void> _addSpotChecked(Database db) async {
+    final had = {
+      for (final c in await db.rawQuery(
+        'PRAGMA table_info($_changeCheckTable)',
+      ))
+        c['name'],
+    };
+    if (had.contains('spot_checked')) return;
+    await db.execute(
+      'ALTER TABLE $_changeCheckTable ADD COLUMN spot_checked INTEGER',
+    );
+  }
+
+  static const _spotCheckedLegacyKey = 'spot_checked_at';
+
+  /// The old JSON map, for records still here. Only an order: a value
+  /// it can't read starts that photo as never checked.
+  static Future<void> _importSpotChecks(Database db) async {
+    try {
+      await db.rawInsert(
+        'INSERT INTO $_changeCheckTable (local_id, spot_checked) '
+        'SELECT j.key, CAST(j.value AS INTEGER) FROM json_each(('
+        'SELECT value FROM $_appStateTable WHERE key = ? '
+        'AND json_valid(value))) j '
+        'WHERE j.key IN (SELECT local_id FROM $_table) '
+        'ON CONFLICT (local_id) DO UPDATE SET '
+        'spot_checked = excluded.spot_checked',
+        [_spotCheckedLegacyKey],
+      );
+    } catch (_) {
+      // Unreadable: every photo starts as never spot-checked.
+    }
+    await db.delete(
+      _appStateTable,
+      where: 'key = ?',
+      whereArgs: [_spotCheckedLegacyKey],
+    );
+  }
 
   static const _pendingSwapTable = 'pending_swap';
 
@@ -2677,6 +2726,43 @@ class AssetRecordStore {
     });
   }
 
+  /// Cloud-only, backed-up photos, the longest since a spot check first
+  /// (never before ever), then oldest. Loose on purpose (the original
+  /// up, not every part): the caller applies the exact test, so a rule
+  /// that drifts here can only offer more, never hide one.
+  Future<List<String>> spotCheckOrder({
+    required int limit,
+    int offset = 0,
+  }) async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT r.local_id FROM $_table r '
+      'LEFT JOIN $_changeCheckTable c ON c.local_id = r.local_id '
+      'WHERE r.local_deleted = 1 AND r.deleted_at IS NULL '
+      "AND r.passcode_hash IS NULL AND r.original_status = 'uploaded' "
+      'ORDER BY COALESCE(c.spot_checked, 0), r.created_at, r.local_id '
+      'LIMIT ? OFFSET ?',
+      [limit, offset],
+    );
+    return [for (final r in rows) r['local_id'] as String];
+  }
+
+  /// The spot check had the bucket's answer for these, `localId` → ms.
+  Future<void> markSpotChecked(Map<String, int> at) async {
+    if (at.isEmpty) return;
+    final db = await _open();
+    final batch = db.batch();
+    for (final MapEntry(key: localId, value: ms) in at.entries) {
+      batch.rawInsert(
+        'INSERT INTO $_changeCheckTable (local_id, spot_checked) '
+        'VALUES (?, ?) ON CONFLICT (local_id) DO UPDATE SET '
+        'spot_checked = excluded.spot_checked',
+        [localId, ms],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
   /// [localId] matched its backup as of [modified]: no check is owed until
   /// the date moves again.
   Future<void> markChecked(String localId, int modified) async {
@@ -3158,6 +3244,7 @@ class AssetRecordStore {
     _rev = _maxRev(rows, _rev);
     var shape = fresh;
     var visibility = fresh;
+    var outcome = fresh;
     final moved = <AssetRecord>[];
     for (final row in rows) {
       final record = _fromRow(row);
@@ -3168,6 +3255,7 @@ class AssetRecordStore {
         shape = true;
       }
       if (held != null && _visibilityMoved(held, record)) visibility = true;
+      if (held != null && !_sameOutcome(held, record)) outcome = true;
     }
     if (_gone.isNotEmpty) {
       final gone = _gone.toSet();
@@ -3180,7 +3268,11 @@ class AssetRecordStore {
     if (!shape && !visibility && moved.isEmpty && _published != null) {
       return _published!;
     }
-    return _publish(shape: shape, visibility: visibility);
+    return _publish(
+      shape: shape,
+      visibility: visibility,
+      flags: shape || outcome,
+    );
   }
 
   /// The newest [limit] records, oldest first — what the grid draws while
@@ -3317,6 +3409,7 @@ class AssetRecordStore {
 
   int _shapeGen = 0;
   int _visibilityGen = 0;
+  int _flagsGen = 0;
 
   static int _byDate(AssetRecord a, AssetRecord b) {
     final byDate = a.createdAt.millisecondsSinceEpoch.compareTo(
@@ -3325,14 +3418,20 @@ class AssetRecordStore {
     return byDate != 0 ? byDate : a.localId.compareTo(b.localId);
   }
 
-  List<AssetRecord> _publish({required bool shape, required bool visibility}) {
+  List<AssetRecord> _publish({
+    required bool shape,
+    required bool visibility,
+    required bool flags,
+  }) {
     if (shape) _shapeGen++;
     if (visibility) _visibilityGen++;
+    if (flags) _flagsGen++;
     final published = List<AssetRecord>.unmodifiable(_order!);
     _generations[published] = (
       store: _id,
       shape: _shapeGen,
       visibility: _visibilityGen,
+      flags: _flagsGen,
     );
     return _published = published;
   }
@@ -3484,6 +3583,26 @@ class AssetRecordStore {
     if (a.length != b.length) return false;
     for (var i = 0; i < a.length; i++) {
       if (a[i] != b[i]) return false;
+    }
+    return true;
+  }
+
+  /// Upload state as a detector reads it: a status other than between
+  /// pending and uploading (both "on its way"), or a key, hash or source.
+  /// `updatedAt` never.
+  static bool _sameOutcome(AssetRecord a, AssetRecord b) {
+    bool onItsWay(UploadStatus s) =>
+        s == UploadStatus.pending || s == UploadStatus.uploading;
+    for (final kind in DerivativeKind.values) {
+      final x = a.stateOf(kind);
+      final y = b.stateOf(kind);
+      if ((x.status != y.status &&
+              !(onItsWay(x.status) && onItsWay(y.status))) ||
+          x.destinationKey != y.destinationKey ||
+          x.backedUpHash != y.backedUpHash ||
+          x.fromResource != y.fromResource) {
+        return false;
+      }
     }
     return true;
   }
@@ -3701,22 +3820,30 @@ extension VisibleRecords on AssetRecordStore {
 
 /// What moved between two [AssetRecordStore.listAll] results: [shape] is
 /// anything but upload state (rows in or out, dates, flags, places);
-/// [visibility] is a row hidden, binned or removed. Both for lists this
-/// can't vouch for.
-({bool shape, bool visibility}) libraryDelta(
+/// [visibility] is a row hidden, binned or removed; [flags] is [shape] or
+/// an upload outcome (anything but pending to uploading and back), what
+/// Flagged Items is worked out from. All for lists this can't vouch for.
+({bool shape, bool visibility, bool flags}) libraryDelta(
   List<AssetRecord>? before,
   List<AssetRecord> after,
 ) {
-  if (identical(before, after)) return (shape: false, visibility: false);
+  if (identical(before, after)) {
+    return (shape: false, visibility: false, flags: false);
+  }
   final a = before == null ? null : _generations[before];
   final b = _generations[after];
   if (a == null || b == null || a.store != b.store) {
-    return (shape: true, visibility: true);
+    return (shape: true, visibility: true, flags: true);
   }
-  return (shape: a.shape != b.shape, visibility: a.visibility != b.visibility);
+  return (
+    shape: a.shape != b.shape,
+    visibility: a.visibility != b.visibility,
+    flags: a.flags != b.flags,
+  );
 }
 
-final _generations = Expando<({int store, int shape, int visibility})>();
+final _generations =
+    Expando<({int store, int shape, int visibility, int flags})>();
 
 final _visibleIds = Expando<Set<String>>();
 

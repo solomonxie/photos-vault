@@ -529,6 +529,36 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<void> markChecked(String localId, int modified) async =>
       changeChecks[localId] = (seen: modified, checked: modified);
 
+  /// `change_check.spot_checked`: `localId` → ms.
+  final spotChecked = <String, int>{};
+
+  @override
+  Future<List<String>> spotCheckOrder({
+    required int limit,
+    int offset = 0,
+  }) async {
+    final rows = [
+      for (final r in _records.values)
+        if (r.localDeleted &&
+            !r.isDeleted &&
+            r.passcodeHash == null &&
+            r.stateOf(DerivativeKind.original).status == UploadStatus.uploaded)
+          r,
+    ];
+    int at(AssetRecord r) => spotChecked[r.localId] ?? 0;
+    rows.sort((a, b) {
+      final byCheck = at(a).compareTo(at(b));
+      if (byCheck != 0) return byCheck;
+      final byDate = a.createdAt.compareTo(b.createdAt);
+      return byDate != 0 ? byDate : a.localId.compareTo(b.localId);
+    });
+    return [for (final r in rows.skip(offset).take(limit)) r.localId];
+  }
+
+  @override
+  Future<void> markSpotChecked(Map<String, int> at) async =>
+      spotChecked.addAll(at);
+
   @override
   Future<int?> checkedModified(String localId) async =>
       changeChecks[localId]?.checked;

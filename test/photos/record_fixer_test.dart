@@ -454,6 +454,70 @@ void main() {
     expect((await f.scan()).importCopies, isEmpty);
   });
 
+  test('thumbnail prints are kept per file: reused while it is the same, '
+      'taken again once it is written anew, dropped with the photo', () async {
+    final original = RecordFixer.printsDirectory;
+    RecordFixer.printsDirectory = () async => tempDir;
+    addTearDown(() => RecordFixer.printsDirectory = original);
+    String picture(String name, {required bool flipped, int width = 90}) {
+      final image = img.Image(width: width, height: width * 2 ~/ 3);
+      for (final px in image) {
+        final v = flipped ? 255 - px.x * 255 ~/ width : px.x * 255 ~/ width;
+        px
+          ..r = v
+          ..g = v
+          ..b = px.y * 255 ~/ (width * 2 ~/ 3);
+      }
+      final file = File('${tempDir.path}/$name.jpg')
+        ..writeAsBytesSync(img.encodeJpg(image));
+      return file.path;
+    }
+
+    const lib = 'photo:L/L0/001';
+    final prints = File('${tempDir.path}/grey_prints_v1.bin');
+    int entries() =>
+        RegExp(RegExp.escape(lib))
+            .allMatches(latin1.decode(prints.readAsBytesSync()))
+            .length;
+    Future<List<String>> copies() async => [
+      for (final f in (await fixer().scan()).importCopies) f.asset!.localId,
+    ];
+
+    await store.upsert(localId: lib, contentHash: 'l', platform: 'ios');
+    await store.setThumbnailPath(lib, picture('lib', flipped: false));
+    await cloudOnly(
+      'bucket:one',
+      key: 'photos-vault/originals/one.webp',
+      thumbnail: picture('one', flipped: false, width: 70),
+    );
+    await RecordFixer.checkImports(store);
+    expect(await copies(), ['bucket:one']);
+    expect(entries(), 1);
+    final kept = prints.lastModifiedSync();
+
+    // Re-made as another picture, under the same path.
+    await Future<void>.delayed(const Duration(milliseconds: 20));
+    picture('lib', flipped: true);
+    await cloudOnly(
+      'bucket:two',
+      key: 'photos-vault/originals/two.webp',
+      thumbnail: picture('two', flipped: true, width: 70),
+    );
+    await RecordFixer.checkImports(store);
+    expect(await copies(), containsAll(['bucket:one', 'bucket:two']));
+    expect(entries(), 1, reason: 'the old print dropped');
+    expect(prints.lastModifiedSync(), isNot(kept));
+
+    await store.softDelete(lib);
+    await cloudOnly(
+      'bucket:three',
+      key: 'photos-vault/originals/three.webp',
+      thumbnail: picture('three', flipped: true, width: 70),
+    );
+    await RecordFixer.checkImports(store);
+    expect(entries(), 0, reason: 'none outlives its photo');
+  });
+
   test('an import of a key since replaced is offered as a copy, never '
       'dropped unasked; once binned it is not offered again', () async {
     await cloudOnly(

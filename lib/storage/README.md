@@ -27,7 +27,9 @@ counter, not a clock), patches the sorted list, same instance when nothing
 moved. Deletes go through `remove`/`removeMany`. The cache is per
 instance: a delete through another `AssetRecordStore` (background sync,
 demo seed) is not seen by the UI's until it restarts. `libraryDelta(a, b)` says
-whether more than upload state moved between two results.
+whether more than upload state moved between two results (`shape`), and
+whether anything Flagged Items reads did (`flags`: all but `updatedAt` and
+pending <-> uploading).
 
 - `asset_record.dart` — the `AssetRecord` model (immutable, `_copyWith`-based
   `withX()` helpers) and the `DerivativeKind`/`UploadStatus` enums.

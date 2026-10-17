@@ -118,14 +118,18 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   bool _derivePending = false;
 
   /// The queue says something per item: regrouped at once, then at most
-  /// every 100 ms while it keeps talking.
+  /// every 100 ms while it keeps talking, every 400 ms under a run (each
+  /// regroup is a pass over every flag, which can be the library).
   void _deriveSoon() {
     if (_deriveTimer?.isActive ?? false) {
       _derivePending = true;
       return;
     }
     _derive();
-    _deriveTimer = Timer(const Duration(milliseconds: 100), () {
+    final gap = _queue.running
+        ? const Duration(milliseconds: 400)
+        : const Duration(milliseconds: 100);
+    _deriveTimer = Timer(gap, () {
       if (!_derivePending) return;
       _derivePending = false;
       _deriveSoon();

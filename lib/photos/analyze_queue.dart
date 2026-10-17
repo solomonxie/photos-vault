@@ -300,14 +300,21 @@ class AnalyzeQueue {
 
   /// After a batch: what the batch's photos still owe, worked out from
   /// what they just did, in their old place. A library that moved (a scan,
-  /// a delete) gets a full [refresh], at most twice a minute.
+  /// a delete) is patched at most twice a minute ([_patchRecords]), and
+  /// read whole again ([refresh]) at most every [_fullEvery].
   Future<void> _advance(List<AnalyzeJob> batch) async {
     try {
       final all = await assetRecordStore.listAll();
-      final stale = DateTime.now().difference(_refreshedAt ?? DateTime(0));
-      if (libraryDelta(_records, all).shape &&
-          stale >= const Duration(seconds: 30)) {
-        return await refresh();
+      final now = DateTime.now();
+      if (libraryDelta(_records, all).shape) {
+        if (now.difference(_refreshedAt ?? DateTime(0)) >= _fullEvery) {
+          return await refresh();
+        }
+        if (now.difference(_patchedAt ?? DateTime(0)) >=
+            const Duration(seconds: 30)) {
+          _patchRecords(all);
+          _patchedAt = now;
+        }
       }
     } catch (_) {
       // Patched from what is known.
@@ -355,6 +362,41 @@ class AnalyzeQueue {
     }
     _publish();
   }
+
+  static const _fullEvery = Duration(minutes: 5);
+  DateTime? _patchedAt;
+
+  /// [all]'s added, changed and removed photos, without re-reading the
+  /// analysis tables: an unchanged row keeps its record instance, so only
+  /// those not identical to the last read are derived again; the rest keep
+  /// their specs. The analysis maps may lag writes made elsewhere since the
+  /// last [refresh]; each step re-checks the database before it acts
+  /// ([_findFaces], [_learnFaces]), and a stale "owed" is a skip at worst.
+  void _patchRecords(List<AssetRecord> all) {
+    final before = _byId;
+    final byPhoto = <String, List<_Spec>>{};
+    for (final spec in _backlog) {
+      (byPhoto[spec.record.localId] ??= []).add(spec);
+    }
+    final backlog = <_Spec>[];
+    final byId = <String, AssetRecord>{};
+    for (var i = all.length - 1; i >= 0; i--) {
+      final r = all[i];
+      byId[r.localId] = r;
+      if (identical(before[r.localId], r)) {
+        backlog.addAll(byPhoto[r.localId] ?? const []);
+      } else if (r.isVisibleInLibrary && !r.localDeleted) {
+        backlog.addAll(_specsFor(r));
+      }
+    }
+    _records = all;
+    _byId = byId;
+    _backlog = backlog;
+    _backlogIds = {for (final spec in backlog) spec.id};
+  }
+
+  /// [_records] by id, for [_patchRecords].
+  Map<String, AssetRecord> _byId = {};
 
   /// Throws away everything the free pass has ever worked out — the faces
   /// it found and the names it guessed — so the next run walks the whole
@@ -472,6 +514,7 @@ class AnalyzeQueue {
   /// enqueued behind them and gets there eventually.
   Future<List<AssetRecord>> _activeRecords() async {
     final all = _records = await assetRecordStore.listAll();
+    _byId = {for (final r in all) r.localId: r};
     // `listAll` is oldest first already: walked backwards, not re-sorted.
     return [
       for (var i = all.length - 1; i >= 0; i--)
@@ -637,7 +680,18 @@ class AnalyzeQueue {
   Future<bool> _findFaces(AnalyzeJob job) async {
     final record = await assetRecordStore.getByLocalId(job.localId!);
     if (record == null) return true;
-    final existing = _analyzed[record.localId];
+    // Fresh, not [_analyzed]: a patched backlog can hold a photo analysed
+    // elsewhere since the last [refresh].
+    AiPhotoAnalysis? existing;
+    try {
+      existing = await analysisStore.get(record.localId);
+    } catch (_) {
+      // Read below from what the last refresh saw.
+    }
+    existing ??= _analyzed[record.localId];
+    if (existing != null && !existing.needsLookingAt && !existing.legacyBoxes) {
+      return true;
+    }
     // Old boxes are turned by the file's own EXIF orientation, which only
     // the file has: those keep the file, once.
     final legacy = existing?.legacyBoxes ?? false;

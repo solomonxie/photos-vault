@@ -1,5 +1,6 @@
 import 'dart:typed_data';
 
+import 'package:photos_vault/photos/ai_analysis.dart';
 import 'package:photos_vault/photos/analyze_queue.dart';
 import 'package:photos_vault/photos/face_identity.dart';
 import 'package:photos_vault/photos/on_device_analysis.dart';
@@ -366,6 +367,75 @@ void main() {
     expect(queue.remaining.value, 0);
   });
 
+  test('a photo arriving mid-run is patched in, without re-reading the '
+      'analysis tables', () async {
+    await addPhoto('photo:a', takenAt: DateTime(2026, 1));
+    await addPhoto('photo:b', takenAt: DateTime(2026, 2));
+    final counting = _CountingAnalyses();
+    var arrived = false;
+    final queue = AnalyzeQueue(
+      assetRecordStore: records,
+      analysisStore: counting,
+      onDeviceAnalysis: OnDeviceAnalysisService(
+        analysisStore: counting,
+        vision: vision,
+      ),
+      resolvePath: (record) async {
+        if (!arrived) {
+          arrived = true;
+          await addPhoto('photo:new', takenAt: DateTime(2026, 3));
+        }
+        return '/tmp/${record.localId}.jpg';
+      },
+      displayNameFor: (record) => record.localId,
+      rest: Duration.zero,
+    );
+
+    await queue.start();
+
+    expect((await counting.listAll()).keys, {
+      'photo:a',
+      'photo:b',
+      'photo:new',
+    });
+    expect(counting.listAllCalls, 2, reason: 'the run start, and this read');
+    expect(queue.remaining.value, 0);
+  });
+
+  test('a photo analysed elsewhere since the list was built is not looked '
+      'at again', () async {
+    await addPhoto('photo:a', takenAt: DateTime(2026, 2));
+    await addPhoto('photo:b', takenAt: DateTime(2026, 1));
+    final elsewhere = OnDeviceAnalysisService(
+      analysisStore: analyses,
+      vision: vision,
+    );
+    final queue = AnalyzeQueue(
+      assetRecordStore: records,
+      analysisStore: analyses,
+      onDeviceAnalysis: OnDeviceAnalysisService(
+        analysisStore: analyses,
+        vision: vision,
+      ),
+      resolvePath: (record) async {
+        if (record.localId == 'photo:a') {
+          await elsewhere.analyze(
+            (await records.getByLocalId('photo:b'))!,
+            '/tmp/photo:b.jpg',
+          );
+        }
+        return '/tmp/${record.localId}.jpg';
+      },
+      displayNameFor: (record) => record.localId,
+      rest: Duration.zero,
+    );
+
+    await queue.start();
+
+    expect(vision.calls, 2, reason: 'photo:a here, photo:b elsewhere');
+    expect(queue.remaining.value, 0);
+  });
+
   test('re-reading the camera roll is not this queue\'s business', () async {
     // It lives in `library_scanner.dart`: nobody chose it, nobody pays for
     // it, and no pause switch may stop new photos arriving.
@@ -548,4 +618,14 @@ void main() {
       expect((await analyses.get('photo:portrait'))!.legacyBoxes, isFalse);
     });
   });
+}
+
+class _CountingAnalyses extends FakeAiAnalysisStore {
+  int listAllCalls = 0;
+
+  @override
+  Future<Map<String, AiPhotoAnalysis>> listAll() {
+    listAllCalls++;
+    return super.listAll();
+  }
 }

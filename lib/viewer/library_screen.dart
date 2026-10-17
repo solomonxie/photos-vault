@@ -399,6 +399,7 @@ class LibraryScreenState extends State<LibraryScreen>
     targetsStore: _backupTargetsStore,
     advisor: _storageAdvisor,
     queue: _fixQueue,
+    uploading: syncQueue.draining,
   );
 
   /// Deleting is the same decision on every screen: keep the cloud copy
@@ -1010,7 +1011,7 @@ class LibraryScreenState extends State<LibraryScreen>
       );
       // An asset restored from Photos' own trash gets another chance at
       // resolving, the same as after a full pass.
-      if (result.added.isNotEmpty) _unresolvable.clear();
+      if (result.added.isNotEmpty) _retryUnresolvable();
       if (result.isEmpty || !mounted) return;
       await _showThenBackUp(result.added);
     } catch (_) {
@@ -1025,7 +1026,7 @@ class LibraryScreenState extends State<LibraryScreen>
     final result = await _photoLibraryService.syncChanges();
     if (result == null) return false;
     if (result.added.isNotEmpty) {
-      _unresolvable.clear();
+      _retryUnresolvable();
       // Without a full pass today, nothing else names their places.
       unawaited(_namePlaces());
     }
@@ -1067,7 +1068,7 @@ class LibraryScreenState extends State<LibraryScreen>
       // A re-read of the library is the one event that can put a missing
       // file back — an asset restored from Photos' own trash, a container
       // path healed. Everything given up on gets another chance.
-      _unresolvable.clear();
+      _retryUnresolvable();
       // Names the places the scan collected coordinates for. Runs after
       // the pages are in and on its own time (see
       // `PhotoLocationService.spacing`), so Places fills itself in from
@@ -1148,30 +1149,54 @@ class LibraryScreenState extends State<LibraryScreen>
   /// of itself on disk, and nothing ever asked again. A thumbnail has to
   /// be there before it is needed, which makes it the library's business
   /// rather than the upload queue's.
+  ///
+  /// One that keeps failing ([ThumbnailTries]) is left until the camera roll
+  /// is re-read, and the library reloads only when one was made: a few
+  /// that never resolve no longer cost a reload every round.
   Future<void> _cacheMissingThumbnails() async {
-    final owed = needingThumbnails(_all, skip: _unresolvable);
+    final failing = _thumbnailTries.givenUp;
+    final owed = needingThumbnails(
+      _all,
+      skip: failing.isEmpty ? _unresolvable : {..._unresolvable, ...failing},
+    );
     if (owed.isEmpty) return;
+    var made = false;
     for (final record in owed) {
       if (!mounted) return;
-      await _cacheThumbnail(record);
+      if (await _cacheThumbnail(record)) {
+        made = true;
+        _thumbnailTries.succeeded(record.localId);
+      } else {
+        _thumbnailTries.failed(record.localId);
+      }
     }
-    if (mounted) await reload();
+    if (made && mounted) await reload();
   }
 
-  Future<void> _cacheThumbnail(AssetRecord record) async {
+  /// This session's; cleared with [_unresolvable].
+  final _thumbnailTries = ThumbnailTries();
+
+  void _retryUnresolvable() {
+    _unresolvable.clear();
+    _thumbnailTries.clear();
+  }
+
+  Future<bool> _cacheThumbnail(AssetRecord record) async {
     try {
       // A video's poster frame comes from the library itself — exporting
       // the whole movie to make a picture of it would be absurd.
       if (record.isVideo) {
-        await _thumbnailCache.ensureFor(record);
-        return;
+        return await _thumbnailCache.ensureFor(record) != null;
       }
       // PhotoKit's own picture; the full-size file only without one.
       if (await _engine.cacheThumbnail(record) == null) {
         _unresolvable.add(record.localId);
+        return false;
       }
+      return true;
     } catch (_) {
-      // Unreadable, or gone since — the next round tries again.
+      // Unreadable, or gone since: tried again, up to [ThumbnailTries].
+      return false;
     }
   }
 
@@ -1598,7 +1623,10 @@ class LibraryScreenState extends State<LibraryScreen>
 
   /// Everything given up on gets another go — this is somebody deciding to
   /// retry, which is the whole point of the button.
-  void _forgetFailures() => _engine.forgetFailures();
+  void _forgetFailures() {
+    _engine.forgetFailures();
+    _thumbnailTries.clear();
+  }
 
   /// Bucket objects a hide has to take back out. Drained on every sync,
   /// kept until they actually land.
