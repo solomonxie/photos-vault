@@ -237,6 +237,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     _records.remove(localId);
     // As the real store: its upload rows go with it.
     uploads.removeWhere((key, _) => key.startsWith('$localId/'));
+    changeChecks.remove(localId);
     removed.add(localId);
   }
 
@@ -512,6 +513,43 @@ class FakeAssetRecordStore implements AssetRecordStore {
 
   /// Pages written through [insertScanned] / [applyScanUpdates].
   int scanBatches = 0;
+
+  /// `change_check`: `localId` → (seen, checked).
+  final changeChecks = <String, ({int? seen, int? checked})>{};
+
+  @override
+  Future<void> noteModified(Map<String, int> seen) async {
+    for (final MapEntry(key: id, value: at) in seen.entries) {
+      changeChecks[id] = (seen: at, checked: changeChecks[id]?.checked);
+    }
+  }
+
+  @override
+  Future<void> markChecked(String localId, int modified) async =>
+      changeChecks[localId] = (seen: modified, checked: modified);
+
+  @override
+  Future<int?> checkedModified(String localId) async =>
+      changeChecks[localId]?.checked;
+
+  @override
+  Future<Set<String>> changeChecksDue() async => {
+    for (final r in _records.values)
+      if (r.stateOf(DerivativeKind.original).status == UploadStatus.uploaded &&
+          !r.localDeleted &&
+          r.passcodeHash == null)
+        if (changeChecks[r.localId] case final c
+            when c == null || c.checked == null || c.seen != c.checked)
+          r.localId,
+  };
+
+  @override
+  Future<Map<String, int>> fileCheckBaselines() async => {
+    for (final r in _records.values)
+      if (r.sourcePath != null &&
+          r.stateOf(DerivativeKind.original).status == UploadStatus.uploaded)
+        r.localId: ?changeChecks[r.localId]?.checked,
+  };
 
   @override
   Future<Map<String, AssetRecord>> insertScanned(
@@ -947,6 +985,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     _placeNames.clear();
     swaps.clear();
     relinkPending.clear();
+    changeChecks.clear();
   }
 
   @override

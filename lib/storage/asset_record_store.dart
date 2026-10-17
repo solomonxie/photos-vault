@@ -113,7 +113,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 25,
+        version: 26,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createLibraryIdIndexSql);
@@ -129,6 +129,7 @@ class AssetRecordStore {
           await db.execute(_createRelinkTableSql);
           await db.execute(_createRelinkIndexSql);
           await db.execute(_createBucketEditTableSql);
+          await db.execute(_createChangeCheckTableSql);
           await _addRevisions(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
@@ -280,6 +281,11 @@ class AssetRecordStore {
             }
             await _addRevisions(db);
             await db.execute(_createBucketEditTableSql);
+          }
+          if (oldVersion < 26) {
+            // Empty: every backed-up photo is hashed once more, newest
+            // first, and from then on only when its date moves.
+            await db.execute(_createChangeCheckTableSql);
           }
         },
       ),
@@ -770,6 +776,22 @@ class AssetRecordStore {
   static const _createRelinkIndexSql =
       'CREATE INDEX IF NOT EXISTS relink_pending_created '
       'ON $_relinkTable (created_at)';
+
+  /// When each photo was last known to match its backup, as the
+  /// modification date (seconds) of what it is read from: PhotoKit's for a
+  /// camera-roll asset, the file's for one held here. `seen` is the latest
+  /// date a scan reported; a change check is owed while it isn't `checked`.
+  /// Its own table so a scan's stamp is no record write (no revision).
+  static const _changeCheckTable = 'change_check';
+
+  static const _createChangeCheckTableSql =
+      '''
+    CREATE TABLE IF NOT EXISTS $_changeCheckTable (
+      local_id TEXT PRIMARY KEY,
+      seen INTEGER,
+      checked INTEGER
+    )
+  ''';
 
   static const _pendingSwapTable = 'pending_swap';
 
@@ -1571,6 +1593,11 @@ class AssetRecordStore {
           where: 'local_id = ?',
           whereArgs: [id],
         );
+        await txn.delete(
+          _changeCheckTable,
+          where: 'local_id = ?',
+          whereArgs: [id],
+        );
         await txn.insert(_appStateTable, {
           'key': '$_removedKeyPrefix$id',
           'value': localId,
@@ -1655,6 +1682,7 @@ class AssetRecordStore {
       ..delete(_bucketScanObjectTable)
       ..delete(_bucketEditTable)
       ..delete(_relinkTable)
+      ..delete(_changeCheckTable)
       ..delete(changeLogTable);
     await batch.commit(noResult: true);
     _dropCache();
@@ -2487,6 +2515,75 @@ class AssetRecordStore {
     });
   }
 
+  /// The modification dates a scan just listed, `localId` → seconds. Only
+  /// a date that moved is written.
+  Future<void> noteModified(Map<String, int> seen) async {
+    if (seen.isEmpty) return;
+    final db = await _open();
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final MapEntry(key: localId, value: at) in seen.entries) {
+        batch.rawInsert(
+          'INSERT INTO $_changeCheckTable (local_id, seen) VALUES (?, ?) '
+          'ON CONFLICT (local_id) DO UPDATE SET seen = excluded.seen '
+          'WHERE seen IS NOT excluded.seen',
+          [localId, at],
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
+  /// [localId] matched its backup as of [modified]: no check is owed until
+  /// the date moves again.
+  Future<void> markChecked(String localId, int modified) async {
+    final db = await _open();
+    await db.rawInsert(
+      'INSERT INTO $_changeCheckTable (local_id, seen, checked) '
+      'VALUES (?, ?, ?) ON CONFLICT (local_id) DO UPDATE SET '
+      'seen = excluded.seen, checked = excluded.checked',
+      [localId, modified, modified],
+    );
+  }
+
+  /// The date [localId] last matched its backup as of, or null if never.
+  Future<int?> checkedModified(String localId) async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT checked FROM $_changeCheckTable WHERE local_id = ?',
+      [localId],
+    );
+    return rows.firstOrNull?['checked'] as int?;
+  }
+
+  /// Backed-up photos still on this phone owed a change check: never
+  /// checked, or a scan saw a date other than the one they were checked
+  /// at. Held files have no scan to stamp them; see [fileCheckBaselines].
+  Future<Set<String>> changeChecksDue() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT r.local_id FROM $_table r '
+      'LEFT JOIN $_changeCheckTable c ON c.local_id = r.local_id '
+      "WHERE r.original_status = 'uploaded' AND r.local_deleted = 0 "
+      'AND r.passcode_hash IS NULL '
+      'AND (c.checked IS NULL OR c.seen IS NOT c.checked)',
+    );
+    return {for (final r in rows) r['local_id'] as String};
+  }
+
+  /// `checked` for backed-up records read from a file here, which the
+  /// caller compares against the file's own date.
+  Future<Map<String, int>> fileCheckBaselines() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT c.local_id, c.checked FROM $_changeCheckTable c '
+      'JOIN $_table r ON r.local_id = c.local_id '
+      "WHERE r.source_path IS NOT NULL AND r.original_status = 'uploaded' "
+      'AND c.checked IS NOT NULL',
+    );
+    return {for (final r in rows) r['local_id'] as String: r['checked'] as int};
+  }
+
   /// Photos carrying a GPS tag that nobody — neither the user nor the
   /// geocoder — has put a name to yet, newest first. Photos in a cell the
   /// geocoder recently said is empty are left out, so they can't fill the
@@ -2731,6 +2828,8 @@ class AssetRecordStore {
           'row_key IN (SELECT local_id FROM $_table '
           'WHERE passcode_hash IS NOT NULL))',
       'DELETE FROM $_derivativeTargetTable WHERE local_id IN '
+          '(SELECT local_id FROM $_table WHERE passcode_hash IS NOT NULL)',
+      'DELETE FROM $_changeCheckTable WHERE local_id IN '
           '(SELECT local_id FROM $_table WHERE passcode_hash IS NOT NULL)',
       'DELETE FROM $_table WHERE passcode_hash IS NOT NULL',
       'DELETE FROM $_transitionTable',
@@ -3229,6 +3328,7 @@ class AssetRecordStore {
           where: 'local_id = ?',
           whereArgs: [localId],
         )
+        ..delete(_changeCheckTable, where: 'local_id = ?', whereArgs: [localId])
         // Albums and people live in other databases; see [removedIds].
         ..insert(_appStateTable, {
           'key': '$_removedKeyPrefix$localId',

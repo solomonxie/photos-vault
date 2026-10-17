@@ -129,4 +129,55 @@ void main() {
     }
     expect(after['rest'], fresh['rest']);
   });
+
+  test('v25 gains the change-check table, keeping every row and owing each '
+      'backed-up photo one check', () async {
+    final path = p.join(dir.path, 'v25.db');
+    final store = AssetRecordStore(
+      databaseFactory: databaseFactoryFfi,
+      path: path,
+    );
+    await store.upsert(localId: 'photo:1', contentHash: 'h1', platform: 'ios');
+    await store.updateDerivative(
+      'photo:1',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'originals/IMG_1.HEIC',
+        backedUpHash: 'x',
+      ),
+    );
+    await store.close();
+    // What v25 had: everything but the table.
+    final raw = await databaseFactoryFfi.openDatabase(path);
+    await raw.execute('DROP TABLE change_check');
+    await raw.setVersion(25);
+    await raw.close();
+
+    final upgraded = AssetRecordStore(
+      databaseFactory: databaseFactoryFfi,
+      path: path,
+    );
+    final record = (await upgraded.getByLocalId('photo:1'))!;
+    expect(record.stateOf(DerivativeKind.original).backedUpHash, 'x');
+    expect(await upgraded.changeChecksDue(), {'photo:1'});
+
+    await upgraded.markChecked('photo:1', 100);
+    expect(await upgraded.changeChecksDue(), isEmpty);
+    await upgraded.noteModified({'photo:1': 100});
+    expect(await upgraded.changeChecksDue(), isEmpty, reason: 'same date');
+    await upgraded.noteModified({'photo:1': 160});
+    expect(await upgraded.changeChecksDue(), {'photo:1'});
+    expect(await upgraded.checkedModified('photo:1'), 100);
+    await upgraded.remove('photo:1');
+    expect(await upgraded.checkedModified('photo:1'), isNull);
+    await upgraded.close();
+
+    final fresh = p.join(dir.path, 'fresh26.db');
+    await open(fresh);
+    expect(
+      (await _schemaOf(path))['tables'],
+      (await _schemaOf(fresh))['tables'],
+    );
+  });
 }

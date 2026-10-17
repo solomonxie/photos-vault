@@ -362,10 +362,14 @@ class PhotoLibraryService {
     }
     final favorites = <String, bool>{};
     final metadata = <String, LibraryMetadata>{};
+    final modified = <String, int>{};
     for (final entity in entities) {
       final existing = known[entity.id];
       if (existing == null) continue;
       seen.add(existing.localId);
+      if (modifiedStamp(existing, entity) case final at?) {
+        modified[existing.localId] = at;
+      }
       if (await _relink(existing, entity)) updated++;
       if (existing.isFavorite != entity.isFavorite) {
         favorites[existing.localId] = entity.isFavorite;
@@ -381,7 +385,20 @@ class PhotoLibraryService {
       }
     }
     await store.applyScanUpdates(favorites: favorites, metadata: metadata);
+    await store.noteModified(modified);
     return PhotoLibrarySyncResult(added: added, updated: updated);
+  }
+
+  /// [entity]'s modification date, for a backed-up record read from it:
+  /// what tells a change check an edit in Photos may have happened. Null
+  /// for anything the check doesn't read from PhotoKit.
+  static int? modifiedStamp(AssetRecord record, AssetEntity entity) {
+    if (record.sourcePath != null || record.passcodeHash != null) return null;
+    if (record.stateOf(DerivativeKind.original).status !=
+        UploadStatus.uploaded) {
+      return null;
+    }
+    return entity.modifiedDateSecond;
   }
 
   /// [_insert] for a page of new assets, in one transaction. An asset the
@@ -450,6 +467,9 @@ class PhotoLibraryService {
         continue;
       }
       if (await _relink(existing, entity)) updated++;
+      if (modifiedStamp(existing, entity) case final at?) {
+        await store.noteModified({existing.localId: at});
+      }
       if (existing.isFavorite != entity.isFavorite) {
         await store.setFavorite(existing.localId, entity.isFavorite);
         updated++;
@@ -784,6 +804,15 @@ class PhotoLibraryService {
   Future<File?> fileFor(AssetRecord record) async {
     final entity = await entityFor(record);
     return entity?.file;
+  }
+
+  /// PhotoKit's modification date for [record], read live, in seconds.
+  Future<int?> modifiedSecondsOf(AssetRecord record) async {
+    try {
+      return (await entityFor(record))?.modifiedDateSecond;
+    } catch (_) {
+      return null;
+    }
   }
 
   /// [fileFor], but only when the original is already on this phone — null

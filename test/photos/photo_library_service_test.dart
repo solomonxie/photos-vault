@@ -17,6 +17,7 @@ AssetEntity _entity(
   int width = 100,
   int height = 100,
   LatLng? latLng,
+  int? modifiedSecond,
 }) => AssetEntity(
   id: id,
   typeInt: type.index,
@@ -25,6 +26,7 @@ AssetEntity _entity(
   createDateSecond: createSecond,
   isFavorite: isFavorite,
   latLng: latLng,
+  modifiedDateSecond: modifiedSecond,
 );
 
 /// The real service pages the camera roll newest-first; these fakes hand
@@ -62,6 +64,44 @@ void main() {
       expect(await denied.requestAccess(), PhotoLibraryAccess.denied);
     },
   );
+
+  test('a scan stamps the date Photos reports for backed-up photos, so an '
+      'edit there owes a change check (BG-6)', () async {
+    final store = FakeAssetRecordStore();
+    for (final id in ['up', 'new']) {
+      await store.upsert(
+        localId: 'photo:$id',
+        contentHash: id,
+        platform: 'ios',
+        libraryId: id,
+      );
+    }
+    await store.updateDerivative(
+      'photo:up',
+      DerivativeKind.original,
+      const DerivativeState(status: UploadStatus.uploaded, backedUpHash: 'x'),
+    );
+    await store.markChecked('photo:up', 100);
+    var edited = 100;
+    final service = PhotoLibraryService(
+      store: store,
+      listAssetPage: pagedBy(
+        () => [
+          _entity('up', modifiedSecond: edited),
+          _entity('new', modifiedSecond: 5),
+        ],
+      ),
+    );
+
+    await service.syncAll();
+    expect(await store.changeChecksDue(), isEmpty);
+
+    edited = 130; // edited in Photos
+    await service.syncAll();
+    expect(await store.changeChecksDue(), {'photo:up'});
+    // Not backed up yet: its upload records the date.
+    expect(store.changeChecks.containsKey('photo:new'), isFalse);
+  });
 
   test('syncAll upserts every listed asset as a photoManager record', () async {
     final store = FakeAssetRecordStore();

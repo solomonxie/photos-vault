@@ -29,6 +29,7 @@ import '../photos/on_device_analysis.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
 import '../photos/suggestion_review.dart';
+import '../photos/temp_renders.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/bucket_location.dart';
 import 'asset_grid.dart';
@@ -1189,6 +1190,8 @@ class _MediaPageState extends State<_MediaPage>
       file = await resolver(widget.record);
     } catch (_) {}
     if (!mounted) return;
+    // On screen: the tmp sweep leaves this render alone until the page goes.
+    TempRenders.hold(file?.path);
     setState(() {
       _resolvingPath = false;
       _path = file?.path;
@@ -1217,6 +1220,7 @@ class _MediaPageState extends State<_MediaPage>
     _videoController?.dispose();
     _settle.dispose();
     _drag.dispose();
+    unawaited(TempRenders.release(_path));
     super.dispose();
   }
 
@@ -2048,7 +2052,7 @@ class _InfoPanelState extends State<_InfoPanel> {
       _suggestNote = null;
     });
     final found = await _onDeviceAnalysis.analyze(widget.record, path);
-    final faces = found.map((f) => f.toPersonFace()).toList();
+    final faces = [...?found?.map((f) => f.toPersonFace())];
     final crops = await FaceCrops.of(path, faces);
     if (!mounted) return;
     setState(() {

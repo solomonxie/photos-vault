@@ -290,7 +290,7 @@ class StorageOptimizer {
         return null;
       }
 
-      final hash = hashBytes(bytes);
+      final hash = await hashBytesApart(bytes);
       final ext = bytes.length > 2 && bytes[0] == 0xFF && bytes[1] == 0xD8
           ? 'jpg'
           : 'webp';

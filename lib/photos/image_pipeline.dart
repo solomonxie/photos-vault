@@ -93,13 +93,13 @@ int? pixelsOf(Uint8List b) {
 
 /// Longest edge, in pixels, of a generated thumbnail. A 4-across grid tile
 /// is ~100pt, so 320px still covers 3x retina with room to spare — and at
-/// [_thumbnailQuality] that lands around 15-30 KB a photo rather than the
+/// [thumbnailQuality] that lands around 15-30 KB a photo rather than the
 /// hundreds of KB a full-size re-encode costs.
 const thumbnailMaxEdge = 320;
 
 /// Low enough to keep thumbnails tiny, high enough that a grid tile doesn't
-/// visibly block up.
-const _thumbnailQuality = 70;
+/// visibly block up. PhotoKit's thumbnails are asked for at this too.
+const thumbnailQuality = 70;
 
 /// Decodes [bytes] and re-encodes a [thumbnailMaxEdge]-bounded JPEG, or
 /// returns the bytes unchanged when the image is already within that bound
@@ -115,13 +115,13 @@ Uint8List? encodeThumbnail(Uint8List bytes, {int? maxBytes}) {
       : decoded.height;
   var out = longestEdge <= thumbnailMaxEdge
       ? bytes
-      : _encodeAt(decoded, thumbnailMaxEdge, _thumbnailQuality);
+      : _encodeAt(decoded, thumbnailMaxEdge, thumbnailQuality);
   if (maxBytes == null || out.length <= maxBytes) return out;
   // A small photo is its own thumbnail above, bytes and all — and a
   // 320px file can still be 100 KB. Where the caller has a byte budget
   // (a carrier's first 64 KB), re-encode down until it fits.
   for (final (edge, quality) in const [
-    (thumbnailMaxEdge, _thumbnailQuality),
+    (thumbnailMaxEdge, thumbnailQuality),
     (thumbnailMaxEdge, 50),
     (240, 50),
     (160, 40),

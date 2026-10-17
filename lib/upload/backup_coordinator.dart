@@ -530,6 +530,7 @@ class BackupCoordinator {
           succeeded > 0,
           filePath,
           record.stateOf(kind).backedUpHash,
+          known: sourceHash,
         ),
       ),
     );
@@ -548,12 +549,16 @@ class BackupCoordinator {
     }
   }
 
+  /// [known] is the hash taken before the put, of the same file: reused
+  /// rather than read again.
   Future<String?> _hashOnSuccess(
     bool succeeded,
     String filePath,
-    String? previousHash,
-  ) async {
+    String? previousHash, {
+    String? known,
+  }) async {
     if (!succeeded) return previousHash;
+    if (known != null) return known;
     try {
       return await _hashFile(filePath);
     } catch (_) {
@@ -784,6 +789,7 @@ class BackupCoordinator {
             landed > 0,
             rawPaths[record.localId]!,
             record.stateOf(kind).backedUpHash,
+            known: sourceHashes[record.localId],
           ),
         ),
       );

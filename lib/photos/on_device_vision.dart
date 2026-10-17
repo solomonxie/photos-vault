@@ -147,6 +147,21 @@ class OnDeviceVisionService {
 
   final MethodChannel _channel;
 
+  /// Every method below takes a *source*: a file path, or a camera-roll
+  /// asset named through this. An asset is rendered natively, straight
+  /// into Vision at the size it uses — no full-size JPEG in tmp (BG-10).
+  /// Files stay for what has no PhotoKit asset: held and hidden photos,
+  /// manual adds.
+  static String assetSource(String libraryId) => '$_assetScheme$libraryId';
+
+  static bool isAssetSource(String source) => source.startsWith(_assetScheme);
+
+  static const _assetScheme = 'photokit:';
+
+  static Map<String, Object?> _source(String source) => isAssetSource(source)
+      ? {'asset': source.substring(_assetScheme.length)}
+      : {'path': source};
+
   Future<bool> get isAvailable async {
     try {
       await _channel.invokeMethod<List<Object?>>('faces', {'path': ''});
@@ -192,7 +207,7 @@ class OnDeviceVisionService {
   /// The file's EXIF orientation (1–8), from its header; null off iOS.
   Future<int?> orientation(String path) async {
     try {
-      return await _channel.invokeMethod<int>('orientation', {'path': path});
+      return await _channel.invokeMethod<int>('orientation', _source(path));
     } catch (_) {
       return null;
     }
@@ -207,7 +222,7 @@ class OnDeviceVisionService {
     if (faces.isEmpty) return const [];
     try {
       final raw = await _channel.invokeListMethod<Object?>('featurePrints', {
-        'path': path,
+        ..._source(path),
         'faces': [
           for (final f in faces) [f.x, f.y, f.width, f.height],
         ],
@@ -231,7 +246,7 @@ class OnDeviceVisionService {
   }) async {
     try {
       final raw = await _channel.invokeListMethod<Object?>('crops', {
-        'path': path,
+        ..._source(path),
         'faces': [
           for (final f in faces) [f.x, f.y, f.width, f.height],
         ],
@@ -247,17 +262,44 @@ class OnDeviceVisionService {
   }
 
   Future<List<VisionFace>> faces(String path) async {
-    final raw = await _invoke('faces', {'path': path});
+    final raw = await _invoke('faces', _source(path));
     return [
       for (final item in raw)
-        if (item is Map)
-          VisionFace(
-            x: (item['x'] as num? ?? 0).toDouble(),
-            y: (item['y'] as num? ?? 0).toDouble(),
-            width: (item['width'] as num? ?? 0).toDouble(),
-            height: (item['height'] as num? ?? 0).toDouble(),
-          ),
+        if (item is Map) _faceOf(item),
     ];
+  }
+
+  static VisionFace _faceOf(Map<Object?, Object?> item) => VisionFace(
+    x: (item['x'] as num? ?? 0).toDouble(),
+    y: (item['y'] as num? ?? 0).toDouble(),
+    width: (item['width'] as num? ?? 0).toDouble(),
+    height: (item['height'] as num? ?? 0).toDouble(),
+  );
+
+  /// [faces] and, for each one of at least [minArea], the descriptor of
+  /// its `FaceCrops.descriptorRect` grown by [padding] — from one picture,
+  /// so a photo is rendered once for both (BG-10). Null when the platform
+  /// couldn't read it or doesn't know the call: a skip, never "no faces".
+  Future<List<({VisionFace face, FaceDescriptor print})>?> facesWithPrints(
+    String source, {
+    required double minArea,
+    required double padding,
+  }) async {
+    try {
+      final raw = await _channel.invokeListMethod<Object?>('facesWithPrints', {
+        ..._source(source),
+        'minArea': minArea,
+        'padding': padding,
+      });
+      if (raw == null) return null;
+      return [
+        for (final item in raw)
+          if (item is Map)
+            (face: _faceOf(item), print: _descriptorOf(item['print'])),
+      ];
+    } catch (_) {
+      return null;
+    }
   }
 
   /// A descriptor for one face, or the whole image when [face] is null.
@@ -270,7 +312,7 @@ class OnDeviceVisionService {
       final raw = await _channel.invokeMapMethod<String, Object?>(
         'featurePrint',
         {
-          'path': path,
+          ..._source(path),
           if (face != null) ...{
             'x': face.x,
             'y': face.y,

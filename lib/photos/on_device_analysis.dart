@@ -1,6 +1,7 @@
 import '../storage/asset_record.dart';
 import 'person.dart' show FaceRect;
 import 'ai_analysis_store.dart';
+import 'face_crops.dart';
 import 'on_device_vision.dart';
 
 /// Finds the faces in one photo, on the phone.
@@ -50,16 +51,29 @@ class OnDeviceAnalysisService {
   static FaceRect toFaceRect(VisionFace face) =>
       FaceRect(face.x, 1 - face.y - face.height, face.width, face.height);
 
-  Future<List<VisionFace>> analyze(AssetRecord record, String path) async {
+  /// Finds and records [record]'s faces from [source] (a path, or an
+  /// `OnDeviceVisionService.assetSource`), describing them in the same
+  /// pass so matching needs no second render. Null when an asset couldn't
+  /// be rendered: a skip, not "no faces".
+  Future<List<VisionFace>?> analyze(AssetRecord record, String source) async {
     // First, so a fresh look can carry names over to boxes in its own space.
     try {
-      await settleBoxes(record, path);
+      await settleBoxes(record, source);
     } catch (_) {
       // Left marked; the analyze pass tries again.
     }
-    final faces = (await vision.faces(path))
-        .where((f) => f.area >= minFaceArea)
-        .toList();
+    final found = await vision.facesWithPrints(
+      source,
+      minArea: minFaceArea,
+      padding: FaceCrops.descriptorPadding,
+    );
+    if (found == null && OnDeviceVisionService.isAssetSource(source)) {
+      return null;
+    }
+    final faces = [
+      ...?found?.map((f) => f.face),
+      if (found == null) ...await vision.faces(source),
+    ].where((f) => f.area >= minFaceArea).toList();
     // A photo of a beach is still a photo that's been looked at. Written
     // even at zero, because "no faces here" and "never checked" are the
     // same absence otherwise — and the analyze queue, which asks exactly
@@ -75,6 +89,34 @@ class OnDeviceAnalysisService {
       analyzedAt: DateTime.now(),
       faces: faces.map(toFaceRect).toList(),
     );
+    if (found != null) await _keepPrints(record.localId, found);
     return faces;
+  }
+
+  /// The descriptors that came with the faces, for those without one in
+  /// the same space already — a confirmed face keeps the vector it was
+  /// confirmed with.
+  Future<void> _keepPrints(
+    String localId,
+    List<({VisionFace face, FaceDescriptor print})> found,
+  ) async {
+    try {
+      final stored = await analysisStore.descriptorsOf([localId]);
+      for (final f in found) {
+        if (f.face.area < minFaceArea || f.print.isEmpty) continue;
+        final rect = toFaceRect(f.face);
+        final had = stored[AiAnalysisStore.faceKey(localId, rect)];
+        if (had != null && !had.isEmpty && had.revision == f.print.revision) {
+          continue;
+        }
+        await analysisStore.saveDescriptor(
+          localId: localId,
+          face: rect,
+          descriptor: f.print,
+        );
+      }
+    } catch (_) {
+      // Matching describes them itself, from a render of its own.
+    }
   }
 }

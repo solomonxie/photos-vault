@@ -75,6 +75,35 @@ class _FakeVision implements OnDeviceVisionService {
     calls++;
     return const [VisionFace(x: 0.3, y: 0.3, width: 0.4, height: 0.4)];
   }
+
+  /// Off: an older platform side, so [faces] answers and matching
+  /// describes. On: one render answers both.
+  bool combined = false;
+
+  /// Sources the combined call was asked about.
+  final combinedSources = <String>[];
+
+  @override
+  Future<List<({VisionFace face, FaceDescriptor print})>?> facesWithPrints(
+    String source, {
+    required double minArea,
+    required double padding,
+  }) async {
+    if (!combined) return null;
+    combinedSources.add(source);
+    calls++;
+    return [
+      (
+        face: const VisionFace(x: 0.3, y: 0.3, width: 0.4, height: 0.4),
+        print: FaceDescriptor(
+          vector: Float32List.fromList(
+            printsByPath[source] ?? [source.hashCode.toDouble()],
+          ),
+          revision: _currentSpace,
+        ),
+      ),
+    ];
+  }
 }
 
 /// The space this build describes faces in — a fake that answered from
@@ -232,6 +261,81 @@ void main() {
     expect(
       described.map((f) => f.localId),
       containsAll(<String>['photo:new', 'photo:old']),
+    );
+  });
+
+  group('one render per photo (BG-10)', () {
+    AnalyzeQueue withIdentity({
+      required Future<String?> Function(AssetRecord r) source,
+    }) => AnalyzeQueue(
+      assetRecordStore: records,
+      analysisStore: analyses,
+      onDeviceAnalysis: OnDeviceAnalysisService(
+        analysisStore: analyses,
+        vision: vision,
+      ),
+      faceIdentity: FaceIdentityService(
+        analysisStore: analyses,
+        resolvePath: source,
+        vision: vision,
+      ),
+      resolvePath: (r) async => '/tmp/${r.localId}.jpg',
+      resolveSource: source,
+      displayNameFor: (r) => r.localId,
+      rest: Duration.zero,
+    );
+
+    test('faces and their descriptors come from one call, and matching '
+        'needs no second look', () async {
+      vision.combined = true;
+      await addPhoto('photo:a');
+      final queue = withIdentity(
+        source: (r) async => OnDeviceVisionService.assetSource('A'),
+      );
+
+      await queue.start();
+
+      expect(vision.combinedSources, ['photokit:A']);
+      expect(vision.printCalls, 0, reason: 'described in the same render');
+      final described = await analyses.allDescribedFaces();
+      expect(described.map((f) => f.localId), ['photo:a']);
+      expect(queue.remaining.value, 0);
+    });
+
+    test(
+      'an asset that would not render is a skip, never "no faces"',
+      () async {
+        vision.combined = false; // the platform answered nothing
+        await addPhoto('photo:a');
+        final queue = withIdentity(
+          source: (r) async => OnDeviceVisionService.assetSource('A'),
+        );
+
+        await queue.start();
+
+        expect(await analyses.listAll(), isEmpty);
+        expect(queue.remaining.value, 1, reason: 'left for a later pass');
+      },
+    );
+
+    test(
+      'boxes from before upright keep the file they were measured on',
+      () async {
+        vision.combined = true;
+        await addPhoto('photo:old');
+        analyses.seedLegacy('photo:old', const [FaceRect(0.1, 0.2, 0.3, 0.4)]);
+        vision.orientations['/tmp/photo:old.jpg'] = 6;
+        final queue = withIdentity(
+          source: (r) async => OnDeviceVisionService.assetSource('OLD'),
+        );
+
+        await queue.start();
+
+        expect(vision.combinedSources, isEmpty);
+        expect(await analyses.facesFor('photo:old'), [
+          const FaceRect(0.1, 0.2, 0.3, 0.4).oriented(6),
+        ]);
+      },
     );
   });
 

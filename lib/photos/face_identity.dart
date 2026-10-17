@@ -80,8 +80,9 @@ class FaceIdentityService {
 
   final AiAnalysisStore analysisStore;
 
-  /// A photo's file on disk — `null` for one that can't be produced right
-  /// now, which is a skip, not a failure.
+  /// What Vision reads for a photo — a file, or a camera-roll asset
+  /// (`OnDeviceVisionService.assetSource`). `null` for one that can't be
+  /// produced right now, which is a skip, not a failure.
   final Future<String?> Function(AssetRecord record) resolvePath;
 
   final OnDeviceVisionService vision;

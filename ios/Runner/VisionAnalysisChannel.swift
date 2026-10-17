@@ -1,5 +1,6 @@
 import Flutter
 import ImageIO
+import Photos
 import UIKit
 import Vision
 
@@ -46,23 +47,31 @@ class VisionAnalysisChannel {
       return
     }
 
-    guard let arguments = call.arguments as? [String: Any],
-          let path = arguments["path"] as? String
-    else {
+    // A file, or a camera-roll asset by its PhotoKit id (BG-10): rendered
+    // here at the size Vision uses, so no full-size JPEG goes through tmp.
+    guard let arguments = call.arguments as? [String: Any] else {
       result(unreadable())
       return
     }
+    let asset = arguments["asset"] as? String
+    let path = arguments["path"] as? String ?? ""
 
     // Header only: the EXIF orientation, for boxes measured before they
-    // were measured upright.
+    // were measured upright. A file's question; an asset has no header.
     if call.method == "orientation" {
-      result(orientation(path))
+      result(asset == nil ? orientation(path) : unreadable())
       return
     }
 
     // One decode per call, upright and capped (05#7, #14): boxes, crops
     // and descriptors all live in the picture as it is shown.
-    guard let cgImage = upright(path) else {
+    let image: CGImage?
+    if let asset {
+      image = rendered(asset)
+    } else {
+      image = upright(path)
+    }
+    guard let cgImage = image else {
       result(unreadable())
       return
     }
@@ -71,6 +80,26 @@ class VisionAnalysisChannel {
       switch call.method {
       case "faces":
         result(try faces(VNImageRequestHandler(cgImage: cgImage, options: [:])))
+      case "facesWithPrints":
+        // Detect and describe from the one picture: a photo's faces and
+        // their descriptors in a single render (BG-10). Only faces Dart
+        // would keep are described.
+        let minArea = arguments["minArea"] as? Double ?? 0
+        let padding = arguments["padding"] as? Double ?? 0.08
+        let found = try faces(
+          VNImageRequestHandler(cgImage: cgImage, options: [:])
+        )
+        result(found.map { face -> [String: Any] in
+          let width = face["width"] as? Double ?? 0
+          let height = face["height"] as? Double ?? 0
+          guard width * height >= minArea else { return face }
+          var out = face
+          out["print"] = (try? describe(
+            cgImage,
+            rectArguments(descriptorRect(face, padding: padding))
+          )) ?? [:]
+          return out
+        })
       case "featurePrint":
         result(try describe(cgImage, arguments))
       case "featurePrints":
@@ -123,6 +152,73 @@ class VisionAnalysisChannel {
   /// Longest side Vision and the crops work from. Faces small enough to
   /// count stay over a hundred pixels across; a 48 MP decode doesn't.
   private static let maxSide = 2048
+
+  /// The asset as Photos shows it — edits applied, upright, at most
+  /// [maxSide] — straight from PhotoKit, with no file in between.
+  /// Synchronous, which is allowed here: this runs on the utility queue,
+  /// never the main thread. iCloud originals may download, as `.file`
+  /// let them.
+  private static func rendered(_ localIdentifier: String) -> CGImage? {
+    guard let asset = PHAsset.fetchAssets(
+      withLocalIdentifiers: [localIdentifier],
+      options: nil
+    ).firstObject, asset.mediaType == .image else { return nil }
+    let options = PHImageRequestOptions()
+    options.isSynchronous = true
+    options.deliveryMode = .highQualityFormat
+    options.resizeMode = .exact
+    options.isNetworkAccessAllowed = true
+    options.version = .current
+    var image: UIImage?
+    PHImageManager.default().requestImage(
+      for: asset,
+      targetSize: CGSize(width: maxSide, height: maxSide),
+      contentMode: .aspectFit,
+      options: options
+    ) { result, _ in
+      image = result
+    }
+    return image.flatMap(drawnUpright)
+  }
+
+  /// [image]'s pixels the right way up. PhotoKit can hand back a picture
+  /// whose orientation is only a flag; every box here is measured upright.
+  private static func drawnUpright(_ image: UIImage) -> CGImage? {
+    if image.imageOrientation == .up, let cgImage = image.cgImage {
+      return cgImage
+    }
+    let size = CGSize(
+      width: image.size.width * image.scale,
+      height: image.size.height * image.scale
+    )
+    let format = UIGraphicsImageRendererFormat()
+    format.scale = 1
+    format.preferredRange = .standard
+    return UIGraphicsImageRenderer(size: size, format: format).image { _ in
+      image.draw(in: CGRect(origin: .zero, size: size))
+    }.cgImage
+  }
+
+  /// `FaceCrops.descriptorRect` for a Vision box: top-left, grown by
+  /// [padding], squared and kept inside the frame. Must match the Dart.
+  private static func descriptorRect(
+    _ face: [String: Any],
+    padding: Double
+  ) -> [Double] {
+    let x = face["x"] as? Double ?? 0
+    let width = face["width"] as? Double ?? 0
+    let height = face["height"] as? Double ?? 0
+    let top = 1 - (face["y"] as? Double ?? 0) - height
+    let box = min(max(width, height) * (1 + padding * 2), 1)
+    let centreX = x + width / 2
+    let centreY = top + height / 2
+    return [
+      min(max(centreX - box / 2, 0), 1 - box),
+      min(max(centreY - box / 2, 0), 1 - box),
+      box,
+      box,
+    ]
+  }
 
   /// The picture as shown: EXIF orientation applied, at most [maxSide].
   private static func upright(_ path: String) -> CGImage? {

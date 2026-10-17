@@ -43,6 +43,7 @@ import '../photos/photo_location.dart';
 import '../photos/fix_queue.dart';
 import '../photos/storage_advice.dart';
 import '../photos/storage_optimizer.dart';
+import '../photos/temp_renders.dart';
 import '../photos/thumbnail_cache.dart';
 import '../settings/ai_settings_screen.dart';
 import '../settings/app_data_removal.dart';
@@ -471,6 +472,7 @@ class LibraryScreenState extends State<LibraryScreen>
           for (final p in await _personStore.peopleFor(localId)) p.id,
         ],
         resolvePath: _filePathFor,
+        resolveSource: _visionSourceFor,
         displayNameFor: _displayNameFor,
       );
 
@@ -494,7 +496,7 @@ class LibraryScreenState extends State<LibraryScreen>
   /// reference set every screen's suggestions are measured against.
   late final FaceIdentityService _faceIdentity = FaceIdentityService(
     analysisStore: _aiAnalysisStore,
-    resolvePath: _filePathFor,
+    resolvePath: _visionSourceFor,
   );
 
   List<AssetRecord> _all = const [];
@@ -797,6 +799,8 @@ class LibraryScreenState extends State<LibraryScreen>
   /// refused, and nothing loops.
   Future<void> _onQueueDrained() async {
     await reload(statusOnly: true);
+    // Whatever full-size renders this run left in tmp (BG-2).
+    if (syncQueue.processedInLastDrain > 0) unawaited(TempRenders.sweep());
     if (!mounted || syncQueue.paused.value) return;
     // Only ever *continues* a sync that was already running. A drain that
     // found nothing to do must not go looking for work — the sync-frequency
@@ -1159,12 +1163,10 @@ class LibraryScreenState extends State<LibraryScreen>
         await _thumbnailCache.ensureFor(record);
         return;
       }
-      final path = await _filePathFor(record);
-      if (path == null) {
+      // PhotoKit's own picture; the full-size file only without one.
+      if (await _engine.cacheThumbnail(record) == null) {
         _unresolvable.add(record.localId);
-        return;
       }
-      await _thumbnailCache.ensureFor(record, path);
     } catch (_) {
       // Unreadable, or gone since — the next round tries again.
     }
@@ -1913,6 +1915,10 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Future<String?> _filePathFor(AssetRecord record) =>
       _engine.filePathFor(record);
+
+  /// No full-size render for Vision: see [SyncEngine.visionSourceFor].
+  Future<String?> _visionSourceFor(AssetRecord record) =>
+      _engine.visionSourceFor(record);
 
   /// Backs up [records] (whatever this action just added) plus anything
   /// else still pending/failed from before — an import of content already

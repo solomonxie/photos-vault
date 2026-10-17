@@ -101,11 +101,12 @@ class AnalyzeQueue {
     required this.onDeviceAnalysis,
     required this.resolvePath,
     required this.displayNameFor,
+    Future<String?> Function(AssetRecord record)? resolveSource,
     this.faceIdentity,
     this.taggedPeople,
     this.taggedPeopleOf,
     this.rest = const Duration(milliseconds: 400),
-  });
+  }) : resolveSource = resolveSource ?? resolvePath;
 
   final AssetRecordStore assetRecordStore;
   final AiAnalysisStore analysisStore;
@@ -114,6 +115,11 @@ class AnalyzeQueue {
   /// A photo's file on disk — `null` for one the library can't produce
   /// right now, which is a skip rather than a failure.
   final Future<String?> Function(AssetRecord record) resolvePath;
+
+  /// What Vision reads for a photo: a camera-roll asset rendered natively
+  /// (`OnDeviceVisionService.assetSource`), or a file. [resolvePath]
+  /// when not given.
+  final Future<String?> Function(AssetRecord record) resolveSource;
 
   /// What a row is called. Injected so the queue never has to know about
   /// localization or which photos are hidden.
@@ -631,16 +637,20 @@ class AnalyzeQueue {
   Future<bool> _findFaces(AnalyzeJob job) async {
     final record = await assetRecordStore.getByLocalId(job.localId!);
     if (record == null) return true;
-    final path = await resolvePath(record);
+    final existing = _analyzed[record.localId];
+    // Old boxes are turned by the file's own EXIF orientation, which only
+    // the file has: those keep the file, once.
+    final legacy = existing?.legacyBoxes ?? false;
+    final path = legacy
+        ? await resolvePath(record)
+        : await resolveSource(record);
     // Nothing on disk to look at yet — a cloud-only photo, or one Photos
     // is still exporting. Left for a later pass rather than failed.
     if (path == null) return false;
-    final existing = _analyzed[record.localId];
-    if (existing != null && !existing.needsLookingAt && existing.legacyBoxes) {
+    if (existing != null && !existing.needsLookingAt && legacy) {
       return onDeviceAnalysis.settleBoxes(record, path);
     }
-    await onDeviceAnalysis.analyze(record, path);
-    return true;
+    return await onDeviceAnalysis.analyze(record, path) != null;
   }
 
   /// The reference set, read once per run rather than per photo — it only

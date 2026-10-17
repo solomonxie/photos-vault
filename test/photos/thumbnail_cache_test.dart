@@ -117,6 +117,59 @@ void main() {
     });
   });
 
+  group('a camera-roll still (BG-4)', () {
+    Future<AssetRecord> still(FakeAssetRecordStore store) => store.upsert(
+      localId: 'photo:s',
+      contentHash: 's',
+      platform: 'ios',
+      libraryId: 'lib-s',
+    );
+
+    test('takes PhotoKit\'s picture and never renders the original', () async {
+      final store = FakeAssetRecordStore();
+      final record = await still(store);
+      var resolved = 0;
+      var decodes = 0;
+
+      final path =
+          await ThumbnailCache(
+            store: store,
+            directory: () async => tempDir,
+            encode: (_) async {
+              decodes++;
+              return Uint8List.fromList([1]);
+            },
+            libraryThumbnail: (_) async => Uint8List.fromList([5, 5]),
+          ).ensureFor(record, null, () async {
+            resolved++;
+            return '/tmp/render.jpg';
+          });
+
+      expect(File(path!).readAsBytesSync(), [5, 5]);
+      expect(resolved, 0);
+      expect(decodes, 0);
+    });
+
+    test('decodes the original only when PhotoKit has nothing', () async {
+      final store = FakeAssetRecordStore();
+      final record = await still(store);
+      final decoded = <String>[];
+
+      final path = await ThumbnailCache(
+        store: store,
+        directory: () async => tempDir,
+        encode: (file) async {
+          decoded.add(file.path);
+          return Uint8List.fromList([1, 2]);
+        },
+        libraryThumbnail: (_) async => null,
+      ).ensureFor(record, null, () async => '/tmp/render.jpg');
+
+      expect(decoded, ['/tmp/render.jpg']);
+      expect(File(path!).readAsBytesSync(), [1, 2]);
+    });
+  });
+
   test('writes a thumbnail file and records its path on the asset', () async {
     final store = FakeAssetRecordStore();
     final record = await newRecord(store);

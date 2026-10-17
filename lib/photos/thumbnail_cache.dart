@@ -18,17 +18,22 @@ import 'image_pipeline.dart';
 /// thumbnail the same way the cache stores it — a tile that re-frames the
 /// moment the cached copy takes over is the flash that rule exists to
 /// prevent.
-ThumbnailOption thumbnailOption(int size, {required bool fitted}) {
+ThumbnailOption thumbnailOption(
+  int size, {
+  required bool fitted,
+  int quality = 95,
+}) {
   // The fitted options are PhotoKit's; everywhere else takes the plain
   // request and the crop that comes with it.
   if (!fitted || !(Platform.isIOS || Platform.isMacOS)) {
-    return ThumbnailOption(size: ThumbnailSize.square(size));
+    return ThumbnailOption(size: ThumbnailSize.square(size), quality: quality);
   }
   return ThumbnailOption.ios(
     size: ThumbnailSize.square(size),
     resizeContentMode: ResizeContentMode.fit,
     deliveryMode: DeliveryMode.highQualityFormat,
     resizeMode: ResizeMode.exact,
+    quality: quality,
   );
 }
 
@@ -97,11 +102,11 @@ class ThumbnailCache {
   /// a local original — see `../upload/original_restore.dart`.
   static const dirName = 'thumbnails';
 
-  /// Off the calling isolate — decode+resize of a full-size photo is heavy
-  /// enough to jank a frame otherwise.
-  static Future<Uint8List?> _defaultEncode(File file) async {
-    final bytes = await file.readAsBytes();
-    return Isolate.run(() => encodeThumbnail(bytes));
+  /// Off the calling isolate, read included — decode+resize of a
+  /// full-size photo is heavy enough to jank a frame otherwise.
+  static Future<Uint8List?> _defaultEncode(File file) {
+    final path = file.path;
+    return Isolate.run(() => encodeThumbnail(File(path).readAsBytesSync()));
   }
 
   /// What the OS already has: a still for a photo, a poster frame for a
@@ -119,8 +124,13 @@ class ThumbnailCache {
         // and a centre-cropped square shown full-screen is a different
         // photo from the one that was taken — the sides cut off and the
         // shape wrong. It only ever looked right because the grid draws
-        // squares.
-        thumbnailOption(thumbnailMaxEdge, fitted: true),
+        // squares. JPEG at the cache's own quality: the same file
+        // `encodeThumbnail` makes, so the bucket's copy stays what it was.
+        thumbnailOption(
+          thumbnailMaxEdge,
+          fitted: true,
+          quality: thumbnailQuality,
+        ),
       );
     } catch (_) {
       // No plugin, or gone from the library since.
@@ -145,10 +155,11 @@ class ThumbnailCache {
   }
 
   /// Path to [record]'s cached thumbnail, generating it the first time:
-  /// from the file at [originalPath] for a still, and from the photo
-  /// library's own poster frame for a video or anything this app can't
-  /// decode. [originalPath] may be omitted when there's no local file to
-  /// decode — a video needs none, and exporting a whole movie to make a
+  /// from PhotoKit's own picture for anything in the photo library (a
+  /// still or a video's poster frame, no full-size render, BG-4), and from
+  /// the file at [originalPath] — or the one [resolveOriginal] produces,
+  /// asked only then — for the rest, or when the library has none to give.
+  /// A video never decodes its file: exporting a whole movie to make a
   /// thumbnail of it would be absurd.
   ///
   /// Null means "no thumbnail available", which callers treat as a skip
@@ -156,7 +167,11 @@ class ThumbnailCache {
   ///
   /// Also persists the path onto the record, so a later local delete can
   /// find it without the original still being around.
-  Future<String?> ensureFor(AssetRecord record, [String? originalPath]) async {
+  Future<String?> ensureFor(
+    AssetRecord record, [
+    String? originalPath,
+    Future<String?> Function()? resolveOriginal,
+  ]) async {
     // A hidden photo never leaves a picture of itself in the container.
     // This directory is under application support, which iOS puts in the
     // device backup, so a thumbnail here would ride into the owner's own
@@ -170,10 +185,15 @@ class ThumbnailCache {
       final existing = record.thumbnailPath;
       if (existing != null && await File(existing).exists()) return existing;
 
-      var encoded = originalPath == null || record.isVideo
-          ? null
-          : await _encode(File(originalPath));
-      encoded ??= await _libraryThumbnail(record);
+      final inLibrary = record.isVideo || record.libraryId != null;
+      var encoded = inLibrary ? await _libraryThumbnail(record) : null;
+      if (encoded == null && !record.isVideo) {
+        final path = originalPath ?? await resolveOriginal?.call();
+        if (path != null) encoded = await _encode(File(path));
+      }
+      if (encoded == null && !inLibrary) {
+        encoded = await _libraryThumbnail(record);
+      }
       if (encoded == null) return null;
 
       final file = File(

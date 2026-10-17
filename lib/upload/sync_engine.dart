@@ -1,7 +1,10 @@
 import 'dart:async';
 import 'dart:io';
+import 'dart:isolate';
 
+import '../photos/on_device_vision.dart';
 import '../photos/photo_library_service.dart';
+import '../photos/temp_renders.dart';
 import '../photos/thumbnail_cache.dart';
 import '../settings/backup_targets_store.dart';
 import '../storage/asset_record.dart';
@@ -59,8 +62,9 @@ class SyncEngine {
   final String Function(AssetRecord record) displayName;
   final Future<String> Function(String path) hashFile;
 
-  /// `analyzePhoto` jobs belong to the screen's on-device analysis.
-  final Future<void> Function(AssetRecord record, String path)? analyze;
+  /// `analyzePhoto` jobs belong to the screen's on-device analysis, handed
+  /// a [visionSourceFor] source.
+  final Future<void> Function(AssetRecord record, String source)? analyze;
 
   late final SyncQueue syncQueue = SyncQueue(
     store: syncJobStore,
@@ -217,11 +221,19 @@ class SyncEngine {
     return queued;
   }
 
-  /// Queues a change check per already-backed-up asset. Each one re-hashes
-  /// that asset's local file to spot an edit since its last backup — real
-  /// work against a real file, so it's a queued job like any upload rather
-  /// than a silent pass, and shows up in the queue by name.
+  /// Queues a change check per already-backed-up asset whose modification
+  /// date moved since it last matched its backup (or that has never been
+  /// checked). A check re-hashes that asset's local file to spot an edit —
+  /// real work against a real file, so it's a queued job like any upload
+  /// rather than a silent pass, and shows up in the queue by name.
+  ///
+  /// Gated on the date, not walked newest-first every time: that re-hashed
+  /// the same newest hundred on every sync and never reached an edit to an
+  /// older photo (BG-6). An edit in Photos moves the date, which a scan or
+  /// the change history stamps (`noteModified`); so do favourites and
+  /// metadata, which only cost a hash.
   Future<int> enqueueChangeChecks() async {
+    final due = await recordStore.changeChecksDue();
     final uploaded = records().where((r) {
       // Cloud-only assets have no local file left to compare against, and
       // neither has one whose file this pass already failed to find —
@@ -234,8 +246,12 @@ class SyncEngine {
       if (unresolvable.contains(r.localId)) return false;
       return r.stateOf(DerivativeKind.original).status == UploadStatus.uploaded;
     }).toList();
+    due.addAll(await _heldFilesMoved(uploaded, due));
     var queued = false;
-    for (final record in newestFirst(uploaded)) {
+    for (final record in newestFirst([
+      for (final r in uploaded)
+        if (due.contains(r.localId)) r,
+    ])) {
       // Full or paused: the rest wait for the next pass.
       if (!await syncQueue.enqueue(
         localId: record.localId,
@@ -265,7 +281,10 @@ class SyncEngine {
       case SyncJobKind.checkChanges:
         await _checkOneForLocalChanges(record);
       case SyncJobKind.uploadOriginal:
-        final path = await filePathFor(record);
+        // Before the file: an edit after this read moves the date past it,
+        // and the next change check sees that.
+        final modified = await modifiedOf(record);
+        final path = await _heldPathFor(record);
         if (path == null) {
           unresolvable.add(record.localId);
           return;
@@ -281,6 +300,8 @@ class SyncEngine {
           if (after?.stateOf(DerivativeKind.original).status !=
               UploadStatus.uploaded) {
             triedAndFailed.add(record.localId);
+          } else if (modified != null) {
+            await recordStore.markChecked(record.localId, modified);
           }
         } catch (_) {
           // Thrown or recorded, a failure is a failure: remembered either
@@ -288,6 +309,10 @@ class SyncEngine {
           // Rethrown so the queue still shows the row and its reason.
           triedAndFailed.add(record.localId);
           rethrow;
+        } finally {
+          // The put has completed or failed for good by now: nothing of
+          // background_downloader's still reads this file.
+          await TempRenders.release(path, delete: true);
         }
       case SyncJobKind.uploadLivePhoto:
         // Straight from the photo library, with the subtype that makes
@@ -317,12 +342,12 @@ class SyncEngine {
       case SyncJobKind.analyzePhoto:
         // Videos have no still to look at, and Vision only reads images.
         if (record.isVideo) return;
-        final path = await filePathFor(record);
-        if (path == null) {
+        final source = await visionSourceFor(record);
+        if (source == null) {
           unresolvable.add(record.localId);
           return;
         }
-        await analyze?.call(record, path);
+        await analyze?.call(record, source);
     }
   }
 
@@ -372,8 +397,17 @@ class SyncEngine {
   /// Re-hashes one asset's local file and, if it's been edited since its
   /// last successful backup, flips it back to pending and queues the
   /// re-upload straight away rather than waiting for the next sync.
+  ///
+  /// Read live first: a date still the one it was checked at needs no file
+  /// at all — the scan's stamp was stale, or only the queue thought so.
   Future<void> _checkOneForLocalChanges(AssetRecord record) async {
-    final path = await filePathFor(record);
+    final modified = await modifiedOf(record);
+    if (modified != null &&
+        modified == await recordStore.checkedModified(record.localId)) {
+      await recordStore.markChecked(record.localId, modified);
+      return;
+    }
+    final path = await _heldPathFor(record);
     if (path == null) {
       unresolvable.add(record.localId);
       return;
@@ -389,10 +423,15 @@ class SyncEngine {
       // that's already up there is still good.
       unresolvable.add(record.localId);
       return;
+    } finally {
+      await TempRenders.release(path, delete: true);
     }
     final state = record.stateOf(DerivativeKind.original);
     if (hash == state.backedUpHash) {
       await _checkMotionHalf(record);
+      if (modified != null) {
+        await recordStore.markChecked(record.localId, modified);
+      }
       return;
     }
     await recordStore.updateDerivative(
@@ -463,12 +502,28 @@ class SyncEngine {
   /// it before.
   Future<String?> _uploadableThumbnailFor(AssetRecord record) async {
     if (record.isVideo) return thumbnailCache.ensureFor(record);
-    final originalPath = await filePathFor(record);
-    if (originalPath != null) {
-      return thumbnailCache.ensureFor(record, originalPath);
+    if (!record.localDeleted) {
+      final made = await cacheThumbnail(record);
+      if (made != null) return made;
     }
     final cached = record.thumbnailPath;
     return cached != null && await File(cached).exists() ? cached : null;
+  }
+
+  /// [record]'s cached thumbnail, made if it has none: PhotoKit's own for a
+  /// camera-roll photo (BG-4), the file decoded only when there is no
+  /// library picture to be had. Null when neither is.
+  Future<String?> cacheThumbnail(AssetRecord record) async {
+    String? render;
+    try {
+      return await thumbnailCache.ensureFor(
+        record,
+        null,
+        () async => render = await _heldPathFor(record),
+      );
+    } finally {
+      await TempRenders.release(render, delete: true);
+    }
   }
 
   /// The `.mov` half of a Live Photo, or null when there isn't one to be
@@ -480,6 +535,88 @@ class SyncEngine {
       // No plugin, or gone from the library since.
       return null;
     }
+  }
+
+  /// [filePathFor], held so the tmp sweep leaves it alone. Every caller
+  /// releases it (`TempRenders.release`) once done.
+  Future<String?> _heldPathFor(AssetRecord record) async {
+    final path = await filePathFor(record);
+    TempRenders.hold(path);
+    return path;
+  }
+
+  /// The modification date (seconds) of what [filePathFor] reads: the
+  /// file's own for one held here, PhotoKit's for a camera-roll asset.
+  /// Null when there's no answer, which always means "hash it".
+  Future<int?> modifiedOf(AssetRecord record) async {
+    if (record.localDeleted) return null;
+    final path = record.sourcePath;
+    if (path != null) {
+      try {
+        // Knowingly sync, as [filePathFor]: one stat per job, bounded by
+        // the queue's concurrency.
+        final stat = File(path).statSync();
+        if (stat.type != FileSystemEntityType.notFound) {
+          return stat.modified.millisecondsSinceEpoch ~/ 1000;
+        }
+      } catch (_) {
+        return null;
+      }
+    }
+    if (record.sourceType != AssetSourceType.photoManager) return null;
+    return library.modifiedSecondsOf(record);
+  }
+
+  /// Backed-up held files whose date isn't the one they were checked at.
+  /// No scan stamps those, so they're stat'ed here: in one isolate, since
+  /// there can be thousands.
+  Future<Set<String>> _heldFilesMoved(
+    List<AssetRecord> uploaded,
+    Set<String> due,
+  ) async {
+    final baselines = await recordStore.fileCheckBaselines();
+    final paths = <String, String>{
+      for (final r in uploaded)
+        if (r.sourcePath case final path?
+            when !due.contains(r.localId) && baselines.containsKey(r.localId))
+          r.localId: path,
+    };
+    if (paths.isEmpty) return const {};
+    final dates = await Isolate.run(
+      () => {
+        for (final MapEntry(key: id, value: path) in paths.entries)
+          id: () {
+            try {
+              final stat = File(path).statSync();
+              return stat.type == FileSystemEntityType.notFound
+                  ? null
+                  : stat.modified.millisecondsSinceEpoch ~/ 1000;
+            } catch (_) {
+              return null;
+            }
+          }(),
+      },
+    );
+    return {
+      for (final MapEntry(key: id, value: at) in dates.entries)
+        // Gone is the camera roll's answer, not a moved date.
+        if (at != null && at != baselines[id]) id,
+    };
+  }
+
+  /// What Vision reads for [record]: the camera-roll asset itself, rendered
+  /// natively at the size Vision uses (BG-10), or the file for anything
+  /// with no PhotoKit asset (a held or hidden photo, a manual add).
+  Future<String?> visionSourceFor(AssetRecord record) async {
+    if (record.localDeleted) return null;
+    final id = record.libraryId;
+    if (record.sourcePath == null &&
+        record.passcodeHash == null &&
+        record.sourceType == AssetSourceType.photoManager &&
+        id != null) {
+      return OnDeviceVisionService.assetSource(id);
+    }
+    return filePathFor(record);
   }
 
   /// [AssetRecord.sourcePath] direct for `manualFile`; for `photoManager`

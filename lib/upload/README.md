@@ -41,6 +41,12 @@ says: the QuickTime metadata pairing the halves doesn't survive it. See
 every "drop the local copy" path, because a Live Photo backed up as a still
 alone is a silent still.
 
+Camera-roll stills are read through `entity.file`, a fresh full-size JPEG in
+`tmp/flutter-images/` per call. `../photos/temp_renders.dart` holds each one
+while in use; the upload job deletes its own only after `put` returns (the
+transfer completed or failed for good), and a sweep on queue drain takes
+unheld ones over an hour old.
+
 Known limitation: status/key is tracked once per derivative, not once per
 target — see `backup_coordinator.dart`'s doc comment.
 
