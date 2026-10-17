@@ -15,6 +15,46 @@ import 'container_path.dart';
 import 'asset_record.dart';
 import 'bucket_object.dart';
 
+/// What the photo library knows about a photo, for the blanks it fills.
+typedef LibraryMetadata = ({
+  double? latitude,
+  double? longitude,
+  int? width,
+  int? height,
+});
+
+/// A camera-roll asset the scan found untracked, for
+/// [AssetRecordStore.insertScanned].
+class ScannedAsset {
+  const ScannedAsset({
+    required this.localId,
+    required this.libraryId,
+    required this.platform,
+    required this.createdAt,
+    this.isVideo = false,
+    this.isGif = false,
+    this.isLivePhoto = false,
+    this.isFavorite = false,
+    this.latitude,
+    this.longitude,
+    this.width,
+    this.height,
+  });
+
+  final String localId;
+  final String libraryId;
+  final String platform;
+  final DateTime createdAt;
+  final bool isVideo;
+  final bool isGif;
+  final bool isLivePhoto;
+  final bool isFavorite;
+  final double? latitude;
+  final double? longitude;
+  final int? width;
+  final int? height;
+}
+
 /// Local `sqflite` store for per-asset backup state — the single source of
 /// truth for what's been uploaded, so a restart or a killed background task
 /// resumes without re-scanning derivatives from scratch.
@@ -1638,6 +1678,13 @@ class AssetRecordStore {
     );
   }
 
+  /// Whether any restored row is waiting for its asset.
+  Future<bool> hasRelinkPending() async {
+    final db = await _open();
+    final rows = await db.rawQuery('SELECT 1 FROM $_relinkTable LIMIT 1');
+    return rows.isNotEmpty;
+  }
+
   /// The one restored row waiting for an asset taken at [createdAt] with
   /// this shape. Null when none, or when two could be it: a wrong merge is
   /// worse than a second record.
@@ -2364,6 +2411,82 @@ class AssetRecordStore {
     );
   }
 
+  /// A scan page's new assets in one transaction, as [upsert] would add
+  /// each: a `local_id` or `library_id` already taken leaves the row out
+  /// (one record per asset). Returns, by library id, the record now on
+  /// each asset; one left out for its `local_id` is missing from it.
+  Future<Map<String, AssetRecord>> insertScanned(
+    List<ScannedAsset> assets,
+  ) async {
+    if (assets.isEmpty) return {};
+    final db = await _open();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final a in assets) {
+        batch.insert(_table, {
+          'local_id': a.localId,
+          'content_hash': a.libraryId,
+          'platform': a.platform,
+          'source_type': AssetSourceType.photoManager.name,
+          'is_video': a.isVideo ? 1 : 0,
+          'is_live_photo': a.isLivePhoto ? 1 : 0,
+          'is_gif': a.isGif ? 1 : 0,
+          'is_favorite': a.isFavorite ? 1 : 0,
+          'library_id': a.libraryId,
+          'latitude': a.latitude,
+          'longitude': a.longitude,
+          'width': a.width,
+          'height': a.height,
+          'is_hidden': 0,
+          'created_at': a.createdAt.millisecondsSinceEpoch,
+          'updated_at': now,
+          'added_at': now,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+      }
+      await batch.commit(noResult: true);
+    });
+    return getByLibraryIds(assets.map((a) => a.libraryId));
+  }
+
+  /// A scan page's favourite and [setLibraryMetadata] writes, in one
+  /// transaction.
+  Future<void> applyScanUpdates({
+    Map<String, bool> favorites = const {},
+    Map<String, LibraryMetadata> metadata = const {},
+  }) async {
+    if (favorites.isEmpty && metadata.isEmpty) return;
+    final db = await _open();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final MapEntry(key: localId, value: on) in favorites.entries) {
+        batch.update(
+          _table,
+          {'is_favorite': on ? 1 : 0, 'updated_at': now},
+          where: 'local_id = ?',
+          whereArgs: [localId],
+        );
+      }
+      for (final MapEntry(key: localId, value: m) in metadata.entries) {
+        final values = <String, Object?>{
+          'latitude': ?m.latitude,
+          'longitude': ?m.longitude,
+          'width': ?m.width,
+          'height': ?m.height,
+        };
+        if (values.isEmpty) continue;
+        batch.update(
+          _table,
+          {...values, 'updated_at': now},
+          where: 'local_id = ?',
+          whereArgs: [localId],
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+  }
+
   /// Photos carrying a GPS tag that nobody — neither the user nor the
   /// geocoder — has put a name to yet, newest first. Photos in a cell the
   /// geocoder recently said is empty are left out, so they can't fill the
@@ -2914,14 +3037,19 @@ class AssetRecordStore {
 
   /// Patches [_order] for [moved]: in place when the date held, else out
   /// and back in at its new place. A big batch (a first scan's pages) is
-  /// cheaper as one sort of records already built.
+  /// cheaper as one merge of the sorted batch into the rest.
   void _apply(List<AssetRecord> moved) {
     final order = _order!;
     if (moved.length > 256) {
+      final ids = <String>{};
       for (final record in moved) {
         _records[record.localId] = record;
+        ids.add(record.localId);
       }
-      _order = _records.values.toList()..sort(_byDate);
+      _order = _merged([
+        for (final r in order)
+          if (!ids.contains(r.localId)) r,
+      ], [...moved]..sort(_byDate));
       return;
     }
     for (final record in moved) {
@@ -2937,6 +3065,19 @@ class AssetRecordStore {
       }
       order.insert(_insertionPoint(order, record), record);
     }
+  }
+
+  static List<AssetRecord> _merged(List<AssetRecord> a, List<AssetRecord> b) {
+    final out = <AssetRecord>[];
+    var i = 0;
+    var j = 0;
+    while (i < a.length && j < b.length) {
+      out.add(_byDate(a[i], b[j]) <= 0 ? a[i++] : b[j++]);
+    }
+    out
+      ..addAll(a.skip(i))
+      ..addAll(b.skip(j));
+    return out;
   }
 
   static int _insertionPoint(List<AssetRecord> order, AssetRecord record) {

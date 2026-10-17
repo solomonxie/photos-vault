@@ -80,11 +80,15 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
   it and nobody pays for it, and a pause switch able to stop new photos
   arriving is one that breaks the app. Two lanes: `runRecent()` reads the
   newest couple of pages on every open and every resume, ungated and never
-  waiting on anything; `run()` is the full backstop pass, one at a time, at
-  most one every five minutes, forced on coming back from Photos. The head
-  lane exists because a full pass is minutes long on a real library and
-  reconciles deletions only at the end — so what changed in Photos a minute
-  ago would otherwise wait out a whole re-read of the decade.
+  waiting on anything; `runChanges()` follows it with PhotoKit's change
+  history (`photo_changes.dart`, iOS 16+, token in `app_state`) applied
+  through `applyChange`; `run()` is the full backstop pass, one at a time,
+  at most daily, forced only when the history can't vouch (no token,
+  expired, access changed since the last pass, restored rows waiting, or
+  over 2,000 ids). The head lane exists because a full pass is minutes
+  long on a real library and reconciles deletions only at the end — so
+  what changed in Photos a minute ago would otherwise wait out a whole
+  re-read of the decade.
 - `asset_removal.dart` — the two ways a photo or video can go (cloud-only,
   or into Recently Deleted) and which of them a given asset is eligible
   for. One place, because that eligibility is a property of the photo, and

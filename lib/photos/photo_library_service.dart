@@ -7,6 +7,7 @@ import 'package:photo_manager/photo_manager.dart';
 import '../demo/demo_flag.dart';
 import '../storage/asset_record.dart';
 import 'manual_add.dart' show isGifPath;
+import 'photo_changes.dart';
 import 'photo_library_change.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/lost_originals.dart';
@@ -45,18 +46,27 @@ class PhotoLibraryService {
     Future<List<AssetEntity>> Function(int page, int size)? listAssetPage,
     Future<AssetEntity?> Function(String id)? loadEntity,
     Future<List<String>> Function(List<String> ids)? deleteAssets,
-  }) : _requestPermission =
+    Future<String> Function(AssetEntity entity)? loadTitle,
+    PhotoChanges? changes,
+  }) : _changes = changes ?? PhotoChanges(),
+       // A library handed in has no plugin behind it to ask.
+       _loadTitle =
+           loadTitle ??
+           (listAssetPage == null && loadEntity == null
+               ? ((entity) => entity.titleAsync)
+               : ((entity) async => entity.title ?? '')),
+       _requestPermission =
            requestPermission ??
            // Demo mode never reaches the real camera roll: an empty,
            // authorised library, so nothing asks and nothing is read.
            (() => DemoFlag.active
                ? Future.value(PermissionState.authorized)
                : PhotoManager.requestPermissionExtend()),
-       _listAssetPage =
-           listAssetPage ??
-           ((page, size) => DemoFlag.active
-               ? Future.value(const <AssetEntity>[])
-               : _defaultListAssetPage(page, size)),
+       _openListing = listAssetPage != null
+           ? (() => listAssetPage)
+           : (() => DemoFlag.active
+                 ? ((page, size) => Future.value(const <AssetEntity>[]))
+                 : _cameraRollListing()),
        _loadEntity =
            loadEntity ??
            ((id) => DemoFlag.active ? Future.value() : AssetEntity.fromId(id)),
@@ -68,7 +78,12 @@ class PhotoLibraryService {
 
   final AssetRecordStore store;
   final Future<PermissionState> Function() _requestPermission;
-  final Future<List<AssetEntity>> Function(int page, int size) _listAssetPage;
+  final PhotoChanges _changes;
+  final Future<String> Function(AssetEntity entity) _loadTitle;
+
+  /// A pager for one pass: [_cameraRollListing] in the app.
+  final Future<List<AssetEntity>> Function(int page, int size) Function()
+  _openListing;
   final Future<AssetEntity?> Function(String id) _loadEntity;
 
   /// Overridable for tests so they never really delete from the OS library.
@@ -79,34 +94,54 @@ class PhotoLibraryService {
 
   static const _pageSize = 200;
 
-  /// One page of the camera roll, **newest first**. Metadata only — no
-  /// `.file`/thumbnail bytes touched here, so no iCloud downloads
-  /// triggered.
+  /// One pass over the camera roll, a page at a time, **newest first**.
+  /// Metadata only — no `.file`/thumbnail bytes touched here, so no iCloud
+  /// downloads triggered. The album is looked up on the first page and kept
+  /// for the rest of the pass.
   ///
   /// The order is the whole point. A first scan works backwards from the
   /// most recent photo, so the page the user is actually looking at fills
   /// first and everything after it arrives off-screen, above. Scanning in
   /// library order would put 2011 on screen and then shove it around for a
   /// minute as the rest of the decade landed on top of it.
-  static Future<List<AssetEntity>> _defaultListAssetPage(
-    int page,
-    int size,
-  ) async {
+  static Future<List<AssetEntity>> Function(int page, int size)
+  _cameraRollListing() {
+    Future<AssetPathEntity?>? album;
+    return (page, size) async {
+      final path = await (album ??= _cameraRoll());
+      if (path == null) return const [];
+      return path.getAssetListPaged(page: page, size: size);
+    };
+  }
+
+  static Future<AssetPathEntity?> _cameraRoll() async {
     final paths = await PhotoManager.getAssetPathList(
       type: RequestType.common,
       onlyAll: true,
       filterOption: FilterOptionGroup(
-        // The filename, which is the only thing that says "this is a GIF":
-        // PhotoKit's asset type calls it an image, and `mimeType` is null
-        // on iOS. Metadata, so it costs the scan nothing.
-        imageOption: const FilterOption(needTitle: true),
+        // No filename: on iOS each one is an asset-resource lookup. Only a
+        // new image needs it (the GIF check), so [_titleOf] asks for those.
+        imageOption: const FilterOption(needTitle: false),
         orders: const [
           OrderOption(type: OrderOptionType.createDate, asc: false),
         ],
       ),
     );
-    if (paths.isEmpty) return const [];
-    return paths.first.getAssetListPaged(page: page, size: size);
+    return paths.firstOrNull;
+  }
+
+  /// The filename, which is the only thing that says "this is a GIF":
+  /// PhotoKit's asset type calls it an image, and `mimeType` is null on
+  /// iOS. Images only; a failed lookup is no filename.
+  Future<String> _titleOf(AssetEntity entity) async {
+    if (entity.type != AssetType.image) return '';
+    final listed = entity.title;
+    if (listed != null && listed.isNotEmpty) return listed;
+    try {
+      return await _loadTitle(entity);
+    } catch (_) {
+      return '';
+    }
   }
 
   static const _idPrefix = 'photo:';
@@ -159,13 +194,17 @@ class PhotoLibraryService {
     final added = <AssetRecord>[];
     final seen = <String>{};
     var updated = 0;
+    // Taken before the listing: whatever changes while it runs is after
+    // the token, so the next [syncChanges] still sees it.
+    final token = await _changes.token();
+    final listPage = _openListing();
 
     // Page by page rather than the whole roll in one go: a decade of photos
     // is hundreds of thousands of entities, and holding them all in memory
     // to loop over once is a spike for nothing. Each page is also a chance
     // to show what's been found — see [onPage].
     for (var page = 0; ; page++) {
-      final entities = await _listAssetPage(page, _pageSize);
+      final entities = await listPage(page, _pageSize);
       if (entities.isEmpty) break;
       final result = await _applyPage(entities, seen);
       added.addAll(result.added);
@@ -180,7 +219,56 @@ class PhotoLibraryService {
       await store.clearRelinkPending();
       updated += await _reconcileDeletions(seen);
     }
+    await _markFullPass(token, reconciled: reconcileDeletions);
     return PhotoLibrarySyncResult(added: added, updated: updated);
+  }
+
+  static const changeTokenKey = 'library_change_token';
+  static const fullPassAtKey = 'library_full_pass_at';
+
+  /// Whether the last full pass reconciled deletions (full access) or not.
+  /// A delta only stands in for a pass made under the same access.
+  static const fullPassAccessKey = 'library_full_pass_access';
+
+  /// The most ids one delta is applied for, one lookup each; past it the
+  /// paged full pass is cheaper.
+  static const deltaLimit = 2000;
+
+  Future<void> _markFullPass(String? token, {required bool reconciled}) async {
+    await store.setAppState(fullPassAccessKey, reconciled ? 'full' : 'partial');
+    await store.setAppState(fullPassAtKey, DateTime.now().toIso8601String());
+    if (token != null) await store.setAppState(changeTokenKey, token);
+  }
+
+  /// When the last [syncAll] finished, or null if none has here.
+  Future<DateTime?> lastFullPassAt() async =>
+      DateTime.tryParse(await store.getAppState(fullPassAtKey) ?? '');
+
+  /// What changed in Photos since the last pass, from PhotoKit's change
+  /// history, through [applyChange] — so a resume costs what changed, not
+  /// what the library holds.
+  ///
+  /// Null when the history can't stand in for a [syncAll]: no token yet
+  /// (or iOS 15), the token expired, access changed since the last full
+  /// pass, restored rows wait for an asset (only a full pass offers them
+  /// every one), or more changed than [deltaLimit]. Deletions go through
+  /// [applyChange]'s own rule: full access and a live lookup per id.
+  Future<PhotoLibrarySyncResult?> syncChanges() async {
+    final token = await store.getAppState(changeTokenKey);
+    if (token == null) return null;
+    final access = await requestAccess();
+    if (access == PhotoLibraryAccess.denied) return null;
+    final passAccess = access == PhotoLibraryAccess.granted
+        ? 'full'
+        : 'partial';
+    if (await store.getAppState(fullPassAccessKey) != passAccess) return null;
+    if (await store.hasRelinkPending()) return null;
+    final delta = await _changes.since(token);
+    if (delta == null || delta.change.length > deltaLimit) return null;
+    final result = await applyChange(delta.change);
+    // Only once applied: a failure above replays the same history.
+    await store.setAppState(changeTokenKey, delta.token);
+    return result;
   }
 
   /// The newest [pages] pages of the camera roll and nothing else — what
@@ -208,8 +296,9 @@ class PhotoLibraryService {
     DateTime? oldest;
     var wholeLibrary = false;
 
+    final listPage = _openListing();
     for (var page = 0; page < pages; page++) {
-      final entities = await _listAssetPage(page, _pageSize);
+      final entities = await listPage(page, _pageSize);
       if (entities.isEmpty) {
         wholeLibrary = true;
         break;
@@ -241,6 +330,11 @@ class PhotoLibraryService {
   /// One page of listed entities into the store. [seen] collects the
   /// `localId` of everything the page accounted for, which is what
   /// [_reconcileDeletions] measures absence against.
+  ///
+  /// New assets go in as one transaction, and the page's favourite and
+  /// metadata writes as another, rather than a commit per row. Restored
+  /// rows waiting for their asset take the one-by-one path, which offers
+  /// each new asset to them first.
   Future<PhotoLibrarySyncResult> _applyPage(
     List<AssetEntity> entities,
     Set<String> seen,
@@ -248,30 +342,85 @@ class PhotoLibraryService {
     final added = <AssetRecord>[];
     var updated = 0;
     final known = await store.getByLibraryIds(entities.map((e) => e.id));
-    for (final entity in entities) {
-      final localId = localIdFor(entity);
-      final existing = known[entity.id];
-      if (existing == null) {
-        // Read before a swap could move a record onto this asset: the
-        // store's one-record-per-asset rule hands that record back.
-        final inserted = await _insert(entity, localId);
-        seen.add(inserted.localId);
-        if (inserted.localId == localId) added.add(inserted);
-        continue;
+    final fresh = [
+      for (final entity in entities)
+        if (known[entity.id] == null) entity,
+    ];
+    if (fresh.isNotEmpty) {
+      if (await store.hasRelinkPending()) {
+        for (final entity in fresh) {
+          // Read before a swap could move a record onto this asset: the
+          // store's one-record-per-asset rule hands that record back.
+          final localId = localIdFor(entity);
+          final inserted = await _insert(entity, localId);
+          seen.add(inserted.localId);
+          if (inserted.localId == localId) added.add(inserted);
+        }
+      } else {
+        await _insertPage(fresh, seen, added);
       }
+    }
+    final favorites = <String, bool>{};
+    final metadata = <String, LibraryMetadata>{};
+    for (final entity in entities) {
+      final existing = known[entity.id];
+      if (existing == null) continue;
       seen.add(existing.localId);
       if (await _relink(existing, entity)) updated++;
       if (existing.isFavorite != entity.isFavorite) {
-        await store.setFavorite(existing.localId, entity.isFavorite);
+        favorites[existing.localId] = entity.isFavorite;
         updated++;
       }
       if (await _cameBack(existing)) updated++;
       // Photos tracked before this app started keeping coordinates and
       // pixel sizes: the entity is right here, so the backfill is the
       // scan itself rather than a separate pass over the library.
-      if (await _fillLibraryMetadata(existing, entity)) updated++;
+      if (_libraryMetadataOf(existing, entity) case final filled?) {
+        metadata[existing.localId] = filled;
+        updated++;
+      }
     }
+    await store.applyScanUpdates(favorites: favorites, metadata: metadata);
     return PhotoLibrarySyncResult(added: added, updated: updated);
+  }
+
+  /// [_insert] for a page of new assets, in one transaction. An asset the
+  /// store didn't take (its `photo:` id already holds another asset) goes
+  /// through [_insert] after all, which hands back what is there.
+  Future<void> _insertPage(
+    List<AssetEntity> fresh,
+    Set<String> seen,
+    List<AssetRecord> added,
+  ) async {
+    final titles = await Future.wait(fresh.map(_titleOf));
+    final platform = Platform.isIOS ? 'ios' : 'android';
+    final rows = <ScannedAsset>[];
+    for (final (i, entity) in fresh.indexed) {
+      final latLng = _coordinatesOf(entity);
+      rows.add(
+        ScannedAsset(
+          localId: localIdFor(entity),
+          libraryId: entity.id,
+          platform: platform,
+          isVideo: entity.type == AssetType.video,
+          isGif: isGifPath(titles[i]),
+          isLivePhoto: entity.isLivePhoto,
+          isFavorite: entity.isFavorite,
+          createdAt: entity.createDateTime,
+          latitude: latLng?.latitude,
+          longitude: latLng?.longitude,
+          width: entity.width > 0 ? entity.width : null,
+          height: entity.height > 0 ? entity.height : null,
+        ),
+      );
+    }
+    final held = await store.insertScanned(rows);
+    for (final entity in fresh) {
+      final localId = localIdFor(entity);
+      final record = held[entity.id] ?? await _insert(entity, localId);
+      seen.add(record.localId);
+      if (record.localId == localId) added.add(record);
+    }
   }
 
   /// Applies one [PhotoLibraryChange] — the precise set of assets iOS says
@@ -471,7 +620,7 @@ class PhotoLibraryService {
       platform: Platform.isIOS ? 'ios' : 'android',
       sourceType: AssetSourceType.photoManager,
       isVideo: entity.type == AssetType.video,
-      isGif: isGifPath(entity.title ?? ''),
+      isGif: isGifPath(await _titleOf(entity)),
       isLivePhoto: entity.isLivePhoto,
       createdAt: entity.createDateTime,
       libraryId: entity.id,
@@ -529,6 +678,23 @@ class PhotoLibraryService {
     AssetRecord record,
     AssetEntity entity,
   ) async {
+    final filled = _libraryMetadataOf(record, entity);
+    if (filled == null) return false;
+    await store.setLibraryMetadata(
+      record.localId,
+      latitude: filled.latitude,
+      longitude: filled.longitude,
+      width: filled.width,
+      height: filled.height,
+    );
+    return true;
+  }
+
+  /// The blanks [_fillLibraryMetadata] would fill, or null for none.
+  static LibraryMetadata? _libraryMetadataOf(
+    AssetRecord record,
+    AssetEntity entity,
+  ) {
     final latLng = record.hasCoordinates ? null : _coordinatesOf(entity);
     final width = record.width == null && entity.width > 0
         ? entity.width
@@ -536,15 +702,13 @@ class PhotoLibraryService {
     final height = record.height == null && entity.height > 0
         ? entity.height
         : null;
-    if (latLng == null && width == null && height == null) return false;
-    await store.setLibraryMetadata(
-      record.localId,
+    if (latLng == null && width == null && height == null) return null;
+    return (
       latitude: latLng?.latitude,
       longitude: latLng?.longitude,
       width: width,
       height: height,
     );
-    return true;
   }
 
   /// What the library entry already carries, taken while the scan has it

@@ -507,6 +507,61 @@ class FakeAssetRecordStore implements AssetRecordStore {
     }
   }
 
+  @override
+  Future<bool> hasRelinkPending() async => relinkPending.isNotEmpty;
+
+  /// Pages written through [insertScanned] / [applyScanUpdates].
+  int scanBatches = 0;
+
+  @override
+  Future<Map<String, AssetRecord>> insertScanned(
+    List<ScannedAsset> assets,
+  ) async {
+    if (assets.isEmpty) return {};
+    scanBatches++;
+    for (final a in assets) {
+      if (_records.containsKey(a.localId)) continue;
+      if (_records.values.any((r) => r.libraryId == a.libraryId)) continue;
+      await upsert(
+        localId: a.localId,
+        contentHash: a.libraryId,
+        platform: a.platform,
+        isVideo: a.isVideo,
+        isGif: a.isGif,
+        isLivePhoto: a.isLivePhoto,
+        createdAt: a.createdAt,
+        latitude: a.latitude,
+        longitude: a.longitude,
+        width: a.width,
+        height: a.height,
+        libraryId: a.libraryId,
+      );
+      if (a.isFavorite) await setFavorite(a.localId, true);
+    }
+    return getByLibraryIds(assets.map((a) => a.libraryId));
+  }
+
+  @override
+  Future<void> applyScanUpdates({
+    Map<String, bool> favorites = const {},
+    Map<String, LibraryMetadata> metadata = const {},
+  }) async {
+    if (favorites.isEmpty && metadata.isEmpty) return;
+    scanBatches++;
+    for (final MapEntry(key: id, value: on) in favorites.entries) {
+      await setFavorite(id, on);
+    }
+    for (final MapEntry(key: id, value: m) in metadata.entries) {
+      await setLibraryMetadata(
+        id,
+        latitude: m.latitude,
+        longitude: m.longitude,
+        width: m.width,
+        height: m.height,
+      );
+    }
+  }
+
   static bool _fits(AssetRecord r, bool isVideo, int? width, int? height) =>
       r.isVideo == isVideo &&
       (r.width == null || width == null || r.width == width) &&

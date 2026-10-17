@@ -3,6 +3,8 @@ import 'dart:io';
 
 import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/photos/manual_add.dart';
+import 'package:photos_vault/photos/photo_changes.dart';
+import 'package:photos_vault/photos/photo_library_change.dart';
 import 'package:photos_vault/photos/photo_library_service.dart';
 import 'package:photos_vault/photos/thumbnail_cache.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
@@ -1585,6 +1587,73 @@ void main() {
     },
   );
 
+  testWidgets('a resume reads the change history, not the whole roll', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    final changes = _ScriptedChanges();
+    var listings = 0;
+    final photoLibraryService = PhotoLibraryService(
+      store: recordStore,
+      requestPermission: () async => PermissionState.authorized,
+      listAssetPage: pagedBy(() {
+        listings++;
+        return [
+          AssetEntity(
+            id: 'roll1',
+            typeInt: AssetType.image.index,
+            width: 100,
+            height: 100,
+          ),
+        ];
+      }),
+      loadEntity: (_) async => null,
+      changes: changes,
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+          photoLibraryService: photoLibraryService,
+        ),
+      ),
+    );
+    await _settleScan(tester);
+    expect(
+      await recordStore.getAppState(PhotoLibraryService.changeTokenKey),
+      't0',
+      reason: 'no token at first launch: the full pass ran and left one',
+    );
+    final atLaunch = listings;
+
+    changes.next = const PhotoChangeDelta(
+      change: PhotoLibraryChange(updated: {'roll1'}),
+      token: 't1',
+    );
+    await _sendLifecycle(tester, AppLifecycleState.inactive);
+    await _sendLifecycle(tester, AppLifecycleState.resumed);
+    await _settleScan(tester);
+
+    expect(changes.asked, ['t0']);
+    expect(listings, atLaunch + 1, reason: 'the recent lane, and no more');
+    expect(
+      await recordStore.getAppState(PhotoLibraryService.changeTokenKey),
+      't1',
+    );
+  });
+
   testWidgets('selection mode deletes the whole selection, once confirmed', (
     tester,
   ) async {
@@ -2162,4 +2231,18 @@ void _reloadCoalescing() {
     expect(recordStore.reads - before, 2);
     expect(find.byType(AssetTile), findsOneWidget);
   });
+}
+
+class _ScriptedChanges extends PhotoChanges {
+  PhotoChangeDelta? next;
+  final asked = <String>[];
+
+  @override
+  Future<String?> token() async => 't0';
+
+  @override
+  Future<PhotoChangeDelta?> since(String token) async {
+    asked.add(token);
+    return next;
+  }
 }

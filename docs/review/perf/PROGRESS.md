@@ -3,7 +3,7 @@
 | PW | Goal | Status | Commit |
 |---|---|---|---|
 | PW1 | First photo fast on cold start | done | c919b28 |
-| PW2 | Cheap resume | todo | |
+| PW2 | Cheap resume | done | (this commit) |
 | PW3 | No re-renders for thumbnails, Vision, hashing | todo | |
 | PW3b | Upload true originals | needs decision | |
 | PW4 | Faces without full descriptor reads | todo | |

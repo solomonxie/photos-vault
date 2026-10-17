@@ -1051,4 +1051,110 @@ void main() {
       expect(again.localId, 'photo:X');
     });
   });
+
+  group('PW2: a scan page in one transaction', () {
+    ScannedAsset scanned(String id, {int second = 0, bool favorite = false}) =>
+        ScannedAsset(
+          localId: 'photo:$id',
+          libraryId: id,
+          platform: 'ios',
+          createdAt: DateTime.fromMillisecondsSinceEpoch(second * 1000),
+          isFavorite: favorite,
+          width: 10,
+          height: 20,
+        );
+
+    test(
+      'inserts new assets, and hands back the holder of a taken one',
+      () async {
+        final store = newStore();
+        await store.upsert(
+          localId: 'photo:old',
+          contentHash: 'x',
+          platform: 'ios',
+          libraryId: 'b',
+        );
+
+        final held = await store.insertScanned([
+          scanned('a', favorite: true),
+          scanned('b'),
+        ]);
+
+        expect(held['a']!.localId, 'photo:a');
+        expect(held['a']!.isFavorite, isTrue);
+        expect(held['a']!.width, 10);
+        expect(held['a']!.sourceType, AssetSourceType.photoManager);
+        expect(held['b']!.localId, 'photo:old', reason: 'one record per asset');
+        expect(await store.getByLocalId('photo:b'), isNull);
+      },
+    );
+
+    test('a local id already taken is left out of the answer', () async {
+      final store = newStore();
+      await store.upsert(
+        localId: 'photo:a',
+        contentHash: 'x',
+        platform: 'ios',
+        libraryId: 'elsewhere',
+      );
+
+      final held = await store.insertScanned([scanned('a')]);
+
+      expect(held, isEmpty);
+      expect((await store.getByLocalId('photo:a'))!.libraryId, 'elsewhere');
+    });
+
+    test('favourites and blanks are written in one go', () async {
+      final store = newStore();
+      await store.insertScanned([scanned('a'), scanned('b')]);
+
+      await store.applyScanUpdates(
+        favorites: {'photo:a': true},
+        metadata: {
+          'photo:b': (latitude: 1.5, longitude: 2.5, width: null, height: null),
+        },
+      );
+
+      expect((await store.getByLocalId('photo:a'))!.isFavorite, isTrue);
+      final b = (await store.getByLocalId('photo:b'))!;
+      expect(b.latitude, 1.5);
+      expect(b.width, 10, reason: 'a null leaves the column alone');
+    });
+
+    test('says whether restored rows are waiting', () async {
+      final store = newStore();
+      expect(await store.hasRelinkPending(), isFalse);
+      await store.upsert(localId: 'photo:r', contentHash: 'r', platform: 'ios');
+      await store.markRelinkPending('photo:r', DateTime(2020));
+      expect(await store.hasRelinkPending(), isTrue);
+    });
+
+    test('a big batch is merged into the order, not re-sorted wrong', () async {
+      final store = newStore();
+      await store.insertScanned([
+        for (var i = 0; i < 100; i++) scanned('e$i', second: i * 2),
+      ]);
+      await store.listAll();
+
+      await store.insertScanned([
+        for (var i = 0; i < 300; i++) scanned('o$i', second: i * 2 + 1),
+      ]);
+      await store.setCreatedAt(
+        'photo:e0',
+        DateTime.fromMillisecondsSinceEpoch(999999 * 1000),
+      );
+      final all = await store.listAll();
+
+      expect(all, hasLength(400));
+      expect(all.map((r) => r.localId).toSet(), hasLength(400));
+      for (var i = 1; i < all.length; i++) {
+        expect(
+          all[i - 1].createdAt.isAfter(all[i].createdAt),
+          isFalse,
+          reason: 'oldest first at $i',
+        );
+      }
+      expect(all.last.localId, 'photo:e0');
+    });
+  });
 }

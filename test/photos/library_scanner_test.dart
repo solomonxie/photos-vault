@@ -120,4 +120,86 @@ void main() {
       expect(scans, 2);
     },
   );
+
+  group('PW2: resume', () {
+    test('the change history stands in for the full pass', () async {
+      var full = 0;
+      var changes = 0;
+      final now = DateTime(2026, 10, 16, 12);
+      final scanner = LibraryScanner(
+        scan: () async => full++,
+        scanChanges: () async {
+          changes++;
+          return true;
+        },
+        lastFullPass: () async => now.subtract(const Duration(hours: 3)),
+        now: () => now,
+      );
+
+      await scanner.runChanges();
+      await scanner.runChanges();
+
+      expect(changes, 2);
+      expect(full, 0, reason: 'the last full pass is under a day old');
+    });
+
+    test('the full pass still runs once a day', () async {
+      var full = 0;
+      final now = DateTime(2026, 10, 16, 12);
+      final scanner = LibraryScanner(
+        scan: () async => full++,
+        scanChanges: () async => true,
+        lastFullPass: () async => now.subtract(const Duration(days: 1)),
+        now: () => now,
+      );
+
+      await scanner.runChanges();
+      await scanner.runChanges();
+
+      expect(full, 1);
+    });
+
+    test('no history to go on forces the full pass', () async {
+      var full = 0;
+      final now = DateTime(2026, 10, 16, 12);
+      final scanner = LibraryScanner(
+        scan: () async => full++,
+        scanChanges: () async => false,
+        lastFullPass: () async => now,
+        now: () => now,
+      );
+
+      await scanner.runChanges();
+      await scanner.runChanges();
+
+      expect(full, 2);
+    });
+
+    test('a failing history read forces it too', () async {
+      var full = 0;
+      final scanner = LibraryScanner(
+        scan: () async => full++,
+        scanChanges: () async => throw StateError('no channel'),
+        lastFullPass: () async => DateTime.now(),
+      );
+
+      await scanner.runChanges();
+
+      expect(full, 1);
+    });
+
+    test('a background round inside the day reads nothing', () async {
+      var full = 0;
+      final now = DateTime(2026, 10, 16, 12);
+      final scanner = LibraryScanner(
+        scan: () async => full++,
+        lastFullPass: () async => now.subtract(const Duration(hours: 1)),
+        now: () => now,
+      );
+
+      await scanner.run();
+
+      expect(full, 0);
+    });
+  });
 }

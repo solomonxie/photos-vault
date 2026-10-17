@@ -8,11 +8,15 @@
 /// optionally, money, so it stays in a queue you can see, pace and stop.
 ///
 /// One pass at a time, and at most one every [interval] unless forced.
+/// Between full passes, [runChanges] catches up from Photos' own change
+/// history.
 class LibraryScanner {
   LibraryScanner({
     required this.scan,
     this.scanRecent,
-    this.interval = const Duration(minutes: 5),
+    this.scanChanges,
+    this.lastFullPass,
+    this.interval = const Duration(days: 1),
     this.before,
     DateTime Function()? now,
   }) : _now = now ?? DateTime.now;
@@ -28,15 +32,24 @@ class LibraryScanner {
   /// The newest photos only — see [runRecent].
   final Future<void> Function()? scanRecent;
 
-  /// How long a re-read stays good for. Without it, coming back to the
-  /// library screen twice in a second would read Photos twice.
+  /// What changed since the last pass; false when it can't say, which
+  /// forces the full pass — see [runChanges].
+  final Future<bool> Function()? scanChanges;
+
+  /// When the last full pass finished, across launches.
+  final Future<DateTime?> Function()? lastFullPass;
+
+  /// How long a full re-read stays good for. Between passes, the change
+  /// history and the notifications keep up; this is the backstop.
   final Duration interval;
 
   final DateTime Function() _now;
 
   DateTime? _lastAt;
+  bool _lastLoaded = false;
   Future<void>? _inFlight;
   Future<void>? _recentInFlight;
+  Future<void>? _changesInFlight;
 
   /// The near end of the library, every time the app opens or comes back,
   /// with no interval and no waiting on [run].
@@ -65,6 +78,28 @@ class LibraryScanner {
     }
   }
 
+  /// Opening the app or coming back to it: the changes since the last
+  /// pass, then the full pass only when it is due or the changes couldn't
+  /// be had (no history, an expired token, access changed).
+  Future<void> runChanges() async {
+    final inFlight = _changesInFlight;
+    if (inFlight != null) return inFlight;
+    final future = () async {
+      await _waitBefore();
+      var covered = false;
+      try {
+        covered = await scanChanges?.call() ?? false;
+      } catch (_) {}
+      await run(force: !covered);
+    }();
+    _changesInFlight = future;
+    try {
+      await future;
+    } finally {
+      _changesInFlight = null;
+    }
+  }
+
   /// Photos unavailable, permission withdrawn mid-pass — swallowed so the
   /// next round tries again.
   static Future<void> _guarded(Future<void> Function() scan) async {
@@ -73,11 +108,19 @@ class LibraryScanner {
     } catch (_) {}
   }
 
-  /// [force] ignores [interval] — what coming back from Photos means,
-  /// where the whole point is that something may have changed over there.
+  /// [force] ignores [interval]: what [runChanges] asks for when the
+  /// change history can't vouch for what moved.
   Future<void> run({bool force = false}) async {
-    final inFlight = _inFlight;
+    var inFlight = _inFlight;
     if (inFlight != null) return inFlight;
+    if (!force && !_lastLoaded) {
+      _lastLoaded = true;
+      try {
+        _lastAt ??= await lastFullPass?.call();
+      } catch (_) {}
+      inFlight = _inFlight;
+      if (inFlight != null) return inFlight;
+    }
     final last = _lastAt;
     if (!force && last != null && _now().difference(last) < interval) return;
     final future = _run();

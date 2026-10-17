@@ -445,6 +445,8 @@ class LibraryScreenState extends State<LibraryScreen>
   late final LibraryScanner _libraryScanner = LibraryScanner(
     scan: _syncPhotoLibrary,
     scanRecent: _syncRecentPhotos,
+    scanChanges: _syncPhotoChanges,
+    lastFullPass: _photoLibraryService.lastFullPassAt,
     before: () => _restoreFirst ?? Future<void>.value(),
   );
 
@@ -588,11 +590,10 @@ class LibraryScreenState extends State<LibraryScreen>
       return;
     }
     if (state != AppLifecycleState.resumed || !mounted) return;
-    // Coming back from Photos is the whole reason for the forced pass:
-    // something may have changed over there while we weren't looking. The
-    // newest photos first and on their own lane — what changed over there
-    // is almost always at that end, and a full pass already walking
-    // through 2014 would otherwise take minutes to reach it.
+    // Coming back from Photos: something may have changed over there while
+    // we weren't looking. The newest photos first and on their own lane,
+    // then Photos' change history; the full pass only when that can't
+    // vouch for what moved, or once a day.
     unawaited(_refreshBucketListing());
     unawaited(_scanRecentThenAll());
     unawaited(_analyzeQueue.startIfDue());
@@ -602,12 +603,12 @@ class LibraryScreenState extends State<LibraryScreen>
     _startTrickle();
   }
 
-  /// The full pass starts once the newest photos are in: started together,
+  /// The changes start once the newest photos are in: started together,
   /// both queue on the one database connection and the recent lane, the
-  /// one somebody is waiting on, finishes behind the full pass.
+  /// one somebody is waiting on, finishes behind them.
   Future<void> _scanRecentThenAll() async {
     await _libraryScanner.runRecent();
-    await _libraryScanner.run(force: true);
+    await _libraryScanner.runChanges();
   }
 
   /// Keeping up with Photos while the app is open costs a notification per
@@ -870,11 +871,11 @@ class LibraryScreenState extends State<LibraryScreen>
     );
     await _launchSettled();
     if (!mounted) return;
-    // Fire-and-forget: a full camera-roll scan (and any iCloud downloads it
-    // triggers for backup) can be slow, and must never block showing the
-    // manually-added assets already on hand. Re-`reload()`s itself once
-    // done. After the recent lane, as [_scanRecentThenAll].
-    unawaited(recent.then((_) => _libraryScanner.run(force: true)));
+    // Fire-and-forget: the changes since the last pass, or a full scan when
+    // they can't be had, must never block showing what's already on hand.
+    // Re-`reload()`s itself once done. After the recent lane, as
+    // [_scanRecentThenAll].
+    unawaited(recent.then((_) => _libraryScanner.runChanges()));
     unawaited(_analyzeQueue.startIfDue());
     // Independent of camera-roll access: retries whatever's already
     // pending/failed if the configured sync frequency says it's due — the
@@ -1011,6 +1012,20 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
+  /// What changed in Photos since the last pass, from its change history.
+  /// False when that can't be had: [LibraryScanner] runs the full pass.
+  Future<bool> _syncPhotoChanges() async {
+    final result = await _photoLibraryService.syncChanges();
+    if (result == null) return false;
+    if (result.added.isNotEmpty) {
+      _unresolvable.clear();
+      // Without a full pass today, nothing else names their places.
+      unawaited(_namePlaces());
+    }
+    if (!result.isEmpty && mounted) await _showThenBackUp(result.added);
+    return true;
+  }
+
   /// Pulls in the real camera roll (T2.1) — permission prompt on first run,
   /// silent on every launch after. Backs up anything newly seen the same
   /// way a manual add is, so granting access alone starts a backup.
@@ -1030,13 +1045,14 @@ class LibraryScreenState extends State<LibraryScreen>
         reconcileDeletions: access == PhotoLibraryAccess.granted,
         onPage: (page) {
           if (page.isEmpty || !mounted) return;
-          // Redrawing per page would be O(library) work per page; once a
-          // second keeps the scan visibly moving without that.
+          // Redrawing per page would be O(library) work per page. Once a
+          // second until the screen is full, then every few: later pages
+          // land above the viewport, and the end of the pass draws anyway.
           final now = DateTime.now();
-          if (_all.isNotEmpty &&
-              now.difference(lastDraw) < const Duration(seconds: 1)) {
-            return;
-          }
+          final every = _all.length < _firstPaintCount
+              ? const Duration(seconds: 1)
+              : const Duration(seconds: 4);
+          if (_all.isNotEmpty && now.difference(lastDraw) < every) return;
           lastDraw = now;
           unawaited(reload());
         },
