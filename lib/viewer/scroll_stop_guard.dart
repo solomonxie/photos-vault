@@ -38,7 +38,12 @@ class _ScrollStopGuardState extends State<ScrollStopGuard> {
   /// third of a second of silence is not a pause in a fling — it is a
   /// scroll view that has gone away.
   static const _staleAfter = Duration(milliseconds: 350);
+
+  /// Checks for silence twice per [_staleAfter], so a moving list costs a
+  /// flag per frame rather than a new timer per frame.
   Timer? _watchdog;
+  bool _heard = false;
+  int _silentChecks = 0;
 
   @override
   void dispose() {
@@ -55,16 +60,29 @@ class _ScrollStopGuardState extends State<ScrollStopGuard> {
     } else if (notification is ScrollEndNotification) {
       _arm(false);
     } else if (_inFlight.value) {
-      _watchdog?.cancel();
-      _watchdog = Timer(_staleAfter, () => _arm(false));
+      _heard = true;
     }
     return false;
   }
 
   void _arm(bool value) {
     _watchdog?.cancel();
-    _watchdog = value ? Timer(_staleAfter, () => _arm(false)) : null;
+    _heard = false;
+    _silentChecks = 0;
+    _watchdog = value
+        ? Timer.periodic(_staleAfter ~/ 2, (_) => _check())
+        : null;
     _inFlight.value = value;
+  }
+
+  /// Stale after two silent checks: 350-525 ms with no notification.
+  void _check() {
+    if (_heard) {
+      _heard = false;
+      _silentChecks = 0;
+    } else if (++_silentChecks >= 2) {
+      _arm(false);
+    }
   }
 
   @override

@@ -93,8 +93,13 @@ class _DateScrubberState extends State<DateScrubber> {
   /// [_visible] by [_grabGrace] — see there.
   bool _grabbable = false;
   bool _dragging = false;
+
+  /// Hides, then a [_grabGrace] later ends grabbing. One at a time, armed
+  /// when motion stops rather than re-armed on every scrolled frame.
   Timer? _hideTimer;
-  Timer? _grabTimer;
+
+  /// The position whose `isScrollingNotifier` says when motion stopped.
+  ScrollPosition? _watched;
 
   /// Scroll offset the current drag started from, plus the pointer's
   /// position within the track when it did — dragging is relative to the
@@ -120,7 +125,7 @@ class _DateScrubberState extends State<DateScrubber> {
   @override
   void dispose() {
     _hideTimer?.cancel();
-    _grabTimer?.cancel();
+    _watched?.isScrollingNotifier.removeListener(_onScrollingChanged);
     widget.controller.removeListener(_onScroll);
     super.dispose();
   }
@@ -148,19 +153,44 @@ class _DateScrubberState extends State<DateScrubber> {
         _grabbable = true;
       });
     }
-    _scheduleHide();
+    _watch();
+    if (_dragging || (_watched?.isScrollingNotifier.value ?? false)) {
+      // Still moving: the countdown starts when it stops.
+      _hideTimer?.cancel();
+      _hideTimer = null;
+    } else {
+      _scheduleHide();
+    }
   }
 
-  void _scheduleHide([Duration delay = _hideDelay]) {
+  void _watch() {
+    final position = widget.controller.hasClients
+        ? widget.controller.position
+        : null;
+    if (identical(position, _watched)) return;
+    _watched?.isScrollingNotifier.removeListener(_onScrollingChanged);
+    _watched = position?..isScrollingNotifier.addListener(_onScrollingChanged);
+  }
+
+  void _onScrollingChanged() {
+    if (!mounted || _dragging || !_grabbable) return;
+    if (_watched?.isScrollingNotifier.value ?? false) {
+      _hideTimer?.cancel();
+      _hideTimer = null;
+    } else {
+      _scheduleHide();
+    }
+  }
+
+  void _scheduleHide() {
     _hideTimer?.cancel();
-    _grabTimer?.cancel();
-    _hideTimer = Timer(delay, () {
+    _hideTimer = Timer(_hideDelay, () {
       if (_dragging || !mounted) return;
       setState(() => _visible = false);
-    });
-    _grabTimer = Timer(delay + _grabGrace, () {
-      if (_dragging || !mounted) return;
-      setState(() => _grabbable = false);
+      _hideTimer = Timer(_grabGrace, () {
+        if (_dragging || !mounted) return;
+        setState(() => _grabbable = false);
+      });
     });
   }
 

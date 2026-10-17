@@ -6,6 +6,7 @@ import 'package:photos_vault/viewer/date_scrubber.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/rendering.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:intl/intl.dart';
 
 AssetRecord _record(String id, DateTime createdAt) => AssetRecord(
   localId: id,
@@ -605,5 +606,175 @@ void main() {
     expect(marked('manual:day1'), isTrue);
     expect(marked('manual:day0'), isFalse);
     expect(marked('manual:day2'), isFalse);
+  });
+
+  group('per-tile work', () {
+    testWidgets('a rebuild that changed nothing leaves the tiles alone', (
+      tester,
+    ) async {
+      final records = _daily(3);
+      late StateSetter rebuild;
+      void onTap(AssetRecord _) {}
+      List<TileAction> actionsFor(AssetRecord _) => _actions;
+      await tester.pumpWidget(
+        _wrap(
+          StatefulBuilder(
+            builder: (context, setState) {
+              rebuild = setState;
+              return AssetGridView(
+                records: records,
+                onTap: onTap,
+                actionsFor: actionsFor,
+              );
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final before = tester.widget(find.byKey(const ValueKey('manual:day0')));
+
+      rebuild(() {});
+      await tester.pump();
+
+      expect(
+        identical(
+          tester.widget(find.byKey(const ValueKey('manual:day0'))),
+          before,
+        ),
+        isTrue,
+      );
+    });
+
+    testWidgets('a selection change redraws the checkmarks only', (
+      tester,
+    ) async {
+      final selection = ValueNotifier<Set<String>>({});
+      addTearDown(selection.dispose);
+      await tester.pumpWidget(
+        _wrap(
+          AssetGridView(
+            records: _daily(3),
+            onTap: (_) {},
+            onLongPress: (_) {},
+            actionsFor: (_) => _actions,
+            selection: selection,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      final tile = find.byKey(const ValueKey('manual:day1'));
+      final before = tester.widget(tile);
+      final checked = find.byIcon(CupertinoIcons.checkmark_circle_fill);
+      expect(checked, findsNothing);
+      expect(find.byIcon(CupertinoIcons.circle), findsNWidgets(3));
+
+      selection.value = {'manual:day1'};
+      await tester.pump();
+
+      expect(find.descendant(of: tile, matching: checked), findsOneWidget);
+      expect(checked, findsOneWidget);
+      expect(identical(tester.widget(tile), before), isTrue);
+    });
+
+    testWidgets('a grid that holds to select never asks for menu actions', (
+      tester,
+    ) async {
+      var asked = 0;
+      await tester.pumpWidget(
+        _wrap(
+          AssetGridView(
+            records: _daily(3),
+            onTap: (_) {},
+            onLongPress: (_) {},
+            actionsFor: (_) {
+              asked++;
+              return _actions;
+            },
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      expect(asked, 0);
+      expect(find.byType(CupertinoContextMenu), findsNothing);
+    });
+
+    testWidgets('tiles are rounded without a clip', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          AssetGridView(
+            records: _daily(3),
+            onTap: (_) {},
+            actionsFor: (_) => _actions,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final tile = find.byKey(const ValueKey('manual:day0'));
+      expect(
+        find.descendant(of: tile, matching: find.byType(ClipRRect)),
+        findsNothing,
+      );
+      expect(
+        find.descendant(of: tile, matching: find.byType(CustomPaint)),
+        findsWidgets,
+      );
+    });
+  });
+
+  testWidgets('a day header reads the date in the current locale', (
+    tester,
+  ) async {
+    const probe = Key('probe');
+    await tester.pumpWidget(_wrap(const SizedBox(key: probe)));
+    final l10n = AppLocalizations.of(tester.element(find.byKey(probe)))!;
+    final day = DateTime(2020, 3, 14);
+
+    expect(dayLabel(l10n, day), DateFormat.yMMMd().format(day));
+    expect(dayLabel(l10n, day), dayLabel(l10n, day));
+  });
+
+  group('date scrubber timing', () {
+    double opacity(WidgetTester tester) => tester
+        .widget<AnimatedOpacity>(
+          find.descendant(
+            of: find.byType(DateScrubber),
+            matching: find.byType(AnimatedOpacity),
+          ),
+        )
+        .opacity;
+
+    testWidgets('counts down from when the finger lets go', (tester) async {
+      await tester.pumpWidget(
+        _wrap(
+          AssetGridView(
+            records: _daily(40),
+            onTap: (_) {},
+            actionsFor: (_) => _actions,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+
+      final drag = await tester.startGesture(const Offset(200, 400));
+      await drag.moveBy(const Offset(0, 40));
+      await tester.pump();
+      await drag.moveBy(const Offset(0, 40));
+      await tester.pump();
+      expect(opacity(tester), 1);
+
+      // Held still, past the delay: still up.
+      await tester.pump(const Duration(seconds: 4));
+      expect(opacity(tester), 1);
+
+      await drag.up();
+      await tester.pumpAndSettle();
+      await tester.pump(const Duration(seconds: 2));
+      expect(opacity(tester), 1);
+      await tester.pump(const Duration(seconds: 2));
+      await tester.pumpAndSettle();
+      expect(opacity(tester), 0);
+    });
   });
 }

@@ -3,6 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show ValueListenable, listEquals;
 import 'package:intl/intl.dart';
 import 'package:photo_manager/photo_manager.dart';
 
@@ -38,8 +39,11 @@ String dayLabel(AppLocalizations l10n, DateTime dt) {
   final diff = today.difference(date).inDays;
   if (diff == 0) return l10n.libraryToday;
   if (diff == 1) return l10n.libraryYesterday;
-  return DateFormat.yMMMd().format(dt);
+  final locale = Intl.getCurrentLocale();
+  return (_dayFormats[locale] ??= DateFormat.yMMMd(locale)).format(dt);
 }
+
+final _dayFormats = <String, DateFormat>{};
 
 /// Builds the day-grouped square grid as slivers — embed directly in any
 /// `CustomScrollView`, or let [AssetGridView] do it for you. Shared by the
@@ -59,11 +63,16 @@ List<Widget> assetGridSlivers({
   /// detail viewer while this is set. `null` (the default) is plain
   /// single-tap browsing, unchanged.
   Set<String>? selectedIds,
+
+  /// The same as [selectedIds], as a listenable: a change redraws only the
+  /// checkmarks, not the grid. Wins over [selectedIds] when both are given.
+  ValueListenable<Set<String>>? selection,
   String? markedId,
 
   /// Long-press behaviour. Given, holding a tile calls this (Photos' "hold
   /// to start selecting") instead of opening the [actionsFor] context menu
-  /// — the actions then belong on the selection's own action bar.
+  /// — the actions then belong on the selection's own action bar, and
+  /// [actionsFor] is never called.
   void Function(AssetRecord)? onLongPress,
 
   /// The precomputed geometry, when the caller needs it for itself (the
@@ -90,61 +99,106 @@ List<Widget> assetGridSlivers({
         width: MediaQuery.sizeOf(context).width,
       );
   if (grid.isEmpty) return const [];
+  // What the tile corners are painted in: the page under the grid.
+  final page = CupertinoDynamicColor.resolve(
+    CupertinoTheme.of(context).scaffoldBackgroundColor,
+    context,
+  );
+  final now = DateTime.now();
+  final selected = selection == null ? selectedIds : null;
 
   return [
     PhotoGridSliver(
       key: gridKey,
       layout: grid,
-      delegate: SliverChildBuilderDelegate((context, index) {
-        final row = grid.rowAt(index);
-        if (row.isHeader) {
-          return _DayHeader(
-            label: dayLabel(l10n, grid.sections[row.section].day),
-          );
-        }
-        return Padding(
-          padding: EdgeInsets.only(
-            left: grid.horizontalPadding,
-            right: grid.horizontalPadding,
-            bottom: grid.spacing,
-          ),
-          child: Row(
-            children: [
-              for (var i = 0; i < grid.crossAxisCount; i++) ...[
-                if (i > 0) SizedBox(width: grid.spacing),
-                SizedBox(
-                  width: grid.tileExtent,
-                  child: i < row.recordCount
-                      ? _tileFor(
-                          grid.records[row.firstRecord + i],
-                          extent: grid.tileExtent,
-                          onTap: onTap,
-                          onLongPress: onLongPress,
-                          actionsFor: actionsFor,
-                          selectedIds: selectedIds,
-                          markedId: markedId,
-                          onMissing: onMissing,
-                          onSelectDragUpdate: onSelectDragUpdate,
-                          onSelectDragEnd: onSelectDragEnd,
-                        )
-                      : const SizedBox.shrink(),
-                ),
+      delegate: _RowsDelegate(
+        (context, index) {
+          final row = grid.rowAt(index);
+          if (row.isHeader) {
+            return _DayHeader(
+              label: dayLabel(l10n, grid.sections[row.section].day),
+            );
+          }
+          return Padding(
+            padding: EdgeInsets.only(
+              left: grid.horizontalPadding,
+              right: grid.horizontalPadding,
+              bottom: grid.spacing,
+            ),
+            child: Row(
+              children: [
+                for (var i = 0; i < grid.crossAxisCount; i++) ...[
+                  if (i > 0) SizedBox(width: grid.spacing),
+                  SizedBox(
+                    width: grid.tileExtent,
+                    child: i < row.recordCount
+                        ? _tileFor(
+                            grid.records[row.firstRecord + i],
+                            extent: grid.tileExtent,
+                            page: page,
+                            onTap: onTap,
+                            onLongPress: onLongPress,
+                            actionsFor: actionsFor,
+                            selectedIds: selected,
+                            selection: selection,
+                            markedId: markedId,
+                            onMissing: onMissing,
+                            onSelectDragUpdate: onSelectDragUpdate,
+                            onSelectDragEnd: onSelectDragEnd,
+                          )
+                        : const SizedBox.shrink(),
+                  ),
+                ],
               ],
-            ],
-          ),
-        );
-      }, childCount: grid.rowCount),
+            ),
+          );
+        },
+        childCount: grid.rowCount,
+        inputs: [
+          grid,
+          l10n,
+          page,
+          DateTime(now.year, now.month, now.day),
+          onTap,
+          onLongPress,
+          onLongPress == null ? actionsFor : null,
+          selected,
+          selection,
+          markedId,
+          onMissing,
+          onSelectDragUpdate,
+          onSelectDragEnd,
+        ],
+      ),
     ),
   ];
+}
+
+/// Rows rebuild only when something they draw from changed. The stock
+/// delegate rebuilds every built tile on any rebuild of the screen above.
+class _RowsDelegate extends SliverChildBuilderDelegate {
+  _RowsDelegate(
+    super.builder, {
+    required super.childCount,
+    required this.inputs,
+  });
+
+  final List<Object?> inputs;
+
+  @override
+  bool shouldRebuild(_RowsDelegate oldDelegate) =>
+      !listEquals(inputs, oldDelegate.inputs);
 }
 
 Widget _tileFor(
   AssetRecord record, {
   required double extent,
+  required Color page,
   required void Function(AssetRecord) onTap,
   required void Function(AssetRecord)? onLongPress,
   required List<TileAction> Function(AssetRecord) actionsFor,
   required Set<String>? selectedIds,
+  required ValueListenable<Set<String>>? selection,
   required String? markedId,
   required void Function(AssetRecord)? onMissing,
   required void Function(Offset globalPosition)? onSelectDragUpdate,
@@ -153,13 +207,15 @@ Widget _tileFor(
   key: ValueKey(record.localId),
   record: record,
   extent: extent,
+  cornerColor: page,
   onTap: () => onTap(record),
   onLongPress: onLongPress == null ? null : () => onLongPress(record),
   onMissing: onMissing == null ? null : () => onMissing(record),
   onSelectDragUpdate: onSelectDragUpdate,
   onSelectDragEnd: onSelectDragEnd,
-  actions: actionsFor(record),
+  actionsFor: onLongPress == null ? actionsFor : null,
   selected: selectedIds?.contains(record.localId),
+  selection: selection,
   marked: record.localId == markedId,
 );
 
@@ -360,8 +416,10 @@ class AssetTile extends StatelessWidget {
     required this.record,
     required this.extent,
     required this.onTap,
-    required this.actions,
+    this.actionsFor,
     this.selected,
+    this.selection,
+    this.cornerColor = _pageColor,
     this.marked = false,
     this.onLongPress,
     this.onMissing,
@@ -379,7 +437,13 @@ class AssetTile extends StatelessWidget {
   /// handed those throws — so the menu never opened at all.
   final double extent;
   final VoidCallback onTap;
-  final List<TileAction> actions;
+
+  /// The long-press menu's actions, asked for only when the menu is built.
+  final List<TileAction> Function(AssetRecord)? actionsFor;
+
+  /// The page colour, painted into the corners to round them (see
+  /// [_RoundedCorners]).
+  final Color cornerColor;
 
   /// Given, replaces the long-press context menu (see `assetGridSlivers`).
   final VoidCallback? onLongPress;
@@ -387,6 +451,11 @@ class AssetTile extends StatelessWidget {
   /// `null` outside multi-select mode; `true`/`false` while selecting (see
   /// `assetGridSlivers`' `selectedIds`).
   final bool? selected;
+
+  /// [selected], as a listenable set of ids: only the checkmark listens.
+  final ValueListenable<Set<String>>? selection;
+
+  bool get _selecting => selected != null || selection != null;
 
   /// The one tile a screen is *about* — the face you tapped to open a
   /// group, say. Drawn with a ring so it is findable in a grid of
@@ -445,10 +514,10 @@ class AssetTile extends StatelessWidget {
       // Once selecting, a sideways drag across tiles picks them up too.
       // Horizontal only: up and down still belong to the grid, which has a
       // library to scroll through.
-      onHorizontalDragUpdate: selected == null || onSelectDragUpdate == null
+      onHorizontalDragUpdate: !_selecting || onSelectDragUpdate == null
           ? null
           : (details) => onSelectDragUpdate!(details.globalPosition),
-      onHorizontalDragEnd: selected == null || onSelectDragEnd == null
+      onHorizontalDragEnd: !_selecting || onSelectDragEnd == null
           ? null
           : (_) => onSelectDragEnd!(),
       child: MetaData(
@@ -464,7 +533,9 @@ class AssetTile extends StatelessWidget {
     // nothing to offer — picking faces in or out of a group is one — and
     // `CupertinoContextMenu` asserts rather than degrading, so every tile
     // on such a screen would fail to build.
-    if (onLongPress != null || actions.isEmpty) return tile;
+    if (onLongPress != null) return tile;
+    final actions = actionsFor?.call(record) ?? const <TileAction>[];
+    if (actions.isEmpty) return tile;
     return CupertinoContextMenu(
       actions: [
         for (final action in actions)
@@ -493,109 +564,101 @@ class AssetTile extends StatelessWidget {
   Widget _tile() {
     final video = record.isVideo;
 
-    final clipped = ClipRRect(
-      borderRadius: BorderRadius.circular(8),
-      child: Stack(
-        fit: StackFit.expand,
-        children: [
-          // Videos draw their poster frame like any other tile — the OS
-          // library hands one back for them too, and a black square with
-          // a play glyph told you nothing about which video it was.
-          // Aspect-fit, not the square crop the OS would give by
-          // default: `cover` on the tile crops it back to a square
-          // anyway, and asking this way means the viewer opening on top
-          // of this tile already has the whole picture in memory to put
-          // up on its first frame. 200 on the long edge leaves the short
-          // edge about where the old 150 square was.
-          assetImage(
-            record,
-            thumbnailSize: 200,
-            fittedThumbnail: true,
-            placeholder: _placeholder,
-            onMissing: onMissing,
-          ),
-          // Only in the bucket now: dimmed, so what is no longer on this
-          // phone reads apart from what is. A flat overlay rather than a
-          // greyscale filter, which would be a saveLayer per tile.
-          if (record.localDeleted) const ColoredBox(color: Color(0x738E8E93)),
-          if (marked)
-            Positioned.fill(
-              child: IgnorePointer(
-                child: DecoratedBox(
-                  decoration: BoxDecoration(
-                    border: Border.all(
-                      color: CupertinoColors.activeBlue,
-                      width: 3,
-                    ),
-                    borderRadius: BorderRadius.circular(4),
+    // Not clipped: the corners are painted over in the page colour, which
+    // is one cheap fill per tile where a rounded clip was one per frame.
+    final rounded = Stack(
+      fit: StackFit.expand,
+      children: [
+        // Videos draw their poster frame like any other tile — the OS
+        // library hands one back for them too, and a black square with
+        // a play glyph told you nothing about which video it was.
+        // Aspect-fit, not the square crop the OS would give by
+        // default: `cover` on the tile crops it back to a square
+        // anyway, and asking this way means the viewer opening on top
+        // of this tile already has the whole picture in memory to put
+        // up on its first frame. 200 on the long edge leaves the short
+        // edge about where the old 150 square was.
+        assetImage(
+          record,
+          thumbnailSize: 200,
+          fittedThumbnail: true,
+          placeholder: _placeholder,
+          onMissing: onMissing,
+        ),
+        // Only in the bucket now: dimmed, so what is no longer on this
+        // phone reads apart from what is. A flat overlay rather than a
+        // greyscale filter, which would be a saveLayer per tile.
+        if (record.localDeleted) const ColoredBox(color: Color(0x738E8E93)),
+        if (marked)
+          Positioned.fill(
+            child: IgnorePointer(
+              child: DecoratedBox(
+                decoration: BoxDecoration(
+                  border: Border.all(
+                    color: CupertinoColors.activeBlue,
+                    width: 3,
                   ),
+                  borderRadius: BorderRadius.circular(4),
                 ),
               ),
             ),
-          if (record.isGif)
-            const Positioned(
-              top: 4,
-              left: 4,
-              child: Text(
-                'GIF',
-                style: TextStyle(
-                  fontSize: 9,
-                  fontWeight: FontWeight.w700,
-                  color: CupertinoColors.white,
-                ),
-              ),
-            )
-          else if (record.isLivePhoto)
-            const Positioned(
-              top: 4,
-              left: 4,
-              child: Icon(
-                CupertinoIcons.smallcircle_circle,
-                size: 14,
+          ),
+        if (record.isGif)
+          const Positioned(
+            top: 4,
+            left: 4,
+            child: Text(
+              'GIF',
+              style: TextStyle(
+                fontSize: 9,
+                fontWeight: FontWeight.w700,
                 color: CupertinoColors.white,
               ),
             ),
-          if (video)
-            const Positioned(
-              top: 4,
-              right: 4,
-              child: Icon(
-                CupertinoIcons.video_camera_solid,
-                size: 14,
-                color: CupertinoColors.white,
-              ),
+          )
+        else if (record.isLivePhoto)
+          const Positioned(
+            top: 4,
+            left: 4,
+            child: Icon(
+              CupertinoIcons.smallcircle_circle,
+              size: 14,
+              color: CupertinoColors.white,
             ),
-          if (record.isFavorite)
-            const Positioned(
-              bottom: 4,
-              left: 4,
-              child: Icon(
-                CupertinoIcons.heart_fill,
-                size: 14,
-                color: CupertinoColors.white,
-              ),
+          ),
+        if (video)
+          const Positioned(
+            top: 4,
+            right: 4,
+            child: Icon(
+              CupertinoIcons.video_camera_solid,
+              size: 14,
+              color: CupertinoColors.white,
             ),
-          Positioned(bottom: 4, right: 4, child: StatusDot(record: record)),
-          if (selected != null) ...[
-            if (selected!) const ColoredBox(color: Color(0x662E7DFF)),
-            Positioned(
-              top: 4,
-              right: 4,
-              child: Icon(
-                selected!
-                    ? CupertinoIcons.checkmark_circle_fill
-                    : CupertinoIcons.circle,
-                color: selected!
-                    ? CupertinoColors.activeBlue
-                    : CupertinoColors.white,
-                size: 20,
-              ),
+          ),
+        if (record.isFavorite)
+          const Positioned(
+            bottom: 4,
+            left: 4,
+            child: Icon(
+              CupertinoIcons.heart_fill,
+              size: 14,
+              color: CupertinoColors.white,
             ),
-          ],
-        ],
-      ),
+          ),
+        Positioned(bottom: 4, right: 4, child: StatusDot(record: record)),
+        if (selection case final selection?)
+          ValueListenableBuilder(
+            valueListenable: selection,
+            builder: (context, ids, _) =>
+                _SelectionMark(selected: ids.contains(record.localId)),
+          )
+        else if (selected case final selected?)
+          _SelectionMark(selected: selected),
+        _RoundedCorners(color: cornerColor),
+      ],
     );
-    // The underline sits in the gap under the tile, outside its clip — the
+    // The underline sits in the gap under the tile, outside its corners — the
     // row's own bottom padding — so it underlines the photo rather than
     // covering it.
     return SizedBox.square(
@@ -604,7 +667,7 @@ class AssetTile extends StatelessWidget {
         clipBehavior: Clip.none,
         fit: StackFit.expand,
         children: [
-          clipped,
+          rounded,
           Positioned(
             left: 6,
             right: 6,
@@ -618,6 +681,69 @@ class AssetTile extends StatelessWidget {
   }
 }
 
+/// `CupertinoThemeData.scaffoldBackgroundColor` in app.dart.
+const _pageColor = Color(0xFF1C1C1E);
+
+/// The tint and checkmark of a tile while selecting.
+class _SelectionMark extends StatelessWidget {
+  const _SelectionMark({required this.selected});
+
+  final bool selected;
+
+  @override
+  Widget build(BuildContext context) => Stack(
+    fit: StackFit.expand,
+    children: [
+      if (selected) const ColoredBox(color: Color(0x662E7DFF)),
+      Positioned(
+        top: 4,
+        right: 4,
+        child: Icon(
+          selected
+              ? CupertinoIcons.checkmark_circle_fill
+              : CupertinoIcons.circle,
+          color: selected ? CupertinoColors.activeBlue : CupertinoColors.white,
+          size: 20,
+        ),
+      ),
+    ],
+  );
+}
+
+/// Rounds a tile by painting its four corners in [color], the page behind
+/// the grid: one fill, with no clip for the raster thread to apply to every
+/// tile on every frame. Only right on a page of that colour.
+class _RoundedCorners extends StatelessWidget {
+  const _RoundedCorners({required this.color});
+
+  final Color color;
+
+  static const radius = Radius.circular(8);
+
+  @override
+  Widget build(BuildContext context) =>
+      IgnorePointer(child: CustomPaint(painter: _CornersPainter(color)));
+}
+
+class _CornersPainter extends CustomPainter {
+  const _CornersPainter(this.color);
+
+  final Color color;
+
+  @override
+  void paint(Canvas canvas, Size size) {
+    final rect = Offset.zero & size;
+    canvas.drawDRRect(
+      RRect.fromRectAndRadius(rect, Radius.zero),
+      RRect.fromRectAndRadius(rect, _RoundedCorners.radius),
+      Paint()..color = color,
+    );
+  }
+
+  @override
+  bool shouldRepaint(_CornersPainter old) => old.color != color;
+}
+
 /// The tile's bottom-right badge: a cloud on every photo the bucket holds
 /// in full, whether or not this phone still has it. Cloud-only tiles are
 /// also dimmed (see [AssetTile]), so the cloud says "safe" and the dimming
@@ -627,16 +753,45 @@ class StatusDot extends StatelessWidget {
 
   final AssetRecord record;
 
+  static const _size = 13.0;
+
+  /// White on a white photo is nothing at all, so the cloud sits on a dark
+  /// outline: a stroked copy of the glyph rather than a blurred shadow,
+  /// which was one blur per tile per frame. Built once, so tiles share it.
+  static final badge = SizedBox.square(
+    dimension: _size,
+    child: Stack(
+      alignment: Alignment.center,
+      children: [
+        Text(
+          String.fromCharCode(CupertinoIcons.cloud_fill.codePoint),
+          style: TextStyle(
+            inherit: false,
+            fontSize: _size,
+            fontFamily: CupertinoIcons.cloud_fill.fontFamily,
+            package: CupertinoIcons.cloud_fill.fontPackage,
+            height: 1,
+            leadingDistribution: TextLeadingDistribution.even,
+            foreground: Paint()
+              ..style = PaintingStyle.stroke
+              ..strokeWidth = 2.5
+              ..strokeJoin = StrokeJoin.round
+              ..color = const Color(0x66000000),
+          ),
+        ),
+        const Icon(
+          CupertinoIcons.cloud_fill,
+          size: _size,
+          color: CupertinoColors.white,
+        ),
+      ],
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     if (!record.isFullyBackedUp) return const SizedBox.shrink();
-    return const Icon(
-      CupertinoIcons.cloud_fill,
-      size: 13,
-      color: CupertinoColors.white,
-      // White on a white photo is nothing at all.
-      shadows: [Shadow(color: Color(0x99000000), blurRadius: 3)],
-    );
+    return badge;
   }
 }
 
@@ -845,15 +1000,15 @@ class AddPhotosTile extends StatelessWidget {
     onTap: onTap,
     child: SizedBox.square(
       dimension: extent,
-      child: ClipRRect(
-        borderRadius: BorderRadius.circular(8),
-        child: ColoredBox(
+      child: DecoratedBox(
+        decoration: BoxDecoration(
           color: CupertinoColors.systemGrey5.darkColor,
-          child: Icon(
-            CupertinoIcons.add,
-            size: extent * 0.32,
-            color: CupertinoColors.systemGrey,
-          ),
+          borderRadius: const BorderRadius.all(_RoundedCorners.radius),
+        ),
+        child: Icon(
+          CupertinoIcons.add,
+          size: extent * 0.32,
+          color: CupertinoColors.systemGrey,
         ),
       ),
     ),

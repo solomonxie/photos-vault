@@ -35,12 +35,19 @@ void main() {
     );
 
     expect(find.byIcon(CupertinoIcons.cloud_fill), findsOneWidget);
-    final icon = tester.widget<Icon>(find.byType(Icon));
-    expect(
-      icon.shadows,
-      isNotEmpty,
-      reason: 'white on a white photo is nothing at all',
+    // White on a white photo is nothing at all: a dark outline behind it,
+    // stroked rather than blurred.
+    final outline = tester.widget<Text>(
+      find.text(String.fromCharCode(CupertinoIcons.cloud_fill.codePoint)),
     );
+    expect(outline.style!.foreground!.style, PaintingStyle.stroke);
+    expect(tester.widget<Icon>(find.byType(Icon)).shadows, isNull);
+  });
+
+  testWidgets('every backed-up tile shares one prebuilt badge', (tester) async {
+    await _pump(tester, _record(status: UploadStatus.uploaded));
+
+    expect(find.byWidget(StatusDot.badge), findsOneWidget);
   });
 
   testWidgets('so does one in both places', (tester) async {

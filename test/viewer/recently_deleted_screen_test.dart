@@ -77,7 +77,9 @@ void main() {
       final tile = tester.widget<AssetTile>(
         find.byKey(const ValueKey('manual:gone')),
       );
-      tile.actions.firstWhere((a) => a.isDestructive).onPressed();
+      tile.actionsFor!(tile.record)
+          .firstWhere((a) => a.isDestructive)
+          .onPressed();
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();

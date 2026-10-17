@@ -542,8 +542,25 @@ class LibraryScreenState extends State<LibraryScreen>
   bool _removingAppData = false;
 
   /// Non-null while "hold a photo to select" mode is on — the set of
-  /// `localId`s the batch actions apply to.
-  Set<String>? _selection;
+  /// `localId`s the batch actions apply to. Entering or leaving the mode
+  /// rebuilds the screen; a change of what is picked notifies [_picked]
+  /// only (see [_select]).
+  Set<String>? get _selection => _selecting ? _picked.value : null;
+  set _selection(Set<String>? next) {
+    _selecting = next != null;
+    _picked.value = next ?? const {};
+  }
+
+  bool _selecting = false;
+  final _picked = ValueNotifier<Set<String>>(const {});
+
+  void _select(Set<String>? next) {
+    if ((next != null) != _selecting) {
+      setState(() => _selection = next);
+    } else if (next != null) {
+      _picked.value = next;
+    }
+  }
 
   /// Reaches the grid's scroll anchor (see [_jumpHome]).
   final _gridKey = GlobalKey<AssetGridViewState>();
@@ -679,6 +696,8 @@ class LibraryScreenState extends State<LibraryScreen>
     _missingDebounce?.cancel();
     syncQueue.draining.removeListener(_onDrainingChanged);
     _fixQueue.removeListener(_onFixQueueChanged);
+    _fixLeft.dispose();
+    _picked.dispose();
     syncQueue.dispose();
     if (widget.analyzeQueue == null) _analyzeQueue.dispose();
     super.dispose();
@@ -775,17 +794,12 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  /// The Flagged Items row shows a run draining from anywhere in the app.
-  bool _fixRunning = false;
-  int _fixLeft = 0;
+  /// The Flagged Items row shows a run draining from anywhere in the app:
+  /// items left, null while idle. Only that row listens.
+  final _fixLeft = ValueNotifier<int?>(null);
 
   void _onFixQueueChanged() {
-    final running = _fixQueue.running;
-    final left = running ? _fixQueue.left : 0;
-    if (running == _fixRunning && left == _fixLeft) return;
-    _fixRunning = running;
-    _fixLeft = left;
-    if (mounted) setState(() {});
+    _fixLeft.value = _fixQueue.running ? _fixQueue.left : null;
   }
 
   /// One refresh when a drain finishes rather than one per job — a queue of
@@ -2124,39 +2138,44 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  List<TileAction> _actionsFor(AppLocalizations l10n, AssetRecord record) => [
-    TileAction(
-      icon: record.isFavorite
-          ? CupertinoIcons.heart_slash
-          : CupertinoIcons.heart,
-      label: record.isFavorite ? l10n.libraryUnfavorite : l10n.libraryFavorite,
-      onPressed: () => _toggleFavorite(record),
-    ),
-    TileAction(
-      icon: CupertinoIcons.rectangle_stack_badge_plus,
-      label: l10n.albumAddToAction,
-      onPressed: () => _addToAlbum([record]),
-    ),
-    TileAction(
-      icon: CupertinoIcons.eye_slash,
-      label: l10n.libraryHide,
-      onPressed: () => _hide(record),
-    ),
-    TileAction(
-      icon: record.isLocked ? CupertinoIcons.lock_open : CupertinoIcons.lock,
-      label: record.isLocked ? l10n.libraryUnlock : l10n.libraryLock,
-      onPressed: () => _toggleLock(record),
-    ),
-    // Offered even on a locked photo, and it says why rather than going
-    // missing: a Delete that quietly isn't there reads as a bug, and the
-    // lock is worth explaining at the moment it stops something.
-    TileAction(
-      icon: CupertinoIcons.delete,
-      label: l10n.libraryDeleteTooltip,
-      isDestructive: true,
-      onPressed: () => _softDelete(record),
-    ),
-  ];
+  List<TileAction> _actionsFor(AssetRecord record) {
+    final l10n = AppLocalizations.of(context)!;
+    return [
+      TileAction(
+        icon: record.isFavorite
+            ? CupertinoIcons.heart_slash
+            : CupertinoIcons.heart,
+        label: record.isFavorite
+            ? l10n.libraryUnfavorite
+            : l10n.libraryFavorite,
+        onPressed: () => _toggleFavorite(record),
+      ),
+      TileAction(
+        icon: CupertinoIcons.rectangle_stack_badge_plus,
+        label: l10n.albumAddToAction,
+        onPressed: () => _addToAlbum([record]),
+      ),
+      TileAction(
+        icon: CupertinoIcons.eye_slash,
+        label: l10n.libraryHide,
+        onPressed: () => _hide(record),
+      ),
+      TileAction(
+        icon: record.isLocked ? CupertinoIcons.lock_open : CupertinoIcons.lock,
+        label: record.isLocked ? l10n.libraryUnlock : l10n.libraryLock,
+        onPressed: () => _toggleLock(record),
+      ),
+      // Offered even on a locked photo, and it says why rather than going
+      // missing: a Delete that quietly isn't there reads as a bug, and the
+      // lock is worth explaining at the moment it stops something.
+      TileAction(
+        icon: CupertinoIcons.delete,
+        label: l10n.libraryDeleteTooltip,
+        isDestructive: true,
+        onPressed: () => _softDelete(record),
+      ),
+    ];
+  }
 
   /// Locking is a promise that this photo is being kept as it is, so it
   /// cannot be made over a copy that has already been shrunk or thrown
@@ -2254,7 +2273,7 @@ class LibraryScreenState extends State<LibraryScreen>
       selection,
       () => [for (final r in _filtered) r.localId],
     );
-    if (next != null) setState(() => _selection = next);
+    if (next != null) _select(next);
   }
 
   void _onSelectDragEnd() => _sweep.end();
@@ -2279,13 +2298,13 @@ class LibraryScreenState extends State<LibraryScreen>
     return null;
   }
 
-  void _toggleSelected(AssetRecord record) => setState(() {
+  void _toggleSelected(AssetRecord record) {
     final next = {..._selection!};
     next.contains(record.localId)
         ? next.remove(record.localId)
         : next.add(record.localId);
-    _selection = next;
-  });
+    _select(next);
+  }
 
   List<AssetRecord> get _selectedRecords {
     final ids = _selection ?? const <String>{};
@@ -2857,8 +2876,9 @@ class LibraryScreenState extends State<LibraryScreen>
                   onMissing: _onAssetMissing,
                   onSelectDragUpdate: _onSelectDragUpdate,
                   onSelectDragEnd: _onSelectDragEnd,
-                  selectedIds: selection,
-                  actionsFor: (r) => _actionsFor(l10n, r),
+                  selection: selection == null ? null : _picked,
+                  // Never called: [onLongPress] replaces the menu.
+                  actionsFor: _actionsFor,
                   // Only once the database has actually been read. An
                   // empty `_all` is also what "hasn't loaded yet" looks
                   // like, and offering "No Photos Yet — Add Files" for a
@@ -2885,27 +2905,30 @@ class LibraryScreenState extends State<LibraryScreen>
                     left: 0,
                     right: 0,
                     bottom: 0,
-                    child: _SelectionBar(
-                      count: selection.length,
-                      selectAll: SelectAllButton(
-                        total: filtered.length,
-                        selectedCount: selection.length,
-                        onSelectNext: () => setState(
-                          () => _selection = selectNextBatch(
-                            filtered.reversed.map((r) => r.localId),
-                            selection,
+                    child: ValueListenableBuilder(
+                      valueListenable: _picked,
+                      builder: (context, picked, _) => _SelectionBar(
+                        count: picked.length,
+                        selectAll: SelectAllButton(
+                          total: filtered.length,
+                          selectedCount: picked.length,
+                          onSelectNext: () => _select(
+                            selectNextBatch(
+                              filtered.reversed.map((r) => r.localId),
+                              picked,
+                            ),
                           ),
+                          onDeselectAll: () => _select({}),
                         ),
-                        onDeselectAll: () => setState(() => _selection = {}),
+                        onAddTag: _batchAddTag,
+                        onAddToAlbum: _batchAddToAlbum,
+                        onSetPlace: _batchSetPlace,
+                        onAdjustDateTime: _batchAdjustDateTime,
+                        onDelete: _batchDelete,
+                        onHide: _batchHide,
+                        onResize: _batchResize,
+                        onDone: () => setState(() => _selection = null),
                       ),
-                      onAddTag: _batchAddTag,
-                      onAddToAlbum: _batchAddToAlbum,
-                      onSetPlace: _batchSetPlace,
-                      onAdjustDateTime: _batchAdjustDateTime,
-                      onDelete: _batchDelete,
-                      onHide: _batchHide,
-                      onResize: _batchResize,
-                      onDone: () => setState(() => _selection = null),
                     ),
                   ),
               ],
@@ -3174,20 +3197,23 @@ class LibraryScreenState extends State<LibraryScreen>
           borderRadius: BorderRadius.all(Radius.circular(10)),
         ),
         children: [
-          _row(
-            icon: CupertinoIcons.chart_pie_fill,
-            color: CupertinoColors.systemOrange,
-            title: l10n.collectionsStorageRow,
-            count: _fixRunning ? _fixLeft : null,
-            busy: _fixRunning,
-            onTap: () => _push(
-              FlaggedItemsScreen(
-                store: assetRecordStore,
-                targetsStore: _backupTargetsStore,
-                advisor: _storageAdvisor,
-                queue: _fixQueue,
-                scan: _flagScan,
-                onOpenAsset: _openById,
+          ValueListenableBuilder(
+            valueListenable: _fixLeft,
+            builder: (context, left, _) => _row(
+              icon: CupertinoIcons.chart_pie_fill,
+              color: CupertinoColors.systemOrange,
+              title: l10n.collectionsStorageRow,
+              count: left,
+              busy: left != null,
+              onTap: () => _push(
+                FlaggedItemsScreen(
+                  store: assetRecordStore,
+                  targetsStore: _backupTargetsStore,
+                  advisor: _storageAdvisor,
+                  queue: _fixQueue,
+                  scan: _flagScan,
+                  onOpenAsset: _openById,
+                ),
               ),
             ),
           ),

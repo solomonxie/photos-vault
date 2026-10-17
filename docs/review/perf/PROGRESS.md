@@ -8,8 +8,8 @@
 | PW3b | Upload true originals (+ edited render) | done | 9191d15 |
 | PW4 | Faces without full descriptor reads | done | 3622041 |
 | PW5 | Smaller database | done | abe50f7 |
-| PW6 | Less periodic waste | done | (this commit) |
-| PW7 | Cheaper grid paint | todo | |
+| PW6 | Less periodic waste | done | 9c128ab |
+| PW7 | Cheaper grid paint | done | (this commit) |
 | PW8 | Cheaper reload and search | todo | |
 | PW9 | The rest | todo | |
 
@@ -67,4 +67,13 @@
 - UI-18: `ThumbnailTries`: 3 failures in a session and a photo is skipped until the camera roll is re-read or a sync forgets failures; videos with no poster count too. The library reloads only when a thumbnail was made.
 - BG-15: schema v29: `change_check.spot_checked`; the old `spot_checked_at` JSON imported in SQL (`json_each`) and removed. `spotCheckOrder` orders in SQL with a looser rule (original up); each pick is confirmed in Dart, paged by 64. A round writes only its rows.
 - Not done: `_pendingAndFailed` (UI-18's 3 ms `where` per round); `_markResolved` still rewrites the whole resolved map per fixed item.
+
+
+## PW7 notes
+
+- UI-7: the cloud badge is one shared prebuilt widget (`StatusDot.badge`): white glyph over a stroked copy (2.5 px, 40% black). No blur. Halo is a crisp 1 px ring instead of a soft 3 px glow.
+- UI-8: no clip. `_RoundedCorners` paints the four corner wedges in the page colour (theme `scaffoldBackgroundColor`, resolved once per grid build) with one `drawDRRect`; overlays (dim, selection tint, ring) are rounded by the same fill. Chosen over image-in-rrect painting because tiles draw through `Image.file`/`Image.memory` with error fallbacks and GIF frames; replacing that with a custom image render object is far more code. Every grid host uses the default scaffold colour. `AddPhotosTile`: `DecoratedBox` radius, no clip.
+- UI-13: `actionsFor` is called only when a tile builds its context menu (never on the library, which holds to select). Day headers: one `DateFormat.yMMMd` per locale. Not done: other grid screens still mount a `CupertinoContextMenu` per tile; deferring it would mean replacing its press-and-lift gesture.
+- UI-12: grid rows use `_RowsDelegate`, which rebuilds only when its inputs change (layout, l10n, page colour, today, callbacks, selection, marked id). Library: fix-queue progress in `_fixLeft` (`ValueNotifier<int?>`, only the Flagged row listens); selection membership in `_picked`, listened to by each tile's checkmark and the selection bar. Entering or leaving select mode still rebuilds the screen. Library callbacks are tear-offs, so `_busy` and search rebuilds leave the tiles alone. Not done: `_busy` toggles still rebuild the trailing slivers.
+- UI-15: scrubber arms its single hide timer when `isScrollingNotifier` goes false (or after a programmatic jump), then reuses it for the grab grace. A finger held still keeps the handle up until it lifts (was: hid 3 s after the last move). Scroll guard: one periodic check every 175 ms while in flight; stale after two silent checks (350-525 ms, was exactly 350).
 

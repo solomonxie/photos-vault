@@ -17,6 +17,7 @@ import 'package:photos_vault/upload/s3_uploader.dart';
 import 'package:photos_vault/upload/sync_job.dart';
 import 'package:photos_vault/viewer/album_screen.dart';
 import 'package:photos_vault/viewer/asset_grid.dart';
+import 'package:photos_vault/viewer/asset_grid_view.dart';
 import 'package:photos_vault/viewer/built_in_album.dart';
 import 'package:photos_vault/viewer/detail_screen.dart';
 import 'package:photos_vault/viewer/library_screen.dart';
@@ -585,6 +586,58 @@ void main() {
     await tester.tap(find.text('Done'));
     await tester.pumpAndSettle();
     expect(find.text('1 Selected'), findsNothing);
+  });
+
+  testWidgets('a selection tap updates the bar, not the whole screen', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    for (final id in ['a', 'b']) {
+      await recordStore.upsert(
+        localId: 'manual:$id',
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/library_screen_test_$id.jpg',
+      );
+    }
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await showPhotos(tester);
+    await tester.longPress(find.byKey(const ValueKey('manual:a')));
+    await tester.pumpAndSettle();
+    expect(find.text('1 Selected'), findsOneWidget);
+    final grid = tester.widget(find.byType(AssetGridView));
+
+    await tester.tap(find.byKey(const ValueKey('manual:b')));
+    await tester.pump();
+
+    expect(find.text('2 Selected'), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.checkmark_circle_fill), findsNWidgets(2));
+    expect(
+      identical(tester.widget(find.byType(AssetGridView)), grid),
+      isTrue,
+      reason: 'the screen above the grid was not rebuilt',
+    );
   });
 
   testWidgets('the selection bar fits a phone with nothing selected', (

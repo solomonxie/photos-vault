@@ -113,4 +113,52 @@ void main() {
 
     expect(tapped, isEmpty);
   });
+
+  testWidgets('a list gone mid-gesture frees taps within half a second', (
+    tester,
+  ) async {
+    var listShown = true;
+    late StateSetter swap;
+    var tapped = 0;
+    await tester.pumpWidget(
+      CupertinoApp(
+        home: ScrollStopGuard(
+          child: StatefulBuilder(
+            builder: (context, setState) {
+              swap = setState;
+              return listShown
+                  ? ListView.builder(
+                      itemCount: 400,
+                      itemExtent: 60,
+                      itemBuilder: (context, i) => Text('row $i'),
+                    )
+                  : GestureDetector(
+                      behavior: HitTestBehavior.opaque,
+                      onTap: () => tapped++,
+                    );
+            },
+          ),
+        ),
+      ),
+    );
+
+    final drag = await tester.startGesture(_middle);
+    for (var i = 0; i < 3; i++) {
+      await drag.moveBy(const Offset(0, -40));
+      await tester.pump(const Duration(milliseconds: 16));
+    }
+    // The list goes away with the finger still down: no end ever comes.
+    swap(() => listShown = false);
+    await tester.pump();
+    await drag.cancel();
+
+    await tester.tapAt(_middle);
+    await tester.pump();
+    expect(tapped, 0, reason: 'still braking right after');
+
+    await tester.pump(const Duration(milliseconds: 550));
+    await tester.tapAt(_middle);
+    await tester.pump();
+    expect(tapped, 1);
+  });
 }

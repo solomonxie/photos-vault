@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/rendering.dart';
 
 import '../storage/asset_record.dart';
@@ -30,6 +31,7 @@ class AssetGridView extends StatefulWidget {
     this.onSelectDragUpdate,
     this.onSelectDragEnd,
     this.selectedIds,
+    this.selection,
     this.markedId,
     this.leadingSlivers = const [],
     this.trailingSlivers = const [],
@@ -58,6 +60,9 @@ class AssetGridView extends StatefulWidget {
   final void Function(Offset globalPosition)? onSelectDragUpdate;
   final VoidCallback? onSelectDragEnd;
   final Set<String>? selectedIds;
+
+  /// See `assetGridSlivers`' `selection`.
+  final ValueListenable<Set<String>>? selection;
 
   /// The one tile this screen is about — see `AssetTile.marked`.
   final String? markedId;
@@ -400,6 +405,7 @@ class AssetGridViewState extends State<AssetGridView> {
                 onSelectDragUpdate: widget.onSelectDragUpdate,
                 onSelectDragEnd: widget.onSelectDragEnd,
                 selectedIds: widget.selectedIds,
+                selection: widget.selection,
                 markedId: widget.markedId,
                 actionsFor: widget.actionsFor,
               ),
