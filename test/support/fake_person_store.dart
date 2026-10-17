@@ -413,7 +413,9 @@ class FakePersonStore implements PersonStore {
   }
 
   @override
-  Future<List<Map<String, Object?>>> changeLogRows() async => const [];
+  Future<List<Map<String, Object?>>> changeLogRows({
+    bool decode = true,
+  }) async => const [];
 
   @override
   Future<Set<String>> namespaces() async => {};
@@ -422,5 +424,9 @@ class FakePersonStore implements PersonStore {
   Future<void> retag(String from, String to) async {}
 
   @override
-  Future<bool> copyTo(String dest, Set<String> hiddenIds) async => false;
+  Future<bool> copyTo(
+    String dest,
+    Set<String> hiddenIds, {
+    bool slim = false,
+  }) async => false;
 }

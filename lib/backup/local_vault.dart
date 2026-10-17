@@ -214,7 +214,8 @@ class LocalVault {
               '${at.day.toString().padLeft(2, '0')}-daily';
       // On the databases' own connections, which wait the second or two a
       // compact copy takes; once a day and before bulk operations only.
-      await snapshots.copyDatabases(directory.path, lead);
+      // The daily one slim; a pre-deletion copy keeps everything.
+      await snapshots.copyDatabases(directory.path, lead, slim: prefix == null);
     } catch (_) {
       // Same as the zip: unattended, and the zip already went out.
     }

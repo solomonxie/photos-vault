@@ -1048,7 +1048,9 @@ class FakeAssetRecordStore implements AssetRecordStore {
   }
 
   @override
-  Future<List<Map<String, Object?>>> changeLogRows() async => const [];
+  Future<List<Map<String, Object?>>> changeLogRows({
+    bool decode = true,
+  }) async => const [];
 
   final hiddenNotes = <String, Map<String, Object?>>{};
 
@@ -1143,5 +1145,5 @@ class FakeAssetRecordStore implements AssetRecordStore {
   }
 
   @override
-  Future<bool> copyTo(String dest) async => false;
+  Future<bool> copyTo(String dest, {bool slim = false}) async => false;
 }

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:photos_vault/backup/change_log.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -147,6 +149,101 @@ void main() {
           r['name'],
       ];
       expect(names, contains('change_log_t_insert_private'));
+    });
+  });
+
+  group('PW5: diffs, prune, slim', () {
+    test('an update logs only the columns it changed', () async {
+      final store = newStore();
+      await store.upsert(localId: 'a', contentHash: 'h', platform: 'ios');
+      await store.setDescription('a', 'first');
+      await store.setDescription('a', 'second');
+
+      final last = (await store.changeLogRows()).last;
+      // `updated_at` is silent: a bookkeeping column.
+      expect(last['before'], {'description': 'first'});
+      expect(last['after'], {'description': 'second'});
+    });
+
+    test('a delete keeps the whole row it removed', () async {
+      final store = newStore();
+      await store.upsert(localId: 'a', contentHash: 'h', platform: 'ios');
+      await store.setDescription('a', 'kept');
+      await store.remove('a');
+
+      final last = (await store.changeLogRows()).last;
+      expect(last['op'], 'delete');
+      expect((last['before'] as Map)['description'], 'kept');
+      expect((last['before'] as Map)['content_hash'], 'h');
+    });
+
+    Future<Database> table() async {
+      final db = await databaseFactoryFfi.openDatabase(inMemoryDatabasePath);
+      addTearDown(db.close);
+      await db.execute('CREATE TABLE t (id TEXT PRIMARY KEY, a TEXT, b TEXT)');
+      await installChangeLog(db, const ['t']);
+      return db;
+    }
+
+    test('the prune keeps the newest, the mark, and puts secure_delete '
+        'back', () async {
+      final db = await table();
+      await db.rawQuery('PRAGMA secure_delete = ON');
+      for (var i = 0; i < 30; i++) {
+        await db.insert('t', {'id': '$i', 'a': 'x'});
+      }
+      final mark = await changeLogMark(db);
+
+      await pruneChangeLog(db, keep: 10, fast: true);
+
+      final left = await db.query(changeLogTable, orderBy: 'seq');
+      expect(left.map((r) => r['row_key']), [
+        for (var i = 20; i < 30; i++) '$i',
+      ]);
+      expect(await changeLogMark(db), mark);
+      final mode = await db.rawQuery('PRAGMA secure_delete');
+      expect(mode.first.values.first, 1);
+      expect(changeLogKeep, 5000, reason: 'what the zip ships');
+    });
+
+    test('old whole-row entries slim to what changed, once', () async {
+      final db = await table();
+      await db.insert('t', {'id': '1', 'a': 'x', 'b': 'same'});
+      await db.insert(changeLogTable, {
+        'table_name': 't',
+        'row_key': '1',
+        'op': 'update',
+        'before': '{"id":"1","a":"x","b":"same","c":null}',
+        'after': '{"id":"1","a":"y","b":"same","c":"new"}',
+        'at': '',
+      });
+      await db.insert(changeLogTable, {
+        'table_name': 't',
+        'row_key': '1',
+        'op': 'update',
+        'before': 'not json',
+        'after': '{}',
+        'at': '',
+      });
+      final mark = await changeLogMark(db);
+
+      expect(
+        await slimChangeLog(db, 't', below: mark + 1, silent: {'c'}),
+        isTrue,
+      );
+      final rows = await changeLogTail(db);
+      expect(rows.first['after'], {
+        'id': '1',
+        'a': 'x',
+        'b': 'same',
+      }, reason: 'inserts keep the row');
+      expect(rows[1]['before'], {'a': 'x'});
+      expect(rows[1]['after'], {'a': 'y'});
+      expect(rows[2]['before'], 'not json', reason: 'left as it was');
+
+      await slimChangeLog(db, 't', below: mark + 1, silent: {'c'});
+      expect(jsonEncode(await changeLogTail(db)), jsonEncode(rows));
+      expect(await changeLogMark(db), mark);
     });
   });
 }

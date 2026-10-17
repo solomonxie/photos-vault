@@ -11,6 +11,7 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/membership_sweep.dart';
 import '../vault/passcode_tags.dart';
+import 'change_log.dart';
 
 /// Everything this app knows that isn't a photo.
 ///
@@ -170,14 +171,20 @@ class AppSnapshotIo {
   /// pages holding deleted rows. Nothing behind a passcode goes in: hidden
   /// rows, their uploads, memberships, faces. The analysis database joined
   /// late and matters more than its size suggests: see
-  /// [AiAnalysisStore.copyTo]. Returns how many were written.
-  Future<int> copyDatabases(String directory, String lead) async {
+  /// [AiAnalysisStore.copyTo]. Returns how many were written. [slim]: the
+  /// daily copy, without what a restore rebuilds (see
+  /// [AssetRecordStore.copyTo]).
+  Future<int> copyDatabases(
+    String directory,
+    String lead, {
+    bool slim = false,
+  }) async {
     final hidden = await assetRecordStore.hiddenIds();
     String at(String name) => p.join(directory, '$lead-$name.db');
     final copies = [
-      assetRecordStore.copyTo(at('photos_vault')),
-      albumStore.copyTo(at('photo_albums'), hidden),
-      personStore.copyTo(at('people'), hidden),
+      assetRecordStore.copyTo(at('photos_vault'), slim: slim),
+      albumStore.copyTo(at('photo_albums'), hidden, slim: slim),
+      personStore.copyTo(at('people'), hidden, slim: slim),
       ?aiAnalysisStore?.copyTo(at('ai_analysis'), hidden),
     ];
     var written = 0;
@@ -201,23 +208,17 @@ class AppSnapshotIo {
   ///
   /// Entries naming a hidden photo are left out; the stores already log
   /// nothing of rows behind a passcode.
-  Future<Map<String, Object?>> changeLog() async {
-    final hidden = await assetRecordStore.hiddenIds();
-    bool tagged(Object? side) =>
-        side is Map && '${side['passcode_hash'] ?? ''}'.isNotEmpty;
-    List<Map<String, Object?>> open(List<Map<String, Object?>> rows) => [
-      for (final row in rows)
-        if (!tagged(row['before']) &&
-            !tagged(row['after']) &&
-            !'${row['row_key']}'.split('/').any(hidden.contains))
-          row,
-    ];
-    return {
-      'assets': open(await assetRecordStore.changeLogRows()),
-      'albums': open(await albumStore.changeLogRows()),
-      'people': open(await personStore.changeLogRows()),
-    };
-  }
+  Future<Map<String, Object?>> changeLog() async =>
+      (await rawChangeLog()).open();
+
+  /// [changeLog] as read, JSON undecoded: [RawChangeLog.open] is the
+  /// expensive half, for the isolate that builds the zip.
+  Future<RawChangeLog> rawChangeLog() async => RawChangeLog(
+    hidden: await assetRecordStore.hiddenIds(),
+    assets: await assetRecordStore.changeLogRows(decode: false),
+    albums: await albumStore.changeLogRows(decode: false),
+    people: await personStore.changeLogRows(decode: false),
+  );
 
   late final PasscodeTags _tags = PasscodeTags(
     records: assetRecordStore,
@@ -793,4 +794,37 @@ class AppSnapshotIo {
 
   static DateTime? _date(Object? value) =>
       value is String ? DateTime.tryParse(value) : null;
+}
+
+/// The three logs' tails with `before`/`after` still JSON text.
+class RawChangeLog {
+  const RawChangeLog({
+    required this.hidden,
+    required this.assets,
+    required this.albums,
+    required this.people,
+  });
+
+  final Set<String> hidden;
+  final List<Map<String, Object?>> assets;
+  final List<Map<String, Object?>> albums;
+  final List<Map<String, Object?>> people;
+
+  /// Decoded, without entries naming a hidden photo.
+  Map<String, Object?> open() {
+    bool tagged(Object? side) =>
+        side is Map && '${side['passcode_hash'] ?? ''}'.isNotEmpty;
+    List<Map<String, Object?>> keep(List<Map<String, Object?>> rows) => [
+      for (final row in rows.map(decodeChangeLogRow))
+        if (!tagged(row['before']) &&
+            !tagged(row['after']) &&
+            !'${row['row_key']}'.split('/').any(hidden.contains))
+          row,
+    ];
+    return {
+      'assets': keep(assets),
+      'albums': keep(albums),
+      'people': keep(people),
+    };
+  }
 }

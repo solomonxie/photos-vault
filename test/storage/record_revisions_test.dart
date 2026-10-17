@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
@@ -513,6 +514,56 @@ void main() {
     }
   });
 
+  test('v27 to v28: whole-row log entries slim to diffs after open', () async {
+    final s = open();
+    await add(s, 'photo:a', at: DateTime(2020));
+    await s.close();
+    final legacy = await databaseFactoryFfi.openDatabase(dbPath());
+    final row = (await legacy.query('asset_record')).single;
+    String whole(Map<String, Object?> changes) =>
+        jsonEncode({...row, ...changes});
+    // What builds before PW5 wrote: the whole row on both sides.
+    await legacy.insert(changeLogTable, {
+      'table_name': 'asset_record',
+      'row_key': 'photo:a',
+      'op': 'update',
+      'before': whole({'created_at': 1, 'thumbnail_path': '/old/t.jpg'}),
+      'after': whole({'created_at': 2, 'thumbnail_path': '/new/t.jpg'}),
+      'at': '',
+    });
+    await legacy.insert(changeLogTable, {
+      'table_name': 'asset_record',
+      'row_key': 'photo:a',
+      'op': 'update',
+      'before': whole({'thumbnail_path': '/old/t.jpg', 'updated_at': 1}),
+      'after': whole({'thumbnail_path': '/new/t.jpg', 'updated_at': 2}),
+      'at': '',
+    });
+    await legacy.setVersion(27);
+    final mark = await changeLogMark(legacy);
+    await legacy.close();
+
+    final upgraded = open();
+    await upgraded.setDescription('photo:a', 'after');
+    final db = await databaseFactoryFfi.openDatabase(dbPath());
+    expect(await upgraded.getAppState('change_log_slim_below'), '${mark + 1}');
+
+    await AssetRecordStore.tidyLog(db);
+
+    final rows = await upgraded.changeLogRows();
+    expect(
+      (rows.first['after'] as Map)['content_hash'],
+      'photo:a',
+      reason: 'the insert keeps its row',
+    );
+    expect(rows[1]['before'], {'created_at': 1});
+    expect(rows[1]['after'], {'created_at': 2});
+    expect(rows[2]['before'], isEmpty, reason: 'only silent columns moved');
+    expect(rows.last['after'], {'description': 'after'});
+    expect(await upgraded.changeMark(), mark + 1);
+    expect(await upgraded.getAppState('change_log_slim_below'), isNull);
+  });
+
   test('compacting once turns on incremental vacuum; later launches hand '
       'freed pages back', () async {
     final store = open();
@@ -531,6 +582,7 @@ void main() {
 
     await AssetRecordStore.compact(db);
     expect(await pragma('auto_vacuum'), 2);
+    expect(await pragma('temp_store'), 2, reason: 'back to memory after');
 
     await db.delete('asset_record');
     await db.delete(changeLogTable);

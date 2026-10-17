@@ -98,8 +98,14 @@ class FakeAlbumStore implements AlbumStore {
   }
 
   @override
-  Future<List<Map<String, Object?>>> changeLogRows() async => const [];
+  Future<List<Map<String, Object?>>> changeLogRows({
+    bool decode = true,
+  }) async => const [];
 
   @override
-  Future<bool> copyTo(String dest, Set<String> hiddenIds) async => false;
+  Future<bool> copyTo(
+    String dest,
+    Set<String> hiddenIds, {
+    bool slim = false,
+  }) async => false;
 }

@@ -2,7 +2,9 @@ import 'dart:convert';
 
 import 'package:sqflite/sqflite.dart' show Database, DatabaseExecutor;
 
-/// Every write to a user-authored row, kept in order and never edited.
+/// Every write to a user-authored row, kept in order.
+/// An insert or delete carries the whole row; an update, the columns it
+/// changed, old and new.
 ///
 /// It buys two things. A snapshot can be taken once a day instead of on
 /// every keystroke, because nothing between snapshots is unrecoverable —
@@ -97,6 +99,14 @@ Future<void> _installChangeLog(
     final test = private[table];
     final quietSet = quiet[table] ?? const {};
     final silentSet = silent[table] ?? const {};
+    // An update keeps only the columns it changed, minus [silent] ones: a
+    // whole row twice was ~3 KB an entry. `$."-"` names no column.
+    final diffed = names.where((c) => !silentSet.contains(c)).toList();
+    String diffJson(String row) => diffed.isEmpty
+        ? "'{}'"
+        : 'json_remove(json_object(${diffed.map((c) => "'$c', $row.$c").join(', ')}), '
+              '${diffed.map((c) => "CASE WHEN OLD.$c IS NEW.$c THEN '\$.$c' ELSE '\$.\"-\"' END").join(', ')})';
+
     String? changed(bool Function(String) counts) {
       final cols = names.where(counts).toList();
       if (cols.isEmpty) return null;
@@ -121,8 +131,16 @@ Future<void> _installChangeLog(
         _ => 'AFTER DELETE',
       };
       final subject = op == 'delete' ? 'OLD' : 'NEW';
-      final before = op == 'insert' ? 'NULL' : rowJson('OLD');
-      final after = op == 'delete' ? 'NULL' : rowJson('NEW');
+      final before = switch (op) {
+        'insert' => 'NULL',
+        'update' => diffJson('OLD'),
+        _ => rowJson('OLD'),
+      };
+      final after = switch (op) {
+        'delete' => 'NULL',
+        'update' => diffJson('NEW'),
+        _ => rowJson('NEW'),
+      };
       final rows = [if (op != 'insert') 'OLD', if (op != 'delete') 'NEW'];
       final isPrivate = test == null
           ? null
@@ -245,29 +263,99 @@ Future<void> purgePrivateEntries(
   );
 }
 
-/// Drops all but the newest [keep] entries. The log was never trimmed, and
-/// each entry carries the whole row twice: a few reinstalls re-pointing
-/// thumbnail paths made a 300 MB database that every open had to page
-/// through. The zip only ever ships the last 5000, and the mark is the
-/// highest `seq`, which this leaves alone.
+/// Entries kept: what the zip ships ([changeLogTail]), so the phone holds
+/// no history no backup carries.
+const changeLogKeep = 5000;
+
+/// Drops all but the newest [keep] entries. The mark is the table's
+/// sequence, which this leaves alone.
 ///
 /// In slices, so a first trim of a huge log never holds the connection long
-/// enough to stall the grid's own queries behind it.
-Future<void> pruneChangeLog(Database db, {int keep = 20000}) async {
+/// enough to stall the grid's own queries behind it. [fast]: freed pages
+/// are not zeroed (`secure_delete = FAST`), for a log whose entries are
+/// never about a private row. Each slice sets it and puts it back inside
+/// one transaction, so no other write on the connection runs under it.
+Future<void> pruneChangeLog(
+  Database db, {
+  int keep = changeLogKeep,
+  bool fast = false,
+}) async {
   try {
     while (true) {
-      final deleted = await db.rawDelete(
-        'DELETE FROM $changeLogTable WHERE seq IN ('
-        'SELECT seq FROM $changeLogTable WHERE seq <= '
-        '(SELECT MAX(seq) FROM $changeLogTable) - ? '
-        'ORDER BY seq LIMIT 2000)',
-        [keep],
-      );
+      final deleted = await db.transaction((txn) async {
+        final was = fast ? await _secureDelete(txn) : null;
+        if (was != null) await txn.rawQuery('PRAGMA secure_delete = FAST');
+        try {
+          return await txn.rawDelete(
+            'DELETE FROM $changeLogTable WHERE seq IN ('
+            'SELECT seq FROM $changeLogTable WHERE seq <= '
+            '(SELECT MAX(seq) FROM $changeLogTable) - ? '
+            'ORDER BY seq LIMIT 2000)',
+            [keep],
+          );
+        } finally {
+          if (was != null) await txn.rawQuery('PRAGMA secure_delete = $was');
+        }
+      });
       if (deleted == 0) return;
       await Future<void>.delayed(const Duration(milliseconds: 50));
     }
   } catch (_) {
     // A log that can't be trimmed is only a bigger file.
+  }
+}
+
+/// Returns a row: `execute` fails on iOS.
+Future<int?> _secureDelete(DatabaseExecutor db) async =>
+    (await db.rawQuery('PRAGMA secure_delete')).first.values.first as int?;
+
+/// Run on a database copy: the log down to what the zip ships.
+const changeLogTailScrub =
+    'DELETE FROM $changeLogTable WHERE seq <= '
+    '(SELECT MAX(seq) FROM $changeLogTable) - $changeLogKeep';
+
+/// Rewrites [table]'s update entries below [below] (written as whole rows
+/// before diffs) to the columns that changed, minus [silent]: what the
+/// trigger now writes. Inserts and deletes keep their whole row. Every
+/// changed value stays on both sides, so nothing a reader could rebuild is
+/// lost. Idempotent, in slices of [slice] by `seq`. False if it stopped.
+Future<bool> slimChangeLog(
+  Database db,
+  String table, {
+  required int below,
+  Set<String> silent = const {},
+  int slice = 500,
+}) async {
+  try {
+    final first = await db.rawQuery(
+      'SELECT MIN(seq) AS s FROM $changeLogTable WHERE table_name = ?',
+      [table],
+    );
+    var from = first.first['s'] as int? ?? below;
+    final quiet = silent.isEmpty
+        ? ''
+        : "AND x.key NOT IN (${silent.map((c) => "'$c'").join(', ')}) ";
+    String side(String self, String other) =>
+        '(SELECT json_group_object(x.key, x.value) '
+        'FROM json_each($changeLogTable.$self) x WHERE 1 $quiet'
+        "AND (json_type($changeLogTable.$other, '\$.' || x.key) IS NULL OR "
+        "json_extract($changeLogTable.$other, '\$.' || x.key) IS NOT x.value))";
+    while (from < below) {
+      final to = from + slice < below ? from + slice : below;
+      await db.rawUpdate(
+        'UPDATE $changeLogTable SET before = ${side('before', 'after')}, '
+        "after = ${side('after', 'before')} WHERE table_name = ? AND op = 'update' "
+        'AND seq >= ? AND seq < ? AND json_valid(before) AND json_valid(after)',
+        [table, from, to],
+      );
+      from = to;
+      if (from < below) {
+        await Future<void>.delayed(const Duration(milliseconds: 20));
+      }
+    }
+    return true;
+  } catch (_) {
+    return false;
   }
 }
 
@@ -297,16 +385,25 @@ Future<int> changeLogMark(Database db) async {
 /// Capped rather than complete: the whole point of the log is the recent
 /// past, and a library edited for years would otherwise put megabytes of
 /// history into a file that exists to be a few hundred kilobytes.
+///
+/// [decode] false leaves `before`/`after` as JSON text, for a caller that
+/// decodes off the UI isolate ([decodeChangeLogRow]).
 Future<List<Map<String, Object?>>> changeLogTail(
   Database db, {
-  int limit = 5000,
+  int limit = changeLogKeep,
+  bool decode = true,
 }) async {
   try {
     final rows = await db.rawQuery(
       'SELECT * FROM $changeLogTable ORDER BY seq DESC LIMIT ?',
       [limit],
     );
-    return rows.reversed.map(_decodeRow).toList();
+    final ordered = rows.reversed;
+    return decode
+        ? ordered.map(decodeChangeLogRow).toList()
+        : [
+            for (final row in ordered) {...row},
+          ];
   } catch (_) {
     return const [];
   }
@@ -314,7 +411,7 @@ Future<List<Map<String, Object?>>> changeLogTail(
 
 /// `before`/`after` come out of SQLite as JSON text. Decoding them here
 /// means the zip holds one document rather than JSON quoted inside JSON.
-Map<String, Object?> _decodeRow(Map<String, Object?> row) => {
+Map<String, Object?> decodeChangeLogRow(Map<String, Object?> row) => {
   ...row,
   'before': _decode(row['before']),
   'after': _decode(row['after']),

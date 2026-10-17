@@ -11,6 +11,7 @@ import 'package:photos_vault/settings/secure_store.dart';
 import 'package:photos_vault/storage/album_store.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
+import 'package:photos_vault/storage/bucket_object.dart';
 import 'package:photos_vault/storage/passcode_hash.dart';
 import 'package:photos_vault/vault/keys.dart';
 import 'package:photos_vault/vault/passcode_tags.dart';
@@ -189,6 +190,57 @@ void main() {
     final members = await albumCopy.query('album_asset');
     expect(members.map((r) => r['local_id']), ['photo:open']);
     expect(File('${copy.path}.part').existsSync(), isFalse);
+  });
+
+  test('the daily copy drops the bucket listing and old log, and still '
+      'restores', () async {
+    await records.replaceBucketObjects('t1', [
+      BucketObject(
+        targetId: 't1',
+        key: 'p/originals/x.jpg',
+        size: 1,
+        lastModified: DateTime(2026),
+      ),
+    ]);
+    final mark = await records.changeMark();
+    final out = await Directory(p.join(dir.path, 'copies')).create();
+    expect(await io.copyDatabases(out.path, 'daily', slim: true), 3);
+    expect(await io.copyDatabases(out.path, 'pre'), 3);
+
+    Future<int> count(String file, String table) async {
+      final db = await databaseFactoryFfi.openDatabase(p.join(out.path, file));
+      try {
+        return (await db.rawQuery('SELECT COUNT(*) FROM $table'))
+                .first
+                .values
+                .first!
+            as int;
+      } finally {
+        await db.close();
+      }
+    }
+
+    expect(await count('daily-photos_vault.db', 'bucket_object'), 0);
+    expect(await count('pre-photos_vault.db', 'bucket_object'), 1);
+
+    // A restore is a file swap: the copy opens as the library.
+    final restored = AssetRecordStore(
+      databaseFactory: databaseFactoryFfi,
+      path: p.join(out.path, 'daily-photos_vault.db'),
+    );
+    addTearDown(restored.close);
+    expect((await restored.listAll()).map((r) => r.localId), ['photo:open']);
+    expect(await restored.changeMark(), mark, reason: 'the gate holds');
+    expect(await restored.listBucketObjects(), isEmpty);
+  });
+
+  test('the zip log decodes the same off the UI isolate', () async {
+    await records.setDescription('photo:open', 'changed');
+    final raw = await io.rawChangeLog();
+    expect((raw.assets.last['before'] as String), startsWith('{'));
+    expect(jsonEncode(raw.open()), jsonEncode(await io.changeLog()));
+    final assets = raw.open()['assets'] as List;
+    expect((assets.last as Map)['after'], {'description': 'changed'});
   });
 
   test('an older export with a hidden row still restores and opens', () async {

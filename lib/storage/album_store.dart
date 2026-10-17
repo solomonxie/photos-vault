@@ -9,6 +9,7 @@ import 'package:sqflite/sqflite.dart'
 
 import '../backup/change_log.dart';
 import '../backup/database_copy.dart';
+import 'after_first_frame.dart';
 import 'album.dart';
 
 /// Local `sqflite` store for albums and their asset membership. Kept in its
@@ -98,12 +99,8 @@ class AlbumStore {
       'CREATE INDEX IF NOT EXISTS album_asset_local ON $_memberTable (local_id)',
     );
     _db = db;
-    unawaited(
-      Future<void>.delayed(
-        const Duration(seconds: 30),
-        () => pruneChangeLog(db),
-      ),
-    );
+    // Zeroed (no `fast`): memberships of hidden photos are logged here.
+    unawaited(afterFirstFrame().then((_) => pruneChangeLog(db)));
     return db;
   }
 
@@ -125,7 +122,11 @@ class AlbumStore {
   }
 
   /// A compact copy at [dest] without [hiddenIds]' memberships or covers.
-  Future<bool> copyTo(String dest, Set<String> hiddenIds) async => copyDatabase(
+  Future<bool> copyTo(
+    String dest,
+    Set<String> hiddenIds, {
+    bool slim = false,
+  }) async => copyDatabase(
     await _open(),
     _databaseFactory,
     dest,
@@ -134,6 +135,7 @@ class AlbumStore {
       'DELETE FROM $_memberTable WHERE local_id IN (SELECT id FROM drop_ids)',
       'UPDATE $_albumTable SET cover_local_id = NULL '
           'WHERE cover_local_id IN (SELECT id FROM drop_ids)',
+      if (slim) changeLogTailScrub,
     ],
   );
 
@@ -141,8 +143,9 @@ class AlbumStore {
   Future<int> changeMark() async => changeLogMark(await _open());
 
   /// The tail of this database's change log, for the copy in the backup.
-  Future<List<Map<String, Object?>>> changeLogRows() async =>
-      changeLogTail(await _open());
+  Future<List<Map<String, Object?>>> changeLogRows({
+    bool decode = true,
+  }) async => changeLogTail(await _open(), decode: decode);
 
   /// Inserts an album under [id] if it isn't tracked yet; no-op otherwise —
   /// so re-seeding a demo album after it's deleted, or re-adding one already

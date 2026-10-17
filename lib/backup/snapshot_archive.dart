@@ -175,11 +175,11 @@ class SnapshotPayload {
   /// [indexCsv] of the same snapshot, for the loose `index.csv`.
   final String csv;
 
-  /// The rows are read here; the JSON, the CSV and the deflate run on
-  /// another isolate — a whole library of each.
+  /// The rows are read here; the log's decode, the JSON, the CSV and the
+  /// deflate run on another isolate — a whole library of each.
   static Future<SnapshotPayload> build(AppSnapshotIo snapshots) async {
     final snapshot = await snapshots.export();
-    final changeLog = await snapshots.changeLog();
+    final changeLog = await snapshots.rawChangeLog();
     try {
       return await Isolate.run(() => _encode(snapshot, changeLog));
     } on ArgumentError {
@@ -189,9 +189,9 @@ class SnapshotPayload {
   }
 }
 
-SnapshotPayload _encode(AppSnapshot snapshot, Map<String, Object?> changeLog) =>
+SnapshotPayload _encode(AppSnapshot snapshot, RawChangeLog changeLog) =>
     SnapshotPayload(
-      zip: zipSnapshot(snapshot, changeLog: changeLog),
+      zip: zipSnapshot(snapshot, changeLog: changeLog.open()),
       csv: indexCsv(snapshot),
     );
 

@@ -3,6 +3,7 @@ import 'dart:convert';
 import 'dart:io';
 import 'dart:math' show max;
 
+import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:sqflite/sqflite.dart' as sqflite;
@@ -11,6 +12,7 @@ import 'package:sqflite/sqflite.dart'
 
 import '../backup/change_log.dart';
 import '../backup/database_copy.dart';
+import 'after_first_frame.dart';
 import 'container_path.dart';
 import 'asset_record.dart';
 import 'bucket_object.dart';
@@ -113,7 +115,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 27,
+        version: 28,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createLibraryIdIndexSql);
@@ -309,6 +311,11 @@ class AssetRecordStore {
             }
             await db.execute(_editedKeyIndexSql);
           }
+          if (oldVersion < 28) {
+            // PW5: entries so far hold whole rows; [_slimLog] cuts the ones
+            // below this to diffs after the first frame.
+            await _markLogToSlim(db);
+          }
         },
       ),
     );
@@ -336,16 +343,66 @@ class AssetRecordStore {
     await _dropSquareThumbnails(db);
     await _undoRedate(db);
     _db = db;
-    // After the grid has what it needs: a first trim of a bloated log is a
-    // lot of rows to delete.
-    unawaited(
-      Future<void>.delayed(const Duration(seconds: 30), () async {
-        await _purgePrivateLog(db);
-        await pruneChangeLog(db);
-        await compact(db);
-      }),
-    );
+    unawaited(_maintain(db));
     return db;
+  }
+
+  /// After the first frame: the log trimmed and slimmed, in slices. The
+  /// one-time `VACUUM` no earlier than half a minute in, on what is left.
+  Future<void> _maintain(Database db) async {
+    final opened = Stopwatch()..start();
+    await afterFirstFrame();
+    await tidyLog(db);
+    final wait = const Duration(seconds: 30) - opened.elapsed;
+    if (wait > Duration.zero) await Future<void>.delayed(wait);
+    await compact(db);
+  }
+
+  /// The private purge, the prune, then [_slimLog]. FAST only once the
+  /// purge has run: from then on no entry is about a hidden row (the
+  /// private triggers drop a row's history as it is hidden).
+  @visibleForTesting
+  static Future<void> tidyLog(Database db) async {
+    final purged = await _purgePrivateLog(db);
+    await pruneChangeLog(db, fast: purged);
+    if (purged) await _slimLog(db);
+  }
+
+  static const _slimBelowKey = 'change_log_slim_below';
+
+  static Future<void> _markLogToSlim(Database db) async {
+    final has = await db.rawQuery(
+      "SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = ?",
+      [changeLogTable],
+    );
+    if (has.isEmpty) return;
+    final rows = await db.rawQuery(
+      'SELECT COALESCE(MAX(seq), 0) + 1 AS s FROM $changeLogTable',
+    );
+    await _putAppState(db, _slimBelowKey, '${rows.first['s']}');
+  }
+
+  /// Whole-row update entries from before PW5, down to diffs. After the
+  /// private purge, which reads `passcode_hash` out of whole rows.
+  static Future<void> _slimLog(Database db) async {
+    try {
+      final below = int.tryParse(await _appState(db, _slimBelowKey) ?? '');
+      if (below == null) return;
+      final done = await slimChangeLog(
+        db,
+        _table,
+        below: below,
+        silent: _silentColumns,
+      );
+      if (!done) return;
+      await db.delete(
+        _appStateTable,
+        where: 'key = ?',
+        whereArgs: [_slimBelowKey],
+      );
+    } catch (_) {
+      // Next launch.
+    }
   }
 
   /// A row behind a passcode, as the change log tests it.
@@ -354,10 +411,10 @@ class AssetRecordStore {
   static const _privateLogPurgedKey = 'private_log_purged_v1';
 
   /// What builds before the log's private rule wrote about hidden rows.
-  /// Once; after [_undoRedate], which read them.
-  Future<void> _purgePrivateLog(Database db) async {
+  /// Once; after [_undoRedate], which read them. True once it has run.
+  static Future<bool> _purgePrivateLog(Database db) async {
     try {
-      if (await _appState(db, _privateLogPurgedKey) != null) return;
+      if (await _appState(db, _privateLogPurgedKey) != null) return true;
       await purgePrivateEntries(
         db,
         _table,
@@ -365,8 +422,10 @@ class AssetRecordStore {
         rowKeySql: "COALESCE(CAST(local_id AS TEXT), '')",
       );
       await _putAppState(db, _privateLogPurgedKey, '1');
+      return true;
     } catch (_) {
       // Tried again next launch.
+      return false;
     }
   }
 
@@ -376,12 +435,26 @@ class AssetRecordStore {
   /// knowingly holding the connection for the seconds it takes, half a
   /// minute after launch. After that, each launch hands back what the
   /// log prune freed.
+  ///
+  /// The rebuild goes through temp files: in memory it costs about the
+  /// live database again. In memory only as a fallback, and only when
+  /// what is live is small.
   static Future<void> compact(Database db) async {
     try {
       final mode = await db.rawQuery('PRAGMA auto_vacuum');
       if (mode.first.values.first != 2) {
         await db.execute('PRAGMA auto_vacuum = INCREMENTAL');
-        await db.execute('VACUUM');
+        try {
+          await Directory.systemTemp.create(recursive: true);
+          await db.execute('PRAGMA temp_store = FILE');
+          await db.execute('VACUUM');
+        } catch (_) {
+          if (await _liveBytes(db) > _memoryVacuumLimit) rethrow;
+          await db.execute('PRAGMA temp_store = MEMORY');
+          await db.execute('VACUUM');
+        } finally {
+          await db.execute('PRAGMA temp_store = MEMORY');
+        }
       } else {
         // Stepped to the end by rawQuery: one page per step.
         await db.rawQuery('PRAGMA incremental_vacuum');
@@ -389,6 +462,16 @@ class AssetRecordStore {
     } catch (_) {
       // A full disk; next launch.
     }
+  }
+
+  static const _memoryVacuumLimit = 64 << 20;
+
+  static Future<int> _liveBytes(Database db) async {
+    final rows = await db.rawQuery(
+      'SELECT (page_count - freelist_count) * page_size AS b '
+      'FROM pragma_page_count, pragma_freelist_count, pragma_page_size',
+    );
+    return rows.first['b'] as int? ?? 0;
   }
 
   static Future<String?> _appState(Database db, String key) async {
@@ -1999,11 +2082,12 @@ class AssetRecordStore {
   Future<int> changeMark() async => changeLogMark(await _open());
 
   /// The tail of this database's change log, for the copy in the backup.
-  Future<List<Map<String, Object?>>> changeLogRows() async {
+  /// [decode] false: `before`/`after` as JSON text.
+  Future<List<Map<String, Object?>>> changeLogRows({bool decode = true}) async {
     final db = await _open();
-    // Before the first copy leaves, not half a minute after launch.
+    // Before the first copy leaves, not after the first frame.
     await _purgePrivateLog(db);
-    return changeLogTail(db);
+    return changeLogTail(db, decode: decode);
   }
 
   /// Inserts a new record if `localId` isn't tracked yet. If one already
@@ -2921,8 +3005,11 @@ class AssetRecordStore {
   }
 
   /// A compact copy of this database at [dest], with nothing behind a
-  /// passcode in it: see `../backup/database_copy.dart`.
-  Future<bool> copyTo(String dest) async => copyDatabase(
+  /// passcode in it: see `../backup/database_copy.dart`. [slim] (the daily
+  /// copy): the log down to what the zip ships, and no bucket listing, a
+  /// cache the flag scan lists again when it finds none. A zip restore
+  /// starts the same way.
+  Future<bool> copyTo(String dest, {bool slim = false}) async => copyDatabase(
     await _open(),
     _databaseFactory,
     dest,
@@ -2942,6 +3029,16 @@ class AssetRecordStore {
       'DELETE FROM $_pendingSwapTable',
       // A cache of adopted ids; pending deletes stay, they are obligations.
       "DELETE FROM $_appStateTable WHERE key = 'hidden_motion_checked_v1'",
+      if (slim) ...[
+        changeLogTailScrub,
+        for (final table in [
+          _bucketObjectTable,
+          _bucketScanTable,
+          _bucketScanObjectTable,
+          _bucketEditTable,
+        ])
+          'DELETE FROM $table',
+      ],
     ],
   );
 

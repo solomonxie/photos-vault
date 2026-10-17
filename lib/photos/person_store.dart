@@ -9,6 +9,7 @@ import 'package:uuid/uuid.dart';
 
 import '../backup/change_log.dart';
 import '../backup/database_copy.dart';
+import '../storage/after_first_frame.dart';
 import '../vault/keys.dart' show AlbumKeys;
 import 'person.dart';
 import 'person_detail.dart';
@@ -230,12 +231,12 @@ class PersonStore {
       },
     );
     _db = db;
-    unawaited(_purgePrivateLog(db));
+    // Zeroed (no `fast`): memberships of hidden photos are logged here.
     unawaited(
-      Future<void>.delayed(
-        const Duration(seconds: 30),
-        () => pruneChangeLog(db),
-      ),
+      afterFirstFrame().then((_) async {
+        await _purgePrivateLog(db);
+        await pruneChangeLog(db);
+      }),
     );
     return db;
   }
@@ -306,7 +307,11 @@ class PersonStore {
   }
 
   /// A compact copy at [dest] without [hiddenIds]' memberships or avatars.
-  Future<bool> copyTo(String dest, Set<String> hiddenIds) async => copyDatabase(
+  Future<bool> copyTo(
+    String dest,
+    Set<String> hiddenIds, {
+    bool slim = false,
+  }) async => copyDatabase(
     await _open(),
     _databaseFactory,
     dest,
@@ -315,6 +320,7 @@ class PersonStore {
       'DELETE FROM $_memberTable WHERE local_id IN (SELECT id FROM drop_ids)',
       'UPDATE $_personTable SET avatar_local_id = NULL, avatar_face = NULL '
           'WHERE avatar_local_id IN (SELECT id FROM drop_ids)',
+      if (slim) changeLogTailScrub,
     ],
   );
 
@@ -494,8 +500,9 @@ class PersonStore {
   Future<int> changeMark() async => changeLogMark(await _open());
 
   /// The tail of this database's change log, for the copy in the backup.
-  Future<List<Map<String, Object?>>> changeLogRows() async =>
-      changeLogTail(await _open());
+  Future<List<Map<String, Object?>>> changeLogRows({
+    bool decode = true,
+  }) async => changeLogTail(await _open(), decode: decode);
 
   /// Creates a new person under a fresh id, unless [id] is given and one
   /// already exists at it — then that existing one is returned, so a

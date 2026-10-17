@@ -6,8 +6,8 @@
 | PW2 | Cheap resume | done | 257a92c |
 | PW3 | No re-renders for thumbnails, Vision, hashing | done | a354f05 |
 | PW3b | Upload true originals (+ edited render) | done | 9191d15 |
-| PW4 | Faces without full descriptor reads | done | (this commit) |
-| PW5 | Smaller database | todo | |
+| PW4 | Faces without full descriptor reads | done | 3622041 |
+| PW5 | Smaller database | done | (this commit) |
 | PW6 | Less periodic waste | todo | |
 | PW7 | Cheaper grid paint | todo | |
 | PW8 | Cheaper reload and search | todo | |
@@ -44,3 +44,14 @@
 - UI-10: `PersonAvatar(records:)` resolves from `visibleRecordsOf(all)` (memoised per `listAll` instance); the library People row and the people screen pass it, so no query per avatar mount. Other callers keep the query path.
 - Not done: `FaceGrouping.like`/`likeAnyOf` still read every descriptor; "who else looks like this" needs the whole set.
 
+
+## PW5 notes
+
+- Measured on the user's DB copy (read-only, 4,525 records): 289 MB file, 207 MB of it free pages (`auto_vacuum` 0); live 92 MB, of which `change_log` 76 MB (19.4k entries, all at the 20k cap; 19.1k of them `thumbnail_path` re-homes). Rest: `asset_record` 4.0, `derivative_target` + indexes 5.2, `bucket_object` + PK 2.9, `change_log_row` 1.4. Prune + slim + VACUUM on a scratch copy: **15.4 MB**, log 0.5 MB.
+- DB-4: update triggers write only changed, non-silent columns (`json_remove` of unchanged ones); inserts and deletes keep the whole row. Cap 5,000 (`changeLogKeep`, what the zip ships). Schema v28 records `change_log_slim_below`; after the first frame, purge, prune, then `slimChangeLog` rewrites older update entries to diffs in 500-row slices (idempotent; changed values kept on both sides, so `_undoRedate`-style reads still work). Mark (`sqlite_sequence`) untouched. People and albums: new entries are diffs; old ones age out under the cap (no migration, 1 MB / 24 rows).
+- Prune runs after `waitUntilFirstFrameRasterized` (never in the headless background engine); VACUUM still no earlier than 30 s after open.
+- DB-5: one-time VACUUM with `temp_store = FILE` (tmp re-created first), back to MEMORY after. MEMORY only as fallback when live data <= 64 MB.
+- DB-7: `secure_delete = FAST` per prune slice, set and restored inside the slice's transaction, asset store only and only once the private purge has run. People and album logs stay zeroed: they log memberships of hidden photos.
+- DB-8: backups read the tails as JSON text (`rawChangeLog`); decode and hidden filter run in the zip isolate. Pre-deletion and share exports still decode on the caller (rare).
+- DB-9: daily copies (`slim`) cap the log at 5,000 and drop `bucket_object`, `bucket_scan`, `bucket_scan_object`, `bucket_edit`: a zip restore also starts with no listing, and the flag scan re-lists when it finds none. Pre-deletion copies keep everything. Retention unchanged. The 5k tail stays (~0.5-2 MB) so a copy is whole without its zip.
+- Not done: prune after bulk passes (diffs make a pass ~100-300 B per row); `auto_vacuum` in `onConfigure` for new files (their first VACUUM is tiny).
