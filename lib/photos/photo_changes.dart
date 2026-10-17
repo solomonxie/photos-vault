@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:flutter/services.dart';
+import 'package:photo_manager/photo_manager.dart' show AssetEntity, LatLng;
 
 import '../demo/demo_flag.dart';
 import 'photo_library_change.dart';
@@ -49,6 +50,59 @@ class PhotoChanges {
     } catch (_) {
       return null;
     }
+  }
+
+  /// [ids]' assets that Photos has, by id, in one fetch per [assetsPage]:
+  /// an id missing from the answer is gone. Null when it can't say (no
+  /// channel, a failed call); ask per id then.
+  Future<Map<String, AssetEntity>?> assets(Iterable<String> ids) async {
+    if (!_supported) return null;
+    final all = ids.toSet().toList();
+    final out = <String, AssetEntity>{};
+    try {
+      for (var i = 0; i < all.length; i += assetsPage) {
+        final page = all.sublist(i, (i + assetsPage).clamp(0, all.length));
+        final raw = await _channel.invokeListMethod<Object?>('assets', page);
+        if (raw == null) return null;
+        for (final map in raw.whereType<Map>()) {
+          final entity = entityOf(map.cast<String, Object?>());
+          if (entity != null && page.contains(entity.id)) {
+            out[entity.id] = entity;
+          }
+        }
+      }
+    } catch (_) {
+      return null;
+    }
+    return out;
+  }
+
+  static const assetsPage = 200;
+
+  /// photo_manager's own reading of the same map (`convertMapToAsset`).
+  static AssetEntity? entityOf(Map<String, Object?> m) {
+    final id = m['id'];
+    if (id is! String) return null;
+    num? n(String key) => m[key] is num ? m[key] as num : null;
+    return AssetEntity(
+      id: id,
+      typeInt: n('type')?.toInt() ?? 0,
+      width: n('width')?.toInt() ?? 0,
+      height: n('height')?.toInt() ?? 0,
+      duration: n('duration')?.toInt() ?? 0,
+      isFavorite: m['favorite'] == true,
+      title: m['title'] as String? ?? '',
+      subtype: n('subtype')?.toInt() ?? 0,
+      createDateSecond: n('createDt')?.toInt(),
+      modifiedDateSecond: n('modifiedDt')?.toInt(),
+      latLng: switch ((n('lat'), n('lng'))) {
+        (final lat?, final lng?) => LatLng(
+          latitude: lat.toDouble(),
+          longitude: lng.toDouble(),
+        ),
+        _ => null,
+      },
+    );
   }
 
   static PhotoChangeDelta? parse(Map<String, Object?> raw) {

@@ -131,8 +131,21 @@ class SyncEngine {
   /// list is walked in decides what gets backed up today and what waits for
   /// a later refill. Last week's photos are the ones with no second copy
   /// anywhere; 2014's have had a decade of chances.
-  static List<AssetRecord> newestFirst(List<AssetRecord> records) =>
-      records.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  ///
+  /// Lists cut from [records] are already oldest first (`listAll`'s
+  /// order): those are walked backwards, no sort. One pass to tell.
+  static Iterable<AssetRecord> newestFirst(List<AssetRecord> records) {
+    var ascending = true;
+    var descending = true;
+    for (var i = 1; i < records.length && (ascending || descending); i++) {
+      final c = records[i - 1].createdAt.compareTo(records[i].createdAt);
+      if (c > 0) ascending = false;
+      if (c < 0) descending = false;
+    }
+    if (descending) return records;
+    if (ascending) return records.reversed;
+    return records.toList()..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  }
 
   /// Queues [records] for backup rather than uploading them here: one job
   /// per derivative per asset, drained by [syncQueue] with real concurrency.

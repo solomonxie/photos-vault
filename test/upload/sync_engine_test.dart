@@ -159,6 +159,35 @@ void main() {
       if (j.kind == SyncJobKind.checkChanges) j.localId,
   };
 
+  test('newest first walks a sorted list backwards, and sorts only what '
+      'is not (BG-16)', () {
+    AssetRecord at(String id, int day) => AssetRecord(
+      localId: id,
+      contentHash: id,
+      platform: 'ios',
+      createdAt: DateTime(2024, 1, day),
+      updatedAt: DateTime(2024),
+    );
+    final ascending = [at('a', 1), at('b', 2), at('b2', 2), at('c', 3)];
+    expect(
+      [for (final r in SyncEngine.newestFirst(ascending)) r.localId],
+      ['c', 'b2', 'b', 'a'],
+    );
+    final descending = ascending.reversed.toList();
+    expect(SyncEngine.newestFirst(descending), same(descending));
+    expect(
+      [
+        for (final r in SyncEngine.newestFirst([
+          at('b', 2),
+          at('c', 3),
+          at('a', 1),
+        ]))
+          r.localId,
+      ],
+      ['c', 'b', 'a'],
+    );
+  });
+
   group('change checks follow the modification date (BG-6)', () {
     test(
       'only photos never checked, or whose date moved, are queued',

@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:io';
+import 'dart:math' show min;
 
 import 'package:path/path.dart' as p;
 import 'package:photo_manager/photo_manager.dart';
@@ -662,10 +663,14 @@ class StorageAdvisor {
 
     final take = limit == null || limit > todo.length ? todo.length : limit;
     var scan = previous;
+    var page = <String, AssetMeasure?>{};
     for (var i = 0; i < take; i++) {
       final record = todo[i];
+      if (i % _reportEvery == 0) {
+        page = await _measurePage(todo.sublist(i, min(i + _reportEvery, take)));
+      }
       measured.add(record.localId);
-      final measure = await _measureOne(record);
+      final measure = page[record.localId];
       if (measure != null) {
         final item = adviseOn(
           record: record,
@@ -807,7 +812,42 @@ class StorageAdvisor {
           : a.record.localId.compareTo(b.record.localId);
     });
 
-  Future<AssetMeasure?> _measureOne(AssetRecord record) async {
+  /// Measures run [_measurePool] at a time, the page's entities fetched
+  /// in one call (BG-14). Size and name stay a call each: the name's
+  /// extension is part of the advice.
+  Future<Map<String, AssetMeasure?>> _measurePage(
+    List<AssetRecord> records,
+  ) async {
+    final library = _library;
+    final entities = _measure == null && library != null
+        ? await library.entitiesFor(records.where((r) => r.sourcePath == null))
+        : const <String, AssetEntity?>{};
+    final out = <String, AssetMeasure?>{};
+    final queue = records.iterator;
+    Future<void> worker() async {
+      while (queue.moveNext()) {
+        final record = queue.current;
+        out[record.localId] = await _measureOne(
+          record,
+          entity: entities[record.localId],
+          looked: entities.containsKey(record.localId),
+        );
+      }
+    }
+
+    await Future.wait([
+      for (var i = 0; i < _measurePool && i < records.length; i++) worker(),
+    ]);
+    return out;
+  }
+
+  static const _measurePool = 4;
+
+  Future<AssetMeasure?> _measureOne(
+    AssetRecord record, {
+    AssetEntity? entity,
+    bool looked = false,
+  }) async {
     final measure = _measure;
     if (measure != null) return measure(record);
 
@@ -831,13 +871,13 @@ class StorageAdvisor {
     if (library == null) return null;
     if (record.sourceType != AssetSourceType.photoManager) return null;
     try {
-      final entity = await library.entityFor(record);
-      if (entity == null) return null;
-      final bytes = await entity.fileSize;
+      final found = looked ? entity : await library.entityFor(record);
+      if (found == null) return null;
+      final bytes = await found.fileSize;
       if (bytes <= 0) return null;
       return AssetMeasure(
         bytes: bytes,
-        name: await _nameOf(entity),
+        name: await _nameOf(found),
         appOwned: false,
       );
     } catch (_) {

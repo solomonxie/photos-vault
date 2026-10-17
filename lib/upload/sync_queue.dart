@@ -221,29 +221,46 @@ class SyncQueue {
   /// finish — an upload killed mid-request leaves a partial object in the
   /// bucket, which costs more than the second it saves.
   ///
-  /// Jobs run in batches of [concurrency] rather than as a continuously
-  /// topped-up pool: a slow file holds up its batch, but the bound is
-  /// obvious and there's no bookkeeping to get wrong.
+  /// A sliding window of [concurrency] jobs (BG-18): a slot is refilled
+  /// as soon as its job ends, so one big video doesn't idle the others.
   ///
-  /// Each batch is claimed newest-photo-first (see
+  /// Each job is claimed newest-photo-first (see
   /// [SyncJobStore.dequeueNextPending]), so a photo taken while a years-deep
-  /// backlog is draining goes up in the next batch rather than behind it.
+  /// backlog is draining goes up next rather than behind it.
   Future<void> _runDrain() async {
     draining.value = true;
     processedInLastDrain = 0;
+    final running = <Future<void>>{};
+    Completer<void>? freed;
     try {
       while (!_disposed && !paused.value) {
-        final batch = <Future<void>>[];
-        for (var i = 0; i < concurrency.value; i++) {
+        var claimed = false;
+        var empty = false;
+        while (running.length < concurrency.value) {
           final job = await store.dequeueNextPending(kinds: kinds);
-          if (job == null) break;
-          batch.add(_run(job));
+          if (job == null) {
+            empty = true;
+            break;
+          }
+          late final Future<void> run;
+          run = _run(job).whenComplete(() {
+            running.remove(run);
+            freed?.complete();
+            freed = null;
+          });
+          running.add(run);
+          claimed = true;
         }
-        if (batch.isEmpty) break;
-        await refresh();
-        await Future.wait(batch);
+        if (running.isEmpty) break;
+        if (claimed) await refresh();
+        // One may have ended meanwhile: refill before waiting.
+        if (running.isEmpty) continue;
+        if (!empty && running.length < concurrency.value) continue;
+        await (freed = Completer<void>()).future;
         await refresh();
       }
+      // Paused or disposed: what is in flight still finishes.
+      await Future.wait(running.toList());
     } finally {
       if (!_disposed) draining.value = false;
     }

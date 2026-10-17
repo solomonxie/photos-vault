@@ -27,6 +27,19 @@ class PhotoChangesChannel {
     _ call: FlutterMethodCall,
     _ result: @escaping FlutterResult
   ) {
+    if call.method == "assets" {
+      guard let ids = call.arguments as? [String], !ids.isEmpty,
+            !ids.contains(where: { $0.isEmpty })
+      else {
+        result(nil)
+        return
+      }
+      DispatchQueue.global(qos: .utility).async {
+        let found = assets(ids)
+        DispatchQueue.main.async { result(found) }
+      }
+      return
+    }
     guard #available(iOS 16, *) else {
       result(nil)
       return
@@ -51,6 +64,43 @@ class PhotoChangesChannel {
     default:
       result(FlutterMethodNotImplemented)
     }
+  }
+
+  /// The assets of [ids] PhotoKit has, in photo_manager's entity map
+  /// (`convertPHAssetToAssetEntity`, no title): one fetch for many
+  /// `AssetEntity.fromId` calls. An id missing from the answer is gone.
+  private static func assets(_ ids: [String]) -> [[String: Any]] {
+    let options = PHFetchOptions()
+    options.fetchLimit = ids.count
+    let fetched = PHAsset.fetchAssets(withLocalIdentifiers: ids, options: options)
+    var out: [[String: Any]] = []
+    out.reserveCapacity(fetched.count)
+    fetched.enumerateObjects { asset, _, _ in
+      let type: Int
+      switch asset.mediaType {
+      case .image: type = 1
+      case .video: type = 2
+      default: type = 0
+      }
+      var map: [String: Any] = [
+        "id": asset.localIdentifier,
+        "createDt": Int(asset.creationDate?.timeIntervalSince1970 ?? 0),
+        "width": asset.pixelWidth,
+        "height": asset.pixelHeight,
+        "duration": Int(asset.duration.rounded()),
+        "favorite": asset.isFavorite,
+        "type": type,
+        "modifiedDt": Int(asset.modificationDate?.timeIntervalSince1970 ?? 0),
+        "title": "",
+        "subtype": Int(asset.mediaSubtypes.rawValue),
+      ]
+      if let location = asset.location {
+        map["lat"] = location.coordinate.latitude
+        map["lng"] = location.coordinate.longitude
+      }
+      out.append(map)
+    }
+    return out
   }
 
   @available(iOS 16, *)

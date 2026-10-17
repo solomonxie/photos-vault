@@ -54,12 +54,18 @@ class PhotoLibraryService {
     Future<PermissionState> Function()? requestPermission,
     Future<List<AssetEntity>> Function(int page, int size)? listAssetPage,
     Future<AssetEntity?> Function(String id)? loadEntity,
+    Future<Map<String, AssetEntity>?> Function(Iterable<String> ids)?
+    loadEntities,
     Future<List<String>> Function(List<String> ids)? deleteAssets,
     Future<String> Function(AssetEntity entity)? loadTitle,
     Future<StillResource?> Function(AssetEntity entity, {required bool base})?
     loadResource,
     PhotoChanges? changes,
   }) : _changes = changes ?? PhotoChanges(),
+       // A lone [loadEntity] (tests) is asked per id.
+       _loadEntities =
+           loadEntities ??
+           (loadEntity != null ? ((_) => Future.value()) : null),
        _loadResource = loadResource ?? _resourceOf,
        // A library handed in has no plugin behind it to ask.
        _loadTitle =
@@ -97,6 +103,49 @@ class PhotoLibraryService {
   final Future<List<AssetEntity>> Function(int page, int size) Function()
   _openListing;
   final Future<AssetEntity?> Function(String id) _loadEntity;
+  final Future<Map<String, AssetEntity>?> Function(Iterable<String> ids)?
+  _loadEntities;
+
+  /// Per-id lookups in flight at once when the batched fetch can't answer.
+  static const _lookupPool = 8;
+
+  /// [ids]' assets: one native fetch per 200 ids, else per id,
+  /// [_lookupPool] at a time. An id in neither map is gone; `unknown` are
+  /// failed lookups, never to be taken for gone.
+  Future<({Map<String, AssetEntity> found, Set<String> unknown})> _lookUp(
+    Iterable<String> ids,
+  ) async {
+    final asked = ids.toSet();
+    if (asked.isEmpty) {
+      return (found: <String, AssetEntity>{}, unknown: <String>{});
+    }
+    final batch = await (_loadEntities ?? _changes.assets)(asked);
+    if (batch != null) {
+      return (
+        found: {for (final id in asked) id: ?batch[id]},
+        unknown: <String>{},
+      );
+    }
+    final found = <String, AssetEntity>{};
+    final unknown = <String>{};
+    final queue = asked.iterator;
+    Future<void> worker() async {
+      while (queue.moveNext()) {
+        final id = queue.current;
+        try {
+          if (await _loadEntity(id) case final entity?) found[id] = entity;
+        } catch (_) {
+          unknown.add(id);
+        }
+      }
+    }
+
+    await Future.wait([
+      for (var i = 0; i < _lookupPool && i < asked.length; i++) worker(),
+    ]);
+    return (found: found, unknown: unknown);
+  }
+
   final Future<StillResource?> Function(
     AssetEntity entity, {
     required bool base,
@@ -470,14 +519,22 @@ class PhotoLibraryService {
     final added = <AssetRecord>[];
     var updated = 0;
 
-    for (final id in {...change.created, ...change.updated}) {
-      final entity = await _loadEntity(id);
+    final ids = {...change.created, ...change.updated};
+    final looked = await _lookUp(ids);
+    // As before: a failed lookup fails the change; the next scan has it.
+    if (looked.unknown.isNotEmpty) {
+      throw StateError('${looked.unknown.length} assets unreadable');
+    }
+    final held = await store.getByLibraryIds(looked.found.keys.toSet());
+    for (final id in ids) {
+      final entity = looked.found[id];
       // Gone again between the notification and now (a burst of edits, or
       // a create-then-delete): the delete pass below, or the next scan,
       // deals with it.
       if (entity == null) continue;
       final localId = localIdFor(entity);
-      final existing = await store.getByLibraryId(entity.id);
+      // One row per id: nothing written for one id moves another's.
+      final existing = held[entity.id];
       if (existing == null) {
         final inserted = await _insert(entity, localId);
         if (inserted.localId == localId) added.add(inserted);
@@ -561,13 +618,7 @@ class PhotoLibraryService {
   /// about again; a failed lookup means still there.
   Future<int> _markMissing(Set<String> libraryIds) async {
     if (libraryIds.isEmpty || !await hasFullAccess()) return 0;
-    final records = await store.getByLibraryIds(libraryIds);
-    var changed = 0;
-    for (final MapEntry(key: id, value: record) in records.entries) {
-      if (await _missingFromLibrary(id) == null) continue;
-      if (await _markGone(record)) changed++;
-    }
-    return changed;
+    return _markConfirmedGone(await store.getByLibraryIds(libraryIds));
   }
 
   /// Whether an absence from the library can mean anything. Under
@@ -626,7 +677,7 @@ class PhotoLibraryService {
     DateTime? newerThan,
   }) async {
     if (!await hasFullAccess()) return 0;
-    var changed = 0;
+    final unseen = <String, AssetRecord>{};
     for (final record in await store.listAll()) {
       if (record.sourceType != AssetSourceType.photoManager) continue;
       if (seen.contains(record.localId)) continue;
@@ -641,7 +692,26 @@ class PhotoLibraryService {
       // before writing it off, which costs a metadata lookup and only for
       // the handful the listing didn't account for. A failed lookup is not
       // an answer: still there.
-      if (await _missingFromLibrary(libraryId) == null) continue;
+      unseen[libraryId] = record;
+    }
+    return _markConfirmedGone(unseen);
+  }
+
+  /// Marks the [records] (by library id) a live lookup says Photos no
+  /// longer has, each as its row reads now. A failed lookup: still there.
+  Future<int> _markConfirmedGone(Map<String, AssetRecord> records) async {
+    if (records.isEmpty) return 0;
+    final looked = await _lookUp(records.keys);
+    final gone = {
+      for (final id in records.keys)
+        if (!looked.found.containsKey(id) && !looked.unknown.contains(id)) id,
+    };
+    final fresh = await store.getByLibraryIds(gone);
+    var changed = 0;
+    for (final id in gone) {
+      final record = fresh[id];
+      // Re-linked or taken out meanwhile: no longer that photo's row.
+      if (record == null || record.localId != records[id]!.localId) continue;
       if (await _markGone(record)) changed++;
     }
     return changed;
@@ -815,6 +885,20 @@ class PhotoLibraryService {
     return _loadEntity(id);
   }
 
+  /// [entityFor] for many, by local id, in batched fetches. Gone and
+  /// unreadable both read as null here: for display and measuring, never
+  /// for a deletion.
+  Future<Map<String, AssetEntity?>> entitiesFor(
+    Iterable<AssetRecord> records,
+  ) async {
+    final byLibrary = {for (final r in records) ?libraryIdOf(r): r.localId};
+    final looked = await _lookUp(byLibrary.keys);
+    return {
+      for (final MapEntry(key: id, value: localId) in byLibrary.entries)
+        localId: looked.found[id],
+    };
+  }
+
   /// Resolves the actual file on disk for [record] — used to feed the
   /// backup pipeline, which only understands file paths. Triggers an iCloud
   /// download on iOS if the original isn't on-device yet, so can be slow.
@@ -928,13 +1012,16 @@ class PhotoLibraryService {
     // An id Photos no longer has can't be deleted and comes back unlisted,
     // which used to leave its record undeletable for good. It's gone. Only
     // for a delete: to hiding, "not found" must never pass for "removed".
-    final missing = await Future.wait([
-      for (final id in localIds.keys)
-        if (!deleted.contains(id)) _missingFromLibrary(id),
-    ]);
+    final looked = await _lookUp(
+      localIds.keys.where((id) => !deleted.contains(id)),
+    );
     return {
       for (final id in deleted) ?localIds[id],
-      for (final id in missing.nonNulls) ?localIds[id],
+      for (final id in localIds.keys)
+        if (!deleted.contains(id) &&
+            !looked.found.containsKey(id) &&
+            !looked.unknown.contains(id))
+          ?localIds[id],
     };
   }
 

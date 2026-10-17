@@ -380,6 +380,76 @@ void main() {
       );
     });
 
+    test('a slow job keeps one slot; the other slots keep draining', () async {
+      final store = newStore();
+      final slow = Completer<void>();
+      final order = <String>[];
+      final queue = queueOver(store, (job) async {
+        if (job.displayName == 'big.mov') await slow.future;
+        order.add(job.displayName);
+      });
+      await queue.setConcurrency(2);
+      // Newest first: the video is claimed first.
+      await queue.enqueue(
+        localId: 'v',
+        kind: SyncJobKind.uploadOriginal,
+        displayName: 'big.mov',
+        assetCreatedAt: DateTime(2025),
+      );
+      for (var i = 0; i < 5; i++) {
+        await queue.enqueue(
+          localId: '$i',
+          kind: SyncJobKind.uploadOriginal,
+          displayName: '$i.jpg',
+          assetCreatedAt: DateTime(2024, 1, 1 + i),
+        );
+      }
+
+      final drain = queue.start();
+      for (var i = 0; i < 100 && order.length < 5; i++) {
+        await Future<void>.delayed(const Duration(milliseconds: 10));
+      }
+      expect(order, hasLength(5), reason: 'not held behind the video');
+      slow.complete();
+      await drain;
+      expect(order.last, 'big.mov');
+    });
+
+    test(
+      'pausing lets the jobs in flight finish before the drain ends',
+      () async {
+        final store = newStore();
+        final release = Completer<void>();
+        final done = <String>[];
+        final queue = queueOver(store, (job) async {
+          await release.future;
+          done.add(job.localId);
+        });
+        await queue.setConcurrency(2);
+        for (var i = 0; i < 4; i++) {
+          await queue.enqueue(
+            localId: '$i',
+            kind: SyncJobKind.uploadOriginal,
+            displayName: '$i.jpg',
+            assetCreatedAt: DateTime(2024, 1, 1 + i),
+          );
+        }
+        var ended = false;
+        final drain = queue.start().then((_) => ended = true);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        await queue.setPaused(true);
+        await Future<void>.delayed(const Duration(milliseconds: 30));
+        expect(ended, isFalse, reason: 'two still running');
+        release.complete();
+        await drain;
+        expect(done, hasLength(2));
+        expect(
+          (await store.all()).where((j) => j.status == SyncJobStatus.pending),
+          hasLength(2),
+        );
+      },
+    );
+
     test('a thrown job is recorded as failed with its message, and the rest still run', () async {
       final store = newStore();
       final queue = queueOver(store, (job) async {

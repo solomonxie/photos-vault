@@ -69,12 +69,22 @@ class PhotoLocationService {
   }) async {
     final pending = await store.listAwaitingPlaceName(limit: limit);
     var named = 0;
+    // Cells repeat down a page: asked once each.
+    final cells = <String, PlaceNameEntry?>{};
+    final names = <String, String>{};
+    Future<void> flush() async {
+      named += await store.fillLocations(names);
+      names.clear();
+    }
+
     for (final record in pending) {
       final latitude = record.latitude;
       final longitude = record.longitude;
       if (latitude == null || longitude == null) continue;
       final cell = cellFor(latitude, longitude);
-      var cached = await store.cachedPlaceName(cell);
+      var cached = cells.containsKey(cell)
+          ? cells[cell]
+          : cells[cell] = await store.cachedPlaceName(cell);
       if (cached == null) {
         // Only an unknown cell costs a question, and the pause goes with
         // the question rather than with the photo.
@@ -84,20 +94,16 @@ class PhotoLocationService {
         // (05#8). The next run starts again.
         if (answer == null) break;
         await store.cachePlaceName(cell, answer.name);
-        cached = PlaceNameEntry(answer.name);
+        cached = cells[cell] = PlaceNameEntry(answer.name);
+        // Written before the pause, so what is known lands.
+        await flush();
         await wait(spacing);
       }
       final name = cached.name;
       if (name == null || name.isEmpty) continue;
-      // Re-read: the user may have typed one while this was working.
-      final current = await store.getByLocalId(record.localId);
-      final existing = current?.location;
-      if (current == null || (existing != null && existing.isNotEmpty)) {
-        continue;
-      }
-      await store.setLocation(record.localId, name);
-      named++;
+      names[record.localId] = name;
     }
+    await flush();
     return named;
   }
 

@@ -659,6 +659,103 @@ void main() {
     });
   });
 
+  group('batched lookups (BG-14, BG-17)', () {
+    PhotoLibraryService serviceOver(
+      FakeAssetRecordStore store,
+      Map<String, AssetEntity> library, {
+      Future<Map<String, AssetEntity>?> Function(Iterable<String>)? batch,
+      Future<AssetEntity?> Function(String id)? perId,
+      Future<List<String>> Function(List<String>)? deleteAssets,
+    }) => PhotoLibraryService(
+      store: store,
+      requestPermission: () async => PermissionState.authorized,
+      listAssetPage: (page, size) async => throw StateError('should not scan'),
+      loadEntity: perId ?? (id) async => library[id],
+      loadEntities: batch,
+      deleteAssets: deleteAssets,
+    );
+
+    test('a burst of changes is one fetch, and asks nothing per id', () async {
+      final store = FakeAssetRecordStore();
+      final library = {for (var i = 0; i < 30; i++) 'a$i': _entity('a$i')};
+      var fetches = 0;
+      final service = serviceOver(
+        store,
+        library,
+        batch: (ids) async {
+          fetches++;
+          return {for (final id in ids) id: ?library[id]};
+        },
+        perId: (_) async => throw StateError('asked per id'),
+      );
+
+      final result = await service.applyChange(
+        PhotoLibraryChange(created: library.keys.toSet()),
+      );
+      expect(result.added, hasLength(30));
+      expect(fetches, 1);
+
+      library.remove('a3');
+      await service.applyChange(
+        const PhotoLibraryChange(deleted: {'a3', 'a4'}),
+      );
+      expect((await store.getByLocalId('photo:a3'))!.isDeleted, isTrue);
+      expect((await store.getByLocalId('photo:a4'))!.isDeleted, isFalse);
+    });
+
+    test('no batch answer: asked per id, a few at a time, and a failed one '
+        'is never taken for gone', () async {
+      final store = FakeAssetRecordStore();
+      final library = {for (var i = 0; i < 40; i++) 'a$i': _entity('a$i')};
+      await serviceOver(
+        store,
+        library,
+      ).applyChange(PhotoLibraryChange(created: library.keys.toSet()));
+      final records = await store.listAll();
+
+      var running = 0;
+      var peak = 0;
+      final service = serviceOver(
+        store,
+        library,
+        batch: (_) async => null,
+        perId: (id) async {
+          running++;
+          peak = running > peak ? running : peak;
+          await Future<void>.delayed(const Duration(milliseconds: 2));
+          running--;
+          if (id == 'a1') throw StateError('no answer');
+          return id == 'a2' ? null : library[id];
+        },
+        deleteAssets: (_) async => const [],
+      );
+      final gone = await service.deleteManyFromLibrary(
+        records,
+        limit: 1000,
+        missingCountsAsDeleted: true,
+      );
+      expect(gone, {'photo:a2'});
+      expect(peak, inInclusiveRange(2, 8));
+    });
+
+    test('a batch that fails says nothing about any id', () async {
+      final store = FakeAssetRecordStore();
+      final library = {'a1': _entity('a1')};
+      await serviceOver(
+        store,
+        library,
+      ).applyChange(const PhotoLibraryChange(created: {'a1'}));
+      final service = serviceOver(
+        store,
+        library,
+        batch: (_) async => null,
+        perId: (_) async => throw StateError('no answer'),
+      );
+      await service.applyChange(const PhotoLibraryChange(deleted: {'a1'}));
+      expect((await store.getByLocalId('photo:a1'))!.isDeleted, isFalse);
+    });
+  });
+
   group('absence never deletes', () {
     PhotoLibraryService serviceOver(
       FakeAssetRecordStore store, {

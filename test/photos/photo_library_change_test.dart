@@ -1,3 +1,5 @@
+import 'package:photo_manager/photo_manager.dart' show AssetType;
+import 'package:photos_vault/photos/photo_changes.dart';
 import 'package:photos_vault/photos/photo_library_change.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -74,5 +76,32 @@ void main() {
       expect(change.created, {'good'});
       expect(change.deleted, isEmpty);
     });
+  });
+
+  test('a batched asset reads as photo_manager reads the same map', () {
+    final entity = PhotoChanges.entityOf({
+      'id': 'A/L0/001',
+      'createDt': 1700000000,
+      'width': 4032,
+      'height': 3024,
+      'duration': 0,
+      'favorite': true,
+      'type': 1,
+      'modifiedDt': 1700000500,
+      'title': '',
+      'subtype': 8,
+      'lat': 48.85,
+      'lng': 2.35,
+    })!;
+    expect(entity.id, 'A/L0/001');
+    expect(entity.type, AssetType.image);
+    expect(entity.createDateTime.millisecondsSinceEpoch, 1700000000000);
+    expect(entity.modifiedDateTime.millisecondsSinceEpoch, 1700000500000);
+    expect(entity.isFavorite, isTrue);
+    expect(entity.isLivePhoto, isTrue);
+    expect(entity.latLng?.latitude, 48.85);
+    expect(entity.latLng?.longitude, 2.35);
+    expect(PhotoChanges.entityOf({'width': 1}), isNull);
+    expect(PhotoChanges.entityOf({'id': 'x'})!.latLng, isNull);
   });
 }

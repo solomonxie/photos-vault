@@ -324,6 +324,36 @@ void main() {
       expect(swept.complete, isFalse);
     });
 
+    test('measures a few at a time, and every one lands (BG-14)', () async {
+      final store = FakeAssetRecordStore();
+      for (var i = 0; i < 120; i++) {
+        await store.upsert(
+          localId: 'photo:$i',
+          contentHash: '$i',
+          platform: 'ios',
+          width: 6000,
+          height: 4000,
+        );
+      }
+      var running = 0;
+      var peak = 0;
+      final found = await StorageAdvisor(
+        store: store,
+        measure: (r) async {
+          running++;
+          peak = running > peak ? running : peak;
+          await Future<void>.delayed(const Duration(milliseconds: 1));
+          running--;
+          return AssetMeasure(bytes: 9000, name: 'a.heic', appOwned: false);
+        },
+      ).scan();
+
+      expect(found.complete, isTrue);
+      expect(found.measured, hasLength(120));
+      expect(found.items, hasLength(120));
+      expect(peak, inInclusiveRange(2, 4));
+    });
+
     test('skips assets nothing can be measured about', () async {
       final store = FakeAssetRecordStore();
       await store.upsert(
