@@ -68,19 +68,14 @@ class PhotoChangesChannel {
     var inserted = Set<String>()
     var updated = Set<String>()
     var deleted = Set<String>()
-    var complete = true
-    changes.enumerateChanges { change, stop in
-      do {
-        let details = try change.changeDetails(for: .asset)
-        inserted.formUnion(details.insertedLocalIdentifiers)
-        updated.formUnion(details.updatedLocalIdentifiers)
-        deleted.formUnion(details.deletedLocalIdentifiers)
-      } catch {
-        complete = false
-        stop.pointee = true
+    for change in changes {
+      guard let details = try? change.changeDetails(for: .asset) else {
+        return nil
       }
+      inserted.formUnion(details.insertedLocalIdentifiers)
+      updated.formUnion(details.updatedLocalIdentifiers)
+      deleted.formUnion(details.deletedLocalIdentifiers)
     }
-    guard complete else { return nil }
     return [
       "inserted": Array(inserted),
       "updated": Array(updated),
