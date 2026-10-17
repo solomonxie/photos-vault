@@ -41,11 +41,27 @@ says: the QuickTime metadata pairing the halves doesn't survive it. See
 every "drop the local copy" path, because a Live Photo backed up as a still
 alone is a silent still.
 
-Camera-roll stills are read through `entity.file`, a fresh full-size JPEG in
-`tmp/flutter-images/` per call. `../photos/temp_renders.dart` holds each one
-while in use; the upload job deletes its own only after `put` returns (the
-transfer completed or failed for good), and a sweep on queue drain takes
-unheld ones over an hour old.
+Camera-roll stills go up as PhotoKit stores them (PW3b), never a render:
+`originFile` for an unedited photo, and for one edited in Photos its
+unedited base (`getBaseFile`) as `original` plus the current render
+(`originFile`, the `.fullSizePhoto`) as `DerivativeKind.edited`, at
+`edited/<the original's base name>.<ext>`. `AssetRecord.hasEdit` makes the
+edit owed (`isFullyBackedUp`, `proveOriginal`); restore prefers it, an import
+attaches it to its original, and the flag scan never flags `edited/`.
+Backups from before stay as they are: a NULL `original_source` marks a JPEG
+render's hash, which its change check keeps comparing against renders;
+`rebaselineChangeChecks` settles any whose modification date is a day or
+more before a per-bucket upload of that version. An older copy an upload
+supersedes waits (`PendingDelete.untilWhole`) until the photo is up whole,
+then goes only with the new copy proven live as keeper.
+
+Those files land in `tmp/.image/` (resources) or `tmp/flutter-images/`
+(renders, still used for thumbnails' fallback and hides).
+`../photos/temp_renders.dart` holds each one while in use; the upload job
+deletes its own only after `put` returns (the transfer completed or failed
+for good), and a sweep on queue drain takes unheld ones over an hour old,
+skipping any file a background transfer still names (`activeUploadPaths`;
+when that can't be read, nothing is swept).
 
 Known limitation: status/key is tracked once per derivative, not once per
 target — see `backup_coordinator.dart`'s doc comment.

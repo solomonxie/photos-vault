@@ -189,7 +189,7 @@ class SyncJobStore {
         orderBy:
             'priority DESC, '
             "kind NOT IN ('uploadOriginal', 'uploadLivePhoto', "
-            "'uploadThumbnail'), "
+            "'uploadEdited', 'uploadThumbnail'), "
             'asset_created_at DESC, created_at ASC',
         limit: 1,
       );

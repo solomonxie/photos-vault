@@ -397,7 +397,8 @@ class StorageAdvisor {
 
   /// Photos that are the same file, byte for byte, as another in the
   /// library — by the hash taken when each was backed up, so only exact
-  /// copies, never look-alikes. One per group is kept: a favourite, else
+  /// copies, never look-alikes. As each looks now: two photos sharing an
+  /// original but edited apart are not copies. One per group is kept: a favourite, else
   /// the first added. Locked and hidden photos are never offered.
   ///
   /// [records] and [sized] are a caller's snapshot (`listAll`, [cached]).
@@ -410,7 +411,7 @@ class StorageAdvisor {
       if (r.isDeleted || r.isLocked || r.isHidden || r.passcodeHash != null) {
         continue;
       }
-      final hash = r.stateOf(DerivativeKind.original).backedUpHash;
+      final hash = r.currentHash;
       if (hash == null) continue;
       (groups[hash] ??= []).add(r);
     }

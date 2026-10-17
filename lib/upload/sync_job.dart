@@ -14,6 +14,10 @@ enum SyncJobKind {
   /// the motion and the sound are. Without it the backup is a still.
   uploadLivePhoto,
 
+  /// Upload Photos' current render of a photo edited there, beside its
+  /// unedited original — both are kept.
+  uploadEdited,
+
   /// Generate/cache the thumbnail, and upload it unless the original is
   /// already small enough not to warrant a second object.
   uploadThumbnail,

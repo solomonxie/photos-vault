@@ -18,6 +18,12 @@ enum DerivativeKind {
   /// A Live Photo backed up without this is a still, silently. It is not a
   /// nice-to-have derivative like a thumbnail.
   livePhoto,
+
+  /// Photos' current render of a photo edited there (its full-size
+  /// resource), kept beside the unedited [original] so both survive. Under
+  /// `edited/` with the original's base name: one photo, never a second
+  /// one or a stray. Owed only while [AssetRecord.hasEdit].
+  edited,
 }
 
 /// Per-derivative upload lifecycle. `uploaded` and `failed` are terminal
@@ -30,6 +36,7 @@ class DerivativeState {
     this.status = UploadStatus.pending,
     this.destinationKey,
     this.backedUpHash,
+    this.fromResource = false,
   });
 
   final UploadStatus status;
@@ -41,14 +48,22 @@ class DerivativeState {
   /// local edit since backup, flipping the derivative back to `pending`.
   final String? backedUpHash;
 
+  /// [backedUpHash] is of PhotoKit's stored bytes (`originFile`, the base
+  /// resource), not of a full-size JPEG render (`entity.file`, every
+  /// camera-roll still before PW3b). A change check compares like with
+  /// like. Persisted for [DerivativeKind.original] only.
+  final bool fromResource;
+
   DerivativeState copyWith({
     UploadStatus? status,
     String? destinationKey,
     String? backedUpHash,
+    bool? fromResource,
   }) => DerivativeState(
     status: status ?? this.status,
     destinationKey: destinationKey ?? this.destinationKey,
     backedUpHash: backedUpHash ?? this.backedUpHash,
+    fromResource: fromResource ?? this.fromResource,
   );
 }
 
@@ -68,6 +83,7 @@ class AssetRecord {
     this.isVideo = false,
     this.isGif = false,
     this.isLivePhoto = false,
+    this.hasEdit = false,
     this.derivatives = const {},
     this.isFavorite = false,
     this.isHidden = false,
@@ -135,6 +151,12 @@ class AssetRecord {
   /// Always false on Android and for manually-added files.
   final bool isLivePhoto;
 
+  /// Edited in Photos: its current look is a render beside the original,
+  /// backed up as [DerivativeKind.edited]. Set by the upload that found the
+  /// edit; stays once that render is in a bucket, so a later revert
+  /// overwrites it rather than leaving restore with a stale edit.
+  final bool hasEdit;
+
   /// Everything this photo *is* is in the bucket — which for a Live Photo
   /// means both halves. Anywhere the question is "is it safe to drop the
   /// local copy?", this is the answer, not the original's status alone:
@@ -144,9 +166,20 @@ class AssetRecord {
     if (stateOf(DerivativeKind.original).status != UploadStatus.uploaded) {
       return false;
     }
+    if (hasEdit &&
+        passcodeHash == null &&
+        stateOf(DerivativeKind.edited).status != UploadStatus.uploaded) {
+      return false;
+    }
     if (!isLivePhoto) return true;
     return stateOf(DerivativeKind.livePhoto).status == UploadStatus.uploaded;
   }
+
+  /// The hash of the photo as it looks, as of its last backup: the edit's
+  /// when it has one (null until that is up), else the original's.
+  String? get currentHash => hasEdit
+      ? stateOf(DerivativeKind.edited).backedUpHash
+      : stateOf(DerivativeKind.original).backedUpHash;
 
   final Map<DerivativeKind, DerivativeState> derivatives;
 
@@ -246,6 +279,7 @@ class AssetRecord {
     Map<DerivativeKind, DerivativeState>? derivatives,
     bool? isFavorite,
     bool? isLivePhoto,
+    bool? hasEdit,
     bool? isHidden,
     bool? isLocked,
     bool? localOptimized,
@@ -279,6 +313,7 @@ class AssetRecord {
     isVideo: isVideo,
     isGif: isGif,
     isLivePhoto: isLivePhoto ?? this.isLivePhoto,
+    hasEdit: hasEdit ?? this.hasEdit,
     derivatives: derivatives ?? this.derivatives,
     isFavorite: isFavorite ?? this.isFavorite,
     isHidden: isHidden ?? this.isHidden,
@@ -305,6 +340,8 @@ class AssetRecord {
   AssetRecord withHidden(bool value) => _copyWith(isHidden: value);
 
   AssetRecord withLivePhoto(bool value) => _copyWith(isLivePhoto: value);
+
+  AssetRecord withHasEdit(bool value) => _copyWith(hasEdit: value);
 
   AssetRecord withLocked(bool value) => _copyWith(isLocked: value);
 

@@ -63,6 +63,55 @@ void main() {
     expect(other.existsSync(), isTrue);
   });
 
+  group('PhotoKit resources in tmp/.image (PW3b)', () {
+    File resource(String name, {Duration age = Duration.zero}) {
+      final dir = Directory(p.join(tmp.path, TempRenders.resourceDirName))
+        ..createSync(recursive: true);
+      final file = File(p.join(dir.path, name))..writeAsBytesSync([1]);
+      file.setLastModifiedSync(DateTime.now().subtract(age));
+      return file;
+    }
+
+    test('are released and deleted like renders', () async {
+      final file = resource('ID_1_o_IMG_1.HEIC');
+      TempRenders.hold(file.path);
+      await TempRenders.release(file.path, delete: true);
+      expect(file.existsSync(), isFalse);
+    });
+
+    test('the sweep leaves what a background transfer still reads', () async {
+      const hour2 = Duration(hours: 2);
+      final sending = resource('ID_1_o_IMG_1.HEIC', age: hour2);
+      final done = resource('ID_2_o_IMG_2.HEIC', age: hour2);
+
+      final gone = await TempRenders.sweep(
+        tempDir: tmp.path,
+        inTransfer: () async => {sending.path},
+      );
+
+      expect(gone, 1);
+      expect(sending.existsSync(), isTrue);
+      expect(done.existsSync(), isFalse);
+    });
+
+    test('and sweeps nothing when the transfers cannot be read', () async {
+      final old = resource('ID_3_o_IMG_3.HEIC', age: const Duration(hours: 2));
+      final render = File(p.join(renders.path, 'x_exif.jpg'))
+        ..writeAsBytesSync([1]);
+      render.setLastModifiedSync(DateTime(2020));
+
+      expect(
+        await TempRenders.sweep(
+          tempDir: tmp.path,
+          inTransfer: () async => null,
+        ),
+        0,
+      );
+      expect(old.existsSync(), isTrue);
+      expect(render.existsSync(), isTrue);
+    });
+  });
+
   test(
     'hashFile, run in its own isolate, matches the in-memory digest',
     () async {

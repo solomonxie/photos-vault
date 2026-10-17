@@ -182,6 +182,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     for (final kind in DerivativeKind.values) {
       await updateDerivative(localId, kind, const DerivativeState());
     }
+    await setHasEdit(localId, false);
     if (unhide) await setPasscodeHash(localId, null);
     final row = transitions[localId];
     if (row != null) {
@@ -543,6 +544,55 @@ class FakeAssetRecordStore implements AssetRecordStore {
           r.localId,
   };
 
+  /// `localId/kind/targetId` → when [recordUpload] ran (ms); tests may
+  /// backdate it.
+  final uploadedAt = <String, int>{};
+
+  /// As `AssetRecordStore._legacyUploadedAtSql`.
+  int? _legacyUploadedAt(String localId) {
+    final r = _records[localId];
+    if (r == null) return null;
+    final o = r.stateOf(DerivativeKind.original);
+    if (o.status != UploadStatus.uploaded ||
+        o.fromResource ||
+        r.sourcePath != null ||
+        r.passcodeHash != null ||
+        r.localDeleted ||
+        r.sourceType != AssetSourceType.photoManager) {
+      return null;
+    }
+    int? at;
+    for (final e in (uploads['$localId/original'] ?? const {}).entries) {
+      if (e.key.isEmpty || e.value.hash == null) continue;
+      if (e.value.hash != o.backedUpHash) continue;
+      final t = uploadedAt['$localId/original/${e.key}'];
+      if (t != null && (at == null || t > at)) at = t;
+    }
+    return at;
+  }
+
+  @override
+  Future<int> rebaselineChangeChecks() async {
+    var n = 0;
+    final slack = AssetRecordStore.uploadReadSlack.inMilliseconds;
+    for (final MapEntry(key: id, value: c) in changeChecks.entries.toList()) {
+      final seen = c.seen;
+      if (seen == null || c.checked == seen) continue;
+      final at = _legacyUploadedAt(id);
+      if (at == null || seen * 1000 > at - slack) continue;
+      changeChecks[id] = (seen: seen, checked: seen);
+      n++;
+    }
+    return n;
+  }
+
+  @override
+  Future<bool> backupPredates(String localId, int modified) async {
+    final at = _legacyUploadedAt(localId);
+    return at != null &&
+        modified * 1000 <= at - AssetRecordStore.uploadReadSlack.inMilliseconds;
+  }
+
   @override
   Future<Map<String, int>> fileCheckBaselines() async => {
     for (final r in _records.values)
@@ -766,6 +816,13 @@ class FakeAssetRecordStore implements AssetRecordStore {
   }
 
   @override
+  Future<void> setHasEdit(String localId, bool value) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withHasEdit(value);
+  }
+
+  @override
   Future<Set<String>> passcodeHashes() async => {
     for (final r in _records.values) ?r.passcodeHash,
   };
@@ -810,6 +867,8 @@ class FakeAssetRecordStore implements AssetRecordStore {
       key: destinationKey,
       hash: sourceHash,
     );
+    uploadedAt['$localId/${kind.name}/$targetId'] =
+        DateTime.now().millisecondsSinceEpoch;
     final edits = bucketEdits[targetId];
     if (edits != null &&
         edits.containsKey(destinationKey) &&

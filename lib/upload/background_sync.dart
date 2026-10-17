@@ -188,6 +188,7 @@ class BackgroundSync {
         SyncJobKind.uploadOriginal,
         SyncJobKind.uploadThumbnail,
         SyncJobKind.uploadLivePhoto,
+        SyncJobKind.uploadEdited,
       },
       pendingDeletes: PendingDeletes(store: recordStore),
       records: () => records,

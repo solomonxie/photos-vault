@@ -82,26 +82,54 @@ class OriginalRestore {
   /// Every key the photo was ever recorded under is tried in every bucket
   /// set up now: a bucket since removed may have been a folder of the same
   /// one. When none answers, [lastProblem] says what each one said.
+  ///
+  /// A photo edited in Photos comes back as its edit, which is how it
+  /// looked; its original only when every bucket says the edit isn't there
+  /// (a 404), never because one didn't answer.
   Future<String?> restore(AssetRecord record) async {
     lastProblem = null;
-    final held = await recordStore.targetsHolding(
-      record.localId,
-      DerivativeKind.original,
-    );
-    final keys = <String>{
-      ?record.stateOf(DerivativeKind.original).destinationKey,
-      ...held.values,
-    };
-    if (keys.isEmpty) {
-      lastProblem = 'never backed up';
-      return null;
-    }
     final targets = await targetsStore.loadAll();
-    if (targets.isEmpty) {
-      lastProblem = 'no bucket set up';
-      return null;
-    }
     final heard = <String>{};
+    if (record.hasEdit && targets.isNotEmpty) {
+      final edit = await _restoreKind(
+        record,
+        DerivativeKind.edited,
+        targets,
+        heard,
+      );
+      if (edit.path != null) return edit.path;
+      if (edit.tried && !edit.onlyAbsent) {
+        lastProblem = heard.join(', ');
+        return null;
+      }
+    }
+    final original = await _restoreKind(
+      record,
+      DerivativeKind.original,
+      targets,
+      heard,
+    );
+    if (original.path != null) return original.path;
+    lastProblem = !original.tried
+        ? 'never backed up'
+        : targets.isEmpty
+        ? 'no bucket set up'
+        : heard.join(', ');
+    return null;
+  }
+
+  /// [kind] of [record] from the first bucket that has it. [tried] false
+  /// when it was never recorded; [onlyAbsent] when every answer was a 404.
+  Future<({String? path, bool tried, bool onlyAbsent})> _restoreKind(
+    AssetRecord record,
+    DerivativeKind kind,
+    List<S3BackupTarget> targets,
+    Set<String> heard,
+  ) async {
+    final held = await recordStore.targetsHolding(record.localId, kind);
+    final keys = <String>{?record.stateOf(kind).destinationKey, ...held.values};
+    if (keys.isEmpty) return (path: null, tried: false, onlyAbsent: true);
+    var onlyAbsent = true;
     for (final target in targets) {
       // The bucket's own key first, then each recorded key under this
       // bucket's prefix: a key carries the prefix of the bucket it was
@@ -111,24 +139,24 @@ class OriginalRestore {
         for (final key in keys)
           derivativeKey(
             prefix: target.prefix,
-            derivativeDir: derivativeDirs[DerivativeKind.original]!,
+            derivativeDir: derivativeDirs[kind]!,
             fileName: p.posix.basename(key),
           ),
         ...keys,
       };
       for (final key in candidates) {
-        final path = await _fetch(record, target, key, heard);
-        if (path != null) return path;
+        final (:path, :status) = await _fetch(record, target, key, heard);
+        if (path != null) return (path: path, tried: true, onlyAbsent: false);
+        if (status != 404) onlyAbsent = false;
       }
     }
-    lastProblem = heard.join(', ');
-    return null;
+    return (path: null, tried: true, onlyAbsent: onlyAbsent);
   }
 
   /// Why the last [restore] got nothing, in a few words.
   String? lastProblem;
 
-  Future<String?> _fetch(
+  Future<({String? path, int? status})> _fetch(
     AssetRecord record,
     S3BackupTarget target,
     String key,
@@ -151,7 +179,7 @@ class OriginalRestore {
                 : '${target.bucket} said ${got.status}',
           );
           if (await part.exists()) await part.delete();
-          return null;
+          return (path: null, status: got.status);
         }
         await part.rename(file.path);
         await recordStore.setSourcePath(record.localId, file.path);
@@ -165,13 +193,13 @@ class OriginalRestore {
         // prevent. Best-effort: a failure here still leaves a usable
         // photo, so it must not lose the restore that already worked.
         await _restoreLiveHalf(record, target, dir);
-        return file.path;
+        return (path: file.path, status: 200);
       } catch (e) {
         // Wrong target, expired credentials, network — try the next one.
         heard.add('${target.bucket}: ${e.runtimeType}');
       }
     }
-    return null;
+    return (path: null, status: null);
   }
 
   /// Pulls just the small `thumbnails/` object down, for a photo that went

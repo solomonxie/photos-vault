@@ -308,4 +308,96 @@ void main() {
 
     expect(restored, isNull);
   });
+
+  group('an edited photo (PW3b)', () {
+    Future<FakeAssetRecordStore> edited() async {
+      final store = FakeAssetRecordStore();
+      await store.upsert(localId: 'photo:e', contentHash: 'e', platform: 'ios');
+      await store.updateDerivative(
+        'photo:e',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'originals/20240101120000_e.HEIC',
+        ),
+      );
+      await store.updateDerivative(
+        'photo:e',
+        DerivativeKind.edited,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'edited/20240101120000_e.heic',
+        ),
+      );
+      await store.setHasEdit('photo:e', true);
+      await store.setLocalDeleted('photo:e', true);
+      return store;
+    }
+
+    test('comes back as its edit, how it looked', () async {
+      final store = await edited();
+      final tempDir = Directory.systemTemp.createTempSync('pv_restore_');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+      final fetched = <String>[];
+
+      final path = await OriginalRestore(
+        targetsStore: await _oneTarget(),
+        recordStore: store,
+        directory: () async => tempDir,
+        get: (url) async {
+          fetched.add(url.path);
+          return http.Response.bytes([9], 200);
+        },
+      ).restore((await store.getByLocalId('photo:e'))!);
+
+      expect(fetched, ['/edited/20240101120000_e.heic']);
+      expect(path, endsWith('20240101120000_e.heic'));
+      final after = (await store.getByLocalId('photo:e'))!;
+      expect(after.sourcePath, path);
+      expect(after.localDeleted, isFalse);
+    });
+
+    test('its original only when every bucket says the edit is gone', () async {
+      final store = await edited();
+      final tempDir = Directory.systemTemp.createTempSync('pv_restore_');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+      final fetched = <String>[];
+
+      final path = await OriginalRestore(
+        targetsStore: await _oneTarget(),
+        recordStore: store,
+        directory: () async => tempDir,
+        get: (url) async {
+          fetched.add(url.path);
+          return url.path.contains('/edited/')
+              ? http.Response('', 404)
+              : http.Response.bytes([1], 200);
+        },
+      ).restore((await store.getByLocalId('photo:e'))!);
+
+      expect(fetched.last, '/originals/20240101120000_e.HEIC');
+      expect(path, endsWith('20240101120000_e.HEIC'));
+    });
+
+    test('and nothing when a bucket did not answer for the edit', () async {
+      final store = await edited();
+      final tempDir = Directory.systemTemp.createTempSync('pv_restore_');
+      addTearDown(() => tempDir.deleteSync(recursive: true));
+      final restore = OriginalRestore(
+        targetsStore: await _oneTarget(),
+        recordStore: store,
+        directory: () async => tempDir,
+        get: (url) async {
+          if (url.path.contains('/edited/')) return http.Response('', 503);
+          return fail('never the original while the edit may be there');
+        },
+      );
+
+      expect(
+        await restore.restore((await store.getByLocalId('photo:e'))!),
+        isNull,
+      );
+      expect((await store.getByLocalId('photo:e'))!.localDeleted, isTrue);
+    });
+  });
 }

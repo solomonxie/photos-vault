@@ -99,6 +99,7 @@ class LeftoverSweep {
       for (final kind in const [
         DerivativeKind.original,
         DerivativeKind.livePhoto,
+        DerivativeKind.edited,
       ]) {
         final key = record.stateOf(kind).destinationKey;
         if (key != null) ignored.add(key);

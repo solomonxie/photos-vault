@@ -13,6 +13,9 @@ const derivativeDirs = {
   // Beside the still it belongs to: the two halves are one photo, sharing a
   // base name and differing only by extension.
   DerivativeKind.livePhoto: 'originals',
+  // Its own folder, so nothing that reads `originals/` as one photo per
+  // name takes an edit for a second photo or a stray copy.
+  DerivativeKind.edited: 'edited',
 };
 
 /// `targetId` → key, for one derivative. See `AssetRecordStore.targetsHolding`.
@@ -32,7 +35,7 @@ Map<String, HeldKeys> groupUploads(List<Map<String, Object?>> rows) {
   return out;
 }
 
-/// What each bucket holds of one photo — four small reads, for the single
+/// What each bucket holds of one photo — a small read per kind, for the single
 /// photo case; [groupUploads] is the bulk one.
 Future<HeldKeys> heldKeysOf(AssetRecordStore store, String localId) async => {
   for (final kind in DerivativeKind.values)

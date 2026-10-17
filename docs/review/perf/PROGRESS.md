@@ -4,8 +4,8 @@
 |---|---|---|---|
 | PW1 | First photo fast on cold start | done | c919b28 |
 | PW2 | Cheap resume | done | 257a92c |
-| PW3 | No re-renders for thumbnails, Vision, hashing | done | (this commit) |
-| PW3b | Upload true originals | needs decision | |
+| PW3 | No re-renders for thumbnails, Vision, hashing | done | a354f05 |
+| PW3b | Upload true originals (+ edited render) | done | (this commit) |
 | PW4 | Faces without full descriptor reads | todo | |
 | PW5 | Smaller database | todo | |
 | PW6 | Less periodic waste | todo | |
@@ -21,3 +21,14 @@
 - BG-6: `change_check` table (schema v26): `seen` stamped by scans and the change history, `checked` set by an upload or a matching hash. Checks only where they differ. One-time cost: every backed-up photo is hashed once after upgrade (newest first, 100 per sync).
 - Tmp: `TempRenders` holds renders in use; uploads, checks and thumbnail fallbacks delete their own after the transfer is terminal; a sweep on queue drain removes unheld renders older than 1 h. `clearFileCache` not used: it also empties `.video`, which playback and video uploads read.
 
+
+## PW3b notes
+
+- Decision: true original plus the current render when edited.
+- Keys: `originals/<base>.<ext>` from `originFile` / `getBaseFile` (HEIC as stored); edit at `edited/<same base>.<ext>` (`DerivativeKind.edited`, `uploadEdited` job). Own folder, so `originals/` readers never see it as a photo or stray.
+- Schema v27: `edited_status/key/hash`, `has_edit`, `original_source` (NULL = legacy JPEG-render hash, 'resource' = PhotoKit bytes). Upgrade adds columns only.
+- No re-send on upgrade: legacy rows keep their objects and compare render to render. Re-baseline without render: checked when the date equals `checked`, or when it is >= 24 h before the latest per-bucket upload row (`target_id` != '') of the recorded hash. Adopted rows never count.
+- Genuinely edited legacy photo: new HEIC original + edit; old `.jpg` queued with keeper (new key) and `untilWhole`, so it goes only after both are up and the keeper answers live.
+- Restore prefers the edit; falls back to the original only on a 404 everywhere. Import attaches `edited/` siblings. Flag scan ignores `edited/`. Verifier proves and reconciles edits.
+- Tmp: `TempRenders` covers `tmp/.image`; the sweep skips files `background_downloader` still holds, and skips everything if it can't tell.
+- HEIC input: thumbnails fall back to ImageIO; Vision and face crops are native; optimizer still reads the JPEG render.

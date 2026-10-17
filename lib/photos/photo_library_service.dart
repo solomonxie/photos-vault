@@ -14,6 +14,15 @@ import '../upload/lost_originals.dart';
 
 enum PhotoLibraryAccess { granted, limited, denied }
 
+/// A still's bytes as PhotoKit stores them, in a file under tmp, and
+/// whether the photo is edited in Photos.
+class StillResource {
+  const StillResource(this.path, {required this.edited});
+
+  final String path;
+  final bool edited;
+}
+
 /// What one [PhotoLibraryService.syncAll] pass found.
 ///
 /// [added] is what's newly tracked and therefore needs backing up;
@@ -47,8 +56,11 @@ class PhotoLibraryService {
     Future<AssetEntity?> Function(String id)? loadEntity,
     Future<List<String>> Function(List<String> ids)? deleteAssets,
     Future<String> Function(AssetEntity entity)? loadTitle,
+    Future<StillResource?> Function(AssetEntity entity, {required bool base})?
+    loadResource,
     PhotoChanges? changes,
   }) : _changes = changes ?? PhotoChanges(),
+       _loadResource = loadResource ?? _resourceOf,
        // A library handed in has no plugin behind it to ask.
        _loadTitle =
            loadTitle ??
@@ -85,6 +97,11 @@ class PhotoLibraryService {
   final Future<List<AssetEntity>> Function(int page, int size) Function()
   _openListing;
   final Future<AssetEntity?> Function(String id) _loadEntity;
+  final Future<StillResource?> Function(
+    AssetEntity entity, {
+    required bool base,
+  })
+  _loadResource;
 
   /// Overridable for tests so they never really delete from the OS library.
   final Future<List<String>> Function(List<String> ids) _deleteAssets;
@@ -804,6 +821,48 @@ class PhotoLibraryService {
   Future<File?> fileFor(AssetRecord record) async {
     final entity = await entityFor(record);
     return entity?.file;
+  }
+
+  /// [record]'s original as PhotoKit stores it (BG-2): the unedited base
+  /// resource of a photo edited in Photos, `originFile` otherwise. Never a
+  /// render. Null when it can't be had now; a skip, never a fallback to a
+  /// render under the original's name.
+  Future<StillResource?> originalResourceFor(AssetRecord record) =>
+      _resource(record, base: true);
+
+  /// [record]'s current look as PhotoKit stores it: an edit's full-size
+  /// render, or the original's bytes when unedited (`originFile`).
+  Future<StillResource?> currentResourceFor(AssetRecord record) =>
+      _resource(record, base: false);
+
+  Future<StillResource?> _resource(
+    AssetRecord record, {
+    required bool base,
+  }) async {
+    try {
+      final entity = await entityFor(record);
+      if (entity == null) return null;
+      return await _loadResource(entity, base: base);
+    } catch (_) {
+      return null;
+    }
+  }
+
+  /// photo_manager 3.12 writes both under `tmp/.image/` keyed by id and
+  /// modification date (`TempRenders` cleans them up). `originFile` of an
+  /// edited photo is its `.fullSizePhoto` render; `getBaseFile` is the
+  /// `.photo` original.
+  static Future<StillResource?> _resourceOf(
+    AssetEntity entity, {
+    required bool base,
+  }) async {
+    final darwin = Platform.isIOS || Platform.isMacOS;
+    final edited = darwin && await entity.darwin.hasAdjustments;
+    final file = edited && base
+        ? await entity.darwin.getBaseFile()
+        : await entity.originFile;
+    if (file == null) return null;
+    return StillResource(file.path, edited: edited);
   }
 
   /// PhotoKit's modification date for [record], read live, in seconds.

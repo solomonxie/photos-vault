@@ -45,6 +45,22 @@ class S3Uploader {
   }
 }
 
+/// The files of every upload the native queue still holds (enqueued,
+/// running or waiting to retry), in any group: what a tmp cleanup must
+/// leave alone. Null when the queue can't be read.
+Future<Set<String>?> activeUploadPaths({FileDownloader? downloader}) async {
+  try {
+    return {
+      for (final task in await (downloader ?? FileDownloader()).allTasks(
+        allGroups: true,
+      ))
+        if (task is UploadTask) await task.filePath(),
+    };
+  } catch (_) {
+    return null;
+  }
+}
+
 /// Gets one object to a file through a `background_downloader` task — a
 /// video can be gigabytes, which must neither sit in memory nor stop when
 /// the app is backgrounded.

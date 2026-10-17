@@ -180,4 +180,129 @@ void main() {
       (await _schemaOf(fresh))['tables'],
     );
   });
+
+  test('v26 gains the edit columns: every backup stays as it was, owes no '
+      'edit, and only one dated well before its upload is settled', () async {
+    final path = p.join(dir.path, 'v26.db');
+    final store = AssetRecordStore(
+      databaseFactory: databaseFactoryFfi,
+      path: path,
+    );
+    final now = DateTime.now();
+    final old = now.subtract(const Duration(days: 30));
+    for (final id in ['photo:old', 'photo:recent', 'photo:adopted']) {
+      await store.upsert(localId: id, contentHash: id, platform: 'ios');
+      await store.updateDerivative(
+        id,
+        DerivativeKind.original,
+        DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'originals/$id.jpg',
+          backedUpHash: 'render-$id',
+        ),
+      );
+      await store.recordUpload(
+        localId: id,
+        kind: DerivativeKind.original,
+        // An adopted row names no bucket, and its time is the adoption's.
+        targetId: id == 'photo:adopted' ? '' : 't1',
+        destinationKey: 'originals/$id.jpg',
+        sourceHash: 'render-$id',
+      );
+    }
+    await store.close();
+    // What v26 had: everything but the PW3b columns.
+    final raw = await databaseFactoryFfi.openDatabase(path);
+    for (final row in await raw.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+      "AND sql LIKE '%has_edit%'",
+    )) {
+      await raw.execute('DROP TRIGGER "${row['name']}"');
+    }
+    await raw.execute('DROP INDEX asset_record_edited_key');
+    for (final column in [
+      'edited_status',
+      'edited_key',
+      'edited_hash',
+      'original_source',
+      'has_edit',
+    ]) {
+      await raw.execute('ALTER TABLE asset_record DROP COLUMN $column');
+    }
+    await raw.setVersion(26);
+    await raw.close();
+
+    final upgraded = AssetRecordStore(
+      databaseFactory: databaseFactoryFfi,
+      path: path,
+    );
+    for (final r in await upgraded.listAll()) {
+      final original = r.stateOf(DerivativeKind.original);
+      expect(original.status, UploadStatus.uploaded);
+      expect(original.backedUpHash, 'render-${r.localId}');
+      expect(original.fromResource, isFalse, reason: 'a render, compared so');
+      expect(r.hasEdit, isFalse);
+      expect(r.isFullyBackedUp, isTrue, reason: 'nothing new is owed');
+    }
+    await upgraded.noteModified({
+      'photo:old': old.millisecondsSinceEpoch ~/ 1000,
+      'photo:recent': now.millisecondsSinceEpoch ~/ 1000,
+      'photo:adopted': old.millisecondsSinceEpoch ~/ 1000,
+    });
+    expect(await upgraded.rebaselineChangeChecks(), 1);
+    expect(await upgraded.changeChecksDue(), {'photo:recent', 'photo:adopted'});
+    expect(await upgraded.rebaselineChangeChecks(), 0, reason: 'idempotent');
+    expect(
+      await upgraded.backupPredates(
+        'photo:recent',
+        old.millisecondsSinceEpoch ~/ 1000,
+      ),
+      isTrue,
+    );
+    expect(
+      await upgraded.backupPredates(
+        'photo:adopted',
+        old.millisecondsSinceEpoch ~/ 1000,
+      ),
+      isFalse,
+    );
+
+    // The new columns round-trip, and an edit's key is guarded.
+    await upgraded.updateDerivative(
+      'photo:old',
+      DerivativeKind.original,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'originals/photo:old.HEIC',
+        backedUpHash: 'base',
+        fromResource: true,
+      ),
+    );
+    await upgraded.updateDerivative(
+      'photo:old',
+      DerivativeKind.edited,
+      const DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: 'edited/photo:old.heic',
+      ),
+    );
+    await upgraded.setHasEdit('photo:old', true);
+    final edited = (await upgraded.getByLocalId('photo:old'))!;
+    expect(edited.stateOf(DerivativeKind.original).fromResource, isTrue);
+    expect(edited.hasEdit, isTrue);
+    expect(edited.isFullyBackedUp, isTrue);
+    expect(
+      await upgraded.keyHeldByOthers('edited/photo:old.heic', null),
+      isTrue,
+    );
+    await upgraded.close();
+
+    final fresh = p.join(dir.path, 'fresh27.db');
+    await open(fresh);
+    final a = await _schemaOf(path);
+    final b = await _schemaOf(fresh);
+    expect(a['version'], b['version']);
+    expect(a['tables'], b['tables']);
+    expect(a['rest'], b['rest']);
+  });
 }

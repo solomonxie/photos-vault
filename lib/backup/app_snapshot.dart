@@ -368,6 +368,7 @@ class AppSnapshotIo {
     'sourcePath': record.sourcePath,
     'isVideo': record.isVideo,
     'isLivePhoto': record.isLivePhoto,
+    'hasEdit': record.hasEdit,
     'isGif': record.isGif,
     'createdAt': record.createdAt.toIso8601String(),
     'addedAt': record.addedAt.toIso8601String(),
@@ -399,6 +400,7 @@ class AppSnapshotIo {
           'status': record.stateOf(kind).status.name,
           'destinationKey': record.stateOf(kind).destinationKey,
           'backedUpHash': record.stateOf(kind).backedUpHash,
+          if (record.stateOf(kind).fromResource) 'fromResource': true,
         },
     },
   };
@@ -549,8 +551,16 @@ class AppSnapshotIo {
           status: status,
           destinationKey: state['destinationKey'] as String?,
           backedUpHash: state['backedUpHash'] as String?,
+          fromResource: state['fromResource'] == true,
         ),
       );
+    }
+    // So a restore brings the edit back, and the photo never counts as
+    // backed up whole without it.
+    if ((row['hasEdit'] as bool? ?? false) &&
+        !current.hasEdit &&
+        (fresh || filled.contains(DerivativeKind.edited))) {
+      await assetRecordStore.setHasEdit(localId, true);
     }
     for (final upload
         in (row['uploads'] as List<dynamic>? ?? const [])

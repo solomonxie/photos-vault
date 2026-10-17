@@ -800,7 +800,9 @@ class LibraryScreenState extends State<LibraryScreen>
   Future<void> _onQueueDrained() async {
     await reload(statusOnly: true);
     // Whatever full-size renders this run left in tmp (BG-2).
-    if (syncQueue.processedInLastDrain > 0) unawaited(TempRenders.sweep());
+    if (syncQueue.processedInLastDrain > 0) {
+      unawaited(TempRenders.sweep(inTransfer: activeUploadPaths));
+    }
     if (!mounted || syncQueue.paused.value) return;
     // Only ever *continues* a sync that was already running. A drain that
     // found nothing to do must not go looking for work — the sync-frequency

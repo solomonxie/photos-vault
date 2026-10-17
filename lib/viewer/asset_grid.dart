@@ -638,6 +638,7 @@ enum BackupLine {
     final parts = [
       record.stateOf(DerivativeKind.original).status,
       if (record.isLivePhoto) record.stateOf(DerivativeKind.livePhoto).status,
+      if (record.hasEdit) record.stateOf(DerivativeKind.edited).status,
     ];
     if (parts.contains(UploadStatus.uploading)) return uploading;
     if (parts.contains(UploadStatus.failed)) return failed;
@@ -650,6 +651,7 @@ enum BackupLine {
     final parts = [
       record.stateOf(DerivativeKind.original).status,
       if (record.isLivePhoto) record.stateOf(DerivativeKind.livePhoto).status,
+      if (record.hasEdit) record.stateOf(DerivativeKind.edited).status,
     ];
     var done = 0.0;
     for (final status in parts) {

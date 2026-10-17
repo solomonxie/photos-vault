@@ -72,7 +72,9 @@ class BucketIndexer {
     return all;
   }
 
-  static const _dirs = ['originals/', 'thumbnails/'];
+  /// `edited/` too: an import attaches an edit to its original, and an
+  /// upload's leftovers there are found by name like anywhere else.
+  static const _dirs = ['originals/', 'thumbnails/', 'edited/'];
 
   /// Drops the listing of any bucket no longer set up. Its files can't be
   /// fixed, imported or even read without its credentials, so offering

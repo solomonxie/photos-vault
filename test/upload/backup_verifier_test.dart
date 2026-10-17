@@ -71,6 +71,44 @@ S3ListingResult _listing(List<String> keys) => S3ListingResult(
 
 void main() {
   group('proveOriginal', () {
+    test("an edited photo is proven only with its edit there (PW3b)", () async {
+      final store = FakeAssetRecordStore();
+      await _uploaded(store);
+      await store.setHasEdit('photo:1', true);
+      final asked = <String>[];
+      final targets = await _targets();
+      BackupVerifier verifier(int editStatus) => BackupVerifier(
+        targetsStore: targets,
+        recordStore: store,
+        head: (url) async {
+          asked.add(url.path);
+          return http.Response(
+            '',
+            url.path.contains('/edited/') ? editStatus : 200,
+          );
+        },
+      );
+
+      var record = (await store.getByLocalId('photo:1'))!;
+      expect(
+        await verifier(200).proveOriginal(record),
+        CopyProof.missing,
+        reason: 'no edit recorded: the phone has the only copy of the look',
+      );
+      await store.updateDerivative(
+        'photo:1',
+        DerivativeKind.edited,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'photos/edited/photo_1.heic',
+        ),
+      );
+      record = (await store.getByLocalId('photo:1'))!;
+      expect(await verifier(404).proveOriginal(record), CopyProof.missing);
+      expect(await verifier(200).proveOriginal(record), CopyProof.present);
+      expect(asked.last, '/photos/edited/photo_1.heic');
+    });
+
     test('a bucket that answers 200 is proof', () async {
       final store = FakeAssetRecordStore();
       final record = await _uploaded(store);

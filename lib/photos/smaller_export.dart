@@ -48,6 +48,7 @@ Future<bool> encodeFileNatively({
   required String format,
   int? maxEdge,
   bool onlyIfSmaller = true,
+  int quality = _quality,
 }) async {
   try {
     return await _encodeChannel.invokeMethod<bool>('encodeFile', {
@@ -56,7 +57,7 @@ Future<bool> encodeFileNatively({
           'format': format,
           'maxEdge': ?maxEdge,
           'onlyIfSmaller': onlyIfSmaller,
-          'quality': _quality / 100,
+          'quality': quality / 100,
         }) ??
         false;
   } catch (_) {

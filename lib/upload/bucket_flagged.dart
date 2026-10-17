@@ -98,6 +98,11 @@ String _ext(String key) {
 /// What in the bucket this app does not understand. Nothing is skipped
 /// quietly: an object is either pointed at by a record, named like ours
 /// (so an album may own it), or flagged here.
+///
+/// `edited/` is never flagged: only this app writes it, each object is
+/// an edit beside an original of the same name, and an import takes it in
+/// with that original. Offering one as an orphan to remove could take the
+/// only copy of how a photo looks.
 class BucketFlags {
   BucketFlags({required this.store});
 
@@ -788,8 +793,48 @@ class BucketFixer {
       isVideo: f.isVideo,
       created: await _dateOf(target, f),
     );
-    if (!f.isVideo) await _attachListedMotion(localId, target, f.object);
+    if (!f.isVideo) {
+      await _attachListedMotion(localId, target, f.object);
+      await _attachListedEdit(localId, target, f.object);
+    }
     return FixResult(FixOutcome.imported, localId: localId);
+  }
+
+  /// The `edited/` render under a still's name, just imported: the same
+  /// photo as it was last edited, so it comes in as that photo's edit
+  /// (what a restore brings back), never as one of its own.
+  Future<void> _attachListedEdit(
+    String localId,
+    S3BackupTarget target,
+    BucketObject still,
+  ) async {
+    final at = still.key.lastIndexOf('originals/');
+    if (at == -1) return;
+    final edit =
+        '${still.key.substring(0, at)}edited/'
+        '${still.key.substring(at + 'originals/'.length)}';
+    final keys = [
+      if (await store.isListed(target.id, edit)) edit,
+      ...await store.listedSiblings(target.id, edit),
+    ];
+    for (final key in keys) {
+      if (!BucketFlags.stillExtensions.contains(_ext(key))) continue;
+      if (await store.keyHeldByOthers(key, null)) continue;
+      if (!(await _ops.head(target, key)).isPresent) continue;
+      await store.recordUpload(
+        localId: localId,
+        kind: DerivativeKind.edited,
+        targetId: target.id,
+        destinationKey: key,
+      );
+      await store.updateDerivative(
+        localId,
+        DerivativeKind.edited,
+        DerivativeState(status: UploadStatus.uploaded, destinationKey: key),
+      );
+      await store.setHasEdit(localId, true);
+      return;
+    }
   }
 
   /// A listed still under [motion]'s name that nothing holds, live.

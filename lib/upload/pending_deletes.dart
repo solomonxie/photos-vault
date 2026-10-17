@@ -32,6 +32,7 @@ class PendingDelete {
     this.localId,
     this.carrier = false,
     this.keep,
+    this.untilWhole = false,
   });
 
   factory PendingDelete.fromJson(Map<String, dynamic> json) => PendingDelete(
@@ -40,6 +41,7 @@ class PendingDelete {
     localId: json['l'] as String?,
     carrier: json['c'] == true,
     keep: json['p'] as String?,
+    untilWhole: json['w'] == true,
   );
 
   final String objectKey;
@@ -62,12 +64,18 @@ class PendingDelete {
   /// (`BucketOps.deleteGuarded`'s keeper) right before this one goes.
   final String? keep;
 
+  /// An older copy an upload superseded: waits while [localId] isn't
+  /// backed up whole (`AssetRecord.isFullyBackedUp`), so a photo's old
+  /// render never goes before its new original *and* edit are both up.
+  final bool untilWhole;
+
   PendingDelete forTarget(String id, {String? key}) => PendingDelete(
     objectKey: key ?? objectKey,
     targetId: id,
     localId: localId,
     carrier: carrier,
     keep: keep,
+    untilWhole: untilWhole,
   );
 
   PendingDelete asCarrier() => PendingDelete(
@@ -76,6 +84,7 @@ class PendingDelete {
     localId: localId,
     carrier: true,
     keep: keep,
+    untilWhole: untilWhole,
   );
 
   PendingDelete keeping(String key, {required bool carrier}) => PendingDelete(
@@ -84,6 +93,7 @@ class PendingDelete {
     localId: localId,
     carrier: carrier,
     keep: key,
+    untilWhole: untilWhole,
   );
 
   Map<String, dynamic> toJson() => {
@@ -92,6 +102,7 @@ class PendingDelete {
     'l': ?localId,
     if (carrier) 'c': true,
     'p': ?keep,
+    if (untilWhole) 'w': true,
   };
 
   @override
@@ -239,6 +250,14 @@ class PendingDeletes {
     }
   }
 
+  /// [localId] backed up whole, or gone (its keeper still has to prove
+  /// itself live).
+  Future<bool> _whole(String? localId) async {
+    if (localId == null) return true;
+    final record = await store.getByLocalId(localId);
+    return record == null || record.isFullyBackedUp;
+  }
+
   /// Whether the photo's own upload holds [task]'s key right now.
   Future<bool> _heldNow(PendingDelete task) async {
     final id = task.localId;
@@ -291,6 +310,7 @@ class PendingDeletes {
         done.add(task); // Someone's backup still: never this delete's.
         continue;
       }
+      if (task.untilWhole && !await _whole(task.localId)) continue;
       final keep = task.keep;
       final outcome = await _ops.deleteGuarded(
         target,

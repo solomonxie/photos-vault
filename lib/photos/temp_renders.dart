@@ -3,22 +3,33 @@ import 'dart:isolate';
 
 import 'package:path/path.dart' as p;
 
-/// The full-size JPEGs `AssetEntity.file` leaves in tmp.
+/// The full-size files photo_manager leaves in tmp for an upload or a
+/// check: `AssetEntity.file`'s JPEG renders
+/// (`tmp/flutter-images/<sha>_exif.jpg`, a fresh one per call, BG-2) and the
+/// PhotoKit resources `originFile` and `getBaseFile` write
+/// (`tmp/.image/<id>_<date>_o_<name>`, cached by id and modification date).
+/// The plugin never removes either.
 ///
-/// photo_manager renders the photo again on every call, writes it to
-/// `tmp/flutter-images/<sha>_exif.jpg` and never removes it (BG-2). Whoever
-/// uses one [hold]s it; the upload releases its own with `delete: true`
-/// once the transfer is over, and [sweep] takes what the rest left behind.
+/// Whoever uses one [hold]s it; the upload releases its own with
+/// `delete: true` once the transfer is over, and [sweep] takes what the
+/// rest left behind.
 class TempRenders {
   TempRenders._();
 
   static const dirName = 'flutter-images';
 
+  /// photo_manager's `PM_IMAGE_CACHE_PATH`. `.video` is left alone:
+  /// playback and video uploads read it.
+  static const resourceDirName = '.image';
+
   static final _holds = <String, int>{};
   static final _dirs = <String>{};
 
-  static bool isRender(String path) =>
-      p.basename(p.dirname(path)) == dirName && path.endsWith('_exif.jpg');
+  static bool isRender(String path) {
+    final dir = p.basename(p.dirname(path));
+    return dir == resourceDirName ||
+        (dir == dirName && path.endsWith('_exif.jpg'));
+  }
 
   /// In use: neither [release] nor [sweep] deletes it until let go.
   static void hold(String? path) {
@@ -46,28 +57,50 @@ class TempRenders {
 
   static bool isHeld(String path) => _holds.containsKey(path);
 
-  /// Deletes renders older than [olderThan] that nobody holds, in an
+  /// Deletes files older than [olderThan] that nobody holds, in an
   /// isolate. The age covers users that don't [hold] (a hide's copy, a
-  /// share) and a transfer in another engine. Returns how many went.
+  /// share) and a transfer in another engine. [inTransfer] names the files
+  /// background transfers still read (a put left running by a killed app);
+  /// when it can't say (null), nothing is swept. Returns how many went.
   static Future<int> sweep({
     Duration olderThan = const Duration(hours: 1),
     String? tempDir,
+    Future<Set<String>?> Function()? inTransfer,
   }) async {
+    final base = tempDir ?? Directory.systemTemp.path;
     final dirs = {
       ..._dirs,
-      p.join(tempDir ?? Directory.systemTemp.path, dirName),
+      p.join(base, dirName),
+      p.join(base, resourceDirName),
     };
-    final held = _holds.keys.toSet();
+    final Set<String> busy;
+    try {
+      final named = inTransfer == null ? const <String>{} : await inTransfer();
+      if (named == null) return 0;
+      busy = {..._holds.keys, ...named};
+    } catch (_) {
+      return 0;
+    }
     final cutoff = DateTime.now().subtract(olderThan);
     try {
       return await Isolate.run(() {
+        // Resolved: `/var` and `/private/var` are one file to iOS.
+        String real(String path) {
+          try {
+            return File(path).resolveSymbolicLinksSync();
+          } catch (_) {
+            return p.normalize(path);
+          }
+        }
+
+        final kept = {for (final path in busy) real(path)};
         var gone = 0;
         for (final dir in dirs) {
           final d = Directory(dir);
           if (!d.existsSync()) continue;
           for (final entry in d.listSync()) {
             if (entry is! File || !isRender(entry.path)) continue;
-            if (held.contains(entry.path)) continue;
+            if (kept.contains(real(entry.path))) continue;
             try {
               if (entry.statSync().modified.isAfter(cutoff)) continue;
               entry.deleteSync();

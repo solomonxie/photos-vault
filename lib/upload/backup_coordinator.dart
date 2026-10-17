@@ -286,9 +286,11 @@ class BackupCoordinator {
   }
 
   /// Sent from a copy Optimize shrank on this iPhone: whatever the bucket
-  /// already holds is the full-quality original, and never retired for it.
+  /// already holds is the full-quality original (or edit), and never
+  /// retired for it.
   static bool _keepsOld(AssetRecord record, DerivativeKind kind) =>
-      record.localOptimized && kind == DerivativeKind.original;
+      record.localOptimized &&
+      (kind == DerivativeKind.original || kind == DerivativeKind.edited);
 
   /// This photo's earlier copies under its name with another extension
   /// (`.mov` then `.MOV`, `.heic` then `.heif`), now that [key] has landed.
@@ -310,7 +312,13 @@ class BackupCoordinator {
         if (other != old &&
             _isVideoKey(other) == _isVideoKey(key) &&
             !await recordStore.keyHeldByOthers(other, null))
-          PendingDelete(objectKey: other, targetId: targetId, localId: localId),
+          PendingDelete(
+            objectKey: other,
+            targetId: targetId,
+            localId: localId,
+            keep: key,
+            untilWhole: true,
+          ),
   ];
 
   /// Sent as a re-encode of the phone's file, not the file itself.
@@ -341,12 +349,16 @@ class BackupCoordinator {
   /// [targets] (every configured target, if omitted) and records the
   /// aggregate outcome. Returns the count of targets it landed on
   /// successfully (0 if none configured or all failed).
+  ///
+  /// [fromResource]: [filePath] is PhotoKit's stored bytes, not a render
+  /// (`DerivativeState.fromResource`).
   Future<int> backUpDerivative({
     required AssetRecord record,
     required DerivativeKind kind,
     required String filePath,
     List<S3BackupTarget>? targets,
     bool keepCarrierLocally = true,
+    bool fromResource = false,
   }) async {
     // Left `pending`, deliberately: the queue will offer it again once the
     // album is open, and a `failed` here would read as something the user
@@ -388,7 +400,14 @@ class BackupCoordinator {
       );
       return 0;
     }
-    final fileName = safeFileName(record, uploadPath, previousKey: previousKey);
+    // An edit's first upload takes its original's name: one photo, one
+    // base name, in either folder.
+    final nameFrom =
+        previousKey ??
+        (kind == DerivativeKind.edited
+            ? fresh?.stateOf(DerivativeKind.original).destinationKey
+            : null);
+    final fileName = safeFileName(record, uploadPath, previousKey: nameFrom);
     final derivativeDir = derivativeDirs[kind]!;
 
     // The local copy first, before a single byte goes anywhere. A hidden
@@ -476,11 +495,16 @@ class BackupCoordinator {
           if (_keepsOld(record, kind)) {
             // Nothing in the bucket is this upload's to retire.
           } else if (old != null && old != key) {
+            // Only once the copy just sent answers live in its place, and
+            // the photo is up whole: an old render is its edit until the
+            // new edit lands.
             superseded.add(
               PendingDelete(
                 objectKey: old,
                 targetId: target.id,
                 localId: record.localId,
+                keep: key,
+                untilWhole: true,
               ),
             );
           }
@@ -532,6 +556,9 @@ class BackupCoordinator {
           record.stateOf(kind).backedUpHash,
           known: sourceHash,
         ),
+        fromResource: succeeded > 0
+            ? fromResource
+            : record.stateOf(kind).fromResource,
       ),
     );
     return succeeded;

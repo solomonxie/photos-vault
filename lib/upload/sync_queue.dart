@@ -43,6 +43,7 @@ class SyncQueue {
   static const uploadKinds = {
     SyncJobKind.uploadOriginal,
     SyncJobKind.uploadLivePhoto,
+    SyncJobKind.uploadEdited,
     SyncJobKind.uploadThumbnail,
   };
 

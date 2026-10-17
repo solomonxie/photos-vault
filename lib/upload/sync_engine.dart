@@ -190,6 +190,9 @@ class SyncEngine {
           assetCreatedAt: record.createdAt,
         );
       }
+      // An edit found earlier and not yet up. A new one is queued by the
+      // original's job, which is what finds it.
+      if (_owesEdit(record)) await _enqueueEdit(record);
       return true;
     }
 
@@ -233,6 +236,9 @@ class SyncEngine {
   /// the change history stamps (`noteModified`); so do favourites and
   /// metadata, which only cost a hash.
   Future<int> enqueueChangeChecks() async {
+    // Before the due set: a legacy backup a scan dates from before its
+    // upload needs no check at all (PW3b).
+    await recordStore.rebaselineChangeChecks();
     final due = await recordStore.changeChecksDue();
     final uploaded = records().where((r) {
       // Cloud-only assets have no local file left to compare against, and
@@ -284,16 +290,31 @@ class SyncEngine {
         // Before the file: an edit after this read moves the date past it,
         // and the next change check sees that.
         final modified = await modifiedOf(record);
-        final path = await _heldPathFor(record);
-        if (path == null) {
-          unresolvable.add(record.localId);
+        final source = await _originalSourceFor(record);
+        final path = source?.path;
+        if (source == null || path == null) {
+          // Up already: this run was only for an edit, which has its own.
+          if (record.stateOf(DerivativeKind.original).status !=
+              UploadStatus.uploaded) {
+            unresolvable.add(record.localId);
+          }
           return;
         }
+        TempRenders.hold(path);
         try {
+          final owesEdit =
+              source.edited ||
+              record.stateOf(DerivativeKind.edited).destinationKey != null;
+          // Owed before the original lands: never "fully backed up" with
+          // the edit still only on this phone.
+          if (source.resource && owesEdit != record.hasEdit) {
+            await recordStore.setHasEdit(record.localId, owesEdit);
+          }
           await coordinator.backUpDerivative(
             record: record,
             kind: DerivativeKind.original,
             filePath: path,
+            fromResource: source.resource,
           );
           final after = await recordStore.getByLocalId(record.localId);
           // Failed, or nothing landed: not handed back by every refill.
@@ -314,6 +335,10 @@ class SyncEngine {
           // background_downloader's still reads this file.
           await TempRenders.release(path, delete: true);
         }
+        final now = await recordStore.getByLocalId(record.localId);
+        if (now != null && _owesEdit(now)) await _enqueueEdit(now);
+      case SyncJobKind.uploadEdited:
+        await _uploadEdit(record);
       case SyncJobKind.uploadLivePhoto:
         // Straight from the photo library, with the subtype that makes
         // PhotoKit hand back the `.mov` rather than the still frame.
@@ -407,7 +432,24 @@ class SyncEngine {
       await recordStore.markChecked(record.localId, modified);
       return;
     }
-    final path = await _heldPathFor(record);
+    final original = record.stateOf(DerivativeKind.original);
+    final resources = _readsResources(record);
+    // A JPEG render's hash, from before PW3b: current if the photo was last
+    // modified before it went up. Settled without reading anything.
+    if (resources &&
+        !original.fromResource &&
+        modified != null &&
+        await recordStore.backupPredates(record.localId, modified)) {
+      await recordStore.markChecked(record.localId, modified);
+      return;
+    }
+    // Like with like: a render against a render's hash, PhotoKit's bytes
+    // against theirs. Never one against the other, which is every photo
+    // looking edited.
+    final path = resources && original.fromResource
+        ? (await library.currentResourceFor(record))?.path
+        : await filePathFor(record);
+    TempRenders.hold(path);
     if (path == null) {
       unresolvable.add(record.localId);
       return;
@@ -426,23 +468,41 @@ class SyncEngine {
     } finally {
       await TempRenders.release(path, delete: true);
     }
-    final state = record.stateOf(DerivativeKind.original);
-    if (hash == state.backedUpHash) {
+    final state = original;
+    final edit = record.stateOf(DerivativeKind.edited);
+    final held = record.sourcePath != null;
+    final expected = {
+      if (resources && original.fromResource)
+        record.hasEdit ? edit.backedUpHash : state.backedUpHash
+      else ...[
+        state.backedUpHash,
+        // A file here may be the edit, brought back from the bucket.
+        if (held && record.hasEdit) edit.backedUpHash,
+      ],
+    };
+    if (expected.contains(hash)) {
       await _checkMotionHalf(record);
       if (modified != null) {
         await recordStore.markChecked(record.localId, modified);
       }
       return;
     }
-    await recordStore.updateDerivative(
-      record.localId,
-      DerivativeKind.original,
-      DerivativeState(
-        status: UploadStatus.pending,
-        destinationKey: state.destinationKey,
-        backedUpHash: state.backedUpHash,
-      ),
-    );
+    if (record.hasEdit) {
+      await recordStore.updateDerivative(
+        record.localId,
+        DerivativeKind.edited,
+        edit.copyWith(status: UploadStatus.pending),
+      );
+    }
+    // The original of an edited photo comes from PhotoKit's base resource
+    // alone; a file here that changed is a new look, sent as the edit.
+    if (!(held && record.hasEdit)) {
+      await recordStore.updateDerivative(
+        record.localId,
+        DerivativeKind.original,
+        state.copyWith(status: UploadStatus.pending),
+      );
+    }
     // The picture changed, so the thumbnail did: drop the cached one and
     // put the bucket's back in the queue (same key, overwritten in place).
     await thumbnailCache.remove(record);
@@ -455,7 +515,84 @@ class SyncEngine {
       );
     }
     await _checkMotionHalf(record, enqueue: false);
-    await backUpRecords([record]);
+    await backUpRecords([
+      (await recordStore.getByLocalId(record.localId)) ?? record,
+    ]);
+  }
+
+  /// A camera-roll still, read as PhotoKit's own bytes rather than a
+  /// full-size JPEG render (BG-2). Video already reads its original;
+  /// held, hidden and manual photos read their file.
+  static bool _readsResources(AssetRecord r) =>
+      r.sourceType == AssetSourceType.photoManager &&
+      r.sourcePath == null &&
+      r.passcodeHash == null &&
+      !r.isVideo &&
+      !r.localDeleted;
+
+  /// What the original goes up as: PhotoKit's unedited original for a
+  /// camera-roll still ([resource]), [filePathFor] for the rest. Null path
+  /// when there's none to be had; never a render or a held file for an
+  /// edited photo's original, whose bytes only PhotoKit has.
+  Future<({String? path, bool resource, bool edited})?> _originalSourceFor(
+    AssetRecord record,
+  ) async {
+    if (_readsResources(record)) {
+      final found = await library.originalResourceFor(record);
+      if (found == null) return null;
+      return (path: found.path, resource: true, edited: found.edited);
+    }
+    if (record.hasEdit && record.passcodeHash == null) return null;
+    return (path: await filePathFor(record), resource: false, edited: false);
+  }
+
+  static bool _owesEdit(AssetRecord r) =>
+      r.hasEdit &&
+      r.passcodeHash == null &&
+      r.stateOf(DerivativeKind.edited).status != UploadStatus.uploaded;
+
+  Future<void> _enqueueEdit(AssetRecord record) async {
+    if (!await syncQueue.enqueue(
+      localId: record.localId,
+      kind: SyncJobKind.uploadEdited,
+      displayName: displayName(record),
+      assetCreatedAt: record.createdAt,
+    )) {
+      return;
+    }
+    unawaited(syncQueue.start());
+  }
+
+  /// The edit's own job: PhotoKit's current render of the photo, or the
+  /// file here for one brought back from the bucket. A photo whose edit was
+  /// reverted before any of it went up owes nothing; one already up keeps
+  /// being sent its current look.
+  Future<void> _uploadEdit(AssetRecord record) async {
+    if (!_owesEdit(record)) return;
+    String? path;
+    if (_readsResources(record)) {
+      final found = await library.currentResourceFor(record);
+      if (found == null) return;
+      if (!found.edited &&
+          record.stateOf(DerivativeKind.edited).destinationKey == null) {
+        await recordStore.setHasEdit(record.localId, false);
+        return;
+      }
+      path = found.path;
+    } else {
+      path = await filePathFor(record);
+    }
+    if (path == null) return;
+    TempRenders.hold(path);
+    try {
+      await coordinator.backUpDerivative(
+        record: record,
+        kind: DerivativeKind.edited,
+        filePath: path,
+      );
+    } finally {
+      await TempRenders.release(path, delete: true);
+    }
   }
 
   /// A Live Photo can be edited in its motion alone, which the still's hash

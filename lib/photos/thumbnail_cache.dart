@@ -9,6 +9,7 @@ import 'package:photo_manager/photo_manager.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'image_pipeline.dart';
+import 'smaller_export.dart';
 
 /// What to ask PhotoKit for. [fitted] keeps the photo's own shape, at the
 /// cost of a thumbnail that isn't square; without it the OS centre-crops
@@ -104,9 +105,42 @@ class ThumbnailCache {
 
   /// Off the calling isolate, read included — decode+resize of a
   /// full-size photo is heavy enough to jank a frame otherwise.
-  static Future<Uint8List?> _defaultEncode(File file) {
+  static Future<Uint8List?> _defaultEncode(File file) async {
     final path = file.path;
-    return Isolate.run(() => encodeThumbnail(File(path).readAsBytesSync()));
+    return await Isolate.run(
+          () => encodeThumbnail(File(path).readAsBytesSync()),
+        ) ??
+        await _nativeThumbnail(path);
+  }
+
+  /// HEIC (a PhotoKit original, one back from the bucket), which no
+  /// pure-Dart decoder reads: ImageIO, file to file, same size and quality.
+  static Future<Uint8List?> _nativeThumbnail(String path) async {
+    final out = File(
+      p.join(
+        Directory.systemTemp.path,
+        'pv_thumb_${DateTime.now().microsecondsSinceEpoch}.jpg',
+      ),
+    );
+    try {
+      final wrote = await encodeFileNatively(
+        input: path,
+        output: out.path,
+        format: 'jpeg',
+        maxEdge: thumbnailMaxEdge,
+        onlyIfSmaller: false,
+        quality: thumbnailQuality,
+      );
+      return wrote ? await out.readAsBytes() : null;
+    } catch (_) {
+      return null;
+    } finally {
+      try {
+        await out.delete();
+      } catch (_) {
+        // Never written.
+      }
+    }
   }
 
   /// What the OS already has: a still for a photo, a poster frame for a

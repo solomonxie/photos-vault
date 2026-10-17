@@ -5,8 +5,8 @@ import '../settings/bucket_endpoint.dart';
 import '../settings/s3_backup_target.dart';
 
 /// Builds the key layout every derivative lands under (`thumbnails/`,
-/// `medium/`, `originals/` under the target's configured prefix) so the
-/// user's own S3 Lifecycle Rules can target each class independently.
+/// `medium/`, `originals/`, `edited/` under the target's configured prefix)
+/// so the user's own S3 Lifecycle Rules can target each class independently.
 String derivativeKey({
   required String prefix,
   required String derivativeDir,

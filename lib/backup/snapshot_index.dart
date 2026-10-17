@@ -32,6 +32,9 @@ const _columns = [
   'place',
   'original_key',
   'thumbnail_key',
+  // The photo as last edited in Photos, beside its original; empty when
+  // unedited.
+  'edited_key',
 ];
 
 /// Renders [snapshot] as CSV — RFC 4180 quoting, `\r\n` line endings, which
@@ -60,6 +63,7 @@ String indexCsv(AppSnapshot snapshot) {
       asset['location'] as String? ?? '',
       originalKey,
       _keyOf(derivatives, 'thumbnail'),
+      (asset['hasEdit'] as bool? ?? false) ? _keyOf(derivatives, 'edited') : '',
     ]);
   }
   // By the date in column one, so the file itself is chronological and

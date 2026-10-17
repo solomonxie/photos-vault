@@ -1005,6 +1005,59 @@ void main() {
       expect(await detect(), isEmpty);
     });
 
+    Future<void> relistWithEdits() async {
+      await store.replaceBucketObjects(target.id, [
+        for (final dir in ['originals/', 'thumbnails/', 'edited/'])
+          for (final o in (await bucket.listFolder(target, dir))!)
+            BucketObject(
+              targetId: target.id,
+              key: o.key,
+              size: o.size,
+              lastModified: o.lastModified,
+            ),
+      ]);
+    }
+
+    test('edits are never flagged: not with their original held, not '
+        'alone, not under another name (PW3b)', () async {
+      const original = 'photos-vault/originals/20260101120000_$hex.heic';
+      bucket.objects[original] = video;
+      bucket.objects['photos-vault/edited/20260101120000_$hex.heic'] = video;
+      bucket.objects['photos-vault/edited/20260101120000_$hex2.jpg'] = video;
+      bucket.objects['photos-vault/edited/IMG_0001.jpg'] = video;
+      await holds('a', original);
+      await relistWithEdits();
+      expect(
+        (await store.listBucketObjects()).where((o) => o.directory == 'edited'),
+        hasLength(3),
+      );
+
+      expect(await detect(), isEmpty);
+    });
+
+    test('an import takes the edit beside an original in as its edit, not '
+        'as a photo (PW3b)', () async {
+      const original = 'photos-vault/originals/20260101120000_$hex.heic';
+      const edit = 'photos-vault/edited/20260101120000_$hex.jpg';
+      bucket.objects[original] = Uint8List.fromList(List.filled(900, 7));
+      bucket.objects[edit] = video;
+      await relistWithEdits();
+      final items = await detect();
+      expect(items.map((o) => o.object.key), [original]);
+
+      final result = await fixer().adopt(items.single);
+      expect(result.outcome, FixOutcome.imported);
+      final records = await store.listAll();
+      expect(records, hasLength(1));
+      expect(records.single.hasEdit, isTrue);
+      expect(
+        records.single.stateOf(DerivativeKind.edited).destinationKey,
+        edit,
+      );
+      expect(records.single.isFullyBackedUp, isTrue);
+      expect(await detect(), isEmpty);
+    });
+
     test('both halves adopted at once still make one record', () async {
       const still = 'photos-vault/originals/20260101120000_$hex.jpg';
       const motion = 'photos-vault/originals/20260101120000_$hex.mov';

@@ -113,7 +113,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 26,
+        version: 27,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createLibraryIdIndexSql);
@@ -131,6 +131,7 @@ class AssetRecordStore {
           await db.execute(_createBucketEditTableSql);
           await db.execute(_createChangeCheckTableSql);
           await _addRevisions(db);
+          await db.execute(_editedKeyIndexSql);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -286,6 +287,27 @@ class AssetRecordStore {
             // Empty: every backed-up photo is hashed once more, newest
             // first, and from then on only when its date moves.
             await db.execute(_createChangeCheckTableSql);
+          }
+          if (oldVersion < 27) {
+            // PW3b: every backup so far stays as it is. A NULL
+            // `original_source` says its hash is of a full-size JPEG render,
+            // which its change check keeps comparing against; `has_edit` 0
+            // owes no second object. Nothing here re-sends or deletes.
+            final had = {
+              for (final c in await db.rawQuery('PRAGMA table_info($_table)'))
+                c['name'],
+            };
+            for (final (name, type) in const [
+              ('edited_status', "TEXT NOT NULL DEFAULT 'pending'"),
+              ('edited_key', 'TEXT'),
+              ('edited_hash', 'TEXT'),
+              ('original_source', 'TEXT'),
+              ('has_edit', 'INTEGER NOT NULL DEFAULT 0'),
+            ]) {
+              if (had.contains(name)) continue;
+              await db.execute('ALTER TABLE $_table ADD COLUMN $name $type');
+            }
+            await db.execute(_editedKeyIndexSql);
           }
         },
       ),
@@ -622,6 +644,11 @@ class AssetRecordStore {
       live_status TEXT NOT NULL DEFAULT 'pending',
       live_key TEXT,
       live_hash TEXT,
+      edited_status TEXT NOT NULL DEFAULT 'pending',
+      edited_key TEXT,
+      edited_hash TEXT,
+      original_source TEXT,
+      has_edit INTEGER NOT NULL DEFAULT 0,
       is_favorite INTEGER NOT NULL DEFAULT 0,
       is_hidden INTEGER NOT NULL DEFAULT 0,
       is_locked INTEGER NOT NULL DEFAULT 0,
@@ -692,9 +719,18 @@ class AssetRecordStore {
         '$_derivativeTargetTable (destination_key)',
   ];
 
+  /// Apart from [_indexSql]: that runs at v25, before the column exists.
+  static const _editedKeyIndexSql =
+      'CREATE INDEX IF NOT EXISTS asset_record_edited_key ON $_table '
+      '(edited_key)';
+
+  /// `original_source` for a hash of PhotoKit's stored bytes; NULL is a
+  /// full-size render (`DerivativeState.fromResource`).
+  static const _resourceSource = 'resource';
+
   /// Upload state: a backup carries it, so a write moves the change mark,
   /// but no log row — it is most of the writes and none of them the user's.
-  static const _quietColumns = {'source_path', ..._uploadColumns};
+  static const _quietColumns = {'source_path', 'has_edit', ..._uploadColumns};
 
   static const _uploadColumns = {
     'thumbnail_status',
@@ -709,6 +745,10 @@ class AssetRecordStore {
     'live_status',
     'live_key',
     'live_hash',
+    'edited_status',
+    'edited_key',
+    'edited_hash',
+    'original_source',
   };
 
   /// A cache path and the bookkeeping stamps: nothing a backup carries.
@@ -1394,6 +1434,8 @@ class AssetRecordStore {
             '${_columnPrefix(kind)}_key': null,
             '${_columnPrefix(kind)}_hash': null,
           },
+          'original_source': null,
+          'has_edit': 0,
           if (unhide) 'passcode_hash': null,
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         },
@@ -1813,9 +1855,10 @@ class AssetRecordStore {
       'SELECT 1 FROM $_derivativeTargetTable '
       'WHERE destination_key = ? AND local_id != ? '
       'UNION ALL SELECT 1 FROM $_table WHERE local_id != ? AND '
-      '(original_key = ? OR thumbnail_key = ? OR medium_key = ? OR live_key = ?) '
+      '(original_key = ? OR thumbnail_key = ? OR medium_key = ? OR live_key = ? '
+      'OR edited_key = ?) '
       'LIMIT 1',
-      [key, except, except, key, key, key, key],
+      [key, except, except, key, key, key, key, key],
     );
     return rows.isNotEmpty;
   }
@@ -2147,6 +2190,8 @@ class AssetRecordStore {
         '${column}_status': state.status.name,
         '${column}_key': state.destinationKey,
         '${column}_hash': state.backedUpHash,
+        if (kind == DerivativeKind.original)
+          'original_source': state.fromResource ? _resourceSource : null,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
       where: 'local_id = ?',
@@ -2177,6 +2222,20 @@ class AssetRecordStore {
       _table,
       {
         'is_live_photo': value ? 1 : 0,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+  }
+
+  /// See [AssetRecord.hasEdit].
+  Future<void> setHasEdit(String localId, bool value) async {
+    final db = await _open();
+    await db.update(
+      _table,
+      {
+        'has_edit': value ? 1 : 0,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
       where: 'local_id = ?',
@@ -2582,6 +2641,52 @@ class AssetRecordStore {
       'AND c.checked IS NOT NULL',
     );
     return {for (final r in rows) r['local_id'] as String: r['checked'] as int};
+  }
+
+  /// How long a put may finish after its file was read: an upload row's
+  /// time is when the transfer ended, not when the bytes were taken.
+  static const uploadReadSlack = Duration(hours: 24);
+
+  /// A legacy camera-roll backup (a render's hash, `original_source` NULL)
+  /// known current without reading the photo: the asset was last modified
+  /// at least [uploadReadSlack] before a per-bucket upload of exactly the
+  /// recorded version. Rows adopted from before per-bucket state
+  /// (`target_id` '') carry the adoption time, not the upload's, and never
+  /// count. Shared by [rebaselineChangeChecks] and [backupPredates].
+  static const _legacyUploadedAtSql =
+      'SELECT MAX(t.uploaded_at) FROM $_derivativeTargetTable t '
+      'JOIN $_table r ON r.local_id = t.local_id '
+      "WHERE t.local_id = {id} AND t.kind = 'original' AND t.target_id != '' "
+      'AND t.source_hash IS NOT NULL AND t.source_hash = r.original_hash '
+      "AND r.original_status = 'uploaded' AND r.original_source IS NULL "
+      'AND r.source_path IS NULL AND r.passcode_hash IS NULL '
+      "AND r.local_deleted = 0 AND r.source_type = 'photoManager'";
+
+  /// PW3b's one-time re-baseline, without a render: every legacy backup a
+  /// scan's date shows unmodified since it went up is marked checked at
+  /// that date, so its change check reads no file. Idempotent; the rest
+  /// wait for their check. Returns how many it settled.
+  Future<int> rebaselineChangeChecks() async {
+    final db = await _open();
+    return db.rawUpdate(
+      'UPDATE $_changeCheckTable SET checked = seen '
+      'WHERE seen IS NOT NULL AND checked IS NOT seen '
+      'AND seen * 1000 <= '
+      '(${_legacyUploadedAtSql.replaceAll('{id}', '$_changeCheckTable.local_id')}) - ?',
+      [uploadReadSlack.inMilliseconds],
+    );
+  }
+
+  /// [rebaselineChangeChecks] for one photo, against its live date
+  /// (seconds).
+  Future<bool> backupPredates(String localId, int modified) async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT (${_legacyUploadedAtSql.replaceAll('{id}', '?')}) AS at',
+      [localId],
+    );
+    final at = rows.firstOrNull?['at'] as int?;
+    return at != null && modified * 1000 <= at - uploadReadSlack.inMilliseconds;
   }
 
   /// Photos carrying a GPS tag that nobody — neither the user nor the
@@ -3077,6 +3182,7 @@ class AssetRecordStore {
     'is_video',
     'is_live_photo',
     'is_gif',
+    'has_edit',
     ..._uploadColumns,
     'is_favorite',
     'is_hidden',
@@ -3240,7 +3346,8 @@ class AssetRecordStore {
         final y = b.stateOf(kind);
         if (x.status != y.status ||
             x.destinationKey != y.destinationKey ||
-            x.backedUpHash != y.backedUpHash) {
+            x.backedUpHash != y.backedUpHash ||
+            x.fromResource != y.fromResource) {
           return false;
         }
       }
@@ -3254,6 +3361,7 @@ class AssetRecordStore {
         a.localDeleted == b.localDeleted &&
         a.isVideo == b.isVideo &&
         a.isLivePhoto == b.isLivePhoto &&
+        a.hasEdit == b.hasEdit &&
         a.isGif == b.isGif &&
         a.createdAt == b.createdAt &&
         a.addedAt == b.addedAt &&
@@ -3392,6 +3500,7 @@ class AssetRecordStore {
     DerivativeKind.medium => 'medium',
     DerivativeKind.original => 'original',
     DerivativeKind.livePhoto => 'live',
+    DerivativeKind.edited => 'edited',
   };
 
   /// `Enum.values.byName` walks the values and builds a map of them on
@@ -3418,6 +3527,9 @@ class AssetRecordStore {
             UploadStatus.pending,
         destinationKey: row['${column}_key'] as String?,
         backedUpHash: row['${column}_hash'] as String?,
+        fromResource:
+            kind == DerivativeKind.original &&
+            row['original_source'] == _resourceSource,
       );
     }
 
@@ -3441,6 +3553,7 @@ class AssetRecordStore {
       localDeleted: (row['local_deleted'] as int? ?? 0) != 0,
       isVideo: (row['is_video'] as int? ?? 0) != 0,
       isLivePhoto: (row['is_live_photo'] as int? ?? 0) != 0,
+      hasEdit: (row['has_edit'] as int? ?? 0) != 0,
       isGif: (row['is_gif'] as int? ?? 0) != 0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),

@@ -235,9 +235,19 @@ class BackupVerifier {
   ///
   /// Asked of every target in turn and satisfied by the first `200`: the
   /// copy only has to exist once to be a copy.
+  ///
+  /// An edited photo's edit too: without it the phone holds the only copy
+  /// of how the photo looks, and an unrecorded one is not proven.
   Future<CopyProof> proveOriginal(AssetRecord record) async {
     final proof = await _prove(record, DerivativeKind.original);
-    if (proof != CopyProof.present || !record.isLivePhoto) return proof;
+    if (proof != CopyProof.present) return proof;
+    if (record.hasEdit && record.passcodeHash == null) {
+      final edit = await _prove(record, DerivativeKind.edited);
+      if (edit != CopyProof.present) {
+        return edit == CopyProof.notRecorded ? CopyProof.missing : edit;
+      }
+    }
+    if (!record.isLivePhoto) return proof;
     final motion = await _prove(record, DerivativeKind.livePhoto);
     // A missing motion half is a missing copy of *this* photo; an
     // unrecorded one is an ordinary still that was never a Live Photo in
@@ -412,7 +422,9 @@ class BackupVerifier {
 
     final originals = <String, Set<String>>{};
     final thumbnails = <String, Set<String>>{};
+    final edits = <String, Set<String>>{};
     final configured = <String>{};
+    final anyEdit = records.any((r) => r.hasEdit);
     for (final target in await _targets()) {
       configured.add(target.id);
       final o = await _listKeys(target, _originalsPrefix(target));
@@ -420,8 +432,12 @@ class BackupVerifier {
         target,
         _derivativePrefix(target, 'thumbnails'),
       );
+      final e = anyEdit
+          ? await _listKeys(target, _derivativePrefix(target, 'edited'))
+          : null;
       if (o != null) originals[target.id] = o;
       if (t != null) thumbnails[target.id] = t;
+      if (e != null) edits[target.id] = e;
     }
     final reached = originals.isNotEmpty;
 
@@ -442,6 +458,7 @@ class BackupVerifier {
       for (final kind in [
         DerivativeKind.original,
         if (record.isLivePhoto) DerivativeKind.livePhoto,
+        if (record.hasEdit) DerivativeKind.edited,
         DerivativeKind.thumbnail,
       ]) {
         final state = record.stateOf(kind);
@@ -449,7 +466,11 @@ class BackupVerifier {
         if (key == null) continue;
         final isThumb = kind == DerivativeKind.thumbnail;
         if (isThumb && state.status != UploadStatus.uploaded) continue;
-        final seen = isThumb ? thumbnails : originals;
+        final seen = switch (kind) {
+          DerivativeKind.thumbnail => thumbnails,
+          DerivativeKind.edited => edits,
+          _ => originals,
+        };
         final allHeld = holdings[record.localId]?[kind] ?? const {};
         if (kind == DerivativeKind.original) expectsOriginal = true;
         // A copy in a bucket since removed is no backup: checked like a
@@ -505,6 +526,7 @@ class BackupVerifier {
           if (lost(e.value, {
             DerivativeKind.original,
             DerivativeKind.livePhoto,
+            DerivativeKind.edited,
           }))
             e.key,
       ],
@@ -610,6 +632,8 @@ class BackupVerifier {
       for (final kind in [
         DerivativeKind.original,
         if (record.isLivePhoto) DerivativeKind.livePhoto,
+        // Sent again from the phone; with no copy here the original stands.
+        if (record.hasEdit && hasLocal) DerivativeKind.edited,
       ]) {
         final missing = entry.value.missingAt[kind];
         if (missing == null || missing.isEmpty) continue;
