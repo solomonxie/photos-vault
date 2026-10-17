@@ -76,6 +76,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
   List<Person> _people = const [];
   Map<String, int> _counts = const {};
   Map<String, String> _firstPhoto = const {};
+
+  /// Every avatar on the page resolves from this, not a query of its own.
+  /// Null when there is no record database (a test).
+  Map<String, AssetRecord>? _recordsById;
   List<UnnamedFace> _unnamedFaces = const [];
 
   /// How many there are altogether — [_unnamedFaces] is the first twenty.
@@ -141,6 +145,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
       _people = people;
       _counts = counts;
       _firstPhoto = firstPhoto;
+      _recordsById = records.isEmpty ? null : visibleRecordsOf(records);
       _unnamedFaces = unnamed.faces;
       _facesFound = unnamed.found;
     });
@@ -476,6 +481,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
             assetRecordStore: widget.assetRecordStore,
             localId: face.localId,
             face: face.face,
+            records: _recordsById,
             size: _faceSize,
           ),
         ),
@@ -665,6 +671,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
                     assetRecordStore: widget.assetRecordStore,
                     person: person,
                     firstTaggedLocalId: _firstPhoto[person.id],
+                    records: _recordsById,
                     size: _faceSize,
                   ),
                   title: Text(person.name),

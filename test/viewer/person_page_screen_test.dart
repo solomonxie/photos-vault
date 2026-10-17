@@ -99,7 +99,14 @@ void main() {
     expect(find.byKey(const ValueKey('manual:binned')), findsNothing);
     final drawn = {
       for (final image in tester.widgetList<Image>(find.byType(Image)))
-        if (image.image case final FileImage file) file.file.path,
+        // Sized decodes wrap the file (UI-9).
+        if (switch (image.image) {
+              ResizeImage(imageProvider: final FileImage file) => file,
+              final FileImage file => file,
+              _ => null,
+            }
+            case final file?)
+          file.file.path,
     };
     expect(drawn, isNot(contains('/tmp/manual:locked.jpg')));
     expect(drawn, contains('/tmp/manual:shown.jpg'));

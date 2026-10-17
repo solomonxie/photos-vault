@@ -3629,3 +3629,13 @@ Set<String> visibleIdsOf(List<AssetRecord> records) =>
       for (final r in records)
         if (r.isVisibleInLibrary) r.localId,
     };
+
+final _visibleRecords = Expando<Map<String, AssetRecord>>();
+
+/// [visibleIdsOf], by id to the record — what avatars resolve from
+/// instead of a query each.
+Map<String, AssetRecord> visibleRecordsOf(List<AssetRecord> records) =>
+    _visibleRecords[records] ??= {
+      for (final r in records)
+        if (r.isVisibleInLibrary) r.localId: r,
+    };

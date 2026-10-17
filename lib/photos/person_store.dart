@@ -75,7 +75,7 @@ class PersonStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 9,
+        version: 10,
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await db.execute(
@@ -121,6 +121,8 @@ class PersonStore {
           if (oldVersion < 9) {
             await db.execute(_createGroupTableSql);
           }
+          // v10: "who is in this photo" without a full scan (DB-10).
+          if (oldVersion < 10) await db.execute(_createMemberIndexSql);
           if (oldVersion < 4) {
             await db.execute(
               'ALTER TABLE $_personTable ADD COLUMN birth_date INTEGER',
@@ -201,6 +203,7 @@ class PersonStore {
           await db.execute(_createDetailTableSql);
           await db.execute(_createEventTableSql);
           await db.execute(_createGroupTableSql);
+          await db.execute(_createMemberIndexSql);
         },
       ),
     );
@@ -236,6 +239,10 @@ class PersonStore {
     );
     return db;
   }
+
+  static const _createMemberIndexSql =
+      'CREATE INDEX IF NOT EXISTS person_asset_local '
+      'ON $_memberTable (local_id)';
 
   /// A row kept under a passcode, as the change log tests it.
   static const _privateRowSql = "COALESCE({row}.passcode_hash, '') != ''";

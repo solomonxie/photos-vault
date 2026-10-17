@@ -68,6 +68,14 @@ class AiAnalysisStore {
   /// One row per face the matcher has looked at, named or not.
   static const _suggestionTable = 'face_suggestion';
 
+  /// Bumped after every write to faces, descriptors or guesses, by any
+  /// instance: they share one file. What a cached face pass keys on.
+  static int _writes = 0;
+
+  int get revision => _writes;
+
+  ({int at, Map<String, int> counts})? _faceCounts;
+
   Future<Database> _open() async {
     final existing = _db;
     if (existing != null) return existing;
@@ -76,7 +84,7 @@ class AiAnalysisStore {
     final db = await _factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 7,
+        version: 8,
         onCreate: (db, version) => db.execute('''
           CREATE TABLE $_table (
             local_id TEXT PRIMARY KEY,
@@ -138,6 +146,8 @@ class AiAnalysisStore {
             );
             await db.execute("UPDATE $_table SET upright = 1 WHERE faces = ''");
           }
+          // v8: indexes for the per-person reads (DB-10).
+          if (from < 8) await _createDescriptors(db);
         },
       ),
     );
@@ -190,6 +200,15 @@ class AiAnalysisStore {
         PRIMARY KEY (local_id, face)
       )
     ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS face_descriptor_person '
+      'ON $_descriptorTable (person_id, confirmed_at) '
+      'WHERE person_id IS NOT NULL',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS face_suggestion_person '
+      'ON $_suggestionTable (person_id) WHERE person_id IS NOT NULL',
+    );
   }
 
   /// What the matcher guessed, per face. A row with a null `person_id` is
@@ -209,6 +228,7 @@ class AiAnalysisStore {
       }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
     });
     await batch.commit(noResult: true);
+    _writes++;
   }
 
   /// Every guess worth showing, keyed `localId` → encoded face → person.
@@ -265,6 +285,7 @@ class AiAnalysisStore {
       where: 'local_id = ?',
       whereArgs: [localId],
     );
+    _writes++;
   }
 
   /// Everything the matcher decided, so a newly-named person gets a fresh
@@ -272,6 +293,7 @@ class AiAnalysisStore {
   Future<void> clearAllSuggestions() async {
     final db = await _open();
     await db.delete(_suggestionTable);
+    _writes++;
   }
 
   /// What a face looks like, whether or not anybody has said whose it is.
@@ -308,6 +330,7 @@ class AiAnalysisStore {
         DateTime.now().millisecondsSinceEpoch,
       ],
     );
+    _writes++;
   }
 
   /// [attachDescriptor] for many faces, in one transaction.
@@ -327,6 +350,7 @@ class AiAnalysisStore {
       );
     }
     await batch.commit(noResult: true);
+    _writes++;
   }
 
   /// Every stored descriptor of these photos, keyed by [faceKey].
@@ -352,6 +376,100 @@ class AiAnalysisStore {
       }
     }
     return out;
+  }
+
+  /// [descriptorsOf], unnamed faces only.
+  Future<Map<String, FaceDescriptor>> unnamedDescriptorsOf(
+    Iterable<String> localIds,
+  ) async {
+    final out = <String, FaceDescriptor>{};
+    await _eachRead(
+      localIds,
+      (where) =>
+          'SELECT local_id, face, revision, vector FROM $_descriptorTable '
+          'WHERE person_id IS NULL AND $where',
+      // Re-encoded, so the key matches a box decoded from `faces`.
+      (row) =>
+          out[faceKey(
+            row['local_id'] as String,
+            FaceRect.decode(row['face'] as String?) ?? _wholeFrame,
+          )] = FaceDescriptor.decode(
+            row['vector'] as Uint8List?,
+            (row['revision'] as num?)?.toInt() ?? 0,
+          ),
+    );
+    return out;
+  }
+
+  /// [suggestionsByAsset] for these photos only.
+  Future<Map<String, Map<String, String>>> suggestionsOf(
+    Iterable<String> localIds,
+  ) async {
+    final byAsset = <String, Map<String, String>>{};
+    await _eachRead(
+      localIds,
+      (where) =>
+          'SELECT local_id, face, person_id FROM $_suggestionTable '
+          'WHERE person_id IS NOT NULL AND $where',
+      (row) => byAsset.putIfAbsent(
+        row['local_id'] as String,
+        () => {},
+      )[row['face'] as String] = row['person_id'] as String,
+    );
+    return byAsset;
+  }
+
+  /// [facesByAsset] for these photos only.
+  Future<Map<String, List<FaceRect>>> facesOf(Iterable<String> localIds) async {
+    final out = <String, List<FaceRect>>{};
+    await _eachRead(
+      localIds,
+      (where) =>
+          'SELECT local_id, faces FROM $_table '
+          "WHERE faces <> '' AND $where",
+      (row) {
+        final faces = decodeFaces(row['faces'] as String?);
+        if (faces.isNotEmpty) out[row['local_id'] as String] = faces;
+      },
+    );
+    return out;
+  }
+
+  /// How many boxes each photo with faces has, counted in SQL so no box
+  /// is decoded. Cached until the next write.
+  Future<Map<String, int>> faceCounts() async {
+    final at = _writes;
+    final held = _faceCounts;
+    if (held != null && held.at == at) return held.counts;
+    final db = await _open();
+    final rows = await db.rawQuery(
+      "SELECT local_id, length(faces) - length(replace(faces, ';', '')) + 1 "
+      "AS n FROM $_table WHERE faces <> ''",
+    );
+    final counts = {
+      for (final row in rows)
+        row['local_id'] as String: (row['n'] as num).toInt(),
+    };
+    _faceCounts = (at: at, counts: counts);
+    return counts;
+  }
+
+  Future<void> _eachRead(
+    Iterable<String> localIds,
+    String Function(String where) sql,
+    void Function(Map<String, Object?> row) onRow,
+  ) async {
+    final all = localIds.toSet().toList();
+    if (all.isEmpty) return;
+    final db = await _open();
+    for (var i = 0; i < all.length; i += 900) {
+      final ids = all.skip(i).take(900).toList();
+      final rows = await db.rawQuery(
+        sql('local_id IN (${List.filled(ids.length, '?').join(',')})'),
+        ids,
+      );
+      rows.forEach(onRow);
+    }
   }
 
   static String faceKey(String localId, FaceRect face) =>
@@ -380,6 +498,7 @@ class AiAnalysisStore {
       where: 'local_id = ? AND face = ?',
       whereArgs: [localId, face.encode()],
     );
+    _writes++;
   }
 
   /// Which face in this photo is this person's, if one has been
@@ -446,6 +565,7 @@ class AiAnalysisStore {
     final db = await _open();
     await db.update(_table, {'people_count': _neverLooked, 'faces': ''});
     await db.delete(_suggestionTable);
+    _writes++;
   }
 
   /// A face count no scan produces — the marker that says "look at this
@@ -505,32 +625,46 @@ class AiAnalysisStore {
   /// near. Newest first, because a face is most like its recent self.
   Future<List<ConfirmedFace>> confirmedFaces({int perPerson = 40}) async {
     final db = await _open();
-    final rows = await db.query(
-      _descriptorTable,
-      // Named faces only: an unnamed one is a candidate to search, not a
-      // reference to measure against.
-      where: 'person_id IS NOT NULL',
-      orderBy: 'confirmed_at DESC',
-    );
-    final kept = <String, int>{};
-    final faces = <ConfirmedFace>[];
-    for (final row in rows) {
-      final personId = row['person_id'] as String;
-      final count = kept[personId] ?? 0;
-      if (count >= perPerson) continue;
-      kept[personId] = count + 1;
-      faces.add(
-        ConfirmedFace(
-          personId: personId,
-          localId: row['local_id'] as String,
-          descriptor: FaceDescriptor.decode(
-            row['vector'] as Uint8List?,
-            (row['revision'] as num?)?.toInt() ?? 0,
-          ),
-        ),
+    return db.transaction((txn) async {
+      // Order and cap on the index alone; vectors only for the kept rows
+      // (DB-10). One transaction, so the rowids stay put in between.
+      final order = await txn.rawQuery(
+        'SELECT rowid AS id, person_id FROM $_descriptorTable '
+        // Named faces only: an unnamed one is a candidate to search, not
+        // a reference to measure against.
+        'WHERE person_id IS NOT NULL ORDER BY confirmed_at DESC',
       );
-    }
-    return faces;
+      final kept = <String, int>{};
+      final ids = <int>[];
+      for (final row in order) {
+        final personId = row['person_id'] as String;
+        final count = kept[personId] ?? 0;
+        if (count >= perPerson) continue;
+        kept[personId] = count + 1;
+        ids.add((row['id'] as num).toInt());
+      }
+      final byId = <int, ConfirmedFace>{};
+      for (var i = 0; i < ids.length; i += 900) {
+        final chunk = ids.skip(i).take(900).toList();
+        final rows = await txn.rawQuery(
+          'SELECT rowid AS id, local_id, person_id, revision, vector '
+          'FROM $_descriptorTable '
+          'WHERE rowid IN (${List.filled(chunk.length, '?').join(',')})',
+          chunk,
+        );
+        for (final row in rows) {
+          byId[(row['id'] as num).toInt()] = ConfirmedFace(
+            personId: row['person_id'] as String,
+            localId: row['local_id'] as String,
+            descriptor: FaceDescriptor.decode(
+              row['vector'] as Uint8List?,
+              (row['revision'] as num?)?.toInt() ?? 0,
+            ),
+          );
+        }
+      }
+      return [for (final id in ids) ?byId[id]];
+    });
   }
 
   /// [confirmedFaces] for one person only — what "find more of them"
@@ -601,6 +735,7 @@ class AiAnalysisStore {
       );
     }
     await batch.commit(noResult: true);
+    _writes++;
   }
 
   /// Forgets one confirmed face — what undoing a name has to mean. Without
@@ -615,6 +750,7 @@ class AiAnalysisStore {
       where: 'local_id = ? AND face = ?',
       whereArgs: [localId, face.encode()],
     );
+    _writes++;
   }
 
   /// Forgets a person's faces — what deleting them has to mean, or they go
@@ -634,6 +770,7 @@ class AiAnalysisStore {
       where: 'person_id = ?',
       whereArgs: [personId],
     );
+    _writes++;
   }
 
   /// A compact copy at [dest] without anything of [hiddenIds].
@@ -664,6 +801,7 @@ class AiAnalysisStore {
       ..delete(_descriptorTable)
       ..delete(_table);
     await batch.commit(noResult: true);
+    _writes++;
   }
 
   Future<void> save(AiPhotoAnalysis analysis) async {
@@ -676,6 +814,7 @@ class AiAnalysisStore {
       'description': analysis.description,
       'reviewed': analysis.reviewed ? 1 : 0,
     }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+    _writes++;
   }
 
   /// Records what the on-device pass found and nothing else. A whole-row
@@ -716,6 +855,7 @@ class AiAnalysisStore {
       }
       await _carryDescriptors(txn, localId, (old) => carryFaces(old, faces));
     });
+    _writes++;
   }
 
   /// Moves this photo's descriptors onto the boxes [map] picks for their
@@ -804,6 +944,7 @@ class AiAnalysisStore {
         (old) => {for (final f in old) f: f.oriented(orientation)},
       );
     });
+    _writes++;
   }
 
   /// Where the faces are, per photo — for drawing one, which a count can't.

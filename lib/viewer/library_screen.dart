@@ -562,6 +562,7 @@ class LibraryScreenState extends State<LibraryScreen>
   @override
   void didHaveMemoryPressure() {
     clearThumbnailCaches();
+    faceCrops.clear();
     PaintingBinding.instance.imageCache.clear();
   }
 
@@ -3098,6 +3099,7 @@ class LibraryScreenState extends State<LibraryScreen>
                         child: UnnamedFaceCard(
                           face: face,
                           assetRecordStore: assetRecordStore,
+                          records: visibleRecordsOf(_all),
                           label: face.hasSuggestion
                               ? l10n.peopleSuggestedFace(face.suggestedName!)
                               : l10n.peopleUnnamedFace,
@@ -3111,6 +3113,7 @@ class LibraryScreenState extends State<LibraryScreen>
                       child: _PersonCard(
                         person: person,
                         assetRecordStore: assetRecordStore,
+                        records: visibleRecordsOf(_all),
                         photoCount: _personPhotoCounts[person.id] ?? 0,
                         firstPhoto: _personFirstPhotos[person.id],
                         onTap: () => _openPerson(person),
@@ -3463,6 +3466,10 @@ class _AlbumCard extends StatelessWidget {
                       width: double.infinity,
                       child: assetImage(
                         cover,
+                        // Never the original's full size (UI-9).
+                        fileDecodeSize:
+                            (150 * MediaQuery.devicePixelRatioOf(context))
+                                .round(),
                         placeholder: () => const ColoredBox(
                           color: CupertinoColors.systemGrey5,
                           child: Icon(CupertinoIcons.photo),
@@ -3498,10 +3505,12 @@ class _PersonCard extends StatelessWidget {
     required this.photoCount,
     required this.firstPhoto,
     required this.onTap,
+    this.records,
   });
 
   final Person person;
   final AssetRecordStore assetRecordStore;
+  final Map<String, AssetRecord>? records;
   final int photoCount;
   final String? firstPhoto;
   final VoidCallback onTap;
@@ -3516,6 +3525,7 @@ class _PersonCard extends StatelessWidget {
           assetRecordStore: assetRecordStore,
           person: person,
           firstTaggedLocalId: firstPhoto,
+          records: records,
           size: 92,
         ),
         const SizedBox(height: 6),

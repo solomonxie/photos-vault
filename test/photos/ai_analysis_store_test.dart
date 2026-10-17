@@ -61,6 +61,73 @@ void main() {
       expect(await store.confirmedFaces(perPerson: 2), hasLength(2));
     });
 
+    test('newest confirmation first, capped per person', () async {
+      final store = newStore();
+      for (final (id, person) in const [
+        ('p0', 'nina'),
+        ('p1', 'sam'),
+        ('p2', 'nina'),
+        ('p3', 'nina'),
+      ]) {
+        await store.saveDescriptor(
+          localId: id,
+          face: face,
+          personId: person,
+          descriptor: nina,
+        );
+        await Future<void>.delayed(const Duration(milliseconds: 3));
+      }
+
+      final confirmed = await store.confirmedFaces(perPerson: 2);
+
+      expect(confirmed.map((f) => f.localId), ['p3', 'p2', 'p1']);
+      expect(confirmed.first.descriptor.distanceTo(nina), 0);
+    });
+
+    test('bounded reads return only the photos asked for', () async {
+      final store = newStore();
+      for (final id in ['a', 'b', 'c']) {
+        await store.saveFaceCount(
+          localId: id,
+          peopleCount: 2,
+          analyzedAt: DateTime(2026),
+          faces: const [face, FaceRect(0.1, 0.1, 0.1, 0.1)],
+        );
+        await store.saveDescriptor(
+          localId: id,
+          face: face,
+          personId: id == 'b' ? 'nina' : null,
+          descriptor: nina,
+        );
+        await store.saveSuggestions(id, {face.encode(): 'nina'});
+      }
+
+      expect(await store.faceCounts(), {'a': 2, 'b': 2, 'c': 2});
+      expect((await store.facesOf(['a', 'x'])).keys, ['a']);
+      expect((await store.suggestionsOf(['b'])).keys, ['b']);
+      // Named faces are references, not strangers.
+      expect((await store.unnamedDescriptorsOf(['a', 'b'])).keys, [
+        AiAnalysisStore.faceKey('a', face),
+      ]);
+    });
+
+    test('face counts are read again after a write', () async {
+      final store = newStore();
+      final before = store.revision;
+      await store.saveFaceCount(
+        localId: 'a',
+        peopleCount: 1,
+        analyzedAt: DateTime(2026),
+        faces: const [face],
+      );
+      expect(store.revision, greaterThan(before));
+      expect(await store.faceCounts(), {'a': 1});
+
+      await store.forgetFacesOf(['a']);
+
+      expect(await store.faceCounts(), isEmpty);
+    });
+
     test('an empty descriptor is not stored', () async {
       final store = newStore();
       await store.saveDescriptor(

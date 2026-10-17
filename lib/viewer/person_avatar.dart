@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
@@ -20,6 +21,7 @@ class PersonAvatar extends StatefulWidget {
     required this.localId,
     this.face,
     this.fallbackLocalId,
+    this.records,
     this.size = 64,
   });
 
@@ -31,12 +33,14 @@ class PersonAvatar extends StatefulWidget {
     required AssetRecordStore assetRecordStore,
     required Person person,
     String? firstTaggedLocalId,
+    Map<String, AssetRecord>? records,
     double size = 64,
   }) => PersonAvatar(
     assetRecordStore: assetRecordStore,
     localId: person.avatarLocalId ?? firstTaggedLocalId,
     face: person.avatarLocalId == null ? null : person.avatarFace,
     fallbackLocalId: person.avatarLocalId == null ? null : firstTaggedLocalId,
+    records: records,
     size: size,
   );
 
@@ -49,6 +53,11 @@ class PersonAvatar extends StatefulWidget {
 
   /// Drawn whole when [localId] can't be shown.
   final String? fallbackLocalId;
+
+  /// The visible library by id ([visibleRecordsOf]). Given, the avatar
+  /// resolves from it with no query: a list of avatars is one read, not
+  /// one per avatar mounted (UI-10).
+  final Map<String, AssetRecord>? records;
   final double size;
 
   @override
@@ -63,10 +72,12 @@ class _PersonAvatarState extends State<PersonAvatar> {
   @override
   void didUpdateWidget(PersonAvatar oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.localId != widget.localId ||
-        oldWidget.face != widget.face ||
-        oldWidget.fallbackLocalId != widget.fallbackLocalId ||
-        oldWidget.assetRecordStore != widget.assetRecordStore) {
+    if (widget.records == null &&
+        (oldWidget.records != null ||
+            oldWidget.localId != widget.localId ||
+            oldWidget.face != widget.face ||
+            oldWidget.fallbackLocalId != widget.fallbackLocalId ||
+            oldWidget.assetRecordStore != widget.assetRecordStore)) {
       _resolved = _resolve();
     }
   }
@@ -82,37 +93,57 @@ class _PersonAvatarState extends State<PersonAvatar> {
     return null;
   }
 
+  (AssetRecord, FaceRect?)? _fromMemory(Map<String, AssetRecord> records) {
+    if (records[widget.localId] case final record?) {
+      return (record, widget.face);
+    }
+    if (records[widget.fallbackLocalId] case final record?) {
+      return (record, null);
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final size = widget.size;
+    final records = widget.records;
     return ClipOval(
       child: SizedBox(
         width: size,
         height: size,
-        child: FutureBuilder<(AssetRecord, FaceRect?)?>(
-          future: _resolved,
-          builder: (context, snapshot) {
-            final resolved = snapshot.data;
-            if (resolved == null) return _placeholder();
-            final (record, rect) = resolved;
-            // Resolved exactly like a grid tile — an avatar that fell back
-            // to the person glyph while the same photo drew fine in the
-            // grid was this path missing the thumbnail cache.
-            whole() => assetImage(record, placeholder: _placeholder);
-            if (rect == null) return whole();
-            // The whole photo holds the place while the crop decodes, and
-            // stands in for good if it never does — a grey glyph there
-            // reads as "no picture", which is the one thing this person
-            // definitely isn't.
-            return _FaceCrop(
-              record: record,
-              face: rect,
-              size: size,
-              whole: whole,
-            );
-          },
-        ),
+        child: records != null
+            ? _picture(context, _fromMemory(records))
+            : FutureBuilder<(AssetRecord, FaceRect?)?>(
+                future: _resolved,
+                builder: (context, snapshot) =>
+                    _picture(context, snapshot.data),
+              ),
       ),
+    );
+  }
+
+  Widget _picture(BuildContext context, (AssetRecord, FaceRect?)? resolved) {
+    if (resolved == null) return _placeholder();
+    final (record, rect) = resolved;
+    final size = widget.size;
+    final ratio = MediaQuery.maybeDevicePixelRatioOf(context) ?? 3;
+    final pixels = (size * ratio).round();
+    // Resolved exactly like a grid tile — an avatar that fell back to the
+    // person glyph while the same photo drew fine in the grid was this
+    // path missing the thumbnail cache. Decoded at the circle's size,
+    // never the original's (UI-9).
+    whole() =>
+        assetImage(record, placeholder: _placeholder, fileDecodeSize: pixels);
+    if (rect == null) return whole();
+    // The whole photo holds the place while the crop decodes, and stands
+    // in for good if it never does — a grey glyph there reads as "no
+    // picture", which is the one thing this person definitely isn't.
+    return _FaceCrop(
+      record: record,
+      face: rect,
+      decodeWidth: decodeWidthForFace(rect, size, ratio),
+      pixels: pixels,
+      whole: whole,
     );
   }
 
@@ -125,6 +156,10 @@ class _PersonAvatarState extends State<PersonAvatar> {
     ),
   );
 }
+
+/// The cap: ~7 MB decoded at 4:3, against 48 MB for a 12 MP original, and
+/// held only until the crop is made.
+const maxFaceDecode = 1536;
 
 /// Paints the square around one face, blown up to fill the circle.
 ///
@@ -151,23 +186,26 @@ class _PersonAvatarState extends State<PersonAvatar> {
 int decodeWidthForFace(FaceRect face, double size, double pixelRatio) {
   final wanted = size * pixelRatio;
   final share = face.width <= 0 ? 1.0 : face.width;
-  return (wanted / share).round().clamp(512, 3072);
+  return (wanted / share).round().clamp(512, maxFaceDecode);
 }
 
 class _FaceCrop extends StatefulWidget {
   const _FaceCrop({
     required this.record,
     required this.face,
-    required this.size,
+    required this.decodeWidth,
+    required this.pixels,
     required this.whole,
   });
 
   final AssetRecord record;
   final FaceRect face;
 
-  /// How big the circle is drawn, in points — half of what decides how
-  /// much of the photo is worth decoding. See [decodeWidthForFace].
-  final double size;
+  /// How wide to decode the photo — see [decodeWidthForFace].
+  final int decodeWidth;
+
+  /// The circle's side in device pixels: what the crop is kept at.
+  final int pixels;
 
   /// The same photo, uncropped — shown until the crop is ready.
   final Widget Function() whole;
@@ -182,6 +220,7 @@ class _FaceCropState extends State<_FaceCrop> {
   ImageStreamListener? _listener;
   List<ImageProvider> _providers = const [];
   var _attempt = 0;
+  var _key = '';
 
   @override
   void initState() {
@@ -192,12 +231,17 @@ class _FaceCropState extends State<_FaceCrop> {
   @override
   void didUpdateWidget(_FaceCrop oldWidget) {
     super.didUpdateWidget(oldWidget);
-    if (oldWidget.record.localId != widget.record.localId) _resolve();
+    if (oldWidget.record.localId != widget.record.localId ||
+        oldWidget.face != widget.face ||
+        oldWidget.pixels != widget.pixels) {
+      _resolve();
+    }
   }
 
   @override
   void dispose() {
     _detach();
+    _image?.dispose();
     super.dispose();
   }
 
@@ -207,9 +251,27 @@ class _FaceCropState extends State<_FaceCrop> {
     _listener = null;
   }
 
+  void _show(ui.Image image) {
+    _image?.dispose();
+    _image = image;
+  }
+
   Future<void> _resolve() async {
-    final providers = await assetImageProviders(widget.record);
-    if (!mounted) return;
+    _detach();
+    final record = widget.record;
+    final key =
+        '${record.localId}|${widget.face.encode()}|${widget.pixels}|'
+        '${record.updatedAt.millisecondsSinceEpoch}';
+    _key = key;
+    if (faceCrops.take(key) case final held?) {
+      setState(() => _show(held));
+      return;
+    }
+    final providers = await assetImageProviders(
+      record,
+      fittedSize: widget.decodeWidth,
+    );
+    if (!mounted || _key != key) return;
     _providers = providers;
     _attempt = 0;
     _load();
@@ -220,20 +282,17 @@ class _FaceCropState extends State<_FaceCrop> {
   void _load() {
     _detach();
     if (_attempt >= _providers.length) return;
+    final key = _key;
     final provider = ResizeImage(
       _providers[_attempt],
-      width: decodeWidthForFace(
-        widget.face,
-        widget.size,
-        MediaQuery.maybeDevicePixelRatioOf(context) ?? 3,
-      ),
+      width: widget.decodeWidth,
       allowUpscaling: false,
     );
     final stream = provider.resolve(ImageConfiguration.empty);
     final listener = ImageStreamListener(
       (info, _) {
-        if (!mounted) return;
-        setState(() => _image = info.image);
+        _detach();
+        unawaited(_crop(provider, info, key));
       },
       onError: (error, stackTrace) {
         if (!mounted) return;
@@ -246,36 +305,85 @@ class _FaceCropState extends State<_FaceCrop> {
     stream.addListener(listener);
   }
 
+  /// Keeps only the circle's worth of pixels: the bounded render is
+  /// dropped from the image cache as soon as the crop is made, so a row
+  /// of avatars holds a row of small squares rather than a row of photos.
+  Future<void> _crop(ImageProvider provider, ImageInfo info, String key) async {
+    final ui.Image crop;
+    try {
+      crop = await cropFace(info.image, widget.face, widget.pixels);
+    } catch (_) {
+      return;
+    } finally {
+      info.dispose();
+      unawaited(provider.evict());
+    }
+    faceCrops.put(key, crop);
+    if (!mounted || _key != key) return;
+    setState(() => _show(crop.clone()));
+  }
+
   @override
   Widget build(BuildContext context) {
     final image = _image;
     if (image == null) return widget.whole();
-    return CustomPaint(
-      painter: _FaceCropPainter(image: image, face: widget.face),
-      size: Size.infinite,
+    return RawImage(
+      image: image,
+      fit: BoxFit.cover,
+      filterQuality: FilterQuality.medium,
     );
   }
 }
 
-class _FaceCropPainter extends CustomPainter {
-  const _FaceCropPainter({required this.image, required this.face});
+/// [faceCropRect] of [image], scaled to a [pixels] square. Drawn on the
+/// raster thread; the UI isolate only records one draw call.
+Future<ui.Image> cropFace(ui.Image image, FaceRect face, int pixels) {
+  final recorder = ui.PictureRecorder();
+  Canvas(recorder).drawImageRect(
+    image,
+    faceCropRect(Size(image.width.toDouble(), image.height.toDouble()), face),
+    Rect.fromLTWH(0, 0, pixels.toDouble(), pixels.toDouble()),
+    Paint()..filterQuality = FilterQuality.medium,
+  );
+  final picture = recorder.endRecording();
+  return picture.toImage(pixels, pixels).whenComplete(picture.dispose);
+}
 
-  final ui.Image image;
-  final FaceRect face;
+/// Face crops made this session, most recently used last, so an avatar
+/// scrolled back in is drawn at once. ~300 KB each at 92 pt on a 3x screen.
+final faceCrops = FaceCropCache(64);
 
-  @override
-  void paint(Canvas canvas, Size size) {
-    canvas.drawImageRect(
-      image,
-      faceCropRect(Size(image.width.toDouble(), image.height.toDouble()), face),
-      Offset.zero & size,
-      Paint()..filterQuality = FilterQuality.medium,
-    );
+class FaceCropCache {
+  FaceCropCache(this.capacity);
+
+  final int capacity;
+  final _held = <String, ui.Image>{};
+
+  int get length => _held.length;
+
+  /// A handle of its own for the caller to dispose, or null.
+  ui.Image? take(String key) {
+    final image = _held.remove(key);
+    if (image == null) return null;
+    _held[key] = image;
+    return image.clone();
   }
 
-  @override
-  bool shouldRepaint(_FaceCropPainter oldDelegate) =>
-      oldDelegate.image != image || oldDelegate.face != face;
+  void put(String key, ui.Image image) {
+    _held.remove(key)?.dispose();
+    _held[key] = image;
+    while (_held.length > capacity) {
+      final oldest = _held.keys.first;
+      _held.remove(oldest)!.dispose();
+    }
+  }
+
+  void clear() {
+    for (final image in _held.values) {
+      image.dispose();
+    }
+    _held.clear();
+  }
 }
 
 /// How much room to leave around a face box. Vision's rect hugs the

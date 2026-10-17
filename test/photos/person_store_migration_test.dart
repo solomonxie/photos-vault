@@ -169,4 +169,25 @@ void main() {
     final again = await storeAt(path).detailFor('mia');
     expect(again.bio, 'Climbs on Thursdays.');
   });
+
+  test('v10 indexes memberships by photo', () async {
+    final path = p.join(dir.path, 'people.db');
+    await _seedV5(path, locked: false);
+    final store = storeAt(path);
+    await store.peopleFor('photo');
+    await store.close();
+
+    final db = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(singleInstance: false),
+    );
+    addTearDown(db.close);
+    expect(await db.getVersion(), 10);
+    final plan = await db.rawQuery(
+      'EXPLAIN QUERY PLAN SELECT person_id FROM person_asset '
+      'WHERE local_id = ?',
+      ['photo'],
+    );
+    expect(plan.single['detail'], contains('person_asset_local'));
+  });
 }

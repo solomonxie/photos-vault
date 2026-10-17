@@ -91,4 +91,56 @@ void main() {
     );
     expect((await store.get('manual:b'))!.legacyBoxes, isFalse);
   });
+
+  test('v8 indexes the per-person reads', () async {
+    final path = p.join(dir.path, 'ai_analysis.db');
+    await _seedV5(path);
+    final store = AiAnalysisStore(
+      databaseFactory: databaseFactoryFfi,
+      path: path,
+    );
+    await store.listAll();
+    await store.close();
+
+    final db = await databaseFactoryFfi.openDatabase(
+      path,
+      options: OpenDatabaseOptions(singleInstance: false),
+    );
+    addTearDown(db.close);
+    Future<String> plan(String sql, [List<Object?> args = const []]) async =>
+        (await db.rawQuery(
+          'EXPLAIN QUERY PLAN $sql',
+          args,
+        )).map((r) => r['detail']).join('\n');
+
+    expect(await db.getVersion(), 8);
+    final indexes = await db.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'index' "
+      "AND name NOT LIKE 'sqlite_%'",
+    );
+    expect(indexes.map((r) => r['name']), {
+      'face_descriptor_person',
+      'face_suggestion_person',
+    });
+    expect(
+      await plan(
+        'SELECT * FROM face_descriptor WHERE person_id = ? '
+        'ORDER BY confirmed_at DESC LIMIT 40',
+        ['nina'],
+      ),
+      allOf(contains('face_descriptor_person'), isNot(contains('TEMP'))),
+    );
+    // The order pass reads the index alone; vectors never ride the sort.
+    expect(
+      await plan(
+        'SELECT rowid AS id, person_id FROM face_descriptor '
+        'WHERE person_id IS NOT NULL ORDER BY confirmed_at DESC',
+      ),
+      contains('COVERING INDEX face_descriptor_person'),
+    );
+    expect(
+      await plan('DELETE FROM face_suggestion WHERE person_id = ?', ['nina']),
+      contains('face_suggestion_person'),
+    );
+  });
 }

@@ -142,6 +142,46 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   @override
   Future<Map<String, List<FaceRect>>> facesByAsset() async => Map.of(_faces);
 
+  /// Never the same twice: the fake does not track its writes, so nothing
+  /// may cache against it.
+  @override
+  int get revision => _reads++;
+  var _reads = 0;
+
+  @override
+  Future<Map<String, int>> faceCounts() async => {
+    for (final e in _faces.entries)
+      if (e.value.isNotEmpty) e.key: e.value.length,
+  };
+
+  @override
+  Future<Map<String, List<FaceRect>>> facesOf(
+    Iterable<String> localIds,
+  ) async => {
+    for (final id in localIds)
+      if (_faces[id] case final faces? when faces.isNotEmpty) id: faces,
+  };
+
+  @override
+  Future<Map<String, Map<String, String>>> suggestionsOf(
+    Iterable<String> localIds,
+  ) async {
+    final all = await suggestionsByAsset();
+    return {for (final id in localIds) id: ?all[id]};
+  }
+
+  @override
+  Future<Map<String, FaceDescriptor>> unnamedDescriptorsOf(
+    Iterable<String> localIds,
+  ) async {
+    final ids = localIds.toSet();
+    return {
+      for (final d in _descriptors)
+        if (d.personId == null && ids.contains(d.localId))
+          AiAnalysisStore.faceKey(d.localId, d.face): d.descriptor,
+    };
+  }
+
   @override
   Future<List<FaceRect>> facesFor(String localId) async =>
       _faces[localId] ?? const [];

@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../photos/person.dart';
+import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'person_avatar.dart';
 
@@ -14,6 +15,7 @@ class UnnamedFaceCard extends StatelessWidget {
     required this.assetRecordStore,
     required this.label,
     required this.onTap,
+    this.records,
     this.size = 88,
   });
 
@@ -21,6 +23,9 @@ class UnnamedFaceCard extends StatelessWidget {
   final AssetRecordStore assetRecordStore;
   final String label;
   final VoidCallback onTap;
+
+  /// See [PersonAvatar.records].
+  final Map<String, AssetRecord>? records;
   final double size;
 
   @override
@@ -39,6 +44,7 @@ class UnnamedFaceCard extends StatelessWidget {
             assetRecordStore: assetRecordStore,
             localId: face.localId,
             face: face.face,
+            records: records,
             size: size,
           ),
         ),

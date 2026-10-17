@@ -190,11 +190,15 @@ class _DayHeader extends StatelessWidget {
 /// (the app container's UUID changes on reinstall), or an original in a
 /// format the engine can't decode (HEIC). Preferring it would blank a tile
 /// whose real photo is right there.
+///
+/// [fileDecodeSize] caps the decode of a file-backed photo without
+/// changing what PhotoKit is asked for; it defaults to [thumbnailSize].
 Widget assetImage(
   AssetRecord record, {
   required Widget Function() placeholder,
   BoxFit fit = BoxFit.cover,
   int? thumbnailSize,
+  int? fileDecodeSize,
   bool fittedThumbnail = false,
   VoidCallback? onMissing,
 }) {
@@ -216,6 +220,12 @@ Widget assetImage(
   if (record.localDeleted) return cached();
   final path = record.sourcePath;
   if (path != null) {
+    final cap = fileDecodeSize ?? thumbnailSize;
+    // Covering a square, the short side is what has to reach the size; a
+    // landscape photo capped by width would be drawn soft.
+    final byHeight =
+        fit == BoxFit.cover &&
+        (record.width ?? 0) > (record.height ?? double.infinity);
     return Image.file(
       File(path),
       fit: fit,
@@ -223,7 +233,8 @@ Widget assetImage(
       // Without this a grid of manually-added photos decodes a dozen
       // 12 MP originals into full-resolution bitmaps — tens of megabytes
       // each, held by the image cache, for a 95-point square.
-      cacheWidth: thumbnailSize,
+      cacheWidth: byHeight ? null : cap,
+      cacheHeight: byHeight ? cap : null,
       errorBuilder: (context, error, stackTrace) => cached(),
     );
   }
@@ -314,7 +325,14 @@ class _CloudThumbnailState extends State<_CloudThumbnail> {
 /// More than one because the preferred source can still fail to *decode*
 /// (an HEIC original), and the cached thumbnail behind it is a JPEG this
 /// app wrote.
-Future<List<ImageProvider>> assetImageProviders(AssetRecord record) async {
+///
+/// [fittedSize] asks PhotoKit for the whole frame at that longest edge
+/// rather than its default square crop: a face box is a position in the
+/// whole frame.
+Future<List<ImageProvider>> assetImageProviders(
+  AssetRecord record, {
+  int? fittedSize,
+}) async {
   final providers = <ImageProvider>[];
   if (!record.localDeleted) {
     final path = record.sourcePath;
@@ -323,7 +341,11 @@ Future<List<ImageProvider>> assetImageProviders(AssetRecord record) async {
     if (path == null &&
         record.sourceType == AssetSourceType.photoManager &&
         libraryId != null) {
-      final bytes = await photoManagerThumbnailBytes(libraryId);
+      final bytes = await photoManagerThumbnailBytes(
+        libraryId,
+        size: fittedSize,
+        fitted: fittedSize != null,
+      );
       if (bytes != null) providers.add(MemoryImage(bytes));
     }
   }
