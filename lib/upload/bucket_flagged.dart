@@ -775,7 +775,7 @@ class BucketFixer {
       }
       return _adopt(FlaggedObject(object: still, kind: FlagKind.unclaimed));
     }
-    if (await store.originalStemHeld(base)) {
+    if (await store.originalStemHeld(base, prefixes: [target.prefix])) {
       if (f.isVideo) {
         if (await store.getByLocalId('bucket:$base') case final owner?) {
           final attached = await _attach(owner, target, f.object);

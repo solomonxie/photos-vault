@@ -68,9 +68,21 @@ class PersonStore {
     );
   }
 
+  Future<Database>? _opening;
+
+  /// Single-flight: concurrent first callers share one open.
   Future<Database> _open() async {
     final existing = _db;
     if (existing != null) return existing;
+    final opening = _opening ??= _openOnce();
+    try {
+      return await opening;
+    } finally {
+      _opening = null;
+    }
+  }
+
+  Future<Database> _openOnce() async {
     final path =
         _path ?? p.join(await _databaseFactory.getDatabasesPath(), 'people.db');
     final db = await _databaseFactory.openDatabase(

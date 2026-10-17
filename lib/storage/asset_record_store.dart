@@ -116,7 +116,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 29,
+        version: 30,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createLibraryIdIndexSql);
@@ -136,6 +136,7 @@ class AssetRecordStore {
           await _addSpotChecked(db);
           await _addRevisions(db);
           await db.execute(_editedKeyIndexSql);
+          await _addLookupIndexes(db);
         },
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
@@ -324,6 +325,7 @@ class AssetRecordStore {
             await _addSpotChecked(db);
             await _importSpotChecks(db);
           }
+          if (oldVersion < 30) await _addLookupIndexes(db);
         },
       ),
     );
@@ -809,6 +811,24 @@ class AssetRecordStore {
     'CREATE INDEX IF NOT EXISTS derivative_target_key ON '
         '$_derivativeTargetTable (destination_key)',
   ];
+
+  /// v30 (DB-12, DB-13): [sourcePathShared] and [plainIdsUnder] (only
+  /// manual and hidden rows have a path), and [listAwaitingPlaceName].
+  static Future<void> _addLookupIndexes(Database db) async {
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS asset_record_source_path ON $_table '
+      '(source_path) WHERE source_path IS NOT NULL',
+    );
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS asset_record_awaiting_place ON $_table '
+      '(created_at) WHERE $_awaitingPlaceSql',
+    );
+  }
+
+  /// Must read exactly so in the query, or the partial index is not used.
+  static const _awaitingPlaceSql =
+      'latitude IS NOT NULL AND longitude IS NOT NULL '
+      "AND (location IS NULL OR location = '') AND deleted_at IS NULL";
 
   /// Apart from [_indexSql]: that runs at v25, before the column exists.
   static const _editedKeyIndexSql =
@@ -2021,9 +2041,32 @@ class AssetRecordStore {
 
   /// Whether a record's original already has [stem] as its name, in any
   /// format: a replace keeps the name and changes only the extension.
-  Future<bool> originalStemHeld(String stem) async {
+  ///
+  /// [prefixes] (the buckets' key prefixes) first try the protocol place,
+  /// `<prefix>originals/<stem>.*`, on the key indexes. A miss there still
+  /// scans every key: one under another prefix or folder must not be
+  /// missed, as this keeps a second record off a held original.
+  Future<bool> originalStemHeld(
+    String stem, {
+    Iterable<String> prefixes = const [],
+  }) async {
     if (RegExp(r'[*?\[\]]').hasMatch(stem)) return false;
     final db = await _open();
+    for (final prefix in prefixes.toSet()) {
+      final dir = prefix.isEmpty || prefix.endsWith('/') ? prefix : '$prefix/';
+      // '/' follows '.' in byte order: the range is every '<stem>.<ext>'.
+      final at = '${dir}originals/$stem.';
+      final end = '${dir}originals/$stem/';
+      final rows = await db.rawQuery(
+        'SELECT 1 FROM $_derivativeTargetTable '
+        "WHERE destination_key >= ? AND destination_key < ? AND kind = 'original' "
+        'UNION ALL SELECT 1 FROM $_table '
+        'WHERE original_key >= ? AND original_key < ? '
+        'LIMIT 1',
+        [at, end, at, end],
+      );
+      if (rows.isNotEmpty) return true;
+    }
     final pattern = '*/$stem.*';
     final rows = await db.rawQuery(
       'SELECT 1 FROM $_derivativeTargetTable '
@@ -2496,6 +2539,25 @@ class AssetRecordStore {
     );
   }
 
+  /// [names] by local id, in one transaction, each only where no location
+  /// is set (one typed meanwhile wins). How many were written.
+  Future<int> fillLocations(Map<String, String> names) async {
+    if (names.isEmpty) return 0;
+    final db = await _open();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    return db.transaction((txn) async {
+      var written = 0;
+      for (final MapEntry(key: id, value: name) in names.entries) {
+        written += await txn.rawUpdate(
+          'UPDATE $_table SET location = ?, updated_at = ? '
+          "WHERE local_id = ? AND (location IS NULL OR location = '')",
+          [name, now, id],
+        );
+      }
+      return written;
+    });
+  }
+
   Future<String?> getAppState(String key) async {
     final db = await _open();
     final rows = await db.query(
@@ -2867,9 +2929,7 @@ class AssetRecordStore {
   Future<List<AssetRecord>> listAwaitingPlaceName({int limit = 200}) async {
     final db = await _open();
     final rows = await db.rawQuery(
-      'SELECT * FROM $_table '
-      'WHERE latitude IS NOT NULL AND longitude IS NOT NULL '
-      "AND (location IS NULL OR location = '') AND deleted_at IS NULL "
+      'SELECT * FROM $_table WHERE $_awaitingPlaceSql '
       'AND ${_cellSql('latitude')} || \':\' || ${_cellSql('longitude')} '
       'NOT IN (SELECT cell FROM $_placeNameTable '
       'WHERE name IS NULL AND updated_at > ?) '
@@ -2924,19 +2984,42 @@ class AssetRecordStore {
   /// Location field.
   Future<Set<String>> allLocations() async {
     final db = await _open();
+    final at = await _pickerStamp(db);
+    if (_locations case (final stamp, final cached) when stamp == at) {
+      return {...cached};
+    }
     final rows = await db.query(
       _table,
       columns: ['location'],
       distinct: true,
       where: "location IS NOT NULL AND location != ''",
     );
-    return rows.map((r) => r['location'] as String).toSet();
+    final found = rows.map((r) => r['location'] as String).toSet();
+    _locations = (at, found);
+    return {...found};
+  }
+
+  (String, Set<String>)? _locations;
+  (String, Set<String>)? _tags;
+
+  /// What the picker lists are memoised on: [revision] moves with every
+  /// row write, the count with a delete.
+  Future<String> _pickerStamp(Database db) async {
+    final rows = await db.rawQuery(
+      'SELECT (SELECT n FROM $_revTable WHERE id = 0) AS n, '
+      '(SELECT COUNT(*) FROM $_table) AS c',
+    );
+    return '${rows.first['n']}:${rows.first['c']}';
   }
 
   /// Every distinct tag already used across all photos — same "select if
   /// exists" role as [allLocations], for the Tags field.
   Future<Set<String>> allTags() async {
     final db = await _open();
+    final at = await _pickerStamp(db);
+    if (_tags case (final stamp, final cached) when stamp == at) {
+      return {...cached};
+    }
     final rows = await db.query(
       _table,
       columns: ['tags'],
@@ -2947,7 +3030,8 @@ class AssetRecordStore {
       final tags = jsonDecode(row['tags'] as String? ?? '[]') as List<dynamic>;
       result.addAll(tags.cast<String>());
     }
-    return result;
+    _tags = (at, result);
+    return {...result};
   }
 
   Future<void> setPasscodeHash(String localId, String? value) async {
@@ -3050,8 +3134,10 @@ class AssetRecordStore {
     final rows = await db.query(
       _table,
       columns: ['local_id'],
-      where: 'passcode_hash IS NULL AND source_path LIKE ?',
-      whereArgs: ['$dir/%'],
+      // A range on the path index; `+` keeps the planner off the
+      // passcode one, which `IS NULL` matches for nearly every row.
+      where: '+passcode_hash IS NULL AND source_path >= ? AND source_path < ?',
+      whereArgs: ['$dir/', '${dir}0'],
     );
     return [for (final r in rows) r['local_id'] as String];
   }

@@ -76,9 +76,21 @@ class AiAnalysisStore {
 
   ({int at, Map<String, int> counts})? _faceCounts;
 
+  Future<Database>? _opening;
+
+  /// Single-flight: concurrent first callers share one open.
   Future<Database> _open() async {
     final existing = _db;
     if (existing != null) return existing;
+    final opening = _opening ??= _openOnce();
+    try {
+      return await opening;
+    } finally {
+      _opening = null;
+    }
+  }
+
+  Future<Database> _openOnce() async {
     final path =
         _path ?? p.join(await _factory.getDatabasesPath(), 'ai_analysis.db');
     final db = await _factory.openDatabase(
@@ -152,6 +164,8 @@ class AiAnalysisStore {
       ),
     );
     _db = db;
+    // The file may have been restored or replaced while closed.
+    _writes++;
     return db;
   }
 
@@ -792,6 +806,7 @@ class AiAnalysisStore {
   Future<void> close() async {
     await _db?.close();
     _db = null;
+    _writes++;
   }
 
   Future<void> clearAll() async {

@@ -32,7 +32,10 @@ class FakeAssetRecordStore implements AssetRecordStore {
   }
 
   @override
-  Future<bool> originalStemHeld(String stem) async => _records.values.any(
+  Future<bool> originalStemHeld(
+    String stem, {
+    Iterable<String> prefixes = const [],
+  }) async => _records.values.any(
     (r) => switch (r.stateOf(DerivativeKind.original).destinationKey) {
       final key? => p.posix.basenameWithoutExtension(key) == stem,
       null => false,
@@ -840,6 +843,18 @@ class FakeAssetRecordStore implements AssetRecordStore {
     final existing = _records[localId];
     if (existing == null) return;
     _records[localId] = existing.withLocation(value);
+  }
+
+  @override
+  Future<int> fillLocations(Map<String, String> names) async {
+    var written = 0;
+    for (final MapEntry(key: id, value: name) in names.entries) {
+      final existing = _records[id];
+      if (existing == null || (existing.location ?? '').isNotEmpty) continue;
+      _records[id] = existing.withLocation(name);
+      written++;
+    }
+    return written;
   }
 
   @override
