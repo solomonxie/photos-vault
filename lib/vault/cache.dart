@@ -6,6 +6,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'carrier.dart';
+import 'carrier_stream.dart';
 import 'cipher.dart';
 import 'keys.dart';
 
@@ -118,7 +119,27 @@ class VaultCache {
     VaultCipher cipher,
     Uint8List key,
     String path,
-  ) => _offload(() => _unseal(cipher, key, File(path).readAsBytesSync()));
+  ) => _offload(() {
+    // A chunk at a time into one buffer: the sealed copy is never whole.
+    final file = File(path).openSync();
+    try {
+      final iv = file.readSync(16);
+      final length = file.lengthSync() - 16;
+      final out = Uint8List(length);
+      for (var at = 0; at < length; at += streamChunk) {
+        final take = length - at < streamChunk ? length - at : streamChunk;
+        final chunk = file.readSync(take);
+        if (chunk.length != take) throw const FileSystemException('shrank');
+        out.setAll(
+          at,
+          ctrAt(cipher, key: key, iv: iv, offset: at, data: chunk),
+        );
+      }
+      return out;
+    } finally {
+      file.closeSync();
+    }
+  });
 
   static Future<int> _sealToFile(
     VaultCipher cipher,
@@ -126,9 +147,29 @@ class VaultCache {
     Uint8List data,
     String path,
   ) => _offload(() {
-    final sealed = _seal(cipher, key, data);
-    File(path).writeAsBytesSync(sealed, flush: true);
-    return sealed.length;
+    final iv = randomBytes(16);
+    final file = File(path).openSync(mode: FileMode.write);
+    try {
+      file.writeFromSync(iv);
+      for (var at = 0; at < data.length; at += streamChunk) {
+        final end = data.length - at < streamChunk
+            ? data.length
+            : at + streamChunk;
+        file.writeFromSync(
+          ctrAt(
+            cipher,
+            key: key,
+            iv: iv,
+            offset: at,
+            data: Uint8List.sublistView(data, at, end),
+          ),
+        );
+      }
+      file.flushSync();
+    } finally {
+      file.closeSync();
+    }
+    return 16 + data.length;
   });
 
   Future<Uint8List?> read(

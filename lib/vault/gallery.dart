@@ -12,6 +12,7 @@ import 'album_index.dart';
 import 'bucket.dart';
 import 'cache.dart';
 import 'carrier.dart';
+import 'carrier_stream.dart';
 import 'cipher.dart';
 import 'jpeg_segments.dart';
 import 'keys.dart';
@@ -167,12 +168,10 @@ class VaultGallery {
     final path = file.path;
     final cipher = _cipher;
     final carrierKeys = keys.carrier;
-    return _offload(() {
-      final payload = payloadOf(File(path).readAsBytesSync());
-      return payload == null
-          ? null
-          : openCarrier(cipher: cipher, keys: carrierKeys, payload: payload);
-    });
+    // Streamed: only the original is held, never the carrier too.
+    return _offload(
+      () => openCarrierFile(cipher: cipher, keys: carrierKeys, path: path),
+    );
   }
 
   static Future<OpenedCarrier?> _offload(OpenedCarrier? Function() work) async {

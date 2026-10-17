@@ -88,7 +88,7 @@ void main() {
     FakeAssetRecordStore store, {
     PhotoLibraryService? library,
     Future<void> Function(List<AssetRecord>)? backUp,
-    Future<(Uint8List, int, int)?> Function(Uint8List, int?)? encode,
+    Future<(Uint8List, int, int)?> Function(String, int?)? encode,
   }) => StorageOptimizer(
     store: store,
     thumbnails: ThumbnailCache(
@@ -100,7 +100,8 @@ void main() {
     backUp: backUp ?? (_) async {},
     encode:
         encode ??
-        (bytes, maxEdge) async => (Uint8List(bytes.length ~/ 4), 2560, 1707),
+        (path, maxEdge) async =>
+            (Uint8List(File(path).lengthSync() ~/ 4), 2560, 1707),
   );
 
   Future<AssetRecord> ownedPhoto(

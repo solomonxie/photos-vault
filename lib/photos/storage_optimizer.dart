@@ -69,8 +69,7 @@ class StorageOptimizer {
     required this.library,
     required this.backUp,
     this.verifier,
-    Future<(Uint8List, int, int)?> Function(Uint8List bytes, int? maxEdge)?
-    encode,
+    Future<(Uint8List, int, int)?> Function(String path, int? maxEdge)? encode,
     LibraryWriter? writer,
   }) : _encode = encode ?? _defaultEncode,
        _writer = writer ?? const LibraryWriter();
@@ -98,13 +97,17 @@ class StorageOptimizer {
   final BackupVerifier? verifier;
 
   /// Overridable for tests so they never decode a real image.
-  final Future<(Uint8List, int, int)?> Function(Uint8List bytes, int? maxEdge)
+  final Future<(Uint8List, int, int)?> Function(String path, int? maxEdge)
   _encode;
 
+  /// Read in the isolate too (BG-13): the still never crosses, or sits on
+  /// the UI heap.
   static Future<(Uint8List, int, int)?> _defaultEncode(
-    Uint8List bytes,
+    String path,
     int? maxEdge,
-  ) => Isolate.run(() => optimizeStill(bytes, maxEdge: maxEdge));
+  ) => Isolate.run(
+    () => optimizeStill(File(path).readAsBytesSync(), maxEdge: maxEdge),
+  );
 
   /// [onItem] hears each item's own outcome as it lands, for a caller that
   /// shows a queue draining rather than one answer at the end.
@@ -278,7 +281,7 @@ class StorageOptimizer {
       final file = File(path);
       final before = await file.length();
       final encoded = await _encode(
-        await file.readAsBytes(),
+        path,
         item.fix == StorageFix.optimize ? optimizedMaxEdge : null,
       );
       if (encoded == null) return null;

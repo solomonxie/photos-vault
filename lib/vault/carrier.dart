@@ -206,7 +206,36 @@ Uint8List randomBytes(int length) {
   return Uint8List.fromList(List.generate(length, (_) => random.nextInt(256)));
 }
 
-/// The encrypted blob both container formats carry.
+/// v2 carries its metadata in front of the thumbnail, inside the same
+/// encryption, so the first 64 KB still says everything.
+Uint8List carrierThumbPlain(Uint8List thumbnail, CarrierMeta? meta) =>
+    meta == null
+    ? thumbnail
+    : (BytesBuilder()
+            ..add(meta.toBytes())
+            ..add(thumbnail))
+          .toBytes();
+
+/// A fresh header: new IVs, and a nonce for v2.
+CarrierHeader newCarrierHeader({
+  required Uint8List masterSalt,
+  required int thumbLength,
+  required int originalLength,
+  required String extension,
+  Uint8List? nonce,
+  CarrierMeta? meta,
+}) => CarrierHeader(
+  masterSalt: masterSalt,
+  ivThumb: randomBytes(16),
+  ivFull: randomBytes(16),
+  thumbLength: thumbLength,
+  originalLength: originalLength,
+  extension: extension,
+  nonce: meta == null ? null : (nonce ?? randomBytes(nonceBytes)),
+);
+
+/// The encrypted blob both container formats carry. [header] is for
+/// tests: the same header gives the same bytes.
 Uint8List buildPayload({
   required VaultCipher cipher,
   required CarrierKeys keys,
@@ -216,23 +245,16 @@ Uint8List buildPayload({
   required String extension,
   Uint8List? nonce,
   CarrierMeta? meta,
+  CarrierHeader? header,
 }) {
-  // v2 carries its metadata in front of the thumbnail, inside the same
-  // encryption, so the first 64 KB still says everything.
-  final thumbPlain = meta == null
-      ? thumbnail
-      : (BytesBuilder()
-              ..add(meta.toBytes())
-              ..add(thumbnail))
-            .toBytes();
-  final header = CarrierHeader(
+  final thumbPlain = carrierThumbPlain(thumbnail, meta);
+  header ??= newCarrierHeader(
     masterSalt: masterSalt,
-    ivThumb: randomBytes(16),
-    ivFull: randomBytes(16),
     thumbLength: thumbPlain.length,
     originalLength: original.length,
     extension: extension,
-    nonce: meta == null ? null : (nonce ?? randomBytes(nonceBytes)),
+    nonce: nonce,
+    meta: meta,
   );
   final head = header.toBytes(keys.macKey);
   final encThumb = cipher.transform(
@@ -266,6 +288,7 @@ Uint8List? buildJpegCarrier({
   required String extension,
   Uint8List? nonce,
   CarrierMeta? meta,
+  CarrierHeader? header,
 }) {
   final parts = parseJpeg(decoy);
   if (parts == null) return null;
@@ -280,6 +303,7 @@ Uint8List? buildJpegCarrier({
       extension: extension,
       nonce: nonce,
       meta: meta,
+      header: header,
     ),
   );
 }
@@ -296,6 +320,7 @@ Uint8List? buildMp4Carrier({
   required String extension,
   Uint8List? nonce,
   CarrierMeta? meta,
+  CarrierHeader? header,
 }) {
   if (parseMp4Boxes(decoy) == null) return null;
   return writeMp4WithPayload(
@@ -309,6 +334,7 @@ Uint8List? buildMp4Carrier({
       extension: extension,
       nonce: nonce,
       meta: meta,
+      header: header,
     ),
   );
 }

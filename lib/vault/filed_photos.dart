@@ -12,7 +12,7 @@ import '../storage/asset_record_store.dart';
 import '../upload/s3_uploader.dart';
 import 'album_index.dart';
 import 'bucket.dart';
-import 'carrier.dart';
+import 'carrier_stream.dart';
 import 'cipher.dart';
 import 'gallery.dart' show siblingCarrierKeys;
 import 'keys.dart';
@@ -49,9 +49,8 @@ class FiledPhotos {
   /// carrier. True when the row has a file again.
   Future<bool> restoreRow(AlbumKeys keys, AssetRecord record) async {
     final key = vaultCarrierKey(record, keys.carrier);
-    final opened = await _openLocal(keys, key);
-    if (opened == null) return false;
-    final path = await _write(key, opened);
+    final path = await _openLocal(keys, key, await _plainPath(key));
+    if (path == null) return false;
     await records.setSourcePath(record.localId, path);
     if (record.isLivePhoto) {
       await _restoreMotion(
@@ -78,10 +77,10 @@ class FiledPhotos {
     // Un-hidden (or in another album) already: never pulled back in here.
     final existing = await records.getByLocalId(localId);
     if (existing != null && existing.passcodeHash != passcodeHash) return null;
-    var opened = await _openLocal(keys, key);
-    if (opened == null && download) opened = await _openRemote(keys, key);
-    if (opened == null) return null;
-    final path = await _write(key, opened);
+    final to = await _plainPath(key);
+    var path = await _openLocal(keys, key, to);
+    if (path == null && download) path = await _openRemote(keys, key, to);
+    if (path == null) return null;
     // An entry filed before the index recorded motion says null, not
     // false: its `.mov` may be there, and is looked for rather than lost.
     final motionKey = _motionKeyOf(key);
@@ -179,17 +178,15 @@ class FiledPhotos {
       at == -1 ? original : original.substring(at),
     );
     if (motionKey == null) return false;
-    var opened = await _openLocal(keys, motionKey);
-    if (opened == null) {
+    final to = _exactly(PhotoLibraryService.heldLiveVideoPath(path));
+    if (await _openLocal(keys, motionKey, to) == null) {
       final fetched = await _bucket.fetchFile(motionKey);
       final file = fetched.file;
       if (file == null) return fetched.absent ? false : null;
-      opened = await _openPath(keys, file.path);
+      final opened = await _openPath(keys, file.path, to);
       await dropScratch(file);
       if (opened == null) return false;
     }
-    await File(PhotoLibraryService.heldLiveVideoPath(path))
-        .writeAsBytes(opened.original, flush: true);
     await records.setLivePhoto(record.localId, true);
     await records.updateDerivative(
       record.localId,
@@ -209,55 +206,81 @@ class FiledPhotos {
     String stillPath, {
     bool download = false,
   }) async {
-    var opened = await _openLocal(keys, key);
-    if (opened == null && download) opened = await _openRemote(keys, key);
-    if (opened == null) return false;
-    await File(PhotoLibraryService.heldLiveVideoPath(stillPath))
-        .writeAsBytes(opened.original, flush: true);
-    return true;
+    final to = _exactly(PhotoLibraryService.heldLiveVideoPath(stillPath));
+    var opened = await _openLocal(keys, key, to);
+    if (opened == null && download) opened = await _openRemote(keys, key, to);
+    return opened != null;
   }
 
-  Future<OpenedCarrier?> _openLocal(AlbumKeys keys, String key) async {
+  /// The paths below name the plain file for the carrier's extension.
+  static String Function(String) _exactly(String path) =>
+      (_) => path;
+
+  /// This phone's carrier, decrypted to [to]. The path written, or null.
+  Future<String?> _openLocal(
+    AlbumKeys keys,
+    String key,
+    String Function(String extension) to,
+  ) async {
     final file = await _store.carrierFile(keys, key);
     if (!await file.exists()) return null;
-    return _openPath(keys, file.path);
+    return _openPath(keys, file.path, to);
   }
 
   /// The bucket's copy, by way of a scratch file dropped once opened.
-  Future<OpenedCarrier?> _openRemote(AlbumKeys keys, String key) async {
+  Future<String?> _openRemote(
+    AlbumKeys keys,
+    String key,
+    String Function(String extension) to,
+  ) async {
     final file = await _bucket.objectFile(key);
     if (file == null) return null;
     try {
-      return await _openPath(keys, file.path);
+      return await _openPath(keys, file.path, to);
     } finally {
       await dropScratch(file);
     }
   }
 
-  Future<OpenedCarrier?> _openPath(AlbumKeys keys, String path) {
+  /// MAC and decryption streamed from file to file, off the UI isolate
+  /// (BG-13): a hidden video never sits whole in memory.
+  Future<String?> _openPath(
+    AlbumKeys keys,
+    String path,
+    String Function(String extension) to,
+  ) {
     final cipher = _cipher;
     final carrierKeys = keys.carrier;
-    // MAC and decryption of the whole file: off the UI isolate.
-    return Isolate.run(() async {
-      final payload = payloadOf(await File(path).readAsBytes());
-      if (payload == null) return null;
-      return openCarrier(cipher: cipher, keys: carrierKeys, payload: payload);
+    return Isolate.run(() {
+      String? wrote;
+      final opened = openCarrierFile(
+        cipher: cipher,
+        keys: carrierKeys,
+        path: path,
+        toPath: (extension) => wrote = to(extension),
+      );
+      return opened == null ? null : wrote;
     });
   }
 
   /// Beside the files hiding copies out of Photos: `vault/plain/`, out of
   /// the device backup, named after nothing. The same name for the same
   /// carrier, so a second open overwrites rather than adds.
-  Future<String> _write(String key, OpenedCarrier opened) async {
-    final dir = await PlainFiles(store: records, directory: _directory).dir();
-    final path = p.join(
-      dir.path,
-      PlainFiles.neutralName(
-        'manual:vault-${p.basenameWithoutExtension(key)}',
-        '.${opened.extension}',
-      ),
-    );
-    await File(path).writeAsBytes(opened.original, flush: true);
-    return path;
+  Future<String Function(String extension)> _plainPath(String key) async {
+    final dir = (await PlainFiles(
+      store: records,
+      directory: _directory,
+    ).dir()).path;
+    return _plainIn(dir, key);
   }
+
+  // Static: the closure goes to an isolate, so it must not hold `this`.
+  static String Function(String extension) _plainIn(String dir, String key) =>
+      (extension) => p.join(
+        dir,
+        PlainFiles.neutralName(
+          'manual:vault-${p.basenameWithoutExtension(key)}',
+          '.$extension',
+        ),
+      );
 }

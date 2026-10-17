@@ -9,6 +9,7 @@ import '../photos/smaller_export.dart';
 import '../photos/image_pipeline.dart';
 import '../storage/asset_record.dart';
 import 'carrier.dart';
+import 'carrier_stream.dart';
 import 'cipher.dart';
 import 'decoy.dart';
 import 'keys.dart';
@@ -162,22 +163,21 @@ class CarrierBuilder {
     final carrierKeys = keys.carrier;
     final salt = keys.entry.salt;
     final out = p.join(directory.path, '$baseName.jpg');
-    final wrote = await Isolate.run(() async {
-      final bytes = buildJpegCarrier(
+    final wrote = await Isolate.run(
+      () => writeCarrierFile(
         cipher: cipher,
         keys: carrierKeys,
         masterSalt: salt,
         decoy: decoy,
+        video: false,
         thumbnail: thumbnail,
-        original: await File(originalPath).readAsBytes(),
+        originalPath: originalPath,
         extension: extension,
+        outPath: out,
         nonce: nonce,
         meta: meta,
-      );
-      if (bytes == null) return false;
-      await File(out).writeAsBytes(bytes, flush: true);
-      return true;
-    });
+      ),
+    );
     return wrote ? File(out) : null;
   }
 
@@ -212,26 +212,27 @@ class CarrierBuilder {
     final salt = keys.entry.salt;
     final decoyFilePath = decoyFile.path;
     final out = p.join(directory.path, '$baseName.mov');
-    // Still whole-file in memory, inside the isolate: original, its
-    // ciphertext and the carrier — about 3x the video. Bounded by the
-    // largest hidden video until the carrier is written as a stream.
-    final wrote = await Isolate.run(() async {
-      final bytes = buildMp4Carrier(
-        cipher: cipher,
-        keys: carrierKeys,
-        masterSalt: salt,
-        decoy: await File(decoyFilePath).readAsBytes(),
-        poster: thumbnail,
-        original: await File(originalPath).readAsBytes(),
-        extension: extension,
-        nonce: nonce,
-        meta: meta,
+    // Streamed (BG-13): the decoy and a chunk in memory, not the video.
+    final bool wrote;
+    try {
+      wrote = await Isolate.run(
+        () => writeCarrierFile(
+          cipher: cipher,
+          keys: carrierKeys,
+          masterSalt: salt,
+          decoy: File(decoyFilePath).readAsBytesSync(),
+          video: true,
+          thumbnail: thumbnail,
+          originalPath: originalPath,
+          extension: extension,
+          outPath: out,
+          nonce: nonce,
+          meta: meta,
+        ),
       );
-      if (bytes == null) return false;
-      await File(out).writeAsBytes(bytes, flush: true);
-      return true;
-    });
-    await decoyFile.delete();
+    } finally {
+      await decoyFile.delete();
+    }
     return wrote ? File(out) : null;
   }
 
