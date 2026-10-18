@@ -170,7 +170,7 @@ class _PhotoEditScreenState extends State<PhotoEditScreen> {
                             )
                           : _CropCanvas(
                               bytes: bytes,
-                              imageAspect: size.width / size.height,
+                              imageSize: size,
                               crop: _crop,
                               onChanged: (value) =>
                                   setState(() => _crop = value),
@@ -211,177 +211,251 @@ class _PhotoEditScreenState extends State<PhotoEditScreen> {
 }
 
 /// The photo with a draggable crop rectangle over it: drag a corner to
-/// resize, drag inside to move, everything outside dims.
-class _CropCanvas extends StatelessWidget {
+/// resize, drag inside to move. Let go and the crop zooms to fill the view
+/// with everything outside it nearly blacked out, as in Photos, so what
+/// Save keeps is what's on screen. The framing holds still while a finger
+/// is down, so the handle stays under it.
+class _CropCanvas extends StatefulWidget {
   const _CropCanvas({
     required this.bytes,
-    required this.imageAspect,
+    required this.imageSize,
     required this.crop,
     required this.onChanged,
   });
 
   final Uint8List bytes;
-  final double imageAspect;
+  final Size imageSize;
+
+  /// 0..1 fractions of the image.
   final Rect crop;
   final ValueChanged<Rect> onChanged;
 
-  static const _handleTouchRadius = 44.0;
-  static const _minSide = 0.08;
-
   @override
-  Widget build(BuildContext context) {
-    return LayoutBuilder(
-      builder: (context, constraints) {
-        var width = constraints.maxWidth;
-        var height = width / imageAspect;
-        if (height > constraints.maxHeight) {
-          height = constraints.maxHeight;
-          width = height * imageAspect;
-        }
-        final view = Size(width, height);
-        final rect = Rect.fromLTRB(
-          crop.left * width,
-          crop.top * height,
-          crop.right * width,
-          crop.bottom * height,
-        );
-
-        return Center(
-          child: SizedBox(
-            width: width,
-            height: height,
-            child: _CropGestureLayer(
-              view: view,
-              rect: rect,
-              onChanged: (next) => onChanged(
-                Rect.fromLTRB(
-                  next.left / width,
-                  next.top / height,
-                  next.right / width,
-                  next.bottom / height,
-                ),
-              ),
-              child: Stack(
-                fit: StackFit.expand,
-                children: [
-                  Image.memory(
-                    bytes,
-                    fit: BoxFit.fill,
-                    cacheWidth: _previewWidth(context),
-                  ),
-                  CustomPaint(painter: _CropPainter(rect)),
-                ],
-              ),
-            ),
-          ),
-        );
-      },
-    );
-  }
+  State<_CropCanvas> createState() => _CropCanvasState();
 }
 
 /// Which part of the crop rect a drag grabbed.
 enum _Grab { topLeft, topRight, bottomLeft, bottomRight, inside }
 
-class _CropGestureLayer extends StatefulWidget {
-  const _CropGestureLayer({
-    required this.view,
-    required this.rect,
-    required this.onChanged,
-    required this.child,
-  });
+class _CropCanvasState extends State<_CropCanvas> {
+  static const _handleTouchRadius = 44.0;
+  static const _minSide = 0.08;
 
-  final Size view;
-  final Rect rect;
-  final ValueChanged<Rect> onChanged;
-  final Widget child;
+  /// Room left around the fitted crop, so a corner can still be dragged out.
+  static const _margin = 24.0;
 
-  @override
-  State<_CropGestureLayer> createState() => _CropGestureLayerState();
-}
-
-class _CropGestureLayerState extends State<_CropGestureLayer> {
   _Grab? _grab;
 
+  /// The crop the view was fitted around when the finger went down.
+  Rect? _held;
+
+  /// Where the image sits in the box this frame, for mapping touches.
+  Rect _image = Rect.zero;
+  Size _box = Size.zero;
+
+  Rect _imageRectFor(Rect framing, Size box) {
+    final aspect = widget.imageSize.width / widget.imageSize.height;
+    final width = math.min(
+      (box.width - 2 * _margin) / framing.width,
+      (box.height - 2 * _margin) * aspect / framing.height,
+    );
+    final height = width / aspect;
+    final center = framing.center;
+    return Rect.fromLTWH(
+      box.width / 2 - center.dx * width,
+      box.height / 2 - center.dy * height,
+      width,
+      height,
+    );
+  }
+
+  Offset _toFraction(Offset local) => Offset(
+    (local.dx - _image.left) / _image.width,
+    (local.dy - _image.top) / _image.height,
+  );
+
+  Rect _onScreen(Rect fraction) => Rect.fromLTRB(
+    _image.left + fraction.left * _image.width,
+    _image.top + fraction.top * _image.height,
+    _image.left + fraction.right * _image.width,
+    _image.top + fraction.bottom * _image.height,
+  );
+
   _Grab _grabAt(Offset point) {
+    final rect = _onScreen(widget.crop);
     final corners = {
-      _Grab.topLeft: widget.rect.topLeft,
-      _Grab.topRight: widget.rect.topRight,
-      _Grab.bottomLeft: widget.rect.bottomLeft,
-      _Grab.bottomRight: widget.rect.bottomRight,
+      _Grab.topLeft: rect.topLeft,
+      _Grab.topRight: rect.topRight,
+      _Grab.bottomLeft: rect.bottomLeft,
+      _Grab.bottomRight: rect.bottomRight,
     };
     for (final entry in corners.entries) {
-      if ((entry.value - point).distance <= _CropCanvas._handleTouchRadius) {
+      if ((entry.value - point).distance <= _handleTouchRadius) {
         return entry.key;
       }
     }
     return _Grab.inside;
   }
 
-  void _apply(Offset delta, Offset point) {
-    final min = _CropCanvas._minSide * widget.view.shortestSide;
-    var rect = widget.rect;
-    switch (_grab!) {
+  void _start(DragStartDetails details) => setState(() {
+    _held = widget.crop;
+    _grab = _grabAt(details.localPosition);
+  });
+
+  void _end() => setState(() {
+    _held = null;
+    _grab = null;
+  });
+
+  void _update(DragUpdateDetails details) {
+    final grab = _grab;
+    if (grab == null) return;
+    // Only as far as the box shows: past it there is nothing to aim at.
+    final visible = Rect.fromLTRB(
+      math.max(0, -_image.left / _image.width),
+      math.max(0, -_image.top / _image.height),
+      math.min(1, (_box.width - _image.left) / _image.width),
+      math.min(1, (_box.height - _image.top) / _image.height),
+    );
+    final minPx = _minSide * _image.shortestSide;
+    final minX = minPx / _image.width;
+    final minY = minPx / _image.height;
+    final point = _toFraction(details.localPosition);
+    final p = Offset(
+      point.dx.clamp(visible.left, visible.right),
+      point.dy.clamp(visible.top, visible.bottom),
+    );
+    var rect = widget.crop;
+    switch (grab) {
       case _Grab.topLeft:
-        rect = Rect.fromLTRB(point.dx, point.dy, rect.right, rect.bottom);
+        rect = Rect.fromLTRB(
+          math.min(p.dx, rect.right - minX),
+          math.min(p.dy, rect.bottom - minY),
+          rect.right,
+          rect.bottom,
+        );
       case _Grab.topRight:
-        rect = Rect.fromLTRB(rect.left, point.dy, point.dx, rect.bottom);
+        rect = Rect.fromLTRB(
+          rect.left,
+          math.min(p.dy, rect.bottom - minY),
+          math.max(p.dx, rect.left + minX),
+          rect.bottom,
+        );
       case _Grab.bottomLeft:
-        rect = Rect.fromLTRB(point.dx, rect.top, rect.right, point.dy);
+        rect = Rect.fromLTRB(
+          math.min(p.dx, rect.right - minX),
+          rect.top,
+          rect.right,
+          math.max(p.dy, rect.top + minY),
+        );
       case _Grab.bottomRight:
-        rect = Rect.fromLTRB(rect.left, rect.top, point.dx, point.dy);
+        rect = Rect.fromLTRB(
+          rect.left,
+          rect.top,
+          math.max(p.dx, rect.left + minX),
+          math.max(p.dy, rect.top + minY),
+        );
       case _Grab.inside:
+        final delta = Offset(
+          details.delta.dx / _image.width,
+          details.delta.dy / _image.height,
+        );
         rect = rect.shift(delta);
-        final dx =
-            rect.left.clamp(0.0, widget.view.width - rect.width) - rect.left;
-        final dy =
-            rect.top.clamp(0.0, widget.view.height - rect.height) - rect.top;
-        rect = rect.shift(Offset(dx, dy));
+        rect = rect.shift(
+          Offset(
+            rect.left.clamp(0.0, 1 - rect.width) - rect.left,
+            rect.top.clamp(0.0, 1 - rect.height) - rect.top,
+          ),
+        );
     }
-    // Left/top first, each kept far enough from the far edge that the
-    // right/bottom clamp below always has a valid range — dragging a corner
-    // clean past the opposite one otherwise inverts the rect.
-    final left = rect.left.clamp(0.0, widget.view.width - min);
-    final top = rect.top.clamp(0.0, widget.view.height - min);
     widget.onChanged(
       Rect.fromLTRB(
-        left,
-        top,
-        rect.right.clamp(left + min, widget.view.width),
-        rect.bottom.clamp(top + min, widget.view.height),
+        rect.left.clamp(0.0, 1.0),
+        rect.top.clamp(0.0, 1.0),
+        rect.right.clamp(0.0, 1.0),
+        rect.bottom.clamp(0.0, 1.0),
       ),
     );
   }
 
   @override
   Widget build(BuildContext context) {
-    return GestureDetector(
-      onPanStart: (details) => _grab = _grabAt(details.localPosition),
-      onPanUpdate: (details) {
-        if (_grab == null) return;
-        _apply(details.delta, details.localPosition);
+    final dragging = _held != null;
+    return LayoutBuilder(
+      builder: (context, constraints) {
+        final box = constraints.biggest;
+        final target = _held ?? widget.crop;
+        // Decoded at the size it settles at, in steps, so a zoom doesn't
+        // re-decode on every frame of the animation.
+        final dpr = MediaQuery.devicePixelRatioOf(context);
+        final settledWidth = _imageRectFor(target, box).width * dpr;
+        final cacheWidth = math.min(
+          widget.imageSize.width.round(),
+          ((settledWidth / 512).ceil() * 512),
+        );
+        return TweenAnimationBuilder<Rect?>(
+          tween: RectTween(end: target),
+          duration: dragging
+              ? Duration.zero
+              : const Duration(milliseconds: 300),
+          curve: Curves.easeOutCubic,
+          builder: (context, framing, _) {
+            _box = box;
+            _image = _imageRectFor(framing ?? target, box);
+            return GestureDetector(
+              onPanStart: _start,
+              onPanUpdate: _update,
+              onPanEnd: (_) => _end(),
+              onPanCancel: _end,
+              child: ClipRect(
+                child: Stack(
+                  children: [
+                    Positioned.fromRect(
+                      rect: _image,
+                      child: Image.memory(
+                        widget.bytes,
+                        fit: BoxFit.fill,
+                        cacheWidth: cacheWidth,
+                        gaplessPlayback: true,
+                      ),
+                    ),
+                    Positioned.fill(
+                      child: CustomPaint(
+                        painter: _CropPainter(
+                          _onScreen(widget.crop),
+                          scrim: dragging ? 0x99 : 0xE6,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            );
+          },
+        );
       },
-      onPanEnd: (_) => _grab = null,
-      child: widget.child,
     );
   }
 }
 
 class _CropPainter extends CustomPainter {
-  _CropPainter(this.rect);
+  _CropPainter(this.rect, {required this.scrim});
 
   final Rect rect;
 
+  /// Alpha of the black outside the crop.
+  final int scrim;
+
   @override
   void paint(Canvas canvas, Size size) {
-    final scrim = Paint()..color = const Color(0x99000000);
+    final shade = Paint()..color = Color.fromARGB(scrim, 0, 0, 0);
     canvas.drawPath(
       Path.combine(
         PathOperation.difference,
         Path()..addRect(Offset.zero & size),
         Path()..addRect(rect),
       ),
-      scrim,
+      shade,
     );
 
     final line = Paint()
@@ -418,7 +492,8 @@ class _CropPainter extends CustomPainter {
   }
 
   @override
-  bool shouldRepaint(_CropPainter oldDelegate) => oldDelegate.rect != rect;
+  bool shouldRepaint(_CropPainter oldDelegate) =>
+      oldDelegate.rect != rect || oldDelegate.scrim != scrim;
 }
 
 /// A full 360° dial: spin it with a finger to set any angle, tap the
