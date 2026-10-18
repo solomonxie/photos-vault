@@ -40,7 +40,9 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
 
   final _gridKey = GlobalKey<AssetGridViewState>();
   List<AssetRecord> _records = const [];
-  final Set<String> _selected = {};
+  // Replaced, never mutated: the grid's rows rebuild only when the set they
+  // were handed is a different one.
+  Set<String> _selected = {};
 
   @override
   void initState() {
@@ -65,9 +67,12 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
   }
 
   void _toggle(AssetRecord record) {
-    setState(() {
-      if (!_selected.add(record.localId)) _selected.remove(record.localId);
-    });
+    final id = record.localId;
+    setState(
+      () => _selected = _selected.contains(id)
+          ? _selected.difference({id})
+          : {..._selected, id},
+    );
   }
 
   void _confirm() {
