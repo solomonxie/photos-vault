@@ -28,6 +28,10 @@ class ImageEncodeChannel {
         compressVideo(call, result)
         return
       }
+      if call.method == "edit" {
+        edit(call, result)
+        return
+      }
       if call.method == "remoteThumbnail" {
         remoteThumbnail(call, result)
         return
@@ -203,6 +207,87 @@ class ImageEncodeChannel {
     }
   }
 
+  /// Crop (0..1 fractions of the upright image, `[l, t, r, b]`) and/or
+  /// rotate (degrees clockwise) at full size, written back in the source's
+  /// own format. Null when ImageIO can't write that format.
+  private static func edit(
+    _ call: FlutterMethodCall,
+    _ result: @escaping FlutterResult
+  ) {
+    guard let args = call.arguments as? [String: Any],
+          let data = args["bytes"] as? FlutterStandardTypedData
+    else {
+      result(nil)
+      return
+    }
+    let crop = args["crop"] as? [Double]
+    let degrees = args["degrees"] as? Double ?? 0
+    let quality = args["quality"] as? Double ?? 0.92
+    DispatchQueue.global(qos: .userInitiated).async {
+      let out = edited(data.data, crop: crop, degrees: degrees, quality: quality)
+      DispatchQueue.main.async {
+        result(out.map { FlutterStandardTypedData(bytes: $0) })
+      }
+    }
+  }
+
+  private static func edited(
+    _ data: Data,
+    crop: [Double]?,
+    degrees: Double,
+    quality: Double
+  ) -> Data? {
+    guard let source = CGImageSourceCreateWithData(data as CFData, nil),
+          let type = CGImageSourceGetType(source),
+          let writable = CGImageDestinationCopyTypeIdentifiers() as? [String],
+          writable.contains(type as String),
+          let size = pixelSize(source),
+          var image = CGImageSourceCreateThumbnailAtIndex(source, 0, [
+            kCGImageSourceCreateThumbnailFromImageAlways: true,
+            kCGImageSourceCreateThumbnailWithTransform: true,
+            kCGImageSourceThumbnailMaxPixelSize: max(size.width, size.height),
+          ] as CFDictionary)
+    else { return nil }
+    if let c = crop, c.count == 4 {
+      let w = Double(image.width), h = Double(image.height)
+      let rect = CGRect(
+        x: c[0] * w, y: c[1] * h,
+        width: (c[2] - c[0]) * w, height: (c[3] - c[1]) * h
+      ).integral
+      guard let cropped = image.cropping(to: rect) else { return nil }
+      image = cropped
+    }
+    if degrees.truncatingRemainder(dividingBy: 360) != 0 {
+      guard let rotated = rotate(image, degrees: degrees) else { return nil }
+      image = rotated
+    }
+    return write(image, from: source, type: type as String, quality: quality)
+  }
+
+  /// On a canvas grown to fit the turned image; the corners are left empty.
+  private static func rotate(_ image: CGImage, degrees: Double) -> CGImage? {
+    let radians = CGFloat(degrees * .pi / 180)
+    let w = CGFloat(image.width), h = CGFloat(image.height)
+    let bounds = CGRect(x: 0, y: 0, width: w, height: h)
+      .applying(CGAffineTransform(rotationAngle: radians)).integral
+    let space = image.colorSpace.flatMap { $0.model == .rgb ? $0 : nil }
+      ?? CGColorSpace(name: CGColorSpace.sRGB)!
+    guard let context = CGContext(
+      data: nil,
+      width: Int(bounds.width),
+      height: Int(bounds.height),
+      bitsPerComponent: 8,
+      bytesPerRow: 0,
+      space: space,
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue
+    ) else { return nil }
+    context.translateBy(x: bounds.width / 2, y: bounds.height / 2)
+    // CoreGraphics is y-up, so clockwise on screen is a negative angle.
+    context.rotate(by: -radians)
+    context.draw(image, in: CGRect(x: -w / 2, y: -h / 2, width: w, height: h))
+    return context.makeImage()
+  }
+
   private static func encode(
     _ data: Data,
     type: UTType,
@@ -221,7 +306,16 @@ class ImageEncodeChannel {
     guard let image = CGImageSourceCreateThumbnailAtIndex(
       source, 0, options as CFDictionary
     ) else { return nil }
+    return write(image, from: source, type: type.identifier, quality: quality)
+  }
 
+  /// [image] with [source]'s EXIF and GPS, orientation reset to up.
+  private static func write(
+    _ image: CGImage,
+    from source: CGImageSource,
+    type: String,
+    quality: Double
+  ) -> Data? {
     var properties =
       (CGImageSourceCopyPropertiesAtIndex(source, 0, nil) as? [CFString: Any])
       ?? [:]
@@ -236,7 +330,7 @@ class ImageEncodeChannel {
 
     let out = NSMutableData()
     guard let destination = CGImageDestinationCreateWithData(
-      out, type.identifier as CFString, 1, nil
+      out, type as CFString, 1, nil
     ) else { return nil }
     CGImageDestinationAddImage(destination, image, properties as CFDictionary)
     guard CGImageDestinationFinalize(destination) else { return nil }
