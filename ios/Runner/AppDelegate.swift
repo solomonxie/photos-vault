@@ -55,6 +55,11 @@ import UIKit
       PhotoChangesChannel.register(with: registrar)
     }
     if let registrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "ShareInboxChannel"
+    ) {
+      ShareInboxChannel.register(with: registrar)
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(
       forPlugin: "AppStoreRegionChannel"
     ) {
       // The App Store account's country decides the region: one binary

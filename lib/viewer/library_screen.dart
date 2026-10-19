@@ -25,6 +25,7 @@ import '../photos/ai_analysis_store.dart';
 import '../photos/analyze_queue.dart';
 import '../photos/file_hash.dart' as file_hash;
 import '../photos/manual_add.dart';
+import '../photos/share_inbox.dart';
 import '../photos/on_device_analysis.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
@@ -623,6 +624,7 @@ class LibraryScreenState extends State<LibraryScreen>
     unawaited(_sweepLeftovers());
     unawaited(_runScheduledSyncIfDue());
     unawaited(_hiddenBackup.run().catchError((_) {}));
+    unawaited(_offerShared());
     _startTrickle();
   }
 
@@ -851,6 +853,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // A hide or un-hide a kill cut short, finished before anything uploads.
     await _finishTransitions();
     unawaited(_secureHiddenAtRest());
+    unawaited(_offerShared());
     unawaited(
       HiddenRepair(store: assetRecordStore)
           .runOnce()
@@ -1881,6 +1884,58 @@ class LibraryScreenState extends State<LibraryScreen>
       );
     } catch (_) {
       // Retried on the next sync.
+    }
+  }
+
+  late final ShareInbox _shareInbox = ShareInbox(store: assetRecordStore);
+  bool _offeringShared = false;
+
+  /// What was shared to the app from Safari or elsewhere: into the library
+  /// or straight into a hidden album. "Later" leaves it for the next open.
+  Future<void> _offerShared() async {
+    if (_offeringShared || !mounted) return;
+    _offeringShared = true;
+    try {
+      final waiting = (await _shareInbox.pending()).length;
+      if (waiting == 0 || !mounted) return;
+      final l10n = AppLocalizations.of(context)!;
+      final hide = await showCupertinoModalPopup<bool>(
+        context: context,
+        builder: (context) => CupertinoActionSheet(
+          title: Text(l10n.shareInboxTitle(waiting)),
+          message: Text(l10n.shareInboxBody),
+          actions: [
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(l10n.shareInboxToLibrary),
+            ),
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(context).pop(true),
+              child: Text(l10n.shareInboxToHidden),
+            ),
+          ],
+          cancelButton: CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(),
+            child: Text(l10n.shareInboxLater),
+          ),
+        ),
+      );
+      if (hide == null || !mounted) return;
+      if (!hide) {
+        await _runBusy(_shareInbox.file);
+        return;
+      }
+      final passcode = await askHideCode(context);
+      if (passcode == null) return;
+      final hash = await PasscodeTags(records: assetRecordStore)
+          .tagFor(passcode);
+      final hidden = await _shareInbox.file(passcodeHash: hash);
+      // Their encrypted copies only; never the plain upload path.
+      unawaited(_hiddenBackup.run().catchError((_) {}));
+      await reload();
+      if (mounted) _showResult(l10n.shareInboxHidden(hidden.length));
+    } finally {
+      _offeringShared = false;
     }
   }
 

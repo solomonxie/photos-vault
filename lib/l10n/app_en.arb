@@ -1763,5 +1763,25 @@
   "flaggedAttachLiveHalf": "Link Motion",
   "flaggedHowAttachLiveHalf": "The moving half of a Live Photo already in your library, under the same name. Links it to that photo; nothing in your bucket changes.",
   "flaggedProblemLiveHalf": "Live Photo motion not linked",
-  "flaggedLiveHalfReason": "Motion of a Live Photo already in your library"
+  "flaggedLiveHalfReason": "Motion of a Live Photo already in your library",
+  "shareInboxTitle": "{count, plural, one{1 shared item is waiting} other{{count} shared items are waiting}}",
+  "@shareInboxTitle": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "shareInboxBody": "Shared to this app from another app. They aren't in Photos.",
+  "shareInboxToLibrary": "Add to Library",
+  "shareInboxToHidden": "Add to Hidden Album",
+  "shareInboxLater": "Later",
+  "shareInboxHidden": "{count, plural, one{1 item hidden.} other{{count} items hidden.}}",
+  "@shareInboxHidden": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  }
 }
