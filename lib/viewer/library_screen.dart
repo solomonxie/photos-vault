@@ -1890,12 +1890,25 @@ class LibraryScreenState extends State<LibraryScreen>
   late final ShareInbox _shareInbox = ShareInbox(store: assetRecordStore);
   bool _offeringShared = false;
 
-  /// What was shared to the app from Safari or elsewhere: into the library
-  /// or straight into a hidden album. "Later" leaves it for the next open.
+  /// What was shared to the app from Safari or elsewhere. Batches whose
+  /// destination was picked in the share sheet are filed quietly; loose
+  /// ones are offered: the library, a hidden album, or later.
   Future<void> _offerShared() async {
     if (_offeringShared || !mounted) return;
     _offeringShared = true;
     try {
+      final filed = await _shareInbox.fileBatches(
+        tagFor: PasscodeTags(records: assetRecordStore).tagFor,
+      );
+      if (filed.hidden.isNotEmpty) {
+        // Their encrypted copies only; never the plain upload path.
+        unawaited(_hiddenBackup.run().catchError((_) {}));
+      }
+      if (filed.library.isNotEmpty) {
+        unawaited(_backUpRecords(filed.library).then((_) {}, onError: (_) {}));
+      }
+      if (filed.hidden.isNotEmpty || filed.library.isNotEmpty) await reload();
+      if (!mounted) return;
       final waiting = (await _shareInbox.pending()).length;
       if (waiting == 0 || !mounted) return;
       final l10n = AppLocalizations.of(context)!;

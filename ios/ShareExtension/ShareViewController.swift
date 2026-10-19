@@ -1,67 +1,218 @@
+import Security
 import UIKit
 import UniformTypeIdentifiers
 
-/// "Photos Vault" in the share sheet. Copies the shared images and videos
-/// into the App Group's inbox and closes; the app files them on its next
-/// open (`lib/photos/share_inbox.dart`). Nothing here touches Photos.
+/// "Photos Vault" in the share sheet. Asks where the items go — the
+/// library, or a hidden album and its code — copies them into the App
+/// Group's inbox as one batch, and closes. The app files a batch on its
+/// next open without asking again (`lib/photos/share_inbox.dart`). Nothing
+/// here touches Photos.
 ///
 /// The inbox is plain files, out of the device backup, until the app takes
-/// them. Kept to copying: the hide path is Dart, and an extension gets
-/// ~120 MB of memory, so nothing is decoded here.
-class ShareViewController: UIViewController {
-  private let status = UILabel()
-  private let spinner = UIActivityIndicatorView(style: .large)
+/// them. A hidden batch's code waits in the Keychain (this device only,
+/// never backed up) and is deleted once filed: the one place a code is
+/// kept, for that window only. Kept to copying: the hide path is Dart, and
+/// an extension gets ~120 MB of memory.
+class ShareViewController: UIViewController, UITextFieldDelegate {
+  private let stack = UIStackView()
+  private let message = UILabel()
+  private let codeField = UITextField()
+  private var firstCode: String?
 
   override func viewDidLoad() {
     super.viewDidLoad()
     view.backgroundColor = .systemBackground
-    status.text = NSLocalizedString("Saving…", comment: "")
-    status.textAlignment = .center
-    status.numberOfLines = 0
-    status.font = .preferredFont(forTextStyle: .headline)
-    let stack = UIStackView(arrangedSubviews: [spinner, status])
     stack.axis = .vertical
-    stack.spacing = 16
+    stack.spacing = 14
+    stack.alignment = .fill
     stack.translatesAutoresizingMaskIntoConstraints = false
     view.addSubview(stack)
+    let guide = view.safeAreaLayoutGuide
     NSLayoutConstraint.activate([
-      stack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-      stack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-      stack.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
-      stack.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24),
+      stack.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 24),
+      stack.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -24),
+      stack.topAnchor.constraint(equalTo: guide.topAnchor, constant: 32),
     ])
+    message.numberOfLines = 0
+    message.textAlignment = .center
+    message.font = .preferredFont(forTextStyle: .body)
+    message.adjustsFontForContentSizeCategory = true
+    showChoice()
+  }
+
+  private func reset(_ title: String, _ text: String?) {
+    stack.arrangedSubviews.forEach { $0.removeFromSuperview() }
+    let heading = UILabel()
+    heading.text = title
+    heading.textAlignment = .center
+    heading.numberOfLines = 0
+    heading.font = .preferredFont(forTextStyle: .headline)
+    stack.addArrangedSubview(heading)
+    message.text = text
+    message.textColor = .secondaryLabel
+    if text != nil { stack.addArrangedSubview(message) }
+  }
+
+  private func button(_ title: String, prominent: Bool = false,
+                      _ action: @escaping () -> Void) -> UIButton {
+    var config = prominent ? UIButton.Configuration.filled() : .gray()
+    config.title = title
+    config.cornerStyle = .large
+    config.buttonSize = .large
+    let button = UIButton(configuration: config, primaryAction: UIAction { _ in action() })
+    stack.addArrangedSubview(button)
+    return button
+  }
+
+  private func showChoice() {
+    reset(NSLocalizedString("Save to Photos Vault", comment: ""), nil)
+    _ = button(NSLocalizedString("Add to Library", comment: ""), prominent: true) {
+      [weak self] in self?.save(code: nil)
+    }
+    _ = button(NSLocalizedString("Add to Hidden Album", comment: "")) {
+      [weak self] in self?.askCode()
+    }
+    _ = button(NSLocalizedString("Cancel", comment: "")) { [weak self] in
+      self?.extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
+    }
+  }
+
+  /// Twice, as in the app: every code opens *an* album, so a typo hides
+  /// the photos somewhere nobody will look.
+  private func askCode() {
+    firstCode = nil
+    reset(
+      NSLocalizedString("Hidden album code", comment: ""),
+      NSLocalizedString("Enter the album's 4-digit code.", comment: "")
+    )
+    codeField.text = ""
+    codeField.keyboardType = .numberPad
+    codeField.isSecureTextEntry = true
+    codeField.textAlignment = .center
+    codeField.font = .monospacedDigitSystemFont(ofSize: 28, weight: .semibold)
+    codeField.borderStyle = .roundedRect
+    codeField.delegate = self
+    codeField.removeTarget(nil, action: nil, for: .editingChanged)
+    codeField.addTarget(self, action: #selector(codeChanged), for: .editingChanged)
+    stack.addArrangedSubview(codeField)
+    _ = button(NSLocalizedString("Back", comment: "")) { [weak self] in
+      self?.view.endEditing(true)
+      self?.showChoice()
+    }
+    codeField.becomeFirstResponder()
+  }
+
+  func textField(_ field: UITextField, shouldChangeCharactersIn range: NSRange,
+                 replacementString string: String) -> Bool {
+    let next = ((field.text ?? "") as NSString).replacingCharacters(in: range, with: string)
+    return next.count <= 4 && next.allSatisfy(\.isNumber)
+  }
+
+  @objc private func codeChanged() {
+    guard let code = codeField.text, code.count == 4 else { return }
+    codeField.text = ""
+    guard let first = firstCode else {
+      firstCode = code
+      message.text = NSLocalizedString("Enter it again.", comment: "")
+      message.textColor = .secondaryLabel
+      return
+    }
+    guard first == code else {
+      firstCode = nil
+      message.text = NSLocalizedString("The codes didn't match. Enter the code again.", comment: "")
+      message.textColor = .systemRed
+      return
+    }
+    view.endEditing(true)
+    save(code: code)
+  }
+
+  private func save(code: String?) {
+    reset(NSLocalizedString("Saving…", comment: ""), nil)
+    let spinner = UIActivityIndicatorView(style: .large)
     spinner.startAnimating()
+    stack.addArrangedSubview(spinner)
+    Task { await finish(code: code) }
   }
 
-  override func viewDidAppear(_ animated: Bool) {
-    super.viewDidAppear(animated)
-    Task { await save() }
-  }
-
-  private func save() async {
+  private func finish(code: String?) async {
     let providers = (extensionContext?.inputItems as? [NSExtensionItem] ?? [])
       .flatMap { $0.attachments ?? [] }
-    var saved = 0
-    if let inbox = ShareInbox.directory() {
-      for provider in providers {
-        if await ShareInbox.copy(provider, into: inbox) { saved += 1 }
-      }
-    }
-    spinner.stopAnimating()
-    status.text = saved == 0
-      ? NSLocalizedString("Couldn't save this.", comment: "")
-      : String.localizedStringWithFormat(
-        NSLocalizedString("Saved %d. Open Photos Vault to put them away.", comment: ""),
-        saved
+    let saved = await ShareInbox.saveBatch(providers, code: code)
+    if saved == 0 {
+      reset(
+        NSLocalizedString("Nothing saved", comment: ""),
+        NSLocalizedString(
+          "No photo or video here. To save an image from a web page, long-press it and share that.",
+          comment: ""
+        )
       )
-    try? await Task.sleep(nanoseconds: 1_200_000_000)
+    } else {
+      reset(
+        String.localizedStringWithFormat(NSLocalizedString("Saved %d", comment: ""), saved),
+        code == nil
+          ? NSLocalizedString("They'll be in your library next time you open Photos Vault.", comment: "")
+          : NSLocalizedString("They'll be hidden next time you open Photos Vault.", comment: "")
+      )
+    }
+    try? await Task.sleep(nanoseconds: saved == 0 ? 2_500_000_000 : 1_200_000_000)
     extensionContext?.completeRequest(returningItems: nil)
   }
 }
 
 enum ShareInbox {
+  static var group: String? {
+    // `group.<app id>`, as in both entitlements files. Derived, not read
+    // from Info.plist: `$(APP_BUNDLE_ID)` doesn't expand there.
+    Bundle.main.bundleIdentifier.map {
+      "group." + $0.replacingOccurrences(of: ".ShareExtension", with: "")
+    }
+  }
+
+  /// One folder per share plus `<batch>.json` naming where it goes,
+  /// written last: the app takes a batch only once its manifest exists.
+  static func saveBatch(_ providers: [NSItemProvider], code: String?) async -> Int {
+    guard let inbox = directory() else { return 0 }
+    let batch = UUID().uuidString
+    let folder = inbox.appendingPathComponent(batch, isDirectory: true)
+    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    var saved = 0
+    for provider in providers {
+      if await copy(provider, into: folder) { saved += 1 }
+    }
+    guard saved > 0, code == nil || storeCode(code!, ref: batch) else {
+      try? FileManager.default.removeItem(at: folder)
+      return 0
+    }
+    let manifest: [String: Any] = ["destination": code == nil ? "library" : "hidden"]
+    guard let data = try? JSONSerialization.data(withJSONObject: manifest),
+          FileManager.default.createFile(
+            atPath: inbox.appendingPathComponent("\(batch).json").path,
+            contents: data
+          )
+    else {
+      try? FileManager.default.removeItem(at: folder)
+      return 0
+    }
+    return saved
+  }
+
+  /// Read and deleted by `ShareInboxChannel.takeCode` in the app.
+  private static func storeCode(_ code: String, ref: String) -> Bool {
+    guard let group else { return false }
+    let status = SecItemAdd([
+      kSecClass: kSecClassGenericPassword,
+      kSecAttrService: "share-inbox",
+      kSecAttrAccount: ref,
+      kSecAttrAccessGroup: group,
+      kSecAttrAccessible: kSecAttrAccessibleAfterFirstUnlockThisDeviceOnly,
+      kSecValueData: Data(code.utf8),
+    ] as CFDictionary, nil)
+    return status == errSecSuccess
+  }
+
   static func directory() -> URL? {
-    guard let group = Bundle.main.object(forInfoDictionaryKey: "AppGroupId") as? String,
+    guard let group,
           let root = FileManager.default.containerURL(
             forSecurityApplicationGroupIdentifier: group
           )
@@ -79,7 +230,13 @@ enum ShareInbox {
   static func copy(_ provider: NSItemProvider, into inbox: URL) async -> Bool {
     let wanted = provider.registeredTypeIdentifiers.compactMap(UTType.init)
       .first { $0.conforms(to: .image) || $0.conforms(to: .movie) }
-    guard let type = wanted else { return false }
+    guard let type = wanted else {
+      // Safari hands some images over as their address only.
+      guard provider.hasItemConformingToTypeIdentifier(UTType.url.identifier),
+            let url = await webURL(provider)
+      else { return false }
+      return await download(url, into: inbox)
+    }
     let name = UUID().uuidString
     if let url = await fileURL(provider, type) {
       defer { try? FileManager.default.removeItem(at: url) }
@@ -105,6 +262,51 @@ enum ShareInbox {
       atPath: inbox.appendingPathComponent("\(name).jpg").path,
       contents: data
     )
+  }
+
+  private static func webURL(_ provider: NSItemProvider) async -> URL? {
+    await withCheckedContinuation { done in
+      provider.loadItem(forTypeIdentifier: UTType.url.identifier) { item, _ in
+        done.resume(returning: item as? URL)
+      }
+    }
+  }
+
+  /// Kept only when the server says it's an image or a video; a web page
+  /// is refused, not saved.
+  private static func download(_ url: URL, into inbox: URL) async -> Bool {
+    if url.isFileURL {
+      guard let type = UTType(filenameExtension: url.pathExtension),
+            type.conforms(to: .image) || type.conforms(to: .movie)
+      else { return false }
+      return (try? FileManager.default.copyItem(
+        at: url,
+        to: inbox.appendingPathComponent("\(UUID().uuidString).\(url.pathExtension.lowercased())")
+      )) != nil
+    }
+    guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
+          let (file, response) = try? await URLSession.shared.download(from: url)
+            as (URL, URLResponse)?
+    else { return false }
+    defer { try? FileManager.default.removeItem(at: file) }
+    guard let mime = response.mimeType,
+          let type = UTType(mimeType: mime),
+          type.conforms(to: .image) || type.conforms(to: .movie),
+          let ext = type.preferredFilenameExtension
+    else { return false }
+    let name = UUID().uuidString
+    let part = inbox.appendingPathComponent("\(name).part")
+    do {
+      try FileManager.default.moveItem(at: file, to: part)
+      try FileManager.default.moveItem(
+        at: part,
+        to: inbox.appendingPathComponent("\(name).\(ext)")
+      )
+      return true
+    } catch {
+      try? FileManager.default.removeItem(at: part)
+      return false
+    }
   }
 
   /// A copy the caller owns: the provider deletes its own file on return.
