@@ -13,11 +13,53 @@ import UniformTypeIdentifiers
 /// never backed up) and is deleted once filed: the one place a code is
 /// kept, for that window only. Kept to copying: the hide path is Dart, and
 /// an extension gets ~120 MB of memory.
-class ShareViewController: UIViewController, UITextFieldDelegate {
+class ShareViewController: UIViewController {
+  private let panel = SharePanel()
+
+  /// A card at the bottom over the app being shared from — not a full
+  /// screen, and not a second sheet presented on top (that waited for this
+  /// one's animation to finish, and went full height for the keyboard). It
+  /// rides in with the share sheet's own slide and sits on the keyboard.
+  override func viewDidLoad() {
+    super.viewDidLoad()
+    view.backgroundColor = UIColor.black.withAlphaComponent(0.2)
+    let outside = UITapGestureRecognizer(target: self, action: #selector(tappedOutside))
+    outside.cancelsTouchesInView = false
+    view.addGestureRecognizer(outside)
+    panel.context = extensionContext
+    addChild(panel)
+    let card = panel.view!
+    card.translatesAutoresizingMaskIntoConstraints = false
+    card.layer.cornerRadius = 16
+    card.layer.maskedCorners = [.layerMinXMinYCorner, .layerMaxXMinYCorner]
+    view.addSubview(card)
+    NSLayoutConstraint.activate([
+      card.leadingAnchor.constraint(equalTo: view.leadingAnchor),
+      card.trailingAnchor.constraint(equalTo: view.trailingAnchor),
+      card.bottomAnchor.constraint(equalTo: view.bottomAnchor),
+      panel.contentBottom.constraint(
+        equalTo: view.keyboardLayoutGuide.topAnchor, constant: -16
+      ),
+    ])
+    panel.didMove(toParent: self)
+  }
+
+  @objc private func tappedOutside(_ tap: UITapGestureRecognizer) {
+    guard !panel.saving,
+          !panel.view.frame.contains(tap.location(in: view))
+    else { return }
+    extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
+  }
+}
+
+final class SharePanel: UIViewController, UITextFieldDelegate {
+  weak var context: NSExtensionContext?
+  private(set) var saving = false
   private let stack = UIStackView()
+  var contentBottom: NSLayoutYAxisAnchor { stack.bottomAnchor }
   private let message = UILabel()
   private let codeField = UITextField()
-  private var firstCode: String?
+  private weak var hideButton: UIButton?
 
   override func viewDidLoad() {
     super.viewDidLoad()
@@ -31,7 +73,7 @@ class ShareViewController: UIViewController, UITextFieldDelegate {
     NSLayoutConstraint.activate([
       stack.leadingAnchor.constraint(equalTo: guide.leadingAnchor, constant: 24),
       stack.trailingAnchor.constraint(equalTo: guide.trailingAnchor, constant: -24),
-      stack.topAnchor.constraint(equalTo: guide.topAnchor, constant: 32),
+      stack.topAnchor.constraint(equalTo: view.topAnchor, constant: 28),
     ])
     message.numberOfLines = 0
     message.textAlignment = .center
@@ -73,21 +115,20 @@ class ShareViewController: UIViewController, UITextFieldDelegate {
       [weak self] in self?.askCode()
     }
     _ = button(NSLocalizedString("Cancel", comment: "")) { [weak self] in
-      self?.extensionContext?.cancelRequest(withError: CocoaError(.userCancelled))
+      self?.context?.cancelRequest(withError: CocoaError(.userCancelled))
     }
   }
 
-  /// Twice, as in the app: every code opens *an* album, so a typo hides
+  /// Once, in the clear: the digits stay visible so a typo can be seen and
+  /// fixed before Hide — every code opens *an* album, so a wrong one hides
   /// the photos somewhere nobody will look.
   private func askCode() {
-    firstCode = nil
     reset(
       NSLocalizedString("Hidden album code", comment: ""),
       NSLocalizedString("Enter the album's 4-digit code.", comment: "")
     )
     codeField.text = ""
     codeField.keyboardType = .numberPad
-    codeField.isSecureTextEntry = true
     codeField.textAlignment = .center
     codeField.font = .monospacedDigitSystemFont(ofSize: 28, weight: .semibold)
     codeField.borderStyle = .roundedRect
@@ -95,6 +136,13 @@ class ShareViewController: UIViewController, UITextFieldDelegate {
     codeField.removeTarget(nil, action: nil, for: .editingChanged)
     codeField.addTarget(self, action: #selector(codeChanged), for: .editingChanged)
     stack.addArrangedSubview(codeField)
+    hideButton = button(NSLocalizedString("Hide", comment: ""), prominent: true) {
+      [weak self] in
+      guard let code = self?.codeField.text, code.count == 4 else { return }
+      self?.view.endEditing(true)
+      self?.save(code: code)
+    }
+    hideButton?.isEnabled = false
     _ = button(NSLocalizedString("Back", comment: "")) { [weak self] in
       self?.view.endEditing(true)
       self?.showChoice()
@@ -109,25 +157,11 @@ class ShareViewController: UIViewController, UITextFieldDelegate {
   }
 
   @objc private func codeChanged() {
-    guard let code = codeField.text, code.count == 4 else { return }
-    codeField.text = ""
-    guard let first = firstCode else {
-      firstCode = code
-      message.text = NSLocalizedString("Enter it again.", comment: "")
-      message.textColor = .secondaryLabel
-      return
-    }
-    guard first == code else {
-      firstCode = nil
-      message.text = NSLocalizedString("The codes didn't match. Enter the code again.", comment: "")
-      message.textColor = .systemRed
-      return
-    }
-    view.endEditing(true)
-    save(code: code)
+    hideButton?.isEnabled = codeField.text?.count == 4
   }
 
   private func save(code: String?) {
+    saving = true
     reset(NSLocalizedString("Saving…", comment: ""), nil)
     let spinner = UIActivityIndicatorView(style: .large)
     spinner.startAnimating()
@@ -136,7 +170,7 @@ class ShareViewController: UIViewController, UITextFieldDelegate {
   }
 
   private func finish(code: String?) async {
-    let providers = (extensionContext?.inputItems as? [NSExtensionItem] ?? [])
+    let providers = (context?.inputItems as? [NSExtensionItem] ?? [])
       .flatMap { $0.attachments ?? [] }
     let saved = await ShareInbox.saveBatch(providers, code: code)
     if saved == 0 {
@@ -156,7 +190,7 @@ class ShareViewController: UIViewController, UITextFieldDelegate {
       )
     }
     try? await Task.sleep(nanoseconds: saved == 0 ? 2_500_000_000 : 1_200_000_000)
-    extensionContext?.completeRequest(returningItems: nil)
+    context?.completeRequest(returningItems: nil)
   }
 }
 
