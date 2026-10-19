@@ -159,3 +159,77 @@ still be a page somebody can read rather than the whole library.
 - Open: cap on stored descriptors per person — unbounded is a linear scan per
   candidate. Probably "keep the N most recently confirmed", decided with the
   Phase 1 numbers.
+
+## Closing the gap with Photos / Google Photos (Oct 2026, not started)
+Their edge is mostly the system around the model, not just a bigger model:
+clustering over the whole library, quality filtering, context. Apple's
+person embeddings aren't exposed to apps.
+
+Today: SFace, 2-point (eye) alignment, one embedding per crop, no quality
+gate, nearest-neighbour with ceiling 0.637 + margin 0.06.
+
+In order — each step measured before the next:
+1. **Measure.** An eval from the user's own named faces: top-1 suggestion
+   precision/recall, same/different distance histograms, errors split
+   into detection, alignment and model. Without it every change is a guess.
+2. **On-device, free** (0 MB, no network):
+   - 5-point alignment (eyes, nose, mouth corners → ArcFace template,
+     similarity transform) — what SFace was trained on.
+   - Flip averaging: embed the mirrored crop too, average, renormalise.
+   - Quality gate: `VNDetectFaceCaptureQualityRequest` + minimum face size.
+     Low-quality faces are never prototypes and only get suggestions.
+   - Cannot-link: two faces in one photo are two people.
+   - Several prototypes per person (kNN vote), threshold per person.
+   - Suggested groups: graph clustering with cannot-links, shown for
+     naming, not stored (keeps the "no stored wrongness" non-goal).
+3. **Bigger model, downloaded on first use** (ArcFace/AdaFace class,
+   ~30–60 MB int8). Keeps the 33 MB budget. Blocker: licence — InsightFace
+   weights are non-commercial, and MS1M-trained weights carry dataset risk.
+   Needs commercially licensed weights first.
+4. **Face file import — the server stays out of the app.** The app reads
+   one file of face labels; where it came from is not its concern (a
+   script, a container, another photo app's export, typed by hand). The
+   repo ships tools that make it from a bucket, outside the app's scope
+   and size budget.
+
+### Face file (`faces.json`, v1)
+```json
+{"version": 1,
+ "photos": [{"key": "2024-06-01_9f3c…", "sha256": "…",
+   "faces": [{"box": [0.41, 0.22, 0.12, 0.16], "person": "Alice"}]}]}
+```
+- **Photo**: `key` = bucket object key (stem, no prefix/extension), or
+  `sha256` of the original's bytes. Either; key wins.
+- **Box**: `[x, y, w, h]`, 0..1 of the upright image (EXIF applied),
+  top-left origin — same space the app stores boxes in.
+- **Person**: a name, matched to People the same way the profile CSV is;
+  unknown names make a new person.
+- Read tolerantly: unknown fields ignored, unknown photos skipped and
+  counted.
+
+### Import rules
+- Box overlapping a found face (IoU ≥ 0.5, the existing rule) labels that
+  face; no overlap adds the face with that box.
+- Never overwrites a face already named in the app; a disagreement is
+  listed, not applied.
+- One explicit import = the tap the "nothing linked without a tap" rule
+  asks for. A summary (applied / conflicts / unmatched) before commit.
+- Imported names become reference faces for the on-device matcher, so a
+  good file improves suggestions for later photos too.
+- Hidden photos: tools can't see them (carriers are opaque), so their faces
+  are never in a file; an entry naming one is ignored rather than revealing
+  the match.
+
+### Repo tools (`tools/faces/`, not in the app)
+- Container: read the user's bucket with their own credentials, detect +
+  embed (any model the user is licensed for), cluster, write `faces.json`
+  with placeholder names (`person_07`) to rename, or names from labelled
+  seeds.
+- No server run by us, no account: the user's machine, the user's bucket.
+  The licence question in step 3 becomes the user's choice of model, not
+  something the app ships.
+
+Rejected: **a central server we run.** It would hold biometric data for
+every user's contacts (GDPR special category, BIPA), and it would need read
+access to buckets the user owns. It also cuts against "your bucket, your
+data". The file format gets the same accuracy without any of that.
