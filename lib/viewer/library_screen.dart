@@ -1890,9 +1890,9 @@ class LibraryScreenState extends State<LibraryScreen>
   late final ShareInbox _shareInbox = ShareInbox(store: assetRecordStore);
   bool _offeringShared = false;
 
-  /// What was shared to the app from Safari or elsewhere. Batches whose
-  /// destination was picked in the share sheet are filed quietly; loose
-  /// ones are offered: the library, a hidden album, or later.
+  /// What was shared to the app from Safari or elsewhere — always for a
+  /// hidden album. Batches whose code was typed in the share sheet are
+  /// filed quietly; loose ones are offered: a hidden album, or later.
   Future<void> _offerShared() async {
     if (_offeringShared || !mounted) return;
     _offeringShared = true;
@@ -1900,14 +1900,11 @@ class LibraryScreenState extends State<LibraryScreen>
       final filed = await _shareInbox.fileBatches(
         tagFor: PasscodeTags(records: assetRecordStore).tagFor,
       );
-      if (filed.hidden.isNotEmpty) {
+      if (filed.isNotEmpty) {
         // Their encrypted copies only; never the plain upload path.
         unawaited(_hiddenBackup.run().catchError((_) {}));
+        await reload();
       }
-      if (filed.library.isNotEmpty) {
-        unawaited(_backUpRecords(filed.library).then((_) {}, onError: (_) {}));
-      }
-      if (filed.hidden.isNotEmpty || filed.library.isNotEmpty) await reload();
       if (!mounted) return;
       final waiting = (await _shareInbox.pending()).length;
       if (waiting == 0 || !mounted) return;
@@ -1918,10 +1915,6 @@ class LibraryScreenState extends State<LibraryScreen>
           title: Text(l10n.shareInboxTitle(waiting)),
           message: Text(l10n.shareInboxBody),
           actions: [
-            CupertinoActionSheetAction(
-              onPressed: () => Navigator.of(context).pop(false),
-              child: Text(l10n.shareInboxToLibrary),
-            ),
             CupertinoActionSheetAction(
               onPressed: () => Navigator.of(context).pop(true),
               child: Text(l10n.shareInboxToHidden),
@@ -1934,10 +1927,6 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       );
       if (hide == null || !mounted) return;
-      if (!hide) {
-        await _runBusy(_shareInbox.file);
-        return;
-      }
       final passcode = await askHideCode(context);
       if (passcode == null) return;
       final hash = await PasscodeTags(records: assetRecordStore)

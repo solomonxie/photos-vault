@@ -1226,7 +1226,6 @@
   "flaggedLiveHalfReason": "资料库里一张实况照片的动态部分",
   "shareInboxTitle": "{count} 个分享的项目待处理",
   "shareInboxBody": "从其他应用分享到本应用，未存入“照片”。",
-  "shareInboxToLibrary": "添加到图库",
   "shareInboxToHidden": "添加到隐藏相簿",
   "shareInboxLater": "稍后",
   "shareInboxHidden": "已隐藏 {count} 个项目。"

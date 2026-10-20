@@ -2,9 +2,9 @@ import Security
 import UIKit
 import UniformTypeIdentifiers
 
-/// "Photos Vault" in the share sheet. Asks where the items go — the
-/// library, or a hidden album and its code — copies them into the App
-/// Group's inbox as one batch, and closes. The app files a batch on its
+/// "Photos Vault" in the share sheet. Everything shared goes to a hidden
+/// album: asks for its code, copies the items into the App Group's inbox
+/// as one batch, and closes. The app files a batch on its
 /// next open without asking again (`lib/photos/share_inbox.dart`). Nothing
 /// here touches Photos.
 ///
@@ -79,7 +79,7 @@ final class SharePanel: UIViewController, UITextFieldDelegate {
     message.textAlignment = .center
     message.font = .preferredFont(forTextStyle: .body)
     message.adjustsFontForContentSizeCategory = true
-    showChoice()
+    askCode()
   }
 
   private func reset(_ title: String, _ text: String?) {
@@ -106,19 +106,6 @@ final class SharePanel: UIViewController, UITextFieldDelegate {
     return button
   }
 
-  private func showChoice() {
-    reset(NSLocalizedString("Save to Photos Vault", comment: ""), nil)
-    _ = button(NSLocalizedString("Add to Library", comment: ""), prominent: true) {
-      [weak self] in self?.save(code: nil)
-    }
-    _ = button(NSLocalizedString("Add to Hidden Album", comment: "")) {
-      [weak self] in self?.askCode()
-    }
-    _ = button(NSLocalizedString("Cancel", comment: "")) { [weak self] in
-      self?.context?.cancelRequest(withError: CocoaError(.userCancelled))
-    }
-  }
-
   /// Once, in the clear: the digits stay visible so a typo can be seen and
   /// fixed before Hide — every code opens *an* album, so a wrong one hides
   /// the photos somewhere nobody will look.
@@ -143,9 +130,9 @@ final class SharePanel: UIViewController, UITextFieldDelegate {
       self?.save(code: code)
     }
     hideButton?.isEnabled = false
-    _ = button(NSLocalizedString("Back", comment: "")) { [weak self] in
+    _ = button(NSLocalizedString("Cancel", comment: "")) { [weak self] in
       self?.view.endEditing(true)
-      self?.showChoice()
+      self?.context?.cancelRequest(withError: CocoaError(.userCancelled))
     }
     codeField.becomeFirstResponder()
   }
@@ -160,7 +147,7 @@ final class SharePanel: UIViewController, UITextFieldDelegate {
     hideButton?.isEnabled = codeField.text?.count == 4
   }
 
-  private func save(code: String?) {
+  private func save(code: String) {
     saving = true
     reset(NSLocalizedString("Saving…", comment: ""), nil)
     let spinner = UIActivityIndicatorView(style: .large)
@@ -169,7 +156,7 @@ final class SharePanel: UIViewController, UITextFieldDelegate {
     Task { await finish(code: code) }
   }
 
-  private func finish(code: String?) async {
+  private func finish(code: String) async {
     let providers = (context?.inputItems as? [NSExtensionItem] ?? [])
       .flatMap { $0.attachments ?? [] }
     let saved = await ShareInbox.saveBatch(providers, code: code)
@@ -184,9 +171,7 @@ final class SharePanel: UIViewController, UITextFieldDelegate {
     } else {
       reset(
         String.localizedStringWithFormat(NSLocalizedString("Saved %d", comment: ""), saved),
-        code == nil
-          ? NSLocalizedString("They'll be in your library next time you open Photos Vault.", comment: "")
-          : NSLocalizedString("They'll be hidden next time you open Photos Vault.", comment: "")
+        NSLocalizedString("They'll be hidden next time you open Photos Vault.", comment: "")
       )
     }
     try? await Task.sleep(nanoseconds: saved == 0 ? 2_500_000_000 : 1_200_000_000)
@@ -205,7 +190,7 @@ enum ShareInbox {
 
   /// One folder per share plus `<batch>.json` naming where it goes,
   /// written last: the app takes a batch only once its manifest exists.
-  static func saveBatch(_ providers: [NSItemProvider], code: String?) async -> Int {
+  static func saveBatch(_ providers: [NSItemProvider], code: String) async -> Int {
     guard let inbox = directory() else { return 0 }
     let batch = UUID().uuidString
     let folder = inbox.appendingPathComponent(batch, isDirectory: true)
@@ -214,11 +199,11 @@ enum ShareInbox {
     for provider in providers {
       if await copy(provider, into: folder) { saved += 1 }
     }
-    guard saved > 0, code == nil || storeCode(code!, ref: batch) else {
+    guard saved > 0, storeCode(code, ref: batch) else {
       try? FileManager.default.removeItem(at: folder)
       return 0
     }
-    let manifest: [String: Any] = ["destination": code == nil ? "library" : "hidden"]
+    let manifest: [String: Any] = ["destination": "hidden"]
     guard let data = try? JSONSerialization.data(withJSONObject: manifest),
           FileManager.default.createFile(
             atPath: inbox.appendingPathComponent("\(batch).json").path,

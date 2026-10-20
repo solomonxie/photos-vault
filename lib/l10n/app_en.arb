@@ -1773,7 +1773,6 @@
     }
   },
   "shareInboxBody": "Shared to this app from another app. They aren't in Photos.",
-  "shareInboxToLibrary": "Add to Library",
   "shareInboxToHidden": "Add to Hidden Album",
   "shareInboxLater": "Later",
   "shareInboxHidden": "{count, plural, one{1 item hidden.} other{{count} items hidden.}}",

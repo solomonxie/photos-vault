@@ -11,10 +11,10 @@ import 'manual_add.dart';
 
 /// What the share extension (`ios/ShareExtension/`) left in the App Group:
 /// photos and videos shared from Safari or any other app, waiting to be
-/// put in the library or a hidden album. Never via Photos.
+/// put in a hidden album. Never via Photos.
 ///
-/// The extension writes one folder per share and `<batch>.json` naming its
-/// destination, last; [fileBatches] files those without asking. A hidden
+/// The extension writes one folder per share and `<batch>.json`, last;
+/// [fileBatches] hides those without asking. A hidden
 /// batch's code waits in the Keychain until then. Loose files at the top
 /// ([pending]) are what [file] offers to put away by asking.
 ///
@@ -89,16 +89,16 @@ class ShareInbox {
         entry,
   ];
 
-  /// Every batch whose destination was chosen in the share sheet, filed.
-  /// A hidden batch whose code can't be read is spilled into the loose
-  /// files, so it is asked about instead of lost.
-  Future<({List<AssetRecord> library, List<AssetRecord> hidden})> fileBatches({
+  /// Every batch whose code was typed in the share sheet, hidden under it.
+  /// One without a readable code — or marked for the library by an older
+  /// build — is spilled into the loose files, so it is asked about instead
+  /// of lost or added in the clear.
+  Future<List<AssetRecord>> fileBatches({
     required Future<String> Function(String code) tagFor,
   }) async {
-    final library = <AssetRecord>[];
     final hidden = <AssetRecord>[];
     final dir = await _inbox();
-    if (dir == null) return (library: library, hidden: hidden);
+    if (dir == null) return hidden;
     final manifests = [
       await for (final entry in dir.list())
         if (entry is File && p.extension(entry.path) == '.json') entry,
@@ -112,17 +112,13 @@ class ShareInbox {
         final files = await folder.exists()
             ? await _filesIn(folder)
             : const <File>[];
-        if (destination == 'hidden') {
-          final code = await _readCode(ref);
-          if (code == null) {
-            for (final f in files) {
-              await f.rename(p.join(dir.path, p.basename(f.path)));
-            }
-          } else {
-            hidden.addAll(await _add(files, await tagFor(code)));
+        final code = destination == 'hidden' ? await _readCode(ref) : null;
+        if (code == null) {
+          for (final f in files) {
+            await f.rename(p.join(dir.path, p.basename(f.path)));
           }
         } else {
-          library.addAll(await _add(files, null));
+          hidden.addAll(await _add(files, await tagFor(code)));
         }
         if (await folder.exists() && (await _filesIn(folder)).isNotEmpty) {
           continue;
@@ -134,17 +130,17 @@ class ShareInbox {
         // Left for next time.
       }
     }
-    return (library: library, hidden: hidden);
+    return hidden;
   }
 
-  /// Adds every loose file, hidden under [passcodeHash] when given.
-  Future<List<AssetRecord>> file({String? passcodeHash}) async =>
+  /// Adds every loose file, hidden under [passcodeHash].
+  Future<List<AssetRecord>> file({required String passcodeHash}) async =>
       _add(await pending(), passcodeHash);
 
-  /// Born hidden when [passcodeHash] is given — never for a moment an
-  /// ordinary row a sync could send plain. A file whose bytes are already
-  /// another photo here is left to that photo and dropped from the inbox.
-  Future<List<AssetRecord>> _add(List<File> files, String? passcodeHash) async {
+  /// Born hidden — never for a moment an ordinary row a sync could send
+  /// plain. A file whose bytes are already another photo here is left to
+  /// that photo and dropped from the inbox.
+  Future<List<AssetRecord>> _add(List<File> files, String passcodeHash) async {
     final added = <AssetRecord>[];
     for (final file in files) {
       try {
@@ -153,7 +149,7 @@ class ShareInbox {
           passcodeHash: passcodeHash,
         );
         if (created.passcodeHash == passcodeHash) {
-          if (passcodeHash != null) await _plain.keep(created);
+          await _plain.keep(created);
           added.add(created);
         }
         await file.delete();

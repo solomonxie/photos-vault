@@ -63,14 +63,6 @@ void main() {
     expect((await shares.pending()).map((f) => p.basename(f.path)), ['a.jpg']);
   });
 
-  test('into the library: an ordinary row, inbox emptied', () async {
-    share('a.jpg', [1, 2, 3]);
-    final added = await shares.file();
-    expect(added, hasLength(1));
-    expect(added.single.passcodeHash, isNull);
-    expect(await shares.pending(), isEmpty);
-  });
-
   test('into a hidden album: born hidden, file under vault/plain', () async {
     share('a.jpg', [1, 2, 3]);
     final added = await shares.file(passcodeHash: 'tag');
@@ -87,18 +79,19 @@ void main() {
     final none = ShareInbox(store: store, inboxPath: () async => null);
     expect(await none.pending(), isEmpty);
   });
-  test('a library batch is filed without asking', () async {
+  test('a library batch from an older build is asked about, never added '
+      'in the clear', () async {
     batch('b1', 'library', [1, 2, 3]);
-    final filed = await shares.fileBatches(tagFor: tagFor);
-    expect(filed.library.single.passcodeHash, isNull);
-    expect(inbox.listSync(), isEmpty);
+    expect(await shares.fileBatches(tagFor: tagFor), isEmpty);
+    expect(await shares.pending(), hasLength(1));
+    expect(await store.listAll(), isEmpty);
   });
 
   test('a hidden batch is hidden under its code, which is forgotten', () async {
     batch('b2', 'hidden', [4, 5, 6]);
     codes['b2'] = '1234';
     final filed = await shares.fileBatches(tagFor: tagFor);
-    expect(filed.hidden.single.passcodeHash, 'tag-1234');
+    expect(filed.single.passcodeHash, 'tag-1234');
     expect(codes, isEmpty);
     expect(inbox.listSync(), isEmpty);
   });
@@ -106,7 +99,7 @@ void main() {
   test('a hidden batch without its code is asked about, not lost', () async {
     batch('b3', 'hidden', [7, 8, 9]);
     final filed = await shares.fileBatches(tagFor: tagFor);
-    expect(filed.hidden, isEmpty);
+    expect(filed, isEmpty);
     expect(await shares.pending(), hasLength(1));
   });
 
@@ -114,7 +107,7 @@ void main() {
     Directory(p.join(inbox.path, 'b4')).createSync();
     File(p.join(inbox.path, 'b4', 'a.jpg')).writeAsBytesSync([1]);
     final filed = await shares.fileBatches(tagFor: tagFor);
-    expect(filed.library, isEmpty);
+    expect(filed, isEmpty);
     expect(Directory(p.join(inbox.path, 'b4')).existsSync(), isTrue);
   });
 }
