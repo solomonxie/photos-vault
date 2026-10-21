@@ -5,6 +5,8 @@ import '../l10n/app_localizations.dart';
 import '../photos/asset_removal.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/note.dart';
+import 'album_notes.dart';
 import 'asset_grid.dart';
 import 'built_in_album.dart';
 import 'asset_grid_view.dart';
@@ -14,9 +16,16 @@ import 'library_index.dart';
 import 'zoom_page_route.dart';
 
 class FavoritesScreen extends StatefulWidget {
-  const FavoritesScreen({super.key, required this.assetRecordStore});
+  const FavoritesScreen({
+    super.key,
+    required this.assetRecordStore,
+    this.notes,
+  });
 
   final AssetRecordStore assetRecordStore;
+
+  /// Its notes, as an album's: under its built-in id.
+  final NoteBook? notes;
 
   @override
   State<FavoritesScreen> createState() => _FavoritesScreenState();
@@ -114,15 +123,29 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
       ),
       child: SafeArea(
         child: _records.isEmpty
-            ? Center(
-                child: Text(
-                  l10n.libraryFavoritesEmpty,
-                  style: const TextStyle(color: CupertinoColors.systemGrey),
-                ),
+            ? ListView(
+                children: [
+                  Padding(
+                    padding: const EdgeInsets.only(top: 32),
+                    child: Center(
+                      child: Text(
+                        l10n.libraryFavoritesEmpty,
+                        style: const TextStyle(
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ),
+                    ),
+                  ),
+                  if (widget.notes case final notes?) AlbumNotes(book: notes),
+                ],
               )
             : AssetGridView(
                 records: _records,
                 onTap: _open,
+                trailingSlivers: [
+                  if (widget.notes case final notes?)
+                    SliverToBoxAdapter(child: AlbumNotes(book: notes)),
+                ],
                 actionsFor: (r) => [
                   TileAction(
                     icon: CupertinoIcons.heart_slash,

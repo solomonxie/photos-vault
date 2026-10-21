@@ -8,6 +8,8 @@ import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
 import '../photos/record_fixer.dart';
 import '../storage/album_store.dart';
+import '../storage/note.dart';
+import '../viewer/built_in_album.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/membership_sweep.dart';
@@ -95,7 +97,8 @@ class AppSnapshot {
     return SnapshotSummary(
       photos: photos,
       people: people.length,
-      albums: albums.length,
+      // Built-in albums' notes ride as rows; they aren't albums restored.
+      albums: albums.where((a) => a['builtIn'] != true).length,
     );
   }
 
@@ -259,6 +262,19 @@ class AppSnapshotIo {
         'id': album.id,
         'name': album.name,
         'createdAt': album.createdAt.toIso8601String(),
+        'notes': [
+          for (final note in await albumStore.notes(album.id)) _noteRow(note),
+        ],
+      });
+    }
+    // Built-in albums aren't rows, but their notes are kept like an album's.
+    for (final builtIn in BuiltInAlbum.values) {
+      final notes = await albumStore.notes(builtIn.id);
+      if (notes.isEmpty) continue;
+      albums.add({
+        'id': builtIn.id,
+        'builtIn': true,
+        'notes': [for (final note in notes) _noteRow(note)],
         'localIds': shown(albumMembers[album.id] ?? const <String>[]),
       });
     }
@@ -584,8 +600,19 @@ class AppSnapshotIo {
   }
 
   // ----------------------------------------------------------------- albums
+  static Map<String, Object?> _noteRow(Note note) => {
+    'id': note.id,
+    'text': note.text,
+    'createdAt': note.createdAt.toIso8601String(),
+    'updatedAt': note.updatedAt.toIso8601String(),
+  };
+
 
   Future<void> _importAlbum(Map<String, Object?> row) async {
+    if (id != null && row['builtIn'] == true) {
+      await _importNotes(id, row);
+      return;
+    }
     final id = row['id'] as String?;
     final name = row['name'] as String?;
     if (id == null || name == null) return;
@@ -594,6 +621,28 @@ class AppSnapshotIo {
     await albumStore.upsert(id: id, name: name);
     final localIds = (row['localIds'] as List<dynamic>? ?? const [])
         .cast<String>();
+    await _importNotes(id, row);
+  }
+
+  Future<void> _importNotes(String id, Map<String, Object?> row) async {
+    for (final note in _rowsOf(row['notes'])) {
+      final noteId = note['id'] as String?;
+      final text = note['text'] as String?;
+      if (noteId == null || text == null) continue;
+      final created =
+          DateTime.tryParse(note['createdAt'] as String? ?? '') ??
+          DateTime.now();
+      await albumStore.putNote(
+        id,
+        Note(
+          id: noteId,
+          text: text,
+          createdAt: created,
+          updatedAt:
+              DateTime.tryParse(note['updatedAt'] as String? ?? '') ?? created,
+        ),
+      );
+    }
     if (localIds.isNotEmpty) await albumStore.addAssets(id, localIds);
   }
 

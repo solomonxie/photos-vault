@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
-import 'package:intl/intl.dart';
+import 'package:flutter/services.dart';
 
 import '../photos/derived_asset.dart';
 import '../l10n/app_localizations.dart';
@@ -17,6 +17,7 @@ import '../vault/gallery.dart';
 import '../main.dart' show screenshotRequest;
 import '../vault/filed_photos.dart';
 import '../vault/hidden_notes.dart';
+import 'album_notes.dart';
 import '../vault/object_key.dart';
 import '../vault/hidden_removal.dart';
 import '../vault/hidden_repair.dart';
@@ -29,6 +30,7 @@ import '../upload/bucket_import.dart';
 import '../vault/hidden_bucket_scan.dart';
 import '../vault/hidden_migration.dart';
 import '../vault/keys.dart';
+import '../vault/passcode_tags.dart';
 import '../vault/store.dart';
 import '../vault/photo_screen.dart';
 import 'asset_grid.dart';
@@ -109,7 +111,6 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     _reload();
     _loadFromBucket();
     _loadTarget();
-    _loadNotes();
     _loadRepairs();
     _watchBackup();
     _screenshotHook();
@@ -152,172 +153,10 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
   late final HiddenNotes? _notesStore = widget.albumKeys == null
       ? null
       : HiddenNotes(store: widget.assetRecordStore, keys: widget.albumKeys!);
-  List<HiddenNote> _notes = const [];
-
-  Future<void> _loadNotes() async {
-    final notes = await _notesStore?.list() ?? const <HiddenNote>[];
-    if (mounted) setState(() => _notes = notes);
-  }
-
-  /// Add with no [note]; edit or delete with one.
-  Future<void> _editNote([HiddenNote? note]) async {
-    final store = _notesStore;
-    if (store == null) return;
-    final l10n = AppLocalizations.of(context)!;
-    final controller = TextEditingController(text: note?.text ?? '');
-    final action = await showCupertinoModalPopup<String>(
-      context: context,
-      builder: (sheetContext) => Padding(
-        padding: EdgeInsets.only(
-          bottom: MediaQuery.viewInsetsOf(sheetContext).bottom,
-        ),
-        child: Container(
-          decoration: const BoxDecoration(
-            color: Color(0xFF1C1C1E),
-            borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
-          ),
-          child: SafeArea(
-            top: false,
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Column(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Row(
-                    children: [
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: () => Navigator.of(sheetContext).pop(),
-                        child: Text(l10n.actionCancel),
-                      ),
-                      Expanded(
-                        child: Text(
-                          note == null
-                              ? l10n.hiddenNotesAdd
-                              : l10n.hiddenNotesEdit,
-                          textAlign: TextAlign.center,
-                          style: const TextStyle(
-                            color: CupertinoColors.white,
-                            fontWeight: FontWeight.w600,
-                          ),
-                        ),
-                      ),
-                      CupertinoButton(
-                        padding: EdgeInsets.zero,
-                        onPressed: () => Navigator.of(sheetContext).pop('save'),
-                        child: Text(l10n.settingsSaveButton),
-                      ),
-                    ],
-                  ),
-                  CupertinoTextField(
-                    key: const ValueKey('hiddenNoteField'),
-                    controller: controller,
-                    autofocus: true,
-                    minLines: 4,
-                    maxLines: 10,
-                    placeholder: l10n.hiddenNotesPlaceholder,
-                  ),
-                  if (note != null)
-                    CupertinoButton(
-                      onPressed: () => Navigator.of(sheetContext).pop('delete'),
-                      child: Text(
-                        l10n.actionDelete,
-                        style: const TextStyle(
-                          color: CupertinoColors.systemRed,
-                        ),
-                      ),
-                    ),
-                ],
-              ),
-            ),
-          ),
-        ),
-      ),
-    );
-    final text = controller.text.trim();
-    controller.dispose();
-    if (action == 'save' && text.isNotEmpty) {
-      await store.save(text, existing: note);
-    } else if (action == 'delete' && note != null) {
-      await store.delete(note.id);
-    } else {
-      return;
-    }
-    await _loadNotes();
-  }
-
   Widget _notesSliver(AppLocalizations l10n) {
-    if (_notesStore == null) {
-      return const SliverToBoxAdapter(child: SizedBox.shrink());
-    }
-    const grey = TextStyle(fontSize: 12, color: CupertinoColors.systemGrey);
+    final book = _notesStore;
     return SliverToBoxAdapter(
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(20, 28, 20, 0),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.start,
-          children: [
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    l10n.hiddenNotesTitle.toUpperCase(),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      letterSpacing: 0.4,
-                      color: CupertinoColors.systemGrey,
-                    ),
-                  ),
-                ),
-                CupertinoButton(
-                  key: const ValueKey('hiddenNoteAdd'),
-                  padding: EdgeInsets.zero,
-                  minimumSize: Size.zero,
-                  onPressed: _editNote,
-                  child: const Icon(CupertinoIcons.add_circled, size: 22),
-                ),
-              ],
-            ),
-            const SizedBox(height: 8),
-            if (_notes.isEmpty)
-              Text(l10n.hiddenNotesEmpty, style: grey)
-            else
-              for (final note in _notes)
-                GestureDetector(
-                  behavior: HitTestBehavior.opaque,
-                  onTap: () => _editNote(note),
-                  child: Container(
-                    width: double.infinity,
-                    margin: const EdgeInsets.only(bottom: 8),
-                    padding: const EdgeInsets.all(12),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF2C2C2E),
-                      borderRadius: BorderRadius.circular(10),
-                    ),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        Text(
-                          note.text,
-                          maxLines: 6,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 15,
-                            color: CupertinoColors.white,
-                          ),
-                        ),
-                        const SizedBox(height: 6),
-                        Text(
-                          DateFormat.yMMMd().add_jm().format(note.updatedAt),
-                          style: grey,
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
-          ],
-        ),
-      ),
+      child: book == null ? const SizedBox.shrink() : AlbumNotes(book: book),
     );
   }
 
@@ -609,8 +448,10 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     if (!mounted) return;
     // Binned ones too: a hidden photo never shows in Recently Deleted, so
     // one binned by an older build is reachable only from here.
-    final records = all.toList()
-      ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    final records = [
+      for (final r in all)
+        if (!_removing.contains(r.localId)) r,
+    ]..sort((a, b) => a.createdAt.compareTo(b.createdAt));
     if (records.isNotEmpty) _keepAlbum();
     setState(() {
       _loaded = true;
@@ -800,25 +641,52 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     List<AssetRecord> records = const [],
     List<IndexEntry> entries = const [],
     Map<String, String> replacedBy = const {},
+    bool ask = true,
   }) async {
     final count = records.length + entries.length;
-    if (count == 0 || !await _confirmHiddenDelete(count)) return false;
+    if (count == 0) return false;
+    if (ask && !await _confirmHiddenDelete(count)) return false;
     _dropFromView(records: records, entries: entries);
-    final done = await _removal.delete(
-      keys: widget.albumKeys,
-      records: records,
-      entries: entries,
-      passphrases: _passphrases,
-      replacedBy: replacedBy,
+    _removing.addAll(records.map((r) => r.localId));
+    // Not awaited: the bucket side takes seconds, and the viewer that
+    // asked was left showing a photo already gone from the grid until it
+    // finished. One at a time; a failure puts the photos back and says so.
+    _deleting = _deleting.then(
+      (_) => _finishDelete(records, entries, replacedBy),
+      onError: (_) {},
     );
-    if (!mounted) return done;
+    return true;
+  }
+
+  Future<void> _deleting = Future.value();
+
+  /// Deletes still under way: their rows exist until the bucket side is
+  /// done, and a reload in between must not bring them back.
+  final Set<String> _removing = {};
+
+  Future<void> _finishDelete(
+    List<AssetRecord> records,
+    List<IndexEntry> entries,
+    Map<String, String> replacedBy,
+  ) async {
+    var done = false;
+    try {
+      done = await _removal.delete(
+        keys: widget.albumKeys,
+        records: records,
+        entries: entries,
+        passphrases: _passphrases,
+        replacedBy: replacedBy,
+      );
+    } catch (_) {}
+    _removing.removeAll(records.map((r) => r.localId));
+    if (!mounted) return;
     await _reload();
     // The bucket-side listing only changes when a filed photo went.
     if (entries.isNotEmpty) await _refreshCloud();
     if (!done && mounted) {
       await _say(AppLocalizations.of(context)!.hiddenDeleteFailed);
     }
-    return done;
   }
 
   /// Off the grid and out of the selection at once — the delete itself
@@ -882,6 +750,113 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       };
     });
     await _reloadHoldings();
+  }
+
+  /// Into another hidden album, named by its code — typed once, in the
+  /// clear, so a typo is seen before Move. Each photo is re-encrypted
+  /// under the other album's key by the backup; its copies under this one
+  /// go only once that's in every bucket.
+  Future<void> _moveSelected() async {
+    final l10n = AppLocalizations.of(context)!;
+    final code = await _askMoveCode(l10n);
+    if (code == null || !mounted) return;
+    final tag = await PasscodeTags(records: widget.assetRecordStore)
+        .tagFor(code);
+    if (!mounted) return;
+    if (tag == widget.passcodeHash) {
+      await _showNote(l10n.hiddenMoveSameAlbum);
+      return;
+    }
+    final from = widget.albumKeys;
+    final vault = widget.vaultKeys;
+    final to = vault == null ? null : await vault.unlockAlbum(code, tag);
+    if (!mounted) return;
+    // Its carriers here can only be retired once it has one there.
+    if (from != null && to == null) {
+      await _showNote(l10n.hiddenMoveNoKey);
+      return;
+    }
+    final ids = _selectedIds.toList();
+    setState(() => _busy = true);
+    var moved = 0;
+    try {
+      for (final id in ids) {
+        final record = await widget.assetRecordStore.getByLocalId(id);
+        if (record == null || record.passcodeHash != widget.passcodeHash) {
+          continue;
+        }
+        final ok = await _transition.moveRecord(
+          record,
+          from: from,
+          to: tag,
+          unlist: from == null || !isAdopted(record)
+              ? null
+              : (r) => _removal.unlistRecords(from, [
+                  r,
+                ], passphrases: _passphrases),
+        );
+        if (ok) moved++;
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    await vault?.keepAlbum(tag);
+    unawaited(PrivateAlbumScreen.hiddenBackup?.run());
+    if (!mounted) return;
+    _exitSelectMode();
+    await _reload();
+    if (!mounted) return;
+    final failed = ids.length - moved;
+    await _showNote(
+      failed > 0 ? l10n.hiddenMoveFailed(failed) : l10n.hiddenMoveDone(moved),
+    );
+  }
+
+  Future<String?> _askMoveCode(AppLocalizations l10n) async {
+    final controller = TextEditingController();
+    final code = await showCupertinoDialog<String>(
+      context: context,
+      builder: (dialogContext) => StatefulBuilder(
+        builder: (dialogContext, setDialog) => CupertinoAlertDialog(
+          title: Text(l10n.hiddenMoveTitle),
+          content: Padding(
+            padding: const EdgeInsets.only(top: 12),
+            child: Column(
+              children: [
+                Text(l10n.hiddenMoveBody),
+                const SizedBox(height: 12),
+                CupertinoTextField(
+                  key: const ValueKey('hiddenMoveCode'),
+                  controller: controller,
+                  autofocus: true,
+                  keyboardType: TextInputType.number,
+                  textAlign: TextAlign.center,
+                  maxLength: 4,
+                  inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+                  style: const TextStyle(fontSize: 24, letterSpacing: 8),
+                  onChanged: (_) => setDialog(() {}),
+                ),
+              ],
+            ),
+          ),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(dialogContext).pop(),
+              child: Text(l10n.actionCancel),
+            ),
+            CupertinoDialogAction(
+              isDefaultAction: true,
+              onPressed: controller.text.length == 4
+                  ? () => Navigator.of(dialogContext).pop(controller.text)
+                  : null,
+              child: Text(l10n.hiddenMoveAction),
+            ),
+          ],
+        ),
+      ),
+    );
+    controller.dispose();
+    return code;
   }
 
   Future<void> _deleteSelected() async {
@@ -1061,7 +1036,12 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
               assetRecordStore: widget.assetRecordStore,
               onDelete: _delete,
               onReplaceWithCopies: (originals, copies) =>
-                  _deleteHidden(records: originals, replacedBy: copies),
+                  // Replace Original was the answer; no second question.
+                  _deleteHidden(
+                    records: originals,
+                    replacedBy: copies,
+                    ask: false,
+                  ),
             ),
           ),
         )
@@ -1850,6 +1830,18 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                                 _selectedIds.length,
                               ),
                             ),
+                          ),
+                        ),
+                        const SizedBox(width: 8),
+                        CupertinoButton(
+                          key: const ValueKey('hiddenMoveButton'),
+                          color: const Color(0xFF2C2C2E),
+                          onPressed: _selectedIds.isEmpty || _busy
+                              ? null
+                              : _moveSelected,
+                          child: Semantics(
+                            label: l10n.hiddenMoveTitle,
+                            child: const Icon(CupertinoIcons.folder),
                           ),
                         ),
                         const SizedBox(width: 8),

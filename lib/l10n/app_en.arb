@@ -1782,5 +1782,26 @@
         "type": "int"
       }
     }
+  },
+  "hiddenMoveTitle": "Move to Another Hidden Album",
+  "hiddenMoveBody": "Enter the other album's 4-digit code.",
+  "hiddenMoveAction": "Move",
+  "hiddenMoveSameAlbum": "That's this album's code.",
+  "hiddenMoveNoKey": "Couldn't open that album here. Set up the hidden-album passphrase first.",
+  "hiddenMoveDone": "{count, plural, one{Moved 1 item.} other{Moved {count} items.}}",
+  "@hiddenMoveDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
+  "hiddenMoveFailed": "{count, plural, one{1 item couldn't be moved.} other{{count} items couldn't be moved.}}",
+  "@hiddenMoveFailed": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
   }
 }

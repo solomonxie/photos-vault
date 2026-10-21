@@ -44,6 +44,7 @@ import '../photos/smaller_export.dart';
 import 'resize_photos.dart';
 import 'encoded_image_size.dart';
 import 'gif_view.dart';
+import 'link_text.dart';
 import 'live_photo_view.dart';
 import 'motion_playback.dart';
 import 'photo_edit_screen.dart';
@@ -2590,6 +2591,12 @@ class _InfoPanelState extends State<_InfoPanel> {
                 ),
               CupertinoListTile(
                 title: Text(l10n.detailInfoStatus),
+          // A link in the caption (where a photo shared from Safari keeps
+          // its page) opens in the browser; the field itself only edits.
+          ValueListenableBuilder(
+            valueListenable: _description,
+            builder: (_, value, _) => LinkList(value.text),
+          ),
                 additionalInfo: Text(
                   [
                     _statusLabel(

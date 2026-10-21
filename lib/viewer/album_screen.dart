@@ -12,6 +12,7 @@ import 'asset_picker_screen.dart';
 import 'asset_grid_view.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
+import 'album_notes.dart';
 import 'private_album_gate.dart';
 import 'search_picker_sheet.dart';
 import 'zoom_page_route.dart';
@@ -42,6 +43,9 @@ class _AlbumScreenState extends State<AlbumScreen> {
     text: widget.album.description,
   );
   List<AssetRecord> _records = const [];
+  late final Widget _notes = AlbumNotes(
+    book: widget.albumStore.noteBook(widget.album.id),
+  );
 
   @override
   void initState() {
@@ -204,6 +208,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
             ? ListView(
                 children: [
                   _header(l10n),
+                  _notes,
                   Padding(
                     padding: const EdgeInsets.only(top: 32),
                     child: Center(
@@ -222,6 +227,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
                 onTap: _open,
                 onAdd: _addPhotos,
                 leadingSlivers: [SliverToBoxAdapter(child: _header(l10n))],
+                trailingSlivers: [SliverToBoxAdapter(child: _notes)],
                 actionsFor: (r) => [
                   TileAction(
                     icon: r.isFavorite

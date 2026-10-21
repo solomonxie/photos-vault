@@ -1,5 +1,6 @@
 import 'package:photos_vault/storage/album.dart';
 import 'package:photos_vault/storage/album_store.dart';
+import 'package:photos_vault/storage/note.dart';
 
 /// Pure-Dart, in-memory stand-in for [AlbumStore] — for widget tests, same
 /// rationale as `fake_asset_record_store.dart`: keeps real `sqflite_common_ffi`
@@ -7,6 +8,26 @@ import 'package:photos_vault/storage/album_store.dart';
 class FakeAlbumStore implements AlbumStore {
   final _albums = <String, Album>{};
   final _members = <String, Set<String>>{};
+  final _notes = <String, Map<String, Note>>{};
+
+  @override
+  Future<List<Note>> notes(String albumId) async =>
+      (_notes[albumId]?.values.toList() ?? <Note>[])
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+
+  @override
+  Future<void> putNote(String albumId, Note note) async =>
+      (_notes[albumId] ??= {})[note.id] = note;
+
+  @override
+  Future<void> removeNote(String id) async {
+    for (final notes in _notes.values) {
+      notes.remove(id);
+    }
+  }
+
+  @override
+  NoteBook noteBook(String albumId) => AlbumNoteBook(this, albumId);
 
   @override
   Future<void> close() async {}
@@ -83,6 +104,7 @@ class FakeAlbumStore implements AlbumStore {
   Future<void> remove(String albumId) async {
     _albums.remove(albumId);
     _members.remove(albumId);
+    _notes.remove(albumId);
   }
 
   /// No log: these fakes are maps. `LocalVault` reads it as "nothing to

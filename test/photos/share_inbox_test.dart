@@ -110,4 +110,17 @@ void main() {
     expect(filed, isEmpty);
     expect(Directory(p.join(inbox.path, 'b4')).existsSync(), isTrue);
   });
+
+  test('the page it was shared from becomes its caption', () async {
+    Directory(p.join(inbox.path, 'b5')).createSync();
+    File(p.join(inbox.path, 'b5', 'x.jpg')).writeAsBytesSync([9, 9, 9]);
+    File(p.join(inbox.path, 'b5.json')).writeAsStringSync(
+      '{"destination":"hidden","sources":{"x.jpg":'
+      '{"title":"Kyoto temples","url":"https://example.com/kyoto"}}}',
+    );
+    codes['b5'] = '1234';
+    final filed = await shares.fileBatches(tagFor: tagFor);
+    final row = await store.getByLocalId(filed.single.localId);
+    expect(row!.description, 'Kyoto temples\nhttps://example.com/kyoto');
+  });
 }

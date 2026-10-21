@@ -181,4 +181,39 @@ void main() {
 
     expect(await albumStore.localIdsIn('a1'), ['manual:free']);
   });
+
+  testWidgets('notes show below the photos, and with none', (tester) async {
+    final recordStore = FakeAssetRecordStore();
+    final albumStore = FakeAlbumStore();
+    await recordStore.upsert(
+      localId: 'manual:in',
+      contentHash: 'in',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/in.jpg',
+    );
+    await albumStore.addAssets('a1', ['manual:in']);
+    await albumStore.noteBook('a1').save('See https://example.com');
+
+    await tester.pumpWidget(
+      _wrap(
+        AlbumScreen(
+          album: album,
+          assetRecordStore: recordStore,
+          albumStore: albumStore,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('hiddenNoteAdd')),
+      200,
+      scrollable: find.byType(Scrollable).first,
+    );
+    expect(find.byKey(const ValueKey('hiddenNoteAdd')), findsOneWidget);
+    expect(
+      find.textContaining('example.com', findRichText: true),
+      findsOneWidget,
+    );
+  });
 }

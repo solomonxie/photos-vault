@@ -1565,12 +1565,15 @@ class AssetRecordStore {
   /// Forgets every upload of [localId] and moves its journal entry to
   /// [step], in one write: a kill can't leave the keys half reset. With
   /// [unhide] the passcode hash is cleared in the same write, so no
-  /// upload ever sees the photo plain while it still names its carrier.
+  /// upload ever sees the photo plain while it still names its carrier;
+  /// with [moveTo] it becomes that album's, so its new album never
+  /// claims the old one's carriers as its own.
   Future<void> retractUploads(
     String localId, {
     required int step,
     String? payload,
     bool unhide = false,
+    String? moveTo,
   }) async {
     final db = await _open();
     await db.transaction((txn) async {
@@ -1589,7 +1592,7 @@ class AssetRecordStore {
           },
           'original_source': null,
           'has_edit': 0,
-          if (unhide) 'passcode_hash': null,
+          if (unhide) 'passcode_hash': null else 'passcode_hash': ?moveTo,
           'updated_at': DateTime.now().millisecondsSinceEpoch,
         },
         where: 'local_id = ?',

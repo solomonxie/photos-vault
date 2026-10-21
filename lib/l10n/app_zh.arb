@@ -1228,5 +1228,12 @@
   "shareInboxBody": "从其他应用分享到本应用，未存入“照片”。",
   "shareInboxToHidden": "添加到隐藏相簿",
   "shareInboxLater": "稍后",
-  "shareInboxHidden": "已隐藏 {count} 个项目。"
+  "shareInboxHidden": "已隐藏 {count} 个项目。",
+  "hiddenMoveTitle": "移到另一个隐藏相簿",
+  "hiddenMoveBody": "输入另一个相簿的 4 位密码。",
+  "hiddenMoveAction": "移动",
+  "hiddenMoveSameAlbum": "这是当前相簿的密码。",
+  "hiddenMoveNoKey": "无法在此打开该相簿。请先设置隐藏相簿的密语。",
+  "hiddenMoveDone": "已移动 {count} 个项目。",
+  "hiddenMoveFailed": "{count} 个项目未能移动。"
 }

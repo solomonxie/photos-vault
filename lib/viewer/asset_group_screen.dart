@@ -7,6 +7,8 @@ import '../l10n/app_localizations.dart';
 import '../photos/asset_removal.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/note.dart';
+import 'album_notes.dart';
 import 'asset_grid.dart';
 import 'built_in_album.dart';
 import 'asset_grid_view.dart';
@@ -26,7 +28,12 @@ class AssetGroupScreen extends StatefulWidget {
     required this.assetRecordStore,
     this.coverFor,
     this.dateOf = PhotoGridLayout.takenAt,
+    this.notes,
   });
+
+  /// A built-in album's notes, under its id; null for a place or People
+  /// group, which has no lasting id to keep them under.
+  final NoteBook? notes;
 
   /// See [PhotoGridLayout.dateOf].
   final DateTime Function(AssetRecord) dateOf;
@@ -144,6 +151,10 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
           records: _records,
           dateOf: widget.dateOf,
           onTap: _open,
+          trailingSlivers: [
+            if (widget.notes case final notes?)
+              SliverToBoxAdapter(child: AlbumNotes(book: notes)),
+          ],
           actionsFor: (r) => [
             TileAction(
               icon: r.isFavorite

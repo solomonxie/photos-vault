@@ -16,6 +16,7 @@ import 'hidden_removal.dart';
 import 'keys.dart';
 import 'object_key.dart';
 import 'plain_files.dart';
+import 'store.dart';
 
 /// The one owner of a photo going into or out of hiding.
 ///
@@ -32,6 +33,10 @@ import 'plain_files.dart';
 ///           → carriers deferred until the plain copy is up, hide holds
 ///             dropped
 ///         1 uploads reset and hash cleared (one write) → closed
+/// move    0 old album's carriers computed (before anything changes)
+///           → deferred until the new album's carrier is in every bucket
+///         1 uploads reset and hash set to the new album (one write)
+///           → old album's local carriers and thumbnail dropped → closed
 /// ```
 ///
 /// Nothing here deletes from a bucket. What it queues goes through the
@@ -44,7 +49,9 @@ class HiddenTransition {
     this.analysisStore,
     ThumbnailCache? thumbnails,
     PlainFiles? plainFiles,
-  }) : _pending = pendingDeletes ?? PendingDeletes(store: store),
+    VaultStore? vaultStore,
+  }) : _vaultStore = vaultStore ?? VaultStore(),
+       _pending = pendingDeletes ?? PendingDeletes(store: store),
        _thumbnails = thumbnails ?? ThumbnailCache(store: store),
        _plain = plainFiles ?? PlainFiles(store: store);
 
@@ -54,9 +61,11 @@ class HiddenTransition {
   final AiAnalysisStore? analysisStore;
   final ThumbnailCache _thumbnails;
   final PlainFiles _plain;
+  final VaultStore _vaultStore;
 
   static const hide = 'hide';
   static const unhide = 'unhide';
+  static const move = 'move';
 
   late final _holds = DeferredDeletes.untilCarrier(
     store: store,
@@ -114,6 +123,44 @@ class HiddenTransition {
     return true;
   }
 
+  /// Moves [record] from the album [from] opens to the one tagged [to]. Its
+  /// carriers under [from] are deleted only once it is backed up under
+  /// [to]'s key, which has to be on the ring by then. [unlist] takes an
+  /// adopted photo out of [from]'s index first; false there, a transition
+  /// already under way, or no full copy on this phone leaves it where it
+  /// is.
+  Future<bool> moveRecord(
+    AssetRecord record, {
+    required AlbumKeys? from,
+    required String to,
+    Future<bool> Function(AssetRecord record)? unlist,
+  }) async {
+    if (record.passcodeHash == null || record.passcodeHash == to) return false;
+    // Its full copy is only the old album's carrier: nothing here to make
+    // the new one from, and under the new name it couldn't fetch the old.
+    if (record.localDeleted || record.localOptimized) return false;
+    if (await _rowOf(record.localId) != null) return false;
+    if (unlist != null && !await unlist(record)) return false;
+    final fresh = await store.getByLocalId(record.localId) ?? record;
+    final tasks = await _carrierTasks(fresh, from);
+    final localCarriers = relativeCarrierKeys(fresh, from);
+    // `to` rides in the payload: step 1 needs it after a kill.
+    await store.openTransition(
+      record.localId,
+      move,
+      payload: jsonEncode({'to': to, 'tasks': jsonDecode(_encode(tasks))}),
+    );
+    await _advance((await _rowOf(record.localId))!);
+    // The old album's copy on this phone. Best-effort, not journaled: the
+    // keys that name it aren't kept, and a leftover only costs space.
+    if (from != null) {
+      try {
+        await _vaultStore.removeAll(from, localCarriers);
+      } catch (_) {}
+    }
+    return true;
+  }
+
   /// Finishes every transition a kill interrupted. Returns how many.
   Future<int> resume() async {
     var done = 0;
@@ -136,9 +183,11 @@ class HiddenTransition {
   Future<void> _advance(TransitionRow row) async {
     var at = row;
     while (true) {
-      final next = at.kind == hide
-          ? await _hideStep(at)
-          : await _unhideStep(at);
+      final next = switch (at.kind) {
+        hide => await _hideStep(at),
+        move => await _moveStep(at),
+        _ => await _unhideStep(at),
+      };
       if (next == null) return;
       at = next;
     }
@@ -193,6 +242,28 @@ class HiddenTransition {
         return TransitionRow(localId: id, kind: unhide, step: 1);
       default:
         await _settleFiles(() => _plain.release(id));
+        await store.closeTransition(id);
+        return null;
+    }
+  }
+
+  Future<TransitionRow?> _moveStep(TransitionRow row) async {
+    final id = row.localId;
+    final payload = jsonDecode(row.payload) as Map<String, dynamic>;
+    final to = payload['to'] as String;
+    switch (row.step) {
+      case 0:
+        await _deferred.add(id, _decode(jsonEncode(payload['tasks'])));
+        await store.retractUploads(id, step: 1, moveTo: to);
+        return TransitionRow(
+          localId: id,
+          kind: move,
+          step: 1,
+          payload: row.payload,
+        );
+      default:
+        final record = await store.getByLocalId(id);
+        if (record != null) await _thumbnails.remove(record);
         await store.closeTransition(id);
         return null;
     }

@@ -70,4 +70,22 @@ void main() {
 
     expect(albums.map((a) => a.id), ['a1', 'a2']);
   });
+
+  test('notes: newest first, edited in place, gone with the album', () async {
+    final store = newStore();
+    await store.upsert(id: 'a1', name: 'Kyoto');
+    final book = store.noteBook('a1');
+
+    final first = await book.save('Temple list');
+    await Future<void>.delayed(const Duration(milliseconds: 2));
+    await book.save('Trains');
+    await book.save('Temple list, day 2', existing: first);
+
+    final notes = await book.list();
+    expect(notes.map((n) => n.text), ['Trains', 'Temple list, day 2']);
+    expect(notes.last.createdAt, first.createdAt);
+
+    await store.remove('a1');
+    expect(await book.list(), isEmpty);
+  });
 }

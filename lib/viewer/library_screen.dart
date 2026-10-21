@@ -744,7 +744,12 @@ class LibraryScreenState extends State<LibraryScreen>
       case 'detail':
         if (_active.isNotEmpty) await _openRecord(_active.first);
       case 'favorites':
-        _push(FavoritesScreen(assetRecordStore: assetRecordStore));
+        _push(
+          FavoritesScreen(
+            assetRecordStore: assetRecordStore,
+            notes: _albumStore.noteBook(BuiltInAlbum.favorites.id),
+          ),
+        );
       case 'album':
         if (_albums.isNotEmpty) _openAlbum(_albums.first);
       case 'flagged' || 'flagged-action':
@@ -2895,6 +2900,7 @@ class LibraryScreenState extends State<LibraryScreen>
         title: l10n.albumsRecentlyAddedName,
         records: _recentlyAdded,
         assetRecordStore: assetRecordStore,
+        notes: _albumStore.noteBook(BuiltInAlbum.recentlyAdded.id),
         coverFor: BuiltInAlbum.recentlyAdded,
         dateOf: PhotoGridLayout.addedAt,
       ),
@@ -2907,6 +2913,7 @@ class LibraryScreenState extends State<LibraryScreen>
       AssetGroupScreen(
         title: l10n.albumsVideosName,
         records: _videos,
+        notes: _albumStore.noteBook(BuiltInAlbum.videos.id),
         assetRecordStore: assetRecordStore,
         coverFor: BuiltInAlbum.videos,
       ),
@@ -3256,7 +3263,10 @@ class LibraryScreenState extends State<LibraryScreen>
                   builtIn: BuiltInAlbum.favorites,
                   records: _favorites,
                   onTap: () => _push(
-                    FavoritesScreen(assetRecordStore: assetRecordStore),
+                    FavoritesScreen(
+                      assetRecordStore: assetRecordStore,
+                      notes: _albumStore.noteBook(BuiltInAlbum.favorites.id),
+                    ),
                   ),
                 ),
                 1 => _AlbumCard(

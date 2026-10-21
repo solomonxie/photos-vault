@@ -179,6 +179,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     required int step,
     String? payload,
     bool unhide = false,
+    String? moveTo,
   }) async {
     _maybeCrash('retract');
     await forgetUploads(localId);
@@ -187,6 +188,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     }
     await setHasEdit(localId, false);
     if (unhide) await setPasscodeHash(localId, null);
+    if (moveTo != null) await setPasscodeHash(localId, moveTo);
     final row = transitions[localId];
     if (row != null) {
       transitions[localId] = TransitionRow(

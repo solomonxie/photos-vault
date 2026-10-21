@@ -284,6 +284,72 @@ void main() {
       },
     );
   });
+
+  group('move', () {
+    final carrierB = 'p/originals/20190101000000_${'d' * 32}.jpg';
+
+    setUp(() async {
+      await records.setPasscodeHash('photo:a', 'h');
+      await uploaded('photo:a', _carrier);
+      bucket.objects[_carrier] = Uint8List.fromList(List.filled(60, 9));
+      bucket.objects.remove(_plain);
+    });
+
+    test('into the other album at once; the old carrier waits for the new '
+        "one to be proven", () async {
+      final record = (await records.getByLocalId('photo:a'))!;
+      expect(
+        await transition().moveRecord(record, from: null, to: 'h2'),
+        isTrue,
+      );
+
+      final after = (await records.getByLocalId('photo:a'))!;
+      expect(after.passcodeHash, 'h2');
+      expect(after.stateOf(DerivativeKind.original).destinationKey, isNull);
+      expect(records.transitions, isEmpty);
+
+      await sync();
+      expect(bucket.deleted, isEmpty);
+
+      await uploaded('photo:a', carrierB);
+      bucket.objects[carrierB] = Uint8List.fromList(List.filled(60, 8));
+      await sync();
+      expect(bucket.deleted, [_carrier]);
+      expect(bucket.objects, contains(carrierB));
+    });
+
+    test(
+      'a photo whose full copy is only in the bucket is not moved',
+      () async {
+        await records.setLocalDeleted('photo:a', true);
+        final record = (await records.getByLocalId('photo:a'))!;
+        expect(
+          await transition().moveRecord(record, from: null, to: 'h2'),
+          isFalse,
+        );
+        expect((await records.getByLocalId('photo:a'))!.passcodeHash, 'h');
+      },
+    );
+
+    test('a kill mid-way resumes into the right album', () async {
+      final record = (await records.getByLocalId('photo:a'))!;
+      records.crashAt = 'retract';
+      await expectLater(
+        transition().moveRecord(record, from: null, to: 'h2'),
+        throwsStateError,
+      );
+      expect((await records.getByLocalId('photo:a'))!.passcodeHash, 'h');
+
+      await transition().resume();
+
+      expect((await records.getByLocalId('photo:a'))!.passcodeHash, 'h2');
+      expect(records.transitions, isEmpty);
+      expect(
+        (await deferred().waiting())['photo:a']!.map((t) => t.objectKey),
+        contains(_carrier),
+      );
+    });
+  });
 }
 
 Uint8List _jpegCarrierLike() => buildJpegCarrier(

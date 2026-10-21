@@ -107,8 +107,11 @@ class ShareInbox {
       final ref = p.basenameWithoutExtension(manifest.path);
       final folder = Directory(p.join(dir.path, ref));
       try {
-        final destination =
-            (jsonDecode(await manifest.readAsString()) as Map)['destination'];
+        final json = jsonDecode(await manifest.readAsString()) as Map;
+        final destination = json['destination'];
+        final sources = json['sources'] is Map
+            ? json['sources'] as Map
+            : const {};
         final files = await folder.exists()
             ? await _filesIn(folder)
             : const <File>[];
@@ -118,7 +121,15 @@ class ShareInbox {
             await f.rename(p.join(dir.path, p.basename(f.path)));
           }
         } else {
-          hidden.addAll(await _add(files, await tagFor(code)));
+          final tag = await tagFor(code);
+          for (final f in files) {
+            final added = await _add([f], tag);
+            hidden.addAll(added);
+            final source = sources[p.basename(f.path)];
+            if (added.isNotEmpty && source is Map) {
+              await _caption(added.single, source);
+            }
+          }
         }
         if (await folder.exists() && (await _filesIn(folder)).isNotEmpty) {
           continue;
@@ -131,6 +142,17 @@ class ShareInbox {
       }
     }
     return hidden;
+  }
+
+  /// Where it was shared from — page title and address — as its caption,
+  /// unless it already has one (the same bytes shared before).
+  Future<void> _caption(AssetRecord record, Map source) async {
+    if (record.description.isNotEmpty) return;
+    final text = [
+      for (final key in const ['title', 'url'])
+        if (source[key] case final String v when v.trim().isNotEmpty) v.trim(),
+    ].join('\n');
+    if (text.isNotEmpty) await store.setDescription(record.localId, text);
   }
 
   /// Adds every loose file, hidden under [passcodeHash].

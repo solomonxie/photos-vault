@@ -4,22 +4,9 @@ import 'package:uuid/uuid.dart';
 
 import '../photos/person_detail.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/note.dart';
 import 'cipher.dart';
 import 'keys.dart';
-
-class HiddenNote {
-  const HiddenNote({
-    required this.id,
-    required this.text,
-    required this.createdAt,
-    required this.updatedAt,
-  });
-
-  final String id;
-  final String text;
-  final DateTime createdAt;
-  final DateTime updatedAt;
-}
 
 /// The notes kept in one hidden album.
 ///
@@ -27,7 +14,7 @@ class HiddenNote {
 /// stored in the clear: the text is sealed with the album key, and the row
 /// names its album by a tag keyed on that key rather than by the passcode
 /// hash. A wrong code derives another key, another tag, and no notes.
-class HiddenNotes {
+class HiddenNotes implements NoteBook {
   HiddenNotes({
     required this.store,
     required this.keys,
@@ -46,13 +33,14 @@ class HiddenNotes {
   );
 
   /// Newest first. A row these keys can't open is skipped, not shown.
-  Future<List<HiddenNote>> list() async {
+  @override
+  Future<List<Note>> list() async {
     final rows = await store.hiddenNoteRows(_tag);
     return [
       for (final row in rows)
         if (_seal.openJson(row['payload'] as String, keys)?['text']
             case final String text)
-          HiddenNote(
+          Note(
             id: row['id'] as String,
             text: text,
             createdAt: DateTime.fromMillisecondsSinceEpoch(
@@ -65,13 +53,13 @@ class HiddenNotes {
     ];
   }
 
-  /// Adds a note, or replaces [existing]'s text keeping its creation time.
-  Future<HiddenNote> save(String text, {HiddenNote? existing}) async {
+  @override
+  Future<Note> save(String text, {Note? existing}) async {
     // Milliseconds, as stored, so what this returns is what [list] reads.
     final now = DateTime.fromMillisecondsSinceEpoch(
       DateTime.now().millisecondsSinceEpoch,
     );
-    final note = HiddenNote(
+    final note = Note(
       id: existing?.id ?? _uuid.v4(),
       text: text,
       createdAt: existing?.createdAt ?? now,
@@ -87,5 +75,6 @@ class HiddenNotes {
     return note;
   }
 
+  @override
   Future<void> delete(String id) => store.removeHiddenNote(id);
 }

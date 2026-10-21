@@ -11,6 +11,7 @@ import '../backup/change_log.dart';
 import '../backup/database_copy.dart';
 import 'after_first_frame.dart';
 import 'album.dart';
+import 'note.dart';
 
 /// Local `sqflite` store for albums and their asset membership. Kept in its
 /// own db file (separate from `asset_record_store.dart`) — the two are
@@ -26,6 +27,18 @@ class AlbumStore {
 
   static const _albumTable = 'album';
   static const _memberTable = 'album_asset';
+  static const _noteTable = 'album_note';
+
+  static const _createNoteTableSql =
+      '''
+    CREATE TABLE $_noteTable (
+      id TEXT PRIMARY KEY,
+      album_id TEXT NOT NULL,
+      text TEXT NOT NULL,
+      created_at INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    )
+  ''';
 
   Future<Database>? _opening;
 
@@ -49,7 +62,7 @@ class AlbumStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onUpgrade: (db, oldVersion, newVersion) async {
           if (oldVersion < 2) {
             await db.execute(
@@ -64,6 +77,7 @@ class AlbumStore {
               'ALTER TABLE $_albumTable ADD COLUMN cover_local_id TEXT',
             );
           }
+          if (oldVersion < 4) await db.execute(_createNoteTableSql);
         },
         onCreate: (db, version) async {
           await db.execute('''
@@ -85,6 +99,7 @@ class AlbumStore {
               PRIMARY KEY (album_id, local_id)
             )
           ''');
+          await db.execute(_createNoteTableSql);
         },
       ),
     );
@@ -94,7 +109,7 @@ class AlbumStore {
     ); // Returns a row: execute fails on iOS.
     // After the migrations, never inside them: a trigger has to describe
     // the schema the app just finished upgrading to.
-    await installChangeLog(db, const [_albumTable, _memberTable]);
+    await installChangeLog(db, const [_albumTable, _memberTable, _noteTable]);
     await db.execute(
       'CREATE INDEX IF NOT EXISTS album_asset_local ON $_memberTable (local_id)',
     );
@@ -116,6 +131,7 @@ class AlbumStore {
     final db = await _open();
     final batch = db.batch()
       ..delete(_memberTable)
+      ..delete(_noteTable)
       ..delete(_albumTable)
       ..delete(changeLogTable);
     await batch.commit(noResult: true);
@@ -297,11 +313,55 @@ class AlbumStore {
     final db = await _open();
     final batch = db.batch()
       ..delete(_memberTable, where: 'album_id = ?', whereArgs: [albumId])
+      ..delete(_noteTable, where: 'album_id = ?', whereArgs: [albumId])
       ..delete(_albumTable, where: 'id = ?', whereArgs: [albumId]);
     await batch.commit(noResult: true);
   }
 
   String newId() => const Uuid().v4();
+
+  /// [albumId]'s notes, newest first.
+  Future<List<Note>> notes(String albumId) async {
+    final db = await _open();
+    final rows = await db.query(
+      _noteTable,
+      where: 'album_id = ?',
+      whereArgs: [albumId],
+      orderBy: 'created_at DESC',
+    );
+    return [
+      for (final row in rows)
+        Note(
+          id: row['id'] as String,
+          text: row['text'] as String,
+          createdAt: DateTime.fromMillisecondsSinceEpoch(
+            row['created_at'] as int,
+          ),
+          updatedAt: DateTime.fromMillisecondsSinceEpoch(
+            row['updated_at'] as int,
+          ),
+        ),
+    ];
+  }
+
+  Future<void> putNote(String albumId, Note note) async {
+    final db = await _open();
+    await db.insert(_noteTable, {
+      'id': note.id,
+      'album_id': albumId,
+      'text': note.text,
+      'created_at': note.createdAt.millisecondsSinceEpoch,
+      'updated_at': note.updatedAt.millisecondsSinceEpoch,
+    }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+  }
+
+  Future<void> removeNote(String id) async {
+    final db = await _open();
+    await db.delete(_noteTable, where: 'id = ?', whereArgs: [id]);
+  }
+
+  /// [albumId]'s notes as a [NoteBook].
+  NoteBook noteBook(String albumId) => AlbumNoteBook(this, albumId);
 
   /// Renames, re-describes and re-tags — the album's own metadata, none of
   /// which touches what's in it.
@@ -341,4 +401,33 @@ class AlbumStore {
         .cast<String>(),
     coverLocalId: row['cover_local_id'] as String?,
   );
+}
+
+class AlbumNoteBook implements NoteBook {
+  AlbumNoteBook(this._store, this._albumId);
+
+  final AlbumStore _store;
+  final String _albumId;
+
+  @override
+  Future<List<Note>> list() => _store.notes(_albumId);
+
+  @override
+  Future<Note> save(String text, {Note? existing}) async {
+    // Milliseconds, as stored, so what this returns is what [list] reads.
+    final now = DateTime.fromMillisecondsSinceEpoch(
+      DateTime.now().millisecondsSinceEpoch,
+    );
+    final note = Note(
+      id: existing?.id ?? _store.newId(),
+      text: text,
+      createdAt: existing?.createdAt ?? now,
+      updatedAt: now,
+    );
+    await _store.putNote(_albumId, note);
+    return note;
+  }
+
+  @override
+  Future<void> delete(String id) => _store.removeNote(id);
 }

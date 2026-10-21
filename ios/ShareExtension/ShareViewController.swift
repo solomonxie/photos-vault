@@ -157,9 +157,8 @@ final class SharePanel: UIViewController, UITextFieldDelegate {
   }
 
   private func finish(code: String) async {
-    let providers = (context?.inputItems as? [NSExtensionItem] ?? [])
-      .flatMap { $0.attachments ?? [] }
-    let saved = await ShareInbox.saveBatch(providers, code: code)
+    let items = context?.inputItems as? [NSExtensionItem] ?? []
+    let saved = await ShareInbox.saveBatch(items, code: code)
     if saved == 0 {
       reset(
         NSLocalizedString("Nothing saved", comment: ""),
@@ -190,20 +189,43 @@ enum ShareInbox {
 
   /// One folder per share plus `<batch>.json` naming where it goes,
   /// written last: the app takes a batch only once its manifest exists.
-  static func saveBatch(_ providers: [NSItemProvider], code: String) async -> Int {
+  static func saveBatch(_ items: [NSExtensionItem], code: String) async -> Int {
     guard let inbox = directory() else { return 0 }
     let batch = UUID().uuidString
     let folder = inbox.appendingPathComponent(batch, isDirectory: true)
     try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
-    var saved = 0
-    for provider in providers {
-      if await copy(provider, into: folder) { saved += 1 }
+    // Where each file came from, by file name: the app writes it into the
+    // photo's caption. No host app name: iOS doesn't give it to extensions.
+    var sources: [String: [String: String]] = [:]
+    for item in items {
+      let providers = item.attachments ?? []
+      let media = providers.filter(isMedia)
+      let title = (item.attributedTitle ?? item.attributedContentText)?.string
+        .trimmingCharacters(in: .whitespacesAndNewlines)
+      // A page shared along with its image is where the image came from,
+      // not something else to save.
+      var page: URL?
+      if !media.isEmpty {
+        for provider in providers where !isMedia(provider) {
+          if let url = await webURL(provider), !url.isFileURL {
+            page = url
+            break
+          }
+        }
+      }
+      for provider in media.isEmpty ? providers : media {
+        guard let saved = await copy(provider, into: folder) else { continue }
+        var source: [String: String] = [:]
+        if let url = saved.url ?? page { source["url"] = url.absoluteString }
+        if let title, !title.isEmpty { source["title"] = title }
+        sources[saved.name] = source
+      }
     }
-    guard saved > 0, storeCode(code, ref: batch) else {
+    guard !sources.isEmpty, storeCode(code, ref: batch) else {
       try? FileManager.default.removeItem(at: folder)
       return 0
     }
-    let manifest: [String: Any] = ["destination": "hidden"]
+    let manifest: [String: Any] = ["destination": "hidden", "sources": sources]
     guard let data = try? JSONSerialization.data(withJSONObject: manifest),
           FileManager.default.createFile(
             atPath: inbox.appendingPathComponent("\(batch).json").path,
@@ -213,7 +235,12 @@ enum ShareInbox {
       try? FileManager.default.removeItem(at: folder)
       return 0
     }
-    return saved
+    return sources.count
+  }
+
+  private static func isMedia(_ provider: NSItemProvider) -> Bool {
+    provider.registeredTypeIdentifiers.compactMap(UTType.init)
+      .contains { $0.conforms(to: .image) || $0.conforms(to: .movie) }
   }
 
   /// Read and deleted by `ShareInboxChannel.takeCode` in the app.
@@ -246,15 +273,21 @@ enum ShareInbox {
 
   /// The provider's own file where it has one (keeps HEIC, EXIF, GIF frames);
   /// a re-encoded JPEG only for apps that hand over a bare image.
-  static func copy(_ provider: NSItemProvider, into inbox: URL) async -> Bool {
+  /// The saved file's name, and the web address it was fetched from when
+  /// it came as one. Nil when nothing was saved.
+  static func copy(
+    _ provider: NSItemProvider,
+    into inbox: URL
+  ) async -> (name: String, url: URL?)? {
     let wanted = provider.registeredTypeIdentifiers.compactMap(UTType.init)
       .first { $0.conforms(to: .image) || $0.conforms(to: .movie) }
     guard let type = wanted else {
       // Safari hands some images over as their address only.
       guard provider.hasItemConformingToTypeIdentifier(UTType.url.identifier),
-            let url = await webURL(provider)
-      else { return false }
-      return await download(url, into: inbox)
+            let url = await webURL(provider),
+            let name = await download(url, into: inbox)
+      else { return nil }
+      return (name, url.isFileURL ? nil : url)
     }
     let name = UUID().uuidString
     if let url = await fileURL(provider, type) {
@@ -264,23 +297,24 @@ enum ShareInbox {
         : url.pathExtension
       // `.part` then rename, so the app never takes a half-written file.
       let part = inbox.appendingPathComponent("\(name).part")
-      let final = inbox.appendingPathComponent("\(name).\(ext.lowercased())")
+      let file = "\(name).\(ext.lowercased())"
       do {
         try FileManager.default.copyItem(at: url, to: part)
-        try FileManager.default.moveItem(at: part, to: final)
-        return true
+        try FileManager.default.moveItem(at: part, to: inbox.appendingPathComponent(file))
+        return (file, nil)
       } catch {
         try? FileManager.default.removeItem(at: part)
       }
     }
     guard type.conforms(to: .image),
           let image = await bareImage(provider, type),
-          let data = image.jpegData(compressionQuality: 0.92)
-    else { return false }
-    return FileManager.default.createFile(
-      atPath: inbox.appendingPathComponent("\(name).jpg").path,
-      contents: data
-    )
+          let data = image.jpegData(compressionQuality: 0.92),
+          FileManager.default.createFile(
+            atPath: inbox.appendingPathComponent("\(name).jpg").path,
+            contents: data
+          )
+    else { return nil }
+    return ("\(name).jpg", nil)
   }
 
   private static func webURL(_ provider: NSItemProvider) async -> URL? {
@@ -293,26 +327,27 @@ enum ShareInbox {
 
   /// Kept only when the server says it's an image or a video; a web page
   /// is refused, not saved.
-  private static func download(_ url: URL, into inbox: URL) async -> Bool {
+  private static func download(_ url: URL, into inbox: URL) async -> String? {
     if url.isFileURL {
       guard let type = UTType(filenameExtension: url.pathExtension),
             type.conforms(to: .image) || type.conforms(to: .movie)
-      else { return false }
+      else { return nil }
+      let file = "\(UUID().uuidString).\(url.pathExtension.lowercased())"
       return (try? FileManager.default.copyItem(
         at: url,
-        to: inbox.appendingPathComponent("\(UUID().uuidString).\(url.pathExtension.lowercased())")
-      )) != nil
+        to: inbox.appendingPathComponent(file)
+      )) != nil ? file : nil
     }
     guard ["http", "https"].contains(url.scheme?.lowercased() ?? ""),
           let (file, response) = try? await URLSession.shared.download(from: url)
             as (URL, URLResponse)?
-    else { return false }
+    else { return nil }
     defer { try? FileManager.default.removeItem(at: file) }
     guard let mime = response.mimeType,
           let type = UTType(mimeType: mime),
           type.conforms(to: .image) || type.conforms(to: .movie),
           let ext = type.preferredFilenameExtension
-    else { return false }
+    else { return nil }
     let name = UUID().uuidString
     let part = inbox.appendingPathComponent("\(name).part")
     do {
@@ -321,10 +356,10 @@ enum ShareInbox {
         at: part,
         to: inbox.appendingPathComponent("\(name).\(ext)")
       )
-      return true
+      return "\(name).\(ext)"
     } catch {
       try? FileManager.default.removeItem(at: part)
-      return false
+      return nil
     }
   }
 
