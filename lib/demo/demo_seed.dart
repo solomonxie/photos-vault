@@ -7,10 +7,8 @@ import 'package:flutter/services.dart' show rootBundle;
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
-import '../photos/ai_vendor.dart';
 import '../photos/image_pipeline.dart';
 import '../photos/person_store.dart';
-import '../settings/ai_settings_store.dart';
 import '../settings/backup_storage_type.dart';
 import '../settings/backup_targets_store.dart';
 import '../storage/album_store.dart';
@@ -26,7 +24,7 @@ import 'demo_images.dart';
 /// Fills the demo library from `demo/seed.json`, once. Only ever runs with
 /// [DemoFlag.active], so every store below opens the demo copy.
 ///
-/// Bucket and AI credentials come from `.env.demo`, compiled in by every
+/// Bucket credentials come from `.env.demo`, compiled in by every
 /// `make` build (`--dart-define-from-file`) and written only to the demo
 /// keychain; without them the demo works offline.
 class DemoSeed {
@@ -248,23 +246,8 @@ class DemoSeed {
           ),
         );
       }
-      const aiKey = String.fromEnvironment('DEMO_AI_API_KEY');
-      final ai = AiSettingsStore();
-      if (aiKey.isNotEmpty && (await ai.listKeys()).isEmpty) {
-        const vendor = String.fromEnvironment(
-          'DEMO_AI_VENDOR',
-          defaultValue: 'openai',
-        );
-        await ai.addKey(
-          AiVendor.values.firstWhere(
-            (v) => v.name == vendor,
-            orElse: () => AiVendor.openai,
-          ),
-          aiKey,
-        );
-      }
     } catch (_) {
-      // No keychain: the demo runs without a bucket or AI key.
+      // No keychain: the demo runs without a bucket.
     }
   }
 }

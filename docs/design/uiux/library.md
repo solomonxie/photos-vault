@@ -36,7 +36,7 @@ People / Places, then More. Opens at the **newest** photo.
  ┌─────────────────────────────────────────┐
  │ ▣ Cloud Settings                     ›  │
  │ ✦ Analyze Queue                    3 ›  │  ← count = answers waiting,
- │ ✨ AI Settings                        ›  │    not work left to do
+ │                                         │    not work left to do
  │                                         │    (the sync queue lives on
  │                                         │     Cloud Settings now)
  │ 👁⃠ Hidden                             ›  │  ← never a count
@@ -69,7 +69,6 @@ decade of scrolling away.
            └────────────────────────────────────────┘
            ← Albums/People/Places are not drawn; More still is
  busy      the ＋ button goes disabled while a pick is running
- ai edit   ⟳ AI working…            ← thin row under the nav bar
 ```
 
 ## Selection mode

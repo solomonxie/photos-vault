@@ -24,7 +24,7 @@ import 'private_album_gate.dart' show personHasHiddenFolder;
 import 'profile_transfer_screen.dart';
 
 /// Collections' "People" row: named [Person] profiles (T7.1-T7.3), each with
-/// a photo count, plus a link down to the older AI people-*count* grouping
+/// a photo count, plus a link down to the on-device people-*count* grouping
 /// for finding more faces to name. See IMPLEMENTATION_PLAN.md Phase 7.
 class PeopleScreen extends StatefulWidget {
   const PeopleScreen({

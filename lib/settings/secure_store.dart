@@ -33,6 +33,23 @@ abstract class Keychain {
   Future<Map<String, String>> readAll();
 }
 
+/// Keychain slots of the removed AI feature, deleted so no vendor key
+/// outlives it.
+const retiredAiKeyNames = [
+  'ai_keys_v1',
+  'ai_key_strategy_v1',
+  'ai_key_cursor_v1',
+  'openai_api_key_v1',
+];
+
+Future<void> forgetRetiredAiKeys([
+  SecureStore store = const FlutterSecureStore(),
+]) async {
+  for (final name in retiredAiKeyNames) {
+    await store.delete(name);
+  }
+}
+
 class PlatformKeychain implements Keychain {
   const PlatformKeychain();
 
@@ -74,7 +91,7 @@ class FlutterSecureStore implements SecureStore {
 
   static String currentName(String name) => '$name$currentSuffix';
 
-  /// Demo mode keeps its own keys: never the real buckets or AI keys.
+  /// Demo mode keeps its own keys: never the real buckets.
   static String _scoped(String key) => DemoFlag.active ? 'demo.$key' : key;
 
   /// Writes, deletes and the migration, one at a time: a migration copying

@@ -21,14 +21,12 @@ import '../photos/library_metadata.dart';
 import '../photos/derived_asset.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
-import '../photos/ai_analysis.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/face_crops.dart';
 import '../photos/face_identity.dart';
 import '../photos/on_device_analysis.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
-import '../photos/suggestion_review.dart';
 import '../photos/temp_renders.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/bucket_location.dart';
@@ -44,9 +42,9 @@ import '../photos/smaller_export.dart';
 import 'resize_photos.dart';
 import 'encoded_image_size.dart';
 import 'gif_view.dart';
-import 'link_text.dart';
 import 'live_photo_view.dart';
 import 'motion_playback.dart';
+import 'link_text.dart';
 import 'photo_edit_screen.dart';
 import 'person_picker_sheet.dart';
 import 'search_picker_sheet.dart';
@@ -180,9 +178,8 @@ class DetailScreen extends StatefulWidget {
   /// [OriginalRestore.restoreThumbnail]. Same defaulting, same reason.
   final Future<String?> Function(AssetRecord record)? restoreThumbnail;
 
-  /// Backs "Auto Suggest" / "AI Suggest" in the info panel. Both build
-  /// themselves on first use, so a test that doesn't tap them never
-  /// constructs a database or a platform channel.
+  /// Backs "Auto Suggest" in the info panel. Built on first use, so a test
+  /// that doesn't tap it never constructs a database or a platform channel.
   final OnDeviceAnalysisService? onDeviceAnalysis;
 
   @override
@@ -581,7 +578,7 @@ class _DetailScreenState extends State<DetailScreen> {
     }
     await _replaceOriginals([original], {original.localId: created.localId});
     if (!mounted) return;
-    // Looked up again: an AI edit lands seconds later, maybe after a swipe.
+    // Looked up again: the edit may land after a swipe.
     final at = _records.indexWhere((r) => r.localId == original.localId);
     setState(() {
       _records = [..._records];
@@ -1890,7 +1887,6 @@ class _InfoPanelState extends State<_InfoPanel> {
     _load();
     _loadPeopleThenFaces();
     _loadAlbums();
-    _loadSuggestion();
     _fillLocationFromMetadata();
   }
 
@@ -1919,7 +1915,6 @@ class _InfoPanelState extends State<_InfoPanel> {
       _faceGuesses = const [];
       _loadPeopleThenFaces();
       _loadAlbums();
-      _loadSuggestion();
       _fillLocationFromMetadata();
     }
   }
@@ -1952,59 +1947,6 @@ class _InfoPanelState extends State<_InfoPanel> {
   void dispose() {
     _description.dispose();
     super.dispose();
-  }
-
-  /// What the analyze pass came back with for *this* photo, if nobody has
-  /// answered it yet. Asked here rather than collected into a list of its
-  /// own: the question is "is this right about this photo?", and only the
-  /// photo screen can show the photo it's about.
-  AiPhotoAnalysis? _suggestion;
-
-  Future<void> _loadSuggestion() async {
-    AiPhotoAnalysis? found;
-    try {
-      final analysis = await _onDeviceAnalysis.analysisStore.get(
-        widget.record.localId,
-      );
-      if (analysis != null && !analysis.reviewed && analysis.hasSuggestions) {
-        found = analysis;
-      }
-    } catch (_) {
-      // No analysis database (a test, a fresh install) — there's simply
-      // nothing to answer.
-    }
-    if (!mounted) return;
-    setState(() => _suggestion = found);
-  }
-
-  Future<void> _keepSuggestion() async {
-    final suggestion = _suggestion;
-    if (suggestion == null) return;
-    await acceptSuggestion(
-      suggestion,
-      records: widget.assetRecordStore,
-      analyses: _onDeviceAnalysis.analysisStore,
-    );
-    final updated = await widget.assetRecordStore.getByLocalId(
-      widget.record.localId,
-    );
-    if (!mounted) return;
-    setState(() {
-      _suggestion = null;
-      if (updated != null) _description.text = updated.description;
-    });
-    if (updated != null) widget.onRecordChanged(updated);
-  }
-
-  Future<void> _dropSuggestion() async {
-    final suggestion = _suggestion;
-    if (suggestion == null) return;
-    await dismissSuggestion(
-      suggestion.localId,
-      analyses: _onDeviceAnalysis.analysisStore,
-    );
-    if (!mounted) return;
-    setState(() => _suggestion = null);
   }
 
   /// Face thumbnails waiting to be named. The crops themselves aren't
@@ -2591,12 +2533,6 @@ class _InfoPanelState extends State<_InfoPanel> {
                 ),
               CupertinoListTile(
                 title: Text(l10n.detailInfoStatus),
-          // A link in the caption (where a photo shared from Safari keeps
-          // its page) opens in the browser; the field itself only edits.
-          ValueListenableBuilder(
-            valueListenable: _description,
-            builder: (_, value, _) => LinkList(value.text),
-          ),
                 additionalInfo: Text(
                   [
                     _statusLabel(
@@ -2630,14 +2566,6 @@ class _InfoPanelState extends State<_InfoPanel> {
             ],
           ),
           const SizedBox(height: 16),
-          if (_suggestion != null) ...[
-            _SuggestionCard(
-              suggestion: _suggestion!,
-              onKeep: _keepSuggestion,
-              onDismiss: _dropSuggestion,
-            ),
-            const SizedBox(height: 16),
-          ],
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
@@ -2662,6 +2590,12 @@ class _InfoPanelState extends State<_InfoPanel> {
               padding: EdgeInsets.zero,
               onChanged: _saveDescription,
             ),
+          ),
+          // A link in the caption (where a photo shared from Safari keeps
+          // its page) opens in the browser; the field itself only edits.
+          ValueListenableBuilder(
+            valueListenable: _description,
+            builder: (_, value, _) => LinkList(value.text),
           ),
           const SizedBox(height: 20),
           if (_suggestNote != null)
@@ -2836,130 +2770,6 @@ class _InfoPanelState extends State<_InfoPanel> {
                 ],
               ),
             ),
-          ),
-        ],
-      ),
-    );
-  }
-}
-
-/// What the analyze pass suggested for this photo, waiting to be kept or
-/// thrown away. Nothing here is on the photo yet — that's the whole
-/// difference between a suggestion and a tag.
-class _SuggestionCard extends StatelessWidget {
-  const _SuggestionCard({
-    required this.suggestion,
-    required this.onKeep,
-    required this.onDismiss,
-  });
-
-  final AiPhotoAnalysis suggestion;
-  final Future<void> Function() onKeep;
-  final Future<void> Function() onDismiss;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return Container(
-      width: double.infinity,
-      padding: const EdgeInsets.all(14),
-      decoration: BoxDecoration(
-        color: const Color(0xFF2C2C2E),
-        borderRadius: BorderRadius.circular(10),
-        border: Border.all(color: const Color(0xFF0A84FF), width: 0.5),
-      ),
-      child: Column(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Row(
-            children: [
-              const Icon(
-                CupertinoIcons.sparkles,
-                size: 15,
-                color: Color(0xFF0A84FF),
-              ),
-              const SizedBox(width: 6),
-              Text(
-                l10n.analyzeReviewSuggestionTitle,
-                style: const TextStyle(
-                  fontSize: 13,
-                  fontWeight: FontWeight.w600,
-                  color: Color(0xFF0A84FF),
-                ),
-              ),
-            ],
-          ),
-          const SizedBox(height: 8),
-          if (suggestion.description.isNotEmpty)
-            Padding(
-              padding: const EdgeInsets.only(bottom: 8),
-              child: Text(
-                suggestion.description,
-                style: const TextStyle(
-                  fontSize: 14,
-                  color: CupertinoColors.white,
-                ),
-              ),
-            ),
-          if (suggestion.tags.isNotEmpty)
-            Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final tag in suggestion.tags)
-                  Container(
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 10,
-                      vertical: 4,
-                    ),
-                    decoration: BoxDecoration(
-                      color: const Color(0xFF3A3A3C),
-                      borderRadius: BorderRadius.circular(12),
-                    ),
-                    child: Text(
-                      tag,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: CupertinoColors.white,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
-          const SizedBox(height: 12),
-          Row(
-            children: [
-              CupertinoButton(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 14,
-                  vertical: 6,
-                ),
-                minimumSize: const Size(0, 32),
-                borderRadius: BorderRadius.circular(16),
-                color: const Color(0xFF3A3A3C),
-                onPressed: () => onKeep(),
-                child: Text(
-                  l10n.analyzeReviewAccept,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: Color(0xFF0A84FF),
-                  ),
-                ),
-              ),
-              const SizedBox(width: 12),
-              CupertinoButton(
-                padding: EdgeInsets.zero,
-                minimumSize: Size.zero,
-                onPressed: () => onDismiss(),
-                child: Text(
-                  l10n.analyzeReviewDismiss,
-                  style: const TextStyle(
-                    fontSize: 13,
-                    color: CupertinoColors.systemGrey,
-                  ),
-                ),
-              ),
-            ],
           ),
         ],
       ),

@@ -56,7 +56,7 @@ class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
   }
 
   /// Asked first, because it throws away work — not destructively (the
-  /// names stay, nothing is re-billed), but it is minutes of the phone's
+  /// names stay), but it is minutes of the phone's
   /// time and the button is next to one that only clears a list.
   Future<void> _confirmRescan() async {
     final l10n = AppLocalizations.of(context)!;

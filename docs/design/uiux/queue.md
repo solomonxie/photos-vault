@@ -8,7 +8,7 @@ doing arithmetic on rows about faces.
 | | opened from | what it does | costs |
 |---|---|---|---|
 | Backup queue | More | uploads, thumbnails, change checks | bandwidth |
-| Analyze queue | More | finds faces, guesses who they are, (optionally) asks an AI | battery, and money only if asked |
+| Analyze queue | More | finds faces, guesses who they are | battery |
 
 Siblings in More, Backup above Analyze. The backup queue used to be a
 block of pills on Cloud Settings, which made that page answer two questions
@@ -63,10 +63,6 @@ and an inbox of little cards can't.
  184 photos to look at              ⟳
  [ ⏸ Pause ] [ 🕐 Manual ] [ − 1 at a time + ]
  ─────────────────────────────────────────────
- Tags and captions                          ○─  ← off; the only paid half
- Costs one call to your AI vendor per photo.
- Faces and scanning stay free either way.
- ─────────────────────────────────────────────
  IMG_4934.HEIC                        Waiting
  Looking for faces
  IMG_4870.HEIC                        Waiting
@@ -94,7 +90,7 @@ behind a segment is a second screen wearing the first one's clothes.
 
 The camera-roll scan used to be the first job in this pass. It isn't any
 more: it is the one piece of work here nobody opted into, and a row that
-can be paused alongside "ask an AI about this photo" invites stopping the
+can be paused alongside face finding invites stopping the
 thing that makes new photos appear at all. It runs on its own, out of
 sight. "Manual" stops this queue *looking at* photos; the library still
 fills.

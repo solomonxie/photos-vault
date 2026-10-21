@@ -15,7 +15,6 @@ import 'package:path/path.dart' as p;
 import '../l10n/app_localizations.dart';
 import '../demo/demo_flag.dart';
 import '../demo/demo_mode.dart';
-import '../photos/ai_vendor.dart';
 import '../photos/derived_asset.dart';
 import '../photos/flag_scan.dart';
 import '../photos/asset_removal.dart';
@@ -47,7 +46,6 @@ import '../photos/storage_advice.dart';
 import '../photos/storage_optimizer.dart';
 import '../photos/temp_renders.dart';
 import '../photos/thumbnail_cache.dart';
-import '../settings/ai_settings_screen.dart';
 import '../settings/app_data_removal.dart';
 import '../settings/app_store_region.dart';
 import '../settings/backup_targets_store.dart';
@@ -114,7 +112,7 @@ import 'zoom_page_route.dart';
 /// The whole app, one page — matches real Photos: no separate "Library" vs
 /// "Collections" tabs, just a day-grouped grid up top and Media
 /// Types/Utilities sections below (Favorites/Hidden/Recently Deleted are
-/// real; Cloud Backups/AI Settings are this app's own).
+/// real; Cloud Backups is this app's own).
 /// Lists manually-added files, not a real camera-roll grid (T4.1 still
 /// needs `photo_manager`, T2.1).
 class LibraryScreen extends StatefulWidget {
@@ -2900,9 +2898,9 @@ class LibraryScreenState extends State<LibraryScreen>
         title: l10n.albumsRecentlyAddedName,
         records: _recentlyAdded,
         assetRecordStore: assetRecordStore,
-        notes: _albumStore.noteBook(BuiltInAlbum.recentlyAdded.id),
         coverFor: BuiltInAlbum.recentlyAdded,
         dateOf: PhotoGridLayout.addedAt,
+        notes: _albumStore.noteBook(BuiltInAlbum.recentlyAdded.id),
       ),
     );
   }
@@ -2913,9 +2911,9 @@ class LibraryScreenState extends State<LibraryScreen>
       AssetGroupScreen(
         title: l10n.albumsVideosName,
         records: _videos,
-        notes: _albumStore.noteBook(BuiltInAlbum.videos.id),
         assetRecordStore: assetRecordStore,
         coverFor: BuiltInAlbum.videos,
+        notes: _albumStore.noteBook(BuiltInAlbum.videos.id),
       ),
     );
   }
@@ -3409,13 +3407,6 @@ class LibraryScreenState extends State<LibraryScreen>
             title: l10n.collectionsCloudSettingsRow,
             onTap: _openCloudBackups,
           ),
-          if (aiOffered)
-            _row(
-              icon: CupertinoIcons.sparkles,
-              color: CupertinoColors.systemIndigo,
-              title: l10n.collectionsAiSettingsRow,
-              onTap: () => _push(const AiSettingsScreen()),
-            ),
           _row(
             icon: CupertinoIcons.globe,
             color: CupertinoColors.systemBlue,

@@ -155,10 +155,10 @@ class AnalyzeQueue {
   final ValueNotifier<bool> paused = ValueNotifier(false);
   final ValueNotifier<int> pace = ValueNotifier(1);
 
-  /// Manual until asked otherwise — looking at photos costs battery, and
-  /// on the paid half, money. The camera-roll *scan* still runs on open
-  /// whatever this says (see [startIfDue]): a photo taken while the app
-  /// was away isn't in the library at all until it does.
+  /// Manual until asked otherwise — looking at photos costs battery. The
+  /// camera-roll *scan* still runs on open whatever this says (see
+  /// [startIfDue]): a photo taken while the app was away isn't in the
+  /// library at all until it does.
   final ValueNotifier<SyncFrequency> frequency = ValueNotifier(
     SyncFrequency.manual,
   );
@@ -406,9 +406,8 @@ class AnalyzeQueue {
   /// the list is derived from, which is the only thing that makes an
   /// already-looked-at photo worth looking at again.
   ///
-  /// The paid half survives: tags and captions a vendor was billed for,
-  /// and suggestions already dismissed. Confirmed faces survive too —
-  /// those are the user's answers, not the app's.
+  /// Confirmed faces survive — those are the user's answers, not the
+  /// app's.
   Future<void> rescanAll() async {
     await load();
     try {

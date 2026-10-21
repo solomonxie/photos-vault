@@ -98,7 +98,7 @@ Every pick-a-value field (location, tag, school, person) goes through
 push. `person_picker_sheet.dart` is the same sheet with "New Person…" wired
 to `PersonStore.create`.
 
-Edits never overwrite: `PhotoEditScreen` and the AI queue both hand their
+Edits never overwrite: `PhotoEditScreen` hands its
 bytes to `../photos/derived_asset.dart`, which files a new library item
 carrying the source's date/description/tags/place/people.
 

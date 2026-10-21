@@ -63,7 +63,7 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
   List<ProfileCsvRow> _found = const [];
   List<ProfileCsvNote> _notes = const [];
 
-  /// Which rows are in. All of them, unlike the AI autofill's review: this
+  /// Which rows are in. All of them: this
   /// file is the reader's own data, and pre-ticking a 200-row spreadsheet is
   /// the difference between a list to check and 200 switches to flip.
   final Set<int> _accepted = {};

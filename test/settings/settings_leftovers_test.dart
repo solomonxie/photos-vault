@@ -6,59 +6,21 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/l10n/failure_text.dart';
-import 'package:photos_vault/photos/ai_vendor.dart';
-import 'package:photos_vault/settings/ai_settings_store.dart';
-import 'package:photos_vault/settings/app_store_region.dart';
 import 'package:photos_vault/settings/s3_target_drafts_store.dart';
+import 'package:photos_vault/settings/secure_store.dart';
 
 import 'fake_secure_store.dart';
 
-/// Counts writes, to prove a read leaves the keychain alone.
-class _CountingStore extends FakeSecureStore {
-  var writes = 0;
-
-  @override
-  Future<void> write(String key, String value) {
-    writes++;
-    return super.write(key, value);
-  }
-}
-
 void main() {
-  group('AI keys', () {
-    test('reading no keys writes nothing', () async {
-      final secure = _CountingStore();
-      final store = AiSettingsStore(store: secure);
-      expect(await store.listKeys(), isEmpty);
-      expect(await store.listKeys(), isEmpty);
-      expect(secure.writes, 0);
-    });
-
-    test('an unreadable key list reads as none, not a crash', () async {
-      final secure = FakeSecureStore()..seed('ai_keys_v1', '{not json');
-      expect(await AiSettingsStore(store: secure).listKeys(), isEmpty);
-    });
-
-    test('moving a key steps over one this storefront hides', () async {
-      final secure = FakeSecureStore();
-      final store = AiSettingsStore(
-        store: secure,
-        fixedRegion: AppStoreRegion.us,
-      );
-      final a = await store.addKey(AiVendor.openai, 'a');
-      await store.addKey(AiVendor.deepseek, 'hidden');
-      final c = await store.addKey(AiVendor.anthropic, 'c');
-
-      await store.moveKey(c, -1);
-      expect(
-        [for (final k in await store.listKeys()) k.secret],
-        ['c', 'hidden', 'a'],
-      );
-      expect([for (final k in await store.usableKeys()) k.id], [c, a]);
-
-      await store.moveKey(c, -1);
-      expect((await store.listKeys()).first.id, c);
-    });
+  test('retired AI key slots are deleted', () async {
+    final secure = FakeSecureStore();
+    for (final name in retiredAiKeyNames) {
+      secure.seed(name, 'sk-old');
+    }
+    await forgetRetiredAiKeys(secure);
+    for (final name in retiredAiKeyNames) {
+      expect(await secure.read(name), isNull, reason: name);
+    }
   });
 
   group('drafts', () {
@@ -133,8 +95,7 @@ void main() {
       expect(text, contains('Bad request'));
     });
 
-    test('no key and no network read as what they are', () {
-      expect(failureText(l10n, NoAiKeyException()), l10n.askAiNoKey);
+    test('no network reads as offline', () {
       for (final error in <Object>[
         const SocketException('down'),
         http.ClientException('x', Uri.parse('https://h/?key=SECRET')),

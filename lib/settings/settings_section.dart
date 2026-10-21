@@ -528,8 +528,8 @@ class SettingsFooterLine extends StatelessWidget {
 /// box under it, and one muted line below for a hint or an error.
 ///
 /// Bare underlined fields are nearly invisible on this background — the
-/// fill is what makes a field read as somewhere to type. Same box as the
-/// Add AI Key sheet, so every form in the app has one field shape.
+/// fill is what makes a field read as somewhere to type. One field shape
+/// for every form in the app.
 class SettingsField extends StatelessWidget {
   const SettingsField({
     super.key,

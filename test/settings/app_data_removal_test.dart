@@ -8,7 +8,6 @@ import 'package:photos_vault/backup/bucket_backup.dart';
 import 'package:photos_vault/backup/icloud_backup.dart';
 import 'package:photos_vault/backup/icloud_drive.dart';
 import 'package:photos_vault/photos/thumbnail_cache.dart';
-import 'package:photos_vault/settings/ai_settings_store.dart';
 import 'package:photos_vault/settings/app_data_removal.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/s3_target_drafts_store.dart';
@@ -125,7 +124,7 @@ _Subject _subject({BucketOps? ops}) {
       targetsStore: targets,
       syncJobStore: jobs,
       draftsStore: S3TargetDraftsStore(store: keychain),
-      aiSettingsStore: AiSettingsStore(store: keychain),
+      secureStore: keychain,
       vaultKeys: VaultKeys(store: keychain),
       ops: ops,
       supportDirectory: () async => support,

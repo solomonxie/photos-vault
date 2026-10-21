@@ -31,7 +31,6 @@
 		A1B2C3D40001000000000050 /* ImageEncodeChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40001000000000051 /* ImageEncodeChannel.swift */; };
 		A1B2C3D40001000000000060 /* PhotoChangesChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40001000000000061 /* PhotoChangesChannel.swift */; };
 		A1B2C3D40001000000000090 /* BackgroundSync.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40001000000000091 /* BackgroundSync.swift */; };
-		A1B2C3D40001000000000101 /* DocumentTextChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40001000000000102 /* DocumentTextChannel.swift */; };
 /* End PBXBuildFile section */
 
 /* Begin PBXContainerItemProxy section */
@@ -108,7 +107,6 @@
 		A1B2C3D40001000000000051 /* ImageEncodeChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ImageEncodeChannel.swift; sourceTree = "<group>"; };
 		A1B2C3D40001000000000061 /* PhotoChangesChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = PhotoChangesChannel.swift; sourceTree = "<group>"; };
 		A1B2C3D40001000000000091 /* BackgroundSync.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = BackgroundSync.swift; sourceTree = "<group>"; };
-		A1B2C3D40001000000000102 /* DocumentTextChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = DocumentTextChannel.swift; sourceTree = "<group>"; };
 		AF733F2311E2BAB4A6300847 /* PrivacyInfo.xcprivacy */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.xml; path = PrivacyInfo.xcprivacy; sourceTree = "<group>"; };
 		B2C8E27CEC2C8900A1A855C7 /* ShareExtension.entitlements */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = text.plist.entitlements; path = ShareExtension.entitlements; sourceTree = "<group>"; };
 		C250BA8604D0D1E950EC2DBF /* ShareViewController.swift */ = {isa = PBXFileReference; includeInIndex = 1; lastKnownFileType = sourcecode.swift; path = ShareViewController.swift; sourceTree = "<group>"; };
@@ -217,7 +215,6 @@
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
 				A1B2C3D40001000000000002 /* VisionAnalysisChannel.swift */,
-				A1B2C3D40001000000000102 /* DocumentTextChannel.swift */,
 				A1B2C3D40001000000000012 /* FaceEmbedder.swift */,
 				A1B2C3D40001000000000004 /* ICloudDriveChannel.swift */,
 				A1B2C3D40001000000000021 /* StillVideoChannel.swift */,
@@ -422,7 +419,6 @@
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
 				A1B2C3D40001000000000001 /* VisionAnalysisChannel.swift in Sources */,
-				A1B2C3D40001000000000101 /* DocumentTextChannel.swift in Sources */,
 				A1B2C3D40001000000000003 /* ICloudDriveChannel.swift in Sources */,
 				A1B2C3D40001000000000020 /* StillVideoChannel.swift in Sources */,
 				A1B2C3D40001000000000030 /* BackupExclusionChannel.swift in Sources */,

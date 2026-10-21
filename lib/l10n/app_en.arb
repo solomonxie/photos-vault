@@ -229,10 +229,9 @@
   "collectionsRecentlyDeletedRow": "Recently Deleted",
   "collectionsSafetyRow": "Where Your Photos Are",
   "collectionsCloudSettingsRow": "Cloud Settings",
-  "collectionsAiSettingsRow": "AI Settings",
   "privacyHeading": "Your Copies, Your Privacy",
   "privacyTitle": "Your photos always belong to you.",
-  "privacyBody": "Your photos go to a bucket you own, as ordinary files. Alongside them sits an index.csv listing every photo by date, album, person, caption and place — so you can find any one of them again with a spreadsheet and nothing else. No account, no export tool, no us. The app deletes from your bucket only to carry out what you asked: deleting a photo, hiding or un-hiding one (the old copy goes once the new one is in every bucket), or a fix you confirm.\n\nNothing is ever sent to the developer. There is no server and no account: your library, its records and its face data stay in a database on this iPhone, and all processing — grouping, search, face recognition — happens here. Photos go only where you send them: your own bucket, your own iCloud, your own AI key. Keys are kept in the Keychain, never in the app's own backups; like every Keychain item, they are part of an encrypted iPhone backup.",
+  "privacyBody": "Your photos go to a bucket you own, as ordinary files. Alongside them sits an index.csv listing every photo by date, album, person, caption and place — so you can find any one of them again with a spreadsheet and nothing else. No account, no export tool, no us. The app deletes from your bucket only to carry out what you asked: deleting a photo, hiding or un-hiding one (the old copy goes once the new one is in every bucket), or a fix you confirm.\n\nNothing is ever sent to the developer. There is no server and no account: your library, its records and its face data stay in a database on this iPhone, and all processing — grouping, search, face recognition — happens here. Photos go only where you send them: your own bucket or your own iCloud. Keys are kept in the Keychain, never in the app's own backups; like every Keychain item, they are part of an encrypted iPhone backup.",
   "backupQueueClearButton": "Empty Queue",
   "backupQueueWaiting": "Waiting",
   "backupQueueSpeed": "{count} at a time",
@@ -597,9 +596,6 @@
   "analyzeQueueStepMatchFaces": "Matching faces to people",
   "analyzeQueueFrequencyHeading": "How Often",
   "analyzeQueueFrequencyHint": "Runs only while the app is open, a few photos at a time. It's designed to work gradually rather than finish all at once.",
-  "analyzeReviewSuggestionTitle": "Suggested",
-  "analyzeReviewAccept": "Keep",
-  "analyzeReviewDismiss": "Dismiss",
   "settingsAccessKeyIdLabel": "Access key ID",
   "settingsLengthHint": "{actual} characters. AWS keys are usually {expected}. Check that it was pasted correctly.",
   "@settingsLengthHint": {
@@ -658,41 +654,6 @@
   "settingsDraftsTitle": "DRAFTS",
   "settingsDraftUntitled": "(no bucket yet)",
   "settingsDraftDeleteTooltip": "Delete draft",
-  "settingsAiTodoNote": "These keys are used by Ask AI and Fill in from a file, which send the photo or file you choose to that AI service. Places is based on GPS and doesn't need a key.",
-  "settingsAiKeysHeading": "AI Keys",
-  "settingsAiKeysHint": "Each request uses one key. If it fails, the next key is tried. Use the arrows to reorder.",
-  "settingsAiKeyStrategySequential": "Sequential",
-  "settingsAiKeyStrategyRoundRobin": "Round Robin",
-  "settingsAiKeyRequestCount": "{count, plural, one{1 request} other{{count} requests}}",
-  "@settingsAiKeyRequestCount": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "settingsAddAiKeyLink": "Add AI Key",
-  "settingsAiGetKeyLink": "Get one",
-  "settingsAiKeyCheckFailed": "Couldn't verify this key: {error}",
-  "@settingsAiKeyCheckFailed": {
-    "placeholders": {
-      "error": {
-        "type": "String"
-      }
-    }
-  },
-  "settingsAiSaveAnyway": "Save Anyway",
-  "settingsAiNoKeyYet": "Don't have a {vendor} key?",
-  "@settingsAiNoKeyYet": {
-    "placeholders": {
-      "vendor": {
-        "type": "String"
-      }
-    }
-  },
-  "settingsAiApiKeyLabel": "API key",
-  "settingsAiClearButton": "Remove Key",
-  "settingsAiUsageWarning": "This sends photo data to the AI provider whose key handles the request. API usage is billed to your account with that provider.",
   "bucketBrowserStats": "{folders, plural, =0{} =1{1 folder · } other{{folders} folders · }}{files, plural, =0{no files} =1{1 file} other{{files} files}}{size}",
   "@bucketBrowserStats": {
     "placeholders": {
@@ -1119,45 +1080,7 @@
   "ownerRelationSchoolmate": "Your schoolmate",
   "ownerRelationOther": "Connected to you",
   "utilitiesHeader": "Utilities",
-  "askAiTitle": "Ask AI",
-  "askAiProfileOption": "Ask AI about this person",
-  "askAiPromptPlaceholder": "What do you want to know?",
-  "askAiSendButton": "Ask",
-  "askAiThinking": "Asking…",
-  "askAiNoKey": "Add an AI key in More → AI Settings first.",
   "errorOffline": "Couldn't connect. Check your network and try again.",
-  "askAiSendsNote": "Your question and the details below are sent to your AI provider.",
-  "askAiContextHeading": "SENT AS CONTEXT",
-  "askAiAnswerHeading": "ANSWER",
-  "autofillOption": "Fill in from a file",
-  "autofillTitle": "Fill in from a file",
-  "autofillPickButton": "Choose a file",
-  "autofillReading": "Reading…",
-  "autofillAsking": "Asking AI…",
-  "autofillUnsupportedFormat": "That format can't be read. Plain text, Markdown, Word (.docx) and PDF work — older .doc files don't.",
-  "autofillScannedPdf": "That PDF has no text in it, so it's a scan or a photo of a page. A text PDF or a .txt file works.",
-  "autofillEmptyFile": "That file is empty.",
-  "autofillNothingFound": "Nothing was found in that file.",
-  "autofillSendsNote": "The whole file is sent to your AI provider. A CV holds a real person's name, address and phone number.",
-  "autofillReviewHeading": "SUGGESTED",
-  "autofillAcceptAll": "Accept all",
-  "autofillRejectAll": "Reject all",
-  "autofillApply": "{count, plural, =0{Nothing selected} one{Add 1 item} other{Add {count} items}}",
-  "@autofillApply": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "autofillTargetBio": "About",
-  "autofillTargetTrait": "More details",
-  "autofillTargetCustomField": "More details",
-  "autofillTargetGroup": "Group",
-  "autofillTargetEducation": "Education",
-  "autofillTargetJob": "Job",
-  "autofillTargetPlace": "Places Lived",
-  "autofillTargetTag": "Tag",
   "personProfileRelationshipsHeader": "Relationships",
   "relationshipDeleteConfirmTitle": "Remove this relationship?",
   "relationshipDeleteConfirmBody": "This only removes the relationship between {name} and this person. Neither profile is deleted.",

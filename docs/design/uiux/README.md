@@ -32,7 +32,6 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
         │                        ├─▶ BucketBrowser ─▶ (deeper)
         │                        └─▶ [AddS3Backup]   └─▶ ObjectPreview
         Analyze Queue ──▶ AnalyzeQueueScreen
-        AI Settings ──▶ AiSettingsScreen ──▶ [AddKey sheet]
         Hidden ──▶ [PrivateAlbumGate] ──▶ PrivateAlbumScreen
         Recently Deleted ──▶ RecentlyDeletedScreen
         Flagged Items ──▶ FlaggedItemsScreen
@@ -50,5 +49,4 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
 | `safety.md` | where every copy is, checking it, getting it back without the app |
 | `queue.md` | backup queue page, analyze queue |
 | `storage.md` | flagged items: problem chips, solution buttons, the draining queue |
-| `ai.md` | AI settings |
 | `components.md` | tiles, rows, scrubber, section chrome |

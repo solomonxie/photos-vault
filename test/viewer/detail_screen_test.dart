@@ -2,14 +2,11 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:photos_vault/l10n/app_localizations.dart';
-import 'package:photos_vault/photos/ai_analysis.dart';
-import 'package:photos_vault/photos/on_device_analysis.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/viewer/detail_screen.dart';
 import 'package:photos_vault/viewer/zoom_page_route.dart';
 import 'package:photos_vault/viewer/search_picker_sheet.dart';
 
-import '../support/fake_ai_analysis_store.dart';
 import '../support/fake_asset_record_store.dart';
 import '../support/fake_person_store.dart';
 
@@ -356,96 +353,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.byType(DetailScreen), findsOneWidget);
-  });
-
-  testWidgets('a suggestion waits on the photo it is about', (tester) async {
-    final records = FakeAssetRecordStore();
-    final record = await records.upsert(
-      localId: 'a',
-      contentHash: 'a',
-      platform: 'ios',
-    );
-    final analyses = FakeAiAnalysisStore();
-    await analyses.saveSuggestion(
-      AiPhotoAnalysis(
-        localId: 'a',
-        peopleCount: 0,
-        analyzedAt: DateTime(2026, 9, 17),
-        tags: const ['beach'],
-        description: 'A day at the beach.',
-      ),
-    );
-
-    await tester.pumpWidget(
-      _wrap(
-        DetailScreen(
-          records: [record],
-          initialIndex: 0,
-          assetRecordStore: records,
-          personStore: FakePersonStore(),
-          onDeviceAnalysis: OnDeviceAnalysisService(analysisStore: analyses),
-          onDelete: (_) async => true,
-          onToggleFavorite: (_) async {},
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await _scrollToInfoPanel(tester);
-
-    // On the photo it's about, where the picture is — not in a list of
-    // little cards somewhere else.
-    expect(find.text('Suggested'), findsOneWidget);
-    expect(find.text('A day at the beach.'), findsOneWidget);
-    expect(find.text('beach'), findsOneWidget);
-
-    await _tapInPanel(tester, find.text('Keep'));
-
-    final after = (await records.getByLocalId('a'))!;
-    expect(after.tags, ['beach']);
-    expect(after.description, 'A day at the beach.');
-    // Answered, so it stops asking.
-    expect(find.text('Suggested'), findsNothing);
-  });
-
-  testWidgets('turning a suggestion down leaves the photo as it was', (
-    tester,
-  ) async {
-    final records = FakeAssetRecordStore();
-    final record = await records.upsert(
-      localId: 'a',
-      contentHash: 'a',
-      platform: 'ios',
-    );
-    final analyses = FakeAiAnalysisStore();
-    await analyses.saveSuggestion(
-      AiPhotoAnalysis(
-        localId: 'a',
-        peopleCount: 0,
-        analyzedAt: DateTime(2026, 9, 17),
-        tags: const ['beach'],
-      ),
-    );
-
-    await tester.pumpWidget(
-      _wrap(
-        DetailScreen(
-          records: [record],
-          initialIndex: 0,
-          assetRecordStore: records,
-          personStore: FakePersonStore(),
-          onDeviceAnalysis: OnDeviceAnalysisService(analysisStore: analyses),
-          onDelete: (_) async => true,
-          onToggleFavorite: (_) async {},
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await _scrollToInfoPanel(tester);
-
-    await _tapInPanel(tester, find.text('Dismiss'));
-
-    expect((await records.getByLocalId('a'))!.tags, isEmpty);
-    expect(find.text('Suggested'), findsNothing);
   });
 
   testWidgets('Done pops the screen', (tester) async {
@@ -1111,7 +1018,7 @@ void main() {
     expect(find.text('Open in Browser'), findsOneWidget);
   });
 
-  testWidgets('Edit opens the crop/rotate/AI touch-up menu', (tester) async {
+  testWidgets('Edit opens the crop/rotate menu', (tester) async {
     final record = _record(localId: 'a');
 
     await tester.pumpWidget(

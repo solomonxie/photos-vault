@@ -19,8 +19,8 @@ FLUTTER=.tools/flutter/bin/flutter
 # launch. A forced `cn` (STOREFRONT=CHN, for testing) must never ship.
 echo "APP_STORE_REGION = us" > ios/Flutter/Store.xcconfig
 
-# Never any demo defines: they would put the demo bucket secret and AI key
-# in every user's binary.
+# Never any demo defines: they would put the demo bucket secret in every
+# user's binary.
 case "$*" in
   *dart-define*) echo "release-ios.sh: no --dart-define in a release" >&2; exit 1 ;;
 esac

@@ -237,7 +237,7 @@ void main() {
       expect(await store.suggestionsFor('hidden'), isEmpty);
       expect((await store.allDescribedFaces()).map((f) => f.localId), ['kept']);
       expect((await store.facesByAsset()).keys, ['kept']);
-      expect(await store.get('hidden'), isNotNull, reason: 'paid half stays');
+      expect(await store.get('hidden'), isNotNull, reason: 'the row stays');
     });
 
     test('a permanent delete drops every row of the photo', () async {

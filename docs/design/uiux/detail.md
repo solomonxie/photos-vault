@@ -32,12 +32,6 @@ scroller.
  │ Format                               HEIC │
  │ Backup status                     Pending │  Pending · Uploading… ·
  ╰───────────────────────────────────────────╯  Backed up · Failed
- ┌─ ✨ Suggested ────────────────────────────┐  ← only when the analyze
- │ Low sun over the harbour wall.           │    pass has an unanswered
- │ ( beach ) ( sunset )                     │    suggestion for *this*
- │                                          │    photo
- │ [ Keep ]   ( No thanks )                 │
- └──────────────────────────────────────────┘
  Add a description
  Tags                                             ⊕
  ( sunset ⊗ ) ( kyoto ⊗ )
@@ -164,19 +158,11 @@ A name under a face is a guess, never a link — see
 `../face-recognition/DESIGN.md`. Naming one here teaches it, same as
 anywhere else.
 
-## Suggestions are answered here, not in an inbox
+## Faces are answered here, not in an inbox
 
-The analyze pass (`queue.md`) can look at a photo long before anyone opens
-it, so its answer has to wait somewhere. It waits on the photo: the card
-sits directly above the caption field it offers to fill, under the picture
-it's describing. A list of suggestion cards somewhere else would be asking
-"is this right?" about a photo you can't see.
-
-Nothing on the card is on the photo yet — that's the difference between a
-suggestion and a tag. Keep merges tags and fills a caption only where
-there isn't one; No thanks marks it answered so it is never offered,
-or paid for, twice. Faces work the same way and always have: **Find Faces**
-on the People section, one tap to put a name to one.
+The analyze pass (`queue.md`) can find faces long before anyone opens a
+photo; naming them waits on the photo itself — **Find Faces** on the
+People section, one tap to put a name to one.
 
 
 # Moving pictures: Live Photos and GIFs

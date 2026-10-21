@@ -18,7 +18,6 @@ What's in this beta:
 • People: on-device face recognition
 • Private albums (any code opens its own album)
 • Free-up-space tools
-• Optional AI (your own key) to fill person profiles from text; no photo is ever sent to AI
 • English and Simplified Chinese
 ```
 
@@ -40,7 +39,7 @@ Sign-in required: **off** (no account in the app). Leave User Name / Password bl
 Review Notes (Beta App Review Information):
 
 ```
-No account or login. For a full sample gallery without any cloud setup: bottom of the home page → Demo Mode; the demo private album code is 1234. Backup needs the user's own bucket. To test a real upload use this throwaway bucket (least-privilege IAM user, deleted after review): Provider: AWS S3 · Bucket: TODO · Region: TODO · Access key ID: TODO · Secret access key: TODO. Enter it under More → Cloud Settings → Add Cloud Bucket. Deleting from Photos always goes through the iOS confirmation sheet.
+No account or login. For a full sample gallery without any cloud setup: bottom of the home page → Demo Mode; the demo private album code is 1234. Backup needs the user's own bucket. To test a real upload use this throwaway bucket (least-privilege IAM user, deleted after review): Provider: AWS S3 · Bucket: TODO · Region: TODO · Access key ID: TODO · Secret access key: TODO. Enter it under More → Cloud Settings → Add Cloud Bucket. Deleting from Photos always goes through the iOS confirmation sheet. This build removes every AI feature; the app makes no request to any AI service, in any region.
 ```
 
 ## Per build: What to Test

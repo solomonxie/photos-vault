@@ -59,8 +59,6 @@ void main() {
 
     final found = (await store.listAll())['manual:a']!;
     expect(found.peopleCount, 2);
-    expect(found.tags, ['cake']);
-    expect(found.description, 'Two of them cutting the cake.');
     expect(await store.facesFor('manual:a'), hasLength(1));
 
     // And the column is gone, so a write that doesn't name it still lands.

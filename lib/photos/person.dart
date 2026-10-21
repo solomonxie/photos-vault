@@ -244,7 +244,7 @@ enum LocationKind { origin, relocation }
 
 enum Gender { male, female }
 
-/// A recognized, named person — more than the AI-vision people-*count*
+/// A recognized, named person — more than the on-device people-*count*
 /// grouping (`SmartCollectionScreen`): a persistent identity with its own
 /// editable profile. See IMPLEMENTATION_PLAN.md Phase 7.
 class Person {

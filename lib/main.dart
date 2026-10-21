@@ -36,6 +36,7 @@ Future<void> main() async {
   runApp(const App());
   // Foreground only: background passes read whichever item exists.
   unawaited(const FlutterSecureStore().migrate().catchError((_) => false));
+  unawaited(forgetRetiredAiKeys().catchError((_) {}));
 }
 
 /// Older builds could delete `tmp` itself; SQLite and every encoder need it.

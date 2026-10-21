@@ -175,7 +175,7 @@ latter, so it goes stale and quietly reports an older build's numbers.
 
 - Typical: 24–48 h. Waiting for Review → In Review → Pending Developer Release.
 - Rejection → **Resolution Center**: reply there, or fix and re-run `make release` (new build number is automatic), attach the new build, resubmit.
-- Likely questions, all answered in the notes below: how to test backup without a bucket, what the private album is, why the app asks to delete photos from Photos, the AI key.
+- Likely questions, all answered in the notes below: how to test backup without a bucket, what the private album is, why the app asks to delete photos from Photos.
 
 ## 12. Release
 
@@ -304,9 +304,6 @@ FREE UP SPACE
 • See what the library is costing you, per photo: large files, oversized resolutions, formats that could be smaller
 • Drop the full-resolution copy of anything already backed up — the photo stays in your library and comes back on demand
 
-OPTIONAL AI
-Add your own AI key to help fill in people's profiles from text you provide. The key is yours, usage is billed to your own account with that provider, and nothing is sent until you add one. No photo is ever sent to an AI service. Skip it and the app works the same — faces and search never needed it. Not available in China mainland.
-
 YOUR DATA
 • Library, records and faces live in a database on this iPhone and are worked out here
 • Albums, people, tags and captions are copied to your iCloud Drive and your bucket on any day something changed — on by default, and pulled back automatically if you reinstall
@@ -328,6 +325,11 @@ App Review Notes:
 
 ```
 No account or login. The app opens straight into your photo library.
+
+CHANGES IN THIS BUILD
+All AI features have been removed: no AI settings or API keys, no Ask AI,
+no AI profile fill-in, no AI tag or caption suggestions. The app makes no
+request to any AI service, in any region including mainland China.
 
 TESTING BACKUP — this needs a bucket, so here is one:
   Provider: Amazon S3
@@ -354,17 +356,8 @@ DELETING FROM PHOTOS: hiding a photo, or freeing up space, asks iOS to remove
 the original from the Photos library. That always goes through the system
 confirmation sheet — the app cannot and does not delete anything silently.
 
-AI: off by default and unusable until the user adds their own API key. It is
-used only to help fill in person profiles from text the user provides; no
-photo is ever sent to an AI service.
-
-CHINA MAINLAND: all AI functionality, including ChatGPT/OpenAI, is
-deactivated in the China mainland storefront. The app reads the App Store
-account's country at launch (StoreKit storefront) and, for China mainland,
-removes AI Settings and every AI option from the app and blocks all AI
-requests, even if a key were stored. No metadata mentions ChatGPT or OpenAI.
-
-Face recognition is a model running on the device and needs no key.
+Face recognition runs on the device (Apple Vision plus a bundled model); it
+is not an AI service, sends nothing anywhere and needs no key.
 
 We operate no server and receive no user data. Photos go only to the bucket
 the user configures.
@@ -414,9 +407,8 @@ blocked without it.
 Then **Publish**. The label reads "Data Not Collected".
 
 Why that is the honest answer: data leaves the device only to destinations the
-user configures and owns — their bucket, their iCloud, their AI vendor under
-their own key. None of it reaches the developer, and none of those vendors is
-a partner of this app. Apple's reverse-geocoding call carries coordinates and
+user configures and owns — their bucket and their iCloud. None of it reaches the
+developer, and neither is a partner of this app. Apple's reverse-geocoding call carries coordinates and
 no identifier.
 
 Re-check before each submission — it stops being true the moment an SDK lands:
@@ -490,8 +482,7 @@ distribution in France.
 
 App Store Connect → App Information → language dropdown (top right) →
 **Add Chinese (Simplified)**, then switch the `1.0.0` page to it. Written as
-native copy, not a translation. No AI feature or vendor is mentioned anywhere
-(AI is off in China mainland, see `docs/release/README.md`).
+native copy, not a translation.
 
 | Field | Value |
 |---|---|
@@ -564,7 +555,7 @@ Photos Vault 把手机里的照片和视频备份到你自己的对象存储里�
 
 ### Chinese screenshots
 
-1. `make install-ios STOREFRONT=CHN` (forces China mode: no AI anywhere), phone language set to 简体中文, demo mode on.
-2. Same 8 shots, same order, as the English set; skip any that shows AI.
+1. `make install-ios STOREFRONT=CHN` (forces China mode), phone language set to 简体中文, demo mode on.
+2. Same 8 shots, same order, as the English set.
 3. AirDrop to `~/Desktop/shots-zh/`, then `make screenshots FROM=~/Desktop/shots-zh OUT=docs/release/screenshots/zh`.
 4. Upload the `zh` folder to the 6.9" slot of the Chinese (Simplified) page.

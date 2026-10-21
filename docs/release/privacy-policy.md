@@ -1,6 +1,6 @@
 # Privacy Policy — Photos Vault
 
-_Last updated: 2026-09-22_
+_Last updated: 2026-10-21_
 
 Photos Vault has no server and no account. Nothing you do in the app is sent
 to its developer, and there is nowhere for it to be sent to.
@@ -24,12 +24,6 @@ grouping and search all run on the device. Deleting the app deletes all of it.
 - **Your iCloud Drive** — optional. A copy of the app's own records (albums,
   people, tags, captions — not the photos) can be written to your iCloud
   account, under your quota.
-- **AI for person profiles** — off by default, and only after you add
-  your own API key. When used, the text you ask about goes to the vendor
-  whose key you configured
-  under your own account with them, billed to you and governed by their
-  privacy policy. The key is stored in the iOS Keychain and is never sent to
-  the developer.
 - **Reverse geocoding** — when a photo carries GPS coordinates and you view
   its place, those coordinates go to Apple's geocoding service to be turned
   into a place name. No identifier is attached.
@@ -42,7 +36,7 @@ grouping and search all run on the device. Deleting the app deletes all of it.
 
 ## Security
 
-Bucket credentials, AI keys and private-album key material are stored in the
+Bucket credentials and private-album key material are stored in the
 iOS Keychain, device-only, and are never included in any backup the app
 writes. All network traffic uses HTTPS.
 

@@ -45,14 +45,10 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
           .map((d) => d.face),
     ], faces);
     _moveDescriptors(localId, (f) => moved[f]);
-    final existing = _analyses[localId];
     _analyses[localId] = AiPhotoAnalysis(
       localId: localId,
       peopleCount: peopleCount,
       analyzedAt: analyzedAt,
-      tags: existing?.tags ?? const [],
-      description: existing?.description ?? '',
-      reviewed: existing?.reviewed ?? false,
     );
   }
 
@@ -88,9 +84,6 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
         localId: a.localId,
         peopleCount: a.peopleCount,
         analyzedAt: a.analyzedAt,
-        tags: a.tags,
-        description: a.description,
-        reviewed: a.reviewed,
       );
     }
     _moveDescriptors(localId, (f) => f.oriented(orientation));
@@ -105,37 +98,6 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
       peopleCount: faces.length,
       analyzedAt: DateTime(2026),
       legacyBoxes: true,
-    );
-  }
-
-  /// Seeds a legacy vendor suggestion: the app no longer writes them.
-  Future<void> saveSuggestion(AiPhotoAnalysis analysis) async {
-    final existing = _analyses[analysis.localId];
-    _analyses[analysis.localId] = AiPhotoAnalysis(
-      localId: analysis.localId,
-      peopleCount: existing?.peopleCount ?? analysis.peopleCount,
-      analyzedAt: analysis.analyzedAt,
-      tags: analysis.tags,
-      description: analysis.description,
-    );
-  }
-
-  Future<List<AiPhotoAnalysis>> unreviewed() async => [
-    for (final analysis in _analyses.values)
-      if (!analysis.reviewed && analysis.hasSuggestions) analysis,
-  ];
-
-  @override
-  Future<void> markReviewed(String localId) async {
-    final existing = _analyses[localId];
-    if (existing == null) return;
-    _analyses[localId] = AiPhotoAnalysis(
-      localId: existing.localId,
-      peopleCount: existing.peopleCount,
-      analyzedAt: existing.analyzedAt,
-      tags: existing.tags,
-      description: existing.description,
-      reviewed: true,
     );
   }
 
@@ -401,9 +363,6 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
         localId: a.localId,
         peopleCount: -1,
         analyzedAt: a.analyzedAt,
-        tags: a.tags,
-        description: a.description,
-        reviewed: a.reviewed,
       );
     }
   }

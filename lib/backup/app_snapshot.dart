@@ -162,8 +162,7 @@ class AppSnapshotIo {
   final AlbumStore albumStore;
   final PersonStore personStore;
 
-  /// Faces, their vectors, and which vendor suggestions were already
-  /// answered. Absent, none of that is backed up — which was the case
+  /// Faces and their vectors. Absent, none of that is backed up — which was the case
   /// until it was noticed.
   final AiAnalysisStore? aiAnalysisStore;
 
@@ -262,6 +261,7 @@ class AppSnapshotIo {
         'id': album.id,
         'name': album.name,
         'createdAt': album.createdAt.toIso8601String(),
+        'localIds': shown(albumMembers[album.id] ?? const <String>[]),
         'notes': [
           for (final note in await albumStore.notes(album.id)) _noteRow(note),
         ],
@@ -275,7 +275,6 @@ class AppSnapshotIo {
         'id': builtIn.id,
         'builtIn': true,
         'notes': [for (final note in notes) _noteRow(note)],
-        'localIds': shown(albumMembers[album.id] ?? const <String>[]),
       });
     }
     final people = <Map<String, Object?>>[];
@@ -600,6 +599,7 @@ class AppSnapshotIo {
   }
 
   // ----------------------------------------------------------------- albums
+
   static Map<String, Object?> _noteRow(Note note) => {
     'id': note.id,
     'text': note.text,
@@ -607,13 +607,12 @@ class AppSnapshotIo {
     'updatedAt': note.updatedAt.toIso8601String(),
   };
 
-
   Future<void> _importAlbum(Map<String, Object?> row) async {
+    final id = row['id'] as String?;
     if (id != null && row['builtIn'] == true) {
       await _importNotes(id, row);
       return;
     }
-    final id = row['id'] as String?;
     final name = row['name'] as String?;
     if (id == null || name == null) return;
     // The album's own creation date isn't restorable through the store's
@@ -621,6 +620,7 @@ class AppSnapshotIo {
     await albumStore.upsert(id: id, name: name);
     final localIds = (row['localIds'] as List<dynamic>? ?? const [])
         .cast<String>();
+    if (localIds.isNotEmpty) await albumStore.addAssets(id, localIds);
     await _importNotes(id, row);
   }
 
@@ -643,7 +643,6 @@ class AppSnapshotIo {
         ),
       );
     }
-    if (localIds.isNotEmpty) await albumStore.addAssets(id, localIds);
   }
 
   // ----------------------------------------------------------------- people

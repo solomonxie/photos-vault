@@ -55,7 +55,7 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
   viewer's People heading ("Find Faces"). Vision also classifies scenes;
   that half was tried against a real library and dropped, because the
   labels were wrong often enough that checking them cost more than typing
-  the right tag. Tags are typed by hand; no photo goes to an AI vendor.
+  the right tag. Tags are typed by hand.
 - `thumbnail_cache.dart` — app-owned thumbnails, `thumbnailOption` (always
   *fitted* on iOS: PhotoKit centre-crops to a square by default, and a
   square shown full-screen is a different photo from the one that was

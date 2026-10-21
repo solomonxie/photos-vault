@@ -17,9 +17,9 @@ import '../upload/sync_job_store.dart';
 import '../vault/cache.dart';
 import '../vault/keys.dart';
 import '../vault/store.dart';
-import 'ai_settings_store.dart';
 import 'backup_targets_store.dart';
 import 's3_target_drafts_store.dart';
+import 'secure_store.dart';
 
 enum AppDataOutcome {
   done,
@@ -60,9 +60,9 @@ class AppDataRemoval {
     SyncJobStore? syncJobStore,
     PendingDeletes? pendingDeletes,
     S3TargetDraftsStore? draftsStore,
-    AiSettingsStore? aiSettingsStore,
     VaultKeys? vaultKeys,
     VaultStore? vaultStore,
+    SecureStore? secureStore,
     BucketOps? ops,
     this.supportDirectory = getApplicationSupportDirectory,
     this.cacheDirectory = getApplicationCacheDirectory,
@@ -77,8 +77,8 @@ class AppDataRemoval {
          pending: pendingDeletes ?? PendingDeletes(store: settings),
        ),
        _draftsStore = draftsStore ?? S3TargetDraftsStore(),
-       _aiSettingsStore = aiSettingsStore ?? AiSettingsStore(),
        _vaultKeys = vaultKeys ?? VaultKeys(),
+       _secureStore = secureStore ?? const FlutterSecureStore(),
        _ops = ops ?? BucketOps(),
        _vaultStore = vaultStore ?? VaultStore(directory: supportDirectory);
 
@@ -98,9 +98,9 @@ class AppDataRemoval {
   final DeferredDeletes _deferredDeletes;
   final DeferredDeletes _hideHolds;
   final S3TargetDraftsStore _draftsStore;
-  final AiSettingsStore _aiSettingsStore;
   final VaultKeys _vaultKeys;
   final VaultStore _vaultStore;
+  final SecureStore _secureStore;
 
   /// Live HEADs proving a hidden photo's carrier before its plain file goes.
   final BucketOps _ops;
@@ -348,7 +348,7 @@ class AppDataRemoval {
   Future<void> forgetCredentials() async {
     await _attempt(targetsStore.clearAll);
     await _attempt(_draftsStore.clearAll);
-    await _attempt(_aiSettingsStore.clearAll);
+    await _attempt(() => forgetRetiredAiKeys(_secureStore));
     await _attempt(_vaultKeys.forgetOnThisDevice);
   }
 

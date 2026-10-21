@@ -3,13 +3,11 @@ import 'dart:io';
 
 import 'package:http/http.dart' as http;
 
-import '../settings/ai_settings_store.dart' show NoAiKeyException;
 import 'app_localizations.dart';
 
 /// A failure as shown on screen: localized when it is a known kind, and
 /// never with a URL in it — a query string can carry a signature or a key.
 String failureText(AppLocalizations l10n, Object error) => switch (error) {
-  NoAiKeyException() => l10n.askAiNoKey,
   SocketException() ||
   TlsException() ||
   http.ClientException() ||

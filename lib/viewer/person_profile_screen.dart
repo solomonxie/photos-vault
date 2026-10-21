@@ -2,7 +2,6 @@ import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
-import '../photos/ai_vendor.dart';
 import '../photos/person.dart';
 import '../photos/face_identity.dart';
 import '../photos/person_detail.dart';
@@ -12,11 +11,9 @@ import '../storage/asset_record_store.dart';
 import '../vault/keys.dart';
 import '../vault/passcode_tags.dart';
 import '../vault/passphrase_sheet.dart';
-import 'ask_ai_screen.dart';
 import 'custom_fields_editor.dart';
 import 'person_event_sheet.dart';
 import 'person_traits_editor.dart';
-import 'profile_autofill_screen.dart';
 import 'profile_chip.dart';
 import 'private_album_gate.dart';
 import 'person_avatar.dart';
@@ -1709,38 +1706,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
         backgroundColor: _cardBackground,
         decoration: _cardDecoration,
         children: [
-          if (aiOffered) ...[
-            // A sealed set's details never go to a vendor.
-            if (_namespace == openNamespace)
-              CupertinoListTile(
-                key: const ValueKey('utility-ask-ai'),
-                leading: const Icon(
-                  CupertinoIcons.sparkles,
-                  color: CupertinoColors.systemIndigo,
-                ),
-                title: Text(l10n.askAiProfileOption),
-                trailing: const Icon(
-                  CupertinoIcons.chevron_forward,
-                  size: 18,
-                  color: CupertinoColors.systemGrey2,
-                ),
-                onTap: _askAboutPerson,
-              ),
-            CupertinoListTile(
-              key: const ValueKey('utility-autofill'),
-              leading: const Icon(
-                CupertinoIcons.doc_text_search,
-                color: CupertinoColors.systemIndigo,
-              ),
-              title: Text(l10n.autofillOption),
-              trailing: const Icon(
-                CupertinoIcons.chevron_forward,
-                size: 18,
-                color: CupertinoColors.systemGrey2,
-              ),
-              onTap: _autofillFromFile,
-            ),
-          ],
           CupertinoListTile(
             key: const ValueKey('utility-this-is-me'),
             title: Text(l10n.ownerThisIsMe),
@@ -1755,73 +1720,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           ),
         ],
       );
-
-  /// The profile as plain text, for a question about this person.
-  ///
-  /// Assembled here and shown on the asking page before anything is sent,
-  /// because a question about somebody is a question *with* everything the app
-  /// knows about them attached, and nobody should have to guess what that was.
-  ///
-  /// Only the set currently open. Whatever is behind a passcode stays there.
-  String _personContext(AppLocalizations l10n) {
-    final lines = <String>['Name: ${_person.name}'];
-    if (_detail.bio.isNotEmpty) lines.add('About: ${_detail.bio}');
-    if (ageFrom(_detail.birthDate) case final age?) lines.add('Age: $age');
-    if (_detail.gender case final gender?) lines.add('Gender: ${gender.name}');
-    for (final trait in _detail.traits.entries) {
-      lines.add('${trait.key}: ${trait.value}');
-    }
-    for (final field in _detail.customFields) {
-      if (field.label.isNotEmpty) lines.add('${field.label}: ${field.value}');
-    }
-    if (_detail.impression.tags.isNotEmpty) {
-      lines.add('Seems: ${_detail.impression.tags.join(', ')}');
-    }
-    for (final entry in [..._education, ..._jobs]) {
-      lines.add('${entry.category.name}: ${entry.title}');
-    }
-    for (final place in _locations) {
-      lines.add('Lived: ${place.place}');
-    }
-    for (final group in _groups) {
-      lines.add('Group: ${group.name} (${group.kind.name})');
-    }
-    for (final event in _events) {
-      lines.add('Event: ${_eventLine(l10n, event)}');
-    }
-    return lines.join('\n');
-  }
-
-  String _eventLine(AppLocalizations l10n, PersonEvent event) => [
-    eventTypeLabel(l10n, event.type),
-    if (event.at != null) _eventDate(event.at!),
-    if (event.notes.isNotEmpty) event.notes,
-  ].join(' · ');
-
-  Future<void> _askAboutPerson() async {
-    final l10n = AppLocalizations.of(context)!;
-    await Navigator.of(context).push(
-      CupertinoPageRoute(
-        builder: (_) =>
-            AskAiScreen(subject: _person.name, context: _personContext(l10n)),
-      ),
-    );
-  }
-
-  Future<void> _autofillFromFile() async {
-    final added = await Navigator.of(context).push<int>(
-      CupertinoPageRoute(
-        builder: (_) => ProfileAutofillScreen(
-          person: _person,
-          personStore: widget.personStore,
-          detail: _detail,
-          passcodeHash: _namespace,
-          keys: _keys,
-        ),
-      ),
-    );
-    if (added != null && added > 0) await _reload();
-  }
 
   Widget _promptRow({
     required Key key,

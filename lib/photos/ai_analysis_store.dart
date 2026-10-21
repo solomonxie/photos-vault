@@ -1,4 +1,3 @@
-import 'dart:convert';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
@@ -41,8 +40,9 @@ Map<FaceRect, FaceRect> carryFaces(List<FaceRect> old, List<FaceRect> found) {
 }
 
 /// Local `sqflite` store of what the on-device pass found per photo (faces,
-/// their descriptors and guesses), keyed by `AssetRecord.localId`, plus the
-/// legacy vendor tags and captions.
+/// their descriptors and guesses), keyed by `AssetRecord.localId`. The
+/// `tags`/`description`/`reviewed` columns are left over from the removed
+/// AI suggestions and no longer read or written.
 class AiAnalysisStore {
   AiAnalysisStore({DatabaseFactory? databaseFactory, String? path})
     : this._(databaseFactory, path);
@@ -571,10 +571,6 @@ class AiAnalysisStore {
   /// Marks every photo as never-looked-at, so the whole library is walked
   /// again from the newest.
   ///
-  /// Only the free half. The tags and captions a vendor was paid for stay
-  /// exactly where they are, and a suggestion already dismissed
-  /// stays dismissed — a rescan that re-billed the library would be the
-  /// most expensive button in the app.
   Future<void> forgetFaces() async {
     final db = await _open();
     await db.update(_table, {'people_count': _neverLooked, 'faces': ''});
@@ -583,7 +579,7 @@ class AiAnalysisStore {
   }
 
   /// A face count no scan produces — the marker that says "look at this
-  /// again", written without dropping the row and the paid work in it.
+  /// again", written without dropping the row.
   static const _neverLooked = -1;
 
   /// Photos described by a preprocessing step this build no longer uses.
@@ -790,8 +786,7 @@ class AiAnalysisStore {
   /// A compact copy at [dest] without anything of [hiddenIds].
   ///
   /// In the backup because faces take hours of the phone's time to work
-  /// out again and are small, and because which vendor suggestions were
-  /// answered is here: losing that re-bills them.
+  /// out again and are small.
   Future<bool> copyTo(String dest, Set<String> hiddenIds) async => copyDatabase(
     await _open(),
     _factory,
@@ -825,17 +820,11 @@ class AiAnalysisStore {
       'local_id': analysis.localId,
       'people_count': analysis.peopleCount,
       'analyzed_at': analysis.analyzedAt.millisecondsSinceEpoch,
-      'tags': jsonEncode(analysis.tags),
-      'description': analysis.description,
-      'reviewed': analysis.reviewed ? 1 : 0,
     }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
     _writes++;
   }
 
-  /// Records what the on-device pass found and nothing else. A whole-row
-  /// replace here would wipe a suggestion the user hasn't looked at yet —
-  /// the two halves are written by different passes and neither knows what
-  /// the other has put there.
+  /// Records what the on-device pass found and nothing else.
   Future<void> saveFaceCount({
     required String localId,
     required int peopleCount,
@@ -861,9 +850,6 @@ class AiAnalysisStore {
           'local_id': localId,
           'people_count': peopleCount,
           'analyzed_at': analyzedAt.millisecondsSinceEpoch,
-          'tags': jsonEncode(const <String>[]),
-          'description': '',
-          'reviewed': 0,
           'faces': encoded,
           'upright': 1,
         }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
@@ -1006,18 +992,6 @@ class AiAnalysisStore {
     return [for (final part in value.split(';')) ?FaceRect.decode(part)];
   }
 
-  /// Answered — kept rather than deleted so the same photo isn't offered
-  /// again on the next pass.
-  Future<void> markReviewed(String localId) async {
-    final db = await _open();
-    await db.update(
-      _table,
-      {'reviewed': 1},
-      where: 'local_id = ?',
-      whereArgs: [localId],
-    );
-  }
-
   /// One photo's row, or `null` if it has never been looked at.
   Future<AiPhotoAnalysis?> get(String localId) async {
     final db = await _open();
@@ -1040,18 +1014,6 @@ class AiAnalysisStore {
     localId: row['local_id'] as String,
     peopleCount: row['people_count'] as int,
     analyzedAt: DateTime.fromMillisecondsSinceEpoch(row['analyzed_at'] as int),
-    tags: _tags(row['tags']),
-    description: row['description'] as String? ?? '',
-    reviewed: (row['reviewed'] as int? ?? 0) == 1,
     legacyBoxes: row['upright'] == 0,
   );
-
-  static List<String> _tags(Object? raw) {
-    if (raw is! String || raw.isEmpty) return const [];
-    try {
-      return (jsonDecode(raw) as List<dynamic>).whereType<String>().toList();
-    } catch (_) {
-      return const [];
-    }
-  }
 }

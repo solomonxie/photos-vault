@@ -65,7 +65,6 @@ Backup Queue / Analyze Queue where the first two look like the same screen.
 
 | key | current | proposed |
 |---|---|---|
-| `settingsAiTodoNote` | "These keys **power** the AI-recognized People smart collection. Places (GPS-based) **doesn't** need them." | "Used for the People collection. Places works from a photo's own location and needs no key." (also: the key is named `…TodoNote`) |
 | `settingsAiKeyStrategySequential` / `…RoundRobin` | Sequential / Round Robin | "One key until it fails" / "Take turns" |
 | `analyzeQueueFaceModelOff` | "Face model: off — **falling back to** general image matching, which is much weaker." | "Face matching is off. Photos are compared as whole pictures instead, which gets it wrong more often." |
 | `bucketPreviewOpenExternally` | Open **Externally** | "Open in…" (what iOS calls it) |
@@ -78,7 +77,6 @@ Backup Queue / Analyze Queue where the first two look like the same screen.
 | `analyzeReviewAccept` / `analyzeReviewDismiss` | Keep / **No thanks** | mismatched pair — "Keep" / "Discard" |
 | `faceGroupNotScanned` | "…**Run Analyze Now.**" | points at a button on another screen; either link it or say "It'll be looked at on the next pass." |
 | `smartCollectionsCardLabel` | Tap to Analyze | a label that is an instruction — "Not analyzed yet" |
-| `peopleAiAnalysisRow` | Find People with AI Analysis | "Find people with AI" |
 | `privateAlbumBackupRecentlyDeleted` | "…until you empty **its** Recently Deleted." | ambiguous *its* — "…until you empty Recently Deleted **in Photos**." |
 
 ---

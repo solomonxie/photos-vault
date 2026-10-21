@@ -813,53 +813,16 @@ Thumbnails:
 - If the original is already under ~64 KB, skip the separate cloud thumbnail (the original is no bigger) but still keep the local cache copy.
 
 
-### AI Intelligence
+### On-device analysis
 
-Ask input of API key.
-Support multiple vendors.
-Ask method of how to use API key.
-Can support multiple model selections under each vendor, if confirmed by design decicion.
+No AI service (removed 2026-10): no API keys, no vendor calls, nothing leaves the phone for analysis.
 
-- Multiple keys, any mix of vendors, added one at a time.
-- Fallback strategy as an accent control on the section heading row: `Sequential ▾` / `Round Robin ▾`. Sequential is sticky (moves on only when a key errors); round-robin spreads load every call.
-- Order matters — reorder rows with ↑/↓; delete via the row's own menu.
-- Show a per-key request count as the row's secondary value, so it's obvious which keys carry traffic.
-- Hint must state: what it's used for, that keys go straight from the device to the chosen vendor, that they never leave the device otherwise (including backups), and that adding more than one gives automatic fallback on rate limit / quota.
-- Warn that usage is billed to the user's own account with that vendor.
-- Only list vendors that can actually do the job (don't offer a vision feature a vendor has no vision model for) — a key that can never work is worse than no option.
-- **Analyse the photo in front of you, not the library.** A sweep over a hundred thousand photos is hours of battery spent on photos nobody is looking at, and on the paid path it's a bill for the same. Put it in the open photo's own info panel — two buttons, "Auto Suggest" (free, on your phone) and "AI Suggest" (your key, your bill) — so the choice is made per photo, with the cost of each one written next to it, rather than as a setting somebody forgets they turned on.
-- **A bad suggestion costs more than no suggestion.** Apple's on-device scene labels looked like free tagging and were dropped after use: confident, plausible and wrong often enough that every tag had to be checked, which is more work than typing the right one. Tagging went to the vendor models, which are good at it and are paid for per photo — a fair trade when it's one photo at a time. Free is only cheap if the output is worth keeping.
-- **Put the action with the question it answers, under the heading rather than inside it.** Finding faces belongs to the People section — but on its own row beneath the title, not squeezed into the heading row. A heading carries a title and at most the one control that acts on the whole section; put two things in there and neither reads as the title any more.
-- **Find the faces; ask who they are.** Detection is free and reliable; identity isn't available at all without shipping a model and clustering its output. So show the faces you found and let one tap name each — the user's answer is better than any guess, and for the handful of people anyone actually tags it isn't slower either.
-- **Look on the device first; a key is the upgrade, not the baseline.** Apple's Vision framework does scene labels, OCR and face detection for free, offline, with nothing to download — the models are part of iOS. For a library of a hundred thousand photos that isn't a cheaper version of a vision API, it's the only version: per-photo billing stops being viable at exactly the size this app is built for. Keep the paid vendors for what a local model genuinely can't do.
-- **Never overwrite what the user wrote.** Machine tags merge with the ones they typed; a second pass that quietly drops a hand-written tag makes the whole feature untrustworthy.
-- **A guess below the confidence line isn't a tag, and neither is a word true of half the library.** Vision scores all ~1,300 of its labels, most near zero, and its vaguest ones ("outdoor", "plant") match everything — without a cut-off and a blocklist you get noise, not search.
+- **Analyse the photo in front of you, not the library.** "Auto Suggest" lives in the open photo's info panel, not as a library-wide setting.
+- **A bad suggestion costs more than no suggestion.** Apple's on-device scene labels were dropped: wrong often enough that checking every tag was more work than typing it. Tags are typed by hand.
+- **Put the action with the question it answers, under the heading rather than inside it.** Finding faces sits on its own row beneath the People heading, not squeezed into the heading row.
+- **Find the faces; ask who they are.** Detection is free and reliable; let one tap name each face.
+- **Never overwrite what the user wrote.**
 - Expensive analysis is **opt-in per run** ("Analyze"), never automatic, and results are cached locally.
-- No AI image editing (removed 2026-10): AI is for reading, never for rewriting someone's photos.
-
-Layout follows the standard section anatomy at the top of this doc — key rows in a flat list, `+ Add AI Key` as a centred accent link closing it, and **adding one is a half sheet**, not a form parked permanently under the list. Two fields don't need a page, and a page-wide input box sitting under the keys is paid for on every visit including the ones where nobody is adding anything.
-
-```
-      ┌────────────────────────────────────────┐
-      │ Cancel        Add AI Key         Save  │
-      ├────────────────────────────────────────┤
-      │ Vendor                    OpenAI  ▾    │
-      │ API key                                │
-      │ [ sk-…                               ] │ ← masked; placeholder is the
-      │ Don't have an OpenAI key?   Get one →  │   vendor's own key shape
-      └────────────────────────────────────────┘
-```
-
-The strategy control stays put but goes **inert below two keys** — with one key there's nothing to fall back to, and a live control that changes nothing is worse than a dim one. The two strategies:
-
-```
-Sequential ▾   key1 ──✓──▶ done      sticky: stays on key1 until it errors
-               key1 ──✗──▶ key2      (rate limit / quota / revoked)
-
-Round Robin ▾  call 1 ─▶ key1        advances every call, win or lose —
-               call 2 ─▶ key2        spreads load instead of favouring one
-               call 3 ─▶ key1
-```
 
 
 ### App icon
