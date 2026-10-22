@@ -1,8 +1,8 @@
 import 'dart:async';
 import 'dart:isolate';
-import 'dart:typed_data';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
@@ -169,6 +169,137 @@ Future<String?> askHideCode(BuildContext context) async {
     );
   }
   return null;
+}
+
+/// Hiding from the library: the share extension's card — the code once, in
+/// the clear, on the system number pad — so a typo is caught by seeing it,
+/// not by typing twice. The button that hides says how to store them:
+/// [convertible] photos could be HEIF; with none, one Hide button. Null if
+/// cancelled.
+Future<({String code, bool toHeif})?> askHideCodeOnce(
+  BuildContext context, {
+  required int convertible,
+}) => showCupertinoModalPopup<({String code, bool toHeif})>(
+  context: context,
+  builder: (_) => _HideCodeCard(convertible: convertible),
+);
+
+class _HideCodeCard extends StatefulWidget {
+  const _HideCodeCard({required this.convertible});
+
+  final int convertible;
+
+  @override
+  State<_HideCodeCard> createState() => _HideCodeCardState();
+}
+
+class _HideCodeCardState extends State<_HideCodeCard> {
+  final _code = TextEditingController();
+
+  @override
+  void dispose() {
+    _code.dispose();
+    super.dispose();
+  }
+
+  void _hide(bool toHeif) =>
+      Navigator.of(context).pop((code: _code.text, toHeif: toHeif));
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final ready = _code.text.length == 4;
+    Widget hide(String label, bool toHeif, Key key) => Expanded(
+      child: CupertinoButton.filled(
+        key: key,
+        padding: const EdgeInsets.symmetric(vertical: 12),
+        onPressed: ready ? () => _hide(toHeif) : null,
+        child: Text(label, style: const TextStyle(fontSize: 16)),
+      ),
+    );
+    return Padding(
+      // Sits on the number pad, as the extension's card does.
+      padding: EdgeInsets.only(bottom: MediaQuery.viewInsetsOf(context).bottom),
+      child: Container(
+        padding: const EdgeInsets.fromLTRB(20, 18, 20, 8),
+        decoration: const BoxDecoration(
+          color: Color(0xFF1C1C1E),
+          borderRadius: BorderRadius.vertical(top: Radius.circular(14)),
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              l10n.hideCodeTitle,
+              style: const TextStyle(
+                color: CupertinoColors.white,
+                fontSize: 17,
+                fontWeight: FontWeight.w600,
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              l10n.hideCodeShortWarning,
+              key: const ValueKey('hideCodeWarning'),
+              textAlign: TextAlign.center,
+              style: const TextStyle(
+                fontSize: 13,
+                color: CupertinoColors.systemOrange,
+              ),
+            ),
+            const SizedBox(height: 12),
+            CupertinoTextField(
+              key: const ValueKey('hideCodeField'),
+              controller: _code,
+              autofocus: true,
+              keyboardType: TextInputType.number,
+              textAlign: TextAlign.center,
+              maxLength: 4,
+              inputFormatters: [FilteringTextInputFormatter.digitsOnly],
+              padding: const EdgeInsets.symmetric(vertical: 10),
+              style: const TextStyle(
+                color: CupertinoColors.white,
+                fontSize: 28,
+                fontWeight: FontWeight.w600,
+                letterSpacing: 8,
+                fontFeatures: [FontFeature.tabularFigures()],
+              ),
+              onChanged: (_) => setState(() {}),
+              onSubmitted: (_) => ready ? _hide(false) : null,
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: widget.convertible > 0
+                  ? [
+                      hide(
+                        l10n.hideOriginalButton,
+                        false,
+                        const ValueKey('hideOriginal'),
+                      ),
+                      const SizedBox(width: 10),
+                      hide(
+                        l10n.hideConvertedButton,
+                        true,
+                        const ValueKey('hideConverted'),
+                      ),
+                    ]
+                  : [
+                      hide(
+                        l10n.libraryHide,
+                        false,
+                        const ValueKey('hideOriginal'),
+                      ),
+                    ],
+            ),
+            CupertinoButton(
+              onPressed: () => Navigator.of(context).pop(),
+              child: Text(l10n.actionCancel),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 }
 
 /// Four dots, filled left-to-right as digits are entered — same affordance
@@ -479,12 +610,30 @@ Future<bool> hideIntoPrivateAlbum(
     );
     if (proceed != true) return false;
   }
+  // Asked with the code, not once the files are in hand, so nothing after
+  // this needs the user. A photo whose file turns out to be HEIF already is
+  // kept as is.
+  final heifCount = records
+      .where(
+        (r) => LibraryCustody.isHeifCandidate(
+          r,
+          // The bucket copy's extension says nothing about the file here:
+          // with the optimized format it is `.heif` whatever this one is.
+          r.sourcePath ?? '',
+        ),
+      )
+      .length;
+  var toHeif = false;
   var hash = passcodeHash;
   if (hash == null) {
     if (!context.mounted) return false;
-    final passcode = await askHideCode(context);
-    if (passcode == null) return false;
-    hash = await PasscodeTags(records: assetRecordStore).tagFor(passcode);
+    final answer = await askHideCodeOnce(context, convertible: heifCount);
+    if (answer == null) return false;
+    toHeif = answer.toHeif;
+    hash = await PasscodeTags(records: assetRecordStore).tagFor(answer.code);
+  } else if (heifCount > 0) {
+    if (!context.mounted) return false;
+    toHeif = await _askHeif(context, heifCount);
   }
   final keeper = custody ?? LibraryCustody(store: assetRecordStore);
   // Cloud-only or shrunk here: the full original is only in the bucket, and
@@ -516,24 +665,6 @@ Future<bool> hideIntoPrivateAlbum(
     );
     if (proceed != true) return false;
   }
-  // Asked now, not once the files are in hand, so nothing after this needs
-  // the user. A photo whose file turns out to be HEIF already is kept as is.
-  final heifCount = records
-      .where(
-        (r) => LibraryCustody.isHeifCandidate(
-          r,
-          // The bucket copy's extension says nothing about the file here:
-          // with the optimized format it is `.heif` whatever this one is.
-          r.sourcePath ?? '',
-        ),
-      )
-      .length;
-  var toHeif = false;
-  if (heifCount > 0) {
-    if (!context.mounted) return false;
-    toHeif = await _askHeif(context, heifCount);
-  }
-
   // Hidden at once, journaled; the copying out happens behind it. Until it
   // lands the original is still in Photos, so a failure only has to
   // un-hide.

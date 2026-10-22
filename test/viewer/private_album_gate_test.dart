@@ -156,6 +156,61 @@ void main() {
     expect(result, '1234');
   });
 
+  testWidgets(
+    'hiding from the library: the code once, in the clear, and how to store',
+    (tester) async {
+      ({String code, bool toHeif})? result;
+      await tester.pumpWidget(
+        _wrap(
+          Builder(
+            builder: (context) => CupertinoButton(
+              onPressed: () async =>
+                  result = await askHideCodeOnce(context, convertible: 3),
+              child: const Text('open'),
+            ),
+          ),
+        ),
+      );
+      await tester.tap(find.text('open'));
+      await tester.pumpAndSettle();
+
+      final field = find.byKey(const ValueKey('hideCodeField'));
+      await tester.enterText(field, '125');
+      await tester.pump();
+      final converted = find.byKey(const ValueKey('hideConverted'));
+      expect(
+        tester.widget<CupertinoButton>(converted).onPressed,
+        isNull,
+        reason: 'not before four digits',
+      );
+      await tester.enterText(field, '12x58');
+      await tester.pump();
+      expect(find.text('1258'), findsOne, reason: 'digits only, in the clear');
+      await tester.tap(converted);
+      await tester.pumpAndSettle();
+
+      expect(result, (code: '1258', toHeif: true));
+      expect(find.text('Enter It Again'), findsNothing);
+    },
+  );
+
+  testWidgets('nothing to convert: one Hide button', (tester) async {
+    await tester.pumpWidget(
+      _wrap(
+        Builder(
+          builder: (context) => CupertinoButton(
+            onPressed: () => askHideCodeOnce(context, convertible: 0),
+            child: const Text('open'),
+          ),
+        ),
+      ),
+    );
+    await tester.tap(find.text('open'));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('hideOriginal')), findsOneWidget);
+    expect(find.byKey(const ValueKey('hideConverted')), findsNothing);
+  });
+
   testWidgets('two different codes hide nothing', (tester) async {
     String? result = 'unset';
     await tester.pumpWidget(
