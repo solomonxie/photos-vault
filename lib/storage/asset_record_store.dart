@@ -2,7 +2,7 @@ import 'dart:async';
 import 'dart:collection' show MapBase;
 import 'dart:convert';
 import 'dart:io';
-import 'dart:math' show max;
+import 'dart:math' show max, min;
 
 import 'package:flutter/foundation.dart' show visibleForTesting;
 import 'package:path/path.dart' as p;
@@ -116,7 +116,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 30,
+        version: 31,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createLibraryIdIndexSql);
@@ -326,6 +326,15 @@ class AssetRecordStore {
             await _importSpotChecks(db);
           }
           if (oldVersion < 30) await _addLookupIndexes(db);
+          // An older step that rebuilt the table already has it.
+          if (oldVersion < 31 &&
+              !(await db.rawQuery('PRAGMA table_info($_table)'))
+                  .any((c) => c['name'] == 'is_archived')) {
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN is_archived INTEGER NOT NULL '
+              'DEFAULT 0',
+            );
+          }
         },
       ),
     );
@@ -745,6 +754,7 @@ class AssetRecordStore {
       is_favorite INTEGER NOT NULL DEFAULT 0,
       is_hidden INTEGER NOT NULL DEFAULT 0,
       is_locked INTEGER NOT NULL DEFAULT 0,
+      is_archived INTEGER NOT NULL DEFAULT 0,
       local_optimized INTEGER NOT NULL DEFAULT 0,
       deleted_at INTEGER,
       binned_by TEXT,
@@ -2480,6 +2490,25 @@ class AssetRecordStore {
     );
   }
 
+  /// One statement for any number of photos: archiving a trip is one tap.
+  Future<void> setArchived(Iterable<String> localIds, bool value) async {
+    final ids = localIds.toList();
+    if (ids.isEmpty) return;
+    final db = await _open();
+    await db.transaction((txn) async {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      for (var i = 0; i < ids.length; i += 500) {
+        final chunk = ids.sublist(i, min(i + 500, ids.length));
+        await txn.update(
+          _table,
+          {'is_archived': value ? 1 : 0, 'updated_at': now},
+          where: 'local_id IN (${List.filled(chunk.length, '?').join(',')})',
+          whereArgs: chunk,
+        );
+      }
+    });
+  }
+
   Future<void> setLocalOptimized(String localId, bool value) async {
     final db = await _open();
     await db.update(
@@ -3553,6 +3582,7 @@ class AssetRecordStore {
     'is_favorite',
     'is_hidden',
     'is_locked',
+    'is_archived',
     'local_optimized',
     'deleted_at',
     'binned_by',
@@ -3756,6 +3786,7 @@ class AssetRecordStore {
         a.addedAt == b.addedAt &&
         a.isFavorite == b.isFavorite &&
         a.isLocked == b.isLocked &&
+        a.isArchived == b.isArchived &&
         a.localOptimized == b.localOptimized &&
         a.isHidden == b.isHidden &&
         a.deletedAt == b.deletedAt &&
@@ -3977,6 +4008,7 @@ class AssetRecordStore {
       },
       isFavorite: (row['is_favorite'] as int? ?? 0) != 0,
       isLocked: (row['is_locked'] as int? ?? 0) != 0,
+      isArchived: (row['is_archived'] as int? ?? 0) != 0,
       localOptimized: (row['local_optimized'] as int? ?? 0) != 0,
       isHidden: (row['is_hidden'] as int? ?? 0) != 0,
       deletedAt: deletedAtMillis == null

@@ -48,6 +48,20 @@ files — every tap a guess. Replaced.
 The last scan's result is the heading at once; a pass over photos added
 since is a line under it.
 
+## Album suggestions  `lib/photos/album_suggestions.dart`
+
+```
+ ALBUMS
+ │ ▤ Album Suggestions — days with 10+ photos in no album · 4 · 212 › │
+   Kyoto, Oct 3 – 5, 2026                                         ✕
+   46 photos over 3 days   ▢▢▢▢▢ (tap: review)
+   Create Album   Archive
+```
+
+- Unit: a local day with 10+ photos in no album and not archived; back-to-back such days merge into one.
+- Newest first. Create Album prefills `place, date range`. ✕ = Not Now, kept by day-range key.
+- Done or dismissed drops out; recomputed on open, Rescan and return.
+
 ## An action's page
 
 ```

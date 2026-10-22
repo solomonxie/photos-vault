@@ -29,7 +29,11 @@ class AssetGroupScreen extends StatefulWidget {
     this.coverFor,
     this.dateOf = PhotoGridLayout.takenAt,
     this.notes,
+    this.archive = false,
   });
+
+  /// This is the Archive: tiles and the detail toolbar offer Unarchive.
+  final bool archive;
 
   /// A built-in album's notes, under its id; null for a place or People
   /// group, which has no lasting id to keep them under.
@@ -121,8 +125,29 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
     if (mounted) setState(() => _cover = localId);
   }
 
-  void _open(AssetRecord record) {
-    Navigator.of(context).push(
+  Future<void> _unarchive(AssetRecord record) async {
+    await widget.assetRecordStore.setArchived([record.localId], false);
+    if (!mounted) return;
+    setState(
+      () => _records = _records
+          .where((r) => r.localId != record.localId)
+          .toList(),
+    );
+  }
+
+  /// Toggled in the detail view: the toolbar shows the new state at once,
+  /// the grid catches up when it is closed.
+  final _toggled = <String>{};
+
+  Future<void> _toggleArchiveInDetail(AssetRecord record) async {
+    await widget.assetRecordStore.setArchived([
+      record.localId,
+    ], !record.isArchived);
+    if (!_toggled.remove(record.localId)) _toggled.add(record.localId);
+  }
+
+  Future<void> _open(AssetRecord record) async {
+    await Navigator.of(context).push(
       ZoomPageRoute(
         builder: (_) => DetailScreen(
           records: _records,
@@ -130,8 +155,16 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
           assetRecordStore: widget.assetRecordStore,
           onDelete: _delete,
           onToggleFavorite: _toggleFavorite,
+          onToggleArchive: widget.archive ? _toggleArchiveInDetail : null,
         ),
       ),
+    );
+    if (_toggled.isEmpty || !mounted) return;
+    final gone = {..._toggled};
+    _toggled.clear();
+    setState(
+      () =>
+          _records = _records.where((r) => !gone.contains(r.localId)).toList(),
     );
   }
 
@@ -165,6 +198,12 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
                   : l10n.libraryFavorite,
               onPressed: () => _toggleFavorite(r),
             ),
+            if (widget.archive)
+              TileAction(
+                icon: CupertinoIcons.archivebox,
+                label: l10n.archiveUndoAction,
+                onPressed: () => _unarchive(r),
+              ),
             ...coverActions(
               l10n,
               isCover: widget.coverFor != null && _cover == r.localId,

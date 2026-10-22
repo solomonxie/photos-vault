@@ -38,6 +38,14 @@ enum BuiltInAlbum {
     icon: CupertinoIcons.clock_fill,
     from: Color(0xFF0F766E),
     to: Color(0xFF84CC16),
+  ),
+
+  /// Photos filed out of the library grid; see [AssetRecord.isArchived].
+  archive(
+    id: 'builtin:archive',
+    icon: CupertinoIcons.archivebox_fill,
+    from: Color(0xFF44403C),
+    to: Color(0xFFA8A29E),
   );
 
   /// How far back Recently Added reaches.

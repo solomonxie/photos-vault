@@ -104,6 +104,7 @@ class DetailScreen extends StatefulWidget {
     required this.initialIndex,
     required this.onDelete,
     this.onToggleFavorite,
+    this.onToggleArchive,
     required this.assetRecordStore,
     this.onReplaceOriginals,
     this.onReplaceWithCopies,
@@ -127,6 +128,9 @@ class DetailScreen extends StatefulWidget {
   /// Absent for hidden photos: a heart there would file a hidden photo in
   /// the library's Favorites, and means nothing inside the album.
   final Future<void> Function(AssetRecord record)? onToggleFavorite;
+
+  /// Flips [AssetRecord.isArchived]; null leaves the button off.
+  final Future<void> Function(AssetRecord record)? onToggleArchive;
 
   /// Bins originals a resize replaced, without asking again. Absent: the
   /// viewer's own [onDelete], which does ask.
@@ -322,6 +326,17 @@ class _DetailScreenState extends State<DetailScreen> {
       () =>
           _records = [..._records]
             ..[_index] = record.withFavorite(!record.isFavorite),
+    );
+  }
+
+  Future<void> _toggleArchive() async {
+    final record = _records[_index];
+    await widget.onToggleArchive?.call(record);
+    if (!mounted) return;
+    setState(
+      () =>
+          _records = [..._records]
+            ..[_index] = record.withArchived(!record.isArchived),
     );
   }
 
@@ -758,6 +773,18 @@ class _DetailScreenState extends State<DetailScreen> {
                             ? CupertinoIcons.heart_fill
                             : CupertinoIcons.heart,
                         _toggleFavorite,
+                      ),
+                    if (widget.onToggleArchive != null &&
+                        _records[_index].passcodeHash == null)
+                      _barButton(
+                        _records[_index].isArchived
+                            ? CupertinoIcons.archivebox_fill
+                            : CupertinoIcons.archivebox,
+                        _toggleArchive,
+                        key: const ValueKey('detailArchiveButton'),
+                        label: _records[_index].isArchived
+                            ? l10n.archiveUndoAction
+                            : l10n.archiveAction,
                       ),
                     _barButton(CupertinoIcons.info_circle, _revealInfoPanel),
                     _barButton(

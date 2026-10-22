@@ -1,18 +1,23 @@
 import 'dart:async';
+import 'dart:convert';
 
 import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/album_suggestions.dart';
 import '../photos/fix_queue.dart';
 import '../photos/flag_scan.dart';
 import '../photos/storage_advice.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/settings_section.dart';
+import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import 'album_suggestions_screen.dart';
 import 'flagged_action_screen.dart';
 import 'flagged_copy.dart';
+import 'library_index.dart';
 
 /// What can be done about this phone's space and the bucket's odd files,
 /// as a list of actions rather than a list of files: each says what it
@@ -32,7 +37,11 @@ class FlaggedItemsScreen extends StatefulWidget {
     required this.queue,
     this.scan,
     this.onOpenAsset,
+    this.albumStore,
   });
+
+  /// Null leaves album suggestions off.
+  final AlbumStore? albumStore;
 
   final AssetRecordStore store;
   final BackupTargetsStore targetsStore;
@@ -88,6 +97,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
     _scan.addListener(_deriveSoon);
     _wasRunning = _queue.running;
     _compute();
+    unawaited(_loadSuggestions());
     unawaited(_scan.open());
     _poll = Timer.periodic(
       FlaggedItemsScreen.pollEvery,
@@ -136,7 +146,71 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
     });
   }
 
-  void _rescan() => unawaited(_scan.run(relist: true, restart: true));
+  void _rescan() {
+    unawaited(_scan.run(relist: true, restart: true));
+    unawaited(_loadSuggestions());
+  }
+
+  List<AlbumSuggestion> _suggestions = const [];
+
+  Future<void> _loadSuggestions() async {
+    final albums = widget.albumStore;
+    if (albums == null) return;
+    final all = await widget.store.listAll();
+    final filed = {
+      for (final ids in (await albums.allMemberships()).values) ...ids,
+    };
+    final raw = await widget.store.getAppState(AlbumSuggestions.dismissedKey);
+    final dismissed = raw == null
+        ? const <String>{}
+        : (jsonDecode(raw) as List<dynamic>).cast<String>().toSet();
+    final found = AlbumSuggestions.of(
+      LibraryIndex.forList(all).home,
+      filed,
+      dismissed: dismissed,
+    );
+    if (mounted) setState(() => _suggestions = found);
+  }
+
+  Future<void> _openSuggestions() async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => AlbumSuggestionsScreen(
+          suggestions: _suggestions,
+          assetRecordStore: widget.store,
+          albumStore: widget.albumStore!,
+        ),
+      ),
+    );
+    await _loadSuggestions();
+  }
+
+  List<Widget> _suggestionsSection(AppLocalizations l10n) => [
+    Padding(
+      padding: const EdgeInsets.only(top: 24, bottom: 6, left: 4),
+      child: Text(
+        l10n.albumSuggestionsGroup.toUpperCase(),
+        style: settingsHintStyle,
+      ),
+    ),
+    Container(
+      decoration: BoxDecoration(
+        color: settingsControlFill,
+        borderRadius: BorderRadius.circular(12),
+      ),
+      child: _ActionRow(
+        key: const ValueKey('flagged-album-suggestions'),
+        icon: CupertinoIcons.rectangle_stack_badge_plus,
+        title: l10n.albumSuggestionsTitle,
+        body: l10n.albumSuggestionsHow(AlbumSuggestions.perDay),
+        amount: l10n.albumSuggestionsAmount(
+          _suggestions.length,
+          _suggestions.fold(0, (n, s) => n + s.records.length),
+        ),
+        onTap: _openSuggestions,
+      ),
+    ),
+  ];
 
   // ---------------------------------------------------------------- derive
 
@@ -293,7 +367,11 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
     final l10n = AppLocalizations.of(context)!;
     final review = _scan.result.review;
     final nothing =
-        _phone.isEmpty && _inBucket.isEmpty && review.isEmpty && !_loading;
+        _phone.isEmpty &&
+        _inBucket.isEmpty &&
+        review.isEmpty &&
+        _suggestions.isEmpty &&
+        !_loading;
     return CupertinoPageScaffold(
       backgroundColor: settingsPageBackground,
       navigationBar: CupertinoNavigationBar(
@@ -321,6 +399,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
             if (_inBucket.isNotEmpty)
               ..._section(l10n.flaggedGroupBucket, null, _inBucket),
             if (review.isNotEmpty) ..._reviewSection(l10n),
+            if (_suggestions.isNotEmpty) ..._suggestionsSection(l10n),
             if (nothing)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 48),

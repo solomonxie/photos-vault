@@ -1268,7 +1268,7 @@ void main() {
       final albumsY = tester.getCenter(find.text('Albums')).dy;
       final peopleY = tester.getCenter(find.text('People')).dy;
       expect(albumsY, lessThan(peopleY));
-      // Past Favourites, Videos and Recently Added on the same row.
+      // Past Favourites, Videos, Recently Added and Archive on the same row.
       await tester.dragUntilVisible(
         find.text('Nature'),
         find
@@ -1284,7 +1284,7 @@ void main() {
       // albums are further along it.
       expect(
         tester.getCenter(find.text('Nature')).dy,
-        tester.getCenter(find.text('Recently Added')).dy,
+        tester.getCenter(find.text('Archive')).dy,
       );
 
       await tester.tap(find.text('Nature'));

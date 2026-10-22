@@ -88,6 +88,7 @@ class AssetRecord {
     this.isFavorite = false,
     this.isHidden = false,
     this.isLocked = false,
+    this.isArchived = false,
     this.localOptimized = false,
     this.deletedAt,
     this.binnedByLibrary = false,
@@ -193,6 +194,10 @@ class AssetRecord {
   /// favourite, hiding) still works: the lock is about the pixels.
   final bool isLocked;
 
+  /// Filed away: out of the library grid, still in its albums, people and
+  /// the Archive album.
+  final bool isArchived;
+
   /// The copy on this device is a shrunken or re-encoded one — Optimize
   /// Storage rewrote it in place and the bucket kept the original. Matters
   /// to the lock, which has to put the original back before it can promise
@@ -282,6 +287,7 @@ class AssetRecord {
     bool? hasEdit,
     bool? isHidden,
     bool? isLocked,
+    bool? isArchived,
     bool? localOptimized,
     DateTime? Function()? deletedAt,
     bool? binnedByLibrary,
@@ -318,6 +324,7 @@ class AssetRecord {
     isFavorite: isFavorite ?? this.isFavorite,
     isHidden: isHidden ?? this.isHidden,
     isLocked: isLocked ?? this.isLocked,
+    isArchived: isArchived ?? this.isArchived,
     localOptimized: localOptimized ?? this.localOptimized,
     deletedAt: deletedAt != null ? deletedAt() : this.deletedAt,
     binnedByLibrary: binnedByLibrary ?? this.binnedByLibrary,
@@ -344,6 +351,8 @@ class AssetRecord {
   AssetRecord withHasEdit(bool value) => _copyWith(hasEdit: value);
 
   AssetRecord withLocked(bool value) => _copyWith(isLocked: value);
+
+  AssetRecord withArchived(bool value) => _copyWith(isArchived: value);
 
   AssetRecord withLocalOptimized(bool value) =>
       _copyWith(localOptimized: value);

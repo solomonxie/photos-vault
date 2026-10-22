@@ -19,6 +19,8 @@ class LibraryIndex {
   LibraryIndex._({
     required this.all,
     required this.active,
+    required this.home,
+    required this.archived,
     required this.videos,
     required this.favorites,
     required this.recentlyAdded,
@@ -31,6 +33,8 @@ class LibraryIndex {
 
   factory LibraryIndex.of(List<AssetRecord> all, DateTime now) {
     final active = <AssetRecord>[];
+    final home = <AssetRecord>[];
+    final archived = <AssetRecord>[];
     final videos = <AssetRecord>[];
     final favorites = <AssetRecord>[];
     final recent = <AssetRecord>[];
@@ -41,6 +45,7 @@ class LibraryIndex {
       if (isInBin(r)) deleted++;
       if (!r.isVisibleInLibrary) continue;
       active.add(r);
+      (r.isArchived ? archived : home).add(r);
       if (r.countsAsVideo) videos.add(r);
       if (r.isFavorite) favorites.add(r);
       if (r.addedAt.isAfter(since)) recent.add(r);
@@ -53,6 +58,8 @@ class LibraryIndex {
     return _byList[all] = LibraryIndex._(
       all: all,
       active: active,
+      home: home,
+      archived: archived,
       videos: videos,
       favorites: favorites,
       recentlyAdded: recent,
@@ -110,6 +117,9 @@ class LibraryIndex {
     // A clock set back widens the window: records [prev] left out are due.
     if (since.isBefore(prev.since)) return null;
     List<AssetRecord>? active;
+    List<AssetRecord>? home;
+    List<AssetRecord>? archived;
+    var homeShifted = false;
     List<AssetRecord>? videos;
     List<AssetRecord>? favorites;
     List<AssetRecord>? recent;
@@ -134,6 +144,34 @@ class LibraryIndex {
       }
       AssetRecord? only(bool Function(AssetRecord) keep, AssetRecord? r) =>
           r != null && keep(r) ? r : null;
+      final homeOut = only((r) => !r.isArchived, out);
+      final homeIn = only((r) => !r.isArchived, into);
+      if (homeOut != null || homeIn != null) {
+        if (homeOut == null ||
+            homeIn == null ||
+            recordOrder(homeOut, homeIn) != 0) {
+          homeShifted = true;
+        }
+        if (!editSorted(
+          home ??= [...prev.home],
+          homeOut,
+          homeIn,
+          recordOrder,
+        )) {
+          return null;
+        }
+      }
+      final archivedOut = only((r) => r.isArchived, out);
+      final archivedIn = only((r) => r.isArchived, into);
+      if ((archivedOut != null || archivedIn != null) &&
+          !editSorted(
+            archived ??= [...prev.archived],
+            archivedOut,
+            archivedIn,
+            recordOrder,
+          )) {
+        return null;
+      }
       final videoOut = only((r) => r.countsAsVideo, out);
       final videoIn = only((r) => r.countsAsVideo, into);
       if ((videoOut != null || videoIn != null) &&
@@ -210,9 +248,14 @@ class LibraryIndex {
     if (active != null && !shifted) {
       PhotoGridLayout.markSameShape(active, prev.active);
     }
+    if (home != null && !homeShifted) {
+      PhotoGridLayout.markSameShape(home, prev.home);
+    }
     return LibraryIndex._(
       all: all,
       active: active ?? prev.active,
+      home: home ?? prev.home,
+      archived: archived ?? prev.archived,
       videos: videos ?? prev.videos,
       favorites: favorites ?? prev.favorites,
       recentlyAdded: recent ?? prev.recentlyAdded,
@@ -251,8 +294,13 @@ class LibraryIndex {
 
   final List<AssetRecord> all;
 
-  /// What home shows, oldest first.
+  /// Every visible record, oldest first: what albums, people and search
+  /// draw from.
   final List<AssetRecord> active;
+
+  /// What the library grid shows: [active] less [archived].
+  final List<AssetRecord> home;
+  final List<AssetRecord> archived;
   final List<AssetRecord> videos;
   final List<AssetRecord> favorites;
   final List<AssetRecord> recentlyAdded;

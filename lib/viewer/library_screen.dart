@@ -515,6 +515,10 @@ class LibraryScreenState extends State<LibraryScreen>
   /// `setState`, which is the jank CLAUDE.md's "no per-build work
   /// proportional to library size" rule exists to prevent.
   List<AssetRecord> _active = const [];
+
+  /// The grid: [_active] less the archive.
+  List<AssetRecord> _home = const [];
+  List<AssetRecord> _archived = const [];
   List<AssetRecord> _videos = const [];
   List<AssetRecord> _favorites = const [];
   List<AssetRecord> _recentlyAdded = const [];
@@ -668,7 +672,7 @@ class LibraryScreenState extends State<LibraryScreen>
     _searching = !_searching;
     _searchDebounce?.cancel();
     if (_searching) {
-      _warmSearch(_active);
+      _warmSearch(_home);
     } else {
       _searchController.clear();
       _query = '';
@@ -740,7 +744,7 @@ class LibraryScreenState extends State<LibraryScreen>
       case 'cloud':
         await _openCloudBackups();
       case 'detail':
-        if (_active.isNotEmpty) await _openRecord(_active.first);
+        if (_home.isNotEmpty) await _openRecord(_home.first);
       case 'favorites':
         _push(
           FavoritesScreen(
@@ -781,6 +785,7 @@ class LibraryScreenState extends State<LibraryScreen>
             queue: _fixQueue,
             scan: _flagScan,
             onOpenAsset: _openById,
+            albumStore: _albumStore,
           ),
         );
       case 'hidden' || 'hidden-backup' || 'hidden-detail':
@@ -1618,6 +1623,8 @@ class LibraryScreenState extends State<LibraryScreen>
     _index = index;
     _all = index.all;
     _active = index.active;
+    _home = index.home;
+    _archived = index.archived;
     _videos = index.videos;
     _favorites = index.favorites;
     _recentlyAdded = index.recentlyAdded;
@@ -1649,15 +1656,15 @@ class LibraryScreenState extends State<LibraryScreen>
   List<AssetRecord> get _filtered {
     if (_query.isEmpty) {
       _search = null;
-      return _active;
+      return _home;
     }
     final cached = _filteredCache;
     if (cached != null &&
         cached.query == _query &&
-        identical(cached.from, _active)) {
+        identical(cached.from, _home)) {
       return cached.list;
     }
-    final active = _active;
+    final active = _home;
     var search = _search;
     if (search == null || !identical(search.from, active)) {
       final texts = SearchTexts.of(active);
@@ -2164,6 +2171,26 @@ class LibraryScreenState extends State<LibraryScreen>
     await reload();
   }
 
+  Future<void> _toggleArchive(AssetRecord record) =>
+      _setArchived([record], !record.isArchived);
+
+  Future<void> _setArchived(List<AssetRecord> records, bool value) async {
+    if (records.isEmpty) return;
+    await assetRecordStore.setArchived(records.map((r) => r.localId), value);
+    if (!mounted) return;
+    if (_selecting) setState(() => _selection = null);
+    await reload();
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    _showResult(
+      value
+          ? l10n.archiveDone(records.length)
+          : l10n.archiveUndone(records.length),
+    );
+  }
+
+  Future<void> _batchArchive() => _setArchived(_selectedRecords, true);
+
   /// Hiding takes the photo out of Photos as well — otherwise "hidden"
   /// would only mean hidden from this app, and the camera roll would still
   /// open on it. The copy into this app's own storage happens first, so
@@ -2306,6 +2333,11 @@ class LibraryScreenState extends State<LibraryScreen>
         onPressed: () => _addToAlbum([record]),
       ),
       TileAction(
+        icon: CupertinoIcons.archivebox,
+        label: l10n.archiveAction,
+        onPressed: () => _toggleArchive(record),
+      ),
+      TileAction(
         icon: CupertinoIcons.eye_slash,
         label: l10n.libraryHide,
         onPressed: () => _hide(record),
@@ -2394,6 +2426,8 @@ class LibraryScreenState extends State<LibraryScreen>
           onReplaceOriginals: (originals) =>
               _batchDelete(only: originals, ask: false),
           onToggleFavorite: _toggleFavorite,
+          onToggleArchive: (r) =>
+              assetRecordStore.setArchived([r.localId], !r.isArchived),
           assetRecordStore: assetRecordStore,
           personStore: _personStore,
           albumStore: _albumStore,
@@ -2905,6 +2939,20 @@ class LibraryScreenState extends State<LibraryScreen>
     );
   }
 
+  void _openArchive() {
+    final l10n = AppLocalizations.of(context)!;
+    _push(
+      AssetGroupScreen(
+        title: l10n.archiveAlbumName,
+        records: _archived,
+        assetRecordStore: assetRecordStore,
+        coverFor: BuiltInAlbum.archive,
+        notes: _albumStore.noteBook(BuiltInAlbum.archive.id),
+        archive: true,
+      ),
+    );
+  }
+
   void _openVideos() {
     final l10n = AppLocalizations.of(context)!;
     _push(
@@ -3102,6 +3150,7 @@ class LibraryScreenState extends State<LibraryScreen>
                         onAdjustDateTime: _batchAdjustDateTime,
                         onDelete: _batchDelete,
                         onHide: _batchHide,
+                        onArchive: _batchArchive,
                         onResize: _batchResize,
                         onDone: () => setState(() => _selection = null),
                       ),
@@ -3244,11 +3293,11 @@ class LibraryScreenState extends State<LibraryScreen>
           child: ListView.separated(
             scrollDirection: Axis.horizontal,
             padding: const EdgeInsets.symmetric(horizontal: 16),
-            // Favourites, Videos, Recently Added, then the user's own. The
-            // first three aren't albums anybody made — they're groupings
+            // Favourites, Videos, Recently Added, Archive, then the user's
+            // own. The first four aren't albums anybody made — they're groupings
             // the library can always answer for itself, so they're always
             // there and there's nothing to delete.
-            itemCount: _albums.length + 3,
+            itemCount: _albums.length + 4,
             separatorBuilder: (context, i) => const SizedBox(width: 12),
             itemBuilder: (context, i) => SizedBox(
               width: 140,
@@ -3285,11 +3334,20 @@ class LibraryScreenState extends State<LibraryScreen>
                   records: _recentlyAdded,
                   onTap: _openRecentlyAdded,
                 ),
+                3 => _AlbumCard(
+                  album: _builtInAlbum(
+                    BuiltInAlbum.archive,
+                    l10n.archiveAlbumName,
+                  ),
+                  builtIn: BuiltInAlbum.archive,
+                  records: _archived,
+                  onTap: _openArchive,
+                ),
                 _ => _AlbumCard(
-                  album: _albums[i - 3],
-                  records: _albumAssets[_albums[i - 3].id] ?? const [],
-                  onTap: () => _openAlbum(_albums[i - 3]),
-                  onDelete: () => _confirmDeleteAlbum(_albums[i - 3]),
+                  album: _albums[i - 4],
+                  records: _albumAssets[_albums[i - 4].id] ?? const [],
+                  onTap: () => _openAlbum(_albums[i - 4]),
+                  onDelete: () => _confirmDeleteAlbum(_albums[i - 4]),
                 ),
               },
             ),
@@ -3392,6 +3450,7 @@ class LibraryScreenState extends State<LibraryScreen>
                   queue: _fixQueue,
                   scan: _flagScan,
                   onOpenAsset: _openById,
+                  albumStore: _albumStore,
                 ),
               ),
             ),
@@ -4019,6 +4078,7 @@ class _SelectionBar extends StatelessWidget {
     required this.onSetPlace,
     required this.onAdjustDateTime,
     required this.onHide,
+    required this.onArchive,
     required this.onResize,
     required this.onDelete,
     required this.onDone,
@@ -4031,6 +4091,7 @@ class _SelectionBar extends StatelessWidget {
   final VoidCallback onSetPlace;
   final VoidCallback onAdjustDateTime;
   final VoidCallback onHide;
+  final VoidCallback onArchive;
   final VoidCallback onResize;
   final VoidCallback onDelete;
   final VoidCallback onDone;
@@ -4129,6 +4190,13 @@ class _SelectionBar extends StatelessWidget {
       builder: (sheetContext) => CupertinoActionSheet(
         title: Text(l10n.selectionTitle(count)),
         actions: [
+          CupertinoActionSheetAction(
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              onArchive();
+            },
+            child: Text(l10n.archiveAction),
+          ),
           CupertinoActionSheetAction(
             onPressed: () {
               Navigator.of(sheetContext).pop();

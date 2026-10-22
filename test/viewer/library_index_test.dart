@@ -51,6 +51,8 @@ void _expectSame(LibraryIndex a, LibraryIndex b) {
   List<String> ids(List<AssetRecord> list) => [for (final r in list) r.localId];
   expect(ids(a.active), ids(b.active), reason: 'active');
   expect(a.active, b.active, reason: 'active instances');
+  expect(a.home, b.home, reason: 'home');
+  expect(a.archived, b.archived, reason: 'archived');
   expect(a.videos, b.videos, reason: 'videos');
   expect(a.favorites, b.favorites, reason: 'favorites');
   expect(a.recentlyAdded, b.recentlyAdded, reason: 'recent');
@@ -90,7 +92,7 @@ void main() {
       for (var round = 0; round < 200; round++) {
         final edits = <String, AssetRecord?>{};
         for (var k = rng.nextInt(6); k >= 0; k--) {
-          final op = rng.nextInt(9);
+          final op = rng.nextInt(10);
           if (op == 6) {
             final id = 'photo:${next++}';
             edits[id] = random(id);
@@ -108,6 +110,7 @@ void main() {
             4 => base.withLocation(places[rng.nextInt(places.length)]),
             5 => null,
             7 => base.withTags(['t$round']),
+            8 => base.withArchived(!base.isArchived),
             _ => base.withPasscodeHash(base.passcodeHash == null ? 'h' : null),
           };
         }

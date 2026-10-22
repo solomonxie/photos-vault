@@ -327,6 +327,7 @@ class AppSnapshotIo {
       r.passcodeHash == null &&
       !r.isHidden &&
       !r.isLocked &&
+      !r.isArchived &&
       !r.isDeleted &&
       !r.localDeleted &&
       r.description.isEmpty &&
@@ -391,6 +392,7 @@ class AppSnapshotIo {
     'addedAt': record.addedAt.toIso8601String(),
     'isFavorite': record.isFavorite,
     'isHidden': record.isHidden,
+    if (record.isArchived) 'isArchived': true,
     'deletedAt': record.deletedAt?.toIso8601String(),
     if (record.binnedByLibrary) 'binnedByLibrary': true,
     'localDeleted': record.localDeleted,
@@ -538,6 +540,9 @@ class AppSnapshotIo {
     }
     if ((row['isFavorite'] as bool? ?? false) && !current.isFavorite) {
       await assetRecordStore.setFavorite(localId, true);
+    }
+    if ((row['isArchived'] as bool? ?? false) && !current.isArchived) {
+      await assetRecordStore.setArchived([localId], true);
     }
     if ((row['isHidden'] as bool? ?? false) && !current.isHidden) {
       await assetRecordStore.setHidden(localId, true);

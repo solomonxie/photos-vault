@@ -323,6 +323,14 @@ class FakeAssetRecordStore implements AssetRecordStore {
   }
 
   @override
+  Future<void> setArchived(Iterable<String> localIds, bool value) async {
+    for (final id in localIds) {
+      final existing = _records[id];
+      if (existing != null) _records[id] = existing.withArchived(value);
+    }
+  }
+
+  @override
   Future<void> setLocalOptimized(String localId, bool value) async {
     final existing = _records[localId];
     if (existing == null) return;

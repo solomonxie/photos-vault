@@ -96,6 +96,11 @@ with the batch *metadata* edits (Set Place, Adjust Date & Time),
 which belong together because that is what they are: a list of fields to
 set, each opening a picker of its own anyway.
 
+**Archive** (More sheet, tile menu, detail toolbar): out of this grid and
+search, into the built-in Archive album; still in its albums and people.
+Unarchive from Archive's tiles or detail toolbar. `isArchived` on the record,
+backed up in the app snapshot.
+
 Everything on the bar is additive or a single-field set; `Delete` is the one
 exception and it confirms (`Delete 3 photos?`).
 
@@ -126,6 +131,7 @@ is undone by sweeping back.
 ```
  ♥ Favorite / Unfavorite
  ▤ Add to Album…
+ ⊟ Archive
  👁⃠ Hide
  🗑 Delete            !
 ```
