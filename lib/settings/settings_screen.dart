@@ -418,9 +418,6 @@ class _SettingsScreenState extends State<SettingsScreen>
               child: ListView(
                 padding: const EdgeInsets.only(top: 8, bottom: 40),
                 children: [
-                  SettingsGroupHeading(title: l10n.settingsCloudBucketsHeading),
-                  _bucketsGroup(l10n, targets),
-                  const SizedBox(height: 28),
                   SettingsGroupHeading(title: l10n.cloudUploadsHeading),
                   _uploadsGroup(l10n, targets),
                   const SizedBox(height: 28),
@@ -429,6 +426,9 @@ class _SettingsScreenState extends State<SettingsScreen>
                     onInfo: _explainAppData,
                   ),
                   _appDataGroup(l10n, targets),
+                  const SizedBox(height: 28),
+                  SettingsGroupHeading(title: l10n.settingsCloudBucketsHeading),
+                  _bucketsGroup(l10n, targets),
                 ],
               ),
             ),

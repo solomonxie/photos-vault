@@ -10,12 +10,13 @@ mocks, states and copy: `cloud-redesign.md`.
  │ Last synced today, 3:04 PM                     │
  │ [[ Back Up Now ]]                Queue · 26 ›  │
  ╰────────────────────────────────────────────────╯
- CLOUD BUCKETS     ☁ my-photos ›  ☁ cold-storage ›  ⊕ Add Cloud Bucket
  UPLOADS           Sync · Upload Quality · Fill Order (2+ buckets) ·
                    Find New Files in Buckets (count)
  APP DATA ⓘ        iCloud Drive ─● · Your Cloud Bucket ─● · Export · Restore
+ CLOUD BUCKETS     ☁ my-photos ›  ☁ cold-storage ›  ⊕ Add Cloud Bucket
 ```
 
+- Buckets last: set up once, rarely touched.
 - One inset group per subject; `title … value ›` rows; sheets carry choices.
 - Status priority: lost > failed > paused > syncing > waiting > all done.
 - Fill Order only with a second bucket: with one, both orders are the same.
