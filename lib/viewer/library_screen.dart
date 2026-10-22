@@ -3012,6 +3012,7 @@ class LibraryScreenState extends State<LibraryScreen>
       album: album,
       assetRecordStore: assetRecordStore,
       albumStore: _albumStore,
+      photoLibraryService: _photoLibraryService,
     ),
   );
 

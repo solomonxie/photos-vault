@@ -42,6 +42,7 @@
   "libraryDeleteConfirmBodyGone": "该项目尚未备份，删除后无法恢复。",
   "libraryAlbumEmpty": "该相册暂无照片。",
   "libraryRemoveFromAlbum": "从相册中移除",
+  "albumSelect": "选择",
   "detailGifBadge": "GIF",
   "motionPlayHold": "按住播放",
   "motionPlayLoop": "循环播放",

@@ -73,6 +73,11 @@ class FakeAlbumStore implements AlbumStore {
   }
 
   @override
+  Future<void> removeAssets(String albumId, Iterable<String> localIds) async {
+    _members[albumId]?.removeAll(localIds);
+  }
+
+  @override
   Future<void> dropMembersOfMissingAlbums() async =>
       _members.removeWhere((id, _) => !_albums.containsKey(id));
 

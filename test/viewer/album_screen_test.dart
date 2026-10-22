@@ -108,6 +108,95 @@ void main() {
     expect(await recordStore.getByLocalId('manual:in'), isNotNull);
   });
 
+  testWidgets('select several, then remove them from the album only', (
+    tester,
+  ) async {
+    final recordStore = FakeAssetRecordStore();
+    final albumStore = FakeAlbumStore();
+    for (final id in ['a', 'b', 'c']) {
+      await recordStore.upsert(
+        localId: 'manual:$id',
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+    }
+    await albumStore.addAssets('a1', ['manual:a', 'manual:b', 'manual:c']);
+
+    await tester.pumpWidget(
+      _wrap(
+        AlbumScreen(
+          album: album,
+          assetRecordStore: recordStore,
+          albumStore: albumStore,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('albumSelect')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manual:a')));
+    await tester.tap(find.byKey(const ValueKey('manual:c')));
+    await tester.pump();
+    expect(find.text('2 Selected'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('albumRemoveSelected')));
+    await tester.pumpAndSettle();
+
+    expect(await albumStore.localIdsIn('a1'), ['manual:b']);
+    expect(await recordStore.getByLocalId('manual:a'), isNotNull);
+    expect(find.byKey(const ValueKey('manual:a')), findsNothing);
+    expect(find.byKey(const ValueKey('albumRemoveSelected')), findsNothing);
+  });
+
+  testWidgets('More: archive or delete what is selected', (tester) async {
+    final recordStore = FakeAssetRecordStore();
+    final albumStore = FakeAlbumStore();
+    for (final id in ['a', 'b']) {
+      await recordStore.upsert(
+        localId: 'manual:$id',
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+    }
+    await albumStore.addAssets('a1', ['manual:a', 'manual:b']);
+    await tester.pumpWidget(
+      _wrap(
+        AlbumScreen(
+          album: album,
+          assetRecordStore: recordStore,
+          albumStore: albumStore,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    Future<void> pickThen(String id, String action) async {
+      await tester.tap(find.byKey(const ValueKey('albumSelect')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey(id)));
+      await tester.pump();
+      await tester.tap(find.byKey(const ValueKey('albumSelectionMore')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(ValueKey(action)));
+      await tester.pumpAndSettle();
+    }
+
+    await pickThen('manual:a', 'albumArchiveSelected');
+    expect((await recordStore.getByLocalId('manual:a'))!.isArchived, isTrue);
+    expect(await albumStore.localIdsIn('a1'), contains('manual:a'));
+
+    await pickThen('manual:b', 'albumDeleteSelected');
+    await tester.tap(find.text('Delete 1 Photo'));
+    await tester.pumpAndSettle();
+    expect((await recordStore.getByLocalId('manual:b'))!.isDeleted, isTrue);
+    expect(find.byKey(const ValueKey('manual:b')), findsNothing);
+  });
+
   testWidgets('an album carries its own note and tags', (tester) async {
     final recordStore = FakeAssetRecordStore();
     final albumStore = FakeAlbumStore();

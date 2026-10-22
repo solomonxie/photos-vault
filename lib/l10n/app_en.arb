@@ -86,6 +86,7 @@
   "libraryDeleteConfirmBodyGone": "This item isn't backed up, so it will be deleted permanently.",
   "libraryAlbumEmpty": "No photos in this album.",
   "libraryRemoveFromAlbum": "Remove from Album",
+  "albumSelect": "Select",
   "detailGifBadge": "GIF",
   "motionPlayHold": "Hold to play",
   "motionPlayLoop": "Play on a loop",

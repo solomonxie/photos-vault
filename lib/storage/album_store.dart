@@ -231,6 +231,21 @@ class AlbumStore {
     );
   }
 
+  /// [removeAsset] for many, in one batch.
+  Future<void> removeAssets(String albumId, Iterable<String> localIds) async {
+    final db = await _open();
+    final batch = db.batch();
+    for (final chunk in _chunks(localIds.toList())) {
+      final marks = List.filled(chunk.length, '?').join(',');
+      batch.delete(
+        _memberTable,
+        where: 'album_id = ? AND local_id IN ($marks)',
+        whereArgs: [albumId, ...chunk],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
   /// Drops [localIds] from every album, and as a cover — photos deleted
   /// for good. One batch, however many.
   Future<void> forgetAssets(Iterable<String> localIds) async {
