@@ -22,6 +22,8 @@ import '../vault/keys.dart';
 /// Export is one tap to the share sheet. Import shows what the file holds
 /// before any of it is written, because a spreadsheet row is a claim about a
 /// real person and the file has been somewhere this app cannot see.
+enum ProfileTransferStart { import, export }
+
 class ProfileTransferScreen extends StatefulWidget {
   const ProfileTransferScreen({
     super.key,
@@ -31,7 +33,11 @@ class ProfileTransferScreen extends StatefulWidget {
     this.pickFile,
     this.share,
     this.temporaryDirectory,
+    this.start,
   });
+
+  /// Run at once on opening: the People menu's Import or Export.
+  final ProfileTransferStart? start;
 
   final PersonStore personStore;
   final String passcodeHash;
@@ -67,6 +73,18 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
   /// file is the reader's own data, and pre-ticking a 200-row spreadsheet is
   /// the difference between a list to check and 200 switches to flip.
   final Set<int> _accepted = {};
+
+  @override
+  void initState() {
+    super.initState();
+    if (widget.start case final start?) {
+      // After the first frame: both read the l10n off the context.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted) return;
+        start == ProfileTransferStart.import ? _pick() : _export();
+      });
+    }
+  }
 
   Future<void> _export() async {
     if (_busy) return;

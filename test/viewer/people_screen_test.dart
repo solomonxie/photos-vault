@@ -291,7 +291,7 @@ void main() {
     expect(find.text('5'), findsNothing);
   });
 
-  testWidgets('+ opens a profile, and a typed name is the save', (
+  testWidgets('Add Person opens a profile, and a typed name is the save', (
     tester,
   ) async {
     final personStore = FakePersonStore();
@@ -306,7 +306,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(CupertinoIcons.add));
+    await tester.tap(find.byKey(const ValueKey('peopleMenu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add Person'));
     await tester.pumpAndSettle();
 
     // Straight onto the profile page, in the name field.
@@ -336,7 +338,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byIcon(CupertinoIcons.add));
+    await tester.tap(find.byKey(const ValueKey('peopleMenu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Add Person'));
     await tester.pumpAndSettle();
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -464,7 +468,9 @@ void main() {
     expect(find.text('Zoe'), findsOneWidget);
   });
 
-  testWidgets('the profiles row opens the import/export page', (tester) async {
+  testWidgets('the top-right menu adds a person and imports or exports CSV', (
+    tester,
+  ) async {
     final personStore = FakePersonStore();
     await personStore.create(name: 'Mia');
 
@@ -478,10 +484,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Import & export profiles'));
+    await tester.tap(find.byKey(const ValueKey('peopleMenu')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Profiles as a spreadsheet'), findsWidgets);
-    expect(find.text('Export profiles'), findsOne);
+    expect(find.text('Add Person'), findsOne);
+    expect(find.text('Import from CSV…'), findsOne);
+    expect(find.text('Export to CSV'), findsOne);
   });
 }

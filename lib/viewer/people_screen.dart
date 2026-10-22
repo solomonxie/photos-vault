@@ -588,13 +588,56 @@ class _PeopleScreenState extends State<PeopleScreen> {
   }
 
   /// Reloads on the way back: an import adds people to the list behind it.
-  Future<void> _openProfileTransfer() async {
+  Future<void> _openProfileTransfer([ProfileTransferStart? start]) async {
     await Navigator.of(context).push(
       CupertinoPageRoute(
-        builder: (_) => ProfileTransferScreen(personStore: widget.personStore),
+        builder: (_) => ProfileTransferScreen(
+          personStore: widget.personStore,
+          start: start,
+        ),
       ),
     );
     if (mounted) await _reload();
+  }
+
+  /// Adding somebody, and the whole registry in and out as a spreadsheet.
+  void _showMenu() {
+    final l10n = AppLocalizations.of(context)!;
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheet) => CupertinoActionSheet(
+        actions: [
+          CupertinoActionSheetAction(
+            key: const ValueKey('peopleAddPerson'),
+            onPressed: () {
+              Navigator.of(sheet).pop();
+              _addPerson();
+            },
+            child: Text(l10n.peopleAddPerson),
+          ),
+          CupertinoActionSheetAction(
+            key: const ValueKey('peopleCsvImport'),
+            onPressed: () {
+              Navigator.of(sheet).pop();
+              _openProfileTransfer(ProfileTransferStart.import);
+            },
+            child: Text(l10n.peopleCsvImport),
+          ),
+          CupertinoActionSheetAction(
+            key: const ValueKey('peopleCsvExport'),
+            onPressed: () {
+              Navigator.of(sheet).pop();
+              _openProfileTransfer(ProfileTransferStart.export);
+            },
+            child: Text(l10n.peopleCsvExport),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheet).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
   }
 
   @override
@@ -610,9 +653,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
       navigationBar: CupertinoNavigationBar(
         middle: Text(l10n.peopleScreenTitle),
         trailing: CupertinoButton(
+          key: const ValueKey('peopleMenu'),
           padding: EdgeInsets.zero,
-          onPressed: _addPerson,
-          child: const Icon(CupertinoIcons.add),
+          onPressed: _showMenu,
+          child: const Icon(CupertinoIcons.ellipsis_circle),
         ),
       ),
       child: SafeArea(
@@ -739,21 +783,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   ),
                 ),
               ),
-            // Last: it acts on the whole registry rather than on anybody in
-            // the list — the registry as a file.
-            CupertinoListTile(
-              leading: const Icon(
-                CupertinoIcons.person_2_square_stack,
-                color: CupertinoColors.systemPink,
-              ),
-              title: Text(l10n.peopleProfileCsvRow),
-              trailing: const Icon(
-                CupertinoIcons.chevron_forward,
-                size: 18,
-                color: CupertinoColors.systemGrey2,
-              ),
-              onTap: _openProfileTransfer,
-            ),
             const SizedBox(height: 24),
           ],
         ),

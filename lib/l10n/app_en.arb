@@ -1444,6 +1444,9 @@
     }
   },
   "peopleProfileCsvRow": "Import & export profiles",
+  "peopleAddPerson": "Add Person",
+  "peopleCsvImport": "Import from CSV…",
+  "peopleCsvExport": "Export to CSV",
   "profileCsvTitle": "Profiles as a spreadsheet",
   "profileCsvHint": "One row per person, one column per field. Export to edit them anywhere; import to bring them back. Profiles kept behind a passcode are not in the file.",
   "profileCsvExportButton": "Export profiles",

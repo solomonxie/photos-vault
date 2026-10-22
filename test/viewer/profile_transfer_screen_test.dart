@@ -54,6 +54,28 @@ void main() {
     expect(find.text('2 people added'), findsOne);
   });
 
+  testWidgets('opened from the People menu, import picks the file at once', (
+    tester,
+  ) async {
+    var picked = 0;
+    await tester.pumpWidget(
+      _wrap(
+        ProfileTransferScreen(
+          personStore: FakePersonStore(),
+          start: ProfileTransferStart.import,
+          pickFile: () async {
+            picked++;
+            return (name: 'profiles.csv', bytes: utf8.encode(_csv));
+          },
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(picked, 1);
+    expect(find.text('2 people in this file'), findsOne);
+  });
+
   testWidgets('a row switched off is left out', (tester) async {
     final store = FakePersonStore();
 

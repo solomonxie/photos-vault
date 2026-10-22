@@ -1019,6 +1019,9 @@
     }
   },
   "peopleProfileCsvRow": "导入与导出档案",
+  "peopleAddPerson": "添加人物",
+  "peopleCsvImport": "从 CSV 导入…",
+  "peopleCsvExport": "导出为 CSV",
   "profileCsvTitle": "以表格形式管理档案",
   "profileCsvHint": "每人一行，每项一列。导出后可在任意表格软件中编辑，再导入回来。设有密码的档案不会出现在文件中。",
   "profileCsvExportButton": "导出档案",
