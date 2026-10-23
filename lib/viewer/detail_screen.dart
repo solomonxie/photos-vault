@@ -103,6 +103,7 @@ class DetailScreen extends StatefulWidget {
     required this.records,
     required this.initialIndex,
     required this.onDelete,
+    this.deleteLabel,
     this.onToggleFavorite,
     this.onToggleArchive,
     required this.assetRecordStore,
@@ -124,6 +125,9 @@ class DetailScreen extends StatefulWidget {
   /// Returns whether the delete actually happened — `false` if the user
   /// cancelled the confirmation, in which case nothing here should change.
   final Future<bool> Function(AssetRecord record) onDelete;
+
+  /// The delete button's text; "Delete" when absent.
+  final String? deleteLabel;
 
   /// Absent for hidden photos: a heart there would file a hidden photo in
   /// the library's Favorites, and means nothing inside the album.
@@ -670,6 +674,19 @@ class _DetailScreenState extends State<DetailScreen> {
     ),
   );
 
+  /// Live pages sit next to the current one: looked for there first, so a
+  /// rebuild doesn't scan the whole list.
+  int? _pageOf(String localId) {
+    for (var d = 0; d <= 2; d++) {
+      for (final i in {_index - d, _index + d}) {
+        if (i >= 0 && i < _records.length && _records[i].localId == localId) {
+          return i;
+        }
+      }
+    }
+    return null;
+  }
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -726,7 +743,12 @@ class _DetailScreenState extends State<DetailScreen> {
                     ? const NeverScrollableScrollPhysics()
                     : null,
                 onPageChanged: (i) => setState(() => _index = i),
+                // Keyed by photo: after a delete the next page must not
+                // inherit the deleted one's loaded file or video.
+                findChildIndexCallback: (key) =>
+                    key is ValueKey<String> ? _pageOf(key.value) : null,
                 itemBuilder: (context, i) => _MediaPage(
+                  key: ValueKey(_records[i].localId),
                   record: _records[i],
                   current: i == _index,
                   onPull: _onPull,
@@ -744,6 +766,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   personStore: _personStore,
                   onRecordChanged: _updateRecord,
                   onDelete: _delete,
+                  deleteLabel: widget.deleteLabel,
                   scrollController: _scrollControllerFor(_records[i]),
                   onZoomChanged: (zoomed) {
                     if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
@@ -833,11 +856,13 @@ class _ChromeFade extends StatelessWidget {
 
 class _MediaPage extends StatefulWidget {
   const _MediaPage({
+    super.key,
     required this.record,
     required this.assetRecordStore,
     required this.personStore,
     required this.onRecordChanged,
     required this.onDelete,
+    required this.deleteLabel,
     required this.scrollController,
     required this.albumStore,
     required this.onPull,
@@ -859,6 +884,7 @@ class _MediaPage extends StatefulWidget {
   /// one swiped past is an iCloud download nobody watches.
   final bool current;
   final VoidCallback onDelete;
+  final String? deleteLabel;
   final Future<File?> Function(AssetRecord record)? resolveFile;
 
   /// See [DetailScreen.resolveLivePhotoVideo].
@@ -1628,6 +1654,7 @@ class _MediaPageState extends State<_MediaPage>
                   albumStore: widget.albumStore,
                   onRecordChanged: widget.onRecordChanged,
                   onDelete: widget.onDelete,
+                  deleteLabel: widget.deleteLabel,
                 ),
               ),
             ],
@@ -1852,6 +1879,7 @@ class _InfoPanel extends StatefulWidget {
     required this.albumStore,
     required this.onRecordChanged,
     required this.onDelete,
+    required this.deleteLabel,
   });
 
   final AssetRecord record;
@@ -1860,6 +1888,7 @@ class _InfoPanel extends StatefulWidget {
   /// while flicking through photos, and delete is the one tap there that
   /// costs something.
   final VoidCallback onDelete;
+  final String? deleteLabel;
 
   /// Whether the original is gone and only the bucket has it. Read from
   /// `_MediaPage` rather than [record] because a restore that has just
@@ -1952,6 +1981,7 @@ class _InfoPanelState extends State<_InfoPanel> {
   /// bulk" reasoning lives.
   Future<void> _fillLocationFromMetadata() async {
     final record = widget.record;
+    if (record.passcodeHash != null || record.isHidden) return;
     final existing = record.location;
     if (existing != null && existing.isNotEmpty) return;
     final resolve =
@@ -2169,7 +2199,7 @@ class _InfoPanelState extends State<_InfoPanel> {
       labelOf: (a) => a.name,
       emptyHint: l10n.albumsNewNamePlaceholder,
       createLabel: (query) =>
-          query.isEmpty ? null : l10n.personPickerNewNamed(query),
+          query.isEmpty ? null : '${l10n.albumsNewTitle} "$query"',
       onCreate: (query) => store.upsert(id: store.newId(), name: query),
     );
     if (album == null) return;
@@ -2791,7 +2821,7 @@ class _InfoPanelState extends State<_InfoPanel> {
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    l10n.actionDelete,
+                    widget.deleteLabel ?? l10n.actionDelete,
                     style: const TextStyle(color: CupertinoColors.systemRed),
                   ),
                 ],

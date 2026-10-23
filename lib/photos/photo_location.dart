@@ -147,6 +147,8 @@ class PhotoLocationService {
     AssetRecord record, {
     AssetRecordStore? store,
   }) async {
+    // A hidden photo's whereabouts don't go to the geocoder or the cache.
+    if (record.passcodeHash != null || record.isHidden) return null;
     try {
       final latLng = record.hasCoordinates
           ? LatLng(latitude: record.latitude!, longitude: record.longitude!)

@@ -61,6 +61,7 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
   Future<void> _toggleFavorite(AssetRecord record) async {
     final value = !record.isFavorite;
     await setFavoriteEverywhere(widget.assetRecordStore, record, value);
+    if (!mounted) return;
     setState(
       () => _records = [
         for (final r in _records)

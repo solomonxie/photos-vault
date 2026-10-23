@@ -81,7 +81,7 @@ void main() {
           .firstWhere((a) => a.isDestructive)
           .onPressed();
       await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete'));
+      await tester.tap(find.text('Delete Permanently').last);
       await tester.pumpAndSettle();
     }
 

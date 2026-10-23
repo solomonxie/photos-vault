@@ -428,7 +428,9 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
   /// question about buckets.
   Future<void> _loadTarget() async {
     try {
-      final has = (await BackupTargetsStore().loadAll()).isNotEmpty;
+      final has =
+          (await (widget.targetsStore ?? BackupTargetsStore()).loadAll())
+              .isNotEmpty;
       if (mounted) setState(() => _hasTarget = has);
     } catch (_) {
       // No secure storage (tests, a locked keychain) — the footer just
@@ -855,7 +857,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
         ),
       ),
     );
-    controller.dispose();
+    // Not disposed: the closing dialog still builds the field; GC has it.
     return code;
   }
 
@@ -1017,7 +1019,11 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     // Through the same path a single "Move to Library" takes, so every
     // photo goes back to Photos rather than only losing its passcode.
     await _removeManyFromAlbum(_records.map((r) => r.localId).toList());
-    if (mounted) Navigator.of(context).pop();
+    // Anything that didn't go back, or lives only in the bucket, is still
+    // here: the album stays open on it rather than closing over it.
+    if (mounted && _records.isEmpty && _entriesWithoutRows.isEmpty) {
+      Navigator.of(context).pop();
+    }
   }
 
   void _open(AssetRecord record) {

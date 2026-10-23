@@ -40,6 +40,7 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
 
   final _gridKey = GlobalKey<AssetGridViewState>();
   List<AssetRecord> _records = const [];
+  bool _loaded = false;
   // Replaced, never mutated: the grid's rows rebuild only when the set they
   // were handed is a different one.
   Set<String> _selected = {};
@@ -53,8 +54,9 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
   Future<void> _load() async {
     final all = await widget.assetRecordStore.listAll();
     if (!mounted) return;
-    setState(
-      () => _records =
+    setState(() {
+      _loaded = true;
+      _records =
           all
               .where(
                 (r) =>
@@ -62,8 +64,8 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
                     !widget.excludeIds.contains(r.localId),
               )
               .toList()
-            ..sort((a, b) => a.createdAt.compareTo(b.createdAt)),
-    );
+            ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+    });
   }
 
   void _toggle(AssetRecord record) {
@@ -103,7 +105,9 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
       child: Stack(
         children: [
           SafeArea(
-            child: _records.isEmpty
+            child: !_loaded
+                ? const SizedBox.shrink()
+                : _records.isEmpty
                 ? Center(
                     child: Text(
                       l10n.privateAlbumPickerEmpty,
@@ -123,10 +127,11 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
           ),
           // Tapping the header goes back to the newest photo, as on the
           // library page. The status-bar strip above it can't be covered —
-          // iOS delivers that tap on a channel, not to the view.
+          // iOS delivers that tap on a channel, not to the view. Clear of
+          // Back on the left, as of Add on the right.
           Positioned(
             top: MediaQuery.paddingOf(context).top,
-            left: 0,
+            left: 96,
             right: 96,
             height: _navigationBarHeight,
             child: GestureDetector(

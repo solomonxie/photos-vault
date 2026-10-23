@@ -102,6 +102,32 @@ class _PhotoEditScreenState extends State<PhotoEditScreen> {
     Navigator.of(context).pop(edited);
   }
 
+  /// As in Photos: an edit made isn't thrown away on one tap.
+  Future<void> _cancel() async {
+    if (!_dirty) {
+      Navigator.of(context).pop();
+      return;
+    }
+    final l10n = AppLocalizations.of(context)!;
+    final discard = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (sheet) => CupertinoActionSheet(
+        actions: [
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(sheet).pop(true),
+            child: Text(l10n.editDiscard),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheet).pop(false),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (discard == true && mounted) Navigator.of(context).pop();
+  }
+
   String _extensionOf(String path) {
     final dot = path.lastIndexOf('.');
     return dot == -1 ? '.jpg' : path.substring(dot);
@@ -125,7 +151,7 @@ class _PhotoEditScreenState extends State<PhotoEditScreen> {
                 children: [
                   CupertinoButton(
                     padding: EdgeInsets.zero,
-                    onPressed: () => Navigator.of(context).pop(),
+                    onPressed: _cancel,
                     child: Text(
                       l10n.actionCancel,
                       style: const TextStyle(color: CupertinoColors.white),

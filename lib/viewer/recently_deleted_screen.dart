@@ -1,7 +1,6 @@
 import 'package:flutter/cupertino.dart';
 
 import '../photos/asset_removal.dart';
-import '../photos/library_metadata.dart';
 import '../l10n/app_localizations.dart';
 import '../settings/backup_targets_store.dart';
 import '../storage/asset_record.dart';
@@ -97,7 +96,7 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
           CupertinoDialogAction(
             isDestructiveAction: true,
             onPressed: () => Navigator.of(context).pop(true),
-            child: Text(l10n.actionDelete),
+            child: Text(l10n.libraryDeletePermanentlyAction),
           ),
         ],
       ),
@@ -161,15 +160,6 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
     await _reload();
   }
 
-  Future<void> _toggleFavorite(AssetRecord record) async {
-    await setFavoriteEverywhere(
-      widget.assetRecordStore,
-      record,
-      !record.isFavorite,
-    );
-    await _reload();
-  }
-
   void _open(AssetRecord record) {
     Navigator.of(context).push(
       ZoomPageRoute(
@@ -178,7 +168,8 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
           initialIndex: _records.indexOf(record),
           assetRecordStore: widget.assetRecordStore,
           onDelete: _deletePermanently,
-          onToggleFavorite: _toggleFavorite,
+          deleteLabel: AppLocalizations.of(context)!
+              .libraryDeletePermanentlyAction,
         ),
       ),
     );

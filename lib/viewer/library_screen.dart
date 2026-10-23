@@ -2415,7 +2415,10 @@ class LibraryScreenState extends State<LibraryScreen>
     // Opened from the queue, the photo may not be in the current grid at
     // all — hidden, deleted, or filtered out by a search. Show it on its
     // own rather than dropping the tap or, worse, indexing at -1.
-    final index = visible.indexOf(record);
+    final sorted = indexInOrder(visible, record);
+    final index = sorted >= 0
+        ? sorted
+        : visible.indexWhere((r) => r.localId == record.localId);
     final records = index >= 0 ? visible : [record];
     await Navigator.of(context).push(
       ZoomPageRoute(
@@ -2657,7 +2660,7 @@ class LibraryScreenState extends State<LibraryScreen>
       labelOf: (a) => a.name,
       emptyHint: l10n.albumsNewNamePlaceholder,
       createLabel: (query) =>
-          query.isEmpty ? null : l10n.personPickerNewNamed(query),
+          query.isEmpty ? null : '${l10n.albumsNewTitle} "$query"',
       onCreate: (query) =>
           _albumStore.upsert(id: _albumStore.newId(), name: query),
     );
@@ -2692,11 +2695,14 @@ class LibraryScreenState extends State<LibraryScreen>
       title: l10n.selectionAddTag,
       options: options,
     );
-    if (tag == null || tag.trim().isEmpty) return;
+    final trimmed = tag?.trim() ?? '';
+    if (trimmed.isEmpty) return;
     for (final record in _selectedRecords) {
-      if (record.tags.contains(tag)) continue;
-      await assetRecordStore.setTags(record.localId, [...record.tags, tag]);
+      if (record.tags.contains(trimmed)) continue;
+      await assetRecordStore.setTags(record.localId, [...record.tags, trimmed]);
     }
+    if (!mounted) return;
+    setState(() => _selection = null);
     await reload();
   }
 
@@ -2998,7 +3004,7 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       ),
     );
-    controller.dispose();
+    // Not disposed: the closing dialog still builds the field; GC has it.
     if (name == null || name.isEmpty) return;
     final album = await _albumStore.upsert(id: _albumStore.newId(), name: name);
     await reload();

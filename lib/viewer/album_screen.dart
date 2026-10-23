@@ -51,6 +51,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
     text: widget.album.description,
   );
   List<AssetRecord> _records = const [];
+  bool _loaded = false;
   late final Widget _notes = AlbumNotes(
     book: widget.albumStore.noteBook(widget.album.id),
   );
@@ -163,9 +164,15 @@ class _AlbumScreenState extends State<AlbumScreen> {
   /// one Photos prompt for the lot. Locked photos are left alone; freeing
   /// space instead is the library's (it needs the backup check).
   Future<void> _deleteSelected() async {
-    final unlocked = _selectedRecords.where((r) => !r.isLocked).toList();
-    if (unlocked.isEmpty) return;
+    final l10n = AppLocalizations.of(context)!;
+    final selected = _selectedRecords;
+    final unlocked = selected.where((r) => !r.isLocked).toList();
+    if (unlocked.isEmpty) {
+      if (selected.isNotEmpty) _showResult(l10n.lockBlockedDelete);
+      return;
+    }
     const limit = PhotoLibraryService.deleteBatchLimit;
+    final capped = unlocked.length > limit;
     final batch = unlocked.take(limit).toList();
     final choice = await chooseBatchDelete(
       context,
@@ -194,17 +201,44 @@ class _AlbumScreenState extends State<AlbumScreen> {
       gone = {for (final r in fromLibrary) r.localId};
     }
     final needsLibrary = {for (final r in fromLibrary) r.localId};
+    var kept = 0;
     for (final r in batch) {
       // Declined at the Photos prompt: left as it is.
       if (needsLibrary.contains(r.localId) && !gone.contains(r.localId)) {
+        kept++;
         continue;
       }
       await _removal.binOrPurge(r);
     }
     if (!mounted) return;
-    _endSelecting();
+    // The overflow stays selected for a second round, as in the library.
+    final left = {for (final r in unlocked.skip(batch.length)) r.localId};
+    if (left.isEmpty) {
+      _endSelecting();
+    } else {
+      _picked.value = left;
+    }
     await _reload();
+    if (!mounted) return;
+    if (kept > 0) {
+      _showResult(l10n.libraryDeleteKeptByPhotos(kept));
+    } else if (capped) {
+      _showResult(l10n.libraryDeleteBatchCapped(limit));
+    }
   }
+
+  void _showResult(String message) => showCupertinoDialog<void>(
+    context: context,
+    builder: (context) => CupertinoAlertDialog(
+      content: Text(message),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(AppLocalizations.of(context)!.actionOk),
+        ),
+      ],
+    ),
+  );
 
   Future<void> _hideSelected() async {
     final records = _selectedRecords;
@@ -280,12 +314,13 @@ class _AlbumScreenState extends State<AlbumScreen> {
     final members = await widget.assetRecordStore.listOf(memberIds);
     if (!mounted) return;
     if (refreshed != null) _album = refreshed;
-    setState(
-      () => _records = [
+    setState(() {
+      _loaded = true;
+      _records = [
         for (final r in members)
           if (r.isVisibleInLibrary) r,
-      ],
-    );
+      ];
+    });
   }
 
   Future<void> _toggleFavorite(AssetRecord record) async {
@@ -432,15 +467,16 @@ class _AlbumScreenState extends State<AlbumScreen> {
             children: [
               _header(l10n),
               _notes,
-              Padding(
-                padding: const EdgeInsets.only(top: 32),
-                child: Center(
-                  child: Text(
-                    l10n.libraryAlbumEmpty,
-                    style: const TextStyle(color: CupertinoColors.systemGrey),
+              if (_loaded)
+                Padding(
+                  padding: const EdgeInsets.only(top: 32),
+                  child: Center(
+                    child: Text(
+                      l10n.libraryAlbumEmpty,
+                      style: const TextStyle(color: CupertinoColors.systemGrey),
+                    ),
                   ),
                 ),
-              ),
             ],
           )
         : AssetGridView(

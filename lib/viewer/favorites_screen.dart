@@ -33,6 +33,7 @@ class FavoritesScreen extends StatefulWidget {
 
 class _FavoritesScreenState extends State<FavoritesScreen> {
   List<AssetRecord> _records = const [];
+  bool _loaded = false;
 
   @override
   void initState() {
@@ -46,7 +47,10 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     if (!mounted) return;
     // The library screen's own list for this library when it has one; in
     // grid order either way, so no sort.
-    setState(() => _records = LibraryIndex.forList(all).favorites);
+    setState(() {
+      _loaded = true;
+      _records = LibraryIndex.forList(all).favorites;
+    });
   }
 
   Future<void> _unfavorite(AssetRecord record) async {
@@ -122,7 +126,9 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         middle: Text(l10n.collectionsFavoritesRow),
       ),
       child: SafeArea(
-        child: _records.isEmpty
+        child: !_loaded
+            ? const SizedBox.shrink()
+            : _records.isEmpty
             ? ListView(
                 children: [
                   Padding(
