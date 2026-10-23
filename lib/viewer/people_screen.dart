@@ -1,6 +1,7 @@
 import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
+import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
@@ -21,6 +22,7 @@ import 'face_group_screen.dart';
 import 'person_picker_sheet.dart';
 import 'person_profile_screen.dart';
 import 'private_album_gate.dart' show personHasHiddenFolder;
+import 'people_zip_screen.dart';
 import 'profile_transfer_screen.dart';
 
 /// Collections' "People" row: named [Person] profiles (T7.1-T7.3), each with
@@ -82,13 +84,22 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Map<String, AssetRecord>? _recordsById;
   List<UnnamedFace> _unnamedFaces = const [];
 
-  /// How many there are altogether — [_unnamedFaces] is the first twenty.
+  /// How many there are altogether — [_unnamedFaces] is the first sixty.
   /// Without it the section reads the same whether the scan has found
   /// twenty faces or four hundred.
   int _facesFound = 0;
   String _query = '';
   Map<PersonGroup, List<String>> _groups = const {};
   Map<String, PersonDetail> _details = const {};
+
+  PeopleSort _sort = PeopleSort.lastSeen;
+  bool _loaded = false;
+  static const _sortKey = 'people_sort_v1';
+
+  /// When each person was first and last known of: their First met / Last
+  /// seen rows, else the earliest / latest dated event or tagged photo.
+  Map<String, DateTime> _firstKnown = const {};
+  Map<String, DateTime> _lastKnown = const {};
 
   /// Which chip is on. `null` is All — no filter, every named person.
   PeopleFilter? _filter;
@@ -131,24 +142,127 @@ class _PeopleScreenState extends State<PeopleScreen> {
     }
     final groups = await widget.personStore.allGroups();
     final details = await widget.personStore.openDetails();
+    final spans = await widget.personStore.openEventSpans();
+    final byId = visibleRecordsOf(records);
+    final firstKnown = <String, DateTime>{};
+    final lastKnown = <String, DateTime>{};
+    DateTime? min(DateTime? a, DateTime? b) =>
+        a == null || (b != null && b.isBefore(a)) ? b : a;
+    DateTime? max(DateTime? a, DateTime? b) =>
+        a == null || (b != null && b.isAfter(a)) ? b : a;
+    for (final person in people) {
+      DateTime? earliest, latest;
+      for (final id in members[person.id] ?? const <String>[]) {
+        final at = byId[id]?.createdAt;
+        earliest = min(earliest, at);
+        latest = max(latest, at);
+      }
+      final span = spans[person.id];
+      final first = span?.firstMet ?? min(span?.earliest, earliest);
+      final last = max(max(span?.lastSeen, span?.latest), latest);
+      if (first != null) firstKnown[person.id] = first;
+      if (last != null) lastKnown[person.id] = last;
+    }
+    final sort = await _loadSort();
     final unnamed = await _loadUnnamedFaces(records, tagged, {
       for (final p in people) p.id: p.name,
     });
-    // Most photographed first, matching the faces below it. This is a
-    // list for working through, and the person you have four hundred
-    // photos of is the one you came here about.
-    people.sort((a, b) => (counts[b.id] ?? 0).compareTo(counts[a.id] ?? 0));
+    _sortPeople(people, sort, counts, firstKnown, lastKnown);
     if (!mounted) return;
     setState(() {
+      _sort = sort;
+      _firstKnown = firstKnown;
+      _lastKnown = lastKnown;
       _groups = groups;
       _details = details;
       _people = people;
       _counts = counts;
       _firstPhoto = firstPhoto;
-      _recordsById = records.isEmpty ? null : visibleRecordsOf(records);
+      _recordsById = records.isEmpty ? null : byId;
+      _loaded = true;
       _unnamedFaces = unnamed.faces;
       _facesFound = unnamed.found;
     });
+  }
+
+  static void _sortPeople(
+    List<Person> people,
+    PeopleSort sort,
+    Map<String, int> counts,
+    Map<String, DateTime> firstKnown,
+    Map<String, DateTime> lastKnown,
+  ) {
+    // Undated last either way: unknown is not "long ago".
+    int byDate(Map<String, DateTime> at, Person a, Person b, bool newest) {
+      final x = at[a.id], y = at[b.id];
+      if (x == null || y == null) return x == null ? (y == null ? 0 : 1) : -1;
+      return newest ? y.compareTo(x) : x.compareTo(y);
+    }
+
+    people.sort(
+      (a, b) => switch (sort) {
+        PeopleSort.photos => (counts[b.id] ?? 0).compareTo(counts[a.id] ?? 0),
+        PeopleSort.firstMet => byDate(firstKnown, a, b, false),
+        PeopleSort.lastSeen => byDate(lastKnown, a, b, true),
+        PeopleSort.name => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      },
+    );
+  }
+
+  Future<PeopleSort> _loadSort() async {
+    try {
+      final saved = await widget.assetRecordStore.getAppState(_sortKey);
+      return PeopleSort.values.where((s) => s.name == saved).firstOrNull ??
+          PeopleSort.lastSeen;
+    } catch (_) {
+      return PeopleSort.lastSeen;
+    }
+  }
+
+  Future<void> _setSort(PeopleSort sort) async {
+    final people = [..._people];
+    _sortPeople(people, sort, _counts, _firstKnown, _lastKnown);
+    setState(() {
+      _sort = sort;
+      _people = people;
+    });
+    try {
+      await widget.assetRecordStore.setAppState(_sortKey, sort.name);
+    } catch (_) {
+      // No app-state table (a widget test): this visit only.
+    }
+  }
+
+  void _showSort() {
+    final l10n = AppLocalizations.of(context)!;
+    String label(PeopleSort s) => switch (s) {
+      PeopleSort.photos => l10n.peopleSortPhotos,
+      PeopleSort.firstMet => l10n.peopleSortFirstMet,
+      PeopleSort.lastSeen => l10n.peopleSortLastSeen,
+      PeopleSort.name => l10n.peopleSortName,
+    };
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheet) => CupertinoActionSheet(
+        title: Text(l10n.peopleSortTitle),
+        actions: [
+          for (final s in PeopleSort.values)
+            CupertinoActionSheetAction(
+              key: ValueKey('peopleSort-${s.name}'),
+              isDefaultAction: s == _sort,
+              onPressed: () {
+                Navigator.of(sheet).pop();
+                _setSort(s);
+              },
+              child: Text(s == _sort ? '✓ ${label(s)}' : label(s)),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheet).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
   }
 
   /// Every record, or none where there's no record database (a widget
@@ -236,15 +350,20 @@ class _PeopleScreenState extends State<PeopleScreen> {
 
   /// One tap, because the app already has a name for this face and the row
   /// is showing it. Undoable, for exactly that reason.
+  final _accepting = <String>{};
+
   Future<void> _acceptSuggestion(UnnamedFace face) async {
     final personId = face.suggestedPersonId;
     final name = face.suggestedName;
     if (personId == null || name == null) return;
+    if (!_accepting.add(face.localId)) return;
     final l10n = AppLocalizations.of(context)!;
     await widget.personStore.addAssets(personId, [face.localId]);
     final identity = widget.faceIdentity;
     if (identity != null) {
-      final record = await widget.assetRecordStore.getByLocalId(face.localId);
+      final record =
+          _recordsById?[face.localId] ??
+          await widget.assetRecordStore.getByLocalId(face.localId);
       if (record != null) {
         await identity.remember(
           record: record,
@@ -255,6 +374,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     }
     if (!mounted) return;
     await _reload();
+    _accepting.remove(face.localId);
     if (!mounted) return;
     _showUndo(l10n.peopleSuggestionAccepted(name), () async {
       await widget.personStore.removeAsset(personId, face.localId);
@@ -444,9 +564,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ),
-          // The list is the first twenty; this is how many there are.
-          // Without it the section reads the same whether the scan has
-          // found twenty faces or four hundred.
+          // The list is capped; this is how many there are.
           Text(
             '$_facesFound',
             style: const TextStyle(
@@ -600,6 +718,18 @@ class _PeopleScreenState extends State<PeopleScreen> {
     if (mounted) await _reload();
   }
 
+  Future<void> _openPeopleZip() async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => PeopleZipScreen(
+          personStore: widget.personStore,
+          assetRecordStore: widget.assetRecordStore,
+        ),
+      ),
+    );
+    if (mounted) await _reload();
+  }
+
   /// Adding somebody, and the whole registry in and out as a spreadsheet.
   void _showMenu() {
     final l10n = AppLocalizations.of(context)!;
@@ -607,6 +737,14 @@ class _PeopleScreenState extends State<PeopleScreen> {
       context: context,
       builder: (sheet) => CupertinoActionSheet(
         actions: [
+          CupertinoActionSheetAction(
+            key: const ValueKey('peopleSortMenu'),
+            onPressed: () {
+              Navigator.of(sheet).pop();
+              _showSort();
+            },
+            child: Text(l10n.peopleSortMenu),
+          ),
           CupertinoActionSheetAction(
             key: const ValueKey('peopleAddPerson'),
             onPressed: () {
@@ -622,6 +760,14 @@ class _PeopleScreenState extends State<PeopleScreen> {
               _openProfileTransfer(ProfileTransferStart.import);
             },
             child: Text(l10n.peopleCsvImport),
+          ),
+          CupertinoActionSheetAction(
+            key: const ValueKey('peopleZipImport'),
+            onPressed: () {
+              Navigator.of(sheet).pop();
+              _openPeopleZip();
+            },
+            child: Text(l10n.peopleZipMenu),
           ),
           CupertinoActionSheetAction(
             key: const ValueKey('peopleCsvExport'),
@@ -677,7 +823,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
               ),
             ?_filterChips(l10n),
             if (_people.isNotEmpty) _sectionHeading(l10n.peopleSectionNamed),
-            if (_people.isEmpty && _unnamedFaces.isEmpty)
+            if (!_loaded)
+              const Padding(
+                padding: EdgeInsets.only(top: 48),
+                child: CupertinoActivityIndicator(),
+              )
+            else if (_people.isEmpty && _unnamedFaces.isEmpty)
               Padding(
                 padding: const EdgeInsets.only(top: 48),
                 child: Center(
@@ -719,6 +870,19 @@ class _PeopleScreenState extends State<PeopleScreen> {
                     size: _faceSize,
                   ),
                   title: Text(person.name),
+                  subtitle: switch ((
+                    _sort,
+                    _firstKnown[person.id],
+                    _lastKnown[person.id],
+                  )) {
+                    (PeopleSort.firstMet, final at?, _) => Text(
+                      l10n.peopleMetOn(DateFormat.yMMMd().format(at)),
+                    ),
+                    (PeopleSort.lastSeen, _, final at?) => Text(
+                      l10n.peopleSeenOn(DateFormat.yMMMd().format(at)),
+                    ),
+                    _ => null,
+                  },
                   trailing: Row(
                     mainAxisSize: MainAxisSize.min,
                     children: [
@@ -790,3 +954,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
     );
   }
 }
+
+/// How People is ordered; kept between visits.
+enum PeopleSort { photos, firstMet, lastSeen, name }

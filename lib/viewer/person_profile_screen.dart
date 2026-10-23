@@ -630,11 +630,12 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
 
   Future<void> _editBirthDate() async {
     final l10n = AppLocalizations.of(context)!;
-    var picked = _detail.birthDate ?? DateTime(DateTime.now().year - 30);
+    final current = _detail.birthDate;
+    var picked = current ?? DateTime(DateTime.now().year - 30);
     final saved = await showCupertinoModalPopup<bool>(
       context: context,
       builder: (context) => CupertinoActionSheet(
-        title: Text(l10n.personProfileAgeLabel),
+        title: Text(l10n.personProfileBirthDateTitle),
         message: SizedBox(
           height: 160,
           child: CupertinoDatePicker(
@@ -650,20 +651,29 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
             onPressed: () => Navigator.of(context).pop(true),
             child: Text(l10n.settingsSaveButton),
           ),
+          if (current != null)
+            CupertinoActionSheetAction(
+              isDestructiveAction: true,
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(l10n.actionClear),
+            ),
         ],
         cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: () => Navigator.of(context).pop(),
           child: Text(l10n.actionCancel),
         ),
       ),
     );
-    if (saved != true) return;
-    await _persistDetail(_detail.copyWith(birthDate: () => picked));
+    if (saved == null) return;
+    await _persistDetail(
+      _detail.copyWith(birthDate: () => saved ? picked : null),
+    );
   }
 
   Future<void> _pickGender() async {
     final l10n = AppLocalizations.of(context)!;
-    final selected = await showCupertinoModalPopup<Gender>(
+    // A Gender, or false for Clear.
+    final selected = await showCupertinoModalPopup<Object>(
       context: context,
       builder: (context) => CupertinoActionSheet(
         title: Text(l10n.personProfileGenderLabel),
@@ -676,6 +686,12 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
             onPressed: () => Navigator.of(context).pop(Gender.female),
             child: Text(l10n.genderFemale),
           ),
+          if (_detail.gender != null)
+            CupertinoActionSheetAction(
+              isDestructiveAction: true,
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(l10n.actionClear),
+            ),
         ],
         cancelButton: CupertinoActionSheetAction(
           onPressed: () => Navigator.of(context).pop(),
@@ -684,7 +700,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       ),
     );
     if (selected == null) return;
-    await _persistDetail(_detail.copyWith(gender: () => selected));
+    await _persistDetail(
+      _detail.copyWith(gender: () => selected is Gender ? selected : null),
+    );
   }
 
   /// Plain text, no box — "30 years old · Male", each part its own tap
@@ -897,7 +915,11 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                   fontWeight: FontWeight.bold,
                   color: CupertinoColors.white,
                 ),
-                onChanged: (v) => _persist(_person.copyWith(name: v)),
+                // A blank name is never written: the person keeps the last
+                // one, rather than an empty row in People.
+                onChanged: (v) {
+                  if (v.trim().isNotEmpty) _persist(_person.copyWith(name: v));
+                },
               ),
             ),
             const SizedBox(height: 20),
@@ -1429,9 +1451,10 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   /// empty one reads as a prompt rather than as something the app decided.
   Widget _eventsSection(AppLocalizations l10n) {
     final firstMet = _events.where((e) => e.isFirstMet).firstOrNull;
+    final lastSeen = _events.where((e) => e.isLastSeen).firstOrNull;
     final rest = [
       for (final e in _events)
-        if (!e.isFirstMet) e,
+        if (!e.isFixed) e,
     ];
     return CupertinoListSection.insetGrouped(
       margin: const EdgeInsets.symmetric(horizontal: 16),
@@ -1457,6 +1480,28 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                   id: widget.personStore.newId(),
                   personId: _person.id,
                   type: PersonEventType.firstMet,
+                ),
+          ),
+        ),
+        CupertinoListTile(
+          title: Text(l10n.eventsLastSeen),
+          subtitle: Text(
+            lastSeen?.at == null
+                ? l10n.eventsNotSet
+                : _eventDate(lastSeen!.at!),
+          ),
+          trailing: const Icon(
+            CupertinoIcons.chevron_right,
+            size: 16,
+            color: CupertinoColors.systemGrey,
+          ),
+          onTap: () => _editEvent(
+            existing:
+                lastSeen ??
+                PersonEvent(
+                  id: widget.personStore.newId(),
+                  personId: _person.id,
+                  type: PersonEventType.lastSeen,
                 ),
           ),
         ),
@@ -1517,7 +1562,11 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           personId: _person.id,
           type: PersonEventType.other,
         );
-    final saved = await showPersonEventSheet(context, event: draft);
+    final saved = await showPersonEventSheet(
+      context,
+      event: draft,
+      editing: existing != null,
+    );
     if (saved == null) return;
     await widget.personStore.saveEvent(saved, scope: _scope);
     await _reload();
@@ -1585,7 +1634,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           CupertinoDialogAction(
             isDestructiveAction: true,
             onPressed: () => Navigator.of(dialogContext).pop(true),
-            child: Text(l10n.actionDelete),
+            child: Text(l10n.groupsLeaveButton),
           ),
         ],
       ),

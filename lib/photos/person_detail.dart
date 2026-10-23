@@ -193,6 +193,9 @@ enum PersonEventType {
   favour,
   fallingOut,
   other,
+
+  /// The latest record of somebody — the other fixed row, below [firstMet].
+  lastSeen,
 }
 
 /// Something that happened with somebody, on a date, with notes.
@@ -216,6 +219,10 @@ class PersonEvent {
   final String notes;
 
   bool get isFirstMet => type == PersonEventType.firstMet;
+  bool get isLastSeen => type == PersonEventType.lastSeen;
+
+  /// One per profile, always shown, never deleted.
+  bool get isFixed => isFirstMet || isLastSeen;
 
   PersonEvent copyWith({
     PersonEventType? type,

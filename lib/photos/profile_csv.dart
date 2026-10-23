@@ -23,6 +23,8 @@ final profileCsvColumns = [
   'birthdate',
   'gender',
   'bio',
+  'firstmet',
+  'lastseen',
   ...profileCsvTraitColumns,
   'fields',
   'groups',
@@ -60,6 +62,8 @@ class ProfileCsvRow {
     this.birthDate,
     this.gender,
     this.bio = '',
+    this.firstMet,
+    this.lastSeen,
     this.traits = const {},
     this.fields = const [],
     this.groups = const [],
@@ -73,6 +77,10 @@ class ProfileCsvRow {
   final DateTime? birthDate;
   final Gender? gender;
   final String bio;
+
+  /// The First met and Last seen rows' dates.
+  final DateTime? firstMet;
+  final DateTime? lastSeen;
   final Map<String, String> traits;
   final List<PersonCustomField> fields;
   final List<ProfileCsvGroup> groups;
@@ -87,6 +95,8 @@ class ProfileCsvRow {
       (bio.isEmpty ? 0 : 1) +
       (birthDate == null ? 0 : 1) +
       (gender == null ? 0 : 1) +
+      (firstMet == null ? 0 : 1) +
+      (lastSeen == null ? 0 : 1) +
       traits.values.where((v) => v.isNotEmpty).length +
       fields.length +
       groups.length +
@@ -171,6 +181,8 @@ ProfileCsvFile readProfileCsv(String text) {
             .where((g) => g.name == at('gender').toLowerCase())
             .firstOrNull,
         bio: at('bio'),
+        firstMet: parseProfileCsvDate(at('firstmet')),
+        lastSeen: parseProfileCsvDate(at('lastseen')),
         traits: {
           for (final trait in profileCsvTraitColumns)
             if (at(trait).isNotEmpty) trait: at(trait),
@@ -263,6 +275,8 @@ String writeProfileCsv(Iterable<ProfileCsvRow> rows) => encodeDelimited([
       formatProfileCsvDate(row.birthDate),
       row.gender?.name ?? '',
       row.bio,
+      formatProfileCsvDate(row.firstMet),
+      formatProfileCsvDate(row.lastSeen),
       for (final trait in profileCsvTraitColumns) row.traits[trait] ?? '',
       _join([
         for (final field in row.fields) _joinParts([field.label, field.value]),

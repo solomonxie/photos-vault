@@ -1506,6 +1506,29 @@ class PersonStore {
     ]..sort((a, b) => (a.at ?? DateTime(0)).compareTo(b.at ?? DateTime(0)));
   }
 
+  /// Per person, from the open set in one query: the First met and Last
+  /// seen rows, and the earliest and latest dated event of any kind — what
+  /// People sorts by.
+  Future<Map<String, PersonSpan>> openEventSpans() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT person_id, type, MIN(at) AS lo, MAX(at) AS hi FROM $_eventTable '
+      "WHERE passcode_hash = '' AND at IS NOT NULL GROUP BY person_id, type",
+    );
+    final out = <String, PersonSpan>{};
+    DateTime at(Object? ms) => DateTime.fromMillisecondsSinceEpoch(ms! as int);
+    for (final row in rows) {
+      final id = row['person_id']! as String;
+      final span = out[id] ?? const PersonSpan();
+      out[id] = span.including(
+        type: row['type'] as String?,
+        lo: at(row['lo']),
+        hi: at(row['hi']),
+      );
+    }
+    return out;
+  }
+
   /// Every row this person keeps behind a passcode, exactly as stored.
   ///
   /// Sealed, so this is ciphertext — which is what makes it safe to put in a
@@ -1626,4 +1649,25 @@ class PersonExportSet {
   final locations = <PersonLocation>[];
   final relationships = <PersonRelationship>[];
   final sealed = <Map<String, Object?>>[];
+}
+
+/// What [PersonStore.openEventSpans] knows of one person's dates.
+class PersonSpan {
+  const PersonSpan({this.firstMet, this.lastSeen, this.earliest, this.latest});
+
+  final DateTime? firstMet;
+  final DateTime? lastSeen;
+  final DateTime? earliest;
+  final DateTime? latest;
+
+  PersonSpan including({
+    required String? type,
+    required DateTime lo,
+    required DateTime hi,
+  }) => PersonSpan(
+    firstMet: type == PersonEventType.firstMet.name ? lo : firstMet,
+    lastSeen: type == PersonEventType.lastSeen.name ? hi : lastSeen,
+    earliest: earliest == null || lo.isBefore(earliest!) ? lo : earliest,
+    latest: latest == null || hi.isAfter(latest!) ? hi : latest,
+  );
 }

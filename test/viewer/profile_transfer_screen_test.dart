@@ -51,7 +51,7 @@ void main() {
     final people = await store.listAll();
     expect(people.map((p) => p.name), ['Mia', 'Daniel']);
     expect((await store.detailFor(people.first.id)).bio, 'Photographer');
-    expect(find.text('2 people added'), findsOne);
+    expect(find.text('2 people added.'), findsOne);
   });
 
   testWidgets('opened from the People menu, import picks the file at once', (
@@ -74,6 +74,37 @@ void main() {
 
     expect(picked, 1);
     expect(find.text('2 people in this file'), findsOne);
+  });
+
+  testWidgets('a name two people share waits for a choice', (tester) async {
+    final store = FakePersonStore();
+    final older = await store.create(name: 'Mia');
+    await store.create(name: 'Mia');
+    await tester.pumpWidget(
+      _wrap(
+        ProfileTransferScreen(
+          personStore: store,
+          start: ProfileTransferStart.import,
+          pickFile: () async =>
+              (name: 'p.csv', bytes: utf8.encode('name,bio\nMia,Painter\n')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final apply = find.widgetWithText(CupertinoButton, 'Import 1 person');
+    expect(tester.widget<CupertinoButton>(apply).onPressed, isNull);
+    expect(find.text('2 people have this name — choose one'), findsOne);
+
+    await tester.tap(find.byKey(const ValueKey('profile-row-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('personMatch-0')));
+    await tester.pumpAndSettle();
+    expect(tester.widget<CupertinoButton>(apply).onPressed, isNotNull);
+
+    await tester.tap(apply);
+    await tester.pumpAndSettle();
+    expect((await store.detailFor(older.id)).bio, 'Painter');
   });
 
   testWidgets('a row switched off is left out', (tester) async {

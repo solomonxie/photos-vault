@@ -124,6 +124,21 @@ class FakePersonStore implements PersonStore {
       events.values.where((e) => e.personId == personId).toList()
         ..sort((a, b) => (a.at ?? DateTime(0)).compareTo(b.at ?? DateTime(0)));
 
+  @override
+  Future<Map<String, PersonSpan>> openEventSpans() async {
+    final out = <String, PersonSpan>{};
+    for (final e in events.values) {
+      final at = e.at;
+      if (at == null) continue;
+      out[e.personId] = (out[e.personId] ?? const PersonSpan()).including(
+        type: e.type.name,
+        lo: at,
+        hi: at,
+      );
+    }
+    return out;
+  }
+
   final details = <String, PersonDetail>{};
 
   static String _key(String personId, String passcodeHash) =>

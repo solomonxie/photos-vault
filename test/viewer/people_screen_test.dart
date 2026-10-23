@@ -228,13 +228,16 @@ void main() {
     expect(find.text('No people yet. Tap + to add someone.'), findsOneWidget);
   });
 
-  testWidgets('the most photographed person is first', (tester) async {
+  testWidgets('sorted by most photos, the most photographed is first', (
+    tester,
+  ) async {
     final personStore = FakePersonStore();
     final few = await personStore.create(name: 'Ana');
     await personStore.addAssets(few.id, ['p1']);
     final many = await personStore.create(name: 'Bo');
     await personStore.addAssets(many.id, ['p2', 'p3', 'p4']);
     final photos = await _withPhotos(['p1', 'p2', 'p3', 'p4']);
+    await photos.setAppState('people_sort_v1', 'photos');
 
     await tester.pumpWidget(
       _wrap(PeopleScreen(personStore: personStore, assetRecordStore: photos)),
@@ -247,6 +250,41 @@ void main() {
       tester.getTopLeft(find.text('Bo')).dy,
       lessThan(tester.getTopLeft(find.text('Ana')).dy),
     );
+  });
+
+  testWidgets('by default the most recently seen is first; undated last', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final old = await personStore.create(name: 'Ana');
+    final recent = await personStore.create(name: 'Bo');
+    await personStore.create(name: 'Cy');
+    for (final (person, year) in [(old, 2009), (recent, 2018)]) {
+      await personStore.saveEvent(
+        PersonEvent(
+          id: 'e-${person.id}',
+          personId: person.id,
+          type: PersonEventType.lastSeen,
+          at: DateTime(year),
+        ),
+        scope: PersonScope.open,
+      );
+    }
+
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: await _withPhotos(const []),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    double y(String name) => tester.getTopLeft(find.text(name)).dy;
+    expect(y('Bo'), lessThan(y('Ana')));
+    expect(y('Ana'), lessThan(y('Cy')));
+    expect(find.textContaining('seen'), findsNWidgets(2));
   });
 
   testWidgets('lists existing people with their photo count', (tester) async {

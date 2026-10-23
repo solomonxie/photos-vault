@@ -126,4 +126,58 @@ void main() {
     expect(detail.customFields, hasLength(1));
     expect(detail.impression.tags, ['organised']);
   });
+
+  test('a shared name goes where it was pointed, or to a new person', () async {
+    final store = FakePersonStore();
+    final first = await store.create(name: 'Li Xia');
+    final second = await store.create(name: 'li xia ');
+    final matches = PersonMatches(await store.listAll());
+    expect(matches.ambiguous('LI XIA'), isTrue);
+    expect(matches.ambiguous('Mia'), isFalse);
+
+    final result = await ProfileTransfer(store: store).write(
+      const [
+        ProfileCsvRow(name: 'Li Xia', bio: 'first'),
+        ProfileCsvRow(name: 'Li Xia', bio: 'third'),
+      ],
+      targets: [PersonTarget(first.id), const PersonTarget.newPerson()],
+    );
+
+    expect(result.personIds.first, first.id);
+    expect(result.personIds.last, isNot(anyOf(first.id, second.id)));
+    expect((result.created, result.updated), (1, 1));
+    expect((await store.detailFor(first.id)).bio, 'first');
+    expect((await store.detailFor(second.id)).bio, isEmpty);
+    expect(await store.listAll(), hasLength(3));
+  });
+
+  test(
+    'first met and last seen round-trip, and a file only widens them',
+    () async {
+      final store = FakePersonStore();
+      final transfer = ProfileTransfer(store: store);
+      await transfer.write([
+        ProfileCsvRow(
+          name: 'Mia',
+          firstMet: DateTime(2010),
+          lastSeen: DateTime(2015),
+        ),
+      ]);
+      await transfer.write([
+        ProfileCsvRow(
+          name: 'Mia',
+          firstMet: DateTime(2012),
+          lastSeen: DateTime(2018),
+        ),
+      ]);
+      final row = (await transfer.read()).single;
+      expect(row.firstMet, DateTime(2010));
+      expect(row.lastSeen, DateTime(2018));
+      final again = readProfileCsv(writeProfileCsv([row])).rows.single;
+      expect(
+        (again.firstMet, again.lastSeen),
+        (DateTime(2010), DateTime(2018)),
+      );
+    },
+  );
 }

@@ -15,15 +15,17 @@ import '../photos/person_detail.dart';
 Future<PersonEvent?> showPersonEventSheet(
   BuildContext context, {
   required PersonEvent event,
+  bool editing = false,
 }) => showCupertinoModalPopup<PersonEvent>(
   context: context,
-  builder: (sheetContext) => _PersonEventSheet(event: event),
+  builder: (sheetContext) => _PersonEventSheet(event: event, editing: editing),
 );
 
 class _PersonEventSheet extends StatefulWidget {
-  const _PersonEventSheet({required this.event});
+  const _PersonEventSheet({required this.event, required this.editing});
 
   final PersonEvent event;
+  final bool editing;
 
   @override
   State<_PersonEventSheet> createState() => _PersonEventSheetState();
@@ -54,6 +56,7 @@ class _PersonEventSheetState extends State<_PersonEventSheet> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final keyboard = MediaQuery.viewInsetsOf(context).bottom;
     return Container(
       decoration: const BoxDecoration(
         color: Color(0xFF1C1C1E),
@@ -61,14 +64,20 @@ class _PersonEventSheetState extends State<_PersonEventSheet> {
       ),
       child: SafeArea(
         top: false,
-        child: Padding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 12),
+        child: SingleChildScrollView(
+          padding: EdgeInsets.fromLTRB(16, 12, 16, 12 + keyboard),
           child: Column(
             mainAxisSize: MainAxisSize.min,
             crossAxisAlignment: CrossAxisAlignment.stretch,
             children: [
               Text(
-                _event.isFirstMet ? l10n.eventsFirstMet : l10n.eventsAddButton,
+                _event.isFirstMet
+                    ? l10n.eventsFirstMet
+                    : _event.isLastSeen
+                    ? l10n.eventsLastSeen
+                    : widget.editing
+                    ? l10n.eventsEditTitle
+                    : l10n.eventsAddButton,
                 textAlign: TextAlign.center,
                 style: const TextStyle(
                   fontSize: 17,
@@ -77,7 +86,7 @@ class _PersonEventSheetState extends State<_PersonEventSheet> {
                 ),
               ),
               const SizedBox(height: 12),
-              if (!_event.isFirstMet) _typeRow(l10n),
+              if (!_event.isFixed) _typeRow(l10n),
               _dateRow(l10n),
               const SizedBox(height: 8),
               _field(_tags, l10n.eventsTagsPlaceholder),
@@ -96,6 +105,19 @@ class _PersonEventSheetState extends State<_PersonEventSheet> {
                 ),
                 child: Text(l10n.settingsSaveButton),
               ),
+              // A fixed row's date can be taken back to "not set".
+              if (_event.isFixed && widget.event.at != null)
+                CupertinoButton(
+                  onPressed: () =>
+                      Navigator.of(context)
+                          .pop(widget.event.copyWith(at: () => null)),
+                  child: Text(
+                    l10n.actionClear,
+                    style: const TextStyle(
+                      color: CupertinoColors.destructiveRed,
+                    ),
+                  ),
+                ),
               CupertinoButton(
                 onPressed: () => Navigator.of(context).pop(),
                 child: Text(l10n.actionCancel),
@@ -116,8 +138,9 @@ class _PersonEventSheetState extends State<_PersonEventSheet> {
           title: Text(l10n.eventsTypeLabel),
           actions: [
             for (final type in PersonEventType.values)
-              // Reserved for the one row that always exists.
-              if (type != PersonEventType.firstMet)
+              // Reserved for the two rows that always exist.
+              if (type != PersonEventType.firstMet &&
+                  type != PersonEventType.lastSeen)
                 CupertinoActionSheetAction(
                   onPressed: () => Navigator.of(pickerContext).pop(type),
                   child: Text(eventTypeLabel(l10n, type)),
@@ -163,7 +186,7 @@ class _PersonEventSheetState extends State<_PersonEventSheet> {
               style: const TextStyle(color: CupertinoColors.systemGrey),
             ),
             Text(
-              DateFormat.yMMMd().format(_event.at!),
+              DateFormat.yMMMd().format(_event.at ?? DateTime.now()),
               style: const TextStyle(color: CupertinoColors.white),
             ),
           ],
@@ -175,6 +198,7 @@ class _PersonEventSheetState extends State<_PersonEventSheet> {
           mode: CupertinoDatePickerMode.date,
           initialDateTime: _event.at ?? DateTime.now(),
           maximumDate: DateTime.now(),
+          minimumYear: 1900,
           onDateTimeChanged: (value) =>
               setState(() => _event = _event.copyWith(at: () => value)),
         ),
@@ -201,4 +225,5 @@ String eventTypeLabel(AppLocalizations l10n, PersonEventType type) =>
       PersonEventType.favour => l10n.eventTypeFavour,
       PersonEventType.fallingOut => l10n.eventTypeFallingOut,
       PersonEventType.other => l10n.eventTypeOther,
+      PersonEventType.lastSeen => l10n.eventsLastSeen,
     };

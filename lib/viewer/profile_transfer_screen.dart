@@ -15,6 +15,7 @@ import '../photos/profile_csv.dart';
 import '../photos/profile_transfer.dart';
 import '../settings/settings_section.dart';
 import '../vault/keys.dart';
+import 'person_target_sheet.dart';
 
 /// Profiles to a spreadsheet and back — the People registry as a file you
 /// own, editable in anything, and readable without this app.
@@ -74,6 +75,24 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
   /// the difference between a list to check and 200 switches to flip.
   final Set<int> _accepted = {};
 
+  /// Who a shared name goes to, by row, as the user picked.
+  PersonMatches _matches = PersonMatches(const []);
+  final Map<int, PersonTarget> _targets = {};
+
+  bool get _unresolved => _accepted.any(
+    (i) => _matches.ambiguous(_found[i].name) && !_targets.containsKey(i),
+  );
+
+  Future<void> _resolve(int i) async {
+    final target = await pickPersonTarget(
+      context,
+      name: _found[i].name,
+      candidates: _matches.of(_found[i].name),
+      personStore: widget.personStore,
+    );
+    if (target != null && mounted) setState(() => _targets[i] = target);
+  }
+
   @override
   void initState() {
     super.initState();
@@ -131,8 +150,11 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
       final picked = await (widget.pickFile ?? _pickWithSystemBrowser)();
       if (picked == null) return;
       final file = readProfileCsv(_decode(picked.bytes));
+      final matches = PersonMatches(await widget.personStore.listAll());
       if (!mounted) return;
       setState(() {
+        _matches = matches;
+        _targets.clear();
         _fileName = picked.name;
         _found = file.rows;
         _notes = file.notes;
@@ -171,9 +193,11 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
     });
     final l10n = AppLocalizations.of(context)!;
     try {
-      final result = await _transfer.write([
-        for (final index in _accepted.toList()..sort()) _found[index],
-      ]);
+      final rows = _accepted.toList()..sort();
+      final result = await _transfer.write(
+        [for (final index in rows) _found[index]],
+        targets: [for (final index in rows) _targets[index]],
+      );
       if (!mounted) return;
       setState(() {
         _done = l10n.profileCsvImported(result.created, result.updated);
@@ -194,7 +218,10 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
 
   static Future<({String name, List<int> bytes})?>
   _pickWithSystemBrowser() async {
-    final picked = await FilePicker.pickFiles(type: FileType.any);
+    final picked = await FilePicker.pickFiles(
+      type: FileType.custom,
+      allowedExtensions: const ['csv'],
+    );
     final file = picked.firstOrNull;
     if (file == null) return null;
     return (name: file.name, bytes: await file.readAsBytes());
@@ -300,9 +327,23 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
                       key: ValueKey('profile-row-$i'),
                       backgroundColor: settingsPageBackground,
                       title: Text(_found[i].name),
-                      subtitle: Text(
-                        l10n.profileCsvRowItems(_found[i].itemCount),
-                      ),
+                      subtitle: _matches.ambiguous(_found[i].name)
+                          ? Text(
+                              personTargetLabel(
+                                l10n,
+                                _targets[i],
+                                _matches.of(_found[i].name),
+                              ),
+                              style: TextStyle(
+                                color: _targets[i] == null
+                                    ? CupertinoColors.systemOrange
+                                    : settingsAccent,
+                              ),
+                            )
+                          : Text(l10n.profileCsvRowItems(_found[i].itemCount)),
+                      onTap: _matches.ambiguous(_found[i].name)
+                          ? () => _resolve(i)
+                          : null,
                       trailing: CupertinoSwitch(
                         value: _accepted.contains(i),
                         onChanged: (on) => setState(
@@ -316,7 +357,9 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: CupertinoButton.filled(
-                  onPressed: _accepted.isEmpty || _busy ? null : _apply,
+                  onPressed: _accepted.isEmpty || _busy || _unresolved
+                      ? null
+                      : _apply,
                   child: Text(l10n.profileCsvApply(_accepted.length)),
                 ),
               ),
