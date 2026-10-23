@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
@@ -47,16 +49,35 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
     text: _entry.notes,
   );
 
+  Timer? _notesSave;
+
   @override
   void dispose() {
+    if (_notesSave?.isActive ?? false) {
+      _notesSave!.cancel();
+      widget.personStore.addHistoryEntry(_entry, scope: widget.scope);
+    }
     _notes.dispose();
     super.dispose();
+  }
+
+  /// Notes rewrite the whole entry, so typing settles before it is saved.
+  void _notesChanged(String v) {
+    setState(() => _entry = _entry.copyWith(notes: v));
+    _notesSave?.cancel();
+    _notesSave = Timer(
+      const Duration(milliseconds: 600),
+      () => widget.personStore.addHistoryEntry(_entry, scope: widget.scope),
+    );
   }
 
   Future<void> _persist(PersonHistoryEntry updated) async {
     setState(() => _entry = updated);
     await widget.personStore.addHistoryEntry(updated, scope: widget.scope);
   }
+
+  static DateTime _notBefore(DateTime end, DateTime? start) =>
+      start != null && end.isBefore(start) ? start : end;
 
   Future<void> _pickTitle() async {
     final options = await widget.personStore.allHistoryTitles(
@@ -91,15 +112,27 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
             onPressed: () => Navigator.of(context).pop(true),
             child: Text(l10n.settingsSaveButton),
           ),
+          if (_entry.startDate != null)
+            CupertinoActionSheetAction(
+              isDestructiveAction: true,
+              onPressed: () => Navigator.of(context).pop(false),
+              child: Text(l10n.actionClear),
+            ),
         ],
         cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(context).pop(false),
+          onPressed: () => Navigator.of(context).pop(),
           child: Text(l10n.actionCancel),
         ),
       ),
     );
-    if (saved != true) return;
-    await _persist(_entry.copyWith(startDate: () => date));
+    if (saved == null) return;
+    final end = _entry.endDate;
+    await _persist(
+      _entry.copyWith(
+        startDate: () => saved ? date : null,
+        endDate: () => saved && end != null && end.isBefore(date) ? date : end,
+      ),
+    );
   }
 
   Future<void> _pickEndDate() async {
@@ -149,6 +182,8 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
       ),
     );
     if (saved != true) return;
+    final start = _entry.startDate;
+    if (start != null && date.isBefore(start)) date = start;
     await _persist(_entry.copyWith(endDate: () => ongoing ? null : date));
   }
 
@@ -165,6 +200,7 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
       text: existing?.description ?? '',
     );
     var start = existing?.startDate ?? DateTime.now();
+    var dated = existing?.startDate != null;
     var ongoing = existing != null && existing.endDate == null;
     var end = existing?.endDate ?? DateTime.now();
     final saved = await showCupertinoModalPopup<bool>(
@@ -197,7 +233,10 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
                     initialDateTime: start,
                     maximumDate: DateTime.now(),
                     minimumYear: 1900,
-                    onDateTimeChanged: (value) => start = value,
+                    onDateTimeChanged: (value) {
+                      start = value;
+                      dated = true;
+                    },
                   ),
                 ),
                 CupertinoSlidingSegmentedControl<bool>(
@@ -245,8 +284,8 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
       id: existing?.id ?? widget.personStore.newId(),
       title: titleController.text.trim(),
       description: descController.text.trim(),
-      startDate: start,
-      endDate: ongoing ? null : end,
+      startDate: dated ? start : null,
+      endDate: ongoing ? null : _notBefore(end, dated ? start : null),
     );
     final newList = existing == null
         ? [...list, updatedItem]
@@ -271,6 +310,7 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
       text: existing?.tags.join(', ') ?? '',
     );
     var start = existing?.startDate ?? DateTime.now();
+    var dated = existing?.startDate != null;
     var ongoing = existing != null && existing.endDate == null;
     var end = existing?.endDate ?? DateTime.now();
     final saved = await showCupertinoModalPopup<bool>(
@@ -308,7 +348,10 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
                     initialDateTime: start,
                     maximumDate: DateTime.now(),
                     minimumYear: 1900,
-                    onDateTimeChanged: (value) => start = value,
+                    onDateTimeChanged: (value) {
+                      start = value;
+                      dated = true;
+                    },
                   ),
                 ),
                 CupertinoSlidingSegmentedControl<bool>(
@@ -362,8 +405,8 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
       name: nameController.text.trim(),
       description: descController.text.trim(),
       tags: tags,
-      startDate: start,
-      endDate: ongoing ? null : end,
+      startDate: dated ? start : null,
+      endDate: ongoing ? null : _notBefore(end, dated ? start : null),
     );
     final newList = existing == null
         ? [...list, updatedItem]
@@ -499,7 +542,7 @@ class _PersonHistoryDetailScreenState extends State<PersonHistoryDetailScreen> {
                   prefix: Text(l10n.personHistoryNotesLabel),
                   controller: _notes,
                   maxLines: null,
-                  onChanged: (v) => _persist(_entry.copyWith(notes: v)),
+                  onChanged: _notesChanged,
                 ),
               ],
             ),

@@ -162,9 +162,6 @@ class _FaceGroupScreenState extends State<FaceGroupScreen> {
   /// everything in, the only move left is to clear it, and with anything
   /// out the only move is to take the lot. Two buttons would leave one of
   /// them dead at all times.
-  ///
-  /// Deselecting keeps the face you came from — dropping it would leave a
-  /// person made of other people's photos.
   void _toggleAll() => setState(() {
     if (_allKept) {
       _keeping.clear();
@@ -203,38 +200,41 @@ class _FaceGroupScreenState extends State<FaceGroupScreen> {
     if (_saving || _keptAssets.isEmpty) return;
     if (widget.existing == null && name.isEmpty) return;
     setState(() => _saving = true);
-    final person =
-        widget.existing ??
-        _chosen ??
-        await widget.personStore.create(name: name);
-    final kept = _group.where((f) => _keeping.contains(_keyOf(f))).toList();
-    await widget.personStore.addAssets(
-      person.id,
-      kept.map((f) => f.localId).toSet().toList(),
-    );
-    // The tapped face becomes their picture: it is the one that was on
-    // screen when the user decided who this was. Somebody already named
-    // keeps whatever picture they already had.
-    // The face that was tapped, if it's still in — otherwise whatever
-    // was kept, because a portrait has to come from a photo they're
-    // actually in.
-    final seed = _seed;
-    final portrait = seed != null && _keeping.contains(_keyOf(seed))
-        ? seed
-        : kept.firstOrNull;
-    if (person.avatarFace == null && portrait != null) {
-      await widget.personStore.update(
-        person.copyWith(
-          avatarLocalId: portrait.localId,
-          avatarFace: () => portrait.face,
-        ),
+    final Person person;
+    try {
+      person =
+          widget.existing ??
+          _chosen ??
+          await widget.personStore.create(name: name);
+      final kept = _group.where((f) => _keeping.contains(_keyOf(f))).toList();
+      await widget.personStore.addAssets(
+        person.id,
+        kept.map((f) => f.localId).toSet().toList(),
       );
+      // Somebody already named keeps their picture, a whole photo picked by
+      // hand included. Otherwise the tapped face if still in, else any kept
+      // one: a portrait has to come from a photo they're actually in.
+      final seed = _seed;
+      final portrait = seed != null && _keeping.contains(_keyOf(seed))
+          ? seed
+          : kept.firstOrNull;
+      if (person.avatarLocalId == null && portrait != null) {
+        await widget.personStore.update(
+          person.copyWith(
+            avatarLocalId: portrait.localId,
+            avatarFace: () => portrait.face,
+          ),
+        );
+      }
+      await widget.faceIdentity.rememberMany([
+        for (final face in kept)
+          if (_byAsset[face.localId] case final record?)
+            (record: record, face: face.face),
+      ], person.id);
+    } catch (_) {
+      if (mounted) setState(() => _saving = false);
+      return;
     }
-    await widget.faceIdentity.rememberMany([
-      for (final face in kept)
-        if (_byAsset[face.localId] case final record?)
-          (record: record, face: face.face),
-    ], person.id);
     if (!mounted) return;
     Navigator.of(context).pop(person);
   }

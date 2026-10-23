@@ -1200,6 +1200,7 @@
   "hiddenMoveDone": "已移动 {count} 个项目。",
   "hiddenMoveFailed": "{count} 个项目未能移动。",
   "actionRetry": "重试",
+  "actionClear": "清除",
   "bucketPreviewLoadFailed": "无法加载此文件。请检查网络后重试。",
   "analyzeQueueClearConfirmTitle": "清空队列？",
   "analyzeQueueClearConfirmBody": "分析会暂停，直到你点“立即分析”。已识别的面孔和名字会保留。"

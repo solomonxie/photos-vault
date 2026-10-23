@@ -176,6 +176,15 @@ class FaceIdentityService {
     }
   }
 
+  /// Takes back every face confirmed as [personId] on one photo.
+  Future<void> unrememberPhoto(String personId, String localId) async {
+    try {
+      await analysisStore.forgetPersonOn(personId, localId);
+    } catch (_) {
+      // No analysis database — nothing was remembered to take back.
+    }
+  }
+
   /// Forgets everything remembered about a person — what deleting them has
   /// to mean, or their faces go on winning matches under a name that no
   /// longer exists.

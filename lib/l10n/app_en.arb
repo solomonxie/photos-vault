@@ -1752,6 +1752,7 @@
     }
   },
   "actionRetry": "Try Again",
+  "actionClear": "Clear",
   "bucketPreviewLoadFailed": "Couldn't load this file. Check your connection and try again.",
   "analyzeQueueClearConfirmTitle": "Empty the queue?",
   "analyzeQueueClearConfirmBody": "Analysis pauses until you tap Analyze Now. Faces and names already found are kept."

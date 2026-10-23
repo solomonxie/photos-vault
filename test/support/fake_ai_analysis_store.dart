@@ -301,6 +301,19 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   }
 
   @override
+  Future<void> forgetPersonOn(String personId, String localId) async {
+    for (var i = 0; i < _descriptors.length; i++) {
+      final d = _descriptors[i];
+      if (d.personId != personId || d.localId != localId) continue;
+      _descriptors[i] = DescribedFace(
+        localId: d.localId,
+        face: d.face,
+        descriptor: d.descriptor,
+      );
+    }
+  }
+
+  @override
   Future<void> forgetDescriptor(String localId, FaceRect face) async {
     for (var i = 0; i < _descriptors.length; i++) {
       if (_descriptors[i].localId != localId) continue;

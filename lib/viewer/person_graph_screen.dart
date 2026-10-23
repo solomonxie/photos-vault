@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
+import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
@@ -37,6 +38,12 @@ class PersonGraphScreen extends StatefulWidget {
 class _PersonGraphScreenState extends State<PersonGraphScreen> {
   List<Person> _people = const [];
   List<PersonRelationship> _relationships = const [];
+  List<List<Person>> _clusters = const [];
+
+  /// One edge per pair, for drawing.
+  List<PersonRelationship> _edges = const [];
+  Map<String, AssetRecord> _records = const {};
+  bool _loaded = false;
 
   @override
   void initState() {
@@ -52,8 +59,7 @@ class _PersonGraphScreenState extends State<PersonGraphScreen> {
       // Groups are links too, and the graph is the one place where seeing a
       // company as a cluster rather than as twenty unconnected faces is the
       // entire point. Derived, never stored — see [groupRelationships].
-      for (final person in people)
-        ...groupRelationships(personId: person.id, members: groups),
+      ..._groupEdges(groups),
     ];
     // Opened from somebody's profile, the graph is about *their* net. The
     // rest of the library is a second, unrelated picture that happens to
@@ -74,11 +80,54 @@ class _PersonGraphScreenState extends State<PersonGraphScreen> {
             r,
       ];
     }
+    final seen = <String>{};
+    final edges = [
+      for (final r in relationships)
+        if (seen.add(
+          r.personId.compareTo(r.relatedPersonId) < 0
+              ? '${r.personId}|${r.relatedPersonId}'
+              : '${r.relatedPersonId}|${r.personId}',
+        ))
+          r,
+    ];
+    final records = await widget.assetRecordStore.getVisibleByLocalIds([
+      for (final p in people) ?p.avatarLocalId,
+    ]);
     if (!mounted) return;
     setState(() {
       _people = people;
       _relationships = relationships;
+      _clusters = _familyClusters();
+      _edges = edges;
+      _records = records;
+      _loaded = true;
     });
+  }
+
+  /// [groupRelationships] for everybody at once, one edge per pair: asked
+  /// per person it scans every group for each of them.
+  static List<PersonRelationship> _groupEdges(
+    Map<PersonGroup, List<String>> groups,
+  ) {
+    final out = <String, PersonRelationship>{};
+    for (final MapEntry(key: group, value: members) in groups.entries) {
+      for (var i = 0; i < members.length; i++) {
+        for (var j = i + 1; j < members.length; j++) {
+          final a = members[i], b = members[j];
+          out.putIfAbsent(
+            a.compareTo(b) < 0 ? '$a|$b' : '$b|$a',
+            () => PersonRelationship(
+              personId: a,
+              relatedPersonId: b,
+              type: relationshipForGroup(group.kind),
+              organization: group.kind == GroupKind.circle ? null : group.name,
+              derived: true,
+            ),
+          );
+        }
+      }
+    }
+    return out.values.toList();
   }
 
   /// Union-find over family-type edges only — each resulting set becomes one
@@ -112,13 +161,14 @@ class _PersonGraphScreenState extends State<PersonGraphScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final clusters = _familyClusters();
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(l10n.personGraphTitle),
       ),
       child: SafeArea(
-        child: _people.length < 2
+        child: !_loaded
+            ? const Center(child: CupertinoActivityIndicator())
+            : _people.length < 2
             ? Center(
                 child: Text(
                   l10n.personGraphEmpty,
@@ -131,8 +181,10 @@ class _PersonGraphScreenState extends State<PersonGraphScreen> {
                   minScale: 0.5,
                   maxScale: 4,
                   child: _GraphLayout(
-                    clusters: clusters,
-                    relationships: _relationships,
+                    clusters: _clusters,
+                    relationships: _edges,
+                    records: _records,
+                    onReturn: _load,
                     focusPersonId: widget.focusPersonId,
                     assetRecordStore: widget.assetRecordStore,
                     personStore: widget.personStore,
@@ -153,8 +205,12 @@ class _GraphLayout extends StatelessWidget {
     required this.assetRecordStore,
     required this.personStore,
     required this.size,
+    required this.records,
+    required this.onReturn,
   });
 
+  final Map<String, AssetRecord> records;
+  final VoidCallback onReturn;
   final List<List<Person>> clusters;
   final List<PersonRelationship> relationships;
   final String? focusPersonId;
@@ -192,17 +248,13 @@ class _GraphLayout extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final positions = _positions();
-    final seen = <String>{};
     return Stack(
       children: [
         CustomPaint(
           size: size,
           painter: _EdgePainter(
             positions: positions,
-            relationships: relationships.where((r) {
-              final key = ([r.personId, r.relatedPersonId]..sort()).join('|');
-              return seen.add(key);
-            }).toList(),
+            relationships: relationships,
             clusters: clusters,
           ),
         ),
@@ -214,15 +266,18 @@ class _GraphLayout extends StatelessWidget {
                 top: pos.dy - _nodeSize / 2,
                 width: _nodeSize,
                 child: GestureDetector(
-                  onTap: () => Navigator.of(context).push(
-                    CupertinoPageRoute(
-                      builder: (_) => PersonPageScreen(
-                        person: person,
-                        personStore: personStore,
-                        assetRecordStore: assetRecordStore,
+                  onTap: () async {
+                    await Navigator.of(context).push(
+                      CupertinoPageRoute(
+                        builder: (_) => PersonPageScreen(
+                          person: person,
+                          personStore: personStore,
+                          assetRecordStore: assetRecordStore,
+                        ),
                       ),
-                    ),
-                  ),
+                    );
+                    onReturn();
+                  },
                   child: Column(
                     children: [
                       Container(
@@ -240,6 +295,7 @@ class _GraphLayout extends StatelessWidget {
                           assetRecordStore: assetRecordStore,
                           localId: person.avatarLocalId,
                           face: person.avatarFace,
+                          records: records,
                           size: _nodeSize - 4,
                         ),
                       ),

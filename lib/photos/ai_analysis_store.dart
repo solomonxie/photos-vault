@@ -763,6 +763,19 @@ class AiAnalysisStore {
     _writes++;
   }
 
+  /// Forgets the faces confirmed as [personId] on one photo — what taking
+  /// the photo off the person has to mean.
+  Future<void> forgetPersonOn(String personId, String localId) async {
+    final db = await _open();
+    await db.update(
+      _descriptorTable,
+      {'person_id': null},
+      where: 'person_id = ? AND local_id = ?',
+      whereArgs: [personId, localId],
+    );
+    _writes++;
+  }
+
   /// Forgets a person's faces — what deleting them has to mean, or they go
   /// on being suggested by name after the name is gone. The descriptors
   /// themselves stay, unnamed: describing a face costs a Vision pass, and
