@@ -137,7 +137,11 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
     _closeIfDone();
     final l10n = AppLocalizations.of(context)!;
     final label = solutionLabel(l10n, widget.solution);
-    final allSelected = _selected.length == _flags.length;
+    final idle = [
+      for (final f in _flags)
+        if (!_busy(f)) f.id,
+    ];
+    final allSelected = idle.isNotEmpty && idle.every(_selected.contains);
     final chosen = _chosen;
     final detail = solutionDetail(l10n, widget.solution);
     return CupertinoPageScaffold(
@@ -147,9 +151,8 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
         middle: Text(label),
         trailing: SettingsAccentButton(
           label: allSelected ? l10n.flaggedSelectNone : l10n.flaggedSelectAll,
-          onPressed: () => setState(
-            () => _selected = allSelected ? {} : {for (final f in _flags) f.id},
-          ),
+          onPressed: () =>
+              setState(() => _selected = allSelected ? {} : idle.toSet()),
         ),
       ),
       child: SafeArea(

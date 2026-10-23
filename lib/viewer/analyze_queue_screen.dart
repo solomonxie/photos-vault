@@ -55,6 +55,31 @@ class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
     await widget.queue.start();
   }
 
+  /// Emptying also pauses the pass, which the button alone doesn't say.
+  Future<void> _confirmClear() async {
+    final l10n = AppLocalizations.of(context)!;
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialogContext) => CupertinoAlertDialog(
+        title: Text(l10n.analyzeQueueClearConfirmTitle),
+        content: Text(l10n.analyzeQueueClearConfirmBody),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(dialogContext).pop(true),
+            child: Text(l10n.backupQueueClearButton),
+          ),
+        ],
+      ),
+    );
+    if (confirmed == true) await widget.queue.clear();
+  }
+
   /// Asked first, because it throws away work — not destructively (the
   /// names stay), but it is minutes of the phone's
   /// time and the button is next to one that only clears a list.
@@ -67,11 +92,12 @@ class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
         content: Text(l10n.analyzeQueueRescanConfirmBody),
         actions: [
           CupertinoDialogAction(
+            isDefaultAction: true,
             onPressed: () => Navigator.of(dialogContext).pop(false),
             child: Text(l10n.actionCancel),
           ),
           CupertinoDialogAction(
-            isDefaultAction: true,
+            isDestructiveAction: true,
             onPressed: () => Navigator.of(dialogContext).pop(true),
             child: Text(l10n.analyzeQueueRescanButton),
           ),
@@ -248,7 +274,7 @@ class _AnalyzeQueueScreenState extends State<AnalyzeQueueScreen> {
           SettingsPillButton(
             icon: CupertinoIcons.clear_circled,
             label: l10n.backupQueueClearButton,
-            onPressed: widget.queue.clear,
+            onPressed: _confirmClear,
           ),
           ValueListenableBuilder<int>(
             valueListenable: widget.queue.pace,

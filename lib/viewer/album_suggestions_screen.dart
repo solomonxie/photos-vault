@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
+import '../l10n/failure_text.dart';
 import '../photos/album_suggestions.dart';
 import '../settings/settings_section.dart';
 import '../storage/album_store.dart';
@@ -31,6 +32,36 @@ class AlbumSuggestionsScreen extends StatefulWidget {
 
 class _AlbumSuggestionsScreenState extends State<AlbumSuggestionsScreen> {
   late List<AlbumSuggestion> _left = widget.suggestions;
+  bool _busy = false;
+
+  static const _keepDismissed = 500;
+
+  /// One action at a time, so a double tap can't file a day twice.
+  Future<void> _guarded(Future<void> Function() action) async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    try {
+      await action();
+    } catch (e) {
+      if (mounted) {
+        final l10n = AppLocalizations.of(context)!;
+        await showCupertinoDialog<void>(
+          context: context,
+          builder: (dialogContext) => CupertinoAlertDialog(
+            content: Text(failureText(l10n, e)),
+            actions: [
+              CupertinoDialogAction(
+                onPressed: () => Navigator.of(dialogContext).pop(),
+                child: Text(l10n.actionOk),
+              ),
+            ],
+          ),
+        );
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
 
   void _drop(AlbumSuggestion s) {
     setState(
@@ -50,7 +81,10 @@ class _AlbumSuggestionsScreenState extends State<AlbumSuggestionsScreen> {
         : '${day.format(s.first)} – ${day.format(s.last)}';
   }
 
-  Future<void> _createAlbum(AlbumSuggestion s) async {
+  Future<void> _createAlbum(AlbumSuggestion s) =>
+      _guarded(() => _createAlbumNow(s));
+
+  Future<void> _createAlbumNow(AlbumSuggestion s) async {
     final l10n = AppLocalizations.of(context)!;
     final range = dateRange(context, s);
     final controller = TextEditingController(
@@ -99,7 +133,9 @@ class _AlbumSuggestionsScreenState extends State<AlbumSuggestionsScreen> {
     if (mounted) _drop(s);
   }
 
-  Future<void> _archive(AlbumSuggestion s) async {
+  Future<void> _archive(AlbumSuggestion s) => _guarded(() => _archiveNow(s));
+
+  Future<void> _archiveNow(AlbumSuggestion s) async {
     await widget.assetRecordStore.setArchived(
       s.records.map((r) => r.localId),
       true,
@@ -107,29 +143,66 @@ class _AlbumSuggestionsScreenState extends State<AlbumSuggestionsScreen> {
     if (mounted) _drop(s);
   }
 
-  Future<void> _dismiss(AlbumSuggestion s) async {
+  Future<void> _dismiss(AlbumSuggestion s) => _guarded(() => _dismissNow(s));
+
+  Future<void> _dismissNow(AlbumSuggestion s) async {
     final store = widget.assetRecordStore;
     final raw = await store.getAppState(AlbumSuggestions.dismissedKey);
-    final keys = raw == null
-        ? <String>{}
-        : (jsonDecode(raw) as List<dynamic>).cast<String>().toSet();
-    keys.add(s.key);
-    await store.setAppState(
-      AlbumSuggestions.dismissedKey,
-      jsonEncode(keys.toList()),
-    );
+    var keys = <String>[];
+    try {
+      if (raw != null) keys = (jsonDecode(raw) as List<dynamic>).cast<String>();
+    } catch (_) {
+      // Unreadable: starts over.
+    }
+    keys = [
+      for (final k in keys)
+        if (k != s.key) k,
+      s.key,
+    ];
+    if (keys.length > _keepDismissed) {
+      keys = keys.sublist(keys.length - _keepDismissed);
+    }
+    await store.setAppState(AlbumSuggestions.dismissedKey, jsonEncode(keys));
     if (mounted) _drop(s);
   }
 
-  void _review(AlbumSuggestion s) => Navigator.of(context).push(
-    CupertinoPageRoute<void>(
-      builder: (_) => AssetGroupScreen(
-        title: dateRange(context, s),
-        records: s.records,
-        assetRecordStore: widget.assetRecordStore,
+  Future<void> _review(AlbumSuggestion s) async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => AssetGroupScreen(
+          title: dateRange(context, s),
+          records: s.records,
+          assetRecordStore: widget.assetRecordStore,
+        ),
       ),
-    ),
-  );
+    );
+    await _refresh(s);
+  }
+
+  /// Photos archived, deleted or filed while reviewing leave the card.
+  Future<void> _refresh(AlbumSuggestion s) async {
+    final ids = s.records.map((r) => r.localId).toList();
+    final now = await widget.assetRecordStore.getVisibleByLocalIds(ids);
+    final filed = {
+      for (final members in (await widget.albumStore.allMemberships()).values)
+        ...members,
+    };
+    final records = [
+      for (final id in ids)
+        if (now[id] case final r? when !r.isArchived && !filed.contains(id)) r,
+    ];
+    if (!mounted || records.length == s.records.length) return;
+    if (records.isEmpty) {
+      _drop(s);
+      return;
+    }
+    final fresh = AlbumSuggestion(
+      first: s.first,
+      last: s.last,
+      records: records,
+    );
+    setState(() => _left = [for (final x in _left) x.key == s.key ? fresh : x]);
+  }
 
   @override
   Widget build(BuildContext context) {

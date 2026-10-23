@@ -522,7 +522,7 @@
       }
     }
   },
-  "settingsAppDataRestorePartial": "Restored details for {count} photos. {waiting} already had details and were left unchanged.",
+  "settingsAppDataRestorePartial": "{count, plural, one{Restored details for 1 photo.} other{Restored details for {count} photos.}} {waiting, plural, one{1 more isn't on this phone yet; its details apply once it syncs.} other{{waiting} more aren't on this phone yet; their details apply once they sync.}}",
   "@settingsAppDataRestorePartial": {
     "placeholders": {
       "count": {
@@ -1750,5 +1750,9 @@
         "type": "int"
       }
     }
-  }
+  },
+  "actionRetry": "Try Again",
+  "bucketPreviewLoadFailed": "Couldn't load this file. Check your connection and try again.",
+  "analyzeQueueClearConfirmTitle": "Empty the queue?",
+  "analyzeQueueClearConfirmBody": "Analysis pauses until you tap Analyze Now. Faces and names already found are kept."
 }

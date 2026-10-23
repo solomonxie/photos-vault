@@ -99,10 +99,12 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
     _compute();
     unawaited(_loadSuggestions());
     unawaited(_scan.open());
-    _poll = Timer.periodic(
-      FlaggedItemsScreen.pollEvery,
-      (_) => unawaited(_scan.refreshIfChanged()),
-    );
+    _poll = Timer.periodic(FlaggedItemsScreen.pollEvery, (_) {
+      final covered = !(ModalRoute.of(context)?.isCurrent ?? true);
+      final away =
+          WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed;
+      if (!covered && !away) unawaited(_scan.refreshIfChanged());
+    });
   }
 
   @override
@@ -161,9 +163,14 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
       for (final ids in (await albums.allMemberships()).values) ...ids,
     };
     final raw = await widget.store.getAppState(AlbumSuggestions.dismissedKey);
-    final dismissed = raw == null
-        ? const <String>{}
-        : (jsonDecode(raw) as List<dynamic>).cast<String>().toSet();
+    var dismissed = const <String>{};
+    try {
+      if (raw != null) {
+        dismissed = (jsonDecode(raw) as List<dynamic>).cast<String>().toSet();
+      }
+    } catch (_) {
+      // Unreadable: every suggestion comes back rather than none.
+    }
     final found = AlbumSuggestions.of(
       LibraryIndex.forList(all).home,
       filed,
@@ -450,7 +457,9 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
       ],
       if (_scan.result.storageScannedAt case final at?)
         Text(
-          l10n.storageScannedAt(DateFormat.yMMMd().add_jm().format(at)),
+          l10n.storageScannedAt(
+            DateFormat.yMMMd().add_jm().format(at.toLocal()),
+          ),
           style: settingsHintStyle,
         ),
       if (_queue.swapsWaiting > 0 && !_queue.running) _swapsBanner(l10n),

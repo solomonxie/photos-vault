@@ -7,6 +7,8 @@ import '../backup/bucket_backup.dart';
 import '../backup/icloud_backup.dart';
 import '../backup/icloud_drive.dart';
 import '../l10n/app_localizations.dart';
+import '../l10n/failure_text.dart';
+import '../settings/add_backup_screen.dart' show defaultKeyPrefix;
 import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
 import '../settings/settings_section.dart';
@@ -122,6 +124,15 @@ class _SafetyScreenState extends State<SafetyScreen> {
       math.min(_heldBy[target.id] ?? 0, _photos);
 
   Future<void> _load() async {
+    try {
+      await _loadNow();
+    } catch (_) {
+      // Whatever was read stays; the page isn't left spinning.
+      if (mounted) setState(() => _loading = false);
+    }
+  }
+
+  Future<void> _loadNow() async {
     final records = await widget.recordStore.listAll();
     final holdings = await widget.recordStore.allHoldings();
     final targets = await widget.targetsStore.loadAll();
@@ -177,10 +188,14 @@ class _SafetyScreenState extends State<SafetyScreen> {
 
   // ------------------------------------------------------------- the checks
 
+  /// A check or drill that threw, shown instead of the last good result.
+  Object? _failure;
+
   Future<void> _checkNow() async {
     setState(() {
       _checking = true;
       _drill = null;
+      _failure = null;
     });
     ReconcileReport? report;
     var requeued = 0;
@@ -194,8 +209,9 @@ class _SafetyScreenState extends State<SafetyScreen> {
         requeued = repair.requeued;
         lost = repair.lost;
       }
-    } catch (_) {
+    } catch (e) {
       report = null;
+      _failure = e;
     }
     if (!mounted) return;
     setState(() {
@@ -212,12 +228,14 @@ class _SafetyScreenState extends State<SafetyScreen> {
     setState(() {
       _drilling = true;
       _check = null;
+      _failure = null;
     });
     DrillReport? report;
     try {
       report = await widget.verifier.testRestore();
-    } catch (_) {
+    } catch (e) {
       report = null;
+      _failure = e;
     }
     if (!mounted) return;
     setState(() {
@@ -267,6 +285,7 @@ class _SafetyScreenState extends State<SafetyScreen> {
   /// was, in full. Blank is not an option — "no idea" is itself the answer
   /// this page came to give.
   String _statusLine(AppLocalizations l10n) {
+    if (_failure case final failure?) return failureText(l10n, failure);
     final drill = _drill;
     if (drill != null) {
       if (drill.attempted == 0) return l10n.safetyDrillNothingToTry;
@@ -495,7 +514,7 @@ class _SafetyScreenState extends State<SafetyScreen> {
             0,
           ),
           child: Text(
-            l10n.safetyRecoverySteps(prefix ?? 'photos/'),
+            l10n.safetyRecoverySteps(prefix ?? defaultKeyPrefix),
             style: const TextStyle(
               fontSize: 13,
               height: 1.5,

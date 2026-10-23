@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 
 import '../l10n/app_localizations.dart';
+import '../l10n/failure_text.dart';
 import '../viewer/search_picker_sheet.dart';
 import 'backup_storage_type.dart';
 import 'backup_targets_store.dart';
@@ -120,9 +121,11 @@ class _AddBackupScreenState extends State<AddBackupScreen> {
 
   void _onFieldChanged() => setState(() {
     final typed = _requiredFields;
-    _fieldErrors.removeWhere(
-      (key, _) => typed[key]?.text.trim().isNotEmpty ?? false,
-    );
+    _fieldErrors.removeWhere((key, _) {
+      final text = typed[key]?.text.trim() ?? '';
+      if (key == bucketFieldKey && text.contains('.')) return false;
+      return text.isNotEmpty;
+    });
   });
 
   BackupStorageTypeMeta get _meta => backupStorageTypeMeta(_provider);
@@ -381,6 +384,32 @@ class _AddBackupScreenState extends State<AddBackupScreen> {
       _fieldErrors.clear();
     });
 
+    try {
+      await _checkAndAdd(
+        l10n,
+        accessKeyId,
+        secretAccessKey,
+        bucket,
+        prefix,
+        pickedRegion,
+      );
+    } catch (e) {
+      if (!mounted) return;
+      setState(() {
+        _saving = false;
+        _error = failureText(l10n, e);
+      });
+    }
+  }
+
+  Future<void> _checkAndAdd(
+    AppLocalizations l10n,
+    String accessKeyId,
+    String secretAccessKey,
+    String bucket,
+    String prefix,
+    String pickedRegion,
+  ) async {
     final String region;
     if (_meta.detectsRegion) {
       final regionResult = await widget.detectRegion(bucket);
@@ -541,7 +570,7 @@ class _AddBackupScreenState extends State<AddBackupScreen> {
       fieldKey: prefixFieldKey,
       controller: _prefixController,
       enabled: !_saving,
-      placeholder: 'photo-backup/',
+      placeholder: defaultKeyPrefix,
     ),
   ];
 

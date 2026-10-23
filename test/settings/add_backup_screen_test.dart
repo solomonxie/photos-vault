@@ -104,7 +104,7 @@ void main() {
       ),
     );
 
-    expect(find.text(defaultKeyPrefix), findsOneWidget);
+    expect(_prefixText(tester), defaultKeyPrefix);
   });
 
   testWidgets(
@@ -402,8 +402,8 @@ secret_access_key: pasted-secret
 
       expect(find.text('TYPED-BY-HAND'), findsOneWidget);
       expect(
-        find.text('photos-vault/'),
-        findsOneWidget,
+        _prefixText(tester),
+        'photos-vault/',
         reason: 'no prefix in the block leaves the default alone',
       );
     });
@@ -733,3 +733,13 @@ void _saveGuardTests() {
     expect(find.byType(CupertinoActivityIndicator), findsNothing);
   });
 }
+
+String _prefixText(WidgetTester tester) => tester
+    .widget<EditableText>(
+      find.descendant(
+        of: find.byKey(prefixFieldKey),
+        matching: find.byType(EditableText),
+      ),
+    )
+    .controller
+    .text;

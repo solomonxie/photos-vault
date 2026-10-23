@@ -12,6 +12,7 @@ import '../backup/icloud_drive.dart';
 import '../backup/local_vault.dart';
 import '../backup/snapshot_file.dart';
 import '../l10n/app_localizations.dart';
+import '../l10n/failure_text.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/person_store.dart';
 import '../storage/album_store.dart';
@@ -165,10 +166,16 @@ class _SettingsScreenState extends State<SettingsScreen>
       _bucketDataEnabled = value;
       _bucketDataBusy = value;
     });
-    await _bucketBackup.setEnabled(value);
+    Object? failure;
+    try {
+      await _bucketBackup.setEnabled(value);
+    } catch (e) {
+      failure = e;
+    }
     if (!mounted) return;
     setState(() => _bucketDataBusy = false);
     await _reloadBucketData();
+    if (failure != null) await _tellFailure(failure);
   }
 
   Future<void> _reloadICloud() async {
@@ -203,10 +210,16 @@ class _SettingsScreenState extends State<SettingsScreen>
       _icloudEnabled = value;
       _icloudBusy = value;
     });
-    await _icloudBackup.setEnabled(value);
+    Object? failure;
+    try {
+      await _icloudBackup.setEnabled(value);
+    } catch (e) {
+      failure = e;
+    }
     if (!mounted) return;
     setState(() => _icloudBusy = false);
     await _reloadICloud();
+    if (failure != null) await _tellFailure(failure);
   }
 
   Future<void> _reload() async {
@@ -248,8 +261,12 @@ class _SettingsScreenState extends State<SettingsScreen>
     // The new bucket has no app-data in it at all, and until it does it
     // holds photos under keys that mean nothing without this phone. Waiting
     // for the daily gate would leave it that way until tomorrow.
-    if (await _bucketBackup.isEnabled()) {
-      unawaited(_bucketBackup.backUpNow());
+    try {
+      if (await _bucketBackup.isEnabled()) {
+        unawaited(_bucketBackup.backUpNow().catchError((_) => false));
+      }
+    } catch (_) {
+      // Same as _reloadBucketData: no database, nothing to copy.
     }
     if (mounted) await _reloadBucketData();
   }
@@ -332,8 +349,15 @@ class _SettingsScreenState extends State<SettingsScreen>
       ),
     );
     if (picked == null) return;
+    final before = _orderStrategy;
     setState(() => _orderStrategy = picked);
-    await _store.setOrderStrategy(picked);
+    try {
+      await _store.setOrderStrategy(picked);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _orderStrategy = before);
+      await _tellFailure(e);
+    }
   }
 
   String _targetPath(S3BackupTarget target) =>
@@ -380,8 +404,15 @@ class _SettingsScreenState extends State<SettingsScreen>
       ),
     );
     if (picked == null) return;
+    final before = _format;
     setState(() => _format = picked);
-    await _store.setBackupFormat(picked);
+    try {
+      await _store.setBackupFormat(picked);
+    } catch (e) {
+      if (!mounted) return;
+      setState(() => _format = before);
+      await _tellFailure(e);
+    }
   }
 
   Future<void> _explainAppData() {
@@ -578,7 +609,17 @@ class _SettingsScreenState extends State<SettingsScreen>
         await _tell(AppLocalizations.of(context)!.settingsAppDataExportFailed);
         return;
       }
-      await SharePlus.instance.share(ShareParams(files: [XFile(file.path)]));
+      final box = context.findRenderObject() as RenderBox?;
+      await SharePlus.instance.share(
+        ShareParams(
+          files: [XFile(file.path)],
+          sharePositionOrigin: box == null
+              ? null
+              : box.localToGlobal(Offset.zero) & box.size,
+        ),
+      );
+    } catch (e) {
+      if (mounted) await _tellFailure(e);
     } finally {
       if (mounted) setState(() => _exporting = false);
     }
@@ -614,6 +655,10 @@ class _SettingsScreenState extends State<SettingsScreen>
               ),
       );
       await _reload();
+      await _reloadBucketData();
+      await _reloadICloud();
+    } catch (e) {
+      if (mounted) await _tellFailure(e);
     } finally {
       if (mounted) setState(() => _restoring = false);
     }
@@ -666,6 +711,9 @@ class _SettingsScreenState extends State<SettingsScreen>
         l10n.settingsAppDataRestoreSummaryPeople(summary.people),
         l10n.settingsAppDataRestoreSummaryAlbums(summary.albums),
       ].join(' \u00b7 ');
+
+  Future<void> _tellFailure(Object error) =>
+      _tell(failureText(AppLocalizations.of(context)!, error));
 
   Future<void> _tell(String message) => showCupertinoDialog<void>(
     context: context,

@@ -66,6 +66,7 @@ class BucketBrowserScreen extends StatefulWidget {
 class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
   bool _loading = true;
   bool _loadingMore = false;
+  String? _loadMoreError;
   bool _deleting = false;
   String? _error;
   List<String> _folders = const [];
@@ -161,7 +162,10 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
   Future<void> _loadMore() async {
     final token = _nextToken;
     if (token == null || _loadingMore) return;
-    setState(() => _loadingMore = true);
+    setState(() {
+      _loadingMore = true;
+      _loadMoreError = null;
+    });
     final result = await widget.listBucketFn(
       target: widget.target,
       prefix: widget.prefix,
@@ -171,7 +175,7 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
     setState(() {
       _loadingMore = false;
       if (!result.isOk) {
-        _error = _messageFor(result);
+        _loadMoreError = _messageFor(result);
         return;
       }
       _folders = [..._folders, ...result.page!.folders];
@@ -223,12 +227,15 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
   /// A bucket holds whatever the user keeps there, so the glyph is a guess
   /// off the extension rather than a claim — but a wall of identical
   /// document icons tells you nothing about a folder of photos.
+  static final _photoName = RegExp(r'\.(jpe?g|png|heic|heif|webp|gif|tiff?)$');
+  static final _videoName = RegExp(r'\.(mp4|mov|m4v|avi|mkv)$');
+
   static IconData iconFor(String key) {
     final name = key.toLowerCase();
-    if (RegExp(r'\.(jpe?g|png|heic|heif|webp|gif|tiff?)$').hasMatch(name)) {
+    if (_photoName.hasMatch(name)) {
       return CupertinoIcons.photo_fill;
     }
-    if (RegExp(r'\.(mp4|mov|m4v|avi|mkv)$').hasMatch(name)) {
+    if (_videoName.hasMatch(name)) {
       return CupertinoIcons.videocam_fill;
     }
     return CupertinoIcons.doc_fill;
@@ -389,14 +396,18 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
             : CupertinoButton(
                 padding: EdgeInsets.zero,
                 minimumSize: Size.zero,
-                onPressed: _objects.isEmpty ? null : _toggleSelecting,
+                onPressed: _objects.isEmpty || _deleting
+                    ? null
+                    : _toggleSelecting,
                 child: Text(
                   selection == null
                       ? l10n.bucketBrowserSelect
                       : l10n.selectionDone,
                   style: TextStyle(
                     fontSize: 15,
-                    color: _objects.isEmpty ? settingsTertiary : settingsAccent,
+                    color: _objects.isEmpty || _deleting
+                        ? settingsTertiary
+                        : settingsAccent,
                   ),
                 ),
               ),
@@ -427,6 +438,20 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
                 textAlign: TextAlign.center,
                 style: settingsHintStyle,
               ),
+              const SizedBox(height: 12),
+              CupertinoButton(
+                key: const ValueKey('bucketBrowserRetry'),
+                onPressed: _load,
+                child: Text(l10n.actionRetry),
+              ),
+              if (_isRoot && widget.onDeleteConnection != null)
+                CupertinoButton(
+                  onPressed: _confirmDeleteConnection,
+                  child: Text(
+                    l10n.settingsDeleteConnectionAction,
+                    style: const TextStyle(color: CupertinoColors.systemRed),
+                  ),
+                ),
             ],
           ),
         ),
@@ -533,9 +558,19 @@ class _BucketBrowserScreenState extends State<BucketBrowserScreen> {
                 child: Center(
                   child: _loadingMore
                       ? const CupertinoActivityIndicator()
-                      : CupertinoButton(
-                          onPressed: _loadMore,
-                          child: Text(l10n.bucketBrowserLoadMore),
+                      : Column(
+                          children: [
+                            if (_loadMoreError case final error?)
+                              Text(
+                                error,
+                                textAlign: TextAlign.center,
+                                style: settingsHintStyle,
+                              ),
+                            CupertinoButton(
+                              onPressed: _loadMore,
+                              child: Text(l10n.bucketBrowserLoadMore),
+                            ),
+                          ],
                         ),
                 ),
               ),

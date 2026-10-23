@@ -323,7 +323,7 @@
       }
     }
   },
-  "settingsAppDataRestorePartial": "已恢复 {count} 张照片的信息。另有 {waiting} 张本机已有，保留原有内容。",
+  "settingsAppDataRestorePartial": "已恢复 {count} 张照片的信息。另有 {waiting} 张尚未在本机，同步后会自动应用。",
   "@settingsAppDataRestorePartial": {
     "placeholders": {
       "count": {
@@ -1198,5 +1198,9 @@
   "hiddenMoveSameAlbum": "这是当前相簿的密码。",
   "hiddenMoveNoKey": "无法在此打开该相簿。请先设置隐藏相簿的密语。",
   "hiddenMoveDone": "已移动 {count} 个项目。",
-  "hiddenMoveFailed": "{count} 个项目未能移动。"
+  "hiddenMoveFailed": "{count} 个项目未能移动。",
+  "actionRetry": "重试",
+  "bucketPreviewLoadFailed": "无法加载此文件。请检查网络后重试。",
+  "analyzeQueueClearConfirmTitle": "清空队列？",
+  "analyzeQueueClearConfirmBody": "分析会暂停，直到你点“立即分析”。已识别的面孔和名字会保留。"
 }

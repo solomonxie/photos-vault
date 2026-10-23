@@ -52,11 +52,23 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
   Uint8List? _demoBytes;
   Object? _error;
   ImageProvider? _image;
+  bool _imageFailed = false;
 
   @override
   void initState() {
     super.initState();
     _load();
+  }
+
+  Future<void> _retry() async {
+    await _image?.evict();
+    setState(() {
+      _image = null;
+      _url = null;
+      _error = null;
+      _imageFailed = false;
+    });
+    await _load();
   }
 
   Future<void> _load() async {
@@ -66,7 +78,7 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
         if (!mounted) return;
         setState(() {
           _demoBytes = bytes;
-          if (bytes == null) _error = widget.objectKey;
+          if (bytes == null) _imageFailed = true;
         });
         return;
       }
@@ -122,10 +134,9 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
       ),
       child: Center(
         child: _error != null
-            ? Text(
-                failureText(l10n, _error!),
-                style: const TextStyle(color: CupertinoColors.white),
-              )
+            ? _failed(l10n, failureText(l10n, _error!))
+            : _imageFailed
+            ? _failed(l10n, l10n.bucketPreviewLoadFailed)
             : demo != null
             ? InteractiveViewer(child: Image.memory(demo))
             : url == null
@@ -135,7 +146,7 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
                 child: Image(
                   image: _imageFor(context, url),
                   errorBuilder: (context, error, stackTrace) =>
-                      _openExternally(l10n, url),
+                      _failed(l10n, l10n.bucketPreviewLoadFailed),
                   loadingBuilder: (context, child, progress) => progress == null
                       ? child
                       : const CupertinoActivityIndicator(),
@@ -145,6 +156,26 @@ class _BucketObjectPreviewScreenState extends State<BucketObjectPreviewScreen> {
       ),
     );
   }
+
+  Widget _failed(AppLocalizations l10n, String message) => Padding(
+    padding: const EdgeInsets.all(24),
+    child: Column(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          message,
+          textAlign: TextAlign.center,
+          style: const TextStyle(color: CupertinoColors.white),
+        ),
+        const SizedBox(height: 16),
+        CupertinoButton(
+          key: const ValueKey('bucketPreviewRetry'),
+          onPressed: _retry,
+          child: Text(l10n.actionRetry),
+        ),
+      ],
+    ),
+  );
 
   Widget _openExternally(AppLocalizations l10n, Uri url) {
     return Column(
