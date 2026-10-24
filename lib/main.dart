@@ -8,6 +8,7 @@ import 'package:flutter/scheduler.dart';
 
 import 'app.dart';
 import 'demo/demo_mode.dart';
+import 'storage/database_home.dart';
 import 'settings/app_store_region.dart';
 import 'settings/secure_store.dart';
 import 'upload/background_sync.dart';
@@ -15,6 +16,8 @@ import 'upload/background_sync.dart';
 Future<void> main() async {
   WidgetsFlutterBinding.ensureInitialized();
   if (kProfileMode) _reportJank();
+  // First: demo mode reads the databases' path, and every store opens there.
+  await DatabaseHome.prepare();
   // Independent platform calls, so one round trip rather than a chain.
   await Future.wait([
     _ensureTemp(),
@@ -55,6 +58,7 @@ Future<void> _ensureTemp() async {
 Future<void> backgroundSync() async {
   WidgetsFlutterBinding.ensureInitialized();
   await _ensureTemp();
+  await DatabaseHome.prepare();
   const channel = MethodChannel('byo.photos/background_sync');
   final sync = BackgroundSync();
   channel.setMethodCallHandler((call) async {

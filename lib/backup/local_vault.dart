@@ -119,6 +119,11 @@ class LocalVault {
   /// Age keeps the promise legible — anything from the last week.
   static const keepFor = Duration(days: 7);
 
+  /// The raw database copies, each a whole library (tens of megabytes): 3
+  /// days, pre-deletion ones included. The pre-deletion *zip* in
+  /// Documents is what holds a wipe for longer.
+  static const keepDatabaseCopiesFor = Duration(days: 3);
+
   /// The pre-deletion copy is exempt from [keepFor] and capped by count
   /// instead.
   ///
@@ -243,16 +248,12 @@ class LocalVault {
     );
     await _pruneIn(
       databaseCopies,
-      (name) => name.endsWith('.db') && !_isPreDeletionDatabaseCopy(name),
-      cutoff,
+      (name) => name.endsWith('.db'),
+      _now().subtract(keepDatabaseCopiesFor),
     );
 
     await _trimPreDeletion(documents, isPreDeletionCopy);
-    await _trimPreDeletion(databaseCopies, _isPreDeletionDatabaseCopy);
   }
-
-  static bool _isPreDeletionDatabaseCopy(String name) =>
-      name.endsWith('.db') && name.contains('-pre-deletion-');
 
   /// Keeps the [keepPreDeletionCopies] most recent wipes' worth and drops
   /// the rest.

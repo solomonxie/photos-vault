@@ -22,6 +22,7 @@ import 'backup_targets_store.dart';
 import 'bucket_browser_screen.dart';
 import 'bucket_endpoint.dart';
 import 's3_backup_target.dart';
+import 'import_trash.dart';
 import 'settings_section.dart';
 
 /// "Cloud Settings": the buckets, the upload settings and the app-data
@@ -125,6 +126,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     _reload();
     _reloadICloud();
     _reloadBucketData();
+    _loadTrash();
     WidgetsBinding.instance.addObserver(this);
   }
 
@@ -569,6 +571,18 @@ class _SettingsScreenState extends State<SettingsScreen>
                   onChanged: targets.isEmpty ? null : _toggleBucketData,
                 ),
         ),
+        if (_trashBytes > 0)
+          SettingsGroupRow(
+            key: const ValueKey('settingsEmptyImportTrash'),
+            title: l10n.settingsEmptyImportTrash,
+            subtitle: l10n.settingsEmptyImportTrashHint(_mb(_trashBytes)),
+            trailing: const Icon(
+              CupertinoIcons.trash,
+              size: 20,
+              color: CupertinoColors.systemRed,
+            ),
+            onTap: _emptyImportTrash,
+          ),
         SettingsGroupRow(
           title: l10n.settingsAppDataExportButton,
           trailing: Icon(
@@ -589,6 +603,51 @@ class _SettingsScreenState extends State<SettingsScreen>
         ),
       ],
     );
+  }
+
+  final _importTrash = ImportTrash();
+  int _trashBytes = 0;
+
+  static String _mb(int bytes) => bytes >= 1e9
+      ? '${(bytes / 1e9).toStringAsFixed(1)} GB'
+      : '${(bytes / 1e6).toStringAsFixed(0)} MB';
+
+  Future<void> _loadTrash() async {
+    try {
+      final bytes = await _importTrash.size();
+      if (mounted) setState(() => _trashBytes = bytes);
+    } catch (_) {}
+  }
+
+  Future<void> _emptyImportTrash() async {
+    final l10n = AppLocalizations.of(context)!;
+    final ok = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialog) => CupertinoAlertDialog(
+        title: Text(l10n.settingsEmptyImportTrash),
+        content: Text(l10n.settingsEmptyImportTrashBody(_mb(_trashBytes))),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            key: const ValueKey('settingsEmptyImportTrashConfirm'),
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: Text(l10n.actionDelete),
+          ),
+        ],
+      ),
+    );
+    if (ok != true) return;
+    try {
+      await _importTrash.empty();
+    } catch (e) {
+      if (mounted) await _tellFailure(e);
+    }
+    await _loadTrash();
   }
 
   String _formatWhen(DateTime at) =>
