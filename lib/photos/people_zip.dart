@@ -40,6 +40,29 @@ class PeopleZip {
     '.mp4',
   };
 
+  /// Unpacked folders an import never got to discard — the app killed
+  /// mid-run, a run that failed. None is in use at launch. Returns bytes
+  /// freed, best-effort.
+  static Future<int> sweepLeftovers(Directory workDir) async {
+    var freed = 0;
+    try {
+      await for (final entity in workDir.list(followLinks: false)) {
+        if (entity is! Directory ||
+            !p.basename(entity.path).startsWith('people-zip-')) {
+          continue;
+        }
+        await for (final f in entity.list(
+          recursive: true,
+          followLinks: false,
+        )) {
+          if (f is File) freed += await f.length();
+        }
+        await entity.delete(recursive: true);
+      }
+    } catch (_) {}
+    return freed;
+  }
+
   /// Unpacks [zipPath] into a fresh folder under [workDir], off the UI
   /// isolate: entries stream to disk one at a time, never the whole zip in
   /// memory.
@@ -192,15 +215,20 @@ class PeopleZipImporter {
 
   /// The ticked rows that carry a profile; each written pick's [personId]
   /// is set to who it went to.
+  /// Everyone ticked becomes, or merges into, a person: with their
+  /// profile where the zip has one, by name alone where it only has photos.
   Future<ProfileImportResult> writeProfiles(List<PeopleZipPick> picks) async {
     final chosen = [
       for (final pick in picks)
-        if (pick.include && pick.person.profile != null) pick,
+        if (pick.include &&
+            (pick.person.profile != null || pick.photos.isNotEmpty))
+          pick,
     ];
     final written = await ProfileTransfer(store: personStore).write(
       [
         for (final pick in chosen)
-          pick.person.profile!.withName(pick.displayName),
+          pick.person.profile?.withName(pick.displayName) ??
+              ProfileCsvRow(name: pick.displayName),
       ],
       targets: [for (final pick in chosen) pick.target],
     );
@@ -259,12 +287,14 @@ class PeopleZipImporter {
               hidden++;
             }
           } else {
-            // Archived as it is written, so it never reaches the grid. A
-            // photo already here keeps whatever it was.
+            // Archived and kept for its person as it is written, so it
+            // reaches neither the grid nor Archive. A photo already here
+            // keeps whatever it was.
             final created = await _dated(
               await _manualAdd.enqueueFile(
                 path,
                 isArchived: true,
+                peopleOnly: true,
                 fallbackDate: fallback,
               ),
               fallback,
@@ -279,7 +309,12 @@ class PeopleZipImporter {
         }
         onProgress?.call(++done, total);
       }
-      if (tagged.isNotEmpty) await personStore.addAssets(personId, tagged);
+      if (tagged.isNotEmpty) {
+        await personStore.addAssets(personId, tagged);
+        // Loaded before this flag existed: still archived ones become
+        // their person's only. One moved to the library stays there.
+        await recordStore.setPeopleOnly(tagged, true);
+      }
     }
     return PeopleZipResult(
       people: chosen.length,

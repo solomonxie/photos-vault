@@ -200,8 +200,6 @@ void main() {
       ),
       findsOneWidget,
     );
-    await tester.tap(find.byKey(const ValueKey('peopleZipImportPeople')));
-    await settle();
     await tester.tap(find.byKey(const ValueKey('peopleZipImport')));
     await settle();
     expect(await people.listAll(), hasLength(1));

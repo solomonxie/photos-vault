@@ -43,7 +43,7 @@ class LibraryIndex {
     var deleted = 0;
     for (final r in all) {
       if (isInBin(r)) deleted++;
-      if (!r.isVisibleInLibrary) continue;
+      if (!r.inLibraryViews) continue;
       active.add(r);
       (r.isArchived ? archived : home).add(r);
       if (r.countsAsVideo) videos.add(r);
@@ -132,8 +132,8 @@ class LibraryIndex {
     for (final (:before, :after) in changes) {
       if (before != null && isInBin(before)) deleted--;
       if (after != null && isInBin(after)) deleted++;
-      final out = before != null && before.isVisibleInLibrary ? before : null;
-      final into = after != null && after.isVisibleInLibrary ? after : null;
+      final out = before != null && before.inLibraryViews ? before : null;
+      final into = after != null && after.inLibraryViews ? after : null;
       if (out == null && into == null) continue;
 
       if (out == null || into == null || recordOrder(out, into) != 0) {

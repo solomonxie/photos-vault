@@ -170,7 +170,9 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
     if (candidates.isEmpty) {
       return renamed ? l10n.importRenamed(_nameOf(i)) : null;
     }
-    return candidates.any((p) => _sameName(i, p))
+    final same = candidates.where((p) => _sameName(i, p)).length;
+    if (same > 1) return l10n.importSharedName(same);
+    return same == 1
         ? l10n.profileCsvChoose
         : l10n.profileCsvSimilarChoose(
             candidates.map((p) => p.name).join(', '),
@@ -445,6 +447,22 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
                 ],
               ),
               const SizedBox(height: 16),
+              if (_unresolved)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
+                  child: Text(
+                    l10n.importNeedsChoice(
+                      _accepted
+                          .where((i) => _taken(i) && !_targets.containsKey(i))
+                          .length,
+                    ),
+                    key: const ValueKey('importNeedsChoice'),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: CupertinoColors.systemOrange,
+                    ),
+                  ),
+                ),
               if (_singleUndecided.isNotEmpty)
                 Padding(
                   padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),

@@ -49,8 +49,6 @@ class PeopleZipScreen extends StatefulWidget {
   State<PeopleZipScreen> createState() => _PeopleZipScreenState();
 }
 
-enum _Step { people, photos }
-
 class _PeopleZipScreenState extends State<PeopleZipScreen> {
   PeopleZip? _zip;
   List<PeopleZipPick> _picks = const [];
@@ -77,19 +75,14 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
   void _defaultMerge(PeopleZipPick pick) {
     final only = _onlySame(pick);
     if (only == null) return;
-    if (_step == _Step.people) {
-      pick.target ??= PersonTarget(only.id);
-    } else {
-      pick.personId ??= only.id;
-    }
+    pick.target ??= PersonTarget(only.id);
     _defaulted.add(pick);
   }
 
   bool _sameName(PeopleZipPick pick, Person p) =>
       p.name.trim().toLowerCase() == pick.displayName.trim().toLowerCase();
-  _Step _step = _Step.people;
   bool _opening = false;
-  bool _writing = false;
+  final bool _writing = false;
   String? _error;
   (int, int)? _progress;
   ProfileImportResult? _profiles;
@@ -194,11 +187,11 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
         _candidates.clear();
         _defaulted.clear();
         _picks = [for (final person in zip.people) PeopleZipPick(person)];
-        for (final pick in _picks) {
-          if (pick.person.profile != null) _defaultMerge(pick);
-        }
       });
-      if (_rows.isEmpty) _enterPhotos();
+      for (final pick in _picks) {
+        _defaultMerge(pick);
+      }
+      if (_rows.isEmpty) await _finish();
     } catch (error) {
       if (mounted) {
         setState(
@@ -210,37 +203,29 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
     }
   }
 
-  /// The rows on screen: profiles first, then whoever has photos.
-  List<PeopleZipPick> get _rows => [
-    for (final pick in _picks)
-      if (_step == _Step.people
-          ? pick.person.profile != null
-          : pick.person.photos.isNotEmpty)
-        pick,
-  ];
+  /// The rows on screen: profiles first, then whoever has photos. Rows
+  /// still waiting for a choice go first, where they can be seen.
+  List<PeopleZipPick> get _rows {
+    final rows = [
+      for (final pick in _picks)
+        if (pick.person.profile != null || pick.person.photos.isNotEmpty) pick,
+    ];
+    return [...rows.where(_waiting), ...rows.where((p) => !_waiting(p))];
+  }
 
-  /// Photos only go to someone already in People.
-  bool _canLoad(PeopleZipPick pick) =>
-      pick.personId != null || _candidatesOf(pick).isNotEmpty;
-
-  bool _selectable(PeopleZipPick pick) =>
-      _step == _Step.people || _canLoad(pick);
+  bool _waiting(PeopleZipPick p) =>
+      p.include && _candidatesOf(p).isNotEmpty && p.target == null;
 
   /// A name here (or like one) waits for merge, new, or another name.
-  bool get _unresolved => _rows.any(
-    (p) =>
-        p.include &&
-        _candidatesOf(p).isNotEmpty &&
-        (_step == _Step.people ? p.target == null : p.personId == null),
-  );
+  bool get _unresolved => _rows.any(_waiting);
+
+  int get _waitingCount => _rows.where(_waiting).length;
 
   Future<void> _resolve(PeopleZipPick pick) async {
-    final people = _step == _Step.people;
     final choice = await chooseImportName(
       context,
       name: pick.displayName,
       candidates: _candidatesOf(pick),
-      allowNew: people,
     );
     if (choice == null || !mounted) return;
     setState(() {
@@ -249,63 +234,15 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
         case ImportRename(:final name):
           pick.name = name;
           pick.target = null;
-          pick.personId = null;
           _candidates.remove(pick);
           _defaultMerge(pick);
         case ImportMerge(:final personId):
           pick.target = PersonTarget(personId);
-          if (!people) pick.personId = personId;
         case ImportAsNew():
           pick.target = const PersonTarget.newPerson();
       }
-      if (!people) pick.include = _canLoad(pick);
     });
-    if (choice is ImportRename &&
-        _candidatesOf(pick).isNotEmpty &&
-        (people ? pick.target == null : pick.personId == null)) {
-      await _resolve(pick);
-    }
-  }
-
-  Future<void> _importPeople() async {
-    if (_writing) return;
-    setState(() {
-      _writing = true;
-      _error = null;
-    });
-    try {
-      final written = await _importer.writeProfiles(_rows);
-      if (!mounted) return;
-      _profiles = written;
-      await _enterPhotos();
-    } catch (error) {
-      if (mounted) {
-        setState(
-          () => _error = failureText(AppLocalizations.of(context)!, error),
-        );
-      }
-    } finally {
-      if (mounted) setState(() => _writing = false);
-    }
-  }
-
-  /// Who is in People now decides whose photos can load; everyone who can
-  /// starts ticked.
-  Future<void> _enterPhotos() async {
-    final people = await widget.personStore.listAll();
-    if (!mounted) return;
-    setState(() {
-      _people = people;
-      _candidates.clear();
-      _step = _Step.photos;
-      for (final pick in _picks) {
-        _defaulted.remove(pick);
-        if (pick.personId == null) _defaultMerge(pick);
-        pick.include = _canLoad(pick);
-        pick.hide = false;
-      }
-    });
-    if (_rows.isEmpty) await _finish();
+    if (choice is ImportRename && _waiting(pick)) await _resolve(pick);
   }
 
   int get _photoCount =>
@@ -322,6 +259,7 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
     setState(() => _progress = (0, _photoCount));
     PeopleZipResult result;
     try {
+      _profiles = await _importer.writeProfiles(_rows);
       result = await _importer.run(
         _rows,
         code: code,
@@ -369,7 +307,6 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
     setState(() {
       _zip = null;
       _picks = const [];
-      _step = _Step.people;
       _finished = _queue.isEmpty;
     });
     if (_queue.isNotEmpty) {
@@ -398,7 +335,7 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final rows = _rows;
-    final selectable = rows.where(_selectable).toList();
+    final selectable = rows;
     final included = rows.where((p) => p.include).length;
     final progress = _progress;
     final busy = progress != null || _writing;
@@ -410,11 +347,7 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
         navigationBar: CupertinoNavigationBar(
           backgroundColor: settingsPageBackground,
           middle: Text(
-            _picks.isEmpty
-                ? l10n.peopleZipTitle
-                : _step == _Step.people
-                ? l10n.peopleZipStepPeople
-                : l10n.peopleZipStepPhotos,
+            _picks.isEmpty ? l10n.peopleZipTitle : l10n.peopleZipStepPeople,
           ),
           trailing: selectable.isEmpty || busy
               ? null
@@ -507,7 +440,6 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
         ),
       );
     }
-    final people = _step == _Step.people;
     return ListView.separated(
       padding: const EdgeInsets.fromLTRB(
         settingsPagePadding,
@@ -525,7 +457,7 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
               [
                 ?_error,
                 if (_zipCount > 1) l10n.peopleZipOf(_zipNumber, _zipCount),
-                people ? l10n.peopleZipPeopleHint : l10n.peopleZipHint,
+                l10n.peopleZipOnePageHint,
               ].join('\n'),
               style: settingsHintStyle,
             ),
@@ -535,8 +467,8 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
         return _PersonRow(
           key: ValueKey('peopleZip-${pick.person.name}'),
           pick: pick,
-          photos: !people,
-          canLoad: _canLoad(pick),
+          photos: true,
+          canLoad: true,
           candidates: _candidatesOf(pick),
           defaulted: _defaulted.contains(pick),
           onResolve: () => _resolve(pick),
@@ -564,33 +496,31 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
           ],
         ],
       );
-    } else if (_step == _Step.people) {
+    } else {
       child = Column(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if (_unresolved)
+            Padding(
+              padding: const EdgeInsets.only(bottom: 6),
+              child: Text(
+                l10n.importNeedsChoice(_waitingCount),
+                key: const ValueKey('importNeedsChoice'),
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: CupertinoColors.systemOrange,
+                ),
+              ),
+            ),
           SizedBox(
             width: double.infinity,
             child: CupertinoButton.filled(
-              key: const ValueKey('peopleZipImportPeople'),
-              onPressed: included == 0 || _unresolved ? null : _importPeople,
-              child: Text(l10n.peopleZipImportPeople(included)),
+              key: const ValueKey('peopleZipImport'),
+              onPressed: included == 0 || _unresolved ? null : _loadPhotos,
+              child: Text(l10n.peopleZipImport(included, _photoCount)),
             ),
           ),
-          CupertinoButton(
-            key: const ValueKey('peopleZipSkipPeople'),
-            onPressed: _enterPhotos,
-            child: Text(l10n.peopleZipSkipPeople),
-          ),
         ],
-      );
-    } else {
-      child = SizedBox(
-        width: double.infinity,
-        child: CupertinoButton.filled(
-          key: const ValueKey('peopleZipImport'),
-          onPressed: _photoCount == 0 || _unresolved ? null : _loadPhotos,
-          child: Text(l10n.peopleZipImport(included, _photoCount)),
-        ),
       );
     }
     return Container(
@@ -636,7 +566,7 @@ class _PersonRow extends StatelessWidget {
   /// What was chosen for this row, or what it still asks.
   String _choiceLabel(AppLocalizations l10n, bool resolved) {
     if (defaulted) return l10n.importMergingDefault;
-    final id = photos ? pick.personId : pick.target?.personId;
+    final id = pick.target?.personId;
     if (id != null) {
       final into = candidates.where((p) => p.id == id).firstOrNull;
       return l10n.profileCsvMergeInto(into?.name ?? pick.displayName);
@@ -651,11 +581,14 @@ class _PersonRow extends StatelessWidget {
       (p) =>
           p.name.trim().toLowerCase() == pick.displayName.trim().toLowerCase(),
     );
-    return same
-        ? l10n.profileCsvChoose
-        : l10n.profileCsvSimilarChoose(
-            candidates.map((p) => p.name).join(', '),
-          );
+    if (!same) {
+      return l10n.profileCsvSimilarChoose(
+        candidates.map((p) => p.name).join(', '),
+      );
+    }
+    return candidates.length > 1
+        ? l10n.importSharedName(candidates.length)
+        : l10n.profileCsvChoose;
   }
 
   @override
@@ -667,7 +600,7 @@ class _PersonRow extends StatelessWidget {
     final cover = pick.photos.isEmpty
         ? person.photos.firstOrNull
         : person.photos.firstWhere(pick.photos.contains);
-    final resolved = photos ? pick.personId != null : pick.target != null;
+    final resolved = pick.target != null;
     final subtitle = photos
         ? [
             l10n.peopleZipPhotos(pick.photos.length, person.photos.length),

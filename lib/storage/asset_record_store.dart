@@ -116,7 +116,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 31,
+        version: 32,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createLibraryIdIndexSql);
@@ -332,6 +332,14 @@ class AssetRecordStore {
                   .any((c) => c['name'] == 'is_archived')) {
             await db.execute(
               'ALTER TABLE $_table ADD COLUMN is_archived INTEGER NOT NULL '
+              'DEFAULT 0',
+            );
+          }
+          if (oldVersion < 32 &&
+              !(await db.rawQuery('PRAGMA table_info($_table)'))
+                  .any((c) => c['name'] == 'people_only')) {
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN people_only INTEGER NOT NULL '
               'DEFAULT 0',
             );
           }
@@ -755,6 +763,7 @@ class AssetRecordStore {
       is_hidden INTEGER NOT NULL DEFAULT 0,
       is_locked INTEGER NOT NULL DEFAULT 0,
       is_archived INTEGER NOT NULL DEFAULT 0,
+      people_only INTEGER NOT NULL DEFAULT 0,
       local_optimized INTEGER NOT NULL DEFAULT 0,
       deleted_at INTEGER,
       binned_by TEXT,
@@ -2226,6 +2235,7 @@ class AssetRecordStore {
     String? passcodeHash,
     bool isHidden = false,
     bool isArchived = false,
+    bool peopleOnly = false,
     bool keepOnLibraryConflict = false,
   }) async {
     final db = await _open();
@@ -2282,6 +2292,7 @@ class AssetRecordStore {
       'passcode_hash': passcodeHash,
       'is_hidden': isHidden ? 1 : 0,
       'is_archived': isArchived ? 1 : 0,
+      'people_only': peopleOnly ? 1 : 0,
       'created_at': now.millisecondsSinceEpoch,
       'updated_at': DateTime.now().millisecondsSinceEpoch,
       'added_at': added.millisecondsSinceEpoch,
@@ -2314,6 +2325,7 @@ class AssetRecordStore {
       passcodeHash: passcodeHash,
       isHidden: isHidden,
       isArchived: isArchived,
+      peopleOnly: peopleOnly,
       createdAt: now,
       updatedAt: now,
       addedAt: added,
@@ -2493,6 +2505,28 @@ class AssetRecordStore {
     );
   }
 
+  /// Marks archived photos as their people's only (see
+  /// [AssetRecord.peopleOnly]); one not archived is left alone.
+  Future<void> setPeopleOnly(Iterable<String> localIds, bool value) async {
+    final ids = localIds.toList();
+    if (ids.isEmpty) return;
+    final db = await _open();
+    await db.transaction((txn) async {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      for (var i = 0; i < ids.length; i += 500) {
+        final chunk = ids.sublist(i, min(i + 500, ids.length));
+        await txn.update(
+          _table,
+          {'people_only': value ? 1 : 0, 'updated_at': now},
+          where:
+              'is_archived = 1 AND people_only != ? AND local_id IN '
+              '(${List.filled(chunk.length, '?').join(',')})',
+          whereArgs: [value ? 1 : 0, ...chunk],
+        );
+      }
+    });
+  }
+
   /// One statement for any number of photos: archiving a trip is one tap.
   Future<void> setArchived(Iterable<String> localIds, bool value) async {
     final ids = localIds.toList();
@@ -2504,7 +2538,12 @@ class AssetRecordStore {
         final chunk = ids.sublist(i, min(i + 500, ids.length));
         await txn.update(
           _table,
-          {'is_archived': value ? 1 : 0, 'updated_at': now},
+          {
+            'is_archived': value ? 1 : 0,
+            // Out of Archive is into the library, people-only or not.
+            if (!value) 'people_only': 0,
+            'updated_at': now,
+          },
           where: 'local_id IN (${List.filled(chunk.length, '?').join(',')})',
           whereArgs: chunk,
         );
@@ -3586,6 +3625,7 @@ class AssetRecordStore {
     'is_hidden',
     'is_locked',
     'is_archived',
+    'people_only',
     'local_optimized',
     'deleted_at',
     'binned_by',
@@ -3790,6 +3830,7 @@ class AssetRecordStore {
         a.isFavorite == b.isFavorite &&
         a.isLocked == b.isLocked &&
         a.isArchived == b.isArchived &&
+        a.peopleOnly == b.peopleOnly &&
         a.localOptimized == b.localOptimized &&
         a.isHidden == b.isHidden &&
         a.deletedAt == b.deletedAt &&
@@ -4012,6 +4053,7 @@ class AssetRecordStore {
       isFavorite: (row['is_favorite'] as int? ?? 0) != 0,
       isLocked: (row['is_locked'] as int? ?? 0) != 0,
       isArchived: (row['is_archived'] as int? ?? 0) != 0,
+      peopleOnly: (row['people_only'] as int? ?? 0) != 0,
       localOptimized: (row['local_optimized'] as int? ?? 0) != 0,
       isHidden: (row['is_hidden'] as int? ?? 0) != 0,
       deletedAt: deletedAtMillis == null

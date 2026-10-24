@@ -1911,5 +1911,16 @@
   "importRenameTitle": "Name to import as",
   "importRenamed": "Importing as “{name}”",
   "@importRenamed": {"placeholders": {"name": {"type": "String"}}},
-  "importMergingDefault": "Merging into the existing person — tap to add as new or change the name"
+  "importMergingDefault": "Merging into the existing person — tap to add as new or change the name",
+  "importNeedsChoice": "{count, plural, one{1 person needs a choice — tap the orange row.} other{{count} people need a choice — tap the orange rows.}}",
+  "@importNeedsChoice": {"placeholders": {"count": {"type": "int"}}},
+  "importSharedName": "{count} people here have this name — tap to choose one",
+  "@importSharedName": {"placeholders": {"count": {"type": "int"}}},
+  "personToLibrary": "To Library",
+  "peopleZipOnePageHint": "Everyone ticked comes in with their photos. A name already in People merges into them (orange — tap to change); a new name becomes a new person. Tap a person to choose their photos. Hidden ones go to their hidden folder; the rest stay on their page only.",
+  "settingsEmptyImportTrash": "Empty Import Trash",
+  "settingsEmptyImportTrashHint": "{size} of files deleted in the Files app, still on this iPhone",
+  "@settingsEmptyImportTrashHint": {"placeholders": {"size": {"type": "String"}}},
+  "settingsEmptyImportTrashBody": "Permanently deletes {size} of files you deleted from this app's folder in the Files app. Photos already imported are not affected.",
+  "@settingsEmptyImportTrashBody": {"placeholders": {"size": {"type": "String"}}}
 }

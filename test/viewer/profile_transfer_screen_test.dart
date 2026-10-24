@@ -94,7 +94,10 @@ void main() {
 
     final apply = find.widgetWithText(CupertinoButton, 'Import 1 person');
     expect(tester.widget<CupertinoButton>(apply).onPressed, isNull);
-    expect(find.text('Already in People — tap to merge or add new'), findsOne);
+    expect(
+      find.text('2 people here have this name — tap to choose one'),
+      findsOne,
+    );
 
     await tester.tap(find.byKey(const ValueKey('profile-row-0')));
     await tester.pumpAndSettle();

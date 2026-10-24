@@ -155,6 +155,17 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     await _reload();
   }
 
+  /// Into the main library: out of Archive, and no longer only theirs.
+  Future<void> _toLibrarySelected() async {
+    final ids = [
+      for (final r in _selectedRecords)
+        if (r.isArchived) r.localId,
+    ];
+    if (ids.isNotEmpty) await widget.assetRecordStore.setArchived(ids, false);
+    _endSelecting();
+    await _reload();
+  }
+
   Future<void> _favoriteSelected() async {
     final records = _selectedRecords;
     final value = !records.every((r) => r.isFavorite);
@@ -447,6 +458,7 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                     onHide: _hideSelected,
                     onRemove: _removeSelected,
                     onFavorite: _favoriteSelected,
+                    onToLibrary: _toLibrarySelected,
                   ),
                 ),
               ),
@@ -594,12 +606,14 @@ class _PersonSelectionBar extends StatelessWidget {
     required this.onHide,
     required this.onRemove,
     required this.onFavorite,
+    required this.onToLibrary,
   });
 
   final int count;
   final VoidCallback onHide;
   final VoidCallback onRemove;
   final VoidCallback onFavorite;
+  final VoidCallback onToLibrary;
 
   @override
   Widget build(BuildContext context) {
@@ -676,6 +690,12 @@ class _PersonSelectionBar extends StatelessWidget {
                 l10n.libraryFavorite,
                 onFavorite,
                 const ValueKey('personFavoriteSelected'),
+              ),
+              action(
+                CupertinoIcons.photo_on_rectangle,
+                l10n.personToLibrary,
+                onToLibrary,
+                const ValueKey('personToLibrarySelected'),
               ),
             ],
           ),

@@ -289,4 +289,15 @@ void main() {
       }
     });
   });
+
+  test("a people zip's photos are in no library list, Archive included", () {
+    final kept = _record(
+      'z',
+      taken: DateTime(2010),
+    ).withArchived(true).withPeopleOnly(true);
+    final plain = _record('a', taken: DateTime(2011)).withArchived(true);
+    final index = LibraryIndex.of([kept, plain], _now);
+    expect(index.archived.map((r) => r.localId), ['a']);
+    expect(index.home, isEmpty);
+  });
 }

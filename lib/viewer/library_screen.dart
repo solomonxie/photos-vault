@@ -4,6 +4,7 @@ import 'dart:io';
 import '../main.dart' show screenshotRequest;
 
 import 'package:flutter/cupertino.dart';
+import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart' show mapEquals;
 import 'package:flutter/gestures.dart' show HitTestResult;
 import 'package:flutter/rendering.dart' show RenderMetaData;
@@ -28,6 +29,7 @@ import '../photos/share_inbox.dart';
 import '../photos/on_device_analysis.dart';
 import '../photos/person.dart';
 import '../photos/people_order.dart';
+import '../photos/people_zip.dart' show PeopleZip;
 import '../photos/person_store.dart';
 import '../photos/face_grouping.dart';
 import '../photos/face_identity.dart';
@@ -453,6 +455,32 @@ class LibraryScreenState extends State<LibraryScreen>
   Future<void>? _restoreFirst;
   static const _restoreHold = Duration(seconds: 30);
 
+  static const _peopleOnlyKey = 'people_only_marked_v1';
+
+  /// Photos a people zip loaded before they were kept for their people
+  /// only: archived files of this app's, tagged to somebody. Once.
+  Future<void> _markZipPhotosOnce() async {
+    try {
+      if (await assetRecordStore.getAppState(_peopleOnlyKey) != null) return;
+      final tagged = {
+        for (final ids in (await _personStore.allMemberships()).values) ...ids,
+      };
+      final ids = [
+        for (final r in await assetRecordStore.listAll())
+          if (r.isArchived &&
+              !r.peopleOnly &&
+              r.sourceType != AssetSourceType.photoManager &&
+              tagged.contains(r.localId))
+            r.localId,
+      ];
+      await assetRecordStore.setPeopleOnly(ids, true);
+      await assetRecordStore.setAppState(_peopleOnlyKey, '1');
+      if (ids.isNotEmpty && mounted) await reload();
+    } catch (_) {
+      // Tried again next launch.
+    }
+  }
+
   /// Faces of the photos opened or picked, one at a time, out of sight.
   late final FaceAnalyzer _faceAnalyzer = FaceAnalyzer(
     assetRecordStore: assetRecordStore,
@@ -466,6 +494,7 @@ class LibraryScreenState extends State<LibraryScreen>
     resolveSource: _visionSourceFor,
   );
   StreamSubscription<String>? _facesFound;
+  Timer? _housekeeping;
   Timer? _facesReload;
 
   /// Who the faces belong to, across photos. One instance: it holds the
@@ -684,6 +713,7 @@ class LibraryScreenState extends State<LibraryScreen>
     _fixLeft.dispose();
     _picked.dispose();
     syncQueue.dispose();
+    _housekeeping?.cancel();
     _facesFound?.cancel();
     _facesReload?.cancel();
     if (FaceAnalyzer.shared == _faceAnalyzer) FaceAnalyzer.shared = null;
@@ -703,6 +733,13 @@ class LibraryScreenState extends State<LibraryScreen>
     );
     PrivateAlbumScreen.hiddenBackup = _hiddenBackup;
     FaceAnalyzer.shared = _faceAnalyzer;
+    // Housekeeping once the first screens are up. At launch no import is
+    // running, so any unpacked zip left is litter.
+    _housekeeping = Timer(const Duration(seconds: 5), () async {
+      await _markZipPhotosOnce();
+      if (!mounted) return;
+      await PeopleZip.sweepLeftovers(await getTemporaryDirectory());
+    });
     unawaited(_faceAnalyzer.load());
     // The People row's strangers are read at [reload]: once the analyzer
     // goes quiet for a moment, not per photo.

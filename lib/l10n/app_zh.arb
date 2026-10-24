@@ -1318,5 +1318,12 @@
   "importRename": "修改名字…",
   "importRenameTitle": "导入时使用的名字",
   "importRenamed": "以“{name}”导入",
-  "importMergingDefault": "将合并到已有人物——点按可新建或修改名字"
+  "importMergingDefault": "将合并到已有人物——点按可新建或修改名字",
+  "importNeedsChoice": "{count, plural, other{还有 {count} 人需要选择——点按橙色的行。}}",
+  "importSharedName": "这里有 {count} 人同名——点按选择一位",
+  "personToLibrary": "移到图库",
+  "peopleZipOnePageHint": "勾选的人会连同照片一起导入。已在人物中的名字会合并（橙色，点按可更改）；新名字会创建新人物。点按某人可挑选照片。隐藏的照片进入其隐藏文件夹，其余只保留在其页面。",
+  "settingsEmptyImportTrash": "清空导入废纸篓",
+  "settingsEmptyImportTrashHint": "在“文件”App 中删除但仍占用本机的 {size}",
+  "settingsEmptyImportTrashBody": "将永久删除你在“文件”App 中从本 App 文件夹删除的 {size} 文件。已导入的照片不受影响。"
 }

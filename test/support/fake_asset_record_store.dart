@@ -98,6 +98,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     String? passcodeHash,
     bool isHidden = false,
     bool isArchived = false,
+    bool peopleOnly = false,
     bool keepOnLibraryConflict = false,
   }) async {
     final existing = _records[localId];
@@ -132,6 +133,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
       passcodeHash: passcodeHash,
       isHidden: isHidden,
       isArchived: isArchived,
+      peopleOnly: peopleOnly,
       createdAt: now,
       updatedAt: now,
       addedAt: added,
@@ -324,6 +326,16 @@ class FakeAssetRecordStore implements AssetRecordStore {
     final existing = _records[localId];
     if (existing == null) return;
     _records[localId] = existing.withLocked(value);
+  }
+
+  @override
+  Future<void> setPeopleOnly(Iterable<String> localIds, bool value) async {
+    for (final id in localIds) {
+      final existing = _records[id];
+      if (existing != null && existing.isArchived) {
+        _records[id] = existing.withPeopleOnly(value);
+      }
+    }
   }
 
   @override

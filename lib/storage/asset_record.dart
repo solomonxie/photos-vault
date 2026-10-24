@@ -89,6 +89,7 @@ class AssetRecord {
     this.isHidden = false,
     this.isLocked = false,
     this.isArchived = false,
+    this.peopleOnly = false,
     this.localOptimized = false,
     this.deletedAt,
     this.binnedByLibrary = false,
@@ -198,6 +199,14 @@ class AssetRecord {
   /// the Archive album.
   final bool isArchived;
 
+  /// Archived and kept for its people only: brought in with a people zip,
+  /// it shows on their pages and nowhere else — not the grid, not Archive
+  /// — until moved to the library.
+  final bool peopleOnly;
+
+  /// In the library's own lists: the grid, Archive, Recents, Places.
+  bool get inLibraryViews => isVisibleInLibrary && !(isArchived && peopleOnly);
+
   /// The copy on this device is a shrunken or re-encoded one — Optimize
   /// Storage rewrote it in place and the bucket kept the original. Matters
   /// to the lock, which has to put the original back before it can promise
@@ -288,6 +297,7 @@ class AssetRecord {
     bool? isHidden,
     bool? isLocked,
     bool? isArchived,
+    bool? peopleOnly,
     bool? localOptimized,
     DateTime? Function()? deletedAt,
     bool? binnedByLibrary,
@@ -325,6 +335,7 @@ class AssetRecord {
     isHidden: isHidden ?? this.isHidden,
     isLocked: isLocked ?? this.isLocked,
     isArchived: isArchived ?? this.isArchived,
+    peopleOnly: peopleOnly ?? this.peopleOnly,
     localOptimized: localOptimized ?? this.localOptimized,
     deletedAt: deletedAt != null ? deletedAt() : this.deletedAt,
     binnedByLibrary: binnedByLibrary ?? this.binnedByLibrary,
@@ -352,7 +363,10 @@ class AssetRecord {
 
   AssetRecord withLocked(bool value) => _copyWith(isLocked: value);
 
-  AssetRecord withArchived(bool value) => _copyWith(isArchived: value);
+  AssetRecord withPeopleOnly(bool value) => _copyWith(peopleOnly: value);
+
+  AssetRecord withArchived(bool value) =>
+      _copyWith(isArchived: value, peopleOnly: value ? peopleOnly : false);
 
   AssetRecord withLocalOptimized(bool value) =>
       _copyWith(localOptimized: value);

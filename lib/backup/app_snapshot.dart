@@ -393,6 +393,7 @@ class AppSnapshotIo {
     'isFavorite': record.isFavorite,
     'isHidden': record.isHidden,
     if (record.isArchived) 'isArchived': true,
+    if (record.peopleOnly) 'peopleOnly': true,
     'deletedAt': record.deletedAt?.toIso8601String(),
     if (record.binnedByLibrary) 'binnedByLibrary': true,
     'localDeleted': record.localDeleted,
@@ -543,6 +544,9 @@ class AppSnapshotIo {
     }
     if ((row['isArchived'] as bool? ?? false) && !current.isArchived) {
       await assetRecordStore.setArchived([localId], true);
+    }
+    if (row['peopleOnly'] as bool? ?? false) {
+      await assetRecordStore.setPeopleOnly([localId], true);
     }
     if ((row['isHidden'] as bool? ?? false) && !current.isHidden) {
       await assetRecordStore.setHidden(localId, true);
