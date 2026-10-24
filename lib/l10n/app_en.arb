@@ -1910,5 +1910,6 @@
   "importRename": "Change Name…",
   "importRenameTitle": "Name to import as",
   "importRenamed": "Importing as “{name}”",
-  "@importRenamed": {"placeholders": {"name": {"type": "String"}}}
+  "@importRenamed": {"placeholders": {"name": {"type": "String"}}},
+  "importMergingDefault": "Merging into the existing person — tap to add as new or change the name"
 }

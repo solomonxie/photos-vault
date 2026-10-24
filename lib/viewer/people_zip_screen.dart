@@ -62,6 +62,29 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
   List<Person> _candidatesOf(PeopleZipPick pick) =>
       _candidates[pick] ??= importCandidates(pick.displayName, _people);
 
+  /// Rows merged into their one same-name person by default, not by a
+  /// tap: orange until the user says otherwise.
+  final Set<PeopleZipPick> _defaulted = {};
+
+  Person? _onlySame(PeopleZipPick pick) {
+    final same = [
+      for (final p in _candidatesOf(pick))
+        if (_sameName(pick, p)) p,
+    ];
+    return same.length == 1 ? same.single : null;
+  }
+
+  void _defaultMerge(PeopleZipPick pick) {
+    final only = _onlySame(pick);
+    if (only == null) return;
+    if (_step == _Step.people) {
+      pick.target ??= PersonTarget(only.id);
+    } else {
+      pick.personId ??= only.id;
+    }
+    _defaulted.add(pick);
+  }
+
   bool _sameName(PeopleZipPick pick, Person p) =>
       p.name.trim().toLowerCase() == pick.displayName.trim().toLowerCase();
   _Step _step = _Step.people;
@@ -169,7 +192,11 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
         _zip = zip;
         _people = people;
         _candidates.clear();
+        _defaulted.clear();
         _picks = [for (final person in zip.people) PeopleZipPick(person)];
+        for (final pick in _picks) {
+          if (pick.person.profile != null) _defaultMerge(pick);
+        }
       });
       if (_rows.isEmpty) _enterPhotos();
     } catch (error) {
@@ -217,16 +244,14 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
     );
     if (choice == null || !mounted) return;
     setState(() {
+      _defaulted.remove(pick);
       switch (choice) {
         case ImportRename(:final name):
           pick.name = name;
           pick.target = null;
           pick.personId = null;
           _candidates.remove(pick);
-          if (!people) {
-            final same = _candidatesOf(pick).where((p) => _sameName(pick, p));
-            if (same.length == 1) pick.personId = same.single.id;
-          }
+          _defaultMerge(pick);
         case ImportMerge(:final personId):
           pick.target = PersonTarget(personId);
           if (!people) pick.personId = personId;
@@ -274,11 +299,8 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
       _candidates.clear();
       _step = _Step.photos;
       for (final pick in _picks) {
-        final same = [
-          for (final p in _candidatesOf(pick))
-            if (_sameName(pick, p)) p,
-        ];
-        pick.personId ??= same.length == 1 ? same.single.id : null;
+        _defaulted.remove(pick);
+        if (pick.personId == null) _defaultMerge(pick);
         pick.include = _canLoad(pick);
         pick.hide = false;
       }
@@ -516,6 +538,7 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
           photos: !people,
           canLoad: _canLoad(pick),
           candidates: _candidatesOf(pick),
+          defaulted: _defaulted.contains(pick),
           onResolve: () => _resolve(pick),
           enabled: _progress == null && !_writing,
           onChanged: () => setState(() {}),
@@ -585,6 +608,7 @@ class _PersonRow extends StatelessWidget {
     required this.photos,
     required this.canLoad,
     required this.candidates,
+    required this.defaulted,
     required this.onResolve,
     required this.enabled,
     required this.onChanged,
@@ -601,6 +625,9 @@ class _PersonRow extends StatelessWidget {
 
   /// People here with this name; two or more and [onResolve] picks.
   final List<Person> candidates;
+
+  /// Merging into the one same-name person by default, not by a tap.
+  final bool defaulted;
   final VoidCallback onResolve;
   final bool enabled;
   final VoidCallback onChanged;
@@ -608,6 +635,7 @@ class _PersonRow extends StatelessWidget {
 
   /// What was chosen for this row, or what it still asks.
   String _choiceLabel(AppLocalizations l10n, bool resolved) {
+    if (defaulted) return l10n.importMergingDefault;
     final id = photos ? pick.personId : pick.target?.personId;
     if (id != null) {
       final into = candidates.where((p) => p.id == id).firstOrNull;
@@ -716,7 +744,9 @@ class _PersonRow extends StatelessWidget {
                               _choiceLabel(l10n, resolved),
                               style: TextStyle(
                                 fontSize: 13,
-                                color: resolved || candidates.isEmpty
+                                color:
+                                    !defaulted &&
+                                        (resolved || candidates.isEmpty)
                                     ? settingsAccent
                                     : CupertinoColors.systemOrange,
                               ),

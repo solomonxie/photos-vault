@@ -79,6 +79,22 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
   /// Who each row goes to, as the user said.
   final Map<int, PersonTarget> _targets = {};
 
+  /// Rows merged into their one same-name person by default, not by a
+  /// tap: shown in orange until the user says otherwise.
+  final Set<int> _defaulted = {};
+
+  /// One person with exactly this name: merge into them unless told not to.
+  void _defaultMerge(int i) {
+    final same = [
+      for (final p in _candidates[i] ?? const <Person>[])
+        if (_sameName(i, p)) p,
+    ];
+    if (same.length == 1) {
+      _targets[i] = PersonTarget(same.single.id);
+      _defaulted.add(i);
+    }
+  }
+
   /// Names typed over a row's own, by row.
   final Map<int, String> _names = {};
   List<Person> _people = const [];
@@ -118,12 +134,17 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
       setState(() {
         _names[i] = choice.name;
         _targets.remove(i);
+        _defaulted.remove(i);
         _candidates[i] = importCandidates(choice.name, _people);
+        _defaultMerge(i);
       });
-      if (_taken(i)) await _resolve(i);
+      if (_taken(i) && !_targets.containsKey(i)) await _resolve(i);
       return;
     }
-    setState(() => _targets[i] = targetOf(choice)!);
+    setState(() {
+      _targets[i] = targetOf(choice)!;
+      _defaulted.remove(i);
+    });
   }
 
   void _mergeAllSameNames() => setState(() {
@@ -136,6 +157,7 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
     final candidates = _candidates[i] ?? const [];
     final target = _targets[i];
     final renamed = _names.containsKey(i);
+    if (_defaulted.contains(i)) return l10n.importMergingDefault;
     if (target?.personId case final id?) {
       final into = candidates.where((p) => p.id == id).firstOrNull;
       return l10n.profileCsvMergeInto(into?.name ?? _nameOf(i));
@@ -223,8 +245,12 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
         _candidates = candidates;
         _names.clear();
         _targets.clear();
+        _defaulted.clear();
         _fileName = picked.name;
         _found = file.rows;
+        for (var i = 0; i < file.rows.length; i++) {
+          _defaultMerge(i);
+        }
         _notes = file.notes;
         _accepted.addAll(List.generate(file.rows.length, (i) => i));
         if (file.rows.isEmpty && file.notes.isEmpty) {
@@ -399,7 +425,7 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
                         final label? => Text(
                           label,
                           style: TextStyle(
-                            color: _targets[i] == null
+                            color: _targets[i] == null || _defaulted.contains(i)
                                 ? CupertinoColors.systemOrange
                                 : settingsAccent,
                           ),

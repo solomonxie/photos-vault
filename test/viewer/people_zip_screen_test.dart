@@ -144,4 +144,68 @@ void main() {
     await settle();
     expect((await people.allMemberships())[mia.id], hasLength(1));
   });
+
+  testWidgets('a zip profile with a name here merges into them by default', (
+    tester,
+  ) async {
+    final records = FakeAssetRecordStore();
+    final people = FakePersonStore();
+    final mia = await people.create(name: 'Mia');
+    final archive = Archive()
+      ..add(
+        ArchiveFile.bytes('people.csv', 'name,bio\nMia,Painter\n'.codeUnits),
+      )
+      ..add(ArchiveFile.bytes('photos/Mia/a.jpg', [1, 2, 3]));
+    final path = p.join(root.path, 'mia.zip');
+    File(path).writeAsBytesSync(ZipEncoder().encode(archive));
+    await tester.pumpWidget(
+      CupertinoApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: PeopleZipScreen(
+          personStore: people,
+          assetRecordStore: records,
+          pickZip: () async => path,
+          workDir: () async => root,
+          importer: PeopleZipImporter(
+            personStore: people,
+            recordStore: records,
+            tagFor: (code) async => code,
+            manualAdd: ManualAddService(
+              store: records,
+              targetDirectory: () async => root,
+            ),
+            plainFiles: PlainFiles(
+              store: records,
+              directory: () async => root,
+              exclusion: _Exclusion(),
+            ),
+          ),
+        ),
+      ),
+    );
+    Future<void> settle() async {
+      for (var i = 0; i < 20; i++) {
+        await tester.runAsync(
+          () => Future<void>.delayed(const Duration(milliseconds: 20)),
+        );
+        await tester.pump(const Duration(milliseconds: 100));
+      }
+    }
+
+    await settle();
+    expect(
+      find.text(
+        'Merging into the existing person — tap to add as new or change the name',
+      ),
+      findsOneWidget,
+    );
+    await tester.tap(find.byKey(const ValueKey('peopleZipImportPeople')));
+    await settle();
+    await tester.tap(find.byKey(const ValueKey('peopleZipImport')));
+    await settle();
+    expect(await people.listAll(), hasLength(1));
+    expect((await people.detailFor(mia.id)).bio, 'Painter');
+    expect((await people.allMemberships())[mia.id], hasLength(1));
+  });
 }

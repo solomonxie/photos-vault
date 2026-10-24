@@ -1317,5 +1317,6 @@
   "peopleZipAllDone": "全部 {count} 个压缩包已完成。",
   "importRename": "修改名字…",
   "importRenameTitle": "导入时使用的名字",
-  "importRenamed": "以“{name}”导入"
+  "importRenamed": "以“{name}”导入",
+  "importMergingDefault": "将合并到已有人物——点按可新建或修改名字"
 }

@@ -107,7 +107,7 @@ void main() {
     expect((await store.detailFor(older.id)).bio, 'Painter');
   });
 
-  testWidgets('a name already in People asks: merge, or add new', (
+  testWidgets('a name already in People merges into them by default', (
     tester,
   ) async {
     final store = FakePersonStore();
@@ -124,19 +124,13 @@ void main() {
     await tester.tap(find.text('Import from a file'));
     await tester.pumpAndSettle();
 
+    // Merging by default, said in orange; no tap needed.
     expect(
-      tester
-          .widget<CupertinoButton>(
-            find.widgetWithText(CupertinoButton, 'Import 2 people'),
-          )
-          .onPressed,
-      isNull,
-      reason: 'never merged without asking',
+      find.text(
+        'Merging into the existing person — tap to add as new or change the name',
+      ),
+      findsOne,
     );
-    await tester.tap(find.text('Already in People — tap to merge or add new'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('importMergeInto-0')));
-    await tester.pumpAndSettle();
     await tester.tap(find.text('Import 2 people'));
     await tester.pumpAndSettle();
 
@@ -145,7 +139,7 @@ void main() {
     expect((await store.detailFor(mia.id)).bio, 'Photographer');
   });
 
-  testWidgets('Merge All takes every one-person name at once', (tester) async {
+  testWidgets('every one-person name merges without a tap', (tester) async {
     final store = FakePersonStore();
     await store.create(name: 'Mia');
     await store.create(name: 'Daniel');
@@ -160,11 +154,36 @@ void main() {
     );
     await tester.tap(find.text('Import from a file'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('profileCsvMergeAll')));
-    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('profileCsvMergeAll')), findsNothing);
     await tester.tap(find.text('Import 2 people'));
     await tester.pumpAndSettle();
     expect(await store.listAll(), hasLength(2));
+  });
+
+  testWidgets('a default merge can be turned into a new person', (
+    tester,
+  ) async {
+    final store = FakePersonStore();
+    await store.create(name: 'Mia');
+    await tester.pumpWidget(
+      _wrap(
+        ProfileTransferScreen(
+          personStore: store,
+          pickFile: () async =>
+              (name: 'profiles.csv', bytes: utf8.encode(_csv)),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Import from a file'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mia'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('importAsNew')));
+    await tester.pumpAndSettle();
+    expect(find.text('Adds a new person'), findsOne);
+    await tester.tap(find.text('Import 2 people'));
+    await tester.pumpAndSettle();
+    expect(await store.listAll(), hasLength(3));
   });
 
   testWidgets('a similar name asks too, and can be a new person', (
@@ -227,10 +246,8 @@ void main() {
       await tester.pumpAndSettle();
     }
 
-    // "Mia" is like "Mia Wu"; typed as exactly that, it asks again.
+    // "Mia" is like "Mia Wu"; typed as exactly that, it merges by default.
     await rename('Mia', 'Mia Wu');
-    await tester.tap(find.byKey(const ValueKey('importMergeInto-0')));
-    await tester.pumpAndSettle();
     // A name nobody has: a new person under it, no question.
     await rename('Daniel', 'Dan Park');
     expect(find.text('Importing as “Dan Park”'), findsOne);
