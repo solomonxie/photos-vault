@@ -1235,6 +1235,15 @@ class _PeopleScreenState extends State<PeopleScreen> {
   final _facesTick = ValueNotifier<int>(0);
   final _scroll = ScrollController();
 
+  void _toTop() {
+    if (!_scroll.hasClients) return;
+    _scroll.animateTo(
+      0,
+      duration: const Duration(milliseconds: 300),
+      curve: Curves.easeOut,
+    );
+  }
+
   /// Folded to [_foldAt] until asked; a search or filter shows every match.
   bool _showAllPeople = false;
   bool _showBare = false;
@@ -1563,7 +1572,18 @@ class _PeopleScreenState extends State<PeopleScreen> {
         : main.take(_foldAt).toList();
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
-        middle: Text(l10n.peopleScreenTitle),
+        // The bar's middle takes you back to the top; the status bar no
+        // longer does (see [_scroll]).
+        middle: GestureDetector(
+          key: const ValueKey('peopleToTop'),
+          behavior: HitTestBehavior.opaque,
+          onTap: _toTop,
+          child: SizedBox(
+            width: 220,
+            height: 44,
+            child: Center(child: Text(l10n.peopleScreenTitle)),
+          ),
+        ),
         leading: _selecting
             ? SelectAllButton(
                 total: filtered.length,
@@ -1589,7 +1609,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
         child: Stack(
           children: [
             Positioned.fill(
-              child: _list(l10n, query, filtered, main, folded, bare),
+              child: CupertinoScrollbar(
+                controller: _scroll,
+                child: _list(l10n, query, filtered, main, folded, bare),
+              ),
             ),
             if (_selecting)
               Positioned(
