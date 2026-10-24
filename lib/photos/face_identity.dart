@@ -1,5 +1,6 @@
 import '../storage/asset_record.dart';
 import 'ai_analysis_store.dart';
+import 'conversation_store.dart';
 import 'people_zip.dart' show undatedImport;
 import 'face_crops.dart';
 import 'face_matcher.dart';
@@ -22,6 +23,7 @@ Future<void> forgetPersonFaces(
   } catch (_) {
     // No analysis database — nothing was remembered to forget.
   }
+  await forgetConversations(personId);
 }
 
 /// Forgets the faces of photos being hidden, so no face search, count or

@@ -197,6 +197,19 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   }
 
   @override
+  Future<List<({String localId, FaceRect face})>> facesOfPerson(
+    String personId, {
+    int limit = 60,
+  }) async {
+    final seen = <String>{};
+    return [
+      for (final d in _descriptors.reversed)
+        if (d.personId == personId && seen.add(d.localId))
+          (localId: d.localId, face: d.face),
+    ].take(limit).toList();
+  }
+
+  @override
   Future<Map<FaceRect, String>> namedFacesIn(String localId) async => {
     for (final d in _descriptors)
       if (d.localId == localId && d.personId != null) d.face: d.personId!,
@@ -320,6 +333,25 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     }
     for (final byFace in _suggestions.values) {
       byFace.removeWhere((_, id) => id == personId);
+    }
+  }
+
+  @override
+  Future<void> movePersonOn(
+    String from,
+    String to,
+    Iterable<String> localIds,
+  ) async {
+    final ids = localIds.toSet();
+    for (var i = 0; i < _descriptors.length; i++) {
+      final d = _descriptors[i];
+      if (d.personId != from || !ids.contains(d.localId)) continue;
+      _descriptors[i] = DescribedFace(
+        localId: d.localId,
+        face: d.face,
+        personId: to,
+        descriptor: d.descriptor,
+      );
     }
   }
 

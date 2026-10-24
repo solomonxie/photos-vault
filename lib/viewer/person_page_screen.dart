@@ -21,6 +21,7 @@ import 'asset_picker_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'person_avatar.dart';
+import 'person_picker_sheet.dart';
 import 'person_profile_screen.dart';
 import 'private_album_gate.dart';
 import 'private_album_screen.dart' show PrivateAlbumScreen;
@@ -143,6 +144,33 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     );
     if (!mounted) return;
     if (hidden) _endSelecting();
+    await _reload();
+  }
+
+  /// To someone else: off this person, onto them, faces and all.
+  Future<void> _moveSelected() async {
+    final l10n = AppLocalizations.of(context)!;
+    final ids = _picked.value.toList();
+    if (ids.isEmpty) return;
+    final others = [
+      for (final p in await widget.personStore.listAll())
+        if (p.id != _person.id) p,
+    ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    if (!mounted) return;
+    final to = await showPersonPickerSheet(
+      context: context,
+      candidates: others,
+      personStore: widget.personStore,
+      title: l10n.personMoveTo,
+      autofocus: false,
+    );
+    if (to == null || to.id == _person.id) return;
+    await widget.personStore.addAssets(to.id, ids);
+    await widget.personStore.removeAssets(_person.id, ids);
+    try {
+      await _identity.analysisStore.movePersonOn(_person.id, to.id, ids);
+    } catch (_) {}
+    _endSelecting();
     await _reload();
   }
 
@@ -408,12 +436,11 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
             ? ValueListenableBuilder(
                 valueListenable: _picked,
                 builder: (context, picked, _) => SelectAllButton(
+                  unlimited: true,
                   total: _records.length,
                   selectedCount: picked.length,
-                  onSelectNext: () => _picked.value = selectNextBatch(
-                    _records.reversed.map((r) => r.localId),
-                    picked,
-                  ),
+                  onSelectNext: () =>
+                      _picked.value = {for (final r in _records) r.localId},
                   onDeselectAll: () => _picked.value = const {},
                 ),
               )
@@ -459,6 +486,7 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                     onRemove: _removeSelected,
                     onFavorite: _favoriteSelected,
                     onToLibrary: _toLibrarySelected,
+                    onMove: _moveSelected,
                   ),
                 ),
               ),
@@ -563,6 +591,14 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                   ],
                   actionsFor: (r) => [
                     TileAction(
+                      icon: CupertinoIcons.checkmark_circle,
+                      label: l10n.albumSelect,
+                      onPressed: () => setState(() {
+                        _selecting = true;
+                        _picked.value = {r.localId};
+                      }),
+                    ),
+                    TileAction(
                       icon: r.isFavorite
                           ? CupertinoIcons.heart_slash
                           : CupertinoIcons.heart,
@@ -607,6 +643,7 @@ class _PersonSelectionBar extends StatelessWidget {
     required this.onRemove,
     required this.onFavorite,
     required this.onToLibrary,
+    required this.onMove,
   });
 
   final int count;
@@ -614,6 +651,7 @@ class _PersonSelectionBar extends StatelessWidget {
   final VoidCallback onRemove;
   final VoidCallback onFavorite;
   final VoidCallback onToLibrary;
+  final VoidCallback onMove;
 
   @override
   Widget build(BuildContext context) {
@@ -696,6 +734,12 @@ class _PersonSelectionBar extends StatelessWidget {
                 l10n.personToLibrary,
                 onToLibrary,
                 const ValueKey('personToLibrarySelected'),
+              ),
+              action(
+                CupertinoIcons.arrow_right_arrow_left,
+                l10n.personMoveTo,
+                onMove,
+                const ValueKey('personMoveSelected'),
               ),
             ],
           ),

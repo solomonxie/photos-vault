@@ -3,6 +3,7 @@ import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:photos_vault/photos/person_store.dart';
 import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/photos/person.dart';
@@ -241,11 +242,8 @@ void main() {
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('importRename')));
       await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const ValueKey('importRenameField')),
-        to,
-      );
-      await tester.tap(find.byKey(const ValueKey('importRenameSave')));
+      await tester.enterText(find.byKey(searchPickerFieldKey), to);
+      await tester.testTextInput.receiveAction(TextInputAction.done);
       await tester.pumpAndSettle();
     }
 

@@ -93,7 +93,12 @@ Future<Person?> nameFace({
       ((await assetRecordStore.getByLocalId(face.localId))
               ?.isVisibleInLibrary ??
           false);
-  await personStore.addAssets(picked.id, [face.localId], fillAvatar: visible);
+  await personStore.addAssets(
+    picked.id,
+    [face.localId],
+    fillAvatar: visible,
+    viaFace: true,
+  );
   final latest = await personStore.getById(picked.id);
   if (visible && latest != null && latest.avatarFace == null) {
     await personStore.update(

@@ -7,6 +7,7 @@ export '../photos/people_order.dart' show PeopleSort;
 
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
+import '../photos/conversation_store.dart';
 import '../photos/person.dart';
 import '../photos/face_grouping.dart';
 import '../photos/face_identity.dart';
@@ -27,6 +28,9 @@ import 'search_picker_sheet.dart';
 import 'person_picker_sheet.dart';
 import 'person_profile_screen.dart';
 import 'flagged_action_screen.dart';
+import 'group_screen.dart';
+import 'conversation_import_screen.dart';
+import 'group_picker.dart';
 import 'merge_people_screen.dart' show mergePeopleInto;
 import 'private_album_gate.dart';
 import 'select_all.dart';
@@ -45,11 +49,15 @@ class PeopleScreen extends StatefulWidget {
     this.faceIdentity,
     this.onOpenAsset,
     this.fixQueue,
+    this.conversationStore,
   });
 
   /// The library's, for Remove from iPhone and Optimize on several people
   /// at once; without it those two are not offered.
   final FixQueue? fixQueue;
+
+  /// Null opens the app's own; a widget test passes a fake.
+  final ConversationStore? conversationStore;
 
   final PersonStore personStore;
   final AssetRecordStore assetRecordStore;
@@ -123,6 +131,15 @@ class _PeopleScreenState extends State<PeopleScreen> {
   MetBand? _met;
   PersonGroup? _group;
 
+  /// No photos, no group, or no First met: the ones to fill in.
+  bool _attention = false;
+  Map<String, PersonSpan> _spans = const {};
+  Set<String> _inAGroup = const {};
+
+  /// The biggest few, one tap each beside the Group dropdown.
+  List<PersonGroup> _topGroups = const [];
+  static const _groupChips = 3;
+
   /// This is the page you open to work through them, so it shows far more
   /// than the home row's handful. Each one is a person, not a face, and
   /// they are ordered biggest pile first — so a list this long is mostly
@@ -138,6 +155,27 @@ class _PeopleScreenState extends State<PeopleScreen> {
   void initState() {
     super.initState();
     _reload();
+    _loadChats();
+    // Flagged people only: catches up an import or merge cut short.
+    unawaited(
+      applyConversationSpans(widget.personStore).then((changed) {
+        if (changed && mounted) _reload();
+      }),
+    );
+  }
+
+  /// Messages per person: one grouped query, on opening and after an
+  /// import — not with every reload, which no edit here changes.
+  Map<String, int> _chats = const {};
+
+  Future<void> _loadChats() async {
+    try {
+      final chats = await (widget.conversationStore ?? ConversationStore())
+          .countsByPerson();
+      if (mounted) setState(() => _chats = chats);
+    } catch (_) {
+      // No conversations database: nobody shows a chat.
+    }
   }
 
   Future<void> _reload() async {
@@ -188,6 +226,21 @@ class _PeopleScreenState extends State<PeopleScreen> {
       _firstKnown = firstKnown;
       _lastKnown = lastKnown;
       _groups = groups;
+      _initials.clear();
+      _spans = spans;
+      _inAGroup = {for (final ids in groups.values) ...ids};
+      // The filter's group by id: a reload hands out new instances, and
+      // the old one is no key into the new map.
+      _group = groups.keys.where((g) => g.id == _group?.id).firstOrNull;
+      _topGroups = [
+        for (final e
+            in groups.entries.toList()
+              ..sort((a, b) => b.value.length.compareTo(a.value.length))
+              ..length = groups.length < _groupChips
+                  ? groups.length
+                  : _groupChips)
+          e.key,
+      ];
       _formerNames = formerNames;
       _details = details;
       _people = people;
@@ -234,6 +287,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     PeopleSort.lastSeen => l10n.peopleSortLastSeen,
     PeopleSort.age => l10n.peopleSortAge,
     PeopleSort.name => l10n.peopleSortName,
+    PeopleSort.birthday => l10n.peopleSortBirthday,
   };
 
   void _showSort() {
@@ -356,7 +410,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     if (personId == null || name == null) return;
     if (!_accepting.add(face.localId)) return;
     final l10n = AppLocalizations.of(context)!;
-    await widget.personStore.addAssets(personId, [face.localId]);
+    await widget.personStore.addAssets(personId, [face.localId], viaFace: true);
     final identity = widget.faceIdentity;
     if (identity != null) {
       final record =
@@ -398,6 +452,14 @@ class _PeopleScreenState extends State<PeopleScreen> {
     _undoToast?.remove();
     _undoToast = null;
     super.dispose();
+  }
+
+  /// A new selection is a new action: the last one's Undo would sit on
+  /// the selection bar.
+  void _dismissUndo() {
+    _undoTimer?.cancel();
+    _undoToast?.remove();
+    _undoToast = null;
   }
 
   void _showUndo(String message, Future<void> Function() undo) {
@@ -459,6 +521,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
     }
     if (_group case final group?) {
       if (!(_groups[group] ?? const []).contains(person.id)) return false;
+    }
+    if (_attention &&
+        (_counts[person.id] ?? 0) > 0 &&
+        _inAGroup.contains(person.id) &&
+        _spans[person.id]?.firstMet != null) {
+      return false;
     }
     return true;
   }
@@ -533,6 +601,21 @@ class _PeopleScreenState extends State<PeopleScreen> {
             active: false,
             onTap: _showSort,
           ),
+          _FilterPill(
+            key: const ValueKey('people-filter-attention'),
+            icon: CupertinoIcons.exclamationmark_circle,
+            label: l10n.peopleFilterAttention,
+            active: _attention,
+            onTap: () => setState(() => _attention = !_attention),
+          ),
+          for (final g in _topGroups)
+            if (g.id != _group?.id)
+              _FilterPill(
+                key: ValueKey('people-group-chip-${g.id}'),
+                label: g.name,
+                active: false,
+                onTap: () => setState(() => _group = g),
+              ),
         ],
       ),
     );
@@ -694,10 +777,27 @@ class _PeopleScreenState extends State<PeopleScreen> {
   /// Each into their own hidden folder, one code for all of them.
   Future<void> _hidePicked() => _hidePeople(_picked);
 
+  /// Their profile photo stays out: hiding the rest shouldn't leave them
+  /// a grey circle.
   Future<void> _hidePeople(Set<String> ids) async {
     final l10n = AppLocalizations.of(context)!;
-    final (:records, :owner) = _photosOf(ids);
-    if (records.isEmpty) return _note(l10n.peopleBatchNothingToHide);
+    final faces = {
+      for (final person in _people)
+        if (ids.contains(person.id))
+          ?(person.avatarLocalId ?? _firstPhoto[person.id]),
+    };
+    final (records: all, :owner) = _photosOf(ids);
+    final records = [
+      for (final r in all)
+        if (!faces.contains(r.localId)) r,
+    ];
+    if (records.isEmpty) {
+      return _note(
+        all.isEmpty
+            ? l10n.peopleBatchNothingToHide
+            : l10n.peopleHideOnlyProfile,
+      );
+    }
     final hidden = await hideIntoPrivateAlbum(
       context,
       assetRecordStore: widget.assetRecordStore,
@@ -960,12 +1060,18 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Future<void> _setFixedOnPicked(PersonEventType type, String title) async {
     final at = await _pickDate(title);
     if (at == null || !mounted) return;
+    // What each had, to put back: their old row, or none (a new id).
+    final before = <String, PersonEvent?>{};
+    final made = <String>[];
     for (final id in _picked) {
       final events = await widget.personStore.eventsFor(id);
       final had = events.where((e) => e.type == type).firstOrNull;
+      final eventId = had?.id ?? widget.personStore.newId();
+      if (had == null) made.add(eventId);
+      before[id] = had;
       await widget.personStore.saveEvent(
         PersonEvent(
-          id: had?.id ?? widget.personStore.newId(),
+          id: eventId,
           personId: id,
           type: type,
           at: at,
@@ -978,36 +1084,88 @@ class _PeopleScreenState extends State<PeopleScreen> {
     if (!mounted) return;
     _endSelecting();
     await _reload();
+    if (!mounted) return;
+    _showUndo(AppLocalizations.of(context)!.peopleUndoDateSet(title), () async {
+      for (final had in before.values) {
+        if (had != null) {
+          await widget.personStore.saveEvent(had, scope: PersonScope.open);
+        }
+      }
+      for (final id in made) {
+        await widget.personStore.removeEvent(id, scope: PersonScope.open);
+      }
+      if (mounted) await _reload();
+    });
   }
 
-  Future<void> _addPickedToGroup() async {
+  Future<void> _addPickedToGroup() => _addToGroup(_picked);
+
+  /// Only groups somebody picked is in; everyone picked who is in it leaves.
+  Future<void> _removePickedFromGroup() async {
     final l10n = AppLocalizations.of(context)!;
-    final groups = _groups.keys.toList()
-      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final groups = [
+      for (final MapEntry(key: g, value: ids) in _sortedGroups())
+        if (ids.any(_picked.contains)) g,
+    ];
+    if (groups.isEmpty) return _note(l10n.peopleBatchNoGroups);
     final group = await showSearchPickerSheetOf<PersonGroup>(
       context: context,
-      title: l10n.peopleBatchAddToGroup,
+      title: l10n.peopleBatchLeaveGroup,
       options: groups,
       labelOf: (g) => g.name,
       autofocus: false,
-      createLabel: (query) =>
-          query.trim().isEmpty ||
-              groups.any((g) => g.name.toLowerCase() == query.toLowerCase())
-          ? null
-          : l10n.personPickerNewNamed(query.trim()),
-      onCreate: (query) async => PersonGroup(
-        id: widget.personStore.newId(),
-        name: query.trim(),
-        kind: GroupKind.circle,
-      ),
     );
     if (group == null || !mounted) return;
-    for (final id in _picked) {
-      await widget.personStore.joinGroup(id, group, scope: PersonScope.open);
+    final left = [
+      for (final id in _groups[group] ?? const <String>[])
+        if (_picked.contains(id)) id,
+    ];
+    for (final id in left) {
+      await widget.personStore.leaveGroup(
+        id,
+        group.id,
+        scope: PersonScope.open,
+      );
     }
     if (!mounted) return;
     _endSelecting();
     await _reload();
+    if (!mounted) return;
+    _showUndo(l10n.peopleUndoGroupLeft(group.name), () async {
+      for (final id in left) {
+        await widget.personStore.joinGroup(id, group, scope: PersonScope.open);
+      }
+      if (mounted) await _reload();
+    });
+  }
+
+  Future<void> _addToGroup(Set<String> ids) async {
+    final picked = {...ids};
+    final group = await addPeopleToGroup(
+      context,
+      personStore: widget.personStore,
+      groups: _groups.keys,
+      personIds: picked,
+    );
+    if (group == null || !mounted) return;
+    final already = {
+      for (final MapEntry(key: g, value: members) in _groups.entries)
+        if (g.id == group.id) ...members,
+    };
+    if (_selecting) _endSelecting();
+    await _reload();
+    if (!mounted) return;
+    final l10n = AppLocalizations.of(context)!;
+    _showUndo(l10n.peopleUndoGroupAdded(group.name), () async {
+      for (final id in picked.difference(already)) {
+        await widget.personStore.leaveGroup(
+          id,
+          group.id,
+          scope: PersonScope.open,
+        );
+      }
+      if (mounted) await _reload();
+    });
   }
 
   // ------------------------------------------------------------ row menu
@@ -1021,6 +1179,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
         actions: [
           for (final (key, label) in [
             ('select', l10n.peopleMenuSelect),
+            ('group', l10n.peopleBatchAddToGroup),
             ('rename', l10n.peopleMenuRename),
             ('merge', l10n.peopleMenuMerge),
             ('hide', l10n.peopleMenuHideAll),
@@ -1048,8 +1207,11 @@ class _PeopleScreenState extends State<PeopleScreen> {
       case 'select':
         setState(() {
           _selecting = true;
+          _dismissUndo();
           _picked = {person.id};
         });
+      case 'group':
+        await _addToGroup({person.id});
       case 'rename':
         await _rename(person);
       case 'merge':
@@ -1095,7 +1257,16 @@ class _PeopleScreenState extends State<PeopleScreen> {
     final trimmed = name?.trim() ?? '';
     if (trimmed.isEmpty || trimmed == person.name || !mounted) return;
     await widget.personStore.update(person.copyWith(name: trimmed));
-    if (mounted) await _reload();
+    if (!mounted) return;
+    await _reload();
+    if (!mounted) return;
+    _showUndo(l10n.peopleUndoRenamed(trimmed), () async {
+      final now = await widget.personStore.getById(person.id);
+      if (now != null) {
+        await widget.personStore.update(now.copyWith(name: person.name));
+      }
+      if (mounted) await _reload();
+    });
   }
 
   /// Picks any number of others, then who of them all stays.
@@ -1247,7 +1418,76 @@ class _PeopleScreenState extends State<PeopleScreen> {
   /// Folded to [_foldAt] until asked; a search or filter shows every match.
   bool _showAllPeople = false;
   bool _showBare = false;
-  static const _foldAt = 20;
+  bool _showGroups = false;
+
+  List<MapEntry<PersonGroup, List<String>>> _sortedGroups() =>
+      _groups.entries.toList()..sort(
+        (a, b) => a.key.name.toLowerCase().compareTo(b.key.name.toLowerCase()),
+      );
+
+  /// Named, then its first people: a group is its members, so one with
+  /// nobody in it isn't kept.
+  Future<void> _newGroup() async {
+    final l10n = AppLocalizations.of(context)!;
+    final name = await showProfileTextPrompt(
+      context,
+      title: l10n.peopleNewGroup,
+      placeholder: l10n.peopleNewGroupName,
+    );
+    if (name == null || name.isEmpty || !mounted) return;
+    final chosen = await showSearchPickerSheetMulti<Person>(
+      context: context,
+      title: l10n.groupAddPeople,
+      options: [
+        for (final p in _people)
+          if (!p.locked) p,
+      ],
+      labelOf: (p) => p.name,
+    );
+    if (chosen == null || chosen.isEmpty) return;
+    final group = PersonGroup(
+      id: widget.personStore.newId(),
+      name: name,
+      kind: GroupKind.circle,
+    );
+    for (final p in chosen) {
+      await widget.personStore.joinGroup(p.id, group, scope: PersonScope.open);
+    }
+    if (mounted) await _reload();
+  }
+
+  Future<void> _openGroup(PersonGroup group) async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => GroupScreen(
+          group: group,
+          personStore: widget.personStore,
+          assetRecordStore: widget.assetRecordStore,
+        ),
+      ),
+    );
+    if (mounted) await _reload();
+  }
+
+  static const _foldAt = 10;
+
+  /// The no-photos list, folded the same way once opened.
+  bool _showAllBare = false;
+
+  /// "Show all n" folded, "Show fewer" open: a long list folds back.
+  Widget _foldToggle(
+    AppLocalizations l10n,
+    Key key,
+    int total,
+    bool open,
+    VoidCallback onToggle,
+  ) => total <= _foldAt
+      ? const SizedBox.shrink()
+      : CupertinoButton(
+          key: key,
+          onPressed: onToggle,
+          child: Text(open ? l10n.peopleShowFewer : l10n.peopleShowAll(total)),
+        );
 
   /// The faces get their own page; here they are one row, above the list.
   void _openFaces() {
@@ -1495,7 +1735,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
             key: const ValueKey('peopleSelectMode'),
             onPressed: () {
               Navigator.of(sheet).pop();
-              setState(() => _selecting = true);
+              setState(() {
+                _selecting = true;
+                _dismissUndo();
+              });
             },
             child: Text(l10n.peopleSelectMenu),
           ),
@@ -1522,6 +1765,28 @@ class _PeopleScreenState extends State<PeopleScreen> {
               _openPeopleZip();
             },
             child: Text(l10n.peopleZipMenu),
+          ),
+          CupertinoActionSheetAction(
+            key: const ValueKey('peopleConversationsImport'),
+            onPressed: () {
+              Navigator.of(sheet).pop();
+              Navigator.of(context)
+                  .push(
+                    CupertinoPageRoute<void>(
+                      builder: (_) => ConversationImportScreen(
+                        personStore: widget.personStore,
+                        conversationStore: widget.conversationStore,
+                        pickOnOpen: true,
+                      ),
+                    ),
+                  )
+                  .then((_) {
+                    if (!mounted) return;
+                    _loadChats();
+                    _reload();
+                  });
+            },
+            child: Text(l10n.peopleConversationsImport),
           ),
           CupertinoActionSheetAction(
             key: const ValueKey('peopleCsvExport'),
@@ -1555,7 +1820,11 @@ class _PeopleScreenState extends State<PeopleScreen> {
           if (_matchesFilter(person, now)) person,
     ];
     final narrowed =
-        query.isNotEmpty || _gender != null || _met != null || _group != null;
+        query.isNotEmpty ||
+        _gender != null ||
+        _met != null ||
+        _group != null ||
+        _attention;
     // No visible photo: one row to open, unless searched or filtered for,
     // or nobody has one yet.
     final fold = !narrowed && filtered.any((p) => (_counts[p.id] ?? 0) > 0);
@@ -1614,6 +1883,18 @@ class _PeopleScreenState extends State<PeopleScreen> {
                 child: _list(l10n, query, filtered, main, folded, bare),
               ),
             ),
+            if (_sort == PeopleSort.name &&
+                folded.length == main.length &&
+                main.length >= _indexFrom)
+              Positioned(
+                right: 0,
+                top: 0,
+                bottom: _selecting ? 140 : 0,
+                child: _IndexStrip(
+                  letters: {for (final p in folded) _initialOf(p)}.toList(),
+                  onLetter: (l) => _jumpTo(l, folded),
+                ),
+              ),
             if (_selecting)
               Positioned(
                 left: 0,
@@ -1625,6 +1906,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   onUnhide: _unhidePicked,
                   onMerge: _mergePicked,
                   onEdit: _editPicked,
+                  onAddToGroup: _addPickedToGroup,
+                  onLeaveGroup: _removePickedFromGroup,
                   onDelete: _deletePicked,
                   onFreeUp: widget.fixQueue == null ? null : _freeUpPicked,
                   onOptimize: widget.fixQueue == null ? null : _optimizePicked,
@@ -1634,6 +1917,67 @@ class _PeopleScreenState extends State<PeopleScreen> {
         ),
       ),
     );
+  }
+
+  /// Headings by what the list is sorted by: initial, year met or seen.
+  String? _headingOf(AppLocalizations l10n, Person p) {
+    String year(DateTime? at) => at == null ? l10n.peopleNoDate : '${at.year}';
+    return switch (_sort) {
+      PeopleSort.name => _initialOf(p),
+      PeopleSort.firstMet => year(_firstKnown[p.id]),
+      PeopleSort.lastSeen => year(_lastKnown[p.id]),
+      _ => null,
+    };
+  }
+
+  final _headingKeys = <String, GlobalKey>{};
+
+  /// Pinyin per name is not free; cleared with each reload.
+  final _initials = <String, String>{};
+  String _initialOf(Person p) => _initials[p.id] ??= nameInitial(p.name);
+
+  List<Widget> _rowsWithHeadings(AppLocalizations l10n, List<Person> rows) {
+    String? last;
+    return [
+      for (final p in rows) ...[
+        if (_headingOf(l10n, p) case final h? when h != last) ...[
+          Padding(
+            key: _headingKeys.putIfAbsent(h, GlobalKey.new),
+            padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
+            child: Text(
+              last = h,
+              style: const TextStyle(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: CupertinoColors.systemGrey,
+              ),
+            ),
+          ),
+        ],
+        _personRow(l10n, p),
+      ],
+    ];
+  }
+
+  static const _indexFrom = 20;
+
+  /// The heading may not be built yet (the list is lazy): jump to about
+  /// where it is, then onto it once it has been laid out.
+  void _jumpTo(String letter, List<Person> rows) {
+    void land() {
+      final ctx = _headingKeys[letter]?.currentContext;
+      if (ctx != null) Scrollable.ensureVisible(ctx);
+    }
+
+    if (_headingKeys[letter]?.currentContext == null) {
+      final at = rows.indexWhere((p) => _initialOf(p) == letter);
+      if (at < 0 || !_scroll.hasClients) return;
+      final pos = _scroll.position;
+      pos.jumpTo(pos.maxScrollExtent * at / rows.length);
+      WidgetsBinding.instance.addPostFrameCallback((_) => land());
+    } else {
+      land();
+    }
   }
 
   Widget _personRow(AppLocalizations l10n, Person person) => GestureDetector(
@@ -1667,11 +2011,29 @@ class _PeopleScreenState extends State<PeopleScreen> {
         (PeopleSort.lastSeen, _, final at?) => Text(
           l10n.peopleSeenOn(DateFormat.yMMMd().format(at)),
         ),
+        (PeopleSort.birthday, _, _)
+            when _details[person.id]?.birthDate != null =>
+          Text(
+            l10n.peopleBirthdayIn(
+              DateFormat.MMMd().format(_details[person.id]!.birthDate!),
+              daysToBirthday(_details[person.id]!.birthDate!, DateTime.now()),
+            ),
+          ),
         _ => null,
       },
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
+          if ((_chats[person.id] ?? 0) > 0)
+            Padding(
+              key: ValueKey('people-chats-${person.id}'),
+              padding: const EdgeInsets.only(right: 6),
+              child: const Icon(
+                CupertinoIcons.chat_bubble_2,
+                size: 16,
+                color: CupertinoColors.systemGrey,
+              ),
+            ),
           Text(
             '${_counts[person.id] ?? 0}',
             style: const TextStyle(color: CupertinoColors.systemGrey),
@@ -1723,6 +2085,106 @@ class _PeopleScreenState extends State<PeopleScreen> {
           ),
         ),
       if (_people.isNotEmpty) _filterRow(l10n),
+      // Things to sort out first, the list itself after.
+      if (bare.isNotEmpty)
+        CupertinoListTile(
+          key: const ValueKey('people-no-photos-row'),
+          leading: const Icon(
+            CupertinoIcons.person_crop_circle,
+            color: CupertinoColors.systemGrey,
+          ),
+          title: Text(l10n.peopleNoPhotosRow),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${bare.length}',
+                style: const TextStyle(color: CupertinoColors.systemGrey),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                _showBare
+                    ? CupertinoIcons.chevron_down
+                    : CupertinoIcons.chevron_forward,
+                size: 18,
+                color: CupertinoColors.systemGrey2,
+              ),
+            ],
+          ),
+          onTap: () => setState(() => _showBare = !_showBare),
+        ),
+      if (_showBare) ...[
+        for (final person in _showAllBare ? bare : bare.take(_foldAt))
+          _personRow(l10n, person),
+        _foldToggle(
+          l10n,
+          const ValueKey('people-bare-show-all'),
+          bare.length,
+          _showAllBare,
+          () => setState(() => _showAllBare = !_showAllBare),
+        ),
+      ],
+      if (_people.isNotEmpty && query.isEmpty)
+        CupertinoListTile(
+          key: const ValueKey('people-groups-row'),
+          leading: const Icon(
+            CupertinoIcons.person_3,
+            color: CupertinoColors.systemGrey,
+          ),
+          title: Text(l10n.peopleGroupsRow),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${_groups.length}',
+                style: const TextStyle(color: CupertinoColors.systemGrey),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                _showGroups
+                    ? CupertinoIcons.chevron_down
+                    : CupertinoIcons.chevron_forward,
+                size: 18,
+                color: CupertinoColors.systemGrey2,
+              ),
+            ],
+          ),
+          onTap: () => setState(() => _showGroups = !_showGroups),
+        ),
+      if (_showGroups && query.isEmpty) ...[
+        CupertinoListTile(
+          key: const ValueKey('people-new-group'),
+          padding: const EdgeInsets.fromLTRB(56, 8, 16, 8),
+          title: Text(
+            l10n.peopleNewGroup,
+            style: TextStyle(color: CupertinoTheme.of(context).primaryColor),
+          ),
+          onTap: _newGroup,
+        ),
+        for (final MapEntry(key: group, value: ids) in _sortedGroups())
+          CupertinoListTile(
+            key: ValueKey('people-group-${group.id}'),
+            padding: const EdgeInsets.fromLTRB(56, 8, 16, 8),
+            title: Text(group.name),
+            subtitle: Text(groupKindLabel(l10n, group.kind)),
+            trailing: Row(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Text(
+                  '${ids.length}',
+                  style: const TextStyle(color: CupertinoColors.systemGrey),
+                ),
+                const SizedBox(width: 4),
+                const Icon(
+                  CupertinoIcons.chevron_forward,
+                  size: 18,
+                  color: CupertinoColors.systemGrey2,
+                ),
+              ],
+            ),
+            onTap: () => _openGroup(group),
+          ),
+      ],
       if (_unnamedFaces.isNotEmpty && query.isEmpty) _facesRow(l10n),
       if (_people.isNotEmpty) _sectionHeading(l10n.peopleSectionNamed),
       if (!_loaded)
@@ -1751,42 +2213,15 @@ class _PeopleScreenState extends State<PeopleScreen> {
           ),
         )
       else
-        for (final person in folded) _personRow(l10n, person),
-      if (folded.length < main.length)
-        CupertinoButton(
-          key: const ValueKey('people-show-all'),
-          onPressed: () => setState(() => _showAllPeople = true),
-          child: Text(l10n.peopleShowAll(main.length)),
+        ..._rowsWithHeadings(l10n, folded),
+      if (folded.length < main.length || _showAllPeople)
+        _foldToggle(
+          l10n,
+          const ValueKey('people-show-all'),
+          main.length,
+          _showAllPeople,
+          () => setState(() => _showAllPeople = !_showAllPeople),
         ),
-      if (bare.isNotEmpty)
-        CupertinoListTile(
-          key: const ValueKey('people-no-photos-row'),
-          leading: const Icon(
-            CupertinoIcons.person_crop_circle,
-            color: CupertinoColors.systemGrey,
-          ),
-          title: Text(l10n.peopleNoPhotosRow),
-          trailing: Row(
-            mainAxisSize: MainAxisSize.min,
-            children: [
-              Text(
-                '${bare.length}',
-                style: const TextStyle(color: CupertinoColors.systemGrey),
-              ),
-              const SizedBox(width: 4),
-              Icon(
-                _showBare
-                    ? CupertinoIcons.chevron_down
-                    : CupertinoIcons.chevron_forward,
-                size: 18,
-                color: CupertinoColors.systemGrey2,
-              ),
-            ],
-          ),
-          onTap: () => setState(() => _showBare = !_showBare),
-        ),
-      if (_showBare)
-        for (final person in bare) _personRow(l10n, person),
       const SizedBox(height: 16),
       SizedBox(height: _selecting ? 140 : 24),
     ],
@@ -1806,6 +2241,16 @@ class _PeopleSelectionBar extends StatelessWidget {
       builder: (sheet) => CupertinoActionSheet(
         title: Text(l10n.selectionTitle(count)),
         actions: [
+          CupertinoActionSheetAction(
+            key: const ValueKey('peopleBatchGroup'),
+            onPressed: () => run(sheet, onAddToGroup),
+            child: Text(l10n.peopleBatchAddToGroup),
+          ),
+          CupertinoActionSheetAction(
+            key: const ValueKey('peopleBatchLeaveGroup'),
+            onPressed: () => run(sheet, onLeaveGroup),
+            child: Text(l10n.peopleBatchLeaveGroup),
+          ),
           if (onFreeUp case final freeUp?)
             CupertinoActionSheetAction(
               key: const ValueKey('peopleBatchFreeUp'),
@@ -1839,6 +2284,8 @@ class _PeopleSelectionBar extends StatelessWidget {
     required this.onUnhide,
     required this.onMerge,
     required this.onEdit,
+    required this.onAddToGroup,
+    required this.onLeaveGroup,
     required this.onDelete,
     required this.onFreeUp,
     required this.onOptimize,
@@ -1849,6 +2296,8 @@ class _PeopleSelectionBar extends StatelessWidget {
   final VoidCallback onUnhide;
   final VoidCallback onMerge;
   final VoidCallback onEdit;
+  final VoidCallback onAddToGroup;
+  final VoidCallback onLeaveGroup;
   final VoidCallback onDelete;
   final VoidCallback? onFreeUp;
   final VoidCallback? onOptimize;
@@ -2017,4 +2466,54 @@ class _FilterPill extends StatelessWidget {
       ),
     );
   }
+}
+
+/// A–Z down the right edge; a tap or a drag lands on that letter.
+class _IndexStrip extends StatelessWidget {
+  const _IndexStrip({required this.letters, required this.onLetter});
+
+  final List<String> letters;
+  final void Function(String) onLetter;
+
+  static const _row = 15.0;
+
+  @override
+  Widget build(BuildContext context) => LayoutBuilder(
+    builder: (context, box) {
+      final top = (box.maxHeight - letters.length * _row) / 2;
+      void at(double dy) {
+        final i = ((dy - top) / _row).floor();
+        onLetter(letters[i.clamp(0, letters.length - 1)]);
+      }
+
+      return GestureDetector(
+        key: const ValueKey('people-index'),
+        behavior: HitTestBehavior.opaque,
+        onTapDown: (d) => at(d.localPosition.dy),
+        onVerticalDragUpdate: (d) => at(d.localPosition.dy),
+        child: SizedBox(
+          width: 20,
+          child: Column(
+            mainAxisAlignment: MainAxisAlignment.center,
+            children: [
+              for (final l in letters)
+                SizedBox(
+                  height: _row,
+                  child: Center(
+                    child: Text(
+                      l,
+                      style: TextStyle(
+                        fontSize: 11,
+                        fontWeight: FontWeight.w600,
+                        color: CupertinoTheme.of(context).primaryColor,
+                      ),
+                    ),
+                  ),
+                ),
+            ],
+          ),
+        ),
+      );
+    },
+  );
 }

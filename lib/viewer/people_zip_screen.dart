@@ -226,6 +226,7 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
       context,
       name: pick.displayName,
       candidates: _candidatesOf(pick),
+      everyone: _people,
     );
     if (choice == null || !mounted) return;
     setState(() {

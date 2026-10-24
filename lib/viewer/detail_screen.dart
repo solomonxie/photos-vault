@@ -1964,7 +1964,10 @@ class _InfoPanelState extends State<_InfoPanel> {
     _loadAlbums();
     _fillLocationFromMetadata();
     _analyzed = FaceAnalyzer.shared?.finished.listen((id) {
-      if (id == widget.record.localId && mounted) _loadFoundFaces();
+      if (id == widget.record.localId && mounted) {
+        _loadFoundFaces();
+        _loadNamedFaces();
+      }
     });
   }
 
@@ -1975,6 +1978,7 @@ class _InfoPanelState extends State<_InfoPanel> {
   Future<void> _loadPeopleThenFaces() async {
     await _loadPeople();
     await _loadFoundFaces();
+    await _loadNamedFaces();
   }
 
   @override
@@ -1987,6 +1991,7 @@ class _InfoPanelState extends State<_InfoPanel> {
       // The path arrives after the panel is built for a camera-roll photo,
       // and there is nothing to cut a face out of until it does.
       _loadFoundFaces();
+      _loadNamedFaces();
     }
     if (oldWidget.record.localId != widget.record.localId) {
       _description.text = widget.record.description;
@@ -2040,6 +2045,123 @@ class _InfoPanelState extends State<_InfoPanel> {
   /// Where each of [_faces] sits in the photo, same order — what makes the
   /// tapped face become *that* person's picture rather than the whole
   /// group shot.
+  /// Faces in this photo already given a name, with whose: shown so a
+  /// wrong name can be put right, which a hidden face never could.
+  List<({Uint8List crop, FaceRect rect, String personId})> _named = const [];
+  Map<String, String> _namesById = const {};
+
+  Future<void> _loadNamedFaces() async {
+    final path = widget.resolvedPath;
+    if (path == null) return;
+    final Map<FaceRect, String> named;
+    try {
+      named = await _onDeviceAnalysis.analysisStore.namedFacesIn(
+        widget.record.localId,
+      );
+    } catch (_) {
+      return;
+    }
+    final rects = named.keys.toList();
+    final crops = rects.isEmpty
+        ? const <Uint8List>[]
+        : await FaceCrops.of(path, rects);
+    final names = {
+      for (final p in await widget.personStore.listAll()) p.id: p.name,
+    };
+    if (!mounted) return;
+    setState(() {
+      _namesById = names;
+      _named = [
+        for (var i = 0; i < crops.length; i++)
+          (crop: crops[i], rect: rects[i], personId: named[rects[i]]!),
+      ];
+    });
+  }
+
+  /// Faces, named and not, read again: after a name was given or taken.
+  Future<void> _reloadFaces() async {
+    setState(() {
+      _faces = const [];
+      _faceRects = const [];
+      _faceGuesses = const [];
+      _faceGuessIds = const [];
+    });
+    await _loadPeople();
+    await _loadFoundFaces();
+    await _loadNamedFaces();
+  }
+
+  /// Takes [personId]'s name off this photo's face, and the photo off them
+  /// if the face is what put it there. [byHand]: untagged outright.
+  Future<void> _unname(String personId, {bool byHand = false}) async {
+    try {
+      await _onDeviceAnalysis.analysisStore.forgetPersonOn(personId, [
+        widget.record.localId,
+      ]);
+    } catch (_) {}
+    if (byHand) {
+      await widget.personStore.removeAsset(personId, widget.record.localId);
+    } else {
+      await widget.personStore.removeFaceTags(personId, [
+        widget.record.localId,
+      ]);
+    }
+    FaceAnalyzer.shared?.namesChanged();
+  }
+
+  Future<void> _fixNamedFace(int index) async {
+    final l10n = AppLocalizations.of(context)!;
+    final face = _named[index];
+    final name = _namesById[face.personId] ?? '?';
+    final action = await showCupertinoModalPopup<String>(
+      context: context,
+      builder: (sheet) => CupertinoActionSheet(
+        title: Text(name),
+        actions: [
+          CupertinoActionSheetAction(
+            key: const ValueKey('faceChangePerson'),
+            onPressed: () => Navigator.of(sheet).pop('change'),
+            child: Text(l10n.detailFaceChangePerson),
+          ),
+          CupertinoActionSheetAction(
+            key: const ValueKey('faceNotThem'),
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(sheet).pop('not'),
+            child: Text(l10n.detailFaceNotThem(name)),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheet).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (action == null || !mounted) return;
+    Person? into;
+    if (action == 'change') {
+      into = await _pickForFace();
+      if (into == null || !mounted) return;
+    }
+    await _unname(face.personId);
+    if (into != null) {
+      await widget.personStore.addAssets(
+        into.id,
+        [widget.record.localId],
+        fillAvatar: widget.record.isVisibleInLibrary,
+        viaFace: true,
+      );
+      if (widget.record.isVisibleInLibrary) {
+        await _faceIdentity.remember(
+          record: widget.record,
+          face: face.rect,
+          personId: into.id,
+        );
+        FaceAnalyzer.shared?.namesChanged();
+      }
+    }
+    if (mounted) await _reloadFaces();
+  }
+
   List<FaceRect> _faceRects = const [];
 
   /// Who each of [_faces] might be, same order — `null` where the app has
@@ -2156,7 +2278,9 @@ class _InfoPanelState extends State<_InfoPanel> {
   /// anyone who wants to go through them anyway.
   Future<void> _loadFoundFaces() async {
     final path = widget.resolvedPath;
-    if (path == null || _faces.isNotEmpty || _people.isNotEmpty) return;
+    // Named faces are left out below, so anyone tagged here with a named
+    // face isn't asked about again; the rest still are.
+    if (path == null || _faces.isNotEmpty) return;
     final List<FaceRect> stored;
     try {
       stored = await _onDeviceAnalysis.analysisStore.facesFor(
@@ -2178,6 +2302,40 @@ class _InfoPanelState extends State<_InfoPanel> {
       _faceGuessIds = List.filled(crops.length, null);
     });
     await _loadGuesses();
+  }
+
+  /// A named face: its name under it in blue; a tap to put it right.
+  Widget _namedFaceTile(int i) {
+    final face = _named[i];
+    return GestureDetector(
+      key: ValueKey('namedFace-$i'),
+      onTap: () => _fixNamedFace(i),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          ClipOval(
+            child: Image.memory(
+              face.crop,
+              width: 60,
+              height: 60,
+              fit: BoxFit.cover,
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.only(top: 3),
+            child: Text(
+              _namesById[face.personId] ?? '?',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 11,
+                color: CupertinoColors.activeBlue,
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
   }
 
   /// [button], or a spinner while this photo's faces are being looked
@@ -2248,9 +2406,12 @@ class _InfoPanelState extends State<_InfoPanel> {
     }
     person ??= await _pickForFace();
     if (person != null && !_people.any((p) => p.id == person!.id)) {
-      await widget.personStore.addAssets(person.id, [
-        widget.record.localId,
-      ], fillAvatar: widget.record.isVisibleInLibrary);
+      await widget.personStore.addAssets(
+        person.id,
+        [widget.record.localId],
+        fillAvatar: widget.record.isVisibleInLibrary,
+        viaFace: true,
+      );
     }
     if (person != null && index < _faceRects.length) {
       final latest = await widget.personStore.getById(person.id);
@@ -2499,9 +2660,11 @@ class _InfoPanelState extends State<_InfoPanel> {
     return picked;
   }
 
+  /// Untagged, and their face here unnamed with it: a face left named
+  /// would go on teaching recognition who they aren't.
   Future<void> _removePerson(Person person) async {
-    await widget.personStore.removeAsset(person.id, widget.record.localId);
-    await _loadPeople();
+    await _unname(person.id, byHand: true);
+    await _reloadFaces();
   }
 
   Future<void> _openPerson(Person person) async {
@@ -2820,7 +2983,7 @@ class _InfoPanelState extends State<_InfoPanel> {
           ),
           const SizedBox(height: 24),
           _SectionHeader(title: l10n.detailPeopleHeader, onAdd: _addPerson),
-          if (_faces.isNotEmpty) ...[
+          if (_faces.isNotEmpty || _named.isNotEmpty) ...[
             const SizedBox(height: 8),
             Padding(
               padding: const EdgeInsets.only(top: 2, bottom: 8),
@@ -2839,40 +3002,43 @@ class _InfoPanelState extends State<_InfoPanel> {
               height: 80,
               child: ListView.separated(
                 scrollDirection: Axis.horizontal,
-                itemCount: _faces.length,
+                itemCount: _faces.length + _named.length,
                 separatorBuilder: (context, i) => const SizedBox(width: 10),
-                itemBuilder: (context, i) => GestureDetector(
-                  onTap: () => _nameFace(i),
-                  child: Column(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      ClipOval(
-                        child: Image.memory(
-                          _faces[i],
-                          width: 60,
-                          height: 60,
-                          fit: BoxFit.cover,
+                itemBuilder: (context, i) => i >= _faces.length
+                    ? _namedFaceTile(i - _faces.length)
+                    : GestureDetector(
+                        onTap: () => _nameFace(i),
+                        child: Column(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            ClipOval(
+                              child: Image.memory(
+                                _faces[i],
+                                width: 60,
+                                height: 60,
+                                fit: BoxFit.cover,
+                              ),
+                            ),
+                            // Only where there's a guess. A row of "?" under
+                            // every face is noise saying what the row already
+                            // says.
+                            if (_faceGuesses.length > i &&
+                                _faceGuesses[i] != null)
+                              Padding(
+                                padding: const EdgeInsets.only(top: 3),
+                                child: Text(
+                                  l10n.peopleSuggestedFace(_faceGuesses[i]!),
+                                  maxLines: 1,
+                                  overflow: TextOverflow.ellipsis,
+                                  style: const TextStyle(
+                                    fontSize: 11,
+                                    color: CupertinoColors.systemGrey,
+                                  ),
+                                ),
+                              ),
+                          ],
                         ),
                       ),
-                      // Only where there's a guess. A row of "?" under
-                      // every face is noise saying what the row already
-                      // says.
-                      if (_faceGuesses.length > i && _faceGuesses[i] != null)
-                        Padding(
-                          padding: const EdgeInsets.only(top: 3),
-                          child: Text(
-                            l10n.peopleSuggestedFace(_faceGuesses[i]!),
-                            maxLines: 1,
-                            overflow: TextOverflow.ellipsis,
-                            style: const TextStyle(
-                              fontSize: 11,
-                              color: CupertinoColors.systemGrey,
-                            ),
-                          ),
-                        ),
-                    ],
-                  ),
-                ),
               ),
             ),
           ],

@@ -4,6 +4,7 @@ import 'package:photos_vault/viewer/person_profile_screen.dart';
 import 'package:photos_vault/viewer/person_page_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/photos/conversation_file.dart';
 import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:photos_vault/photos/person_store.dart';
 
@@ -16,6 +17,7 @@ import 'package:photos_vault/photos/person_detail.dart';
 
 import '../support/fake_ai_analysis_store.dart';
 import '../support/fake_asset_record_store.dart';
+import '../support/fake_conversation_store.dart';
 import '../support/fake_person_store.dart';
 
 Widget _wrap(Widget child) => CupertinoApp(
@@ -486,6 +488,90 @@ void main() {
     expect(find.text('Zoe'), findsOneWidget);
   });
 
+  testWidgets('no-photos and groups rows sit above the named list', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.addAssets(mia.id, ['p1']);
+    await personStore.create(name: 'Zoe');
+    final photos = await _withPhotos(['p1']);
+    await tester.pumpWidget(
+      _wrap(PeopleScreen(personStore: personStore, assetRecordStore: photos)),
+    );
+    await tester.pumpAndSettle();
+
+    double top(Finder f) => tester.getTopLeft(f).dy;
+    final mias = top(find.text('Mia'));
+    expect(
+      top(find.byKey(const ValueKey('people-no-photos-row'))),
+      lessThan(mias),
+    );
+    expect(
+      top(find.byKey(const ValueKey('people-groups-row'))),
+      lessThan(mias),
+    );
+  });
+
+  testWidgets('New Group names a group and adds its first people', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.create(name: 'Zoe');
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('people-groups-row')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('people-new-group')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(CupertinoTextField).last, 'Climbing');
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mia').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(searchPickerDoneKey));
+    await tester.pumpAndSettle();
+
+    final groups = await personStore.allGroups();
+    expect(groups.keys.single.name, 'Climbing');
+    expect(groups.values.single, [mia.id]);
+    expect(
+      find.byKey(ValueKey('people-group-${groups.keys.single.id}')),
+      findsOneWidget,
+    );
+  });
+
+  testWidgets('hiding all of someone\'s photos keeps their profile photo', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.addAssets(mia.id, ['p1']);
+    final photos = await _withPhotos(['p1']);
+    await tester.pumpWidget(
+      _wrap(PeopleScreen(personStore: personStore, assetRecordStore: photos)),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Mia'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleMenu-hide')));
+    await tester.pumpAndSettle();
+    expect(
+      find.text('Only their profile photo is left, and it stays.'),
+      findsOneWidget,
+    );
+  });
+
   testWidgets('holding a row renames, merges into another, or deletes', (
     tester,
   ) async {
@@ -525,6 +611,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('peopleMergeKeep-${mia.id}')));
     await tester.pumpAndSettle();
+    expect(find.textContaining('Moves 1 photo.'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('mergePeopleConfirm')));
     await tester.pumpAndSettle();
     expect(await personStore.getById(zoe.id), isNull);
@@ -826,6 +913,178 @@ void main() {
     expect(find.byKey(const ValueKey('peopleBatchHide')), findsNothing);
   });
 
+  Future<FakePersonStore> grouped() async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final dan = await personStore.create(name: 'Daniel');
+    await personStore.create(name: 'Zoe');
+    const acme = PersonGroup(id: 'g1', name: 'Acme', kind: GroupKind.company);
+    await personStore.joinGroup(mia.id, acme, scope: PersonScope.open);
+    await personStore.joinGroup(dan.id, acme, scope: PersonScope.open);
+    return personStore;
+  }
+
+  Future<void> show(WidgetTester tester, FakePersonStore people) async {
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: people,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+  }
+
+  testWidgets('somebody with chats shows a chat mark', (tester) async {
+    final people = FakePersonStore();
+    final mia = await people.create(name: 'Mia');
+    final zoe = await people.create(name: 'Zoe');
+    final chats = FakeConversationStore();
+    await chats.insert(mia.id, [
+      ConversationMessage(
+        chat: 'qq:1',
+        source: 'qq',
+        at: DateTime(2020),
+        fromMe: true,
+        sender: '',
+        text: 'hi',
+        kind: 'text',
+        hash: 'h',
+      ),
+    ]);
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: people,
+          assetRecordStore: FakeAssetRecordStore(),
+          conversationStore: chats,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(ValueKey('people-chats-${mia.id}')), findsOneWidget);
+    expect(find.byKey(ValueKey('people-chats-${zoe.id}')), findsNothing);
+  });
+
+  testWidgets('a rename can be undone from the toast', (tester) async {
+    final people = FakePersonStore();
+    final mia = await people.create(name: 'Mia');
+    await show(tester, people);
+    await tester.longPress(find.text('Mia'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleMenu-rename')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('peopleRenameField')),
+      'Mia Wu',
+    );
+    await tester.tap(find.byKey(const ValueKey('peopleRenameSave')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+    expect((await people.getById(mia.id))!.name, 'Mia');
+    await tester.pump(const Duration(seconds: 6));
+  });
+
+  testWidgets('a group chip filters in one tap, and holds over a reload', (
+    tester,
+  ) async {
+    final people = await grouped();
+    await show(tester, people);
+
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('people-group-chip-g1')),
+    );
+    await tester.tap(find.byKey(const ValueKey('people-group-chip-g1')));
+    await tester.pumpAndSettle();
+    expect(find.text('Zoe'), findsNothing);
+    expect(find.text('Mia'), findsOneWidget);
+
+    // A rename reloads; the filter must still be Acme, not nobody.
+    await tester.longPress(find.text('Mia'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleMenu-rename')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('peopleRenameField')),
+      'Mia Wu',
+    );
+    await tester.tap(find.byKey(const ValueKey('peopleRenameSave')));
+    await tester.pumpAndSettle();
+    expect(find.text('Mia Wu'), findsOneWidget);
+    expect(find.text('Daniel'), findsOneWidget);
+  });
+
+  testWidgets('Needs attention keeps those with no photos, group or date', (
+    tester,
+  ) async {
+    final people = await grouped();
+    await show(tester, people);
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('people-filter-attention')),
+    );
+    await tester.tap(find.byKey(const ValueKey('people-filter-attention')));
+    await tester.pumpAndSettle();
+    // Nobody has photos here, so everyone needs attention.
+    expect(find.text('Zoe'), findsOneWidget);
+    expect(find.text('Mia'), findsOneWidget);
+  });
+
+  testWidgets('Remove from Group takes the picked out of a group', (
+    tester,
+  ) async {
+    final people = await grouped();
+    await show(tester, people);
+    await tester.longPress(find.text('Mia'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleMenu-select')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchLeaveGroup')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Acme').last);
+    await tester.pumpAndSettle();
+    final members = (await people.allGroups()).values.single;
+    expect(members, hasLength(1), reason: 'Daniel stays');
+  });
+
+  testWidgets('by name: initial headings, pinyin included, and an index', (
+    tester,
+  ) async {
+    final people = FakePersonStore();
+    for (var i = 0; i < 24; i++) {
+      await people.create(name: '${String.fromCharCode(65 + i)}name');
+    }
+    await people.create(name: '王小明');
+    await tester.binding.setSurfaceSize(const Size(393, 852));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await show(tester, people);
+    await tester.ensureVisible(find.byKey(const ValueKey('peopleSortMenu')));
+    await tester.tap(find.byKey(const ValueKey('peopleSortMenu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleSort-name')));
+    await tester.pumpAndSettle();
+    // Not folded behind "Show all": the index needs everyone listed.
+    await tester.ensureVisible(
+      find.byKey(const ValueKey('people-filter-attention')),
+    );
+    await tester.tap(find.byKey(const ValueKey('people-filter-attention')));
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('people-index')), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('people-index')),
+        matching: find.text('W'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('王小明'), findsOneWidget);
+    expect(find.text('Wname'), findsOneWidget);
+  });
+
   testWidgets('dropdowns narrow the list, and a group is one of them', (
     tester,
   ) async {
@@ -878,7 +1137,7 @@ void main() {
     // One Group dropdown, then the group picked from a searchable list.
     await tester.tap(find.byKey(const ValueKey('people-filter-group')));
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('Acme'));
+    await tester.tap(find.textContaining('Acme').last);
     await tester.pumpAndSettle();
     expect(
       find.descendant(

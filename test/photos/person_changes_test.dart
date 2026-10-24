@@ -173,6 +173,18 @@ void main() {
     expect(events.where((e) => e.isLastSeen).single.at, DateTime(2024));
   });
 
+  test('First met only ever moves back', () async {
+    final store = newStore();
+    final mia = await store.create(name: 'Mia');
+    await store.markMet(mia.id, DateTime(2020));
+    await store.markMet(mia.id, DateTime(2024));
+    var events = await store.eventsFor(mia.id);
+    expect(events.where((e) => e.isFirstMet).single.at, DateTime(2020));
+    await store.markMet(mia.id, DateTime(2010));
+    events = await store.eventsFor(mia.id);
+    expect(events.where((e) => e.isFirstMet).single.at, DateTime(2010));
+  });
+
   test('deleting a person deletes their history', () async {
     final store = newStore();
     final mia = await store.create(name: 'Mia');

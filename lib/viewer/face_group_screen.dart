@@ -210,6 +210,7 @@ class _FaceGroupScreenState extends State<FaceGroupScreen> {
       await widget.personStore.addAssets(
         person.id,
         kept.map((f) => f.localId).toSet().toList(),
+        viaFace: true,
       );
       // Somebody already named keeps their picture, a whole photo picked by
       // hand included. Otherwise the tapped face if still in, else any kept

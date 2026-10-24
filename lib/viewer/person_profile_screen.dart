@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/conversation_store.dart';
 import '../photos/name_parts.dart';
 import '../photos/person.dart';
 import '../photos/face_identity.dart';
@@ -12,6 +13,7 @@ import '../storage/asset_record_store.dart';
 import '../vault/keys.dart';
 import '../vault/passcode_tags.dart';
 import '../vault/passphrase_sheet.dart';
+import 'conversation_screen.dart';
 import 'custom_fields_editor.dart';
 import 'person_event_sheet.dart';
 import 'person_traits_editor.dart';
@@ -19,6 +21,7 @@ import 'profile_chip.dart';
 import 'private_album_gate.dart';
 import 'person_avatar.dart';
 import 'person_avatar_picker.dart';
+import 'person_timeline_screen.dart';
 import 'person_change_log_screen.dart';
 import 'person_graph_screen.dart';
 import 'person_history_detail_screen.dart';
@@ -55,7 +58,10 @@ class PersonProfileScreen extends StatefulWidget {
     required this.assetRecordStore,
     this.vaultKeys,
     this.autofocusName = false,
+    this.conversationStore,
   });
+
+  final ConversationStore? conversationStore;
 
   final Person person;
   final PersonStore personStore;
@@ -107,6 +113,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   bool _loading = false;
 
   late final VaultKeys _vaultKeys = widget.vaultKeys ?? VaultKeys();
+  late final ConversationStore _conversationStore =
+      widget.conversationStore ?? ConversationStore();
+  int _conversations = 0;
   late final PersonOwner _owner = PersonOwner(widget.assetRecordStore);
 
   String? _ownerId;
@@ -127,6 +136,16 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     super.initState();
     _reload();
     _loadFormerNames();
+    _loadConversationCount();
+  }
+
+  Future<void> _loadConversationCount() async {
+    try {
+      final n = await _conversationStore.countFor(_person.id);
+      if (mounted && n != _conversations) setState(() => _conversations = n);
+    } catch (_) {
+      // No conversations database: nothing imported.
+    }
   }
 
   /// First, middle and last, under the display name. Empty ones show what
@@ -321,22 +340,26 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     await widget.personStore.update(updated);
   }
 
-  /// Their photos, one tap, done. The face box goes with it: a crop only
-  /// means anything on the photo it was tapped in, so carrying it over to
-  /// a different picture would frame somebody's elbow.
+  /// A face of theirs, or one of their photos cropped to their face where
+  /// it's known; never the old box on a new picture, which would frame
+  /// somebody's elbow.
   Future<void> _pickAvatar() async {
-    final chosen = await Navigator.of(context).push<String>(
-      CupertinoPageRoute(
-        builder: (_) => PersonAvatarPicker(
-          person: _person,
-          personStore: widget.personStore,
-          assetRecordStore: widget.assetRecordStore,
-        ),
-      ),
-    );
+    final chosen = await Navigator.of(context)
+        .push<({String localId, FaceRect? face})>(
+          CupertinoPageRoute(
+            builder: (_) => PersonAvatarPicker(
+              person: _person,
+              personStore: widget.personStore,
+              assetRecordStore: widget.assetRecordStore,
+            ),
+          ),
+        );
     if (chosen == null || !mounted) return;
     await _persist(
-      _person.copyWith(avatarLocalId: chosen, avatarFace: () => null),
+      _person.copyWith(
+        avatarLocalId: chosen.localId,
+        avatarFace: () => chosen.face,
+      ),
     );
   }
 
@@ -1258,6 +1281,35 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                 },
                 child: Text(l10n.personChangesRow),
               ),
+              CupertinoButton(
+                key: const ValueKey('personTimelineRow'),
+                padding: EdgeInsets.zero,
+                onPressed: () => Navigator.of(context).push(
+                  CupertinoPageRoute<void>(
+                    builder: (_) => PersonTimelineScreen(
+                      person: _person,
+                      personStore: widget.personStore,
+                      assetRecordStore: widget.assetRecordStore,
+                      conversationStore: _conversationStore,
+                    ),
+                  ),
+                ),
+                child: Text(l10n.timelineTitle),
+              ),
+              if (_conversations > 0)
+                CupertinoButton(
+                  key: const ValueKey('personConversationsRow'),
+                  padding: EdgeInsets.zero,
+                  onPressed: () => Navigator.of(context).push(
+                    CupertinoPageRoute<void>(
+                      builder: (_) => ConversationScreen(
+                        person: _person,
+                        store: _conversationStore,
+                      ),
+                    ),
+                  ),
+                  child: Text(l10n.personConversationsRow(_conversations)),
+                ),
               const SizedBox(height: 20),
               const SizedBox(height: 20),
               _sectionHeader(l10n.utilitiesHeader),

@@ -4,9 +4,11 @@ import '../l10n/app_localizations.dart';
 import '../photos/merge_suggestions.dart';
 import '../photos/person.dart';
 import '../photos/profile_transfer.dart';
+import 'search_picker_sheet.dart';
 
 /// Who an import row might be: people with its name, or failing that a
-/// similar one ("Mia" and "Mia Chen").
+/// similar one — one name inside the other ("Mia" and "Mia Chen"), or
+/// sounding or spelt nearly alike ("Katherine", "晓明" for "Xiao Ming").
 List<Person> importCandidates(String name, List<Person> people) {
   final key = name.trim().toLowerCase();
   final same = [
@@ -14,9 +16,15 @@ List<Person> importCandidates(String name, List<Person> people) {
       if (p.name.trim().toLowerCase() == key) p,
   ];
   if (same.isNotEmpty) return same;
-  return [
+  final inside = [
     for (final p in people)
       if (MergeSuggestion.alike(p.name, name)) p,
+  ];
+  final ids = {for (final p in inside) p.id};
+  return [
+    ...inside,
+    for (final p in MergeSuggestion.soundingLike(name, people))
+      if (!ids.contains(p.id)) p,
   ];
 }
 
@@ -47,6 +55,7 @@ Future<ImportNameChoice?> chooseImportName(
   required String name,
   required List<Person> candidates,
   bool allowNew = true,
+  List<Person> everyone = const [],
 }) async {
   final l10n = AppLocalizations.of(context)!;
   final same = candidates.any(
@@ -74,7 +83,7 @@ Future<ImportNameChoice?> chooseImportName(
           CupertinoActionSheetAction(
             key: const ValueKey('importAsNew'),
             onPressed: () => Navigator.of(sheet).pop(const ImportAsNew()),
-            child: Text(l10n.profileCsvAddNew),
+            child: Text(l10n.importAddNamed(name)),
           ),
         CupertinoActionSheetAction(
           key: const ValueKey('importRename'),
@@ -90,6 +99,9 @@ Future<ImportNameChoice?> chooseImportName(
   );
   if (choice is ImportNameChoice) return choice;
   if (choice != 'rename' || !context.mounted) return null;
+  if (everyone.isNotEmpty) {
+    return _searchEveryone(context, name, everyone, allowNew: allowNew);
+  }
   final controller = TextEditingController(text: name);
   final renamed = await showCupertinoDialog<String>(
     context: context,
@@ -130,3 +142,44 @@ PersonTarget? targetOf(ImportNameChoice? choice) => switch (choice) {
   ImportAsNew() => const PersonTarget.newPerson(),
   _ => null,
 };
+
+/// "Change Name…" as a search over everyone in People: pick one to merge
+/// into, or — where new people may be made — type a name nobody has.
+Future<ImportNameChoice?> _searchEveryone(
+  BuildContext context,
+  String name,
+  List<Person> everyone, {
+  required bool allowNew,
+}) async {
+  final l10n = AppLocalizations.of(context)!;
+  final sorted = [...everyone]
+    ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  bool taken(String q) =>
+      sorted.any((p) => p.name.trim().toLowerCase() == q.trim().toLowerCase());
+  final picked = await showSearchPickerSheetOf<Person>(
+    context: context,
+    title: l10n.importRenameTitle,
+    options: sorted,
+    labelOf: (p) => p.name,
+    createLabel: allowNew
+        ? (q) => q.trim().isEmpty || taken(q)
+              ? null
+              : l10n.personPickerNewNamed(q.trim())
+        : null,
+    // Not made here: the import makes them, under this name.
+    onCreate: allowNew
+        ? (q) async => Person(
+            id: '',
+            name: q.trim(),
+            createdAt: DateTime.now(),
+            updatedAt: DateTime.now(),
+          )
+        : null,
+    emptyHint: l10n.importRenameHint,
+  );
+  if (picked == null) return null;
+  if (picked.id.isEmpty) {
+    return picked.name == name ? null : ImportRename(picked.name);
+  }
+  return ImportMerge(picked.id);
+}

@@ -24,6 +24,7 @@ import 'package:photos_vault/viewer/flagged_items_screen.dart';
 import '../settings/fake_secure_store.dart';
 
 import '../support/fake_asset_record_store.dart';
+import '../support/fake_person_store.dart';
 
 Widget _wrap(Widget child) => CupertinoApp(
   localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -89,6 +90,7 @@ void main() {
     WidgetTester tester,
     FakeAssetRecordStore store, {
     RecordFixer? records,
+    FakePersonStore? people,
   }) async {
     final deleted = <String>[];
     final targets = BackupTargetsStore(store: FakeSecureStore());
@@ -127,6 +129,7 @@ void main() {
           targetsStore: targets,
           advisor: advisor,
           queue: queue,
+          personStore: people,
         ),
       ),
     );
@@ -171,6 +174,23 @@ void main() {
     await tester.tap(row);
     await tester.pumpAndSettle();
     expect(find.byType(FlaggedActionScreen), findsOneWidget);
+  });
+
+  testWidgets('an archived photo on somebody\'s page stays on the phone', (
+    tester,
+  ) async {
+    final store = await seeded();
+    await store.setArchived(['small', 'big'], true);
+    final people = FakePersonStore();
+    final mia = await people.create(name: 'Mia');
+    await people.addAssets(mia.id, ['big']);
+    await open(tester, store, people: people);
+
+    final row = find.byKey(const ValueKey('flagged-archived-on-phone'));
+    expect(
+      find.descendant(of: row, matching: find.text('1 photo')),
+      findsOneWidget,
+    );
   });
 
   testWidgets('Rescan keeps the list on screen until the new one lands', (

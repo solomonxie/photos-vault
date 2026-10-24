@@ -1564,7 +1564,7 @@ class LibraryScreenState extends State<LibraryScreen>
               await _personStore.openEventSpans(),
             )
           : null;
-      final born = sort == PeopleSort.age
+      final born = sort == PeopleSort.age || sort == PeopleSort.birthday
           ? {
               for (final MapEntry(:key, :value)
                   in (await _personStore.openDetails()).entries)

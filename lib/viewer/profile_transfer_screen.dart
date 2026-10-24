@@ -128,6 +128,7 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
       context,
       name: _nameOf(i),
       candidates: _candidates[i] ?? const [],
+      everyone: _people,
     );
     if (choice == null || !mounted) return;
     if (choice is ImportRename) {

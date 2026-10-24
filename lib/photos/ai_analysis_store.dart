@@ -549,6 +549,32 @@ class AiAnalysisStore {
     return FaceRect.decode(rows.single['face'] as String?);
   }
 
+  /// Faces confirmed as [personId]'s, newest confirmation first, one per
+  /// photo — what a profile photo is picked from.
+  Future<List<({String localId, FaceRect face})>> facesOfPerson(
+    String personId, {
+    int limit = 60,
+  }) async {
+    final db = await _open();
+    final rows = await db.query(
+      _descriptorTable,
+      columns: const ['local_id', 'face'],
+      where: 'person_id = ?',
+      whereArgs: [personId],
+      orderBy: 'confirmed_at DESC',
+    );
+    final seen = <String>{};
+    final out = <({String localId, FaceRect face})>[];
+    for (final row in rows) {
+      final id = row['local_id'] as String;
+      final face = FaceRect.decode(row['face'] as String?);
+      if (face == null || !seen.add(id)) continue;
+      out.add((localId: id, face: face));
+      if (out.length == limit) break;
+    }
+    return out;
+  }
+
   /// The descriptor for one face, or an empty one where there isn't one.
   Future<FaceDescriptor?> descriptorFor(String localId, FaceRect face) async {
     final db = await _open();
@@ -782,6 +808,31 @@ class AiAnalysisStore {
 
   /// Forgets the faces confirmed as [personId] on one photo — what taking
   /// the photo off the person has to mean.
+  /// [from]'s faces in [localIds] become [to]'s: photos moved from one
+  /// person to another take what they look like with them.
+  Future<void> movePersonOn(
+    String from,
+    String to,
+    Iterable<String> localIds,
+  ) async {
+    final db = await _open();
+    final ids = localIds.toList();
+    final batch = db.batch();
+    for (var i = 0; i < ids.length; i += 500) {
+      final chunk = ids.sublist(i, i + 500 > ids.length ? ids.length : i + 500);
+      batch.update(
+        _descriptorTable,
+        {'person_id': to},
+        where:
+            'person_id = ? AND local_id IN '
+            '(${List.filled(chunk.length, '?').join(',')})',
+        whereArgs: [from, ...chunk],
+      );
+    }
+    await batch.commit(noResult: true);
+    _writes++;
+  }
+
   Future<void> forgetPersonOn(
     String personId,
     Iterable<String> localIds,

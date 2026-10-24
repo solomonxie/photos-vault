@@ -593,4 +593,20 @@ void main() {
     expect((await store.detailFor(mia.id)).isEmpty, isTrue);
     expect(await store.openDetails(), isEmpty);
   });
+
+  test(
+    'a face tag takes its photo off again; one added by hand stays',
+    () async {
+      final store = newStore();
+      final mia = await store.create(name: 'Mia');
+      await store.addAssets(mia.id, ['faced'], viaFace: true);
+      await store.addAssets(mia.id, ['manual']);
+      await store.addAssets(mia.id, ['both'], viaFace: true);
+      await store.addAssets(mia.id, ['both']);
+
+      await store.removeFaceTags(mia.id, ['faced', 'manual', 'both']);
+
+      expect((await store.localIdsIn(mia.id)).toSet(), {'manual', 'both'});
+    },
+  );
 }

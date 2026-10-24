@@ -242,6 +242,14 @@ class PersonStore {
         );
       }
     }
+    // Whether a photo is on someone because one of its faces was named
+    // them: taking the name off the face takes it off them, and only then.
+    if (!(await db.rawQuery('PRAGMA table_info($_memberTable)'))
+        .any((c) => c['name'] == 'via_face')) {
+      await db.execute(
+        'ALTER TABLE $_memberTable ADD COLUMN via_face INTEGER NOT NULL DEFAULT 0',
+      );
+    }
     await db.execute(
       'CREATE TABLE IF NOT EXISTS $_aliasTable '
       '(alias_id TEXT PRIMARY KEY, person_id TEXT NOT NULL)',
@@ -1029,18 +1037,30 @@ class PersonStore {
 
   /// Moves [personId]'s Last seen up to [at] when that's newer. Never back:
   /// an older photo of them is no news.
-  Future<void> markSeen(String personId, DateTime at) async {
+  Future<void> markSeen(String personId, DateTime at) =>
+      _moveFixed(personId, PersonEventType.lastSeen, at, at.isAfter);
+
+  /// Moves [personId]'s First met back to [at] when that's earlier.
+  Future<void> markMet(String personId, DateTime at) =>
+      _moveFixed(personId, PersonEventType.firstMet, at, at.isBefore);
+
+  Future<void> _moveFixed(
+    String personId,
+    PersonEventType type,
+    DateTime at,
+    bool Function(DateTime was) beats,
+  ) async {
     final events = await eventsFor(personId);
-    final last = events.where((e) => e.isLastSeen).firstOrNull;
-    if (last?.at case final was? when !at.isAfter(was)) return;
+    final fixed = events.where((e) => e.type == type).firstOrNull;
+    if (fixed?.at case final was? when !beats(was)) return;
     await saveEvent(
       PersonEvent(
-        id: last?.id ?? newId(),
+        id: fixed?.id ?? newId(),
         personId: personId,
-        type: PersonEventType.lastSeen,
+        type: type,
         at: at,
-        tags: last?.tags ?? const [],
-        notes: last?.notes ?? '',
+        tags: fixed?.tags ?? const [],
+        notes: fixed?.notes ?? '',
       ),
       scope: PersonScope.open,
     );
@@ -1147,8 +1167,10 @@ class PersonStore {
       // Moving rows from one id to the other isn't a change to either.
       await txn.insert(_muteTable, {'x': 1});
       await txn.rawInsert(
-        'INSERT OR IGNORE INTO $_memberTable (person_id, local_id, added_at) '
-        'SELECT ?, local_id, added_at FROM $_memberTable WHERE person_id = ?',
+        'INSERT OR IGNORE INTO $_memberTable '
+        '(person_id, local_id, added_at, via_face) '
+        'SELECT ?, local_id, added_at, via_face FROM $_memberTable '
+        'WHERE person_id = ?',
         [keepId, goneId],
       );
       await txn.rawInsert(
@@ -1271,10 +1293,14 @@ class PersonStore {
 
   /// [fillAvatar] false for photos that must never be anyone's picture —
   /// hidden ones.
+  /// [viaFace]: linked because a face in it was named them, so naming the
+  /// face otherwise unlinks it again ([removeFaceTags]). A link made any
+  /// other way is the user's own and stays.
   Future<void> addAssets(
     String personId,
     Iterable<String> localIds, {
     bool fillAvatar = true,
+    bool viaFace = false,
   }) async {
     final db = await _open();
     final now = DateTime.now().millisecondsSinceEpoch;
@@ -1284,7 +1310,17 @@ class PersonStore {
         'person_id': personId,
         'local_id': localId,
         'added_at': now,
+        'via_face': viaFace ? 1 : 0,
       }, conflictAlgorithm: sqflite.ConflictAlgorithm.ignore);
+      // Added by hand to a photo a face had put here: it's theirs now.
+      if (!viaFace) {
+        batch.update(
+          _memberTable,
+          {'via_face': 0},
+          where: 'person_id = ? AND local_id = ? AND via_face = 1',
+          whereArgs: [personId, localId],
+        );
+      }
     }
     await batch.commit(noResult: true);
 
@@ -1301,6 +1337,24 @@ class PersonStore {
 
   Future<void> removeAsset(String personId, String localId) =>
       removeAssets(personId, [localId]);
+
+  /// Unlinks [localIds] from [personId] where a named face linked them;
+  /// photos added by hand stay.
+  Future<void> removeFaceTags(
+    String personId,
+    Iterable<String> localIds,
+  ) async {
+    final ids = localIds.toList();
+    if (ids.isEmpty) return;
+    final db = await _open();
+    await db.delete(
+      _memberTable,
+      where:
+          'person_id = ? AND via_face = 1 AND local_id IN '
+          '(${List.filled(ids.length, '?').join(',')})',
+      whereArgs: [personId, ...ids],
+    );
+  }
 
   Future<void> removeAssets(String personId, Iterable<String> localIds) async {
     final db = await _open();
@@ -1924,6 +1978,22 @@ class PersonStore {
         keys: keys,
       ),
       conflictAlgorithm: sqflite.ConflictAlgorithm.replace,
+    );
+  }
+
+  /// Renames, or re-kinds, the open set's group for everyone in it.
+  Future<void> updateGroup(
+    String groupId, {
+    String? name,
+    GroupKind? kind,
+  }) async {
+    if (name == null && kind == null) return;
+    final db = await _open();
+    await db.update(
+      _groupTable,
+      {'name': ?name, 'kind': ?kind?.name},
+      where: 'group_id = ? AND passcode_hash = ?',
+      whereArgs: [groupId, openNamespace],
     );
   }
 

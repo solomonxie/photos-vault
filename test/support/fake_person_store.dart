@@ -58,16 +58,28 @@ class FakePersonStore implements PersonStore {
       );
 
   @override
-  Future<void> markSeen(String personId, DateTime at) async {
-    final last = (await eventsFor(personId))
-        .where((e) => e.isLastSeen)
+  Future<void> markSeen(String personId, DateTime at) =>
+      _moveFixed(personId, PersonEventType.lastSeen, at, at.isAfter);
+
+  @override
+  Future<void> markMet(String personId, DateTime at) =>
+      _moveFixed(personId, PersonEventType.firstMet, at, at.isBefore);
+
+  Future<void> _moveFixed(
+    String personId,
+    PersonEventType type,
+    DateTime at,
+    bool Function(DateTime was) beats,
+  ) async {
+    final fixed = (await eventsFor(personId))
+        .where((e) => e.type == type)
         .firstOrNull;
-    if (last?.at case final was? when !at.isAfter(was)) return;
+    if (fixed?.at case final was? when !beats(was)) return;
     await saveEvent(
       PersonEvent(
-        id: last?.id ?? newId(),
+        id: fixed?.id ?? newId(),
         personId: personId,
-        type: PersonEventType.lastSeen,
+        type: type,
         at: at,
       ),
       scope: PersonScope.open,
@@ -137,6 +149,25 @@ class FakePersonStore implements PersonStore {
     String groupId, {
     required PersonScope scope,
   }) async => groups[personId]?.removeWhere((g) => g.id == groupId);
+
+  @override
+  Future<void> updateGroup(
+    String groupId, {
+    String? name,
+    GroupKind? kind,
+  }) async {
+    for (final list in groups.values) {
+      for (var i = 0; i < list.length; i++) {
+        final g = list[i];
+        if (g.id != groupId) continue;
+        list[i] = PersonGroup(
+          id: g.id,
+          name: name ?? g.name,
+          kind: kind ?? g.kind,
+        );
+      }
+    }
+  }
 
   @override
   Future<void> deleteGroup(String groupId, {required PersonScope scope}) async {
@@ -291,6 +322,19 @@ class FakePersonStore implements PersonStore {
     ...?_aliases[personId],
   ];
 
+  final Map<String, Set<String>> _viaFace = {};
+
+  @override
+  Future<void> removeFaceTags(
+    String personId,
+    Iterable<String> localIds,
+  ) async {
+    final faced = _viaFace[personId] ?? {};
+    for (final id in localIds) {
+      if (faced.remove(id)) _members[personId]?.remove(id);
+    }
+  }
+
   @override
   Future<void> remove(String id) async {
     _aliases.remove(id);
@@ -310,8 +354,17 @@ class FakePersonStore implements PersonStore {
     String personId,
     Iterable<String> localIds, {
     bool fillAvatar = true,
+    bool viaFace = false,
   }) async {
-    _members.putIfAbsent(personId, () => {}).addAll(localIds);
+    final mine = _members.putIfAbsent(personId, () => {});
+    final faced = _viaFace.putIfAbsent(personId, () => {});
+    for (final id in localIds) {
+      if (mine.add(id) && viaFace) {
+        faced.add(id);
+      } else if (!viaFace) {
+        faced.remove(id);
+      }
+    }
     // Mirrors the real store: the first photo someone is tagged in becomes
     // their picture, unless they already have one.
     final first = localIds.firstOrNull;

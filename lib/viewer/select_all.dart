@@ -28,7 +28,12 @@ class SelectAllButton extends StatelessWidget {
     required this.selectedCount,
     required this.onSelectNext,
     required this.onDeselectAll,
+    this.unlimited = false,
   });
+
+  /// Everything in one tap, for a set that is bounded and whose actions
+  /// delete nothing — one person's photos.
+  final bool unlimited;
 
   final int total;
   final int selectedCount;
@@ -41,7 +46,7 @@ class SelectAllButton extends StatelessWidget {
     final left = total - selectedCount;
     // No "Select 100": only a whole library that fits one batch can be
     // selected from here; a bigger one is picked by sweeping.
-    if (left > selectAllLimit) return const SizedBox.shrink();
+    if (!unlimited && left > selectAllLimit) return const SizedBox.shrink();
     return CupertinoButton(
       key: const ValueKey('selectAllButton'),
       padding: const EdgeInsets.symmetric(horizontal: 8),

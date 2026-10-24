@@ -4,6 +4,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
+import '../photos/conversation_store.dart';
 import '../photos/merge_suggestions.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
@@ -220,6 +221,7 @@ Future<bool> mergePeopleInto(
   required PersonStore personStore,
   required AssetRecordStore assetRecordStore,
   AiAnalysisStore? aiAnalysisStore,
+  ConversationStore? conversationStore,
 }) async {
   final l10n = AppLocalizations.of(context)!;
   Future<void> note(String message) => showCupertinoDialog<void>(
@@ -241,11 +243,24 @@ Future<bool> mergePeopleInto(
   }
   if (!context.mounted) return false;
   final names = gone.map((p) => p.name).join(', ');
+  final moves = await _whatMoves(
+    l10n,
+    keep,
+    gone,
+    personStore,
+    conversationStore,
+  );
+  if (!context.mounted) return false;
   final ok = await showCupertinoDialog<bool>(
     context: context,
     builder: (dialog) => CupertinoAlertDialog(
       title: Text(l10n.mergePeopleConfirmTitle(names, keep.name)),
-      content: Text(l10n.mergePeopleConfirmBody(names)),
+      content: Text(
+        [
+          l10n.mergePeopleConfirmBody(names),
+          if (moves != null) l10n.mergeMoves(moves),
+        ].join('\n\n'),
+      ),
       actions: [
         CupertinoDialogAction(
           isDefaultAction: true,
@@ -271,7 +286,53 @@ Future<bool> mergePeopleInto(
     }
     if (outcome != PersonMergeOutcome.merged) continue;
     await aiAnalysisStore?.movePerson(person.id, keep.id);
+    await moveConversations(person.id, keep.id, store: conversationStore);
     merged++;
   }
+  if (merged > 0) {
+    await applyConversationSpans(personStore, store: conversationStore);
+  }
   return merged > 0;
+}
+
+/// What [gone] brings that [keep] hasn't got: photos, messages, groups,
+/// dated events. Null when it's nothing anyone would count.
+Future<String?> _whatMoves(
+  AppLocalizations l10n,
+  Person keep,
+  List<Person> gone,
+  PersonStore personStore,
+  ConversationStore? conversationStore,
+) async {
+  final members = await personStore.allMemberships();
+  final keptPhotos = {...?members[keep.id]};
+  final keptGroups = {
+    for (final g in await personStore.groupsFor(keep.id)) g.id,
+  };
+  final photos = <String>{};
+  final groups = <String>{};
+  var events = 0;
+  var messages = 0;
+  final chats = conversationStore ?? ConversationStore();
+  for (final p in gone) {
+    photos.addAll(members[p.id] ?? const []);
+    groups.addAll([for (final g in await personStore.groupsFor(p.id)) g.id]);
+    events += (await personStore.eventsFor(p.id))
+        .where((e) => !e.isFixed)
+        .length;
+    try {
+      messages += await chats.countFor(p.id);
+    } catch (_) {
+      // No conversations database: nothing to count.
+    }
+  }
+  photos.removeAll(keptPhotos);
+  groups.removeAll(keptGroups);
+  final parts = [
+    if (photos.isNotEmpty) l10n.mergeMovesPhotos(photos.length),
+    if (messages > 0) l10n.mergeMovesMessages(messages),
+    if (groups.isNotEmpty) l10n.mergeMovesGroups(groups.length),
+    if (events > 0) l10n.mergeMovesEvents(events),
+  ];
+  return parts.isEmpty ? null : parts.join(', ');
 }

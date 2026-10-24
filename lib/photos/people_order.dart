@@ -2,10 +2,11 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'people_zip.dart' show undatedImport;
 import 'person.dart';
+import 'pinyin.dart';
 import 'person_store.dart';
 
 /// How people are ordered, on People and on the home page alike.
-enum PeopleSort { photos, firstMet, lastSeen, age, name }
+enum PeopleSort { photos, firstMet, lastSeen, age, name, birthday }
 
 const peopleSortKey = 'people_sort_v1';
 
@@ -61,7 +62,18 @@ void sortPeople(
   Map<String, DateTime> firstKnown = const {},
   Map<String, DateTime> lastKnown = const {},
   Map<String, DateTime> born = const {},
+  DateTime? today,
 }) {
+  final now = today ?? DateTime.now();
+  final keys = sort == PeopleSort.name
+      ? {for (final p in people) p.id: nameSortKey(p.name)}
+      : const <String, String>{};
+  int bySoonest(Person a, Person b) {
+    final x = born[a.id], y = born[b.id];
+    if (x == null || y == null) return x == null ? (y == null ? 0 : 1) : -1;
+    return daysToBirthday(x, now).compareTo(daysToBirthday(y, now));
+  }
+
   int byDate(Map<String, DateTime> at, Person a, Person b, bool newest) {
     final x = at[a.id], y = at[b.id];
     if (x == null || y == null) return x == null ? (y == null ? 0 : 1) : -1;
@@ -75,7 +87,31 @@ void sortPeople(
       PeopleSort.lastSeen => byDate(lastKnown, a, b, true),
       // Youngest first: the latest birth date.
       PeopleSort.age => byDate(born, a, b, true),
-      PeopleSort.name => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
+      PeopleSort.name => keys[a.id]!.compareTo(keys[b.id]!),
+      PeopleSort.birthday => bySoonest(a, b),
     },
   );
+}
+
+/// Chinese names by their pinyin, so "王小明" files under W beside "Wendy".
+String nameSortKey(String name) =>
+    (hasHan(name) ? pinyinOf(name) : name).trim().toLowerCase();
+
+/// A–Z, or # for a name that starts with anything else.
+String nameInitial(String name) {
+  final key = nameSortKey(name);
+  final c = key.isEmpty ? '' : key[0].toUpperCase();
+  return _latinInitial.hasMatch(c) ? c : '#';
+}
+
+final _latinInitial = RegExp('^[A-Z]\$');
+
+/// 0 on the day; a 29 February birthday falls on 1 March off leap years.
+int daysToBirthday(DateTime born, DateTime today) {
+  // UTC: a local day across a clock change is 23 or 25 hours.
+  final day = DateTime.utc(today.year, today.month, today.day);
+  DateTime on(int year) => DateTime.utc(year, born.month, born.day);
+  var next = on(day.year);
+  if (next.isBefore(day)) next = on(day.year + 1);
+  return next.difference(day).inDays;
 }

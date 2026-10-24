@@ -235,6 +235,41 @@ void main() {
     expect(find.text('Remove from Person'), findsOneWidget);
   });
 
+  testWidgets('Select in the hold menu starts select mode with that photo', (
+    tester,
+  ) async {
+    final assetStore = FakeAssetRecordStore();
+    final personStore = FakePersonStore();
+    for (final id in ['manual:a', 'manual:b']) {
+      await assetStore.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+    }
+    final person = await personStore.create(name: 'Mia');
+    await personStore.addAssets(person.id, ['manual:a', 'manual:b']);
+    await tester.pumpWidget(
+      _wrap(
+        PersonPageScreen(
+          person: person,
+          personStore: personStore,
+          assetRecordStore: assetStore,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await _hold(tester, find.byKey(const ValueKey('manual:a')));
+    await tester.tap(find.text('Select').last);
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 Selected'), findsOneWidget);
+    expect(find.byKey(const ValueKey('personSelectionDone')), findsOneWidget);
+  });
+
   testWidgets('"Use as Profile Photo" repoints the avatar at that photo', (
     tester,
   ) async {

@@ -124,3 +124,13 @@ Per row, how it meets a profile already here:
 - No analyze queue. `FaceAnalyzer` looks at the photo opened, or a batch picked (Select → More → Analyze Faces), one at a time in the background; opening another queues it, never cancels.
 - Grid: a face badge beside the cloud on photos with faces.
 - Face cutoff lowered from 0.4% to 0.1% of the frame; photos found empty under the old cutoff are looked at again.
+
+## Conversations
+
+- Chat history (QQ, WeChat, SMS, WhatsApp) extracted on the Mac into `.jsonl`, one message per line: `person`, `source`, `chat`, `at` (local, no zone), `from_me`, `sender`, `text`, `kind`. One-to-one chats only. A `.zip` of `.jsonl` files works too; several files at once.
+- People ⋯ → Import Conversations. Parsed off the UI isolate; a review row per name with its message count and date range.
+- Attaches to people already here only, never creates one. One exact same-name person → attached by default (orange); similar or shared names wait for a choice; a name matching nobody is greyed and skipped unless pointed at someone (Change Name… or a candidate).
+- `conversations.db`, table `message`, primary key sha256 of `chat|at|from_me|text`: re-importing adds nothing. Written in transactions of 1,000.
+- Merge moves a person's messages to the kept one; delete forgets them.
+- First met moves back / Last seen moves up to a person's earliest / latest message, never the other way. Driven by a `span_pending` flag set when their messages change (import, merge), cleared after an import or merge and on opening People: no scan per launch.
+- Profile → Conversations (n): bubbles, day separators, newest at the bottom, pages of 200 loaded on scrolling up; search within the person; chat label when they have several.

@@ -9,6 +9,7 @@ import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/album_suggestions.dart';
 import '../photos/merge_suggestions.dart';
+import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/fix_queue.dart';
 import '../photos/flag_scan.dart';
@@ -20,6 +21,7 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'album_suggestions_screen.dart';
 import 'merge_people_screen.dart';
+import 'ungrouped_people_screen.dart';
 import 'flagged_action_screen.dart';
 import 'flagged_copy.dart';
 import 'library_index.dart';
@@ -166,10 +168,12 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
 
   List<AlbumSuggestion> _suggestions = const [];
 
-  /// Archived and safe in the bucket, still taking room here.
+  /// Archived and safe in the bucket, still taking room here, and on
+  /// nobody's page.
   List<AssetRecord> _archivedOnPhone = const [];
 
   List<MergeSuggestion> _merges = const [];
+  List<Person> _ungrouped = const [];
 
   /// Bounded by the number of people, not photos: every pair once.
   Future<void> _loadMerges() async {
@@ -182,11 +186,30 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
         dismissed = (jsonDecode(raw) as List<dynamic>).cast<String>().toSet();
       }
     } catch (_) {}
-    final found = MergeSuggestion.of(
+    final found = await MergeSuggestion.find(
       await people.listAll(),
       dismissed: dismissed,
     );
-    if (mounted) setState(() => _merges = found);
+    final ungrouped = await ungroupedPeople(people);
+    if (mounted) {
+      setState(() {
+        _merges = found;
+        _ungrouped = ungrouped;
+      });
+    }
+  }
+
+  Future<void> _openUngrouped() async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => UngroupedPeopleScreen(
+          people: _ungrouped,
+          personStore: widget.personStore!,
+          assetRecordStore: widget.store,
+        ),
+      ),
+    );
+    await _loadMerges();
   }
 
   Future<void> _openMerges() async {
@@ -206,9 +229,20 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   Future<void> _loadSuggestions() async {
     unawaited(_loadMerges());
     final all = await widget.store.listAll();
+    // A person's photos stay on the phone: their page is looked at.
+    final onPeople = {
+      for (final ids
+          in (await widget.personStore?.allMemberships())?.values ??
+              const <List<String>>[])
+        ...ids,
+    };
     final archived = [
       for (final r in all)
-        if (r.isArchived && r.isFullyBackedUp && worthMeasuring(r)) r,
+        if (r.isArchived &&
+            r.isFullyBackedUp &&
+            worthMeasuring(r) &&
+            !onPeople.contains(r.localId))
+          r,
     ];
     if (mounted) setState(() => _archivedOnPhone = archived);
     final albums = widget.albumStore;
@@ -264,12 +298,10 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   }
 
   bool get _organizing =>
-      _suggestions.isNotEmpty ||
-      _archivedOnPhone.isNotEmpty ||
-      _merges.isNotEmpty;
+      _suggestions.isNotEmpty || _merges.isNotEmpty || _ungrouped.isNotEmpty;
 
-  /// Albums to make, archived photos to send off the phone, people to merge:
-  /// tidying rather than fixing, under one heading.
+  /// Albums to make, people to merge or group: tidying rather than fixing,
+  /// under one heading.
   List<Widget> _organizeSection(AppLocalizations l10n) {
     Widget card(Widget row) => Container(
       margin: const EdgeInsets.only(bottom: 8),
@@ -301,17 +333,6 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
             onTap: _openSuggestions,
           ),
         ),
-      if (_archivedOnPhone.isNotEmpty)
-        card(
-          _ActionRow(
-            key: const ValueKey('flagged-archived-on-phone'),
-            icon: CupertinoIcons.archivebox,
-            title: l10n.flaggedArchivedTitle,
-            body: l10n.flaggedArchivedHow,
-            amount: l10n.flaggedArchivedAmount(_archivedOnPhone.length),
-            onTap: _openArchivedOnPhone,
-          ),
-        ),
       if (_merges.isNotEmpty)
         card(
           _ActionRow(
@@ -321,6 +342,17 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
             body: l10n.mergePeopleHow,
             amount: l10n.mergePeopleAmount(_merges.length),
             onTap: _openMerges,
+          ),
+        ),
+      if (_ungrouped.isNotEmpty)
+        card(
+          _ActionRow(
+            key: const ValueKey('flagged-ungrouped-people'),
+            icon: CupertinoIcons.person_3_fill,
+            title: l10n.ungroupedTitle,
+            body: l10n.ungroupedHow,
+            amount: l10n.ungroupedAmount(_ungrouped.length),
+            onTap: _openUngrouped,
           ),
         ),
     ];
@@ -482,6 +514,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
     final review = _scan.result.review;
     final nothing =
         _phone.isEmpty &&
+        _archivedOnPhone.isEmpty &&
         _inBucket.isEmpty &&
         review.isEmpty &&
         !_organizing &&
@@ -508,8 +541,25 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
           ),
           children: [
             _header(l10n),
-            if (_phone.isNotEmpty)
-              ..._section(l10n.flaggedGroupPhone, null, _phone),
+            if (_phone.isNotEmpty || _archivedOnPhone.isNotEmpty)
+              ..._section(
+                l10n.flaggedGroupPhone,
+                null,
+                _phone,
+                extra: [
+                  if (_archivedOnPhone.isNotEmpty)
+                    _ActionRow(
+                      key: const ValueKey('flagged-archived-on-phone'),
+                      icon: CupertinoIcons.archivebox,
+                      title: l10n.flaggedArchivedTitle,
+                      body: l10n.flaggedArchivedHow,
+                      amount: l10n.flaggedArchivedAmount(
+                        _archivedOnPhone.length,
+                      ),
+                      onTap: _openArchivedOnPhone,
+                    ),
+                ],
+              ),
             if (_inBucket.isNotEmpty)
               ..._section(l10n.flaggedGroupBucket, null, _inBucket),
             if (review.isNotEmpty) ..._reviewSection(l10n),
@@ -613,8 +663,9 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   List<Widget> _section(
     String title,
     String? body,
-    Map<FlagSolution, List<Flag>> actions,
-  ) => [
+    Map<FlagSolution, List<Flag>> actions, {
+    List<Widget> extra = const [],
+  }) => [
     Padding(
       padding: const EdgeInsets.only(top: 24, bottom: 6, left: 4),
       child: Text(title.toUpperCase(), style: settingsHintStyle),
@@ -648,6 +699,15 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
               warning: _failedIn(AppLocalizations.of(context)!, s),
               onTap: () => _openAction(s, flags),
             ),
+          ],
+          for (final (i, row) in extra.indexed) ...[
+            if (i > 0 || actions.isNotEmpty)
+              Container(
+                height: 0.5,
+                margin: const EdgeInsets.only(left: 56),
+                color: settingsSeparator,
+              ),
+            row,
           ],
         ],
       ),
