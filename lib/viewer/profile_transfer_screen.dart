@@ -9,13 +9,14 @@ import 'package:share_plus/share_plus.dart';
 
 import '../l10n/app_localizations.dart';
 import '../l10n/failure_text.dart';
+import '../photos/person.dart';
 import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
 import '../photos/profile_csv.dart';
 import '../photos/profile_transfer.dart';
 import '../settings/settings_section.dart';
 import '../vault/keys.dart';
-import 'person_target_sheet.dart';
+import 'import_name_choice.dart';
 
 /// Profiles to a spreadsheet and back — the People registry as a file you
 /// own, editable in anything, and readable without this app.
@@ -75,22 +76,83 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
   /// the difference between a list to check and 200 switches to flip.
   final Set<int> _accepted = {};
 
-  /// Who a shared name goes to, by row, as the user picked.
-  PersonMatches _matches = PersonMatches(const []);
+  /// Who each row goes to, as the user said.
   final Map<int, PersonTarget> _targets = {};
 
-  bool get _unresolved => _accepted.any(
-    (i) => _matches.ambiguous(_found[i].name) && !_targets.containsKey(i),
-  );
+  /// Names typed over a row's own, by row.
+  final Map<int, String> _names = {};
+  List<Person> _people = const [];
 
+  /// Who each row might be, for its name as it stands.
+  Map<int, List<Person>> _candidates = {};
+
+  String _nameOf(int i) => _names[i] ?? _found[i].name;
+
+  bool _sameName(int i, Person p) =>
+      p.name.trim().toLowerCase() == _nameOf(i).trim().toLowerCase();
+
+  /// A name already in People (or like one) is never merged into silently:
+  /// the row waits for "merge" or "new".
+  bool _taken(int i) => (_candidates[i] ?? const []).isNotEmpty;
+
+  bool get _unresolved =>
+      _accepted.any((i) => _taken(i) && !_targets.containsKey(i));
+
+  /// Rows whose name is exactly one person here, still undecided.
+  List<int> get _singleUndecided => [
+    for (final i in _accepted)
+      if (_candidates[i] case [final only]
+          when _sameName(i, only) && !_targets.containsKey(i))
+        i,
+  ];
+
+  /// Merge, new, or another name — which is looked up again.
   Future<void> _resolve(int i) async {
-    final target = await pickPersonTarget(
+    final choice = await chooseImportName(
       context,
-      name: _found[i].name,
-      candidates: _matches.of(_found[i].name),
-      personStore: widget.personStore,
+      name: _nameOf(i),
+      candidates: _candidates[i] ?? const [],
     );
-    if (target != null && mounted) setState(() => _targets[i] = target);
+    if (choice == null || !mounted) return;
+    if (choice is ImportRename) {
+      setState(() {
+        _names[i] = choice.name;
+        _targets.remove(i);
+        _candidates[i] = importCandidates(choice.name, _people);
+      });
+      if (_taken(i)) await _resolve(i);
+      return;
+    }
+    setState(() => _targets[i] = targetOf(choice)!);
+  }
+
+  void _mergeAllSameNames() => setState(() {
+    for (final i in _singleUndecided) {
+      _targets[i] = PersonTarget(_candidates[i]!.single.id);
+    }
+  });
+
+  String? _matchLabel(AppLocalizations l10n, int i) {
+    final candidates = _candidates[i] ?? const [];
+    final target = _targets[i];
+    final renamed = _names.containsKey(i);
+    if (target?.personId case final id?) {
+      final into = candidates.where((p) => p.id == id).firstOrNull;
+      return l10n.profileCsvMergeInto(into?.name ?? _nameOf(i));
+    }
+    if (target != null) {
+      return renamed
+          ? l10n.importRenamed(_nameOf(i))
+          : l10n.profileCsvWillCreate;
+    }
+    if (candidates.isEmpty) {
+      return renamed ? l10n.importRenamed(_nameOf(i)) : null;
+    }
+    return candidates.any((p) => _sameName(i, p))
+        ? l10n.profileCsvChoose
+        : l10n.profileCsvSimilarChoose(
+            candidates.map((p) => p.name).join(', '),
+          );
   }
 
   @override
@@ -150,10 +212,16 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
       final picked = await (widget.pickFile ?? _pickWithSystemBrowser)();
       if (picked == null) return;
       final file = readProfileCsv(_decode(picked.bytes));
-      final matches = PersonMatches(await widget.personStore.listAll());
+      final people = await widget.personStore.listAll();
+      final candidates = {
+        for (final (i, row) in file.rows.indexed)
+          i: importCandidates(row.name, people),
+      };
       if (!mounted) return;
       setState(() {
-        _matches = matches;
+        _people = people;
+        _candidates = candidates;
+        _names.clear();
         _targets.clear();
         _fileName = picked.name;
         _found = file.rows;
@@ -195,7 +263,7 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
     try {
       final rows = _accepted.toList()..sort();
       final result = await _transfer.write(
-        [for (final index in rows) _found[index]],
+        [for (final index in rows) _found[index].withName(_nameOf(index))],
         targets: [for (final index in rows) _targets[index]],
       );
       if (!mounted) return;
@@ -326,24 +394,21 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
                     CupertinoListTile(
                       key: ValueKey('profile-row-$i'),
                       backgroundColor: settingsPageBackground,
-                      title: Text(_found[i].name),
-                      subtitle: _matches.ambiguous(_found[i].name)
-                          ? Text(
-                              personTargetLabel(
-                                l10n,
-                                _targets[i],
-                                _matches.of(_found[i].name),
-                              ),
-                              style: TextStyle(
-                                color: _targets[i] == null
-                                    ? CupertinoColors.systemOrange
-                                    : settingsAccent,
-                              ),
-                            )
-                          : Text(l10n.profileCsvRowItems(_found[i].itemCount)),
-                      onTap: _matches.ambiguous(_found[i].name)
-                          ? () => _resolve(i)
-                          : null,
+                      title: Text(_nameOf(i)),
+                      subtitle: switch (_matchLabel(l10n, i)) {
+                        final label? => Text(
+                          label,
+                          style: TextStyle(
+                            color: _targets[i] == null
+                                ? CupertinoColors.systemOrange
+                                : settingsAccent,
+                          ),
+                        ),
+                        null => Text(
+                          l10n.profileCsvRowItems(_found[i].itemCount),
+                        ),
+                      },
+                      onTap: () => _resolve(i),
                       trailing: CupertinoSwitch(
                         value: _accepted.contains(i),
                         onChanged: (on) => setState(
@@ -354,6 +419,18 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
                 ],
               ),
               const SizedBox(height: 16),
+              if (_singleUndecided.isNotEmpty)
+                Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
+                  child: CupertinoButton(
+                    key: const ValueKey('profileCsvMergeAll'),
+                    color: settingsControlFill,
+                    onPressed: _busy ? null : _mergeAllSameNames,
+                    child: Text(
+                      l10n.profileCsvMergeAll(_singleUndecided.length),
+                    ),
+                  ),
+                ),
               Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: CupertinoButton.filled(

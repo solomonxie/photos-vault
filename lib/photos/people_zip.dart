@@ -5,6 +5,7 @@ import 'dart:isolate';
 import 'package:archive/archive_io.dart';
 import 'package:path/path.dart' as p;
 
+import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/passcode_hash.dart';
 import '../vault/plain_files.dart';
@@ -140,8 +141,16 @@ class PeopleZipPick {
   bool hide;
   final Set<String> photos;
 
-  /// Set when the name is more than one person here (see [PersonMatches]).
+  /// A name typed over the zip's own, to merge into someone or be new.
+  String? name;
+
+  String get displayName => name ?? person.name;
+
+  /// Who the profile goes to, once the user has said.
   PersonTarget? target;
+
+  /// Who the photos go to: someone already in People. Null loads nothing.
+  String? personId;
 }
 
 class PeopleZipResult {
@@ -158,10 +167,11 @@ class PeopleZipResult {
   final int failed;
 }
 
-/// Writes the picked people and photos. Visible photos land in Archive,
-/// tagged to their person; hidden ones are born hidden in the person's own
-/// folder ([personAlbumCode]) and tagged to nobody, like every hidden
-/// photo. Re-importing is a no-op per photo: ids come from content.
+/// Two steps: [writeProfiles] for the people, then [run] for photos of
+/// people who exist by then. Visible photos land in Archive, tagged to
+/// their person; hidden ones are born hidden in the person's own folder
+/// ([personAlbumCode]) and tagged to nobody, like every hidden photo.
+/// Re-importing is a no-op per photo: ids come from content.
 class PeopleZipImporter {
   PeopleZipImporter({
     required this.personStore,
@@ -180,6 +190,28 @@ class PeopleZipImporter {
   final ManualAddService _manualAdd;
   final PlainFiles _plain;
 
+  /// The ticked rows that carry a profile; each written pick's [personId]
+  /// is set to who it went to.
+  Future<ProfileImportResult> writeProfiles(List<PeopleZipPick> picks) async {
+    final chosen = [
+      for (final pick in picks)
+        if (pick.include && pick.person.profile != null) pick,
+    ];
+    final written = await ProfileTransfer(store: personStore).write(
+      [
+        for (final pick in chosen)
+          pick.person.profile!.withName(pick.displayName),
+      ],
+      targets: [for (final pick in chosen) pick.target],
+    );
+    for (final (i, pick) in chosen.indexed) {
+      pick.personId = written.personIds[i];
+      pick.target = PersonTarget(pick.personId);
+    }
+    return written;
+  }
+
+  /// Photos of the ticked rows with a [PeopleZipPick.personId].
   Future<PeopleZipResult> run(
     List<PeopleZipPick> picks, {
     String? code,
@@ -187,20 +219,25 @@ class PeopleZipImporter {
   }) async {
     final chosen = [
       for (final pick in picks)
-        if (pick.include) pick,
+        if (pick.include && pick.personId != null && pick.photos.isNotEmpty)
+          pick,
     ];
-    final written = await ProfileTransfer(store: personStore).write(
-      [
-        for (final pick in chosen)
-          pick.person.profile ?? ProfileCsvRow(name: pick.person.name),
-      ],
-      targets: [for (final pick in chosen) pick.target],
-    );
+    // A photo with no camera date of its own takes its person's, rather
+    // than the day it was imported: "last seen today" for somebody last
+    // seen in 2009 is worse than a date to the nearest meeting.
+    final spans = await personStore.openEventSpans();
     final total = chosen.fold(0, (n, pick) => n + pick.photos.length);
     var done = 0, visible = 0, hidden = 0, failed = 0;
     onProgress?.call(done, total);
-    for (final (i, pick) in chosen.indexed) {
-      final personId = written.personIds[i];
+    for (final pick in chosen) {
+      final personId = pick.personId!;
+      final span = spans[personId];
+      final profile = pick.person.profile;
+      final fallback =
+          profile?.lastSeen ??
+          span?.lastSeen ??
+          profile?.firstMet ??
+          span?.firstMet;
       final hideCode = pick.hide && code != null
           ? await tagFor(personAlbumCode(personId, code))
           : null;
@@ -208,9 +245,13 @@ class PeopleZipImporter {
       for (final path in pick.person.photos.where(pick.photos.contains)) {
         try {
           if (hideCode != null) {
-            final created = await _manualAdd.enqueueFile(
-              path,
-              passcodeHash: hideCode,
+            final created = await _dated(
+              await _manualAdd.enqueueFile(
+                path,
+                passcodeHash: hideCode,
+                fallbackDate: fallback,
+              ),
+              fallback,
             );
             // Already here as an ordinary photo: left as it is.
             if (created.passcodeHash == hideCode) {
@@ -218,7 +259,16 @@ class PeopleZipImporter {
               hidden++;
             }
           } else {
-            final created = await _manualAdd.enqueueFile(path);
+            // Archived as it is written, so it never reaches the grid. A
+            // photo already here keeps whatever it was.
+            final created = await _dated(
+              await _manualAdd.enqueueFile(
+                path,
+                isArchived: true,
+                fallbackDate: fallback,
+              ),
+              fallback,
+            );
             if (created.isVisibleInLibrary) {
               tagged.add(created.localId);
               visible++;
@@ -229,10 +279,7 @@ class PeopleZipImporter {
         }
         onProgress?.call(++done, total);
       }
-      if (tagged.isNotEmpty) {
-        await recordStore.setArchived(tagged, true);
-        await personStore.addAssets(personId, tagged);
-      }
+      if (tagged.isNotEmpty) await personStore.addAssets(personId, tagged);
     }
     return PeopleZipResult(
       people: chosen.length,
@@ -241,4 +288,18 @@ class PeopleZipImporter {
       failed: failed,
     );
   }
+
+  /// One imported before undated photos took their person's date: dated
+  /// now, by [fallback]. A photo that was given a date keeps it.
+  Future<AssetRecord> _dated(AssetRecord record, DateTime? fallback) async {
+    if (fallback == null || !undatedImport(record)) return record;
+    await recordStore.setCreatedAt(record.localId, fallback);
+    return record;
+  }
 }
+
+/// Dated only by the moment it was added: a file with no camera date of
+/// its own. A camera-roll photo always has Photos' date.
+bool undatedImport(AssetRecord record) =>
+    record.sourceType != AssetSourceType.photoManager &&
+    record.createdAt == record.addedAt;

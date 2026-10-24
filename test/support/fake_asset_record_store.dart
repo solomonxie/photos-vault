@@ -97,6 +97,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     String? libraryId,
     String? passcodeHash,
     bool isHidden = false,
+    bool isArchived = false,
     bool keepOnLibraryConflict = false,
   }) async {
     final existing = _records[localId];
@@ -111,7 +112,9 @@ class FakeAssetRecordStore implements AssetRecordStore {
         libraryId = null;
       }
     }
-    final now = createdAt ?? DateTime.now();
+    // As the real store: added now, dated by the photo or else by that.
+    final added = addedAt ?? DateTime.now();
+    final now = createdAt ?? added;
     final record = AssetRecord(
       localId: localId,
       contentHash: contentHash,
@@ -128,9 +131,10 @@ class FakeAssetRecordStore implements AssetRecordStore {
       height: height,
       passcodeHash: passcodeHash,
       isHidden: isHidden,
+      isArchived: isArchived,
       createdAt: now,
       updatedAt: now,
-      addedAt: addedAt,
+      addedAt: added,
     );
     _records[localId] = record;
     upserts.add(record);

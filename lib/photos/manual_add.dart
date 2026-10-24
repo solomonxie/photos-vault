@@ -71,6 +71,8 @@ class ManualAddService {
     DateTime? createdAt,
     String? passcodeHash,
     bool isHidden = false,
+    bool isArchived = false,
+    DateTime? fallbackDate,
   }) async {
     final hash = await hashFile(path);
     final dir = await _targetDirectory();
@@ -86,9 +88,10 @@ class ManualAddService {
       isGif: isGifPath(path),
       // Not a date from the file name: a hidden photo's object is named
       // with its decoy's date.
-      createdAt: createdAt ?? await fileCaptureDate(owned),
+      createdAt: createdAt ?? await fileCaptureDate(owned) ?? fallbackDate,
       passcodeHash: passcodeHash,
       isHidden: isHidden,
+      isArchived: isArchived,
     );
   }
 }

@@ -262,10 +262,19 @@ class Person {
     this.locked = false,
     this.passcodeHash,
     this.passcodeHint,
+    this.firstName = '',
+    this.middleName = '',
+    this.lastName = '',
   });
 
   final String id;
+
+  /// What they're shown as. The parts below are optional and kept apart
+  /// from it: "Mia" in the list, "Mia Jane Wu" on paper.
   final String name;
+  final String firstName;
+  final String middleName;
+  final String lastName;
   final DateTime createdAt;
   final DateTime updatedAt;
 
@@ -313,9 +322,15 @@ class Person {
     bool? locked,
     String? Function()? passcodeHash,
     String? Function()? passcodeHint,
+    String? firstName,
+    String? middleName,
+    String? lastName,
   }) => Person(
     id: id,
     name: name ?? this.name,
+    firstName: firstName ?? this.firstName,
+    middleName: middleName ?? this.middleName,
+    lastName: lastName ?? this.lastName,
     createdAt: createdAt,
     updatedAt: DateTime.now(),
     avatarLocalId: avatarLocalId ?? this.avatarLocalId,

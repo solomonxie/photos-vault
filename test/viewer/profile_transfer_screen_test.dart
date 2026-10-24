@@ -94,17 +94,151 @@ void main() {
 
     final apply = find.widgetWithText(CupertinoButton, 'Import 1 person');
     expect(tester.widget<CupertinoButton>(apply).onPressed, isNull);
-    expect(find.text('2 people have this name — choose one'), findsOne);
+    expect(find.text('Already in People — tap to merge or add new'), findsOne);
 
     await tester.tap(find.byKey(const ValueKey('profile-row-0')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('personMatch-0')));
+    await tester.tap(find.byKey(const ValueKey('importMergeInto-0')));
     await tester.pumpAndSettle();
     expect(tester.widget<CupertinoButton>(apply).onPressed, isNotNull);
 
     await tester.tap(apply);
     await tester.pumpAndSettle();
     expect((await store.detailFor(older.id)).bio, 'Painter');
+  });
+
+  testWidgets('a name already in People asks: merge, or add new', (
+    tester,
+  ) async {
+    final store = FakePersonStore();
+    final mia = await store.create(name: 'Mia');
+    await tester.pumpWidget(
+      _wrap(
+        ProfileTransferScreen(
+          personStore: store,
+          pickFile: () async =>
+              (name: 'profiles.csv', bytes: utf8.encode(_csv)),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Import from a file'));
+    await tester.pumpAndSettle();
+
+    expect(
+      tester
+          .widget<CupertinoButton>(
+            find.widgetWithText(CupertinoButton, 'Import 2 people'),
+          )
+          .onPressed,
+      isNull,
+      reason: 'never merged without asking',
+    );
+    await tester.tap(find.text('Already in People — tap to merge or add new'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('importMergeInto-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Import 2 people'));
+    await tester.pumpAndSettle();
+
+    final people = await store.listAll();
+    expect(people.map((p) => p.name), ['Mia', 'Daniel']);
+    expect((await store.detailFor(mia.id)).bio, 'Photographer');
+  });
+
+  testWidgets('Merge All takes every one-person name at once', (tester) async {
+    final store = FakePersonStore();
+    await store.create(name: 'Mia');
+    await store.create(name: 'Daniel');
+    await tester.pumpWidget(
+      _wrap(
+        ProfileTransferScreen(
+          personStore: store,
+          pickFile: () async =>
+              (name: 'profiles.csv', bytes: utf8.encode(_csv)),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Import from a file'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('profileCsvMergeAll')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Import 2 people'));
+    await tester.pumpAndSettle();
+    expect(await store.listAll(), hasLength(2));
+  });
+
+  testWidgets('a similar name asks too, and can be a new person', (
+    tester,
+  ) async {
+    final store = FakePersonStore();
+    await store.create(name: 'Mia Chen');
+    await tester.pumpWidget(
+      _wrap(
+        ProfileTransferScreen(
+          personStore: store,
+          pickFile: () async =>
+              (name: 'profiles.csv', bytes: utf8.encode(_csv)),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Import from a file'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Similar to Mia Chen — tap to choose'));
+    await tester.pumpAndSettle();
+    expect(find.text('Merge into Mia Chen'), findsOne);
+    await tester.tap(find.byKey(const ValueKey('importAsNew')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Import 2 people'));
+    await tester.pumpAndSettle();
+    expect((await store.listAll()).map((p) => p.name), [
+      'Mia Chen',
+      'Mia',
+      'Daniel',
+    ]);
+  });
+
+  testWidgets('a row renamed by hand merges into, or becomes, that name', (
+    tester,
+  ) async {
+    final store = FakePersonStore();
+    final mia = await store.create(name: 'Mia Wu');
+    await tester.pumpWidget(
+      _wrap(
+        ProfileTransferScreen(
+          personStore: store,
+          pickFile: () async =>
+              (name: 'profiles.csv', bytes: utf8.encode(_csv)),
+        ),
+      ),
+    );
+    await tester.tap(find.text('Import from a file'));
+    await tester.pumpAndSettle();
+
+    Future<void> rename(String from, String to) async {
+      await tester.tap(find.text(from));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('importRename')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('importRenameField')),
+        to,
+      );
+      await tester.tap(find.byKey(const ValueKey('importRenameSave')));
+      await tester.pumpAndSettle();
+    }
+
+    // "Mia" is like "Mia Wu"; typed as exactly that, it asks again.
+    await rename('Mia', 'Mia Wu');
+    await tester.tap(find.byKey(const ValueKey('importMergeInto-0')));
+    await tester.pumpAndSettle();
+    // A name nobody has: a new person under it, no question.
+    await rename('Daniel', 'Dan Park');
+    expect(find.text('Importing as “Dan Park”'), findsOne);
+
+    await tester.tap(find.text('Import 2 people'));
+    await tester.pumpAndSettle();
+    expect((await store.listAll()).map((p) => p.name), ['Mia Wu', 'Dan Park']);
+    expect((await store.detailFor(mia.id)).bio, 'Photographer');
   });
 
   testWidgets('a row switched off is left out', (tester) async {

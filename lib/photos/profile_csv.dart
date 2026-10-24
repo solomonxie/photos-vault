@@ -20,6 +20,9 @@ import 'person_detail.dart';
 /// header rather than by position.
 final profileCsvColumns = [
   'name',
+  'firstname',
+  'middlename',
+  'lastname',
   'birthdate',
   'gender',
   'bio',
@@ -32,7 +35,31 @@ final profileCsvColumns = [
   'jobs',
   'places',
   'tags',
+  'mode',
 ];
+
+/// A row's `mode` cell: how it meets a profile that is already here.
+/// Empty is the default — the file's values win, lists only grow, and
+/// First met / Last seen only widen.
+enum ProfileCsvMode {
+  /// The profile becomes exactly the row: what the row leaves empty is
+  /// cleared, and lists hold only what the row lists.
+  all,
+
+  /// The row wins wherever the two differ; nothing is removed.
+  conflict,
+
+  /// What is here wins; the row only fills blanks and adds new items.
+  skip;
+
+  static ProfileCsvMode? parse(String cell) =>
+      switch (cell.trim().toLowerCase().replaceAll(RegExp(r'[\s_-]'), '')) {
+        'all' || 'replace' || 'overrideall' => all,
+        'conflict' || 'override' || 'overrideconflict' => conflict,
+        'skip' || 'skipconflict' || 'keep' => skip,
+        _ => null,
+      };
+}
 
 /// One column per named trait — `hair`, `eyes`, and the rest. Taken from
 /// [personTraits] rather than listed again, so a trait added to the profile
@@ -59,6 +86,9 @@ class ProfileCsvNote {
 class ProfileCsvRow {
   const ProfileCsvRow({
     required this.name,
+    this.firstName = '',
+    this.middleName = '',
+    this.lastName = '',
     this.birthDate,
     this.gender,
     this.bio = '',
@@ -71,9 +101,14 @@ class ProfileCsvRow {
     this.jobs = const [],
     this.places = const [],
     this.tags = const [],
+    this.mode,
   });
 
   final String name;
+  final String firstName;
+  final String middleName;
+  final String lastName;
+  final ProfileCsvMode? mode;
   final DateTime? birthDate;
   final Gender? gender;
   final String bio;
@@ -89,9 +124,33 @@ class ProfileCsvRow {
   final List<String> places;
   final List<String> tags;
 
+  /// The same row under another name: an import renamed by hand.
+  ProfileCsvRow withName(String newName) => newName == name
+      ? this
+      : ProfileCsvRow(
+          name: newName,
+          firstName: firstName,
+          middleName: middleName,
+          lastName: lastName,
+          birthDate: birthDate,
+          gender: gender,
+          bio: bio,
+          firstMet: firstMet,
+          lastSeen: lastSeen,
+          traits: traits,
+          fields: fields,
+          groups: groups,
+          education: education,
+          jobs: jobs,
+          places: places,
+          tags: tags,
+          mode: mode,
+        );
+
   /// How much this row would add beyond the name — what the review list
   /// shows, so a row that is only a name is visibly only a name.
   int get itemCount =>
+      [firstName, middleName, lastName].where((n) => n.isNotEmpty).length +
       (bio.isEmpty ? 0 : 1) +
       (birthDate == null ? 0 : 1) +
       (gender == null ? 0 : 1) +
@@ -176,6 +235,9 @@ ProfileCsvFile readProfileCsv(String text) {
     rows.add(
       ProfileCsvRow(
         name: name,
+        firstName: at('firstname'),
+        middleName: at('middlename'),
+        lastName: at('lastname'),
         birthDate: parseProfileCsvDate(at('birthdate')),
         gender: Gender.values
             .where((g) => g.name == at('gender').toLowerCase())
@@ -201,6 +263,7 @@ ProfileCsvFile readProfileCsv(String text) {
         jobs: [for (final item in _items(at('jobs'))) _history(item)],
         places: _items(at('places')),
         tags: [for (final tag in _items(at('tags'))) tag.toLowerCase()],
+        mode: ProfileCsvMode.parse(at('mode')),
       ),
     );
   }
@@ -272,6 +335,9 @@ String writeProfileCsv(Iterable<ProfileCsvRow> rows) => encodeDelimited([
   for (final row in rows)
     [
       row.name,
+      row.firstName,
+      row.middleName,
+      row.lastName,
       formatProfileCsvDate(row.birthDate),
       row.gender?.name ?? '',
       row.bio,
@@ -289,6 +355,7 @@ String writeProfileCsv(Iterable<ProfileCsvRow> rows) => encodeDelimited([
       _join([for (final entry in row.jobs) _historyCell(entry)]),
       _join(row.places),
       _join(row.tags),
+      row.mode?.name ?? '',
     ],
 ]);
 

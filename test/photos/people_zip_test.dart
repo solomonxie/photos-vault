@@ -54,30 +54,38 @@ void main() {
     expect(opened.dir.existsSync(), isFalse);
   });
 
+  PeopleZipImporter importerOf(
+    FakeAssetRecordStore records,
+    FakePersonStore people,
+  ) => PeopleZipImporter(
+    personStore: people,
+    recordStore: records,
+    tagFor: (code) async => 'tag-$code',
+    manualAdd: ManualAddService(
+      store: records,
+      targetDirectory: () async => root,
+    ),
+    plainFiles: PlainFiles(
+      store: records,
+      directory: () async => root,
+      exclusion: _Exclusion(),
+    ),
+  );
+
   test('visible photos go to Archive and the person; hidden ones to the '
       "person's own hidden folder, tagged to nobody", () async {
     final opened = await PeopleZip.open(zip(), root);
     final records = FakeAssetRecordStore();
     final people = FakePersonStore();
-    final importer = PeopleZipImporter(
-      personStore: people,
-      recordStore: records,
-      tagFor: (code) async => 'tag-$code',
-      manualAdd: ManualAddService(
-        store: records,
-        targetDirectory: () async => root,
-      ),
-      plainFiles: PlainFiles(
-        store: records,
-        directory: () async => root,
-        exclusion: _Exclusion(),
-      ),
-    );
+    final importer = importerOf(records, people);
     final picks = [for (final x in opened.people) PeopleZipPick(x)];
     final leo = picks.first..hide = true;
     final mia = picks.last;
     mia.photos.remove(mia.person.photos.last);
+    leo.personId = (await people.create(name: 'Leo')).id;
 
+    final profiles = await importer.writeProfiles(picks);
+    expect(profiles.created, 1, reason: 'only Mia has a profile row');
     final result = await importer.run(picks, code: '1234');
 
     expect((result.people, result.visible, result.hidden), (2, 1, 1));
@@ -96,6 +104,24 @@ void main() {
       'tag-${personAlbumCode(byName['Leo']!.id, '1234')}',
     );
     expect(leo.include, isTrue);
+    expect(
+      records.upserts.where((r) => r.passcodeHash == null).single.isArchived,
+      isTrue,
+      reason: 'archived as written, never a moment in the grid',
+    );
+  });
+
+  test('photos of somebody not in People load nothing', () async {
+    final opened = await PeopleZip.open(zip(), root);
+    final records = FakeAssetRecordStore();
+    final people = FakePersonStore();
+    final picks = [for (final x in opened.people) PeopleZipPick(x)];
+
+    final result = await importerOf(records, people).run(picks);
+
+    expect(result.people, 0);
+    expect(await people.listAll(), isEmpty);
+    expect(await records.listAll(), isEmpty);
   });
 
   test('a person left out writes nothing', () async {
@@ -118,5 +144,31 @@ void main() {
     expect(result.people, 0);
     expect(await people.listAll(), isEmpty);
     expect(await records.listAll(), isEmpty);
+  });
+
+  test("a photo with no camera date takes its person's last seen, not "
+      'today', () async {
+    final archive = Archive()
+      ..add(
+        ArchiveFile.bytes(
+          'people.csv',
+          utf8.encode('name,lastseen\nMia,2009-08-17\n'),
+        ),
+      )
+      ..add(ArchiveFile.bytes('photos/Mia/a.jpg', [1, 2, 3]));
+    final path = p.join(root.path, 'dated.zip');
+    File(path).writeAsBytesSync(ZipEncoder().encode(archive));
+    final opened = await PeopleZip.open(path, root);
+    final records = FakeAssetRecordStore();
+    final people = FakePersonStore();
+    final importer = importerOf(records, people);
+    final picks = [for (final x in opened.people) PeopleZipPick(x)];
+    await importer.writeProfiles(picks);
+
+    await importer.run(picks);
+
+    final record = (await records.listAll()).single;
+    expect(record.createdAt, DateTime(2009, 8, 17));
+    expect(undatedImport(record), isFalse);
   });
 }

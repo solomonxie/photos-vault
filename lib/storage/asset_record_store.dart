@@ -2225,6 +2225,7 @@ class AssetRecordStore {
     String? libraryId,
     String? passcodeHash,
     bool isHidden = false,
+    bool isArchived = false,
     bool keepOnLibraryConflict = false,
   }) async {
     final db = await _open();
@@ -2280,6 +2281,7 @@ class AssetRecordStore {
       'height': height,
       'passcode_hash': passcodeHash,
       'is_hidden': isHidden ? 1 : 0,
+      'is_archived': isArchived ? 1 : 0,
       'created_at': now.millisecondsSinceEpoch,
       'updated_at': DateTime.now().millisecondsSinceEpoch,
       'added_at': added.millisecondsSinceEpoch,
@@ -2311,6 +2313,7 @@ class AssetRecordStore {
       height: height,
       passcodeHash: passcodeHash,
       isHidden: isHidden,
+      isArchived: isArchived,
       createdAt: now,
       updatedAt: now,
       addedAt: added,

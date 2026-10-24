@@ -180,4 +180,127 @@ void main() {
       );
     },
   );
+
+  test('rows naming one group join one group, and one already here', () async {
+    final store = FakePersonStore();
+    final zoe = await store.create(name: 'Zoe');
+    const club = PersonGroup(id: 'g1', name: 'Club', kind: GroupKind.circle);
+    await store.joinGroup(zoe.id, club, scope: PersonScope.open);
+
+    await ProfileTransfer(store: store).write(const [
+      ProfileCsvRow(
+        name: 'Mia',
+        groups: [ProfileCsvGroup('Club', GroupKind.circle)],
+      ),
+      ProfileCsvRow(
+        name: 'Leo',
+        groups: [ProfileCsvGroup('club', GroupKind.circle)],
+      ),
+      ProfileCsvRow(
+        name: 'Ann',
+        groups: [ProfileCsvGroup('Choir', GroupKind.circle)],
+      ),
+      ProfileCsvRow(
+        name: 'Bob',
+        groups: [ProfileCsvGroup('Choir', GroupKind.circle)],
+      ),
+    ]);
+
+    final groups = await store.allGroups();
+    expect(groups, hasLength(2));
+    final byName = {for (final e in groups.entries) e.key.name: e.value};
+    expect(byName['Club'], hasLength(3));
+    expect(byName['Choir'], hasLength(2));
+  });
+
+  group('a row\'s mode', () {
+    Future<(FakePersonStore, String)> seeded() async {
+      final store = FakePersonStore();
+      final mia = await store.create(name: 'Mia');
+      await store.saveDetail(
+        mia.id,
+        PersonDetail(
+          bio: 'Old bio',
+          birthDate: DateTime(1990),
+          customFields: const [
+            PersonCustomField(label: 'Phone', value: '111'),
+            PersonCustomField(label: 'Email', value: 'a@b.c'),
+          ],
+        ),
+        scope: PersonScope.open,
+      );
+      await store.joinGroup(
+        mia.id,
+        const PersonGroup(id: 'g', name: 'QQ group X', kind: GroupKind.circle),
+        scope: PersonScope.open,
+      );
+      return (store, mia.id);
+    }
+
+    const row = ProfileCsvRow(
+      name: 'Mia',
+      bio: 'New bio',
+      fields: [PersonCustomField(label: 'Phone', value: '222')],
+    );
+
+    test('all makes the profile the row', () async {
+      final (store, id) = await seeded();
+      await ProfileTransfer(store: store).write([
+        ProfileCsvRow(
+          name: row.name,
+          bio: row.bio,
+          fields: row.fields,
+          mode: ProfileCsvMode.all,
+        ),
+      ]);
+      final detail = await store.detailFor(id);
+      expect(detail.bio, 'New bio');
+      expect(detail.birthDate, isNull);
+      expect([for (final f in detail.customFields) f.value], ['222']);
+      expect(await store.groupsFor(id), isEmpty);
+    });
+
+    test('conflict lets the row win and removes nothing', () async {
+      final (store, id) = await seeded();
+      await ProfileTransfer(store: store).write([
+        ProfileCsvRow(
+          name: row.name,
+          bio: row.bio,
+          fields: row.fields,
+          mode: ProfileCsvMode.conflict,
+        ),
+      ]);
+      final detail = await store.detailFor(id);
+      expect(detail.bio, 'New bio');
+      expect(detail.birthDate, DateTime(1990));
+      expect([for (final f in detail.customFields) f.value], ['222', 'a@b.c']);
+      expect(await store.groupsFor(id), hasLength(1));
+    });
+
+    test('skip keeps what is here', () async {
+      final (store, id) = await seeded();
+      await ProfileTransfer(store: store).write([
+        ProfileCsvRow(
+          name: row.name,
+          bio: row.bio,
+          fields: row.fields,
+          mode: ProfileCsvMode.skip,
+        ),
+      ]);
+      final detail = await store.detailFor(id);
+      expect(detail.bio, 'Old bio');
+      expect([for (final f in detail.customFields) f.value], ['111', 'a@b.c']);
+    });
+
+    test('is read and written as a column', () {
+      final text = writeProfileCsv([
+        const ProfileCsvRow(name: 'Mia', mode: ProfileCsvMode.all),
+      ]);
+      expect(readProfileCsv(text).rows.single.mode, ProfileCsvMode.all);
+      expect(
+        readProfileCsv('name,mode\nLeo,Override\n').rows.single.mode,
+        ProfileCsvMode.conflict,
+      );
+    });
+  });
 }
