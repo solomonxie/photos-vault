@@ -3,7 +3,7 @@ import 'dart:math' as math;
 import 'dart:typed_data';
 
 import 'package:flutter/foundation.dart'
-    show listEquals, mapEquals, visibleForTesting;
+    show listEquals, mapEquals, setEquals, visibleForTesting;
 
 import '../storage/asset_record.dart';
 import 'ai_analysis_store.dart';
@@ -57,25 +57,14 @@ Future<UnnamedFaces> findUnnamedFaces({
     return none;
   }
   if (counts.isEmpty) return none;
-  final candidates =
-      records
-          .where(
-            (r) =>
-                r.isVisibleInLibrary &&
-                !taggedLocalIds.contains(r.localId) &&
-                counts.containsKey(r.localId),
-          )
-          .toList()
-        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-  // Only the newest [scanLimit] faces are folded, so only their photos are
-  // read (DB-2); the rest are only counted.
-  var found = 0;
-  final window = <String>[];
-  for (final record in candidates) {
-    final n = counts[record.localId]!;
-    if (found < scanLimit) window.add(record.localId);
-    found += n;
-  }
+  final (:window, :found) = _windowOf(
+    analysisStore,
+    records,
+    taggedLocalIds,
+    counts,
+    revision,
+    scanLimit,
+  );
 
   final key = _MemoKey(
     store: analysisStore,
@@ -150,7 +139,72 @@ Future<UnnamedFaces> findUnnamedFaces({
 final _memo = <int, ({_MemoKey key, List<UnnamedFace> faces})>{};
 
 @visibleForTesting
-void forgetUnnamedFacesMemo() => _memo.clear();
+void forgetUnnamedFacesMemo() {
+  _memo.clear();
+  _window = null;
+}
+
+/// Untagged photos with faces, newest first: a filter and sort over the
+/// whole library, so held while the list, tags and scan are unchanged —
+/// a rename on People must not re-sort the camera roll.
+({
+  AiAnalysisStore store,
+  List<AssetRecord> records,
+  Set<String> tagged,
+  int revision,
+  int scanLimit,
+  List<String> window,
+  int found,
+})?
+_window;
+
+({List<String> window, int found}) _windowOf(
+  AiAnalysisStore store,
+  List<AssetRecord> records,
+  Set<String> tagged,
+  Map<String, int> counts,
+  int revision,
+  int scanLimit,
+) {
+  final held = _window;
+  if (held != null &&
+      identical(held.store, store) &&
+      identical(held.records, records) &&
+      held.revision == revision &&
+      held.scanLimit == scanLimit &&
+      setEquals(held.tagged, tagged)) {
+    return (window: held.window, found: held.found);
+  }
+  final candidates =
+      records
+          .where(
+            (r) =>
+                r.isVisibleInLibrary &&
+                !tagged.contains(r.localId) &&
+                counts.containsKey(r.localId),
+          )
+          .toList()
+        ..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+  // Only the newest [scanLimit] faces are folded, so only their photos are
+  // read (DB-2); the rest are only counted.
+  var found = 0;
+  final window = <String>[];
+  for (final record in candidates) {
+    final n = counts[record.localId]!;
+    if (found < scanLimit) window.add(record.localId);
+    found += n;
+  }
+  _window = (
+    store: store,
+    records: records,
+    tagged: {...tagged},
+    revision: revision,
+    scanLimit: scanLimit,
+    window: window,
+    found: found,
+  );
+  return (window: window, found: found);
+}
 
 class _MemoKey {
   const _MemoKey({
