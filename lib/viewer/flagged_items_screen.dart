@@ -3,9 +3,13 @@ import 'dart:convert';
 
 import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
+import 'package:path/path.dart' as p;
 
 import '../l10n/app_localizations.dart';
+import '../photos/ai_analysis_store.dart';
 import '../photos/album_suggestions.dart';
+import '../photos/merge_suggestions.dart';
+import '../photos/person_store.dart';
 import '../photos/fix_queue.dart';
 import '../photos/flag_scan.dart';
 import '../photos/storage_advice.dart';
@@ -15,6 +19,7 @@ import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'album_suggestions_screen.dart';
+import 'merge_people_screen.dart';
 import 'flagged_action_screen.dart';
 import 'flagged_copy.dart';
 import 'library_index.dart';
@@ -22,9 +27,9 @@ import 'library_index.dart';
 /// What can be done about this phone's space and the bucket's odd files,
 /// as a list of actions rather than a list of files: each says what it
 /// will do, to how many, and what it saves, and opens onto the items it
-/// would touch. Grouped by where it acts: this iPhone, the bucket. Never
-/// offers to delete a local copy — what to keep on the phone is the
-/// person's call.
+/// would touch. Grouped by where it acts: this iPhone, the bucket. The
+/// only local copies it offers to remove are archived ones already in the
+/// bucket: archiving is the person saying they're done looking at them.
 ///
 /// The work runs in [FixQueue], not here, so the page can be left. See
 /// `docs/design/uiux/storage.md`.
@@ -38,10 +43,16 @@ class FlaggedItemsScreen extends StatefulWidget {
     this.scan,
     this.onOpenAsset,
     this.albumStore,
+    this.personStore,
+    this.aiAnalysisStore,
   });
 
   /// Null leaves album suggestions off.
   final AlbumStore? albumStore;
+
+  /// Null leaves merge suggestions off.
+  final PersonStore? personStore;
+  final AiAnalysisStore? aiAnalysisStore;
 
   final AssetRecordStore store;
   final BackupTargetsStore targetsStore;
@@ -155,10 +166,53 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
 
   List<AlbumSuggestion> _suggestions = const [];
 
+  /// Archived and safe in the bucket, still taking room here.
+  List<AssetRecord> _archivedOnPhone = const [];
+
+  List<MergeSuggestion> _merges = const [];
+
+  /// Bounded by the number of people, not photos: every pair once.
+  Future<void> _loadMerges() async {
+    final people = widget.personStore;
+    if (people == null) return;
+    var dismissed = const <String>{};
+    try {
+      final raw = await widget.store.getAppState(MergeSuggestion.dismissedKey);
+      if (raw != null) {
+        dismissed = (jsonDecode(raw) as List<dynamic>).cast<String>().toSet();
+      }
+    } catch (_) {}
+    final found = MergeSuggestion.of(
+      await people.listAll(),
+      dismissed: dismissed,
+    );
+    if (mounted) setState(() => _merges = found);
+  }
+
+  Future<void> _openMerges() async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => MergePeopleScreen(
+          suggestions: _merges,
+          personStore: widget.personStore!,
+          assetRecordStore: widget.store,
+          aiAnalysisStore: widget.aiAnalysisStore,
+        ),
+      ),
+    );
+    await _loadMerges();
+  }
+
   Future<void> _loadSuggestions() async {
+    unawaited(_loadMerges());
+    final all = await widget.store.listAll();
+    final archived = [
+      for (final r in all)
+        if (r.isArchived && r.isFullyBackedUp && worthMeasuring(r)) r,
+    ];
+    if (mounted) setState(() => _archivedOnPhone = archived);
     final albums = widget.albumStore;
     if (albums == null) return;
-    final all = await widget.store.listAll();
     final filed = {
       for (final ids in (await albums.allMemberships()).values) ...ids,
     };
@@ -192,32 +246,85 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
     await _loadSuggestions();
   }
 
-  List<Widget> _suggestionsSection(AppLocalizations l10n) => [
-    Padding(
-      padding: const EdgeInsets.only(top: 24, bottom: 6, left: 4),
-      child: Text(
-        l10n.albumSuggestionsGroup.toUpperCase(),
-        style: settingsHintStyle,
-      ),
-    ),
-    Container(
+  Future<void> _openArchivedOnPhone() async {
+    await _openAction(FlagSolution.removeFromDevice, [
+      for (final r in _archivedOnPhone)
+        Flag.storage(
+          StorageItem(
+            record: r,
+            bytes: 0,
+            name: r.sourcePath == null ? r.localId : p.basename(r.sourcePath!),
+            appOwned: r.sourcePath != null,
+            issues: const {StorageIssue.onDevice},
+            fixes: const [StorageFix.removeFromDevice],
+          ),
+        ),
+    ]);
+    await _loadSuggestions();
+  }
+
+  bool get _organizing =>
+      _suggestions.isNotEmpty ||
+      _archivedOnPhone.isNotEmpty ||
+      _merges.isNotEmpty;
+
+  /// Albums to make, archived photos to send off the phone, people to merge:
+  /// tidying rather than fixing, under one heading.
+  List<Widget> _organizeSection(AppLocalizations l10n) {
+    Widget card(Widget row) => Container(
+      margin: const EdgeInsets.only(bottom: 8),
       decoration: BoxDecoration(
         color: settingsControlFill,
         borderRadius: BorderRadius.circular(12),
       ),
-      child: _ActionRow(
-        key: const ValueKey('flagged-album-suggestions'),
-        icon: CupertinoIcons.rectangle_stack_badge_plus,
-        title: l10n.albumSuggestionsTitle,
-        body: l10n.albumSuggestionsHow(AlbumSuggestions.perDay),
-        amount: l10n.albumSuggestionsAmount(
-          _suggestions.length,
-          _suggestions.fold(0, (n, s) => n + s.records.length),
+      child: row,
+    );
+    return [
+      Padding(
+        padding: const EdgeInsets.only(top: 24, bottom: 6, left: 4),
+        child: Text(
+          l10n.albumSuggestionsGroup.toUpperCase(),
+          style: settingsHintStyle,
         ),
-        onTap: _openSuggestions,
       ),
-    ),
-  ];
+      if (_suggestions.isNotEmpty)
+        card(
+          _ActionRow(
+            key: const ValueKey('flagged-album-suggestions'),
+            icon: CupertinoIcons.rectangle_stack_badge_plus,
+            title: l10n.albumSuggestionsTitle,
+            body: l10n.albumSuggestionsHow(AlbumSuggestions.perDay),
+            amount: l10n.albumSuggestionsAmount(
+              _suggestions.length,
+              _suggestions.fold(0, (n, s) => n + s.records.length),
+            ),
+            onTap: _openSuggestions,
+          ),
+        ),
+      if (_archivedOnPhone.isNotEmpty)
+        card(
+          _ActionRow(
+            key: const ValueKey('flagged-archived-on-phone'),
+            icon: CupertinoIcons.archivebox,
+            title: l10n.flaggedArchivedTitle,
+            body: l10n.flaggedArchivedHow,
+            amount: l10n.flaggedArchivedAmount(_archivedOnPhone.length),
+            onTap: _openArchivedOnPhone,
+          ),
+        ),
+      if (_merges.isNotEmpty)
+        card(
+          _ActionRow(
+            key: const ValueKey('flagged-merge-people'),
+            icon: CupertinoIcons.person_2_fill,
+            title: l10n.mergePeopleTitle,
+            body: l10n.mergePeopleHow,
+            amount: l10n.mergePeopleAmount(_merges.length),
+            onTap: _openMerges,
+          ),
+        ),
+    ];
+  }
 
   // ---------------------------------------------------------------- derive
 
@@ -377,7 +484,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
         _phone.isEmpty &&
         _inBucket.isEmpty &&
         review.isEmpty &&
-        _suggestions.isEmpty &&
+        !_organizing &&
         !_loading;
     return CupertinoPageScaffold(
       backgroundColor: settingsPageBackground,
@@ -406,7 +513,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
             if (_inBucket.isNotEmpty)
               ..._section(l10n.flaggedGroupBucket, null, _inBucket),
             if (review.isNotEmpty) ..._reviewSection(l10n),
-            if (_suggestions.isNotEmpty) ..._suggestionsSection(l10n),
+            if (_organizing) ..._organizeSection(l10n),
             if (nothing)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 48),

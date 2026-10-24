@@ -1659,20 +1659,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       CupertinoPageScaffold(
         navigationBar: CupertinoNavigationBar(
           middle: Text(widget.title ?? l10n.privateAlbumScreenTitle),
-          leading: _selecting || _cloudSelecting
-              ? CupertinoButton(
-                  padding: EdgeInsets.zero,
-                  onPressed: _selecting ? _exitSelectMode : _exitCloudSelect,
-                  child: Text(l10n.actionCancel),
-                )
-              : null,
-          // Everything that acts on the *album* rather than on a photo is
-          // behind the one button: the backup switch, the passphrases, the
-          // delete. They are settings for this album, and a row of them
-          // across the top read as a toolbar of unrelated verbs — with
-          // "Delete Private Album" sitting in red next to "Add", a tap away
-          // from each other.
-          trailing: _selecting
+          leading: _selecting
               ? SelectAllButton(
                   total: _records.length,
                   selectedCount: _selectedIds.length,
@@ -1695,6 +1682,18 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                     ),
                   ),
                   onDeselectAll: () => setState(() => _selectedCloudKeys = {}),
+                )
+              : null,
+          // Everything that acts on the *album* rather than on a photo is
+          // behind the one button: the backup switch, the passphrases, the
+          // delete. They are settings for this album, and a row of them
+          // across the top read as a toolbar of unrelated verbs — with
+          // "Delete Private Album" sitting in red next to "Add", a tap away
+          // from each other.
+          trailing: _selecting || _cloudSelecting
+              ? SelectionDoneButton(
+                  key: const ValueKey('privateSelectionDone'),
+                  onPressed: _selecting ? _exitSelectMode : _exitCloudSelect,
                 )
               : Row(
                   mainAxisSize: MainAxisSize.min,

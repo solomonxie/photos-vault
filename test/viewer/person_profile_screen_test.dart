@@ -70,9 +70,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Fields render in order: Name, About.
     await tester.enterText(
-      find.byType(CupertinoTextField).at(1),
+      find.widgetWithText(CupertinoTextField, 'No bio yet.'),
       'Loves hiking.',
     );
     await tester.pump();
@@ -197,6 +196,59 @@ void main() {
       expect(education.single.title, 'MIT');
     },
   );
+
+  testWidgets('first, middle and last fill in from the name', (tester) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia Jane Wu');
+    await tester.binding.setSurfaceSize(const Size(400, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('personNamePartsSuggest')));
+    await tester.pumpAndSettle();
+    final saved = (await personStore.getById(mia.id))!;
+    expect(
+      [saved.firstName, saved.middleName, saved.lastName],
+      ['Mia', 'Jane', 'Wu'],
+    );
+    expect(saved.name, 'Mia Jane Wu', reason: 'the display name stays');
+    expect(find.byKey(const ValueKey('personNamePartsSuggest')), findsNothing);
+  });
+
+  testWidgets('a former name shows, and the change history lists it', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    var mia = await personStore.create(name: 'Mia Chen');
+    mia = mia.copyWith(name: 'Mia Wu');
+    await personStore.update(mia);
+    await tester.binding.setSurfaceSize(const Size(400, 3000));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('Also known as Mia Chen'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('personChangesRow')));
+    await tester.pumpAndSettle();
+    expect(find.text('Renamed'), findsOneWidget);
+    expect(find.text('Mia Chen → Mia Wu'), findsOneWidget);
+  });
 
   testWidgets('four digits open their own set, and only theirs', (
     tester,

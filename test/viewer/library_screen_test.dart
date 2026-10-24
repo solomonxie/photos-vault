@@ -26,6 +26,7 @@ import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/photos/people_order.dart';
 import 'package:photo_manager/photo_manager.dart';
 
 import '../settings/fake_secure_store.dart';
@@ -1293,6 +1294,65 @@ void main() {
       expect(find.byKey(const ValueKey('manual:trip')), findsOneWidget);
     },
   );
+
+  testWidgets('home People row follows the People sort', (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    for (final (id, at) in [
+      ('manual:old', DateTime(2001)),
+      ('manual:new', DateTime(2024)),
+    ]) {
+      await recordStore.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+        createdAt: at,
+        addedAt: DateTime(2026),
+      );
+    }
+    final personStore = FakePersonStore();
+    final amy = await personStore.create(name: 'Amy');
+    final zed = await personStore.create(name: 'Zed');
+    await personStore.addAssets(amy.id, ['manual:old']);
+    await personStore.addAssets(zed.id, ['manual:new']);
+    await tester.binding.setSurfaceSize(const Size(400, 3200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    Future<void> pump() async {
+      await tester.pumpWidget(
+        _wrap(
+          LibraryScreen(
+            key: UniqueKey(),
+            assetRecordStore: recordStore,
+            thumbnailCache: _noThumbnails(recordStore),
+            syncJobStore: FakeSyncJobStore(),
+            albumStore: FakeAlbumStore(),
+            personStore: personStore,
+            backupTargetsStore: targetsStore,
+            backupCoordinator: BackupCoordinator(
+              targetsStore: targetsStore,
+              recordStore: recordStore,
+              s3Uploader: _UnusedS3Uploader(),
+            ),
+            aiAnalysisStore: FakeAiAnalysisStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+    }
+
+    double x(String name) => tester.getCenter(find.text(name).first).dx;
+
+    // Default: last seen, most recent first.
+    await pump();
+    expect(x('Zed'), lessThan(x('Amy')));
+
+    await recordStore.setAppState(peopleSortKey, PeopleSort.name.name);
+    await pump();
+    expect(x('Amy'), lessThan(x('Zed')));
+  });
 
   testWidgets('People and Places each get a section; People opens its screen', (
     tester,

@@ -415,6 +415,23 @@ class AiAnalysisStore {
     return out;
   }
 
+  /// The faces in [localId] already named, by their box: Find Faces doesn't
+  /// ask about them again.
+  Future<Map<FaceRect, String>> namedFacesIn(String localId) async {
+    final db = await _open();
+    final rows = await db.query(
+      _descriptorTable,
+      columns: const ['face', 'person_id'],
+      where: 'local_id = ? AND person_id IS NOT NULL',
+      whereArgs: [localId],
+    );
+    return {
+      for (final row in rows)
+        FaceRect.decode(row['face'] as String?) ?? _wholeFrame:
+            row['person_id'] as String,
+    };
+  }
+
   /// [suggestionsByAsset] for these photos only.
   Future<Map<String, Map<String, String>>> suggestionsOf(
     Iterable<String> localIds,
@@ -765,14 +782,40 @@ class AiAnalysisStore {
 
   /// Forgets the faces confirmed as [personId] on one photo — what taking
   /// the photo off the person has to mean.
-  Future<void> forgetPersonOn(String personId, String localId) async {
+  Future<void> forgetPersonOn(
+    String personId,
+    Iterable<String> localIds,
+  ) async {
     final db = await _open();
-    await db.update(
-      _descriptorTable,
-      {'person_id': null},
-      where: 'person_id = ? AND local_id = ?',
-      whereArgs: [personId, localId],
-    );
+    final ids = localIds.toList();
+    final batch = db.batch();
+    // Under SQLite's bound-parameter limit.
+    for (var i = 0; i < ids.length; i += 500) {
+      final chunk = ids.sublist(i, i + 500 > ids.length ? ids.length : i + 500);
+      batch.update(
+        _descriptorTable,
+        {'person_id': null},
+        where:
+            'person_id = ? AND local_id IN '
+            '(${List.filled(chunk.length, '?').join(',')})',
+        whereArgs: [personId, ...chunk],
+      );
+    }
+    await batch.commit(noResult: true);
+    _writes++;
+  }
+
+  /// Every face named [from] becomes [to]'s: two people merged into one.
+  Future<void> movePerson(String from, String to) async {
+    final db = await _open();
+    for (final table in [_descriptorTable, _suggestionTable]) {
+      await db.update(
+        table,
+        {'person_id': to},
+        where: 'person_id = ?',
+        whereArgs: [from],
+      );
+    }
     _writes++;
   }
 

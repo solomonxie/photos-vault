@@ -197,6 +197,12 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   }
 
   @override
+  Future<Map<FaceRect, String>> namedFacesIn(String localId) async => {
+    for (final d in _descriptors)
+      if (d.localId == localId && d.personId != null) d.face: d.personId!,
+  };
+
+  @override
   Future<void> clearSuggestionsOf(Iterable<String> localIds) async {
     for (final id in localIds) {
       _suggestions.remove(id);
@@ -286,6 +292,23 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   }
 
   @override
+  Future<void> movePerson(String from, String to) async {
+    for (var i = 0; i < _descriptors.length; i++) {
+      final d = _descriptors[i];
+      if (d.personId != from) continue;
+      _descriptors[i] = DescribedFace(
+        localId: d.localId,
+        face: d.face,
+        descriptor: d.descriptor,
+        personId: to,
+      );
+    }
+    for (final byFace in _suggestions.values) {
+      byFace.updateAll((_, id) => id == from ? to : id);
+    }
+  }
+
+  @override
   Future<void> forgetPerson(String personId) async {
     for (var i = 0; i < _descriptors.length; i++) {
       if (_descriptors[i].personId != personId) continue;
@@ -301,10 +324,14 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   }
 
   @override
-  Future<void> forgetPersonOn(String personId, String localId) async {
+  Future<void> forgetPersonOn(
+    String personId,
+    Iterable<String> localIds,
+  ) async {
+    final ids = localIds.toSet();
     for (var i = 0; i < _descriptors.length; i++) {
       final d = _descriptors[i];
-      if (d.personId != personId || d.localId != localId) continue;
+      if (d.personId != personId || !ids.contains(d.localId)) continue;
       _descriptors[i] = DescribedFace(
         localId: d.localId,
         face: d.face,

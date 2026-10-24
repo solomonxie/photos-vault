@@ -301,9 +301,7 @@ void main() {
     expect((await assetStore.getByLocalId('manual:c'))!.passcodeHash, _hash);
   });
 
-  testWidgets('Cancel during select mode discards the selection', (
-    tester,
-  ) async {
+  testWidgets('Done during select mode discards the selection', (tester) async {
     final assetStore = FakeAssetRecordStore();
     await assetStore.upsert(
       localId: 'manual:a',
@@ -325,7 +323,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('manual:a')));
     await tester.pump();
-    await tester.tap(find.text('Cancel'));
+    await tester.tap(find.byKey(const ValueKey('privateSelectionDone')));
     await tester.pumpAndSettle();
 
     expect(find.text('Select'), findsOneWidget);

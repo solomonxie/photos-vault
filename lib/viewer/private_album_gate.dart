@@ -422,6 +422,7 @@ class _PasscodeKeypad extends StatelessWidget {
 Future<bool> personHasHiddenFolder(
   AssetRecordStore store,
   String personId, {
+  List<String> aliases = const [],
   PasscodeTags? tags,
 }) async {
   final hashes = await store.passcodeHashes();
@@ -430,7 +431,28 @@ Future<bool> personHasHiddenFolder(
   final key = hashes.every(isLegacyTag)
       ? null
       : await (tags ?? PasscodeTags(records: store)).currentKey();
-  return Isolate.run(() => _anyPersonCode(personId, hashes, key));
+  final ids = [personId, ...aliases];
+  return Isolate.run(() => ids.any((id) => _anyPersonCode(id, hashes, key)));
+}
+
+/// [personHasHiddenFolder] for many people in one pass off the UI isolate:
+/// which of [ids] (each with its aliases) still have a folder.
+Future<Set<String>> peopleWithHiddenFolders(
+  AssetRecordStore store,
+  Map<String, List<String>> ids, {
+  PasscodeTags? tags,
+}) async {
+  final hashes = await store.passcodeHashes();
+  if (hashes.isEmpty || ids.isEmpty) return const {};
+  final key = hashes.every(isLegacyTag)
+      ? null
+      : await (tags ?? PasscodeTags(records: store)).currentKey();
+  return Isolate.run(
+    () => {
+      for (final MapEntry(key: id, value: aliases) in ids.entries)
+        if ([id, ...aliases].any((a) => _anyPersonCode(a, hashes, key))) id,
+    },
+  );
 }
 
 bool _anyPersonCode(String personId, Set<String> hashes, Uint8List? key) {
@@ -445,7 +467,8 @@ bool _anyPersonCode(String personId, Set<String> hashes, Uint8List? key) {
 }
 
 /// [codeFor] turns the typed digits into the album's code — see
-/// [personAlbumCode]; [title] names the album screen.
+/// [personAlbumCode]; [title] names the album screen. [beforeOpen] runs
+/// with the digits first and names any further codes to open after it.
 Future<void> openPrivateAlbums(
   BuildContext context, {
   required AssetRecordStore assetRecordStore,
@@ -453,6 +476,7 @@ Future<void> openPrivateAlbums(
   VaultKeys? vaultKeys,
   int? libraryCount,
   String Function(String digits)? codeFor,
+  Future<List<String>> Function(String digits, VaultKeys keys)? beforeOpen,
   String? title,
 }) async {
   final keys = vaultKeys ?? VaultKeys();
@@ -472,28 +496,30 @@ Future<void> openPrivateAlbums(
   if (!context.mounted) return;
   final digits = await showPrivateAlbumPasscodeSheet(context, title: title);
   if (digits == null) return;
-  final passcode = codeFor?.call(digits) ?? digits;
-  final tag = await PasscodeTags(
-    records: assetRecordStore,
-    vaultKeys: keys,
-  ).tagFor(passcode);
-  // Fills the key ring for this session, so the upload path can find this
-  // album's key by the tag the records carry without ever holding the
-  // digits itself. Dropped when the app dies.
-  final album = await keys.unlockAlbum(passcode, tag);
-  if (!context.mounted) return;
-  await Navigator.of(context).push(
-    CupertinoPageRoute(
-      builder: (_) => PrivateAlbumScreen(
-        passcodeHash: tag,
-        assetRecordStore: assetRecordStore,
-        custody: custody,
-        albumKeys: album,
-        vaultKeys: keys,
-        title: title,
+  final extra = await beforeOpen?.call(digits, keys) ?? const <String>[];
+  for (final passcode in [codeFor?.call(digits) ?? digits, ...extra]) {
+    final tag = await PasscodeTags(
+      records: assetRecordStore,
+      vaultKeys: keys,
+    ).tagFor(passcode);
+    // Fills the key ring for this session, so the upload path can find this
+    // album's key by the tag the records carry without ever holding the
+    // digits itself. Dropped when the app dies.
+    final album = await keys.unlockAlbum(passcode, tag);
+    if (!context.mounted) return;
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => PrivateAlbumScreen(
+          passcodeHash: tag,
+          assetRecordStore: assetRecordStore,
+          custody: custody,
+          albumKeys: album,
+          vaultKeys: keys,
+          title: title,
+        ),
       ),
-    ),
-  );
+    );
+  }
 }
 
 /// Below this many photos the decoys repeat and stand out.
@@ -563,12 +589,16 @@ Future<bool> _askHeif(BuildContext context, int count) async {
 ///
 /// [passcodeHash] is for a hidden album that's already open: it knows its
 /// own hash, and asking for it again to add to it would be asking a
-/// question already answered.
+/// question already answered. [codeFor] turns the typed code into another
+/// folder's, as [personAlbumCode] does for a person's; [codeForRecord] does
+/// it per photo, for several people's folders under one code.
 Future<bool> hideIntoPrivateAlbum(
   BuildContext context, {
   required AssetRecordStore assetRecordStore,
   required List<AssetRecord> records,
   String? passcodeHash,
+  String Function(String digits)? codeFor,
+  String Function(String digits, AssetRecord record)? codeForRecord,
   LibraryCustody? custody,
   PendingDeletes? pendingDeletes,
   BackupTargetsStore? targetsStore,
@@ -624,14 +654,29 @@ Future<bool> hideIntoPrivateAlbum(
       )
       .length;
   var toHeif = false;
-  var hash = passcodeHash;
-  if (hash == null) {
+  // Each photo's tag: one for all, or per photo when [codeForRecord] sends
+  // them to different folders under the one code.
+  final tags = <String, String>{};
+  if (passcodeHash case final hash?) {
+    for (final r in records) {
+      tags[r.localId] = hash;
+    }
+  } else {
     if (!context.mounted) return false;
     final answer = await askHideCodeOnce(context, convertible: heifCount);
     if (answer == null) return false;
     toHeif = answer.toHeif;
-    hash = await PasscodeTags(records: assetRecordStore).tagFor(answer.code);
-  } else if (heifCount > 0) {
+    final tagger = PasscodeTags(records: assetRecordStore);
+    final byCode = <String, String>{};
+    for (final r in records) {
+      final code =
+          codeForRecord?.call(answer.code, r) ??
+          codeFor?.call(answer.code) ??
+          answer.code;
+      tags[r.localId] = byCode[code] ??= await tagger.tagFor(code);
+    }
+  }
+  if (passcodeHash != null && heifCount > 0) {
     if (!context.mounted) return false;
     toHeif = await _askHeif(context, heifCount);
   }
@@ -674,7 +719,13 @@ Future<bool> hideIntoPrivateAlbum(
     pendingDeletes: pendingDeletes,
     analysisStore: analysisStore,
   );
-  await transition.markHidden(records.map((r) => r.localId), hash);
+  final byTag = <String, List<String>>{};
+  for (final r in records) {
+    (byTag[tags[r.localId]!] ??= []).add(r.localId);
+  }
+  for (final MapEntry(key: tag, value: ids) in byTag.entries) {
+    await transition.markHidden(ids, tag);
+  }
   unawaited(
     _finishHiding(
       // Outlives the screen on purpose; only read again behind `mounted`.

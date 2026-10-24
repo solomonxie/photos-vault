@@ -7,6 +7,7 @@ import 'package:flutter/foundation.dart' show ValueListenable, listEquals;
 import 'package:intl/intl.dart';
 import 'package:photo_manager/photo_manager.dart';
 
+import '../photos/face_analyzer.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/thumbnail_cache.dart';
 import '../photos/photo_library_service.dart';
@@ -646,7 +647,17 @@ class AssetTile extends StatelessWidget {
               color: CupertinoColors.white,
             ),
           ),
-        Positioned(bottom: 4, right: 4, child: StatusDot(record: record)),
+        Positioned(
+          bottom: 4,
+          right: 4,
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              FaceDot(localId: record.localId),
+              StatusDot(record: record),
+            ],
+          ),
+        ),
         if (selection case final selection?)
           ValueListenableBuilder(
             valueListenable: selection,
@@ -792,6 +803,62 @@ class StatusDot extends StatelessWidget {
   Widget build(BuildContext context) {
     if (!record.isFullyBackedUp) return const SizedBox.shrink();
     return badge;
+  }
+}
+
+/// A small face beside the cloud on a photo the analyzer found faces in.
+class FaceDot extends StatelessWidget {
+  const FaceDot({super.key, required this.localId});
+
+  final String localId;
+
+  static const _size = 13.0;
+
+  /// Outlined like [StatusDot.badge], built once.
+  static final badge = Padding(
+    padding: const EdgeInsets.only(right: 3),
+    child: SizedBox.square(
+      dimension: _size,
+      child: Stack(
+        alignment: Alignment.center,
+        children: [
+          Text(
+            String.fromCharCode(
+              CupertinoIcons.person_crop_circle_fill.codePoint,
+            ),
+            style: TextStyle(
+              inherit: false,
+              fontSize: _size,
+              fontFamily: CupertinoIcons.person_crop_circle_fill.fontFamily,
+              package: CupertinoIcons.person_crop_circle_fill.fontPackage,
+              height: 1,
+              leadingDistribution: TextLeadingDistribution.even,
+              foreground: Paint()
+                ..style = PaintingStyle.stroke
+                ..strokeWidth = 2.5
+                ..strokeJoin = StrokeJoin.round
+                ..color = const Color(0x66000000),
+            ),
+          ),
+          const Icon(
+            CupertinoIcons.person_crop_circle_fill,
+            size: _size,
+            color: CupertinoColors.white,
+          ),
+        ],
+      ),
+    ),
+  );
+
+  @override
+  Widget build(BuildContext context) {
+    final faces = FaceAnalyzer.shared?.withFaces;
+    if (faces == null) return const SizedBox.shrink();
+    return ValueListenableBuilder<Set<String>>(
+      valueListenable: faces,
+      builder: (context, ids, _) =>
+          ids.contains(localId) ? badge : const SizedBox.shrink(),
+    );
   }
 }
 

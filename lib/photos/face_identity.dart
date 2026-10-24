@@ -1,5 +1,6 @@
 import '../storage/asset_record.dart';
 import 'ai_analysis_store.dart';
+import 'people_zip.dart' show undatedImport;
 import 'face_crops.dart';
 import 'face_matcher.dart';
 import 'on_device_vision.dart';
@@ -76,7 +77,12 @@ class FaceIdentityService {
     required this.resolvePath,
     OnDeviceVisionService? vision,
     this.matcher = const FaceMatcher(),
+    this.onSeen,
   }) : vision = vision ?? OnDeviceVisionService();
+
+  /// A face confirmed as someone, and the newest date among those photos:
+  /// their Last seen moves up to it ([PersonStore.markSeen]).
+  final Future<void> Function(String personId, DateTime at)? onSeen;
 
   final AiAnalysisStore analysisStore;
 
@@ -112,6 +118,19 @@ class FaceIdentityService {
     String personId,
   ) async {
     if (faces.isEmpty) return false;
+    DateTime? newest;
+    for (final f in faces) {
+      final r = f.record;
+      // A hidden photo says nothing in the open; an undated import's date
+      // is the day it came in.
+      if (!r.isVisibleInLibrary || undatedImport(r)) continue;
+      if (newest == null || r.createdAt.isAfter(newest)) newest = r.createdAt;
+    }
+    if (newest != null) {
+      try {
+        await onSeen?.call(personId, newest);
+      } catch (_) {}
+    }
     try {
       // Before the write: their *first* face is what turns "no opinion"
       // into a guess everywhere, so every unmatched photo earns another
@@ -177,9 +196,12 @@ class FaceIdentityService {
   }
 
   /// Takes back every face confirmed as [personId] on one photo.
-  Future<void> unrememberPhoto(String personId, String localId) async {
+  Future<void> unrememberPhotos(
+    String personId,
+    Iterable<String> localIds,
+  ) async {
     try {
-      await analysisStore.forgetPersonOn(personId, localId);
+      await analysisStore.forgetPersonOn(personId, localIds);
     } catch (_) {
       // No analysis database — nothing was remembered to take back.
     }

@@ -21,12 +21,13 @@ import '../photos/asset_removal.dart';
 import '../photos/library_metadata.dart';
 import '../photos/library_scanner.dart';
 import '../photos/ai_analysis_store.dart';
-import '../photos/analyze_queue.dart';
+import '../photos/face_analyzer.dart';
 import '../photos/file_hash.dart' as file_hash;
 import '../photos/manual_add.dart';
 import '../photos/share_inbox.dart';
 import '../photos/on_device_analysis.dart';
 import '../photos/person.dart';
+import '../photos/people_order.dart';
 import '../photos/person_store.dart';
 import '../photos/face_grouping.dart';
 import '../photos/face_identity.dart';
@@ -139,7 +140,6 @@ class LibraryScreen extends StatefulWidget {
     this.thumbnailCache,
     this.syncJobStore,
     this.onDeviceAnalysis,
-    this.analyzeQueue,
     this.restoreOriginal,
   });
 
@@ -224,10 +224,6 @@ class LibraryScreen extends StatefulWidget {
 
   /// Overridable for tests so they never reach the Vision platform channel.
   final OnDeviceAnalysisService? onDeviceAnalysis;
-
-  /// Overridable for tests, which would otherwise have a background pass
-  /// walking a fake library while the test is trying to assert on it.
-  final AnalyzeQueue? analyzeQueue;
 
   @override
   State<LibraryScreen> createState() => LibraryScreenState();
@@ -457,47 +453,27 @@ class LibraryScreenState extends State<LibraryScreen>
   Future<void>? _restoreFirst;
   static const _restoreHold = Duration(seconds: 30);
 
-  /// The other queue: looking at the photos the scanner found.
-  /// Separate from [syncQueue] because it answers a different question —
-  /// "what does the app know about my photos?" rather than "are they safe?"
-  /// — and because it is allowed to take all week.
-  late final AnalyzeQueue _analyzeQueue =
-      widget.analyzeQueue ??
-      AnalyzeQueue(
-        assetRecordStore: assetRecordStore,
-        analysisStore: _aiAnalysisStore,
-        onDeviceAnalysis: _onDeviceAnalysis,
-        faceIdentity: _faceIdentity,
-        taggedPeople: _taggedPeopleByAsset,
-        taggedPeopleOf: (localId) async => [
-          for (final p in await _personStore.peopleFor(localId)) p.id,
-        ],
-        resolvePath: _filePathFor,
-        resolveSource: _visionSourceFor,
-        displayNameFor: _displayNameFor,
-      );
-
-  /// Who is already tagged in each photo. Read fresh rather than from
-  /// [_people]'s cached counts — the backfill it feeds only acts where a
-  /// photo has exactly one name in it, so a stale list would attribute a
-  /// face to the wrong person.
-  Future<Map<String, List<String>>> _taggedPeopleByAsset() async {
-    final people = {for (final p in await _personStore.listAll()) p.id};
-    final byAsset = <String, List<String>>{};
-    for (final entry in (await _personStore.allMemberships()).entries) {
-      if (!people.contains(entry.key)) continue;
-      for (final localId in entry.value) {
-        byAsset.putIfAbsent(localId, () => []).add(entry.key);
-      }
-    }
-    return byAsset;
-  }
+  /// Faces of the photos opened or picked, one at a time, out of sight.
+  late final FaceAnalyzer _faceAnalyzer = FaceAnalyzer(
+    assetRecordStore: assetRecordStore,
+    analysisStore: _aiAnalysisStore,
+    onDeviceAnalysis: _onDeviceAnalysis,
+    faceIdentity: _faceIdentity,
+    taggedPeopleOf: (localId) async => [
+      for (final p in await _personStore.peopleFor(localId)) p.id,
+    ],
+    resolvePath: _filePathFor,
+    resolveSource: _visionSourceFor,
+  );
+  StreamSubscription<String>? _facesFound;
+  Timer? _facesReload;
 
   /// Who the faces belong to, across photos. One instance: it holds the
   /// reference set every screen's suggestions are measured against.
   late final FaceIdentityService _faceIdentity = FaceIdentityService(
     analysisStore: _aiAnalysisStore,
     resolvePath: _visionSourceFor,
+    onSeen: _personStore.markSeen,
   );
 
   List<AssetRecord> _all = const [];
@@ -622,7 +598,6 @@ class LibraryScreenState extends State<LibraryScreen>
     // vouch for what moved, or once a day.
     unawaited(_refreshBucketListing());
     unawaited(_scanRecentThenAll());
-    unawaited(_analyzeQueue.startIfDue());
     unawaited(_sweepLeftovers());
     unawaited(_runScheduledSyncIfDue());
     unawaited(_hiddenBackup.run().catchError((_) {}));
@@ -709,7 +684,10 @@ class LibraryScreenState extends State<LibraryScreen>
     _fixLeft.dispose();
     _picked.dispose();
     syncQueue.dispose();
-    if (widget.analyzeQueue == null) _analyzeQueue.dispose();
+    _facesFound?.cancel();
+    _facesReload?.cancel();
+    if (FaceAnalyzer.shared == _faceAnalyzer) FaceAnalyzer.shared = null;
+    _faceAnalyzer.dispose();
     super.dispose();
   }
 
@@ -724,6 +702,16 @@ class LibraryScreenState extends State<LibraryScreen>
       ).restoreThumbnail,
     );
     PrivateAlbumScreen.hiddenBackup = _hiddenBackup;
+    FaceAnalyzer.shared = _faceAnalyzer;
+    unawaited(_faceAnalyzer.load());
+    // The People row's strangers are read at [reload]: once the analyzer
+    // goes quiet for a moment, not per photo.
+    _facesFound = _faceAnalyzer.finished.listen((_) {
+      _facesReload?.cancel();
+      _facesReload = Timer(const Duration(seconds: 2), () {
+        if (mounted) reload(faces: true);
+      });
+    });
     _searchFocus.addListener(_onSearchFocusChanged);
     _watchPhotoLibrary();
     syncQueue.draining.addListener(_onDrainingChanged);
@@ -786,6 +774,8 @@ class LibraryScreenState extends State<LibraryScreen>
             scan: _flagScan,
             onOpenAsset: _openById,
             albumStore: _albumStore,
+            personStore: _personStore,
+            aiAnalysisStore: _aiAnalysisStore,
           ),
         );
       case 'hidden' || 'hidden-backup' || 'hidden-detail':
@@ -915,7 +905,6 @@ class LibraryScreenState extends State<LibraryScreen>
     // Re-`reload()`s itself once done. After the recent lane, as
     // [_scanRecentThenAll].
     unawaited(recent.then((_) => _libraryScanner.runChanges()));
-    unawaited(_analyzeQueue.startIfDue());
     // Independent of camera-roll access: retries whatever's already
     // pending/failed if the configured sync frequency says it's due — the
     // other natural "app came to the foreground" moment, alongside
@@ -1152,13 +1141,6 @@ class LibraryScreenState extends State<LibraryScreen>
     // makes them fair game for a background loop at all, and both are its
     // business rather than this one's.
     await _libraryScanner.run();
-    await _analyzeQueue.startIfDue();
-    // Faces land in the analysis database, and the People row is built
-    // from it at [reload] time — so a pass that found some and said
-    // nothing leaves the row showing yesterday's strangers indefinitely.
-    if (_analyzeQueue.analyzedInLastRun > 0 && mounted) {
-      await reload(faces: true);
-    }
     // Before the original can vanish — see [_cacheMissingThumbnails].
     await _cacheMissingThumbnails();
     // A handful of photos at a time, and only once nothing else wants the
@@ -1502,8 +1484,8 @@ class LibraryScreenState extends State<LibraryScreen>
 
     final personStamp = await _personStore.changeStamp();
     final personsMoved = personStamp != _personStamp;
-    final people = personsMoved ? await _personStore.listAll() : _people;
-    final peopleChanged = !_samePeople(people, _people);
+    final read = personsMoved ? await _personStore.listAll() : _people;
+    var people = read;
     if (personsMoved) _personMembers = await _personStore.allMemberships();
     final personMembers = _personMembers;
     // Counts and first photos move with the memberships, or with a tagged
@@ -1532,6 +1514,41 @@ class LibraryScreenState extends State<LibraryScreen>
       personPhotoCounts = counts;
       personFirstPhotos = firsts;
     }
+    // In the order People is in. Re-sorted only when what it sorts by can
+    // have moved: one pass over memberships, not per frame.
+    final sort = await loadPeopleSort(assetRecordStore);
+    if (countsStale || sort != _peopleSort) {
+      final dated = sort == PeopleSort.firstMet || sort == PeopleSort.lastSeen;
+      final dates = dated
+          ? knownDates(
+              people,
+              personMembers,
+              visibleRecordsOf(all),
+              await _personStore.openEventSpans(),
+            )
+          : null;
+      final born = sort == PeopleSort.age
+          ? {
+              for (final MapEntry(:key, :value)
+                  in (await _personStore.openDetails()).entries)
+                key: ?value.birthDate,
+            }
+          : const <String, DateTime>{};
+      final sorted = [...people];
+      sortPeople(
+        sorted,
+        sort,
+        counts: personPhotoCounts,
+        firstKnown: dates?.first ?? const {},
+        lastKnown: dates?.last ?? const {},
+        born: born,
+      );
+      if (!_samePeople(sorted, people) || !identical(people, _people)) {
+        people = sorted;
+      }
+      _peopleSort = sort;
+    }
+    final peopleChanged = !_samePeople(people, _people);
     // People and the strangers among them only move when the library or
     // the people do — and finding the strangers is the most expensive
     // thing on this screen, so it does not run because a background round
@@ -1592,6 +1609,7 @@ class LibraryScreenState extends State<LibraryScreen>
   Object? _albumStamp;
   Map<String, List<String>> _albumsOf = const {};
   Object? _personStamp;
+  PeopleSort? _peopleSort;
   Map<String, List<String>> _personMembers = const {};
   Set<String> _tagged = const {};
 
@@ -2227,6 +2245,17 @@ class LibraryScreenState extends State<LibraryScreen>
     if (await _hideRecords(_selectedRecords) && mounted) {
       setState(() => _selection = null);
     }
+  }
+
+  /// Into the analyzer behind whatever it's doing; nothing to watch.
+  void _batchAnalyzeFaces() {
+    final ids = [
+      for (final r in _selectedRecords)
+        if (!r.isVideo && r.passcodeHash == null) r.localId,
+    ];
+    _faceAnalyzer.add(ids);
+    setState(() => _selection = null);
+    _showResult(AppLocalizations.of(context)!.analyzeFacesStarted(ids.length));
   }
 
   Future<void> _batchResize() async {
@@ -3038,8 +3067,8 @@ class LibraryScreenState extends State<LibraryScreen>
       assetRecordStore: assetRecordStore,
       aiAnalysisStore: _aiAnalysisStore,
       faceIdentity: _faceIdentity,
-      analyzeQueue: _analyzeQueue,
       onOpenAsset: _openById,
+      fixQueue: _fixQueue,
     ),
   );
 
@@ -3122,7 +3151,23 @@ class LibraryScreenState extends State<LibraryScreen>
                         )
                       : null,
                   scrubberInsets: const EdgeInsets.only(top: 56, bottom: 16),
-                  leadingSlivers: _leadingSlivers(l10n),
+                  leadingSlivers: _leadingSlivers(
+                    l10n,
+                    selectAll: ValueListenableBuilder(
+                      valueListenable: _picked,
+                      builder: (context, picked, _) => SelectAllButton(
+                        total: filtered.length,
+                        selectedCount: picked.length,
+                        onSelectNext: () => _select(
+                          selectNextBatch(
+                            filtered.reversed.map((r) => r.localId),
+                            picked,
+                          ),
+                        ),
+                        onDeselectAll: () => _select({}),
+                      ),
+                    ),
+                  ),
                   trailingSlivers: _trailingSlivers(l10n, selection),
                   // A query rests on its newest result, not on Albums
                   // below results that would sit off screen above.
@@ -3140,17 +3185,6 @@ class LibraryScreenState extends State<LibraryScreen>
                       valueListenable: _picked,
                       builder: (context, picked, _) => _SelectionBar(
                         count: picked.length,
-                        selectAll: SelectAllButton(
-                          total: filtered.length,
-                          selectedCount: picked.length,
-                          onSelectNext: () => _select(
-                            selectNextBatch(
-                              filtered.reversed.map((r) => r.localId),
-                              picked,
-                            ),
-                          ),
-                          onDeselectAll: () => _select({}),
-                        ),
                         onAddTag: _batchAddTag,
                         onAddToAlbum: _batchAddToAlbum,
                         onSetPlace: _batchSetPlace,
@@ -3159,7 +3193,7 @@ class LibraryScreenState extends State<LibraryScreen>
                         onHide: _batchHide,
                         onArchive: _batchArchive,
                         onResize: _batchResize,
-                        onDone: () => setState(() => _selection = null),
+                        onAnalyzeFaces: _batchAnalyzeFaces,
                       ),
                     ),
                   ),
@@ -3175,20 +3209,22 @@ class LibraryScreenState extends State<LibraryScreen>
         // be: iOS never delivers a status-bar tap to the view. It arrives on
         // the `flutter/status_bar` channel instead and goes straight to
         // [handleStatusBarTap] — which is where this screen picks it up.
-        Positioned(
-          top: MediaQuery.paddingOf(context).top,
-          left: 0,
-          // Short of the bar's own trailing button. A translucent overlay
-          // still wins the gesture arena against anything under it, so
-          // covering the search button would leave it unpressable — the
-          // tappable "header" is the title area, not the controls on it.
-          right: _navigationBarActionWidth,
-          height: _navigationBarHeight,
-          child: GestureDetector(
-            behavior: HitTestBehavior.translucent,
-            onTap: _jumpHome,
+        // Off while selecting: Select All sits under it.
+        if (!_selecting)
+          Positioned(
+            top: MediaQuery.paddingOf(context).top,
+            left: 0,
+            // Short of the bar's own trailing button. A translucent overlay
+            // still wins the gesture arena against anything under it, so
+            // covering the search button would leave it unpressable — the
+            // tappable "header" is the title area, not the controls on it.
+            right: _navigationBarActionWidth,
+            height: _navigationBarHeight,
+            child: GestureDetector(
+              behavior: HitTestBehavior.translucent,
+              onTap: _jumpHome,
+            ),
           ),
-        ),
         // Pinned under the navigation bar rather than scrolled with the
         // content, for the same reason it's a button: wherever you are in
         // the library, that's where you type.
@@ -3249,8 +3285,14 @@ class LibraryScreenState extends State<LibraryScreen>
   /// lost.
   void _jumpHome() => _gridKey.currentState?.toggleAnchor();
 
-  List<Widget> _leadingSlivers(AppLocalizations l10n) => [
+  List<Widget> _leadingSlivers(
+    AppLocalizations l10n, {
+    required Widget selectAll,
+  }) => [
     CupertinoSliverNavigationBar(
+      // Selecting: Select All and Done in opposite corners, clear of the
+      // actions along the bottom.
+      leading: _selecting ? selectAll : null,
       largeTitle: GestureDetector(
         onTap: _jumpHome,
         child: Text(l10n.tabLibrary),
@@ -3262,7 +3304,12 @@ class LibraryScreenState extends State<LibraryScreen>
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if (_all.isNotEmpty)
+          if (_selecting)
+            SelectionDoneButton(
+              key: const ValueKey('librarySelectionDone'),
+              onPressed: () => setState(() => _selection = null),
+            )
+          else if (_all.isNotEmpty)
             CupertinoButton(
               padding: const EdgeInsets.symmetric(horizontal: 6),
               minimumSize: const Size(40, 44),
@@ -3458,6 +3505,8 @@ class LibraryScreenState extends State<LibraryScreen>
                   scan: _flagScan,
                   onOpenAsset: _openById,
                   albumStore: _albumStore,
+                  personStore: _personStore,
+                  aiAnalysisStore: _aiAnalysisStore,
                 ),
               ),
             ),
@@ -4079,7 +4128,6 @@ class _SubsectionHeader extends StatelessWidget {
 class _SelectionBar extends StatelessWidget {
   const _SelectionBar({
     required this.count,
-    required this.selectAll,
     required this.onAddTag,
     required this.onAddToAlbum,
     required this.onSetPlace,
@@ -4087,12 +4135,11 @@ class _SelectionBar extends StatelessWidget {
     required this.onHide,
     required this.onArchive,
     required this.onResize,
+    required this.onAnalyzeFaces,
     required this.onDelete,
-    required this.onDone,
   });
 
   final int count;
-  final Widget selectAll;
   final VoidCallback onAddTag;
   final VoidCallback onAddToAlbum;
   final VoidCallback onSetPlace;
@@ -4100,8 +4147,8 @@ class _SelectionBar extends StatelessWidget {
   final VoidCallback onHide;
   final VoidCallback onArchive;
   final VoidCallback onResize;
+  final VoidCallback onAnalyzeFaces;
   final VoidCallback onDelete;
-  final VoidCallback onDone;
 
   @override
   Widget build(BuildContext context) {
@@ -4140,12 +4187,6 @@ class _SelectionBar extends StatelessWidget {
                           : l10n.selectionTitle(count),
                       style: const TextStyle(fontWeight: FontWeight.w600),
                     ),
-                  ),
-                  selectAll,
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: onDone,
-                    child: Text(l10n.selectionDone),
                   ),
                 ],
               ),
@@ -4224,6 +4265,14 @@ class _SelectionBar extends StatelessWidget {
               onResize();
             },
             child: Text(l10n.resizeOption),
+          ),
+          CupertinoActionSheetAction(
+            key: const ValueKey('selectionAnalyzeFaces'),
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              onAnalyzeFaces();
+            },
+            child: Text(l10n.analyzeFacesAction),
           ),
           CupertinoActionSheetAction(
             onPressed: () {

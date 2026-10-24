@@ -4,6 +4,7 @@ import 'package:photos_vault/viewer/person_profile_screen.dart';
 import 'package:photos_vault/viewer/person_page_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:photos_vault/photos/person_store.dart';
 
 import 'dart:typed_data';
@@ -32,6 +33,12 @@ Future<FakeAssetRecordStore> _withPhotos(Iterable<String> ids) async {
     await store.upsert(localId: id, contentHash: id, platform: 'ios');
   }
   return store;
+}
+
+/// Faces to Name is one row on People; its faces are a tap in.
+Future<void> _openFaces(WidgetTester tester) async {
+  await tester.tap(find.byKey(const ValueKey('people-faces-row')));
+  await tester.pumpAndSettle();
 }
 
 void main() {
@@ -70,6 +77,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _openFaces(tester);
 
     expect(find.text('Nina?'), findsOneWidget);
     expect(find.text("Who's this?"), findsNothing);
@@ -123,6 +131,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _openFaces(tester);
 
     // Two circles for five faces: two alike, and three alike.
     expect(find.text("Who's this?"), findsNWidgets(2));
@@ -151,6 +160,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _openFaces(tester);
 
     expect(find.text("Who's this?"), findsOneWidget);
   });
@@ -172,6 +182,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _openFaces(tester);
 
     expect(find.text("Who's this?"), findsOneWidget);
   });
@@ -198,6 +209,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _openFaces(tester);
 
     await tester.tap(find.byIcon(CupertinoIcons.checkmark_circle_fill));
     await tester.pumpAndSettle();
@@ -455,7 +467,366 @@ void main() {
     expect(find.byType(PeopleScreen), findsOneWidget);
     expect(find.text('No people yet. Tap + to add someone.'), findsOneWidget);
   });
-  testWidgets('chips narrow the list, and a group is one of them', (
+  testWidgets('people with no photos fold into one row', (tester) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.addAssets(mia.id, ['p1']);
+    await personStore.create(name: 'Zoe');
+    final photos = await _withPhotos(['p1']);
+    await tester.pumpWidget(
+      _wrap(PeopleScreen(personStore: personStore, assetRecordStore: photos)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mia'), findsOneWidget);
+    expect(find.text('Zoe'), findsNothing);
+    expect(find.text('People with no photos'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('people-no-photos-row')));
+    await tester.pumpAndSettle();
+    expect(find.text('Zoe'), findsOneWidget);
+  });
+
+  testWidgets('holding a row renames, merges into another, or deletes', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final zoe = await personStore.create(name: 'Zoe');
+    await personStore.addAssets(zoe.id, ['p1']);
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Mia'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleMenu-rename')));
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('peopleRenameField')),
+      'Mia Wu',
+    );
+    await tester.tap(find.byKey(const ValueKey('peopleRenameSave')));
+    await tester.pumpAndSettle();
+    expect((await personStore.getById(mia.id))!.name, 'Mia Wu');
+
+    await tester.longPress(find.text('Zoe'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleMenu-merge')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Mia Wu ·'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(searchPickerDoneKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('peopleMergeKeep-${mia.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('mergePeopleConfirm')));
+    await tester.pumpAndSettle();
+    expect(await personStore.getById(zoe.id), isNull);
+    expect((await personStore.getById(mia.id))!.name, 'Mia Wu');
+    expect((await personStore.allMemberships())[mia.id], ['p1']);
+    expect(await personStore.aliasesOf(mia.id), [zoe.id]);
+
+    await tester.longPress(find.text('Mia Wu'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleMenu-delete')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleDeleteConfirm')));
+    await tester.pumpAndSettle();
+    expect(await personStore.listAll(), isEmpty);
+  });
+
+  testWidgets('backing out of a merge at any step changes nothing', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final zoe = await personStore.create(name: 'Zoe');
+    await personStore.addAssets(zoe.id, ['p1']);
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    Future<void> startMerge() async {
+      await tester.longPress(find.text('Zoe'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('peopleMenu-merge')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.textContaining('Mia ·'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(searchPickerDoneKey));
+      await tester.pumpAndSettle();
+    }
+
+    // At "keep which one", and at the confirm.
+    for (final steps in [0, 1]) {
+      await startMerge();
+      if (steps >= 1) {
+        await tester.tap(find.byKey(ValueKey('peopleMergeKeep-${mia.id}')));
+        await tester.pumpAndSettle();
+      }
+      await tester.tap(find.text('Cancel').last);
+      await tester.pumpAndSettle();
+      expect(await personStore.getById(zoe.id), isNotNull);
+      expect((await personStore.allMemberships())[zoe.id], ['p1']);
+      expect(await personStore.aliasesOf(mia.id), isEmpty);
+    }
+  });
+
+  testWidgets('a locked profile is never merged', (tester) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final zoe = await personStore.create(name: 'Zoe');
+    await personStore.update(zoe.copyWith(locked: true));
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('Mia'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleMenu-merge')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Zoe ·'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(searchPickerDoneKey));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('peopleMergeKeep-${mia.id}')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('mergePeopleConfirm')), findsNothing);
+    await tester.tap(find.text('OK'));
+    await tester.pumpAndSettle();
+    expect(await personStore.getById(zoe.id), isNotNull);
+  });
+
+  testWidgets('deleting several takes two confirms; backing out keeps all', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    await personStore.create(name: 'Mia');
+    await personStore.create(name: 'Zoe');
+    await personStore.create(name: 'Ann');
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleMenu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleSelectMode')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mia'));
+    await tester.tap(find.text('Zoe'));
+    await tester.pumpAndSettle();
+
+    // Out at the second ask: nobody goes.
+    await tester.tap(find.byKey(const ValueKey('peopleBatchMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchDelete')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchDeleteConfirm')));
+    await tester.pumpAndSettle();
+    expect(find.text('Really delete these 2 people?'), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
+    expect(await personStore.listAll(), hasLength(3));
+
+    await tester.tap(find.byKey(const ValueKey('peopleBatchMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchDelete')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchDeleteConfirm')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('peopleBatchDeleteConfirmAgain')),
+    );
+    await tester.pumpAndSettle();
+    expect((await personStore.listAll()).map((p) => p.name), ['Ann']);
+    expect(find.byKey(const ValueKey('peopleBatchMore')), findsNothing);
+  });
+
+  testWidgets('holding a row can start select mode with it picked', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.create(name: 'Zoe');
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('Mia'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleMenu-select')));
+    await tester.pumpAndSettle();
+    expect(find.text('1 Selected'), findsOneWidget);
+    expect(find.byKey(ValueKey('people-pick-${mia.id}')), findsOneWidget);
+    await tester.tap(find.text('Zoe'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 Selected'), findsOneWidget);
+  });
+
+  testWidgets('search finds a person by a name they used to have', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia Chen');
+    await personStore.update(mia.copyWith(name: 'Mia Wu'));
+    await personStore.create(name: 'Zoe');
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(CupertinoSearchTextField), 'chen');
+    await tester.pumpAndSettle();
+    expect(find.text('Mia Wu'), findsOneWidget);
+    expect(find.text('Zoe'), findsNothing);
+  });
+
+  testWidgets('batch edit sets Last seen and a group on everyone picked', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final zoe = await personStore.create(name: 'Zoe');
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    Future<void> pickBoth() async {
+      await tester.tap(find.byKey(const ValueKey('peopleMenu')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('peopleSelectMode')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.text('Mia'));
+      await tester.tap(find.text('Zoe'));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('peopleBatchEdit')));
+      await tester.pumpAndSettle();
+    }
+
+    await pickBoth();
+    await tester.tap(find.byKey(const ValueKey('peopleEdit-lastSeen')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleEditDateDone')));
+    await tester.pumpAndSettle();
+    for (final p in [mia, zoe]) {
+      final events = await personStore.eventsFor(p.id);
+      expect(events.where((e) => e.isLastSeen).single.at, isNotNull);
+    }
+
+    await pickBoth();
+    await tester.tap(find.byKey(const ValueKey('peopleEdit-group')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(searchPickerFieldKey), 'Choir');
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Choir').last);
+    await tester.pumpAndSettle();
+    final groups = await personStore.allGroups();
+    expect(groups.values.single.toSet(), {mia.id, zoe.id});
+  });
+
+  testWidgets('Merge in select mode keeps the one chosen', (tester) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final zoe = await personStore.create(name: 'Zoe');
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleMenu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleSelectMode')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mia'));
+    await tester.tap(find.text('Zoe'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchMerge')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('peopleMergeKeep-${zoe.id}')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('mergePeopleConfirm')));
+    await tester.pumpAndSettle();
+    expect(await personStore.getById(mia.id), isNull);
+    expect(await personStore.getById(zoe.id), isNotNull);
+    expect(find.byKey(const ValueKey('peopleBatchMerge')), findsNothing);
+  });
+
+  testWidgets('Select People picks several for the batch bar', (tester) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.create(name: 'Zoe');
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('peopleMenu')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleSelectMode')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Mia'));
+    await tester.pumpAndSettle();
+
+    expect(find.text('1 Selected'), findsOneWidget);
+    expect(find.byKey(ValueKey('people-pick-${mia.id}')), findsOneWidget);
+    expect(find.byKey(const ValueKey('peopleBatchHide')), findsOneWidget);
+    expect(find.byKey(const ValueKey('peopleBatchUnhide')), findsOneWidget);
+    expect(find.byType(PersonPageScreen), findsNothing, reason: 'a tap picks');
+
+    await tester.tap(find.text('Select All'));
+    await tester.pumpAndSettle();
+    expect(find.text('2 Selected'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('peopleSelectionDone')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('peopleBatchHide')), findsNothing);
+  });
+
+  testWidgets('dropdowns narrow the list, and a group is one of them', (
     tester,
   ) async {
     final personStore = FakePersonStore();
@@ -488,20 +859,41 @@ void main() {
 
     expect(find.text('Zoe'), findsOneWidget);
 
-    await tester.tap(find.byKey(const ValueKey('people-filter-female')));
+    await tester.tap(find.byKey(const ValueKey('people-filter-gender')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('people-filter-option-Gender.female')),
+    );
     await tester.pumpAndSettle();
     expect(find.text('Mia'), findsOneWidget);
     expect(find.text('Daniel'), findsNothing);
     expect(find.text('Zoe'), findsNothing);
 
-    // The group chip, and the group row, are the same filter.
-    await tester.tap(find.byKey(const ValueKey('people-filter-g1')));
+    // Filters narrow together: back to any gender first.
+    await tester.tap(find.byKey(const ValueKey('people-filter-gender')));
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('people-filter-any')));
+    await tester.pumpAndSettle();
+
+    // One Group dropdown, then the group picked from a searchable list.
+    await tester.tap(find.byKey(const ValueKey('people-filter-group')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Acme'));
+    await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('people-filter-group')),
+        matching: find.text('Acme'),
+      ),
+      findsOneWidget,
+    );
     expect(find.text('Mia'), findsOneWidget);
     expect(find.text('Daniel'), findsOneWidget);
     expect(find.text('Zoe'), findsNothing);
 
-    await tester.tap(find.byKey(const ValueKey('people-filter-all')));
+    await tester.tap(find.byKey(const ValueKey('people-filter-group')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Any'));
     await tester.pumpAndSettle();
     expect(find.text('Zoe'), findsOneWidget);
   });

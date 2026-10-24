@@ -27,6 +27,7 @@ Future<Person?> showPersonPickerSheet({
   /// because "who is this person to me" is the commonest link anybody draws
   /// and nobody should have to remember which name in the list is their own.
   String? ownerId,
+  bool autofocus = true,
 }) {
   final l10n = AppLocalizations.of(context)!;
   final ordered = ownerId == null
@@ -47,6 +48,7 @@ Future<Person?> showPersonPickerSheet({
     createLabel: (query) =>
         query.isEmpty ? null : l10n.personPickerNewNamed(query),
     onCreate: (query) => personStore.create(name: query),
+    autofocus: autofocus,
   );
 }
 

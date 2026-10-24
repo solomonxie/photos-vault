@@ -112,6 +112,53 @@ void main() {
     expect(drawn, contains('/tmp/manual:shown.jpg'));
   });
 
+  testWidgets('Select, then Select All, then Remove takes them all off the '
+      'person', (tester) async {
+    final assetStore = FakeAssetRecordStore();
+    final personStore = FakePersonStore();
+    for (final id in ['manual:a', 'manual:b', 'manual:c']) {
+      await assetStore.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+    }
+    final person = await personStore.create(name: 'Mia');
+    await personStore.addAssets(person.id, [
+      'manual:a',
+      'manual:b',
+      'manual:c',
+    ]);
+    await tester.pumpWidget(
+      _wrap(
+        PersonPageScreen(
+          person: person,
+          personStore: personStore,
+          assetRecordStore: assetStore,
+          aiAnalysisStore: FakeAiAnalysisStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('personPageSelect')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manual:a')));
+    await tester.pumpAndSettle();
+    expect(find.text('1 Selected'), findsOneWidget);
+    await tester.tap(find.text('Select All'));
+    await tester.pumpAndSettle();
+    expect(find.text('3 Selected'), findsOneWidget);
+    expect(find.byKey(const ValueKey('personHideSelected')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('personRemoveSelected')));
+    await tester.pumpAndSettle();
+    expect(await personStore.localIdsIn(person.id), isEmpty);
+    expect(find.byKey(const ValueKey('personSelectionDone')), findsNothing);
+  });
+
   testWidgets('shows the empty state with nothing tagged', (tester) async {
     final personStore = FakePersonStore();
     final person = await personStore.create(name: 'Mia');

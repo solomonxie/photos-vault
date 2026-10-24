@@ -533,4 +533,64 @@ void main() {
     expect(await store.hasAnyRecord(described.id), isTrue);
     expect(await store.hasAnyRecord(other.id), isTrue, reason: 'linked to');
   });
+
+  test('merge folds one person into another, keeping what the kept one '
+      'already has', () async {
+    final store = newStore();
+    final keep = await store.create(name: 'Mia');
+    final gone = await store.create(name: 'Mia Chen');
+    await store.addAssets(keep.id, ['a', 'b']);
+    await store.addAssets(gone.id, ['b', 'c']);
+    await store.saveDetail(
+      keep.id,
+      const PersonDetail(bio: 'Photographer'),
+      scope: PersonScope.open,
+    );
+    await store.saveDetail(
+      gone.id,
+      PersonDetail(bio: 'From Leeds', birthDate: DateTime(1990, 5, 1)),
+      scope: PersonScope.open,
+    );
+    const club = PersonGroup(id: 'g', name: 'Club', kind: GroupKind.circle);
+    await store.joinGroup(gone.id, club, scope: PersonScope.open);
+
+    expect(await store.merge(keep.id, gone.id), PersonMergeOutcome.merged);
+
+    expect(await store.getById(gone.id), isNull);
+    expect((await store.localIdsIn(keep.id)).toSet(), {'a', 'b', 'c'});
+    final detail = await store.detailFor(keep.id);
+    expect(detail.bio, 'Photographer\n\nFrom Leeds');
+    expect(detail.birthDate, DateTime(1990, 5, 1));
+    final groups = await store.allGroups();
+    expect(groups.values.single, [keep.id]);
+  });
+
+  test(
+    'a merged id stays as an alias, carried on through later merges',
+    () async {
+      final store = newStore();
+      final a = await store.create(name: 'A');
+      final b = await store.create(name: 'B');
+      final c = await store.create(name: 'C');
+      await store.merge(b.id, c.id);
+      await store.merge(a.id, b.id);
+      expect(await store.aliasesOf(a.id), [c.id, b.id]);
+      expect(await store.aliasesOf(b.id), isEmpty);
+      await store.remove(a.id);
+      expect(await store.aliasesOf(a.id), isEmpty);
+    },
+  );
+
+  test('remove takes their details with them', () async {
+    final store = newStore();
+    final mia = await store.create(name: 'Mia');
+    await store.saveDetail(
+      mia.id,
+      const PersonDetail(bio: 'Photographer'),
+      scope: PersonScope.open,
+    );
+    await store.remove(mia.id);
+    expect((await store.detailFor(mia.id)).isEmpty, isTrue);
+    expect(await store.openDetails(), isEmpty);
+  });
 }

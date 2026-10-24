@@ -59,6 +59,10 @@ class PersonStore {
   static const _eventTable = 'person_event';
   static const _groupTable = 'person_group';
 
+  /// Ids merged into a person. Hidden folders are keyed by person id, so
+  /// a merged-away id is how theirs are still found.
+  static const _aliasTable = 'person_alias';
+
   /// Photo memberships whose person no longer exists.
   Future<void> dropMembersOfMissingPeople() async {
     final db = await _open();
@@ -225,6 +229,24 @@ class PersonStore {
     await db.rawQuery(
       'PRAGMA secure_delete = ON',
     ); // Returns a row: execute fails on iOS.
+    // Added in place, not by a version step: a column with a default is
+    // all an older row needs.
+    final personColumns = {
+      for (final c in await db.rawQuery('PRAGMA table_info($_personTable)'))
+        c['name'] as String,
+    };
+    for (final column in const ['first_name', 'middle_name', 'last_name']) {
+      if (!personColumns.contains(column)) {
+        await db.execute(
+          "ALTER TABLE $_personTable ADD COLUMN $column TEXT NOT NULL DEFAULT ''",
+        );
+      }
+    }
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS $_aliasTable '
+      '(alias_id TEXT PRIMARY KEY, person_id TEXT NOT NULL)',
+    );
+    await _installPersonChanges(db);
     await installChangeLog(
       db,
       const [
@@ -247,6 +269,7 @@ class PersonStore {
     unawaited(
       afterFirstFrame().then((_) async {
         await _purgePrivateLog(db);
+        await _joinSameNameGroups(db);
         await pruneChangeLog(db);
       }),
     );
@@ -259,6 +282,261 @@ class PersonStore {
 
   /// A row kept under a passcode, as the change log tests it.
   static const _privateRowSql = "COALESCE({row}.passcode_hash, '') != ''";
+
+  /// Every change to a person's open profile, kept for good: their own
+  /// history to read back, unlike the backup change log, which keeps only
+  /// the newest few thousand of everything. Written by triggers, so no
+  /// write path can forget to. Sealed rows are never logged.
+  static const _changeTable = 'person_change';
+  static const _muteTable = 'person_change_mute';
+
+  static const _nowMs =
+      "CAST((julianday('now') - 2440587.5) * 86400000 AS INTEGER)";
+
+  /// Edits to one field this close together are one change: the profile
+  /// saves on every keystroke.
+  static const _coalesceMs = 120000;
+
+  static String _trigger(
+    String table,
+    String op,
+    String kind, {
+    required String person,
+    String before = 'NULL',
+    String after = 'NULL',
+    String when = '1',
+    bool coalesce = false,
+    String? of,
+  }) {
+    final name = 'pc_${table}_${op.toLowerCase()}_$kind';
+    final event = of == null ? op : '$op OF $of';
+    final recent =
+        'SELECT seq FROM $_changeTable WHERE seq = '
+        '(SELECT MAX(seq) FROM $_changeTable WHERE person_id = $person) '
+        "AND kind = '$kind' AND at > $_nowMs - $_coalesceMs";
+    final body = coalesce
+        ? 'UPDATE $_changeTable SET after = $after, at = $_nowMs '
+              'WHERE seq IN ($recent); '
+              'INSERT INTO $_changeTable (person_id, at, kind, before, after) '
+              "SELECT $person, $_nowMs, '$kind', $before, $after "
+              'WHERE NOT EXISTS ($recent);'
+        : 'INSERT INTO $_changeTable (person_id, at, kind, before, after) '
+              "VALUES ($person, $_nowMs, '$kind', $before, $after);";
+    return 'CREATE TRIGGER $name AFTER $event ON $table '
+        'WHEN NOT EXISTS (SELECT 1 FROM $_muteTable) AND ($when) '
+        'BEGIN $body END';
+  }
+
+  static String _openRow(String row) => "COALESCE($row.passcode_hash, '') = ''";
+
+  static String _eventJson(String row) =>
+      "json_object('type', $row.type, 'at', $row.at, 'notes', $row.notes)";
+
+  static final _changeTriggers = [
+    _trigger(
+      _personTable,
+      'INSERT',
+      'created',
+      person: 'NEW.id',
+      after: 'NEW.name',
+    ),
+    _trigger(
+      _personTable,
+      'UPDATE',
+      'name',
+      person: 'NEW.id',
+      of: 'name',
+      before: 'OLD.name',
+      after: 'NEW.name',
+      when: 'OLD.name IS NOT NEW.name',
+      coalesce: true,
+    ),
+    _trigger(
+      _personTable,
+      'UPDATE',
+      'name_parts',
+      person: 'NEW.id',
+      before:
+          "json_object('first', OLD.first_name, 'middle', OLD.middle_name, "
+          "'last', OLD.last_name)",
+      after:
+          "json_object('first', NEW.first_name, 'middle', NEW.middle_name, "
+          "'last', NEW.last_name)",
+      when:
+          'OLD.first_name IS NOT NEW.first_name OR '
+          'OLD.middle_name IS NOT NEW.middle_name OR '
+          'OLD.last_name IS NOT NEW.last_name',
+      coalesce: true,
+    ),
+    _trigger(
+      _personTable,
+      'UPDATE',
+      'picture',
+      person: 'NEW.id',
+      of: 'avatar_local_id',
+      when: 'OLD.avatar_local_id IS NOT NEW.avatar_local_id',
+    ),
+    _trigger(
+      _personTable,
+      'UPDATE',
+      'locked',
+      person: 'NEW.id',
+      of: 'locked',
+      after: 'NEW.locked',
+      when: 'OLD.locked IS NOT NEW.locked',
+    ),
+    _trigger(
+      _memberTable,
+      'INSERT',
+      'photo_added',
+      person: 'NEW.person_id',
+      after: 'NEW.local_id',
+    ),
+    _trigger(
+      _memberTable,
+      'DELETE',
+      'photo_removed',
+      person: 'OLD.person_id',
+      before: 'OLD.local_id',
+    ),
+    _trigger(
+      _detailTable,
+      'INSERT',
+      'details',
+      person: 'NEW.person_id',
+      after: 'NEW.payload',
+      when: "NEW.passcode_hash = ''",
+      coalesce: true,
+    ),
+    _trigger(
+      _detailTable,
+      'UPDATE',
+      'details',
+      person: 'NEW.person_id',
+      before: 'OLD.payload',
+      after: 'NEW.payload',
+      when: "NEW.passcode_hash = '' AND OLD.payload IS NOT NEW.payload",
+      coalesce: true,
+    ),
+    _trigger(
+      _groupTable,
+      'INSERT',
+      'group_joined',
+      person: 'NEW.person_id',
+      after: 'NEW.name',
+      when: _openRow('NEW'),
+    ),
+    _trigger(
+      _groupTable,
+      'DELETE',
+      'group_left',
+      person: 'OLD.person_id',
+      before: 'OLD.name',
+      when: _openRow('OLD'),
+    ),
+    _trigger(
+      _eventTable,
+      'INSERT',
+      'event_added',
+      person: 'NEW.person_id',
+      after: _eventJson('NEW'),
+      when: _openRow('NEW'),
+    ),
+    _trigger(
+      _eventTable,
+      'UPDATE',
+      'event_changed',
+      person: 'NEW.person_id',
+      before: _eventJson('OLD'),
+      after: _eventJson('NEW'),
+      when:
+          '${_openRow('NEW')} AND (OLD.type IS NOT NEW.type '
+          'OR OLD.at IS NOT NEW.at OR OLD.notes IS NOT NEW.notes)',
+      coalesce: true,
+    ),
+    _trigger(
+      _eventTable,
+      'DELETE',
+      'event_removed',
+      person: 'OLD.person_id',
+      before: _eventJson('OLD'),
+      when: _openRow('OLD'),
+    ),
+    _trigger(
+      _locationTable,
+      'INSERT',
+      'place_added',
+      person: 'NEW.person_id',
+      after: 'NEW.place',
+      when: _openRow('NEW'),
+    ),
+    _trigger(
+      _locationTable,
+      'DELETE',
+      'place_removed',
+      person: 'OLD.person_id',
+      before: 'OLD.place',
+      when: _openRow('OLD'),
+    ),
+    _trigger(
+      _historyTable,
+      'INSERT',
+      'background_added',
+      person: 'NEW.person_id',
+      after: "json_object('category', NEW.category, 'title', NEW.title)",
+      when: _openRow('NEW'),
+    ),
+    _trigger(
+      _historyTable,
+      'DELETE',
+      'background_removed',
+      person: 'OLD.person_id',
+      before: "json_object('category', OLD.category, 'title', OLD.title)",
+      when: _openRow('OLD'),
+    ),
+    _trigger(
+      _relationshipTable,
+      'INSERT',
+      'link_added',
+      person: 'NEW.person_id',
+      after: "json_object('person', NEW.related_person_id, 'type', NEW.type)",
+      when: _openRow('NEW'),
+    ),
+    _trigger(
+      _relationshipTable,
+      'DELETE',
+      'link_removed',
+      person: 'OLD.person_id',
+      before: "json_object('person', OLD.related_person_id, 'type', OLD.type)",
+      when: _openRow('OLD'),
+    ),
+  ];
+
+  static Future<void> _installPersonChanges(Database db) =>
+      db.transaction((txn) async {
+        await txn.execute(
+          'CREATE TABLE IF NOT EXISTS $_changeTable ('
+          'seq INTEGER PRIMARY KEY AUTOINCREMENT, person_id TEXT NOT NULL, '
+          'at INTEGER NOT NULL, kind TEXT NOT NULL, before TEXT, after TEXT)',
+        );
+        await txn.execute(
+          'CREATE INDEX IF NOT EXISTS ${_changeTable}_person '
+          'ON $_changeTable (person_id, seq)',
+        );
+        await txn.execute('CREATE TABLE IF NOT EXISTS $_muteTable (x INTEGER)');
+        // A kill mid-merge must not leave the log switched off.
+        await txn.delete(_muteTable);
+        final existing = await txn.rawQuery(
+          "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+          "AND name LIKE 'pc\\_%' ESCAPE '\\'",
+        );
+        for (final row in existing) {
+          await txn.execute('DROP TRIGGER IF EXISTS ${row['name']}');
+        }
+        for (final sql in _changeTriggers) {
+          await txn.execute(sql);
+        }
+      });
 
   static const _stateTable = 'person_state';
   static const _purgedKey = 'private_log_purged_v1';
@@ -284,6 +562,45 @@ class PersonStore {
         'key': _purgedKey,
         'value': '1',
       }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+    } catch (_) {
+      // Tried again next launch.
+    }
+  }
+
+  static const _groupsJoinedKey = 'same_name_groups_joined_v1';
+
+  /// Profile imports before 2026-10-23 made a new group for every row, so
+  /// one group of seventy was seventy groups of one. The open set's groups
+  /// with one name and kind become the first of them. Once.
+  Future<void> _joinSameNameGroups(Database db) async {
+    try {
+      final done = await db.query(
+        _stateTable,
+        where: 'key = ?',
+        whereArgs: [_groupsJoinedKey],
+      );
+      if (done.isNotEmpty) return;
+      const first =
+          '(SELECT MIN(g.group_id) FROM $_groupTable g '
+          "WHERE g.passcode_hash = '' AND lower(g.name) = lower($_groupTable.name) "
+          'AND g.kind = $_groupTable.kind)';
+      await db.transaction((txn) async {
+        await txn.insert(_muteTable, {'x': 1});
+        await txn.execute(
+          'UPDATE OR IGNORE $_groupTable SET group_id = $first '
+          "WHERE passcode_hash = '' AND name != ''",
+        );
+        // A person in two of the copies: the one left over goes.
+        await txn.execute(
+          'DELETE FROM $_groupTable '
+          "WHERE passcode_hash = '' AND name != '' AND group_id != $first",
+        );
+        await txn.delete(_muteTable);
+        await txn.insert(_stateTable, {
+          'key': _groupsJoinedKey,
+          'value': '1',
+        }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+      });
     } catch (_) {
       // Tried again next launch.
     }
@@ -682,14 +999,15 @@ class PersonStore {
   }
 
   /// Deletes the person, their photo tags, every relationship touching
-  /// them, their location history, and their education/job history.
-  /// Tagged photos themselves are untouched — same "membership only"
-  /// precedent as `AlbumStore.remove`.
+  /// them, their location history, their education/job history and their
+  /// details, sealed sets included. Tagged photos themselves are untouched
+  /// — same "membership only" precedent as `AlbumStore.remove`.
   Future<void> remove(String id) async {
     final db = await _open();
     // One write: a kill part-way left memberships of nobody (05#24).
     await db.transaction((txn) async {
       for (final table in [
+        _detailTable,
         _memberTable,
         _eventTable,
         _groupTable,
@@ -704,7 +1022,249 @@ class PersonStore {
         whereArgs: [id, id],
       );
       await txn.delete(_personTable, where: 'id = ?', whereArgs: [id]);
+      await txn.delete(_aliasTable, where: 'person_id = ?', whereArgs: [id]);
+      await txn.delete(_changeTable, where: 'person_id = ?', whereArgs: [id]);
     });
+  }
+
+  /// Moves [personId]'s Last seen up to [at] when that's newer. Never back:
+  /// an older photo of them is no news.
+  Future<void> markSeen(String personId, DateTime at) async {
+    final events = await eventsFor(personId);
+    final last = events.where((e) => e.isLastSeen).firstOrNull;
+    if (last?.at case final was? when !at.isAfter(was)) return;
+    await saveEvent(
+      PersonEvent(
+        id: last?.id ?? newId(),
+        personId: personId,
+        type: PersonEventType.lastSeen,
+        at: at,
+        tags: last?.tags ?? const [],
+        notes: last?.notes ?? '',
+      ),
+      scope: PersonScope.open,
+    );
+  }
+
+  /// [personId]'s changes, newest first.
+  Future<List<PersonChange>> changesOf(String personId) async {
+    final db = await _open();
+    final rows = await db.query(
+      _changeTable,
+      where: 'person_id = ?',
+      whereArgs: [personId],
+      orderBy: 'seq DESC',
+    );
+    return [
+      for (final r in rows)
+        PersonChange(
+          at: DateTime.fromMillisecondsSinceEpoch(r['at'] as int),
+          kind: r['kind'] as String,
+          before: r['before'] as String?,
+          after: r['after'] as String?,
+        ),
+    ];
+  }
+
+  /// Names each person has gone by: renamed from, or merged in. Oldest
+  /// first, the current name left out.
+  Future<Map<String, List<String>>> allFormerNames() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT c.person_id, c.before, p.name FROM $_changeTable c '
+      'JOIN $_personTable p ON p.id = c.person_id '
+      "WHERE c.kind IN ('name', 'merged') AND c.before IS NOT NULL "
+      'ORDER BY c.seq',
+    );
+    final out = <String, List<String>>{};
+    for (final r in rows) {
+      final name = (r['before'] as String).trim();
+      if (name.isEmpty || name == r['name']) continue;
+      final list = out.putIfAbsent(r['person_id'] as String, () => []);
+      if (!list.contains(name)) list.add(name);
+    }
+    return out;
+  }
+
+  Future<List<String>> formerNames(String personId) async =>
+      (await allFormerNames())[personId] ?? const [];
+
+  /// The ids merged into [personId], oldest first.
+  Future<List<String>> aliasesOf(String personId) async {
+    final db = await _open();
+    final rows = await db.query(
+      _aliasTable,
+      columns: ['alias_id'],
+      where: 'person_id = ?',
+      whereArgs: [personId],
+      orderBy: 'rowid',
+    );
+    return [for (final r in rows) r['alias_id'] as String];
+  }
+
+  /// Folds [goneId] into [keepId]: photos, groups, events, places,
+  /// history, links to other people and every detail set move over, and
+  /// [goneId] is removed. The open profile is combined field by field, the
+  /// kept one winning where both have a value. One transaction.
+  ///
+  /// Refused, changing nothing, when both have a sealed set under the same
+  /// code: those can only be combined with the code typed, and dropping
+  /// either would lose what it holds.
+  Future<PersonMergeOutcome> merge(String keepId, String goneId) async {
+    if (keepId == goneId) return PersonMergeOutcome.missing;
+    final db = await _open();
+    final keep = await getById(keepId);
+    final gone = await getById(goneId);
+    if (keep == null || gone == null) return PersonMergeOutcome.missing;
+    final details = await db.query(
+      _detailTable,
+      where: 'person_id IN (?, ?)',
+      whereArgs: [keepId, goneId],
+    );
+    final keepHashes = {
+      for (final r in details)
+        if (r['person_id'] == keepId) r['passcode_hash'] as String,
+    };
+    for (final r in details) {
+      final hash = r['passcode_hash'] as String;
+      if (r['person_id'] == goneId &&
+          hash != openNamespace &&
+          keepHashes.contains(hash)) {
+        return PersonMergeOutcome.sealedConflict;
+      }
+    }
+    PersonDetail openOf(String id) {
+      for (final r in details) {
+        if (r['person_id'] == id && r['passcode_hash'] == openNamespace) {
+          return _decodePlain(r['payload'] as String? ?? '');
+        }
+      }
+      return PersonDetail.empty;
+    }
+
+    final combined = _combined(openOf(keepId), openOf(goneId));
+    await db.transaction((txn) async {
+      // Moving rows from one id to the other isn't a change to either.
+      await txn.insert(_muteTable, {'x': 1});
+      await txn.rawInsert(
+        'INSERT OR IGNORE INTO $_memberTable (person_id, local_id, added_at) '
+        'SELECT ?, local_id, added_at FROM $_memberTable WHERE person_id = ?',
+        [keepId, goneId],
+      );
+      await txn.rawInsert(
+        'INSERT OR IGNORE INTO $_groupTable '
+        '(person_id, group_id, passcode_hash, payload, name, kind) '
+        'SELECT ?, group_id, passcode_hash, payload, name, kind '
+        'FROM $_groupTable WHERE person_id = ?',
+        [keepId, goneId],
+      );
+      for (final table in [_eventTable, _locationTable, _historyTable]) {
+        await txn.update(
+          table,
+          {'person_id': keepId},
+          where: 'person_id = ?',
+          whereArgs: [goneId],
+        );
+      }
+      // Links: theirs become the kept one's, never a link to oneself.
+      await txn.rawInsert(
+        'INSERT OR IGNORE INTO $_relationshipTable '
+        '(person_id, related_person_id, type, organization, created_at, '
+        'passcode_hash, payload) '
+        'SELECT ?, related_person_id, type, organization, created_at, '
+        'passcode_hash, payload FROM $_relationshipTable '
+        'WHERE person_id = ? AND related_person_id != ?',
+        [keepId, goneId, keepId],
+      );
+      await txn.rawInsert(
+        'INSERT OR IGNORE INTO $_relationshipTable '
+        '(person_id, related_person_id, type, organization, created_at, '
+        'passcode_hash, payload) '
+        'SELECT person_id, ?, type, organization, created_at, '
+        'passcode_hash, payload FROM $_relationshipTable '
+        'WHERE related_person_id = ? AND person_id != ?',
+        [keepId, goneId, keepId],
+      );
+      await txn.update(
+        _detailTable,
+        {'person_id': keepId},
+        where: 'person_id = ? AND passcode_hash != ?',
+        whereArgs: [goneId, openNamespace],
+      );
+      await txn.insert(_detailTable, {
+        'person_id': keepId,
+        'passcode_hash': openNamespace,
+        'payload': jsonEncode(combined.toJson()),
+        'sealed': 0,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+      for (final table in [_memberTable, _groupTable, _detailTable]) {
+        await txn.delete(table, where: 'person_id = ?', whereArgs: [goneId]);
+      }
+      await txn.update(
+        _aliasTable,
+        {'person_id': keepId},
+        where: 'person_id = ?',
+        whereArgs: [goneId],
+      );
+      await txn.insert(_aliasTable, {
+        'alias_id': goneId,
+        'person_id': keepId,
+      }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+      await txn.delete(
+        _relationshipTable,
+        where: 'person_id = ? OR related_person_id = ?',
+        whereArgs: [goneId, goneId],
+      );
+      if (keep.avatarLocalId == null && gone.avatarLocalId != null) {
+        await txn.update(
+          _personTable,
+          {
+            'avatar_local_id': gone.avatarLocalId,
+            'avatar_face': gone.avatarFace?.encode(),
+          },
+          where: 'id = ?',
+          whereArgs: [keepId],
+        );
+      }
+      await txn.delete(_personTable, where: 'id = ?', whereArgs: [goneId]);
+      await txn.delete(_muteTable);
+      await txn.update(
+        _changeTable,
+        {'person_id': keepId},
+        where: 'person_id = ?',
+        whereArgs: [goneId],
+      );
+      await txn.rawInsert(
+        'INSERT INTO $_changeTable (person_id, at, kind, before, after) '
+        "VALUES (?, $_nowMs, 'merged', ?, ?)",
+        [keepId, gone.name, keep.name],
+      );
+    });
+    return PersonMergeOutcome.merged;
+  }
+
+  static PersonDetail _combined(PersonDetail keep, PersonDetail gone) {
+    String key(PersonCustomField f) => '${f.label}\u0000${f.value}';
+    final fields = {for (final f in keep.customFields) key(f)};
+    final keepBio = keep.bio.trim(), goneBio = gone.bio.trim();
+    return keep.copyWith(
+      bio: keepBio.isEmpty || goneBio.isEmpty || keepBio.contains(goneBio)
+          ? (keepBio.isEmpty ? gone.bio : keep.bio)
+          : '${keep.bio}\n\n${gone.bio}',
+      birthDate: () => keep.birthDate ?? gone.birthDate,
+      gender: () => keep.gender ?? gone.gender,
+      customFields: [
+        ...keep.customFields,
+        for (final f in gone.customFields)
+          if (!fields.contains(key(f))) f,
+      ],
+      traits: {
+        ...gone.traits,
+        for (final MapEntry(:key, :value) in keep.traits.entries)
+          if (value.trim().isNotEmpty) key: value,
+      },
+    );
   }
 
   // --- Photo membership ---
@@ -739,13 +1299,25 @@ class PersonStore {
     await update(person.copyWith(avatarLocalId: first));
   }
 
-  Future<void> removeAsset(String personId, String localId) async {
+  Future<void> removeAsset(String personId, String localId) =>
+      removeAssets(personId, [localId]);
+
+  Future<void> removeAssets(String personId, Iterable<String> localIds) async {
     final db = await _open();
-    await db.delete(
-      _memberTable,
-      where: 'person_id = ? AND local_id = ?',
-      whereArgs: [personId, localId],
-    );
+    final ids = localIds.toList();
+    final batch = db.batch();
+    // Under SQLite's bound-parameter limit.
+    for (var i = 0; i < ids.length; i += 500) {
+      final chunk = ids.sublist(i, i + 500 > ids.length ? ids.length : i + 500);
+      batch.delete(
+        _memberTable,
+        where:
+            'person_id = ? AND local_id IN '
+            '(${List.filled(chunk.length, '?').join(',')})',
+        whereArgs: [personId, ...chunk],
+      );
+    }
+    await batch.commit(noResult: true);
   }
 
   /// Drops [localIds] from every person, and as an avatar — photos deleted
@@ -1355,6 +1927,16 @@ class PersonStore {
     );
   }
 
+  /// The group gone from everyone in [scope]'s set; the people stay.
+  Future<void> deleteGroup(String groupId, {required PersonScope scope}) async {
+    final db = await _open();
+    await db.delete(
+      _groupTable,
+      where: 'group_id = ? AND passcode_hash = ?',
+      whereArgs: [groupId, scope.passcodeHash],
+    );
+  }
+
   Future<void> leaveGroup(
     String personId,
     String groupId, {
@@ -1603,6 +2185,9 @@ class PersonStore {
     'locked': person.locked ? 1 : 0,
     'passcode_hash': person.passcodeHash,
     'passcode_hint': person.passcodeHint,
+    'first_name': person.firstName,
+    'middle_name': person.middleName,
+    'last_name': person.lastName,
     'created_at': person.createdAt.millisecondsSinceEpoch,
     'updated_at': person.updatedAt.millisecondsSinceEpoch,
   };
@@ -1628,6 +2213,9 @@ class PersonStore {
       locked: (row['locked'] as int? ?? 0) != 0,
       passcodeHash: row['passcode_hash'] as String?,
       passcodeHint: row['passcode_hint'] as String?,
+      firstName: row['first_name'] as String? ?? '',
+      middleName: row['middle_name'] as String? ?? '',
+      lastName: row['last_name'] as String? ?? '',
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
     );
@@ -1670,4 +2258,23 @@ class PersonSpan {
     earliest: earliest == null || lo.isBefore(earliest!) ? lo : earliest,
     latest: latest == null || hi.isAfter(latest!) ? hi : latest,
   );
+}
+
+enum PersonMergeOutcome { merged, sealedConflict, missing }
+
+/// One entry in a person's change log. [before] and [after] are the old
+/// and new value: text for a name, place or group, a JSON object for
+/// details, events, background and links, a photo's id for photos.
+class PersonChange {
+  const PersonChange({
+    required this.at,
+    required this.kind,
+    this.before,
+    this.after,
+  });
+
+  final DateTime at;
+  final String kind;
+  final String? before;
+  final String? after;
 }

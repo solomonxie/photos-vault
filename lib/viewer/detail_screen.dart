@@ -22,6 +22,7 @@ import '../photos/derived_asset.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/ai_analysis_store.dart';
+import '../photos/face_analyzer.dart';
 import '../photos/face_crops.dart';
 import '../photos/face_identity.dart';
 import '../photos/on_device_analysis.dart';
@@ -272,6 +273,21 @@ class _DetailScreenState extends State<DetailScreen> {
     // taking it back here would cut the opening animation short.
     if (!(route.animation?.isCompleted ?? true)) return;
     route.overlayEntries.first.opaque = visible ? false : route.opaque;
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _analyzeShown();
+  }
+
+  /// The photo on screen gets its faces looked for, behind any already
+  /// under way. Never a hidden one: hiding drops its faces.
+  void _analyzeShown() {
+    if (_records.isEmpty) return;
+    final record = _records[_index.clamp(0, _records.length - 1)];
+    if (record.isVideo || record.passcodeHash != null) return;
+    FaceAnalyzer.shared?.add([record.localId]);
   }
 
   @override
@@ -742,7 +758,10 @@ class _DetailScreenState extends State<DetailScreen> {
                 physics: _zoomed || _pulling
                     ? const NeverScrollableScrollPhysics()
                     : null,
-                onPageChanged: (i) => setState(() => _index = i),
+                onPageChanged: (i) {
+                  setState(() => _index = i);
+                  _analyzeShown();
+                },
                 // Keyed by photo: after a delete the next page must not
                 // inherit the deleted one's loaded file or video.
                 findChildIndexCallback: (key) =>
@@ -1944,7 +1963,12 @@ class _InfoPanelState extends State<_InfoPanel> {
     _loadPeopleThenFaces();
     _loadAlbums();
     _fillLocationFromMetadata();
+    _analyzed = FaceAnalyzer.shared?.finished.listen((id) {
+      if (id == widget.record.localId && mounted) _loadFoundFaces();
+    });
   }
+
+  StreamSubscription<String>? _analyzed;
 
   /// Faces come after the people: whether to show them at all depends on
   /// whether anyone here is already named (see [_loadFoundFaces]).
@@ -2002,6 +2026,7 @@ class _InfoPanelState extends State<_InfoPanel> {
 
   @override
   void dispose() {
+    _analyzed?.cancel();
     _description.dispose();
     super.dispose();
   }
@@ -2021,6 +2046,9 @@ class _InfoPanelState extends State<_InfoPanel> {
   /// no opinion, which is most of them until somebody has been named a few
   /// times.
   List<String?> _faceGuesses = const [];
+
+  /// Who each guess is, same order as [_faceGuesses].
+  List<String?> _faceGuessIds = const [];
   bool _suggesting = false;
   String? _suggestNote;
 
@@ -2037,6 +2065,7 @@ class _InfoPanelState extends State<_InfoPanel> {
   late final FaceIdentityService _faceIdentity = FaceIdentityService(
     analysisStore: _onDeviceAnalysis.analysisStore,
     resolvePath: (_) async => widget.resolvedPath,
+    onSeen: widget.personStore.markSeen,
   );
 
   /// Looks at this one photo, now, because that's when the user asked. No
@@ -2052,7 +2081,8 @@ class _InfoPanelState extends State<_InfoPanel> {
       _suggestNote = null;
     });
     final found = await _onDeviceAnalysis.analyze(widget.record, path);
-    final faces = [...?found?.map((f) => f.toPersonFace())];
+    final all = [...?found?.map((f) => f.toPersonFace())];
+    final faces = await _unnamed(all);
     final crops = await FaceCrops.of(path, faces);
     if (!mounted) return;
     setState(() {
@@ -2060,9 +2090,30 @@ class _InfoPanelState extends State<_InfoPanel> {
       _faces = crops;
       _faceRects = faces.take(crops.length).toList();
       _faceGuesses = List.filled(crops.length, null);
-      _suggestNote = crops.isEmpty ? l10n.detailSuggestNothing : null;
+      _faceGuessIds = List.filled(crops.length, null);
+      _suggestNote = crops.isNotEmpty
+          ? null
+          : all.isEmpty
+          ? l10n.detailSuggestNothing
+          : l10n.detailFacesAllNamed;
     });
     await _loadGuesses();
+  }
+
+  /// [faces] minus those already named here: asking again about a face
+  /// that's somebody is asking a settled question.
+  Future<List<FaceRect>> _unnamed(List<FaceRect> faces) async {
+    try {
+      final named = await _onDeviceAnalysis.analysisStore.namedFacesIn(
+        widget.record.localId,
+      );
+      return [
+        for (final f in faces)
+          if (!named.containsKey(f)) f,
+      ];
+    } catch (_) {
+      return faces;
+    }
   }
 
   /// Puts names to whatever the analyze pass guessed about these faces.
@@ -2080,9 +2131,13 @@ class _InfoPanelState extends State<_InfoPanel> {
       };
       if (!mounted) return;
       setState(() {
-        _faceGuesses = [
-          for (final rect in _faceRects) names[byFace[rect.encode()]],
+        _faceGuessIds = [
+          for (final rect in _faceRects)
+            names.containsKey(byFace[rect.encode()])
+                ? byFace[rect.encode()]
+                : null,
         ];
+        _faceGuesses = [for (final id in _faceGuessIds) names[id]];
       });
     } catch (_) {
       // No analysis database, or no people — the faces just stay
@@ -2112,15 +2167,48 @@ class _InfoPanelState extends State<_InfoPanel> {
       // is the fallback, same as for a photo never scanned.
       return;
     }
-    if (stored.isEmpty || !mounted) return;
-    final crops = await FaceCrops.of(path, stored);
+    final open = await _unnamed(stored);
+    if (open.isEmpty || !mounted) return;
+    final crops = await FaceCrops.of(path, open);
     if (crops.isEmpty || !mounted) return;
     setState(() {
       _faces = crops;
-      _faceRects = stored.take(crops.length).toList();
+      _faceRects = open.take(crops.length).toList();
       _faceGuesses = List.filled(crops.length, null);
+      _faceGuessIds = List.filled(crops.length, null);
     });
     await _loadGuesses();
+  }
+
+  /// [button], or a spinner while this photo's faces are being looked
+  /// for — by Find Faces or the analyzer.
+  Widget _findFacesRow(AppLocalizations l10n, Widget button) {
+    Widget pick(bool busy) => !busy
+        ? button
+        : Padding(
+            key: const ValueKey('detectingFaces'),
+            padding: const EdgeInsets.symmetric(vertical: 4),
+            child: Row(
+              children: [
+                const CupertinoActivityIndicator(radius: 8),
+                const SizedBox(width: 8),
+                Text(
+                  l10n.detailDetectingFaces,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: CupertinoColors.systemGrey,
+                  ),
+                ),
+              ],
+            ),
+          );
+    final working = FaceAnalyzer.shared?.working;
+    if (working == null) return pick(_suggesting);
+    return ValueListenableBuilder<Set<String>>(
+      valueListenable: working,
+      builder: (_, ids, _) =>
+          pick(_suggesting || ids.contains(widget.record.localId)),
+    );
   }
 
   /// A face with a name on it is a person; until then it's a question.
@@ -2129,8 +2217,41 @@ class _InfoPanelState extends State<_InfoPanel> {
   /// out of — a group shot would otherwise give everyone in it the same
   /// avatar, and whoever stood centre-frame would become the face of all of
   /// them.
+  /// A guess is asked about first; no, or no guess, opens everyone —
+  /// including people already tagged here, whose face this may be.
   Future<void> _nameFace(int index) async {
-    final person = await _addPerson();
+    final l10n = AppLocalizations.of(context)!;
+    Person? person;
+    final guessId = index < _faceGuessIds.length ? _faceGuessIds[index] : null;
+    if (guessId != null) {
+      final yes = await showCupertinoDialog<bool>(
+        context: context,
+        builder: (dialog) => CupertinoAlertDialog(
+          title: Text(l10n.detailFaceIsThis(_faceGuesses[index] ?? '')),
+          actions: [
+            CupertinoDialogAction(
+              key: const ValueKey('faceGuessNo'),
+              onPressed: () => Navigator.of(dialog).pop(false),
+              child: Text(l10n.actionNo),
+            ),
+            CupertinoDialogAction(
+              key: const ValueKey('faceGuessYes'),
+              isDefaultAction: true,
+              onPressed: () => Navigator.of(dialog).pop(true),
+              child: Text(l10n.actionYes),
+            ),
+          ],
+        ),
+      );
+      if (yes == null || !mounted) return;
+      if (yes) person = await widget.personStore.getById(guessId);
+    }
+    person ??= await _pickForFace();
+    if (person != null && !_people.any((p) => p.id == person!.id)) {
+      await widget.personStore.addAssets(person.id, [
+        widget.record.localId,
+      ], fillAvatar: widget.record.isVisibleInLibrary);
+    }
     if (person != null && index < _faceRects.length) {
       final latest = await widget.personStore.getById(person.id);
       // Only when they haven't got one already, same as linking any photo,
@@ -2156,16 +2277,35 @@ class _InfoPanelState extends State<_InfoPanel> {
           face: _faceRects[index],
           personId: person.id,
         );
+        FaceAnalyzer.shared?.namesChanged();
       }
     }
     if (!mounted) return;
+    if (person == null) return;
     // Named, so it stops being an open question.
     setState(() {
       _faces = [..._faces]..removeAt(index);
       _faceRects = [..._faceRects]..removeAt(index);
       _faceGuesses = [..._faceGuesses]..removeAt(index);
+      if (index < _faceGuessIds.length) {
+        _faceGuessIds = [..._faceGuessIds]..removeAt(index);
+      }
     });
     await _loadPeople();
+  }
+
+  /// Everyone, as a list to look down; typing is there but not forced.
+  Future<Person?> _pickForFace() async {
+    final l10n = AppLocalizations.of(context)!;
+    final all = await widget.personStore.listAll();
+    if (!mounted) return null;
+    return showPersonPickerSheet(
+      context: context,
+      candidates: all,
+      personStore: widget.personStore,
+      title: l10n.detailPeopleTagPickerTitle,
+      autofocus: false,
+    );
   }
 
   /// Which albums this photo is in — shown as chips, tapped off to leave.
@@ -2680,42 +2820,6 @@ class _InfoPanelState extends State<_InfoPanel> {
           ),
           const SizedBox(height: 24),
           _SectionHeader(title: l10n.detailPeopleHeader, onAdd: _addPerson),
-          // Its own row under the heading, not floating in the middle of
-          // it: a heading carries a title and, at most, the one control
-          // that acts on the section as a whole. Two things in there and
-          // neither reads as the title.
-          Align(
-            alignment: Alignment.centerLeft,
-            child: CupertinoButton(
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              minimumSize: Size.zero,
-              onPressed: _suggesting || widget.resolvedPath == null
-                  ? null
-                  : _suggestOnDevice,
-              child: Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  Icon(
-                    CupertinoIcons.viewfinder,
-                    size: 15,
-                    color: _suggesting || widget.resolvedPath == null
-                        ? CupertinoColors.systemGrey
-                        : CupertinoColors.activeBlue,
-                  ),
-                  const SizedBox(width: 5),
-                  Text(
-                    l10n.detailFindFaces,
-                    style: TextStyle(
-                      fontSize: 13,
-                      color: _suggesting || widget.resolvedPath == null
-                          ? CupertinoColors.systemGrey
-                          : CupertinoColors.activeBlue,
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
           if (_faces.isNotEmpty) ...[
             const SizedBox(height: 8),
             Padding(
@@ -2786,6 +2890,48 @@ class _InfoPanelState extends State<_InfoPanel> {
                   onRemove: () => _removePerson(person),
                 ),
             ],
+          ),
+          // Below the people, apart from their remove buttons: a tap meant
+          // for one shouldn't land on the other.
+          const SizedBox(height: 14),
+          _findFacesRow(
+            l10n,
+            // Its own row under the heading, not floating in the middle of
+            // it: a heading carries a title and, at most, the one control
+            // that acts on the section as a whole. Two things in there and
+            // neither reads as the title.
+            Align(
+              alignment: Alignment.centerLeft,
+              child: CupertinoButton(
+                padding: const EdgeInsets.symmetric(vertical: 4),
+                minimumSize: Size.zero,
+                onPressed: _suggesting || widget.resolvedPath == null
+                    ? null
+                    : _suggestOnDevice,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    Icon(
+                      CupertinoIcons.viewfinder,
+                      size: 15,
+                      color: _suggesting || widget.resolvedPath == null
+                          ? CupertinoColors.systemGrey
+                          : CupertinoColors.activeBlue,
+                    ),
+                    const SizedBox(width: 5),
+                    Text(
+                      l10n.detailFindFaces,
+                      style: TextStyle(
+                        fontSize: 13,
+                        color: _suggesting || widget.resolvedPath == null
+                            ? CupertinoColors.systemGrey
+                            : CupertinoColors.activeBlue,
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+            ),
           ),
           // Only where the caller brought an album store: opened from a
           // person's page there's nothing to file into.

@@ -19,7 +19,7 @@ optionally straight into each person's hidden folder.
 | Contact details | All, as profile fields: phones, emails, QQ, aliases, addresses, first/last contact, relation to me; QQ/school groups as Groups |
 | Where visible photos live | App only (backed up to the bucket), never Apple Photos |
 | In the library grid | No: imported straight into Archive; shown on the person's page and in Archive |
-| Choosing | Per person: Import tick (default on) and Hide tick (default off); tap a person to preview their photos and untick any |
+| Choosing | Two steps. People: tick whose profiles to add/update. Photos: only people already in People (after step 1); Import tick (default on), Hide tick (default off), tap to preview and untick photos |
 | Hiding | Ticked-hidden people go to their own hidden folder, one code for all (the hide card); originals only, no HEIF step |
 | Packaging | Whole people per zip, ~500 MB parts; import them one after another |
 
@@ -30,22 +30,28 @@ people.csv              same columns as Export to CSV (name required)
 photos/<name>/<file>    folder name = that person's `name`
 ```
 
-- `people.csv` optional: folders alone create people by name.
+- `people.csv` optional. Folders never create people: a folder whose name
+  isn't in People is shown greyed, its photos not loadable.
 - Matched to existing people by name, case-insensitive (as CSV import).
 - Unknown files and folders are skipped and counted.
 
 ## Flow
 
 1. People ⋯ → Import People Zip → file browser.
-2. Preview: each person with photo count (selected/total), new or already here, Import and Hide ticks; Select All / Deselect All. Tap → their photos, tap to leave one out.
-3. Any Hide ticked → hide card once (code).
-4. Progress on the page; the run finishes even if the page is left.
+2. Choose People (only if the zip has profiles): tick who to add or update;
+   new / already here; conflicts resolved. Import N People, or Skip to Photos.
+3. Choose Photos: people in People now; photo count, Import and Hide ticks,
+   Select All. Tap → their photos, tap to leave one out. Ambiguous names
+   pick an existing person (no New Person here).
+4. Any Hide ticked → hide card once (code).
+5. Progress on the page; the run finishes even if the page is left.
    - Profiles: `ProfileTransfer.write`.
-   - Visible photo: `enqueueFile` → archived → tagged to the person.
+   - Visible photo: `enqueueFile(isArchived: true)` (archived as written,
+     never in the grid) → tagged to the person.
    - Hidden photo: `enqueueFile` born hidden under
      `personAlbumCode(personId, code)` → plain-file custody; never tagged,
      never in counts, faces or the grid.
-5. Done: "X people, Y photos (Z hidden)". Re-importing the same zip is a
+6. Done: "X people, Y photos (Z hidden)". Re-importing the same zip is a
    no-op per photo (content hash ids).
 
 ## Not doing
@@ -73,3 +79,48 @@ photos/<name>/<file>    folder name = that person's `name`
 - People sorts by Last seen (default), First met, Most photos or Name;
   undated last. Fallbacks: earliest/latest event or tagged photo. One
   grouped query for the dates, no per-person reads.
+
+## Archived photos off the phone
+
+- Flagged Items → Albums → "Archived on This iPhone": archived, fully backed
+  up, not locked or hidden. Opens the Remove from iPhone action (same live
+  bucket check as every removal); they stay in Archive, shown from the bucket.
+
+## CSV `mode` column
+
+Per row, how it meets a profile already here:
+
+| `mode` | Effect |
+|---|---|
+| empty | File values win; lists only grow; First met / Last seen only widen |
+| `all` | Profile becomes the row: empty cells clear, lists (fields, groups, jobs, education, places, tags) hold only what the row lists |
+| `conflict` | Row wins where values differ; nothing removed; dates set as given |
+| `skip` | Existing wins; row fills blanks and adds new items only |
+
+- One group per name across an import (rows join the same group).
+- Undated zip photos take their person's Last seen (else First met), never
+  the import day; photos dated only by import never count as first met /
+  last seen.
+
+## Merging people with hidden folders
+
+- A person's folder code is `person:<id>:<digits>`; merging can't re-key it without the digits, and they're never guessed.
+- `merge` records the gone id as an alias of the kept one (`person_alias`); aliases carry through later merges.
+- Opening the kept person's folder with digits: each alias folder under the same digits moves into the kept one's (`AliasFolders.fold`, `HiddenTransition.moveRecord`). Same digits → one folder.
+- A photo that can't move (adopted by an older build, or only in a bucket) leaves its alias folder open after the kept one.
+- Batch Unhide and the delete guard include aliases.
+
+## Person change history
+
+- `person_change` (people.db): every change to a person's open profile, kept for good; the backup change log keeps only its newest 5,000 of everything.
+- Written by triggers on the person tables, so no write path is missed. Rows under a code are never logged.
+- Edits to one field within 2 minutes coalesce (the profile saves per keystroke).
+- Merge mutes the triggers while rows move, then carries the gone person's history over and adds a `merged` entry.
+- Former names = `name` (old value) and `merged` entries: shown as "Also known as" on the profile; People search matches them.
+- Deleting a person deletes their history.
+
+## Faces
+
+- No analyze queue. `FaceAnalyzer` looks at the photo opened, or a batch picked (Select → More → Analyze Faces), one at a time in the background; opening another queues it, never cancels.
+- Grid: a face badge beside the cloud on photos with faces.
+- Face cutoff lowered from 0.4% to 0.1% of the frame; photos found empty under the old cutoff are looked at again.

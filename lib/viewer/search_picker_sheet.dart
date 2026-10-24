@@ -9,6 +9,7 @@ const searchPickerFieldKey = Key('searchPickerField');
 
 /// The sheet itself — what a test measures and drags.
 const searchPickerSheetKey = Key('searchPickerSheet');
+const searchPickerDoneKey = Key('searchPickerDone');
 
 const _sheetBackground = Color(0xFF1C1C1E);
 const _fieldBackground = Color(0xFF2C2C2E);
@@ -78,6 +79,7 @@ Future<T?> showSearchPickerSheetOf<T>({
   String? Function(String query)? createLabel,
   Future<T?> Function(String query)? onCreate,
   String? emptyHint,
+  bool autofocus = true,
 }) {
   return showCupertinoModalPopup<T>(
     context: context,
@@ -91,6 +93,25 @@ Future<T?> showSearchPickerSheetOf<T>({
       createLabel: createLabel,
       onCreate: onCreate,
       emptyHint: emptyHint,
+      allowAutofocus: autofocus,
+    ),
+  );
+}
+
+/// Several at once: rows tick, and Done returns them. Null if dismissed.
+Future<List<T>?> showSearchPickerSheetMulti<T>({
+  required BuildContext context,
+  required String title,
+  required List<T> options,
+  required String Function(T) labelOf,
+}) {
+  return showCupertinoModalPopup<List<T>>(
+    context: context,
+    builder: (_) => _SearchPickerSheet<T>(
+      title: title,
+      options: options,
+      labelOf: labelOf,
+      multi: true,
     ),
   );
 }
@@ -106,8 +127,12 @@ class _SearchPickerSheet<T> extends StatefulWidget {
     this.createLabel,
     this.onCreate,
     this.emptyHint,
+    this.multi = false,
+    this.allowAutofocus = true,
   });
 
+  final bool multi;
+  final bool allowAutofocus;
   final String title;
   final List<T> options;
   final String Function(T) labelOf;
@@ -128,6 +153,11 @@ class _SearchPickerSheet<T> extends StatefulWidget {
 class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
   final _controller = TextEditingController();
   String _query = '';
+  final _chosen = <T>[];
+
+  void _toggle(T option) => setState(() {
+    if (!_chosen.remove(option)) _chosen.add(option);
+  });
 
   /// How far the sheet has been pulled down, and whether it's on its way
   /// back — the grabber is a promise that dragging does something, and an
@@ -137,8 +167,11 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
 
   /// Typing is the point only when the list is too long to scan, or empty
   /// — anywhere else the keyboard would cover the page for nothing.
+  /// Not when ticking several: that's a list to look through.
   bool get _autofocus =>
-      widget.options.length > _autofocusThreshold || widget.options.isEmpty;
+      widget.allowAutofocus &&
+      !widget.multi &&
+      (widget.options.length > _autofocusThreshold || widget.options.isEmpty);
 
   void _dragBy(double delta) => setState(() {
     _settling = false;
@@ -178,6 +211,7 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
     if (query.isEmpty) return;
     for (final option in widget.options) {
       if (widget.labelOf(option).toLowerCase() == query.toLowerCase()) {
+        if (widget.multi) return _toggle(option);
         Navigator.of(context).pop(option);
         return;
       }
@@ -253,14 +287,39 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
                       ),
                     ),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 8),
-                      child: Text(
-                        widget.title,
-                        style: const TextStyle(
-                          color: CupertinoColors.white,
-                          fontSize: 17,
-                          fontWeight: FontWeight.w600,
-                        ),
+                      padding: const EdgeInsets.fromLTRB(16, 12, 8, 8),
+                      child: Row(
+                        children: [
+                          Expanded(
+                            child: Text(
+                              widget.title,
+                              style: const TextStyle(
+                                color: CupertinoColors.white,
+                                fontSize: 17,
+                                fontWeight: FontWeight.w600,
+                              ),
+                            ),
+                          ),
+                          if (widget.multi)
+                            CupertinoButton(
+                              key: searchPickerDoneKey,
+                              padding: const EdgeInsets.symmetric(
+                                horizontal: 8,
+                              ),
+                              minimumSize: const Size(32, 32),
+                              onPressed: _chosen.isEmpty
+                                  ? null
+                                  : () =>
+                                        Navigator.of(context)
+                                            .pop(List<T>.of(_chosen)),
+                              child: Text(
+                                _chosen.isEmpty
+                                    ? l10n.selectionDone
+                                    : '${l10n.selectionDone} '
+                                          '(${_chosen.length})',
+                              ),
+                            ),
+                        ],
                       ),
                     ),
                   ],
@@ -332,8 +391,12 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
                       for (final option in matches)
                         _PickerRow(
                           label: widget.labelOf(option),
-                          selected: widget.isSelected?.call(option) ?? false,
-                          onTap: () => Navigator.of(context).pop(option),
+                          selected: widget.multi
+                              ? _chosen.contains(option)
+                              : widget.isSelected?.call(option) ?? false,
+                          onTap: widget.multi
+                              ? () => _toggle(option)
+                              : () => Navigator.of(context).pop(option),
                         ),
                       if (widget.clearLabel != null)
                         _PickerRow(

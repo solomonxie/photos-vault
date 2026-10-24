@@ -22,6 +22,24 @@ void main() {
     return store;
   }
 
+  test('namedFacesIn lists only the faces given a name', () async {
+    final store = newStore();
+    final d = FaceDescriptor(
+      vector: Float32List.fromList(const [0, 0, 1]),
+      revision: 1,
+    );
+    const named = FaceRect(0.1, 0.1, 0.2, 0.2);
+    const open = FaceRect(0.5, 0.5, 0.2, 0.2);
+    await store.saveDescriptor(
+      localId: 'p',
+      face: named,
+      personId: 'nina',
+      descriptor: d,
+    );
+    await store.saveDescriptor(localId: 'p', face: open, descriptor: d);
+    expect(await store.namedFacesIn('p'), {named: 'nina'});
+  });
+
   group('face descriptors', () {
     final nina = FaceDescriptor(
       vector: Float32List.fromList(const [0, 0, 1]),

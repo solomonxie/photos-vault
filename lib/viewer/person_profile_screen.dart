@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/name_parts.dart';
 import '../photos/person.dart';
 import '../photos/face_identity.dart';
 import '../photos/person_detail.dart';
@@ -18,6 +19,7 @@ import 'profile_chip.dart';
 import 'private_album_gate.dart';
 import 'person_avatar.dart';
 import 'person_avatar_picker.dart';
+import 'person_change_log_screen.dart';
 import 'person_graph_screen.dart';
 import 'person_history_detail_screen.dart';
 import 'person_page_screen.dart';
@@ -79,6 +81,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   );
 
   late Person _person = widget.person;
+  late final _first = TextEditingController(text: widget.person.firstName);
+  late final _middle = TextEditingController(text: widget.person.middleName);
+  late final _last = TextEditingController(text: widget.person.lastName);
   late final TextEditingController _name = TextEditingController(
     text: _person.name,
   );
@@ -121,11 +126,113 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   void initState() {
     super.initState();
     _reload();
+    _loadFormerNames();
+  }
+
+  /// First, middle and last, under the display name. Empty ones show what
+  /// the name suggests, and one tap fills them in.
+  Widget _nameParts(AppLocalizations l10n) {
+    final suggested = suggestNameParts(_name.text);
+    final empty =
+        _first.text.isEmpty && _middle.text.isEmpty && _last.text.isEmpty;
+    final hasSuggestion =
+        suggested.first.isNotEmpty || suggested.last.isNotEmpty;
+    Widget field(
+      String key,
+      TextEditingController controller,
+      String label,
+      String hint,
+      Person Function(String) apply,
+    ) => Expanded(
+      child: CupertinoTextField(
+        key: ValueKey('personNamePart-$key'),
+        controller: controller,
+        placeholder: hint.isEmpty ? label : hint,
+        textAlign: TextAlign.center,
+        style: const TextStyle(fontSize: 14, color: CupertinoColors.white),
+        decoration: BoxDecoration(
+          color: const Color(0xFF2C2C2E),
+          borderRadius: BorderRadius.circular(8),
+        ),
+        onChanged: (v) {
+          _persist(apply(v.trim()));
+          setState(() {});
+        },
+      ),
+    );
+    return Padding(
+      padding: const EdgeInsets.fromLTRB(24, 10, 24, 0),
+      child: Column(
+        children: [
+          Row(
+            children: [
+              field(
+                'first',
+                _first,
+                l10n.personFirstName,
+                suggested.first,
+                (v) => _person.copyWith(firstName: v),
+              ),
+              const SizedBox(width: 6),
+              field(
+                'middle',
+                _middle,
+                l10n.personMiddleName,
+                suggested.middle,
+                (v) => _person.copyWith(middleName: v),
+              ),
+              const SizedBox(width: 6),
+              field(
+                'last',
+                _last,
+                l10n.personLastName,
+                suggested.last,
+                (v) => _person.copyWith(lastName: v),
+              ),
+            ],
+          ),
+          if (empty && hasSuggestion)
+            CupertinoButton(
+              key: const ValueKey('personNamePartsSuggest'),
+              padding: const EdgeInsets.only(top: 4),
+              minimumSize: Size.zero,
+              onPressed: () {
+                _first.text = suggested.first;
+                _middle.text = suggested.middle;
+                _last.text = suggested.last;
+                _persist(
+                  _person.copyWith(
+                    firstName: suggested.first,
+                    middleName: suggested.middle,
+                    lastName: suggested.last,
+                  ),
+                );
+                setState(() {});
+              },
+              child: Text(
+                l10n.personNamePartsUse,
+                style: const TextStyle(fontSize: 13),
+              ),
+            ),
+        ],
+      ),
+    );
+  }
+
+  /// Names they went by before: renamed from, or merged in.
+  List<String> _formerNames = const [];
+
+  Future<void> _loadFormerNames() async {
+    final names = await widget.personStore.formerNames(_person.id);
+    if (mounted) setState(() => _formerNames = names);
   }
 
   @override
   void dispose() {
     _name.dispose();
+    _first.dispose();
+    _middle.dispose();
+    _last.dispose();
     _bio.dispose();
     _hint.dispose();
     super.dispose();
@@ -370,17 +477,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   }
 
   String _relationshipLabel(AppLocalizations l10n, RelationshipType type) =>
-      switch (type) {
-        RelationshipType.family => l10n.relationshipTypeFamily,
-        RelationshipType.spouse => l10n.relationshipTypeSpouse,
-        RelationshipType.parent => l10n.relationshipTypeParent,
-        RelationshipType.child => l10n.relationshipTypeChild,
-        RelationshipType.sibling => l10n.relationshipTypeSibling,
-        RelationshipType.friend => l10n.relationshipTypeFriend,
-        RelationshipType.colleague => l10n.relationshipTypeColleague,
-        RelationshipType.schoolmate => l10n.relationshipTypeSchoolmate,
-        RelationshipType.other => l10n.relationshipTypeOther,
-      };
+      relationshipTypeLabel(l10n, type);
 
   /// Label for the organization prompt — "Company" for colleague, "School"
   /// for schoolmate, generic "Organization" for other (church/club/...).
@@ -800,7 +897,11 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     final l10n = AppLocalizations.of(context)!;
     // Their folder's code is `person:<id>:<digits>`, and the id goes with
     // them: deleting now would strand those photos for good.
-    if (await personHasHiddenFolder(widget.assetRecordStore, _person.id)) {
+    if (await personHasHiddenFolder(
+      widget.assetRecordStore,
+      _person.id,
+      aliases: await widget.personStore.aliasesOf(_person.id),
+    )) {
       if (!mounted) return;
       await showCupertinoDialog<void>(
         context: context,
@@ -919,9 +1020,25 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                 // one, rather than an empty row in People.
                 onChanged: (v) {
                   if (v.trim().isNotEmpty) _persist(_person.copyWith(name: v));
+                  // The parts' suggestions follow the name.
+                  setState(() {});
                 },
               ),
             ),
+            _nameParts(l10n),
+            if (_formerNames.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(24, 2, 24, 0),
+                child: Text(
+                  l10n.personAlsoKnownAs(_formerNames.join(', ')),
+                  key: const ValueKey('personAlsoKnownAs'),
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(
+                    fontSize: 13,
+                    color: CupertinoColors.systemGrey,
+                  ),
+                ),
+              ),
             const SizedBox(height: 20),
             ...[
               if (_namespace != openNamespace) _hintRow(l10n),
@@ -1124,6 +1241,22 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                   ),
                 ),
                 child: Text(l10n.personProfileViewGraph),
+              ),
+              CupertinoButton(
+                key: const ValueKey('personChangesRow'),
+                padding: EdgeInsets.zero,
+                onPressed: () async {
+                  await Navigator.of(context).push(
+                    CupertinoPageRoute(
+                      builder: (_) => PersonChangeLogScreen(
+                        person: _person,
+                        personStore: widget.personStore,
+                      ),
+                    ),
+                  );
+                  await _loadFormerNames();
+                },
+                child: Text(l10n.personChangesRow),
               ),
               const SizedBox(height: 20),
               const SizedBox(height: 20),
@@ -1824,3 +1957,16 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
 extension _FirstOrNull<T> on Iterable<T> {
   T? get firstOrNull => isEmpty ? null : first;
 }
+
+String relationshipTypeLabel(AppLocalizations l10n, RelationshipType type) =>
+    switch (type) {
+      RelationshipType.family => l10n.relationshipTypeFamily,
+      RelationshipType.spouse => l10n.relationshipTypeSpouse,
+      RelationshipType.parent => l10n.relationshipTypeParent,
+      RelationshipType.child => l10n.relationshipTypeChild,
+      RelationshipType.sibling => l10n.relationshipTypeSibling,
+      RelationshipType.friend => l10n.relationshipTypeFriend,
+      RelationshipType.colleague => l10n.relationshipTypeColleague,
+      RelationshipType.schoolmate => l10n.relationshipTypeSchoolmate,
+      RelationshipType.other => l10n.relationshipTypeOther,
+    };

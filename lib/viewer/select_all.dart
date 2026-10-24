@@ -57,3 +57,22 @@ class SelectAllButton extends StatelessWidget {
     );
   }
 }
+
+/// Done, in the navigation bar's trailing corner while selecting — far from
+/// Select All in the other corner and from the actions along the bottom.
+class SelectionDoneButton extends StatelessWidget {
+  const SelectionDoneButton({super.key, required this.onPressed});
+
+  final VoidCallback onPressed;
+
+  @override
+  Widget build(BuildContext context) => CupertinoButton(
+    padding: const EdgeInsets.symmetric(horizontal: 8),
+    minimumSize: Size.zero,
+    onPressed: onPressed,
+    child: Text(
+      AppLocalizations.of(context)!.selectionDone,
+      style: const TextStyle(fontWeight: FontWeight.w600),
+    ),
+  );
+}

@@ -44,7 +44,15 @@ class OnDeviceAnalysisService {
   /// Vision reports faces down to a few pixels across — a stadium crowd
   /// behind the subject is not "people in this photo" in any sense the
   /// user means, and counting it makes every holiday photo a group shot.
-  static const minFaceArea = 0.004;
+  ///
+  /// 0.004 (a face ~6% of the frame across) dropped the people in ordinary
+  /// group shots; the faces kept piled up right at that line. ~3% across
+  /// still leaves a crowd out.
+  static const minFaceArea = 0.001;
+
+  /// Photos looked at under the old, larger cutoff and found empty are
+  /// looked at again.
+  static final smallerFacesSince = DateTime(2026, 10, 24);
 
   /// Vision measures from the bottom-left in 0-1; everything that *draws*
   /// a box — the avatar crop, `FaceCrops` — indexes from the top-left.

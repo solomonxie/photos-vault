@@ -3,6 +3,8 @@ import 'dart:async';
 import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
+export '../photos/people_order.dart' show PeopleSort;
+
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/person.dart';
@@ -11,17 +13,23 @@ import '../photos/face_identity.dart';
 import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
 import '../photos/unnamed_faces.dart';
-import '../photos/analyze_queue.dart';
+import '../photos/fix_queue.dart';
+import '../photos/people_order.dart';
+import '../photos/people_unhide.dart';
+import '../photos/storage_advice.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import 'analyze_queue_screen.dart';
 import 'person_avatar.dart';
 import 'profile_chip.dart';
 import 'person_page_screen.dart';
 import 'face_group_screen.dart';
+import 'search_picker_sheet.dart';
 import 'person_picker_sheet.dart';
 import 'person_profile_screen.dart';
-import 'private_album_gate.dart' show personHasHiddenFolder;
+import 'flagged_action_screen.dart';
+import 'merge_people_screen.dart' show mergePeopleInto;
+import 'private_album_gate.dart';
+import 'select_all.dart';
 import 'people_zip_screen.dart';
 import 'profile_transfer_screen.dart';
 
@@ -35,9 +43,13 @@ class PeopleScreen extends StatefulWidget {
     required this.assetRecordStore,
     this.aiAnalysisStore,
     this.faceIdentity,
-    this.analyzeQueue,
     this.onOpenAsset,
+    this.fixQueue,
   });
+
+  /// The library's, for Remove from iPhone and Optimize on several people
+  /// at once; without it those two are not offered.
+  final FixQueue? fixQueue;
 
   final PersonStore personStore;
   final AssetRecordStore assetRecordStore;
@@ -47,36 +59,41 @@ class PeopleScreen extends StatefulWidget {
   /// guessed. Absent, naming still works — it just teaches nothing.
   final FaceIdentityService? faceIdentity;
 
-  /// The face-finding pass; its entry shows here, where its results land.
-  final AnalyzeQueue? analyzeQueue;
   final Future<void> Function(String localId)? onOpenAsset;
 
   @override
   State<PeopleScreen> createState() => _PeopleScreenState();
 }
 
-/// What a chip filters the list down to.
-///
-/// One type rather than three flags: exactly one chip is on at a time, and a
-/// list that could be filtered by a group *and* a gender at once would need a
-/// way to show which combination is active, for a question nobody asks.
-sealed class PeopleFilter {
-  const PeopleFilter();
+/// How long ago they were first known of, in whole years.
+enum MetBand {
+  thisYear(0, 1),
+  within5(1, 5),
+  from5(5, 10),
+  from10(10, 20),
+  over20(20, 1000);
+
+  const MetBand(this.from, this.until);
+  final int from;
+  final int until;
+
+  bool holds(int years) => years >= from && years < until;
 }
 
-class GenderFilter extends PeopleFilter {
-  const GenderFilter(this.gender);
-  final Gender gender;
-}
-
-class GroupFilter extends PeopleFilter {
-  const GroupFilter(this.group);
-  final PersonGroup group;
+int _yearsSince(DateTime at, DateTime now) {
+  var years = now.year - at.year;
+  if (now.month < at.month || (now.month == at.month && now.day < at.day)) {
+    years--;
+  }
+  return years;
 }
 
 class _PeopleScreenState extends State<PeopleScreen> {
   List<Person> _people = const [];
   Map<String, int> _counts = const {};
+
+  /// Names each person went by before; search finds them by those too.
+  Map<String, List<String>> _formerNames = const {};
   Map<String, String> _firstPhoto = const {};
 
   /// Every avatar on the page resolves from this, not a query of its own.
@@ -94,15 +111,17 @@ class _PeopleScreenState extends State<PeopleScreen> {
 
   PeopleSort _sort = PeopleSort.lastSeen;
   bool _loaded = false;
-  static const _sortKey = 'people_sort_v1';
+  static const _sortKey = peopleSortKey;
 
   /// When each person was first and last known of: their First met / Last
   /// seen rows, else the earliest / latest dated event or tagged photo.
   Map<String, DateTime> _firstKnown = const {};
   Map<String, DateTime> _lastKnown = const {};
 
-  /// Which chip is on. `null` is All — no filter, every named person.
-  PeopleFilter? _filter;
+  /// The filters row; null is Any. They narrow together.
+  Gender? _gender;
+  MetBand? _met;
+  PersonGroup? _group;
 
   /// This is the page you open to work through them, so it shows far more
   /// than the home row's handful. Each one is a person, not a face, and
@@ -130,7 +149,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     final counts = <String, int>{};
     final firstPhoto = <String, String>{};
     final tagged = <String>{};
-    final members = await widget.personStore.allMemberships();
+    final members = _members = await widget.personStore.allMemberships();
     for (final person in people) {
       final shown = [
         for (final id in members[person.id] ?? const <String>[])
@@ -141,39 +160,35 @@ class _PeopleScreenState extends State<PeopleScreen> {
       if (shown.isNotEmpty) firstPhoto[person.id] = shown.first;
     }
     final groups = await widget.personStore.allGroups();
+    final formerNames = await widget.personStore.allFormerNames();
     final details = await widget.personStore.openDetails();
     final spans = await widget.personStore.openEventSpans();
     final byId = visibleRecordsOf(records);
-    final firstKnown = <String, DateTime>{};
-    final lastKnown = <String, DateTime>{};
-    DateTime? min(DateTime? a, DateTime? b) =>
-        a == null || (b != null && b.isBefore(a)) ? b : a;
-    DateTime? max(DateTime? a, DateTime? b) =>
-        a == null || (b != null && b.isAfter(a)) ? b : a;
-    for (final person in people) {
-      DateTime? earliest, latest;
-      for (final id in members[person.id] ?? const <String>[]) {
-        final at = byId[id]?.createdAt;
-        earliest = min(earliest, at);
-        latest = max(latest, at);
-      }
-      final span = spans[person.id];
-      final first = span?.firstMet ?? min(span?.earliest, earliest);
-      final last = max(max(span?.lastSeen, span?.latest), latest);
-      if (first != null) firstKnown[person.id] = first;
-      if (last != null) lastKnown[person.id] = last;
-    }
+    final (first: firstKnown, last: lastKnown) = knownDates(
+      people,
+      members,
+      byId,
+      spans,
+    );
     final sort = await _loadSort();
     final unnamed = await _loadUnnamedFaces(records, tagged, {
       for (final p in people) p.id: p.name,
     });
-    _sortPeople(people, sort, counts, firstKnown, lastKnown);
+    sortPeople(
+      people,
+      sort,
+      counts: counts,
+      firstKnown: firstKnown,
+      lastKnown: lastKnown,
+      born: _bornOf(details),
+    );
     if (!mounted) return;
     setState(() {
       _sort = sort;
       _firstKnown = firstKnown;
       _lastKnown = lastKnown;
       _groups = groups;
+      _formerNames = formerNames;
       _details = details;
       _people = people;
       _counts = counts;
@@ -183,45 +198,25 @@ class _PeopleScreenState extends State<PeopleScreen> {
       _unnamedFaces = unnamed.faces;
       _facesFound = unnamed.found;
     });
+    _facesTick.value++;
   }
 
-  static void _sortPeople(
-    List<Person> people,
-    PeopleSort sort,
-    Map<String, int> counts,
-    Map<String, DateTime> firstKnown,
-    Map<String, DateTime> lastKnown,
-  ) {
-    // Undated last either way: unknown is not "long ago".
-    int byDate(Map<String, DateTime> at, Person a, Person b, bool newest) {
-      final x = at[a.id], y = at[b.id];
-      if (x == null || y == null) return x == null ? (y == null ? 0 : 1) : -1;
-      return newest ? y.compareTo(x) : x.compareTo(y);
-    }
+  static Map<String, DateTime> _bornOf(Map<String, PersonDetail> details) => {
+    for (final MapEntry(:key, :value) in details.entries) key: ?value.birthDate,
+  };
 
-    people.sort(
-      (a, b) => switch (sort) {
-        PeopleSort.photos => (counts[b.id] ?? 0).compareTo(counts[a.id] ?? 0),
-        PeopleSort.firstMet => byDate(firstKnown, a, b, false),
-        PeopleSort.lastSeen => byDate(lastKnown, a, b, true),
-        PeopleSort.name => a.name.toLowerCase().compareTo(b.name.toLowerCase()),
-      },
-    );
-  }
-
-  Future<PeopleSort> _loadSort() async {
-    try {
-      final saved = await widget.assetRecordStore.getAppState(_sortKey);
-      return PeopleSort.values.where((s) => s.name == saved).firstOrNull ??
-          PeopleSort.lastSeen;
-    } catch (_) {
-      return PeopleSort.lastSeen;
-    }
-  }
+  Future<PeopleSort> _loadSort() => loadPeopleSort(widget.assetRecordStore);
 
   Future<void> _setSort(PeopleSort sort) async {
     final people = [..._people];
-    _sortPeople(people, sort, _counts, _firstKnown, _lastKnown);
+    sortPeople(
+      people,
+      sort,
+      counts: _counts,
+      firstKnown: _firstKnown,
+      lastKnown: _lastKnown,
+      born: _bornOf(_details),
+    );
     setState(() {
       _sort = sort;
       _people = people;
@@ -233,14 +228,17 @@ class _PeopleScreenState extends State<PeopleScreen> {
     }
   }
 
+  static String _sortLabel(AppLocalizations l10n, PeopleSort s) => switch (s) {
+    PeopleSort.photos => l10n.peopleSortPhotos,
+    PeopleSort.firstMet => l10n.peopleSortFirstMet,
+    PeopleSort.lastSeen => l10n.peopleSortLastSeen,
+    PeopleSort.age => l10n.peopleSortAge,
+    PeopleSort.name => l10n.peopleSortName,
+  };
+
   void _showSort() {
     final l10n = AppLocalizations.of(context)!;
-    String label(PeopleSort s) => switch (s) {
-      PeopleSort.photos => l10n.peopleSortPhotos,
-      PeopleSort.firstMet => l10n.peopleSortFirstMet,
-      PeopleSort.lastSeen => l10n.peopleSortLastSeen,
-      PeopleSort.name => l10n.peopleSortName,
-    };
+    String label(PeopleSort s) => _sortLabel(l10n, s);
     showCupertinoModalPopup<void>(
       context: context,
       builder: (sheet) => CupertinoActionSheet(
@@ -394,6 +392,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
 
   @override
   void dispose() {
+    _facesTick.dispose();
+    _scroll.dispose();
     _undoTimer?.cancel();
     _undoToast?.remove();
     _undoToast = null;
@@ -449,17 +449,19 @@ class _PeopleScreenState extends State<PeopleScreen> {
     _undoTimer = Timer(const Duration(seconds: 5), close);
   }
 
-  /// Rows, not the home page's horizontal strip. This is the full list —
-  /// the page you come to when you mean to work through them — and a
-  /// sideways scroll inside a vertical one hides most of its contents
-  /// behind a gesture nobody makes on a settings-shaped page.
-  bool _matchesFilter(Person person) => switch (_filter) {
-    null => true,
-    GenderFilter(:final gender) => _details[person.id]?.gender == gender,
-    GroupFilter(:final group) => (_groups[group] ?? const []).contains(
-      person.id,
-    ),
-  };
+  bool _matchesFilter(Person person, DateTime now) {
+    if (_gender case final gender? when _details[person.id]?.gender != gender) {
+      return false;
+    }
+    if (_met case final band?) {
+      final at = _firstKnown[person.id];
+      if (at == null || !band.holds(_yearsSince(at, now))) return false;
+    }
+    if (_group case final group?) {
+      if (!(_groups[group] ?? const []).contains(person.id)) return false;
+    }
+    return true;
+  }
 
   Widget _sectionHeading(String text) => Padding(
     padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
@@ -473,85 +475,818 @@ class _PeopleScreenState extends State<PeopleScreen> {
     ),
   );
 
-  /// One row of chips, or nothing when there is nothing to narrow.
-  ///
-  /// Gender comes from the profile details rather than from a tag somebody
-  /// keeps up to date, and only the open set's — a list of faces anybody can
-  /// see must not be sortable by something only a passcode opens.
-  Widget? _filterChips(AppLocalizations l10n) {
-    final genders = {
-      for (final person in _people) ?_details[person.id]?.gender,
+  /// Under the search box: one dropdown per filter, then the sort. Gender
+  /// and age come from the open profile only — a list anybody can see must
+  /// not narrow by something a passcode opens.
+  Widget _filterRow(AppLocalizations l10n) {
+    String metLabel(MetBand b) => switch (b) {
+      MetBand.thisYear => l10n.peopleMetThisYear,
+      MetBand.over20 => l10n.peopleMetOver(20),
+      _ => l10n.peopleMetRange(b.from, b.until),
     };
-    if (genders.isEmpty && _groups.isEmpty) return null;
-    return Padding(
+    return SingleChildScrollView(
+      scrollDirection: Axis.horizontal,
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-      child: Wrap(
-        spacing: 8,
-        runSpacing: 8,
+      child: Row(
         children: [
-          ProfileChip(
-            key: const ValueKey('people-filter-all'),
-            label: l10n.peopleFilterAll,
-            selected: _filter == null,
-            onTap: () => setState(() => _filter = null),
-          ),
-          for (final gender in Gender.values)
-            if (genders.contains(gender))
-              ProfileChip(
-                key: ValueKey('people-filter-${gender.name}'),
-                label: gender == Gender.male
-                    ? l10n.peopleFilterMale
-                    : l10n.peopleFilterFemale,
-                selected:
-                    _filter is GenderFilter &&
-                    (_filter as GenderFilter).gender == gender,
-                onTap: () => setState(() => _filter = GenderFilter(gender)),
-              ),
-          for (final group in _groups.keys)
-            ProfileChip(
-              key: ValueKey('people-filter-${group.id}'),
-              label: group.name,
-              selected:
-                  _filter is GroupFilter &&
-                  (_filter as GroupFilter).group.id == group.id,
-              onTap: () => setState(() => _filter = GroupFilter(group)),
+          _FilterPill(
+            key: const ValueKey('people-filter-gender'),
+            label: switch (_gender) {
+              Gender.male => l10n.peopleFilterMale,
+              Gender.female => l10n.peopleFilterFemale,
+              null => l10n.peopleFilterGender,
+            },
+            active: _gender != null,
+            onTap: () => _pickOne<Gender>(
+              title: l10n.peopleFilterGender,
+              options: Gender.values,
+              current: _gender,
+              labelOf: (g) => g == Gender.male
+                  ? l10n.peopleFilterMale
+                  : l10n.peopleFilterFemale,
+              onPicked: (g) => setState(() => _gender = g),
             ),
+          ),
+          _FilterPill(
+            key: const ValueKey('people-filter-met'),
+            label: _met == null ? l10n.peopleFilterMet : metLabel(_met!),
+            active: _met != null,
+            onTap: () => _pickOne<MetBand>(
+              title: l10n.peopleFilterMet,
+              options: MetBand.values,
+              current: _met,
+              labelOf: metLabel,
+              onPicked: (b) => setState(() => _met = b),
+            ),
+          ),
+          if (_groups.isNotEmpty)
+            _FilterPill(
+              key: const ValueKey('people-filter-group'),
+              label: _group?.name ?? l10n.peopleFilterGroup,
+              active: _group != null,
+              onTap: _pickGroup,
+            ),
+          _FilterPill(
+            key: const ValueKey('peopleSortMenu'),
+            icon: CupertinoIcons.arrow_up_arrow_down,
+            label: _sortLabel(l10n, _sort),
+            active: false,
+            onTap: _showSort,
+          ),
         ],
       ),
     );
   }
 
-  /// Groups as rows, each one a way into the list above it. Tapping a group
-  /// is the same as tapping its chip — the section is there to say what
-  /// groups exist, which a row of chips alone does not.
-  List<Widget> _groupRows(AppLocalizations l10n) => [
-    for (final entry in _groups.entries)
-      CupertinoListTile(
-        key: ValueKey('people-group:${entry.key.id}'),
-        leading: const Icon(
-          CupertinoIcons.person_2_fill,
-          color: CupertinoColors.systemGrey,
-        ),
-        title: Text(entry.key.name),
-        subtitle: Text(groupKindLabel(l10n, entry.key.kind)),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '${entry.value.length}',
-              style: const TextStyle(color: CupertinoColors.systemGrey),
+  /// Any, then each option, the current one ticked.
+  void _pickOne<T>({
+    required String title,
+    required List<T> options,
+    required T? current,
+    required String Function(T) labelOf,
+    required void Function(T?) onPicked,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheet) => CupertinoActionSheet(
+        title: Text(title),
+        actions: [
+          CupertinoActionSheetAction(
+            key: const ValueKey('people-filter-any'),
+            isDefaultAction: current == null,
+            onPressed: () {
+              Navigator.of(sheet).pop();
+              onPicked(null);
+            },
+            child: Text(
+              current == null
+                  ? '✓ ${l10n.peopleFilterAny}'
+                  : l10n.peopleFilterAny,
             ),
-            const SizedBox(width: 4),
-            const Icon(
-              CupertinoIcons.chevron_forward,
-              size: 18,
-              color: CupertinoColors.systemGrey2,
+          ),
+          for (final option in options)
+            CupertinoActionSheetAction(
+              key: ValueKey('people-filter-option-$option'),
+              isDefaultAction: option == current,
+              onPressed: () {
+                Navigator.of(sheet).pop();
+                onPicked(option);
+              },
+              child: Text(
+                option == current ? '✓ ${labelOf(option)}' : labelOf(option),
+              ),
             ),
-          ],
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheet).pop(),
+          child: Text(l10n.actionCancel),
         ),
-        onTap: () => setState(() => _filter = GroupFilter(entry.key)),
       ),
-  ];
+    );
+  }
+
+  /// Off everyone; nobody is removed. The open set's only — a sealed set's
+  /// groups are its own.
+  Future<void> _deleteGroup(PersonGroup group) async {
+    final l10n = AppLocalizations.of(context)!;
+    final ok = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialog) => CupertinoAlertDialog(
+        title: Text(l10n.peopleDeleteGroupTitle(group.name)),
+        content: Text(l10n.peopleDeleteGroupBody(_groups[group]?.length ?? 0)),
+        actions: [
+          CupertinoDialogAction(
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            key: const ValueKey('peopleDeleteGroupConfirm'),
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: Text(l10n.actionDelete),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await widget.personStore.deleteGroup(group.id, scope: PersonScope.open);
+    setState(() => _group = null);
+    await _reload();
+  }
+
+  /// A searchable list, not a chip or a row per group: there can be
+  /// hundreds of them.
+  Future<void> _pickGroup() async {
+    final l10n = AppLocalizations.of(context)!;
+    final current = _group;
+    final groups = _groups.keys.toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    const any = PersonGroup(id: '', name: '', kind: GroupKind.circle);
+    final picked = await showSearchPickerSheetOf<PersonGroup>(
+      context: context,
+      title: l10n.peopleFilterGroup,
+      options: groups,
+      labelOf: (g) =>
+          '${g.name} · ${groupKindLabel(l10n, g.kind)} · '
+          '${_groups[g]?.length ?? 0}',
+      isSelected: (g) => g.id == current?.id,
+      clearLabel: current == null ? null : l10n.peopleFilterAny,
+      clearValue: current == null ? null : any,
+    );
+    if (picked == null || !mounted) return;
+    setState(() => _group = picked.id.isEmpty ? null : picked);
+  }
+
+  // ---------------------------------------------------------------- select
+
+  Map<String, List<String>> _members = const {};
+  bool _selecting = false;
+  Set<String> _picked = const {};
+
+  void _toggle(Person person) => setState(() {
+    final next = {..._picked};
+    if (!next.remove(person.id)) next.add(person.id);
+    _picked = next;
+  });
+
+  void _endSelecting() => setState(() {
+    _selecting = false;
+    _picked = const {};
+  });
+
+  /// The picked people's photos that are shown, each once: a photo of two
+  /// of them belongs to whichever comes first in the list.
+  ({List<AssetRecord> records, Map<String, String> owner}) _photosOfPicked() =>
+      _photosOf(_picked);
+
+  ({List<AssetRecord> records, Map<String, String> owner}) _photosOf(
+    Set<String> ids,
+  ) {
+    final owner = <String, String>{};
+    final records = <AssetRecord>[];
+    for (final person in _people) {
+      if (!ids.contains(person.id)) continue;
+      for (final id in _members[person.id] ?? const <String>[]) {
+        final record = _recordsById?[id];
+        if (record == null || owner.containsKey(id)) continue;
+        owner[id] = person.id;
+        records.add(record);
+      }
+    }
+    return (records: records, owner: owner);
+  }
+
+  Future<void> _note(String message) => showCupertinoDialog<void>(
+    context: context,
+    builder: (dialog) => CupertinoAlertDialog(
+      content: Text(message),
+      actions: [
+        CupertinoDialogAction(
+          onPressed: () => Navigator.of(dialog).pop(),
+          child: Text(AppLocalizations.of(context)!.actionOk),
+        ),
+      ],
+    ),
+  );
+
+  /// Each into their own hidden folder, one code for all of them.
+  Future<void> _hidePicked() => _hidePeople(_picked);
+
+  Future<void> _hidePeople(Set<String> ids) async {
+    final l10n = AppLocalizations.of(context)!;
+    final (:records, :owner) = _photosOf(ids);
+    if (records.isEmpty) return _note(l10n.peopleBatchNothingToHide);
+    final hidden = await hideIntoPrivateAlbum(
+      context,
+      assetRecordStore: widget.assetRecordStore,
+      records: records,
+      codeForRecord: (digits, r) => personAlbumCode(owner[r.localId]!, digits),
+      onSettled: () {
+        if (mounted) _reload();
+      },
+    );
+    if (!mounted) return;
+    if (hidden) _endSelecting();
+    await _reload();
+  }
+
+  Future<void> _unhidePicked() async {
+    final l10n = AppLocalizations.of(context)!;
+    final digits = await showPrivateAlbumPasscodeSheet(
+      context,
+      title: l10n.peopleBatchUnhideTitle,
+    );
+    if (digits == null || !mounted) return;
+    final ids = [
+      for (final person in _people)
+        if (_picked.contains(person.id)) person.id,
+    ];
+    final result = await PeopleUnhide(
+      store: widget.assetRecordStore,
+      personStore: widget.personStore,
+    ).run(ids, digits);
+    if (!mounted) return;
+    await _reload();
+    if (!mounted) return;
+    await _note(
+      [
+        if (result.returned == 0 && result.failed == 0 && result.skipped == 0)
+          l10n.peopleBatchUnhideNone
+        else
+          l10n.peopleBatchUnhideDone(result.returned),
+        if (result.failed > 0) l10n.peopleBatchUnhideFailed(result.failed),
+        if (result.skipped > 0) l10n.peopleBatchUnhideSkipped(result.skipped),
+      ].join('\n'),
+    );
+    if (result.returned > 0) _endSelecting();
+  }
+
+  /// Twice asked: a profile, its details and links don't come back. Anyone
+  /// with a hidden folder is left, as on their profile.
+  Future<void> _deletePicked() async {
+    final l10n = AppLocalizations.of(context)!;
+    final picked = [
+      for (final person in _people)
+        if (_picked.contains(person.id)) person,
+    ];
+    if (picked.isEmpty) return;
+    Future<bool> ask(String title, String body, String action, Key key) async =>
+        await showCupertinoDialog<bool>(
+          context: context,
+          builder: (dialog) => CupertinoAlertDialog(
+            title: Text(title),
+            content: Text(body),
+            actions: [
+              CupertinoDialogAction(
+                isDefaultAction: true,
+                onPressed: () => Navigator.of(dialog).pop(false),
+                child: Text(l10n.actionCancel),
+              ),
+              CupertinoDialogAction(
+                key: key,
+                isDestructiveAction: true,
+                onPressed: () => Navigator.of(dialog).pop(true),
+                child: Text(action),
+              ),
+            ],
+          ),
+        ) ==
+        true;
+    if (!await ask(
+      l10n.peopleBatchDeleteTitle(picked.length),
+      l10n.personProfileDeleteConfirmBody,
+      l10n.actionDelete,
+      const ValueKey('peopleBatchDeleteConfirm'),
+    )) {
+      return;
+    }
+    if (!mounted) return;
+    if (!await ask(
+      l10n.peopleBatchDeleteAgainTitle(picked.length),
+      picked.map((p) => p.name).join(', '),
+      l10n.peopleBatchDeleteAgain(picked.length),
+      const ValueKey('peopleBatchDeleteConfirmAgain'),
+    )) {
+      return;
+    }
+    final blocked = await peopleWithHiddenFolders(widget.assetRecordStore, {
+      for (final p in picked) p.id: await widget.personStore.aliasesOf(p.id),
+    });
+    for (final person in picked) {
+      if (blocked.contains(person.id)) continue;
+      await widget.personStore.remove(person.id);
+      await forgetPersonFaces(
+        person.id,
+        analysisStore: widget.faceIdentity?.analysisStore,
+      );
+    }
+    if (!mounted) return;
+    _endSelecting();
+    await _reload();
+    if (blocked.isNotEmpty && mounted) {
+      await _note(
+        l10n.peopleBatchDeleteBlocked(
+          picked
+              .where((p) => blocked.contains(p.id))
+              .map((p) => p.name)
+              .join(', '),
+        ),
+      );
+    }
+  }
+
+  /// Asks which picked person stays; the rest fold into them.
+  Future<void> _mergePicked() async {
+    final picked = [
+      for (final person in _people)
+        if (_picked.contains(person.id)) person,
+    ];
+    if (picked.length < 2) return;
+    final keep = await _chooseKeep(picked);
+    if (keep == null || !mounted) return;
+    final merged = await mergePeopleInto(
+      context,
+      keep: keep,
+      gone: [
+        for (final p in picked)
+          if (p.id != keep.id) p,
+      ],
+      personStore: widget.personStore,
+      assetRecordStore: widget.assetRecordStore,
+      aiAnalysisStore: widget.aiAnalysisStore,
+    );
+    if (!mounted) return;
+    if (merged) _endSelecting();
+    await _reload();
+  }
+
+  Future<Person?> _chooseKeep(List<Person> picked) {
+    final l10n = AppLocalizations.of(context)!;
+    return showCupertinoModalPopup<Person>(
+      context: context,
+      builder: (sheet) => CupertinoActionSheet(
+        title: Text(l10n.peopleMergeKeepTitle),
+        message: Text(l10n.peopleMergeKeepBody),
+        actions: [
+          for (final person in picked)
+            CupertinoActionSheetAction(
+              key: ValueKey('peopleMergeKeep-${person.id}'),
+              onPressed: () => Navigator.of(sheet).pop(person),
+              child: Text(
+                '${person.name} · '
+                '${l10n.mergePeoplePhotos(_counts[person.id] ?? 0)}',
+              ),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheet).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+  }
+
+  // ------------------------------------------------------------ batch edit
+
+  /// One value set on everyone picked: First met, Last seen, or a group.
+  Future<void> _editPicked() async {
+    final l10n = AppLocalizations.of(context)!;
+    final action = await showCupertinoModalPopup<String>(
+      context: context,
+      builder: (sheet) => CupertinoActionSheet(
+        title: Text(l10n.selectionTitle(_picked.length)),
+        actions: [
+          for (final (key, label) in [
+            ('firstMet', l10n.peopleBatchSetFirstMet),
+            ('lastSeen', l10n.peopleBatchSetLastSeen),
+            ('group', l10n.peopleBatchAddToGroup),
+          ])
+            CupertinoActionSheetAction(
+              key: ValueKey('peopleEdit-$key'),
+              onPressed: () => Navigator.of(sheet).pop(key),
+              child: Text(label),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheet).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (!mounted || action == null) return;
+    switch (action) {
+      case 'firstMet':
+        await _setFixedOnPicked(PersonEventType.firstMet, l10n.eventsFirstMet);
+      case 'lastSeen':
+        await _setFixedOnPicked(PersonEventType.lastSeen, l10n.eventsLastSeen);
+      case 'group':
+        await _addPickedToGroup();
+    }
+  }
+
+  Future<DateTime?> _pickDate(String title) {
+    final l10n = AppLocalizations.of(context)!;
+    var value = DateTime.now();
+    return showCupertinoModalPopup<DateTime>(
+      context: context,
+      builder: (sheet) => Container(
+        height: 300,
+        color: CupertinoDynamicColor.resolve(
+          CupertinoColors.systemBackground,
+          sheet,
+        ),
+        child: SafeArea(
+          top: false,
+          child: Column(
+            children: [
+              Row(
+                children: [
+                  CupertinoButton(
+                    onPressed: () => Navigator.of(sheet).pop(),
+                    child: Text(l10n.actionCancel),
+                  ),
+                  Expanded(
+                    child: Text(
+                      title,
+                      textAlign: TextAlign.center,
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                  ),
+                  CupertinoButton(
+                    key: const ValueKey('peopleEditDateDone'),
+                    onPressed: () => Navigator.of(sheet).pop(value),
+                    child: Text(l10n.selectionDone),
+                  ),
+                ],
+              ),
+              Expanded(
+                child: CupertinoDatePicker(
+                  mode: CupertinoDatePickerMode.date,
+                  initialDateTime: value,
+                  maximumDate: DateTime.now().add(const Duration(days: 1)),
+                  onDateTimeChanged: (d) => value = d,
+                ),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+
+  /// Bounded by the people picked: a read and a write each.
+  Future<void> _setFixedOnPicked(PersonEventType type, String title) async {
+    final at = await _pickDate(title);
+    if (at == null || !mounted) return;
+    for (final id in _picked) {
+      final events = await widget.personStore.eventsFor(id);
+      final had = events.where((e) => e.type == type).firstOrNull;
+      await widget.personStore.saveEvent(
+        PersonEvent(
+          id: had?.id ?? widget.personStore.newId(),
+          personId: id,
+          type: type,
+          at: at,
+          tags: had?.tags ?? const [],
+          notes: had?.notes ?? '',
+        ),
+        scope: PersonScope.open,
+      );
+    }
+    if (!mounted) return;
+    _endSelecting();
+    await _reload();
+  }
+
+  Future<void> _addPickedToGroup() async {
+    final l10n = AppLocalizations.of(context)!;
+    final groups = _groups.keys.toList()
+      ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final group = await showSearchPickerSheetOf<PersonGroup>(
+      context: context,
+      title: l10n.peopleBatchAddToGroup,
+      options: groups,
+      labelOf: (g) => g.name,
+      autofocus: false,
+      createLabel: (query) =>
+          query.trim().isEmpty ||
+              groups.any((g) => g.name.toLowerCase() == query.toLowerCase())
+          ? null
+          : l10n.personPickerNewNamed(query.trim()),
+      onCreate: (query) async => PersonGroup(
+        id: widget.personStore.newId(),
+        name: query.trim(),
+        kind: GroupKind.circle,
+      ),
+    );
+    if (group == null || !mounted) return;
+    for (final id in _picked) {
+      await widget.personStore.joinGroup(id, group, scope: PersonScope.open);
+    }
+    if (!mounted) return;
+    _endSelecting();
+    await _reload();
+  }
+
+  // ------------------------------------------------------------ row menu
+
+  Future<void> _personMenu(Person person) async {
+    final l10n = AppLocalizations.of(context)!;
+    final action = await showCupertinoModalPopup<String>(
+      context: context,
+      builder: (sheet) => CupertinoActionSheet(
+        title: Text(person.name),
+        actions: [
+          for (final (key, label) in [
+            ('select', l10n.peopleMenuSelect),
+            ('rename', l10n.peopleMenuRename),
+            ('merge', l10n.peopleMenuMerge),
+            ('hide', l10n.peopleMenuHideAll),
+          ])
+            CupertinoActionSheetAction(
+              key: ValueKey('peopleMenu-$key'),
+              onPressed: () => Navigator.of(sheet).pop(key),
+              child: Text(label),
+            ),
+          CupertinoActionSheetAction(
+            key: const ValueKey('peopleMenu-delete'),
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(sheet).pop('delete'),
+            child: Text(l10n.personProfileDeletePerson),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheet).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    switch (action) {
+      case 'select':
+        setState(() {
+          _selecting = true;
+          _picked = {person.id};
+        });
+      case 'rename':
+        await _rename(person);
+      case 'merge':
+        await _mergeWith(person);
+      case 'hide':
+        await _hidePeople({person.id});
+      case 'delete':
+        await _delete(person);
+    }
+  }
+
+  Future<void> _rename(Person person) async {
+    final l10n = AppLocalizations.of(context)!;
+    final controller = TextEditingController(text: person.name);
+    final name = await showCupertinoDialog<String>(
+      context: context,
+      builder: (dialog) => CupertinoAlertDialog(
+        title: Text(l10n.peopleMenuRename),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: CupertinoTextField(
+            key: const ValueKey('peopleRenameField'),
+            controller: controller,
+            autofocus: true,
+            onSubmitted: (v) => Navigator.of(dialog).pop(v),
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialog).pop(),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            key: const ValueKey('peopleRenameSave'),
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(dialog).pop(controller.text),
+            child: Text(l10n.actionOk),
+          ),
+        ],
+      ),
+    );
+    controller.dispose();
+    final trimmed = name?.trim() ?? '';
+    if (trimmed.isEmpty || trimmed == person.name || !mounted) return;
+    await widget.personStore.update(person.copyWith(name: trimmed));
+    if (mounted) await _reload();
+  }
+
+  /// Picks any number of others, then who of them all stays.
+  Future<void> _mergeWith(Person person) async {
+    final l10n = AppLocalizations.of(context)!;
+    final others = [
+      for (final p in _people)
+        if (p.id != person.id) p,
+    ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+    final chosen = await showSearchPickerSheetMulti<Person>(
+      context: context,
+      title: l10n.peopleMergeWithTitle(person.name),
+      options: others,
+      labelOf: (p) =>
+          '${p.name} · ${l10n.mergePeoplePhotos(_counts[p.id] ?? 0)}',
+    );
+    if (chosen == null || chosen.isEmpty || !mounted) return;
+    final all = [person, ...chosen];
+    final keep = await _chooseKeep(all);
+    if (keep == null || !mounted) return;
+    await mergePeopleInto(
+      context,
+      keep: keep,
+      gone: [
+        for (final p in all)
+          if (p.id != keep.id) p,
+      ],
+      personStore: widget.personStore,
+      assetRecordStore: widget.assetRecordStore,
+      aiAnalysisStore: widget.aiAnalysisStore,
+    );
+    if (mounted) await _reload();
+  }
+
+  /// As the profile's Delete: refused while their hidden folder holds
+  /// photos, since its code dies with their id.
+  Future<void> _delete(Person person) async {
+    final l10n = AppLocalizations.of(context)!;
+    if (await personHasHiddenFolder(
+      widget.assetRecordStore,
+      person.id,
+      aliases: await widget.personStore.aliasesOf(person.id),
+    )) {
+      if (!mounted) return;
+      return _note(l10n.personProfileDeleteBlockedBody);
+    }
+    if (!mounted) return;
+    final ok = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialog) => CupertinoAlertDialog(
+        title: Text(l10n.personProfileDeleteConfirmTitle),
+        content: Text(l10n.personProfileDeleteConfirmBody),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            key: const ValueKey('peopleDeleteConfirm'),
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: Text(l10n.actionDelete),
+          ),
+        ],
+      ),
+    );
+    if (ok != true || !mounted) return;
+    await widget.personStore.remove(person.id);
+    await forgetPersonFaces(
+      person.id,
+      analysisStore: widget.faceIdentity?.analysisStore,
+    );
+    if (mounted) await _reload();
+  }
+
+  /// Opens the same page Flagged Items does, so the run is the queue's:
+  /// the bucket is checked live before any local copy goes.
+  Future<void> _freeUpPicked() async {
+    final queue = widget.fixQueue;
+    if (queue == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    final flags = [
+      for (final r in _photosOfPicked().records)
+        if (r.isFullyBackedUp && worthMeasuring(r))
+          Flag.storage(
+            StorageItem(
+              record: r,
+              bytes: 0,
+              name: r.localId,
+              appOwned: r.sourcePath != null,
+              issues: const {StorageIssue.onDevice},
+              fixes: const [StorageFix.removeFromDevice],
+            ),
+          ),
+    ];
+    if (flags.isEmpty) return _note(l10n.peopleBatchNothingToFree);
+    await _openAction(queue, FlagSolution.removeFromDevice, flags);
+  }
+
+  /// What the last storage scan found worth shrinking among their photos.
+  Future<void> _optimizePicked() async {
+    final queue = widget.fixQueue;
+    if (queue == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    final ids = _photosOfPicked().owner.keys.toSet();
+    final scan = await queue.advisor.cached();
+    if (!mounted) return;
+    final flags = [
+      for (final item in scan.items)
+        if (ids.contains(item.record.localId) &&
+            item.fixes.contains(StorageFix.optimize))
+          Flag.storage(item.withFix(StorageFix.optimize)),
+    ];
+    if (flags.isEmpty) return _note(l10n.peopleBatchNothingToOptimize);
+    await _openAction(queue, FlagSolution.optimize, flags);
+  }
+
+  Future<void> _openAction(
+    FixQueue queue,
+    FlagSolution solution,
+    List<Flag> flags,
+  ) async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => FlaggedActionScreen(
+          solution: solution,
+          flags: flags,
+          queue: queue,
+          onOpenAsset: widget.onOpenAsset,
+        ),
+      ),
+    );
+    if (mounted) await _reload();
+  }
+
+  /// Bumped on every reload, so the faces page re-reads [_unnamedFaces].
+  final _facesTick = ValueNotifier<int>(0);
+  final _scroll = ScrollController();
+
+  /// Folded to [_foldAt] until asked; a search or filter shows every match.
+  bool _showAllPeople = false;
+  bool _showBare = false;
+  static const _foldAt = 20;
+
+  /// The faces get their own page; here they are one row, above the list.
+  void _openFaces() {
+    final l10n = AppLocalizations.of(context)!;
+    Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => CupertinoPageScaffold(
+          navigationBar: CupertinoNavigationBar(
+            middle: Text(l10n.peopleUnnamedHeading),
+          ),
+          child: SafeArea(
+            child: ValueListenableBuilder<int>(
+              valueListenable: _facesTick,
+              builder: (_, _, _) => ListView(
+                key: const ValueKey('people-faces-page'),
+                children: [..._unnamedFaceRows(l10n)],
+              ),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
+  Widget _facesRow(AppLocalizations l10n) => CupertinoListTile(
+    key: const ValueKey('people-faces-row'),
+    leading: const Icon(
+      CupertinoIcons.person_crop_circle_badge_plus,
+      color: CupertinoColors.systemIndigo,
+    ),
+    title: Text(l10n.peopleUnnamedHeading),
+    trailing: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '$_facesFound',
+          style: const TextStyle(color: CupertinoColors.systemGrey),
+        ),
+        const SizedBox(width: 4),
+        const Icon(
+          CupertinoIcons.chevron_forward,
+          size: 18,
+          color: CupertinoColors.systemGrey2,
+        ),
+      ],
+    ),
+    onTap: _openFaces,
+  );
 
   List<Widget> _unnamedFaceRows(AppLocalizations l10n) => [
     Padding(
@@ -737,13 +1472,23 @@ class _PeopleScreenState extends State<PeopleScreen> {
       context: context,
       builder: (sheet) => CupertinoActionSheet(
         actions: [
+          if (_group case final group?)
+            CupertinoActionSheetAction(
+              key: const ValueKey('peopleDeleteGroup'),
+              isDestructiveAction: true,
+              onPressed: () {
+                Navigator.of(sheet).pop();
+                _deleteGroup(group);
+              },
+              child: Text(l10n.peopleDeleteGroup(group.name)),
+            ),
           CupertinoActionSheetAction(
-            key: const ValueKey('peopleSortMenu'),
+            key: const ValueKey('peopleSelectMode'),
             onPressed: () {
               Navigator.of(sheet).pop();
-              _showSort();
+              setState(() => _selecting = true);
             },
-            child: Text(l10n.peopleSortMenu),
+            child: Text(l10n.peopleSelectMenu),
           ),
           CupertinoActionSheetAction(
             key: const ValueKey('peopleAddPerson'),
@@ -790,170 +1535,463 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final query = _query.trim().toLowerCase();
+    final now = DateTime.now();
     final filtered = [
       for (final person in _people)
-        if (query.isEmpty || person.name.toLowerCase().contains(query))
-          if (_matchesFilter(person)) person,
+        if (query.isEmpty ||
+            person.name.toLowerCase().contains(query) ||
+            (_formerNames[person.id] ?? const []).any(
+              (n) => n.toLowerCase().contains(query),
+            ))
+          if (_matchesFilter(person, now)) person,
     ];
+    final narrowed =
+        query.isNotEmpty || _gender != null || _met != null || _group != null;
+    // No visible photo: one row to open, unless searched or filtered for,
+    // or nobody has one yet.
+    final fold = !narrowed && filtered.any((p) => (_counts[p.id] ?? 0) > 0);
+    final main = [
+      for (final p in filtered)
+        if (!fold || (_counts[p.id] ?? 0) > 0) p,
+    ];
+    final bare = [
+      for (final p in filtered)
+        if (fold && (_counts[p.id] ?? 0) == 0) p,
+    ];
+    final folded = _showAllPeople || narrowed
+        ? main
+        : main.take(_foldAt).toList();
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(l10n.peopleScreenTitle),
-        trailing: CupertinoButton(
-          key: const ValueKey('peopleMenu'),
-          padding: EdgeInsets.zero,
-          onPressed: _showMenu,
-          child: const Icon(CupertinoIcons.ellipsis_circle),
-        ),
+        leading: _selecting
+            ? SelectAllButton(
+                total: filtered.length,
+                selectedCount: _picked.length,
+                onSelectNext: () =>
+                    setState(() => _picked = {for (final p in filtered) p.id}),
+                onDeselectAll: () => setState(() => _picked = const {}),
+              )
+            : null,
+        trailing: _selecting
+            ? SelectionDoneButton(
+                key: const ValueKey('peopleSelectionDone'),
+                onPressed: _endSelecting,
+              )
+            : CupertinoButton(
+                key: const ValueKey('peopleMenu'),
+                padding: EdgeInsets.zero,
+                onPressed: _showMenu,
+                child: const Icon(CupertinoIcons.ellipsis_circle),
+              ),
       ),
       child: SafeArea(
-        child: ListView(
+        child: Stack(
           children: [
-            if (_people.isNotEmpty)
-              Padding(
-                padding: const EdgeInsets.symmetric(
-                  horizontal: 16,
-                  vertical: 8,
-                ),
-                child: CupertinoSearchTextField(
-                  // Not autofocused: the page is a list you came to read,
-                  // and a keyboard covering half of it on arrival is a
-                  // dismissal to do before you can look at anything.
-                  onChanged: (v) => setState(() => _query = v),
-                ),
-              ),
-            ?_filterChips(l10n),
-            if (_people.isNotEmpty) _sectionHeading(l10n.peopleSectionNamed),
-            if (!_loaded)
-              const Padding(
-                padding: EdgeInsets.only(top: 48),
-                child: CupertinoActivityIndicator(),
-              )
-            else if (_people.isEmpty && _unnamedFaces.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 48),
-                child: Center(
-                  child: Text(
-                    l10n.peopleEmpty,
-                    style: const TextStyle(color: CupertinoColors.systemGrey),
-                  ),
-                ),
-              )
-            else if (_people.isNotEmpty && filtered.isEmpty)
-              Padding(
-                padding: const EdgeInsets.only(top: 48),
-                child: Center(
-                  child: Text(
-                    l10n.peopleSearchEmpty,
-                    style: const TextStyle(color: CupertinoColors.systemGrey),
-                  ),
-                ),
-              )
-            else
-              for (final person in filtered)
-                CupertinoListTile(
-                  key: ValueKey(person.id),
-                  // Same size as the faces below, and for the same
-                  // reason: `CupertinoListTile` clamps its leading widget
-                  // to 28pt unless told, so a named person's 44 was being
-                  // thrown away and the two halves of one list were
-                  // drawn at two different scales.
-                  leadingSize: _faceSize + 4,
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
-                  ),
-                  leading: PersonAvatar.forPerson(
-                    assetRecordStore: widget.assetRecordStore,
-                    person: person,
-                    firstTaggedLocalId: _firstPhoto[person.id],
-                    records: _recordsById,
-                    size: _faceSize,
-                  ),
-                  title: Text(person.name),
-                  subtitle: switch ((
-                    _sort,
-                    _firstKnown[person.id],
-                    _lastKnown[person.id],
-                  )) {
-                    (PeopleSort.firstMet, final at?, _) => Text(
-                      l10n.peopleMetOn(DateFormat.yMMMd().format(at)),
-                    ),
-                    (PeopleSort.lastSeen, _, final at?) => Text(
-                      l10n.peopleSeenOn(DateFormat.yMMMd().format(at)),
-                    ),
-                    _ => null,
-                  },
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      Text(
-                        '${_counts[person.id] ?? 0}',
-                        style: const TextStyle(
-                          color: CupertinoColors.systemGrey,
-                        ),
-                      ),
-                      const SizedBox(width: 4),
-                      const Icon(
-                        CupertinoIcons.chevron_forward,
-                        size: 18,
-                        color: CupertinoColors.systemGrey2,
-                      ),
-                    ],
-                  ),
-                  onTap: () => _openPerson(person),
-                ),
-            if (_groups.isNotEmpty) ...[
-              _sectionHeading(l10n.peopleSectionGroups),
-              ..._groupRows(l10n),
-            ],
-            // Its own heading already reads "Faces to Name".
-            if (_unnamedFaces.isNotEmpty && query.isEmpty)
-              ..._unnamedFaceRows(l10n),
-            const SizedBox(height: 16),
-            if (widget.analyzeQueue case final queue?)
-              ValueListenableBuilder<int>(
-                valueListenable: queue.remaining,
-                builder: (context, remaining, _) => CupertinoListTile(
-                  leading: const Icon(
-                    CupertinoIcons.wand_stars,
-                    color: CupertinoColors.systemIndigo,
-                  ),
-                  title: Text(l10n.collectionsAnalyzeQueueRow),
-                  trailing: Row(
-                    mainAxisSize: MainAxisSize.min,
-                    children: [
-                      if (remaining > 0)
-                        Text(
-                          '$remaining',
-                          style: const TextStyle(
-                            color: CupertinoColors.systemGrey,
-                          ),
-                        ),
-                      const SizedBox(width: 4),
-                      const Icon(
-                        CupertinoIcons.chevron_forward,
-                        size: 18,
-                        color: CupertinoColors.systemGrey2,
-                      ),
-                    ],
-                  ),
-                  onTap: () => Navigator.of(context).push(
-                    CupertinoPageRoute<void>(
-                      builder: (_) => AnalyzeQueueScreen(
-                        queue: queue,
-                        onOpenAsset: widget.onOpenAsset,
-                      ),
-                    ),
-                  ),
+            Positioned.fill(
+              child: _list(l10n, query, filtered, main, folded, bare),
+            ),
+            if (_selecting)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: _PeopleSelectionBar(
+                  count: _picked.length,
+                  onHide: _hidePicked,
+                  onUnhide: _unhidePicked,
+                  onMerge: _mergePicked,
+                  onEdit: _editPicked,
+                  onDelete: _deletePicked,
+                  onFreeUp: widget.fixQueue == null ? null : _freeUpPicked,
+                  onOptimize: widget.fixQueue == null ? null : _optimizePicked,
                 ),
               ),
-            const SizedBox(height: 24),
           ],
         ),
       ),
     );
   }
+
+  Widget _personRow(AppLocalizations l10n, Person person) => GestureDetector(
+    key: ValueKey('people-row-${person.id}'),
+    onLongPress: _selecting ? null : () => _personMenu(person),
+    child: CupertinoListTile(
+      key: ValueKey(person.id),
+      // Same size as the faces below, and for the same
+      // reason: `CupertinoListTile` clamps its leading widget
+      // to 28pt unless told, so a named person's 44 was being
+      // thrown away and the two halves of one list were
+      // drawn at two different scales.
+      leadingSize: _faceSize + 4,
+      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+      leading: PersonAvatar.forPerson(
+        assetRecordStore: widget.assetRecordStore,
+        person: person,
+        firstTaggedLocalId: _firstPhoto[person.id],
+        records: _recordsById,
+        size: _faceSize,
+      ),
+      title: Text(person.name),
+      subtitle: switch ((
+        _sort,
+        _firstKnown[person.id],
+        _lastKnown[person.id],
+      )) {
+        (PeopleSort.firstMet, final at?, _) => Text(
+          l10n.peopleMetOn(DateFormat.yMMMd().format(at)),
+        ),
+        (PeopleSort.lastSeen, _, final at?) => Text(
+          l10n.peopleSeenOn(DateFormat.yMMMd().format(at)),
+        ),
+        _ => null,
+      },
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${_counts[person.id] ?? 0}',
+            style: const TextStyle(color: CupertinoColors.systemGrey),
+          ),
+          const SizedBox(width: 4),
+          if (_selecting)
+            Icon(
+              _picked.contains(person.id)
+                  ? CupertinoIcons.checkmark_circle_fill
+                  : CupertinoIcons.circle,
+              key: ValueKey('people-pick-${person.id}'),
+              size: 22,
+              color: _picked.contains(person.id)
+                  ? CupertinoTheme.of(context).primaryColor
+                  : CupertinoColors.systemGrey2,
+            )
+          else
+            const Icon(
+              CupertinoIcons.chevron_forward,
+              size: 18,
+              color: CupertinoColors.systemGrey2,
+            ),
+        ],
+      ),
+      onTap: _selecting ? () => _toggle(person) : () => _openPerson(person),
+    ),
+  );
+
+  Widget _list(
+    AppLocalizations l10n,
+    String query,
+    List<Person> filtered,
+    List<Person> main,
+    List<Person> folded,
+    List<Person> bare,
+  ) => ListView(
+    // Its own controller, not the primary one: a tap just above the ⋯
+    // button reads as a status-bar tap and scrolled the list to the top.
+    controller: _scroll,
+    children: [
+      if (_people.isNotEmpty)
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          child: CupertinoSearchTextField(
+            // Not autofocused: the page is a list you came to read,
+            // and a keyboard covering half of it on arrival is a
+            // dismissal to do before you can look at anything.
+            onChanged: (v) => setState(() => _query = v),
+          ),
+        ),
+      if (_people.isNotEmpty) _filterRow(l10n),
+      if (_unnamedFaces.isNotEmpty && query.isEmpty) _facesRow(l10n),
+      if (_people.isNotEmpty) _sectionHeading(l10n.peopleSectionNamed),
+      if (!_loaded)
+        const Padding(
+          padding: EdgeInsets.only(top: 48),
+          child: CupertinoActivityIndicator(),
+        )
+      else if (_people.isEmpty && _unnamedFaces.isEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 48),
+          child: Center(
+            child: Text(
+              l10n.peopleEmpty,
+              style: const TextStyle(color: CupertinoColors.systemGrey),
+            ),
+          ),
+        )
+      else if (_people.isNotEmpty && filtered.isEmpty)
+        Padding(
+          padding: const EdgeInsets.only(top: 48),
+          child: Center(
+            child: Text(
+              l10n.peopleSearchEmpty,
+              style: const TextStyle(color: CupertinoColors.systemGrey),
+            ),
+          ),
+        )
+      else
+        for (final person in folded) _personRow(l10n, person),
+      if (folded.length < main.length)
+        CupertinoButton(
+          key: const ValueKey('people-show-all'),
+          onPressed: () => setState(() => _showAllPeople = true),
+          child: Text(l10n.peopleShowAll(main.length)),
+        ),
+      if (bare.isNotEmpty)
+        CupertinoListTile(
+          key: const ValueKey('people-no-photos-row'),
+          leading: const Icon(
+            CupertinoIcons.person_crop_circle,
+            color: CupertinoColors.systemGrey,
+          ),
+          title: Text(l10n.peopleNoPhotosRow),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${bare.length}',
+                style: const TextStyle(color: CupertinoColors.systemGrey),
+              ),
+              const SizedBox(width: 4),
+              Icon(
+                _showBare
+                    ? CupertinoIcons.chevron_down
+                    : CupertinoIcons.chevron_forward,
+                size: 18,
+                color: CupertinoColors.systemGrey2,
+              ),
+            ],
+          ),
+          onTap: () => setState(() => _showBare = !_showBare),
+        ),
+      if (_showBare)
+        for (final person in bare) _personRow(l10n, person),
+      const SizedBox(height: 16),
+      SizedBox(height: _selecting ? 140 : 24),
+    ],
+  );
 }
 
-/// How People is ordered; kept between visits.
-enum PeopleSort { photos, firstMet, lastSeen, name }
+class _PeopleSelectionBar extends StatelessWidget {
+  /// The rarer ones, and Delete away from a slip of the thumb.
+  void _more(BuildContext context, AppLocalizations l10n) {
+    void run(BuildContext sheet, VoidCallback action) {
+      Navigator.of(sheet).pop();
+      action();
+    }
+
+    showCupertinoModalPopup<void>(
+      context: context,
+      builder: (sheet) => CupertinoActionSheet(
+        title: Text(l10n.selectionTitle(count)),
+        actions: [
+          if (onFreeUp case final freeUp?)
+            CupertinoActionSheetAction(
+              key: const ValueKey('peopleBatchFreeUp'),
+              onPressed: () => run(sheet, freeUp),
+              child: Text(l10n.peopleBatchFreeUp),
+            ),
+          if (onOptimize case final optimize?)
+            CupertinoActionSheetAction(
+              key: const ValueKey('peopleBatchOptimize'),
+              onPressed: () => run(sheet, optimize),
+              child: Text(l10n.peopleBatchOptimize),
+            ),
+          CupertinoActionSheetAction(
+            key: const ValueKey('peopleBatchDelete'),
+            isDestructiveAction: true,
+            onPressed: () => run(sheet, onDelete),
+            child: Text(l10n.actionDelete),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheet).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+  }
+
+  const _PeopleSelectionBar({
+    required this.count,
+    required this.onHide,
+    required this.onUnhide,
+    required this.onMerge,
+    required this.onEdit,
+    required this.onDelete,
+    required this.onFreeUp,
+    required this.onOptimize,
+  });
+
+  final int count;
+  final VoidCallback onHide;
+  final VoidCallback onUnhide;
+  final VoidCallback onMerge;
+  final VoidCallback onEdit;
+  final VoidCallback onDelete;
+  final VoidCallback? onFreeUp;
+  final VoidCallback? onOptimize;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    Widget action(
+      IconData icon,
+      String label,
+      VoidCallback? onPressed,
+      Key key,
+    ) => Expanded(
+      child: CupertinoButton(
+        key: key,
+        padding: const EdgeInsets.symmetric(vertical: 8),
+        onPressed: count == 0 ? null : onPressed,
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Icon(icon, size: 22),
+            const SizedBox(height: 2),
+            Text(
+              label,
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(fontSize: 12),
+            ),
+          ],
+        ),
+      ),
+    );
+    return Container(
+      decoration: BoxDecoration(
+        color: CupertinoDynamicColor.resolve(
+          CupertinoColors.systemBackground,
+          context,
+        ),
+        border: Border(
+          top: BorderSide(
+            color: CupertinoDynamicColor.resolve(
+              CupertinoColors.separator,
+              context,
+            ),
+          ),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 8, 0),
+            child: Row(
+              children: [
+                Expanded(
+                  child: Text(
+                    count == 0
+                        ? l10n.peopleSelectHint
+                        : l10n.selectionTitle(count),
+                    style: const TextStyle(fontWeight: FontWeight.w600),
+                  ),
+                ),
+              ],
+            ),
+          ),
+          Row(
+            children: [
+              action(
+                CupertinoIcons.eye_slash,
+                l10n.libraryHide,
+                onHide,
+                const ValueKey('peopleBatchHide'),
+              ),
+              action(
+                CupertinoIcons.eye,
+                l10n.peopleBatchUnhide,
+                onUnhide,
+                const ValueKey('peopleBatchUnhide'),
+              ),
+              action(
+                CupertinoIcons.person_2,
+                l10n.peopleBatchMerge,
+                count < 2 ? null : onMerge,
+                const ValueKey('peopleBatchMerge'),
+              ),
+              action(
+                CupertinoIcons.pencil,
+                l10n.peopleBatchEdit,
+                onEdit,
+                const ValueKey('peopleBatchEdit'),
+              ),
+              action(
+                CupertinoIcons.ellipsis_circle,
+                l10n.selectionMore,
+                () => _more(context, l10n),
+                const ValueKey('peopleBatchMore'),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+}
+
+/// One dropdown in the filters row: its value when set, its name when not.
+class _FilterPill extends StatelessWidget {
+  const _FilterPill({
+    super.key,
+    required this.label,
+    required this.active,
+    required this.onTap,
+    this.icon,
+  });
+
+  final String label;
+  final bool active;
+  final VoidCallback onTap;
+  final IconData? icon;
+
+  @override
+  Widget build(BuildContext context) {
+    final accent = CupertinoTheme.of(context).primaryColor;
+    final color = active ? CupertinoColors.white : CupertinoColors.label;
+    return Padding(
+      padding: const EdgeInsets.only(right: 8),
+      child: GestureDetector(
+        onTap: onTap,
+        child: Container(
+          padding: const EdgeInsets.fromLTRB(12, 6, 8, 6),
+          decoration: BoxDecoration(
+            color: active
+                ? accent
+                : CupertinoDynamicColor.resolve(
+                    CupertinoColors.tertiarySystemFill,
+                    context,
+                  ),
+            borderRadius: BorderRadius.circular(16),
+          ),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              if (icon != null) ...[
+                Icon(
+                  icon,
+                  size: 14,
+                  color: CupertinoDynamicColor.resolve(color, context),
+                ),
+                const SizedBox(width: 4),
+              ],
+              Text(
+                label,
+                style: TextStyle(
+                  fontSize: 14,
+                  color: CupertinoDynamicColor.resolve(color, context),
+                ),
+              ),
+              Icon(
+                CupertinoIcons.chevron_down,
+                size: 12,
+                color: CupertinoDynamicColor.resolve(color, context),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}

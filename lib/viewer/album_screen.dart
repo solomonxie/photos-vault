@@ -395,8 +395,25 @@ class _AlbumScreenState extends State<AlbumScreen> {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(_album.name),
+        leading: _selecting
+            ? ValueListenableBuilder(
+                valueListenable: _picked,
+                builder: (context, picked, _) => SelectAllButton(
+                  total: _records.length,
+                  selectedCount: picked.length,
+                  onSelectNext: () => _picked.value = selectNextBatch(
+                    _records.reversed.map((r) => r.localId),
+                    picked,
+                  ),
+                  onDeselectAll: () => _picked.value = const {},
+                ),
+              )
+            : null,
         trailing: _selecting
-            ? null
+            ? SelectionDoneButton(
+                key: const ValueKey('albumSelectionDone'),
+                onPressed: _endSelecting,
+              )
             : Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
@@ -428,15 +445,6 @@ class _AlbumScreenState extends State<AlbumScreen> {
                   valueListenable: _picked,
                   builder: (context, picked, _) => _AlbumSelectionBar(
                     count: picked.length,
-                    selectAll: SelectAllButton(
-                      total: _records.length,
-                      selectedCount: picked.length,
-                      onSelectNext: () => _picked.value = selectNextBatch(
-                        _records.reversed.map((r) => r.localId),
-                        picked,
-                      ),
-                      onDeselectAll: () => _picked.value = const {},
-                    ),
                     onRemove: _removeSelected,
                     onHide: _hideSelected,
                     onFavorite: _favoriteSelected,
@@ -451,7 +459,6 @@ class _AlbumScreenState extends State<AlbumScreen> {
                             _endSelecting();
                           }
                         : null,
-                    onDone: _endSelecting,
                   ),
                 ),
               ),
@@ -618,7 +625,6 @@ class _AlbumScreenState extends State<AlbumScreen> {
 class _AlbumSelectionBar extends StatelessWidget {
   const _AlbumSelectionBar({
     required this.count,
-    required this.selectAll,
     required this.onRemove,
     required this.onHide,
     required this.onFavorite,
@@ -626,11 +632,9 @@ class _AlbumSelectionBar extends StatelessWidget {
     required this.onArchive,
     required this.onDelete,
     required this.onCover,
-    required this.onDone,
   });
 
   final int count;
-  final Widget selectAll;
   final VoidCallback onRemove;
   final VoidCallback onHide;
   final VoidCallback onFavorite;
@@ -640,7 +644,6 @@ class _AlbumSelectionBar extends StatelessWidget {
 
   /// One photo picked: it can be the cover.
   final VoidCallback? onCover;
-  final VoidCallback onDone;
 
   @override
   Widget build(BuildContext context) {
@@ -694,13 +697,6 @@ class _AlbumSelectionBar extends StatelessWidget {
                         : l10n.selectionTitle(count),
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
-                ),
-                selectAll,
-                CupertinoButton(
-                  key: const ValueKey('albumSelectionDone'),
-                  padding: EdgeInsets.zero,
-                  onPressed: onDone,
-                  child: Text(l10n.selectionDone),
                 ),
               ],
             ),

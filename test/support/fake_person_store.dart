@@ -34,7 +34,67 @@ class FakePersonStore implements PersonStore {
   }
 
   @override
-  Future<void> update(Person person) async => _people[person.id] = person;
+  Future<void> update(Person person) async {
+    final old = _people[person.id];
+    if (old != null && old.name != person.name) {
+      _log(person.id, 'name', old.name, person.name);
+    }
+    _people[person.id] = person;
+  }
+
+  /// Names and merges only; the real store's triggers log the rest.
+  final Map<String, List<PersonChange>> _changes = {};
+
+  void _log(String id, String kind, String? before, String? after) => _changes
+      .putIfAbsent(id, () => [])
+      .insert(
+        0,
+        PersonChange(
+          at: DateTime.now(),
+          kind: kind,
+          before: before,
+          after: after,
+        ),
+      );
+
+  @override
+  Future<void> markSeen(String personId, DateTime at) async {
+    final last = (await eventsFor(personId))
+        .where((e) => e.isLastSeen)
+        .firstOrNull;
+    if (last?.at case final was? when !at.isAfter(was)) return;
+    await saveEvent(
+      PersonEvent(
+        id: last?.id ?? newId(),
+        personId: personId,
+        type: PersonEventType.lastSeen,
+        at: at,
+      ),
+      scope: PersonScope.open,
+    );
+  }
+
+  @override
+  Future<List<PersonChange>> changesOf(String personId) async => [
+    ...?_changes[personId],
+  ];
+
+  @override
+  Future<Map<String, List<String>>> allFormerNames() async => {
+    for (final MapEntry(:key, :value) in _changes.entries)
+      if (_people[key] case final person?)
+        key: {
+          for (final c in value.reversed)
+            if ((c.kind == 'name' || c.kind == 'merged') &&
+                c.before != null &&
+                c.before != person.name)
+              c.before!,
+        }.toList(),
+  };
+
+  @override
+  Future<List<String>> formerNames(String personId) async =>
+      (await allFormerNames())[personId] ?? const [];
 
   /// Raw sealed rows, by person. The fake keeps them opaque, same as the
   /// real store does.
@@ -77,6 +137,13 @@ class FakePersonStore implements PersonStore {
     String groupId, {
     required PersonScope scope,
   }) async => groups[personId]?.removeWhere((g) => g.id == groupId);
+
+  @override
+  Future<void> deleteGroup(String groupId, {required PersonScope scope}) async {
+    for (final list in groups.values) {
+      list.removeWhere((g) => g.id == groupId);
+    }
+  }
 
   @override
   Future<List<PersonGroup>> groupsFor(
@@ -200,7 +267,34 @@ class FakePersonStore implements PersonStore {
       (sealedRows[id]?.isNotEmpty ?? false);
 
   @override
+  Future<PersonMergeOutcome> merge(String keepId, String goneId) async {
+    if (keepId == goneId ||
+        !_people.containsKey(keepId) ||
+        !_people.containsKey(goneId)) {
+      return PersonMergeOutcome.missing;
+    }
+    _members.putIfAbsent(keepId, () => {}).addAll(_members[goneId] ?? const {});
+    final carried = _aliases.remove(goneId) ?? const [];
+    final history = _changes.remove(goneId) ?? const [];
+    final goneName = _people[goneId]!.name;
+    await remove(goneId);
+    _changes.putIfAbsent(keepId, () => []).insertAll(0, history);
+    _log(keepId, 'merged', goneName, _people[keepId]!.name);
+    _aliases.putIfAbsent(keepId, () => []).addAll([...carried, goneId]);
+    return PersonMergeOutcome.merged;
+  }
+
+  final Map<String, List<String>> _aliases = {};
+
+  @override
+  Future<List<String>> aliasesOf(String personId) async => [
+    ...?_aliases[personId],
+  ];
+
+  @override
   Future<void> remove(String id) async {
+    _aliases.remove(id);
+    _changes.remove(id);
     _people.remove(id);
     _members.remove(id);
     _relationships.remove(id);
@@ -230,6 +324,11 @@ class FakePersonStore implements PersonStore {
   @override
   Future<void> removeAsset(String personId, String localId) async {
     _members[personId]?.remove(localId);
+  }
+
+  @override
+  Future<void> removeAssets(String personId, Iterable<String> localIds) async {
+    _members[personId]?.removeAll(localIds);
   }
 
   @override

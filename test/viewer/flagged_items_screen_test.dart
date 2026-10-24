@@ -155,6 +155,24 @@ void main() {
     expect(find.text('big.heic'), findsNothing, reason: 'files are a tap in');
   });
 
+  testWidgets('archived and backed up: offered off this iPhone, the rest '
+      'not', (tester) async {
+    final store = await seeded();
+    await store.setArchived(['small', 'unsent'], true);
+    await open(tester, store);
+
+    final row = find.byKey(const ValueKey('flagged-archived-on-phone'));
+    expect(row, findsOneWidget);
+    expect(
+      find.descendant(of: row, matching: find.text('1 photo')),
+      findsOneWidget,
+      reason: 'unsent is archived but not in the bucket yet',
+    );
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    expect(find.byType(FlaggedActionScreen), findsOneWidget);
+  });
+
   testWidgets('Rescan keeps the list on screen until the new one lands', (
     tester,
   ) async {
