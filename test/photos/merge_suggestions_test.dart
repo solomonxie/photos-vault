@@ -44,4 +44,38 @@ void main() {
       isEmpty,
     );
   });
+
+  test('names that sound or are spelt nearly alike, pinyin included', () {
+    expect(
+      pairs([
+        _p('1', 'Catherine'),
+        _p('2', 'Katherine'),
+        _p('3', '小明'),
+        _p('4', 'Xiao Ming'),
+        _p('5', 'Jonathon'),
+        _p('6', 'Jonathan'),
+        _p('7', '曾伟'),
+        _p('8', 'Zeng Wei'),
+      ]),
+      [
+        'Catherine+Katherine~',
+        '小明+Xiao Ming~',
+        'Jonathon+Jonathan~',
+        '曾伟+Zeng Wei~',
+      ],
+    );
+  });
+
+  test('homophones are flagged, different short names are not', () {
+    expect(pairs([_p('1', '小明'), _p('2', '晓明')]), ['小明+晓明~']);
+    expect(pairs([_p('1', 'Anna'), _p('2', 'Hana'), _p('3', 'Mike')]), isEmpty);
+  });
+
+  test('found off the UI isolate the same', () async {
+    final people = [_p('1', 'Steven'), _p('2', 'Stephen')];
+    expect(
+      [for (final s in await MergeSuggestion.find(people)) s.key],
+      ['1|2'],
+    );
+  });
 }
