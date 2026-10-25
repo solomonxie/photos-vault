@@ -12,54 +12,15 @@ import 'package:photos_vault/storage/asset_record.dart';
 import '../support/fake_ai_analysis_store.dart';
 import '../support/fake_asset_record_store.dart';
 
-/// Vision, without Vision: every photo has one face in the middle of it,
-/// and a descriptor derived from the path so two photos never look alike
-/// unless a test says so.
+/// Vision, without Vision: every photo has one face in the middle of it.
 class _FakeVision implements OnDeviceVisionService {
   int calls = 0;
-  final Map<String, List<double>> printsByPath = {};
-
-  /// Which space prints come back in; the fallback's when the model is out.
-  int pipeline = FaceDescriptor.currentPipeline;
-  int printCalls = 0;
-
-  @override
-  Future<FaceDescriptor> featurePrint(String path, {FaceRect? face}) async {
-    printCalls++;
-    return FaceDescriptor(
-      vector: Float32List.fromList(
-        printsByPath[path] ?? [path.hashCode.toDouble()],
-      ),
-      revision: pipeline == FaceDescriptor.currentPipeline
-          ? _currentSpace
-          : FaceDescriptor.combineRevision(1, pipeline),
-    );
-  }
 
   @override
   Future<bool> get isAvailable async => true;
 
   @override
-  Future<bool> get hasFaceModel async => false;
-
-  @override
-  Future<Object?> get faceModelStatus async => 'no model in tests';
-
-  @override
-  Future<List<FaceDescriptor>> featurePrints(
-    String path,
-    List<FaceRect> faces,
-  ) async => [for (final f in faces) await featurePrint(path, face: f)];
-
-  @override
-  Future<String?> get faceModelFailure async => modelFailure;
-
-  String? modelFailure;
-
-  @override
-  Future<int?> orientation(String path) async => orientations[path] ?? 1;
-
-  final Map<String, int> orientations = {};
+  Future<int?> orientation(String path) async => 1;
 
   @override
   Future<List<Uint8List>?> crops(
@@ -70,47 +31,15 @@ class _FakeVision implements OnDeviceVisionService {
   }) async => null;
 
   @override
-  Future<List<VisionFace>> faces(String path) async {
+  Future<List<VisionFace>> faces(String path) async =>
+      await facesOrNull(path) ?? const [];
+
+  @override
+  Future<List<VisionFace>?> facesOrNull(String source) async {
     calls++;
     return const [VisionFace(x: 0.3, y: 0.3, width: 0.4, height: 0.4)];
   }
-
-  /// Off: an older platform side, so [faces] answers and matching
-  /// describes. On: one render answers both.
-  bool combined = false;
-
-  /// Sources the combined call was asked about.
-  final combinedSources = <String>[];
-
-  @override
-  Future<List<({VisionFace face, FaceDescriptor print})>?> facesWithPrints(
-    String source, {
-    required double minArea,
-    required double padding,
-  }) async {
-    if (!combined) return null;
-    combinedSources.add(source);
-    calls++;
-    return [
-      (
-        face: const VisionFace(x: 0.3, y: 0.3, width: 0.4, height: 0.4),
-        print: FaceDescriptor(
-          vector: Float32List.fromList(
-            printsByPath[source] ?? [source.hashCode.toDouble()],
-          ),
-          revision: _currentSpace,
-        ),
-      ),
-    ];
-  }
 }
-
-/// The space this build describes faces in — a fake that answered from
-/// another one would be re-described on sight, which is the point of it.
-final _currentSpace = FaceDescriptor.combineRevision(
-  1,
-  FaceDescriptor.currentPipeline,
-);
 
 void main() {
   late FakeAssetRecordStore records;
@@ -212,23 +141,16 @@ void main() {
     expect(analyzer.withFaces.value, {'fine'});
   });
 
-  test(
-    'a photo of exactly one tagged person teaches what they look like',
-    () async {
-      await addPhoto('a');
-      final analyzer = build(
-        identity: FaceIdentityService(
-          analysisStore: analyses,
-          resolvePath: (record) async => '/tmp/${record.localId}.jpg',
-          vision: vision,
-        ),
-        taggedPeopleOf: (_) async => ['nina'],
-      );
-      analyzer.add(['a']);
-      await analyzer.idle;
-      expect(await analyses.hasDescriptorsFor('nina'), isTrue);
-    },
-  );
+  test('a photo of exactly one tagged person names its one face', () async {
+    await addPhoto('a');
+    final analyzer = build(
+      identity: FaceIdentityService(analysisStore: analyses),
+      taggedPeopleOf: (_) async => ['nina'],
+    );
+    analyzer.add(['a']);
+    await analyzer.idle;
+    expect(await analyses.faceOfPersonIn('a', 'nina'), isNotNull);
+  });
 
   test('a photo found empty under the old cutoff is looked at again', () async {
     await addPhoto('old-empty');
@@ -275,8 +197,6 @@ void main() {
       final analyzer = build(
         identity: FaceIdentityService(
           analysisStore: analyses,
-          resolvePath: (record) async => '/tmp/${record.localId}.jpg',
-          vision: vision,
           onSeen: (id, at) async => seen.add((id, at)),
         ),
         taggedPeopleOf: (_) async => ['nina'],

@@ -31,9 +31,7 @@ import '../photos/person.dart';
 import '../photos/people_order.dart';
 import '../photos/people_zip.dart' show PeopleZip;
 import '../photos/person_store.dart';
-import '../photos/face_grouping.dart';
 import '../photos/face_identity.dart';
-import '../photos/unnamed_faces.dart';
 import '../photos/photo_library_change.dart';
 import '../backup/app_snapshot.dart';
 import '../backup/bucket_backup.dart';
@@ -100,10 +98,8 @@ import 'resize_photos.dart';
 import 'select_all.dart';
 import 'people_screen.dart';
 import 'photo_grid_layout.dart';
-import 'face_group_screen.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
-import 'unnamed_face_card.dart';
 import 'private_album_gate.dart';
 import 'private_album_screen.dart';
 import 'recently_deleted_screen.dart';
@@ -501,7 +497,6 @@ class LibraryScreenState extends State<LibraryScreen>
   /// reference set every screen's suggestions are measured against.
   late final FaceIdentityService _faceIdentity = FaceIdentityService(
     analysisStore: _aiAnalysisStore,
-    resolvePath: _visionSourceFor,
     onSeen: _personStore.markSeen,
   );
 
@@ -537,16 +532,6 @@ class LibraryScreenState extends State<LibraryScreen>
   /// Each person's first visible photo — their picture until one is chosen.
   Map<String, String> _personFirstPhotos = const {};
 
-  /// Faces the app found and nobody has put a name to, newest first. They
-  /// sit in the People row beside the named profiles because that is where
-  /// somebody goes looking to name one — a face nobody can find is a face
-  /// nobody names, and the count alone ("3 people in this photo") was
-  /// never something you could tap.
-  List<UnnamedFace> _unnamedFaces = const [];
-
-  /// Enough to be worth scrolling, few enough that a fresh library doesn't
-  /// put a thousand strangers in front of the user's own albums.
-  static const _unnamedFacesShown = 20;
   bool _busy = false;
   bool _removingAppData = false;
 
@@ -706,8 +691,8 @@ class LibraryScreenState extends State<LibraryScreen>
       await PeopleZip.sweepLeftovers(await getTemporaryDirectory());
     });
     unawaited(_faceAnalyzer.load());
-    // The People row's strangers are read at [reload]: once the analyzer
-    // goes quiet for a moment, not per photo.
+    // A face linked by the analyzer can move People counts: reloaded once
+    // it goes quiet for a moment, not per photo.
     _facesFound = _faceAnalyzer.finished.listen((_) {
       _facesReload?.cancel();
       _facesReload = Timer(const Duration(seconds: 2), () {
@@ -1263,8 +1248,6 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  bool _findingFaces = false;
-
   /// Same people, same names, same order — the only things this screen
   /// draws them by.
   static bool _samePeople(List<Person> a, List<Person> b) {
@@ -1541,34 +1524,6 @@ class LibraryScreenState extends State<LibraryScreen>
       }
       _peopleSort = sort;
     }
-    final peopleChanged = !_samePeople(people, _people);
-    // People and the strangers among them only move when the library or
-    // the people do — and finding the strangers is the most expensive
-    // thing on this screen, so it does not run because a background round
-    // ticked. [faces] is for what changed somewhere this can't see: a
-    // photo analysed, a face named. A scan page adds photos nobody has
-    // looked at for faces yet: the strangers row only moves when one is
-    // hidden, binned or removed, the people change, or the analysis did.
-    var unnamed = _unnamedFaces;
-    final strangersStale =
-        firstLoad || faces || peopleChanged || delta.visibility;
-    // One at a time. A camera-roll scan reloads once a second, and each
-    // round would otherwise start another pass over every face in the
-    // library on top of the one still running.
-    if (strangersStale && !_findingFaces) {
-      _findingFaces = true;
-      try {
-        unnamed = (await findUnnamedFaces(
-          analysisStore: _aiAnalysisStore,
-          records: all,
-          taggedLocalIds: tagged,
-          peopleById: {for (final p in people) p.id: p.name},
-          limit: _unnamedFacesShown,
-        )).faces;
-      } finally {
-        _findingFaces = false;
-      }
-    }
     if (!mounted) return;
     _albumStamp = albumStamp;
     _albumsOf = albumsOf;
@@ -1581,8 +1536,7 @@ class LibraryScreenState extends State<LibraryScreen>
         identical(albumAssets, _albumAssets) &&
         mapEquals(builtInCovers, _builtInCovers) &&
         identical(people, _people) &&
-        identical(personPhotoCounts, _personPhotoCounts) &&
-        identical(unnamed, _unnamedFaces);
+        identical(personPhotoCounts, _personPhotoCounts);
     if (same) return;
     setState(() {
       _loaded = true;
@@ -1593,7 +1547,6 @@ class LibraryScreenState extends State<LibraryScreen>
       _people = people;
       _personPhotoCounts = personPhotoCounts;
       _personFirstPhotos = personFirstPhotos;
-      _unnamedFaces = unnamed;
     });
   }
 
@@ -1641,23 +1594,6 @@ class LibraryScreenState extends State<LibraryScreen>
     _recentlyAdded = index.recentlyAdded;
     _places = index.places;
     _deletedCount = index.deletedCount;
-  }
-
-  /// The card asks "who's this?", so a tap answers it. Opening the photo
-  /// instead was a detour to the same sheet two screens away.
-  Future<void> _nameFace(UnnamedFace face) async {
-    await Navigator.of(context).push<Person>(
-      CupertinoPageRoute(
-        builder: (_) => FaceGroupScreen(
-          seed: face,
-          personStore: _personStore,
-          assetRecordStore: assetRecordStore,
-          grouping: FaceGrouping(analysisStore: _aiAnalysisStore),
-          faceIdentity: _faceIdentity,
-        ),
-      ),
-    );
-    if (mounted) await reload(faces: true);
   }
 
   void _openGroup(String title, List<AssetRecord> records) => _push(
@@ -3280,7 +3216,7 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       ),
       SliverToBoxAdapter(
-        child: _people.isEmpty && _unnamedFaces.isEmpty
+        child: _people.isEmpty
             ? Padding(
                 padding: const EdgeInsets.symmetric(horizontal: 16),
                 child: Text(
@@ -3293,27 +3229,9 @@ class LibraryScreenState extends State<LibraryScreen>
                 child: ListView.separated(
                   scrollDirection: Axis.horizontal,
                   padding: const EdgeInsets.symmetric(horizontal: 16),
-                  // Named profiles first, then the strangers — the people
-                  // you know are what the row is for, and the faces after
-                  // them are the invitation to add more.
-                  itemCount: _people.length + _unnamedFaces.length,
+                  itemCount: _people.length,
                   separatorBuilder: (context, i) => const SizedBox(width: 12),
                   itemBuilder: (context, i) {
-                    if (i >= _people.length) {
-                      final face = _unnamedFaces[i - _people.length];
-                      return SizedBox(
-                        width: 100,
-                        child: UnnamedFaceCard(
-                          face: face,
-                          assetRecordStore: assetRecordStore,
-                          records: assetRecordStore.visibleById,
-                          label: face.hasSuggestion
-                              ? l10n.peopleSuggestedFace(face.suggestedName!)
-                              : l10n.peopleUnnamedFace,
-                          onTap: () => _nameFace(face),
-                        ),
-                      );
-                    }
                     final person = _people[i];
                     return SizedBox(
                       width: 100,

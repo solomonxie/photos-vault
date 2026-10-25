@@ -1,5 +1,4 @@
 import 'dart:io';
-import 'dart:math' as math;
 
 import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
@@ -21,30 +20,6 @@ class FaceCrops {
   static const padding = 0.45;
 
   static const _outputSize = 160;
-
-  /// How much room to leave around a box being *described* rather than
-  /// shown. Much tighter than [padding]: the descriptor is a general image
-  /// feature print, so whatever else is in the crop is in the answer, and a
-  /// generous margin around two people on the same beach describes the
-  /// beach. Not zero — Vision's box cuts the chin and hairline off, and
-  /// those are face, not background.
-  static const descriptorPadding = 0.08;
-
-  /// The box to hand Vision for a descriptor: [face] grown by
-  /// [descriptorPadding], squared off, and kept inside the frame.
-  static FaceRect descriptorRect(FaceRect face) {
-    final side =
-        math.max(face.width, face.height) * (1 + descriptorPadding * 2);
-    final centreX = face.x + face.width / 2;
-    final centreY = face.y + face.height / 2;
-    final box = math.min(side, 1.0);
-    return FaceRect(
-      (centreX - box / 2).clamp(0.0, 1.0 - box),
-      (centreY - box / 2).clamp(0.0, 1.0 - box),
-      box,
-      box,
-    );
-  }
 
   /// One square thumbnail per face, in the order they were found.
   /// Silently short on anything it can't decode — a missing crop is a face

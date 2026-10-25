@@ -211,6 +211,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 4),
               child: CupertinoSearchTextField(
+                autocorrect: false,
                 key: const ValueKey('conversationSearch'),
                 controller: _query,
                 placeholder: l10n.conversationsSearch,

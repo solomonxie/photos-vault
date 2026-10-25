@@ -8,10 +8,6 @@ import 'package:photos_vault/photos/conversation_file.dart';
 import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:photos_vault/photos/person_store.dart';
 
-import 'dart:typed_data';
-
-import 'package:photos_vault/photos/face_identity.dart';
-import 'package:photos_vault/photos/on_device_vision.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/photos/person_detail.dart';
 
@@ -44,190 +40,6 @@ Future<void> _openFaces(WidgetTester tester) async {
 }
 
 void main() {
-  /// A library with one photo, one face found in it, and — where [guess]
-  /// is given — a name the matcher put to that face.
-  Future<(FakeAiAnalysisStore, FakeAssetRecordStore)> seed({
-    String? guess,
-  }) async {
-    final records = FakeAssetRecordStore();
-    await records.upsert(localId: 'p1', contentHash: 'p1', platform: 'ios');
-    final analyses = FakeAiAnalysisStore();
-    await analyses.saveFaceCount(
-      localId: 'p1',
-      peopleCount: 1,
-      analyzedAt: DateTime(2026),
-      faces: const [_face],
-    );
-    await analyses.saveSuggestions('p1', {_face.encode(): guess});
-    return (analyses, records);
-  }
-
-  testWidgets('a face the app has a guess about reads as that name', (
-    tester,
-  ) async {
-    final personStore = FakePersonStore();
-    final nina = await personStore.create(name: 'Nina');
-    final (analyses, records) = await seed(guess: nina.id);
-
-    await tester.pumpWidget(
-      _wrap(
-        PeopleScreen(
-          personStore: personStore,
-          assetRecordStore: records,
-          aiAnalysisStore: analyses,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await _openFaces(tester);
-
-    expect(find.text('Nina?'), findsOneWidget);
-    expect(find.text("Who's this?"), findsNothing);
-    // The count answers "is the scan finding anything?", which the first
-    // twenty rows can't.
-    expect(find.text('1'), findsOneWidget);
-  });
-
-  testWidgets('faces that look alike are one circle, not three', (
-    tester,
-  ) async {
-    // Three photos of the same stranger is one question, not three.
-    final records = FakeAssetRecordStore();
-    final analyses = FakeAiAnalysisStore();
-    for (final (id, v) in [
-      // Newest first in the list is 'p1'; the bigger pile is 'q*', which
-      // is what makes this a test of ordering and not of arrival.
-      ('p1', [1.0, 0.0, 0.0]),
-      ('p2', [1.0, 0.02, 0.0]),
-      ('q1', [0.0, 1.0, 0.0]),
-      ('q2', [0.02, 1.0, 0.0]),
-      ('q3', [0.03, 1.0, 0.0]),
-    ]) {
-      await records.upsert(localId: id, contentHash: id, platform: 'ios');
-      await analyses.saveFaceCount(
-        localId: id,
-        peopleCount: 1,
-        analyzedAt: DateTime(2026),
-        faces: const [_face],
-      );
-      await analyses.saveDescriptor(
-        localId: id,
-        face: _face,
-        descriptor: FaceDescriptor(
-          vector: Float32List.fromList(v),
-          revision: FaceDescriptor.combineRevision(
-            1,
-            FaceDescriptor.currentPipeline,
-          ),
-        ),
-      );
-    }
-
-    await tester.pumpWidget(
-      _wrap(
-        PeopleScreen(
-          personStore: FakePersonStore(),
-          assetRecordStore: records,
-          aiAnalysisStore: analyses,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await _openFaces(tester);
-
-    // Two circles for five faces: two alike, and three alike.
-    expect(find.text("Who's this?"), findsNWidgets(2));
-    // The pile behind each circle says how big it is, and the biggest
-    // comes first — naming it sorts three photos, not two.
-    expect(find.text('3'), findsOneWidget);
-    expect(find.text('2'), findsOneWidget);
-    expect(
-      tester.getTopLeft(find.text('3')).dy,
-      lessThan(tester.getTopLeft(find.text('2')).dy),
-    );
-    // The heading still reports every face outstanding, not every circle.
-    expect(find.text('5'), findsOneWidget);
-  });
-
-  testWidgets('a face with no guess still reads as a question', (tester) async {
-    final (analyses, records) = await seed();
-
-    await tester.pumpWidget(
-      _wrap(
-        PeopleScreen(
-          personStore: FakePersonStore(),
-          assetRecordStore: records,
-          aiAnalysisStore: analyses,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await _openFaces(tester);
-
-    expect(find.text("Who's this?"), findsOneWidget);
-  });
-
-  testWidgets('a guess for somebody since deleted is a question again', (
-    tester,
-  ) async {
-    // The name is gone, so the guess can't be shown under it — and must
-    // not be shown under nothing either.
-    final (analyses, records) = await seed(guess: 'ghost');
-
-    await tester.pumpWidget(
-      _wrap(
-        PeopleScreen(
-          personStore: FakePersonStore(),
-          assetRecordStore: records,
-          aiAnalysisStore: analyses,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await _openFaces(tester);
-
-    expect(find.text("Who's this?"), findsOneWidget);
-  });
-
-  testWidgets('one tap accepts the guess, and Undo takes it back', (
-    tester,
-  ) async {
-    final personStore = FakePersonStore();
-    final nina = await personStore.create(name: 'Nina');
-    final (analyses, records) = await seed(guess: nina.id);
-    final identity = FaceIdentityService(
-      analysisStore: analyses,
-      resolvePath: (_) async => null,
-    );
-
-    await tester.pumpWidget(
-      _wrap(
-        PeopleScreen(
-          personStore: personStore,
-          assetRecordStore: records,
-          aiAnalysisStore: analyses,
-          faceIdentity: identity,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await _openFaces(tester);
-
-    await tester.tap(find.byIcon(CupertinoIcons.checkmark_circle_fill));
-    await tester.pumpAndSettle();
-
-    expect(await personStore.localIdsIn(nina.id), ['p1']);
-    // The row was the question; answering it takes the row away.
-    expect(find.text('Nina?'), findsNothing);
-    expect(find.text('Added to Nina'), findsOneWidget);
-
-    await tester.tap(find.text('Undo'));
-    await tester.pumpAndSettle();
-
-    expect(await personStore.localIdsIn(nina.id), isEmpty);
-    expect(find.text('Nina?'), findsOneWidget);
-  });
-
   testWidgets('shows the empty state with no people yet', (tester) async {
     await tester.pumpWidget(
       _wrap(
@@ -1142,9 +954,9 @@ void main() {
     expect(find.text('Export to CSV'), findsOne);
   });
 
-  testWidgets('imported groups lead Faces to Name, their faces not '
-      'asked about again', (tester) async {
-    final (analyses, records) = await seed();
+  testWidgets('imported groups make up Faces to Name', (tester) async {
+    final records = await _withPhotos(['p1']);
+    final analyses = FakeAiAnalysisStore();
     await analyses.importNamedFaces(
       const [],
       grouped: [(localId: 'p1', face: _face, groupId: 'g1')],
@@ -1165,6 +977,5 @@ void main() {
 
     expect(find.byKey(const ValueKey('people-imported-g1')), findsOneWidget);
     expect(find.text('Mia?'), findsOneWidget);
-    expect(find.byKey(ValueKey('face:p1:${_face.encode()}')), findsNothing);
   });
 }

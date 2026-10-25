@@ -337,6 +337,8 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
                 // it should say so.
                 child: CupertinoTextField(
                   key: searchPickerFieldKey,
+                  autocorrect: false,
+                  enableSuggestions: false,
                   controller: _controller,
                   autofocus: _autofocus,
                   placeholder: CupertinoLocalizations.of(context)

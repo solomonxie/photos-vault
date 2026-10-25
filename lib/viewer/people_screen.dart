@@ -10,13 +10,11 @@ import '../photos/ai_analysis_store.dart';
 import '../photos/conversation_store.dart';
 import '../photos/name_sound.dart';
 import '../photos/person.dart';
-import '../photos/face_grouping.dart';
 import '../photos/face_analyzer.dart';
 import '../photos/face_identity.dart';
 import '../photos/face_import.dart';
 import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
-import '../photos/unnamed_faces.dart';
 import '../photos/fix_queue.dart';
 import '../photos/people_order.dart';
 import '../photos/people_unhide.dart';
@@ -26,11 +24,9 @@ import '../storage/asset_record_store.dart';
 import 'person_avatar.dart';
 import 'profile_chip.dart';
 import 'person_page_screen.dart';
-import 'face_group_screen.dart';
 import 'face_import_screen.dart';
 import 'imported_group_screen.dart';
 import 'search_picker_sheet.dart';
-import 'person_picker_sheet.dart';
 import 'person_profile_screen.dart';
 import 'suggestion_action_screen.dart';
 import 'group_screen.dart';
@@ -113,12 +109,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
   /// Every avatar on the page resolves from this, not a query of its own.
   /// Null when there is no record database (a test).
   Map<String, AssetRecord>? _recordsById;
-  List<UnnamedFace> _unnamedFaces = const [];
-
-  /// How many there are altogether — [_unnamedFaces] is the first sixty.
-  /// Without it the section reads the same whether the scan has found
-  /// twenty faces or four hundred.
-  int _facesFound = 0;
   String _query = '';
   Map<PersonGroup, List<String>> _groups = const {};
 
@@ -142,12 +132,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
   List<Person> _ungrouped = const [];
 
   /// The biggest few, one tap each beside the Group dropdown.
-
-  /// This is the page you open to work through them, so it shows far more
-  /// than the home row's handful. Each one is a person, not a face, and
-  /// they are ordered biggest pile first — so a list this long is mostly
-  /// a long tail of one-offs below the names worth giving.
-  static const _unnamedFacesShown = 60;
 
   /// One size for every circle on this page. A named person and a face
   /// waiting for a name are the same kind of thing asked from two sides,
@@ -296,9 +280,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
       spans,
     );
     final sort = await _loadSort();
-    final unnamed = await _loadUnnamedFaces(records, tagged, {
-      for (final p in people) p.id: p.name,
-    });
     sortPeople(
       people,
       sort,
@@ -328,8 +309,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
       _firstPhoto = firstPhoto;
       _recordsById = records.isEmpty ? null : byId;
       _loaded = true;
-      _unnamedFaces = unnamed.faces;
-      _facesFound = unnamed.found;
     });
     _pageTick.value++;
   }
@@ -411,117 +390,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
     } catch (_) {
       return const [];
     }
-  }
-
-  /// The same strangers the home page's People row offers, on the page
-  /// that row's "More" leads to — naming somebody is the one thing you
-  /// come here to do, and sending you back to the home screen to do it was
-  /// the wrong way round.
-  Future<UnnamedFaces> _loadUnnamedFaces(
-    List<AssetRecord> records,
-    Set<String> tagged,
-    Map<String, String> peopleById,
-  ) async {
-    final analysisStore = widget.aiAnalysisStore;
-    if (analysisStore == null || records.isEmpty) {
-      return (faces: const <UnnamedFace>[], found: 0);
-    }
-    try {
-      return await findUnnamedFaces(
-        analysisStore: analysisStore,
-        records: records,
-        taggedLocalIds: tagged,
-        peopleById: peopleById,
-        limit: _unnamedFacesShown,
-      );
-    } catch (_) {
-      // No record database to read (a widget test, no platform channel) —
-      // the page is still the list of people, which is what it's for.
-      return (faces: const <UnnamedFace>[], found: 0);
-    }
-  }
-
-  /// Opens the face as a person who doesn't exist yet — their photos
-  /// gathered, nothing written down until a name is given. Falls back to
-  /// the picker when there's no grouping to show, which is what "add this
-  /// face to somebody I've already named" needs anyway.
-  Future<void> _nameFace(UnnamedFace face) async {
-    final analysisStore = widget.aiAnalysisStore;
-    final identity = widget.faceIdentity;
-    if (analysisStore == null || identity == null) {
-      final picked = await nameFace(
-        context: context,
-        personStore: widget.personStore,
-        face: face,
-        identity: identity,
-        assetRecordStore: widget.assetRecordStore,
-      );
-      if (picked != null && mounted) await _reload();
-      return;
-    }
-    final created = await Navigator.of(context).push<Person>(
-      CupertinoPageRoute(
-        builder: (_) => FaceGroupScreen(
-          seed: face,
-          personStore: widget.personStore,
-          assetRecordStore: widget.assetRecordStore,
-          grouping: FaceGrouping(analysisStore: analysisStore),
-          faceIdentity: identity,
-        ),
-      ),
-    );
-    if (created != null && mounted) await _reload();
-  }
-
-  /// The other question about a face: "this is somebody I already named."
-  /// Kept as the ✓ row action, where the app has a guess to confirm.
-  Future<void> _pickPersonFor(UnnamedFace face) async {
-    final picked = await nameFace(
-      context: context,
-      personStore: widget.personStore,
-      face: face,
-      identity: widget.faceIdentity,
-      assetRecordStore: widget.assetRecordStore,
-    );
-    if (picked != null && mounted) await _reload();
-  }
-
-  /// One tap, because the app already has a name for this face and the row
-  /// is showing it. Undoable, for exactly that reason.
-  final _accepting = <String>{};
-
-  Future<void> _acceptSuggestion(UnnamedFace face) async {
-    final personId = face.suggestedPersonId;
-    final name = face.suggestedName;
-    if (personId == null || name == null) return;
-    if (!_accepting.add(face.localId)) return;
-    final l10n = AppLocalizations.of(context)!;
-    await widget.personStore.addAssets(personId, [face.localId], viaFace: true);
-    final identity = widget.faceIdentity;
-    if (identity != null) {
-      final record =
-          _recordsById?[face.localId] ??
-          await widget.assetRecordStore.getByLocalId(face.localId);
-      if (record != null) {
-        await identity.remember(
-          record: record,
-          face: face.face,
-          personId: personId,
-        );
-      }
-    }
-    if (!mounted) return;
-    await _reload();
-    _accepting.remove(face.localId);
-    if (!mounted) return;
-    _showUndo(l10n.peopleSuggestionAccepted(name), () async {
-      await widget.personStore.removeAsset(personId, face.localId);
-      // The descriptor goes back too. Undo that only unlinked the photo
-      // would leave the face in the reference set, pulling later photos
-      // towards the person just rejected.
-      await identity?.unremember(localId: face.localId, face: face.face);
-      if (mounted) await _reload();
-    });
   }
 
   /// The toast's own auto-dismiss. Held so leaving the page takes it with
@@ -1610,7 +1478,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          '${_importedFaces + _facesFound}',
+          '$_importedFaces',
           style: const TextStyle(color: CupertinoColors.systemGrey),
         ),
         const SizedBox(width: 4),
@@ -1635,9 +1503,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
               style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
             ),
           ),
-          // The list is capped; this is how many there are.
           Text(
-            '${_importedFaces + _facesFound}',
+            '$_importedFaces',
             style: const TextStyle(
               fontSize: 13,
               color: CupertinoColors.systemGrey,
@@ -1647,80 +1514,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
       ),
     ),
     for (final group in _imported) _importedRow(l10n, group),
-    for (final face in _unnamedFaces)
-      CupertinoListTile(
-        key: ValueKey('face:${face.localId}:${face.face.encode()}'),
-        // `CupertinoListTile` clamps its leading widget to 28pt unless
-        // told otherwise, so every size set on the avatar below was being
-        // thrown away. That, not the avatar, is why these stayed tiny.
-        leadingSize: _faceSize + 4,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        // Much bigger than a named person's 44pt row avatar, deliberately:
-        // that one is a reminder of somebody you know, this one is the
-        // whole question. A face cropped out of a photo is a small patch
-        // of it to begin with — at 40 and again at 64 there wasn't enough
-        // of it to answer "who is this?" from, so the row is as tall as
-        // the face needs rather than as short as a list row usually is.
-        leading: Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: CupertinoColors.systemGrey, width: 1.5),
-          ),
-          padding: const EdgeInsets.all(2),
-          child: PersonAvatar(
-            assetRecordStore: widget.assetRecordStore,
-            localId: face.localId,
-            face: face.face,
-            records: _recordsById,
-            size: _faceSize,
-          ),
-        ),
-        title: Text(
-          face.hasSuggestion
-              ? l10n.peopleSuggestedFace(face.suggestedName!)
-              : l10n.peopleUnnamedFace,
-          style: const TextStyle(color: CupertinoColors.systemGrey),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            // How many faces this circle stands for. Reads like a named
-            // person's photo count, because it is about to become one.
-            if (face.alike > 1)
-              Padding(
-                padding: const EdgeInsets.only(right: 4),
-                child: Text(
-                  '${face.alike}',
-                  style: const TextStyle(color: CupertinoColors.systemGrey),
-                ),
-              ),
-            // Two different questions, so two different controls. The
-            // row asks "who is this?" and opens the group. This asks the
-            // narrower one: ✓ where the app already has a name to
-            // confirm, otherwise "add this face to somebody I've named".
-            CupertinoButton(
-              padding: const EdgeInsets.symmetric(horizontal: 8),
-              minimumSize: const Size(44, 44),
-              onPressed: face.hasSuggestion
-                  ? () => _acceptSuggestion(face)
-                  : () => _pickPersonFor(face),
-              child: Icon(
-                face.hasSuggestion
-                    ? CupertinoIcons.checkmark_circle_fill
-                    : CupertinoIcons.person_crop_circle_badge_plus,
-                size: 24,
-                color: CupertinoColors.activeBlue,
-              ),
-            ),
-            const Icon(
-              CupertinoIcons.chevron_forward,
-              size: 18,
-              color: CupertinoColors.systemGrey2,
-            ),
-          ],
-        ),
-        onTap: () => _nameFace(face),
-      ),
   ];
 
   /// Straight to the profile with the keyboard in the name field, rather
@@ -2194,6 +1987,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: CupertinoSearchTextField(
+            autocorrect: false,
             // Not autofocused: the page is a list you came to read,
             // and a keyboard covering half of it on arrival is a
             // dismissal to do before you can look at anything.
@@ -2288,15 +2082,14 @@ class _PeopleScreenState extends State<PeopleScreen> {
           ),
           onTap: _openUngrouped,
         ),
-      if ((_imported.isNotEmpty || _unnamedFaces.isNotEmpty) && query.isEmpty)
-        _facesRow(l10n),
+      if (_imported.isNotEmpty && query.isEmpty) _facesRow(l10n),
       if (_people.isNotEmpty) _sectionHeading(l10n.peopleSectionNamed),
       if (!_loaded)
         const Padding(
           padding: EdgeInsets.only(top: 48),
           child: CupertinoActivityIndicator(),
         )
-      else if (_people.isEmpty && _unnamedFaces.isEmpty && _imported.isEmpty)
+      else if (_people.isEmpty && _imported.isEmpty)
         Padding(
           padding: const EdgeInsets.only(top: 48),
           child: Center(

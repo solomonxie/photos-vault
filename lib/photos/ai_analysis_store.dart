@@ -7,8 +7,6 @@ import 'package:sqflite/sqflite.dart'
 
 import '../backup/database_copy.dart';
 import 'ai_analysis.dart';
-import 'face_matcher.dart' show ConfirmedFace, DescribedFace;
-import 'on_device_vision.dart' show FaceDescriptor;
 import 'person.dart' show FaceRect;
 
 /// Which of [found] each of [old] now is: the same box, or failing that the
@@ -276,133 +274,9 @@ class AiAnalysisStore {
     );
   }
 
-  /// What the matcher guessed, per face. A row with a null `person_id` is
-  /// "looked, no opinion" — which has to be recorded, or the analyze pass
-  /// asks the same unanswerable question of the same photo forever.
-  Future<void> saveSuggestions(
-    String localId,
-    Map<String, String?> byFace,
-  ) async {
-    final db = await _open();
-    final batch = db.batch();
-    byFace.forEach((face, personId) {
-      batch.insert(_suggestionTable, {
-        'local_id': localId,
-        'face': face,
-        'person_id': personId,
-      }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
-    });
-    await batch.commit(noResult: true);
-    _writes++;
-  }
-
-  /// Every guess worth showing, keyed `localId` → encoded face → person.
-  /// Rows with no opinion are left out — the caller wants names, and their
-  /// absence is already the answer.
-  Future<Map<String, Map<String, String>>> suggestionsByAsset() async {
-    final db = await _open();
-    final rows = await db.query(
-      _suggestionTable,
-      where: 'person_id IS NOT NULL',
-    );
-    final byAsset = <String, Map<String, String>>{};
-    for (final row in rows) {
-      byAsset.putIfAbsent(
-        row['local_id'] as String,
-        () => {},
-      )[row['face'] as String] = row['person_id'] as String;
-    }
-    return byAsset;
-  }
-
-  /// The guesses for one photo, encoded face → person. Faces the matcher
-  /// had no opinion about are left out.
-  Future<Map<String, String>> suggestionsFor(String localId) async {
-    final db = await _open();
-    final rows = await db.query(
-      _suggestionTable,
-      where: 'local_id = ? AND person_id IS NOT NULL',
-      whereArgs: [localId],
-    );
-    return {
-      for (final row in rows) row['face'] as String: row['person_id'] as String,
-    };
-  }
-
-  /// Photos the matcher has already been over — what stops the pass
-  /// repeating itself.
-  Future<Set<String>> matchedAssets() async {
-    final db = await _open();
-    final rows = await db.query(
-      _suggestionTable,
-      columns: const ['local_id'],
-      distinct: true,
-    );
-    return {for (final row in rows) row['local_id'] as String};
-  }
-
-  /// Drops the guesses for a photo — after one of its faces is named, they
-  /// are about a question that's been answered.
-  Future<void> clearSuggestions(String localId) async {
-    final db = await _open();
-    await db.delete(
-      _suggestionTable,
-      where: 'local_id = ?',
-      whereArgs: [localId],
-    );
-    _writes++;
-  }
-
-  /// Everything the matcher decided, so a newly-named person gets a fresh
-  /// hearing on the faces it previously had no opinion about.
-  Future<void> clearAllSuggestions() async {
-    final db = await _open();
-    await db.delete(_suggestionTable);
-    _writes++;
-  }
-
-  /// What a face looks like, whether or not anybody has said whose it is.
-  ///
-  /// [personId] null is the ordinary case: a face the analyze pass has
-  /// described and nobody has named. Those are what "who else looks like
-  /// this?" searches, and keeping them is the difference between a query
-  /// and a thousand Vision calls per tap.
-  Future<void> saveDescriptor({
-    required String localId,
-    required FaceRect face,
-    required FaceDescriptor descriptor,
-    String? personId,
-  }) async {
-    if (descriptor.isEmpty) return;
-    final db = await _open();
-    // A re-description (no [personId]) replaces the vector and keeps the
-    // name and its date: 05#4.
-    await db.rawInsert(
-      'INSERT INTO $_descriptorTable '
-      '(local_id, face, person_id, revision, vector, confirmed_at) '
-      'VALUES (?, ?, ?, ?, ?, ?) '
-      'ON CONFLICT (local_id, face) DO UPDATE SET '
-      'revision = excluded.revision, vector = excluded.vector, '
-      'person_id = COALESCE(excluded.person_id, person_id), '
-      // An imported name not yet described is dated 0 (see
-      // [importNamedFaces]); described, it takes its date now.
-      'confirmed_at = CASE WHEN excluded.person_id IS NULL '
-      'AND $_descriptorTable.confirmed_at > 0 '
-      'THEN confirmed_at ELSE excluded.confirmed_at END',
-      [
-        localId,
-        face.encode(),
-        personId,
-        descriptor.revision,
-        descriptor.encode(),
-        DateTime.now().millisecondsSinceEpoch,
-      ],
-    );
-    _writes++;
-  }
-
-  /// [attachDescriptor] for many faces, in one transaction.
-  Future<void> attachDescriptors(
+  /// Names [faces] as [personId]: the row is the link, the vector column
+  /// is left empty now nothing on the phone compares faces.
+  Future<void> nameFaces(
     Iterable<({String localId, FaceRect face})> faces,
     String personId,
   ) async {
@@ -410,63 +284,17 @@ class AiAnalysisStore {
     final now = DateTime.now().millisecondsSinceEpoch;
     final batch = db.batch();
     for (final f in faces) {
-      batch.update(
-        _descriptorTable,
-        {'person_id': personId, 'confirmed_at': now},
-        where: 'local_id = ? AND face = ?',
-        whereArgs: [f.localId, f.face.encode()],
+      batch.rawInsert(
+        'INSERT INTO $_descriptorTable '
+        '(local_id, face, person_id, revision, vector, confirmed_at) '
+        'VALUES (?, ?, ?, 0, ?, ?) '
+        'ON CONFLICT (local_id, face) DO UPDATE SET '
+        'person_id = excluded.person_id, confirmed_at = excluded.confirmed_at',
+        [f.localId, f.face.encode(), personId, Uint8List(0), now],
       );
     }
     await batch.commit(noResult: true);
     _writes++;
-  }
-
-  /// Every stored descriptor of these photos, keyed by [faceKey].
-  Future<Map<String, FaceDescriptor>> descriptorsOf(
-    Iterable<String> localIds,
-  ) async {
-    final all = localIds.toSet().toList();
-    final db = await _open();
-    final out = <String, FaceDescriptor>{};
-    for (var i = 0; i < all.length; i += 900) {
-      final ids = all.skip(i).take(900).toList();
-      final rows = await db.query(
-        _descriptorTable,
-        columns: const ['local_id', 'face', 'revision', 'vector'],
-        where: 'local_id IN (${List.filled(ids.length, '?').join(',')})',
-        whereArgs: ids,
-      );
-      for (final row in rows) {
-        out['${row['local_id']}|${row['face']}'] = FaceDescriptor.decode(
-          row['vector'] as Uint8List?,
-          (row['revision'] as num?)?.toInt() ?? 0,
-        );
-      }
-    }
-    return out;
-  }
-
-  /// [descriptorsOf], unnamed faces only.
-  Future<Map<String, FaceDescriptor>> unnamedDescriptorsOf(
-    Iterable<String> localIds,
-  ) async {
-    final out = <String, FaceDescriptor>{};
-    await _eachRead(
-      localIds,
-      (where) =>
-          'SELECT local_id, face, revision, vector FROM $_descriptorTable '
-          'WHERE person_id IS NULL AND $where',
-      // Re-encoded, so the key matches a box decoded from `faces`.
-      (row) =>
-          out[faceKey(
-            row['local_id'] as String,
-            FaceRect.decode(row['face'] as String?) ?? _wholeFrame,
-          )] = FaceDescriptor.decode(
-            row['vector'] as Uint8List?,
-            (row['revision'] as num?)?.toInt() ?? 0,
-          ),
-    );
-    return out;
   }
 
   /// The faces in [localId] already named, by their box: Find Faces doesn't
@@ -847,24 +675,6 @@ class AiAnalysisStore {
     }
   }
 
-  /// [suggestionsByAsset] for these photos only.
-  Future<Map<String, Map<String, String>>> suggestionsOf(
-    Iterable<String> localIds,
-  ) async {
-    final byAsset = <String, Map<String, String>>{};
-    await _eachRead(
-      localIds,
-      (where) =>
-          'SELECT local_id, face, person_id FROM $_suggestionTable '
-          'WHERE person_id IS NOT NULL AND $where',
-      (row) => byAsset.putIfAbsent(
-        row['local_id'] as String,
-        () => {},
-      )[row['face'] as String] = row['person_id'] as String,
-    );
-    return byAsset;
-  }
-
   /// [facesByAsset] for these photos only.
   Future<Map<String, List<FaceRect>>> facesOf(Iterable<String> localIds) async {
     final out = <String, List<FaceRect>>{};
@@ -921,32 +731,6 @@ class AiAnalysisStore {
   static String faceKey(String localId, FaceRect face) =>
       '$localId|${face.encode()}';
 
-  /// [clearSuggestions] for many photos.
-  Future<void> clearSuggestionsOf(Iterable<String> localIds) =>
-      _eachChunk(localIds, (batch, where, ids) {
-        batch.delete(_suggestionTable, where: where, whereArgs: ids);
-      });
-
-  /// Puts a name to a face already described — what naming does, without
-  /// asking Vision about a photo it has already been over.
-  Future<void> attachDescriptor(
-    String localId,
-    FaceRect face,
-    String personId,
-  ) async {
-    final db = await _open();
-    await db.update(
-      _descriptorTable,
-      {
-        'person_id': personId,
-        'confirmed_at': DateTime.now().millisecondsSinceEpoch,
-      },
-      where: 'local_id = ? AND face = ?',
-      whereArgs: [localId, face.encode()],
-    );
-    _writes++;
-  }
-
   /// Which face in this photo is this person's, if one has been
   /// confirmed. Null when nobody has said — a group shot where they were
   /// linked to the photo rather than to a face in it.
@@ -990,40 +774,6 @@ class AiAnalysisStore {
     return out;
   }
 
-  /// The descriptor for one face, or an empty one where there isn't one.
-  Future<FaceDescriptor?> descriptorFor(String localId, FaceRect face) async {
-    final db = await _open();
-    final rows = await db.query(
-      _descriptorTable,
-      where: 'local_id = ? AND face = ?',
-      whereArgs: [localId, face.encode()],
-      limit: 1,
-    );
-    if (rows.isEmpty) return null;
-    return FaceDescriptor.decode(
-      rows.first['vector'] as Uint8List?,
-      (rows.first['revision'] as num?)?.toInt() ?? 0,
-    );
-  }
-
-  /// Every described face, named or not — what grouping searches.
-  Future<List<DescribedFace>> allDescribedFaces() async {
-    final db = await _open();
-    final rows = await db.query(_descriptorTable);
-    return [
-      for (final row in rows)
-        DescribedFace(
-          localId: row['local_id'] as String,
-          face: FaceRect.decode(row['face'] as String?) ?? _wholeFrame,
-          personId: row['person_id'] as String?,
-          descriptor: FaceDescriptor.decode(
-            row['vector'] as Uint8List?,
-            (row['revision'] as num?)?.toInt() ?? 0,
-          ),
-        ),
-    ];
-  }
-
   static const _wholeFrame = FaceRect(0, 0, 1, 1);
 
   /// Marks every photo as never-looked-at, so the whole library is walked
@@ -1039,128 +789,6 @@ class AiAnalysisStore {
   /// A face count no scan produces — the marker that says "look at this
   /// again", written without dropping the row.
   static const _neverLooked = -1;
-
-  /// Photos described by a preprocessing step this build no longer uses.
-  ///
-  /// They have a descriptor, so nothing would ever look at them again —
-  /// but it is a vector in a space nothing else lives in, which makes it
-  /// worse than none. Handed back so the analyze pass re-opens them.
-  Future<Set<String>> staleDescriptorAssets(Set<int> livePipelines) async {
-    final db = await _open();
-    final placeholders = List.filled(livePipelines.length, '?').join(', ');
-    final rows = await db.rawQuery(
-      'SELECT DISTINCT local_id FROM $_descriptorTable '
-      'WHERE revision / 1000 NOT IN ($placeholders)',
-      livePipelines.toList(),
-    );
-    return {for (final row in rows) row['local_id'] as String};
-  }
-
-  /// Photos that already have a *named* face on file — what stops the
-  /// backfill going over the same one every pass.
-  Future<Set<String>> assetsWithDescriptors() async {
-    final db = await _open();
-    final rows = await db.query(
-      _descriptorTable,
-      columns: const ['local_id'],
-      where: 'person_id IS NOT NULL',
-      distinct: true,
-    );
-    return {for (final row in rows) row['local_id'] as String};
-  }
-
-  /// Whether this person is already in the reference set. What tells a
-  /// first confirmation — which makes every unmatched face worth another
-  /// look — from a tenth, which doesn't.
-  Future<bool> hasDescriptorsFor(String personId) async {
-    final db = await _open();
-    final rows = await db.query(
-      _descriptorTable,
-      columns: const ['person_id'],
-      where: 'person_id = ?',
-      whereArgs: [personId],
-      limit: 1,
-    );
-    return rows.isNotEmpty;
-  }
-
-  /// The whole reference set, newest confirmation first.
-  ///
-  /// [perPerson] caps how many are kept per person. It was 12, set when a
-  /// descriptor was 2048 floats and every comparison hurt; SFace's are
-  /// 128, so forty costs less than twelve used to and each one is another
-  /// angle, another light, another year that a future photo can land
-  /// near. Newest first, because a face is most like its recent self.
-  Future<List<ConfirmedFace>> confirmedFaces({int perPerson = 40}) async {
-    final db = await _open();
-    return db.transaction((txn) async {
-      // Order and cap on the index alone; vectors only for the kept rows
-      // (DB-10). One transaction, so the rowids stay put in between.
-      final order = await txn.rawQuery(
-        'SELECT rowid AS id, person_id FROM $_descriptorTable '
-        // Named faces only: an unnamed one is a candidate to search, not
-        // a reference to measure against.
-        'WHERE person_id IS NOT NULL ORDER BY confirmed_at DESC',
-      );
-      final kept = <String, int>{};
-      final ids = <int>[];
-      for (final row in order) {
-        final personId = row['person_id'] as String;
-        final count = kept[personId] ?? 0;
-        if (count >= perPerson) continue;
-        kept[personId] = count + 1;
-        ids.add((row['id'] as num).toInt());
-      }
-      final byId = <int, ConfirmedFace>{};
-      for (var i = 0; i < ids.length; i += 900) {
-        final chunk = ids.skip(i).take(900).toList();
-        final rows = await txn.rawQuery(
-          'SELECT rowid AS id, local_id, person_id, revision, vector '
-          'FROM $_descriptorTable '
-          'WHERE rowid IN (${List.filled(chunk.length, '?').join(',')})',
-          chunk,
-        );
-        for (final row in rows) {
-          byId[(row['id'] as num).toInt()] = ConfirmedFace(
-            personId: row['person_id'] as String,
-            localId: row['local_id'] as String,
-            descriptor: FaceDescriptor.decode(
-              row['vector'] as Uint8List?,
-              (row['revision'] as num?)?.toInt() ?? 0,
-            ),
-          );
-        }
-      }
-      return [for (final id in ids) ?byId[id]];
-    });
-  }
-
-  /// [confirmedFaces] for one person only — what "find more of them"
-  /// searches from.
-  Future<List<ConfirmedFace>> confirmedFacesFor(
-    String personId, {
-    int limit = 40,
-  }) async {
-    final db = await _open();
-    final rows = await db.query(
-      _descriptorTable,
-      where: 'person_id = ?',
-      whereArgs: [personId],
-      orderBy: 'confirmed_at DESC',
-      limit: limit,
-    );
-    return [
-      for (final row in rows)
-        ConfirmedFace(
-          personId: personId,
-          localId: row['local_id'] as String,
-          descriptor: FaceDescriptor.decode(
-            row['vector'] as Uint8List?,
-            (row['revision'] as num?)?.toInt() ?? 0,
-          ),
-        ),
-    ];
-  }
 
   /// Drops every face, vector and guess of these photos — for hiding. The
   /// paid analysis stays; the face pass looks again if one comes back.

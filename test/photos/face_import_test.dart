@@ -1,10 +1,7 @@
-import 'dart:typed_data';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/photos/ai_analysis_store.dart';
 import 'package:photos_vault/photos/face_file.dart';
 import 'package:photos_vault/photos/face_import.dart';
-import 'package:photos_vault/photos/on_device_vision.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -209,21 +206,6 @@ void main() {
       expect(await store.facesFor('q'), [added]);
       expect((await store.get('q'))!.peopleCount, 1);
       expect(await store.namedFacesIn('p'), {vision: 'alice', added: 'bob'});
-      // Not yet described: behind any described reference, and empty.
-      final refs = await store.confirmedFaces();
-      expect(refs.every((r) => r.descriptor.isEmpty), isTrue);
-      await store.saveDescriptor(
-        localId: 'p',
-        face: vision,
-        descriptor: FaceDescriptor(
-          vector: Float32List.fromList(const [0, 0, 1]),
-          revision: 4001,
-        ),
-      );
-      final described = await store.confirmedFaces();
-      expect(described.first.localId, 'p');
-      expect(described.first.personId, 'alice');
-      expect(described.first.descriptor.isEmpty, isFalse);
 
       final again = await store.importNamedFaces([
         (localId: 'p', face: vision, personId: 'bob'),
@@ -334,14 +316,14 @@ void main() {
           'p': {const FaceRect(0.1, 0.1, 0.1, 0.1): 'bob'},
         },
         people: const [],
-        groups: {'g2': const FaceFileGroup('g2', suggest: 'Christine')},
+        groups: {'g2': const FaceFileGroup('g2', suggest: 'Ava')},
       );
       expect(p.links, isEmpty);
       expect(p.grouped.map((g) => (g.face, g.groupId, g.added)), [
         (vision, 'g1', false),
         (other, 'g2', true),
       ]);
-      expect(p.groups, {'g1': null, 'g2': 'Christine'});
+      expect(p.groups, {'g1': null, 'g2': 'Ava'});
       expect(p.namedNotGrouped, 1);
     });
 
@@ -402,17 +384,17 @@ void main() {
           (localId: 'q', face: vision, groupId: 'g1'),
           (localId: 'r', face: vision, groupId: 'g2'),
         ];
-        await put(store, file, groups: {'g1': 'Christine'});
+        await put(store, file, groups: {'g1': 'Ava'});
         var groups = await store.faceGroups();
         expect(groups.map((g) => (g.id, g.suggest, g.faces.length)).toSet(), {
-          ('g1', 'Christine', 2),
+          ('g1', 'Ava', 2),
           ('g2', null, 1),
         });
         expect(await store.facesFor('p'), [vision]);
 
         await store.ungroupFaces([(localId: 'q', face: vision)]);
         await store.dismissGroup('g2');
-        await put(store, file, groups: {'g1': 'Christine'});
+        await put(store, file, groups: {'g1': 'Ava'});
         groups = await store.faceGroups();
         expect(groups.single.id, 'g1');
         expect(groups.single.faces.single.localId, 'p');
@@ -457,7 +439,7 @@ void main() {
       final records = FakeAssetRecordStore();
       final analysis = FakeAiAnalysisStore();
       final people = FakePersonStore();
-      final chris = await people.create(name: 'Christine');
+      final ava = await people.create(name: 'Ava');
       for (final id in ['p1', 'p2', 'p3']) {
         await records.upsert(
           localId: id,
@@ -481,19 +463,19 @@ void main() {
         assetRecordStore: records,
         analysisStore: analysis,
       );
-      final named = await import.name(chris.id, [
+      final named = await import.name(ava.id, [
         (localId: 'p1', face: vision),
         (localId: 'p2', face: vision),
       ]);
       expect(named, hasLength(2));
-      expect(await analysis.namedFacesIn('p1'), {vision: chris.id});
-      expect((await people.allMemberships())[chris.id], ['p1', 'p2']);
+      expect(await analysis.namedFacesIn('p1'), {vision: ava.id});
+      expect((await people.allMemberships())[ava.id], ['p1', 'p2']);
       final left = (await analysis.faceGroups()).single;
       expect(left.faces.single.localId, 'p3');
 
-      await import.unname(chris.id, 'g', named);
+      await import.unname(ava.id, 'g', named);
       expect(await analysis.namedFacesIn('p1'), isEmpty);
-      expect((await people.allMemberships())[chris.id] ?? const [], isEmpty);
+      expect((await people.allMemberships())[ava.id] ?? const [], isEmpty);
       expect((await analysis.faceGroups()).single.faces, hasLength(3));
     });
   });

@@ -1,10 +1,8 @@
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
-import '../photos/face_identity.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
-import '../storage/asset_record_store.dart';
 import 'search_picker_sheet.dart';
 
 /// Searchable person drop-down — search [candidates] by name, or create one
@@ -52,60 +50,4 @@ Future<Person?> showPersonPickerSheet({
     autofocus: autofocus,
     initialQuery: initialQuery,
   );
-}
-
-/// Answers the "who's this?" a face card asks: pick somebody already known
-/// or type a name to make them, then link [face]'s photo to them.
-///
-/// The face that was tapped becomes their picture, not the photo it came
-/// out of — a group shot would otherwise give everyone in it the same
-/// avatar, and whoever stood centre-frame would become the face of all of
-/// them. Only when they haven't got one already, same as linking any photo.
-///
-/// Returns whoever was picked, or `null` if the sheet was dismissed.
-/// [identity] and [assetRecordStore], where given, also remember what this
-/// face looks like — which is the whole of how the *next* photo of them
-/// gets guessed. Optional: the link is made either way, and a missed
-/// descriptor costs a future suggestion, not this answer.
-Future<Person?> nameFace({
-  required BuildContext context,
-  required PersonStore personStore,
-  required UnnamedFace face,
-  FaceIdentityService? identity,
-  AssetRecordStore? assetRecordStore,
-}) async {
-  final l10n = AppLocalizations.of(context)!;
-  final tagged = (await personStore.peopleFor(face.localId))
-      .map((p) => p.id)
-      .toSet();
-  final candidates = (await personStore.listAll())
-      .where((p) => !tagged.contains(p.id))
-      .toList();
-  if (!context.mounted) return null;
-  final picked = await showPersonPickerSheet(
-    context: context,
-    candidates: candidates,
-    personStore: personStore,
-    title: l10n.peopleUnnamedFace,
-  );
-  if (picked == null) return null;
-  // A hidden photo's face is never anyone's picture.
-  final visible =
-      assetRecordStore == null ||
-      ((await assetRecordStore.getByLocalId(face.localId))
-              ?.isVisibleInLibrary ??
-          false);
-  await personStore.addAssets(
-    picked.id,
-    [face.localId],
-    fillAvatar: visible,
-    viaFace: true,
-  );
-  final latest = await personStore.getById(picked.id);
-  if (visible && latest != null && latest.avatarFace == null) {
-    await personStore.update(
-      latest.copyWith(avatarLocalId: face.localId, avatarFace: () => face.face),
-    );
-  }
-  return picked;
 }

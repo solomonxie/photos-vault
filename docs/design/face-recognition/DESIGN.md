@@ -1,5 +1,12 @@
 # Face recognition — same person across photos
 
+> **Removed, 25 Oct 2026.** On-device matching (SFace, descriptors, guesses,
+> "find more", phone-side Faces to Name) was too inaccurate to trust. Names
+> now come only from the Mac import (`MAC-PIPELINE.md`). The phone keeps
+> Vision face *detection* (boxes, crops, profile photos, tap a face to name
+> it); `face_descriptor` rows are just face ↔ person links, vector empty.
+> Below is the record of what was built.
+
 ## Problem
 The app finds faces (Vision) but never who they belong to, so every photo of
 the same person is named by hand. On a real camera roll that is thousands of

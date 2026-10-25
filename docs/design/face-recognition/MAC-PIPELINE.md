@@ -71,7 +71,7 @@ Implements step 4 of `DESIGN.md` → "Closing the gap". Decided 2026-10-24.
    ```json
    {"version": 2,
     "groups": [{"id": "r202610241954-0004", "faces": 47},
-               {"id": "r202610241954-0001", "faces": 769, "suggest": "Christine"}],
+               {"id": "r202610241954-0001", "faces": 120, "suggest": "Ava"}],
     "photos": [{"key": "…", "faces": [
       {"box": [x, y, w, h], "person": "Me"},
       {"box": [x, y, w, h], "group": "r202610241954-0004"}]}]}
@@ -90,13 +90,12 @@ reruns minutes.
 - Box match: RetinaFace and Vision boxes differ in extent, so IoU ≥ 0.5 is
   too strict. Rule: IoU ≥ 0.3 **or** imported box centre inside Vision box;
   closest wins. No match → add the face with the imported box.
-- Imported faces are confirmed faces: SFace describes them on the next
-  analyse pass and they join the person's reference set.
+- Imported faces are confirmed faces: face ↔ person links. The phone does
+  no matching of its own (removed 25 Oct 2026; see `DESIGN.md`).
 - Entry point: People ⋯ → Import Faces File (Files picker), next to the
   existing CSV/zip imports.
 - Group faces: stored as group membership, never named on import.
-- People → Faces to Name: imported groups first, by size, then the phone's own
-  piles for faces no group holds. Open a group →
+- People → Faces to Name: the imported groups, by size. Open a group →
   all faces ticked; untick wrong ones, view the photo; Name… (prefilled
   with `suggest`) links the ticked faces, the rest stay in the group. Not
   This Group, Delete Group. Same name on two groups = merged.
@@ -124,7 +123,7 @@ reruns minutes.
 - [x] T5 Export `faces.json`; dry-run stats (faces, people, photos).
 - [x] T6 App: review findings #3/#4 (already fixed).
 - [x] T7 App: `faces.json` parser + matcher (key, box rule) + summary sheet.
-- [x] T8 App: commit path → confirmed faces → SFace references.
+- [x] T8 App: commit path → confirmed faces.
 - [x] T10 v2: groups in the file, People → Faces to Name naming.
 - [ ] T9 Measure: phone suggestion precision before/after on held-out
       named faces.

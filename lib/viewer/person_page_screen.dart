@@ -7,7 +7,6 @@ import '../l10n/app_localizations.dart';
 import '../photos/library_metadata.dart';
 import '../photos/person.dart';
 import '../photos/ai_analysis_store.dart';
-import '../photos/face_grouping.dart';
 import '../photos/face_identity.dart';
 import '../photos/person_store.dart';
 import '../photos/alias_folders.dart';
@@ -15,7 +14,6 @@ import '../photos/asset_removal.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
-import 'face_group_screen.dart';
 import 'asset_grid_view.dart';
 import 'asset_picker_screen.dart';
 import 'delete_confirmation.dart';
@@ -301,38 +299,15 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     setState(() => _person = saved);
   }
 
-  /// Search every photo you haven't named against every face confirmed as
-  /// theirs. One tagged face finds photos like that one; forty find
-  /// photos like any of them, which is what makes tagging compound rather
-  /// than plateau.
   late final FaceIdentityService _identity =
       widget.faceIdentity ??
       FaceIdentityService(
         analysisStore: widget.aiAnalysisStore ?? AiAnalysisStore(),
-        resolvePath: (r) async => r.sourcePath,
         onSeen: widget.personStore.markSeen,
       );
 
-  Future<void> _findMore() async {
-    final identity = _identity;
-    final analysisStore = identity.analysisStore;
-    await Navigator.of(context).push(
-      CupertinoPageRoute(
-        builder: (_) => FaceGroupScreen(
-          existing: _person,
-          personStore: widget.personStore,
-          assetRecordStore: widget.assetRecordStore,
-          grouping: FaceGrouping(analysisStore: analysisStore),
-          faceIdentity: identity,
-        ),
-      ),
-    );
-    await _reload();
-  }
-
   Future<void> _removeFromPerson(AssetRecord record) async {
     await widget.personStore.removeAsset(_person.id, record.localId);
-    // Or the face goes on pulling later guesses towards this person.
     await _identity.unrememberPhotos(_person.id, [record.localId]);
     await _reload();
   }
@@ -547,23 +522,6 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                       ),
                     ],
                   ),
-                ),
-              ),
-              const SizedBox(height: 4),
-              CupertinoButton(
-                padding: EdgeInsets.zero,
-                minimumSize: Size.zero,
-                onPressed: _findMore,
-                child: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    const Icon(CupertinoIcons.search, size: 15),
-                    const SizedBox(width: 5),
-                    Text(
-                      l10n.personPageFindMore,
-                      style: const TextStyle(fontSize: 14),
-                    ),
-                  ],
                 ),
               ),
             ],

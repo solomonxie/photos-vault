@@ -7,9 +7,7 @@ import '../storage/asset_record_store.dart';
 import 'ai_analysis.dart';
 import 'ai_analysis_store.dart';
 import 'face_identity.dart';
-import 'face_matcher.dart' show ConfirmedFace;
 import 'on_device_analysis.dart';
-import 'on_device_vision.dart' show FaceDescriptor;
 
 /// Looks for faces in the photos it's given — the one open, or a batch
 /// picked in the grid — one at a time, out of sight. Nothing sweeps the
@@ -57,8 +55,6 @@ class FaceAnalyzer {
 
   final _pending = <String>{};
   Future<void>? _drain;
-  bool _modelChecked = false;
-  List<ConfirmedFace>? _confirmed;
 
   /// Reads which photos already have faces. Once, at start.
   Future<void> load() async {
@@ -83,13 +79,7 @@ class FaceAnalyzer {
     }
   }
 
-  /// Forgets what the next match is measured against: somebody was named.
-  void namesChanged() => _confirmed = null;
-
   Future<void> _run() async {
-    try {
-      await _bounded(_checkFaceModel());
-    } catch (_) {}
     while (_pending.isNotEmpty && !_disposed) {
       final id = _pending.first;
       _pending.remove(id);
@@ -123,20 +113,12 @@ class FaceAnalyzer {
     // group shot can't teach the reference set anything certain.
     final people = await taggedPeopleOf?.call(localId) ?? const [];
     if (faces.length == 1 && people.length == 1) {
-      if (await identity.remember(
+      await identity.remember(
         record: record,
         face: faces.single,
         personId: people.single,
-      )) {
-        _confirmed = null;
-      }
+      );
     }
-    final confirmed = _confirmed ??= await analysisStore.confirmedFaces();
-    await identity.suggestFor(
-      record: record,
-      faces: faces,
-      confirmed: confirmed,
-    );
   }
 
   Timer? _limit;
@@ -186,21 +168,6 @@ class FaceAnalyzer {
       return onDeviceAnalysis.settleBoxes(record, path);
     }
     return await onDeviceAnalysis.analyze(record, path) != null;
-  }
-
-  /// Once. Without the model the fallback's space is the live one, so its
-  /// faces are kept rather than re-described forever.
-  Future<void> _checkFaceModel() async {
-    final identity = faceIdentity;
-    if (identity == null || _modelChecked) return;
-    _modelChecked = true;
-    String? problem;
-    try {
-      problem = await identity.vision.faceModelFailure;
-    } catch (_) {}
-    identity.livePipelines = problem == null
-        ? FaceDescriptor.livePipelines
-        : FaceDescriptor.livePipelinesWithoutModel;
   }
 
   void dispose() {

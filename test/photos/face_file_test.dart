@@ -105,7 +105,7 @@ void main() {
           'version': 2,
           'groups': [
             {'id': 'r1-0007', 'faces': 47},
-            {'id': 'r1-S01', 'faces': 691, 'suggest': 'Christine'},
+            {'id': 'r1-S01', 'faces': 691, 'suggest': 'Ava'},
             {'id': 'r1-unused'},
           ],
           'photos': [
@@ -148,7 +148,7 @@ void main() {
       ]);
       expect(file.unreadable, 1);
       expect(file.groups.keys.toSet(), {'r1-0007', 'r1-S01', 'r1-undeclared'});
-      expect(file.groups['r1-S01']!.suggest, 'Christine');
+      expect(file.groups['r1-S01']!.suggest, 'Ava');
       expect(file.groups['r1-0007']!.suggest, isNull);
     });
 

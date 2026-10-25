@@ -1,7 +1,4 @@
-import 'dart:typed_data';
-
 import 'package:photos_vault/l10n/app_localizations.dart';
-import 'package:photos_vault/photos/on_device_vision.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/viewer/person_page_screen.dart';
@@ -331,15 +328,9 @@ void main() {
     await personStore.addAssets(person.id, ['manual:group']);
 
     final analyses = FakeAiAnalysisStore();
-    await analyses.saveDescriptor(
-      localId: 'manual:group',
-      face: face,
-      personId: person.id,
-      descriptor: FaceDescriptor(
-        vector: Float32List.fromList(const [1, 0, 0]),
-        revision: 1,
-      ),
-    );
+    await analyses.nameFaces([
+      (localId: 'manual:group', face: face),
+    ], person.id);
 
     await tester.pumpWidget(
       _wrap(

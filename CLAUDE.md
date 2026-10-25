@@ -48,17 +48,14 @@ scrolls at 120fps on the same phone, so "fast enough" is whatever Photos
 does — not whatever a Flutter app usually does. A frame dropped while
 scrolling the grid is a bug, not a polish item.
 
-**Size budget: 33 MB installed.** Measured baseline (release `Runner.app`,
-Oct 2026) is **31.0 MB** — Flutter.framework 10 MB, Dart AOT snapshot
-7.7 MB, **SFace.mlmodelc 9.3 MB**, statically linked plugin code 2.7 MB,
-app icons 768 KB, ~12 KB of demo text.
+**Size budget: 25 MB installed.** Measured baseline (release `Runner.app`,
+25 Oct 2026) is **24.5 MB** — Flutter.framework 10 MB, Dart AOT snapshot
+~7.7 MB, statically linked plugin code 2.7 MB, app icons 768 KB.
 
-The budget was 25 MB and the baseline 22.3 until face recognition needed a
-model. That was a deliberate call, not a drift: a general image descriptor
-could not tell two people apart well enough to be worth the taps, and no
-face model small enough to fit the old budget exists under a licence worth
-shipping. 9.3 MB buys the difference between "half these faces are wrong"
-and a feature. See `docs/design/face-recognition/DESIGN.md`. Everything
+The budget was 33 MB while a bundled face model (SFace, 9.3 MB) did
+recognition on the phone. It was removed: names come from the Mac import
+(`docs/design/face-recognition/MAC-PIPELINE.md`), and the phone only
+detects faces. Everything
 else still has to justify its megabyte. The engine is a fixed floor; everything above it is a choice. Check
 with `du -sh build/ios/Release-iphoneos/Runner.app` after a release build,
 and if a change adds more than a megabyte, justify it or drop it.

@@ -601,7 +601,10 @@ class _PreviewScreenState extends State<_PreviewScreen> {
             ),
             Padding(
               padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-              child: CupertinoSearchTextField(onChanged: _search),
+              child: CupertinoSearchTextField(
+                autocorrect: false,
+                onChanged: _search,
+              ),
             ),
             Expanded(
               child: ListView.builder(

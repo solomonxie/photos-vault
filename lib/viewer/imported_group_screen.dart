@@ -176,10 +176,66 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
     if (mounted) Navigator.of(context).pop();
   }
 
+  /// Every face named: what was done, Undo, and the way out.
+  Widget _finished(AppLocalizations l10n) => CupertinoPageScaffold(
+    backgroundColor: settingsPageBackground,
+    navigationBar: CupertinoNavigationBar(
+      backgroundColor: settingsPageBackground,
+      middle: Text(widget.group.suggest ?? l10n.faceGroupsUnnamed),
+    ),
+    child: SafeArea(
+      child: Column(
+        children: [
+          Expanded(
+            child: Center(
+              child: Padding(
+                padding: const EdgeInsets.all(32),
+                child: Column(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(
+                      CupertinoIcons.check_mark_circled,
+                      size: 56,
+                      color: settingsAccent,
+                    ),
+                    const SizedBox(height: 16),
+                    Text(
+                      _note ?? '',
+                      key: const ValueKey('faceGroupDoneNote'),
+                      textAlign: TextAlign.center,
+                    ),
+                    if (_undo != null)
+                      CupertinoButton(
+                        key: const ValueKey('faceGroupUndo'),
+                        onPressed: _busy ? null : _takeBack,
+                        child: Text(l10n.faceGroupsUndo),
+                      ),
+                  ],
+                ),
+              ),
+            ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+            child: SizedBox(
+              width: double.infinity,
+              child: CupertinoButton.filled(
+                key: const ValueKey('faceGroupDone'),
+                onPressed: _busy ? null : () => Navigator.of(context).pop(),
+                child: Text(l10n.actionDone),
+              ),
+            ),
+          ),
+        ],
+      ),
+    ),
+  );
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final ticked = _faces.length - _off.length;
+    if (_faces.isEmpty) return _finished(l10n);
     return CupertinoPageScaffold(
       backgroundColor: settingsPageBackground,
       navigationBar: CupertinoNavigationBar(
@@ -219,21 +275,20 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
                         ),
                       ),
                     ),
-                  if (_faces.isNotEmpty)
-                    CupertinoButton(
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      minimumSize: Size.zero,
-                      onPressed: _toggleAll,
-                      child: Text(
-                        _off.isEmpty
-                            ? l10n.faceGroupsSelectNone
-                            : l10n.faceGroupsSelectAll,
-                        style: const TextStyle(
-                          fontSize: 13,
-                          color: settingsAccent,
-                        ),
+                  CupertinoButton(
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: Size.zero,
+                    onPressed: _toggleAll,
+                    child: Text(
+                      _off.isEmpty
+                          ? l10n.faceGroupsSelectNone
+                          : l10n.faceGroupsSelectAll,
+                      style: const TextStyle(
+                        fontSize: 13,
+                        color: settingsAccent,
                       ),
                     ),
+                  ),
                 ],
               ),
             ),

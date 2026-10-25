@@ -1,8 +1,8 @@
-import 'dart:io';
 import 'dart:typed_data';
 
+import 'dart:io';
+
 import 'package:flutter_test/flutter_test.dart';
-import 'package:photos_vault/photos/on_device_vision.dart';
 import 'package:photos_vault/photos/ai_analysis_store.dart';
 import 'package:photos_vault/photos/alias_folders.dart';
 import 'package:photos_vault/photos/person.dart';
@@ -278,27 +278,16 @@ void main() {
       path: inMemoryDatabasePath,
     );
     addTearDown(faces.close);
-    final descriptor = FaceDescriptor(
-      vector: Float32List.fromList(const [0, 0, 1]),
-      revision: 1,
-    );
     for (final (id, person) in const [('p1', 'keep'), ('p2', 'gone')]) {
-      await faces.saveDescriptor(
-        localId: id,
-        face: const FaceRect(0.3, 0.3, 0.4, 0.4),
-        personId: person,
-        descriptor: descriptor,
-      );
+      await faces.nameFaces([
+        (localId: id, face: const FaceRect(0.3, 0.3, 0.4, 0.4)),
+      ], person);
     }
 
     await faces.movePerson('gone', 'keep');
 
-    expect(await faces.hasDescriptorsFor('gone'), isFalse);
-    expect(
-      (await faces.confirmedFaces()).map((f) => f.personId),
-      everyElement('keep'),
-    );
-    expect(await faces.confirmedFaces(), hasLength(2));
+    expect(await faces.facesOfPerson('gone'), isEmpty);
+    expect(await faces.facesOfPerson('keep'), hasLength(2));
   });
 
   group('hidden folders', () {

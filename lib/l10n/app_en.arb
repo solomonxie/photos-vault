@@ -131,11 +131,6 @@
   "detailInfoDuration": "Duration",
   "detailEditDateTimeTitle": "Date & Time",
   "detailDescriptionPlaceholder": "Add a description",
-  "detailSuggestNothing": "No suggestions for this photo.",
-  "detailFindFaces": "Find Faces",
-  "@detailFindFaces": {
-    "description": "Small link on the People header that detects faces in this photo, on the phone"
-  },
   "detailFacesHint": "Tap a face to name the person.",
   "detailTagsHeader": "Tags",
   "detailPeopleHeader": "People",
@@ -741,6 +736,7 @@
     }
   },
   "actionOk": "OK",
+  "actionDone": "Done",
   "privateAlbumReturnFailed": "{count, plural, one{1 photo couldn't be returned to Photos. It's still in this album.} other{{count} photos couldn't be returned to Photos. They're still in this album.}}",
   "@privateAlbumReturnFailed": {
     "placeholders": {
@@ -847,9 +843,6 @@
   "vaultCarrierMissing": "This photo is no longer in your bucket. It was probably deleted from the bucket outside the app, and no copy is left on this phone.",
   "peopleScreenTitle": "People",
   "peopleUnnamedFace": "Who's this?",
-  "faceGroupTitle": "Who is this?",
-  "faceGroupNamePlaceholder": "Enter a name, or search people you've already named",
-  "faceGroupSave": "Save",
   "personPageHidden": "Hidden",
   "personPageHiddenTitle": "{name} · Hidden",
   "@personPageHiddenTitle": {
@@ -859,37 +852,8 @@
       }
     }
   },
-  "personPageFindMore": "Find More Photos",
-  "faceGroupMoreTitle": "More photos of {name}",
-  "@faceGroupMoreTitle": {
-    "placeholders": {
-      "name": {
-        "type": "String"
-      }
-    }
-  },
-  "faceGroupSelectAll": "Select All",
-  "faceGroupDeselectAll": "Deselect All",
-  "faceGroupCount": "{count, plural, one{1 photo matches this face} other{{count} photos match this face}}",
-  "@faceGroupCount": {
-    "placeholders": {
-      "count": {
-        "type": "int"
-      }
-    }
-  },
-  "faceGroupNone": "No other matching photos found yet.",
-  "faceGroupHint": "Nothing is saved until you enter a name. Tap any photo that isn't this person to remove it.",
   "peopleSuggestedFace": "{name}?",
   "@peopleSuggestedFace": {
-    "placeholders": {
-      "name": {
-        "type": "String"
-      }
-    }
-  },
-  "peopleSuggestionAccepted": "Added to {name}",
-  "@peopleSuggestionAccepted": {
     "placeholders": {
       "name": {
         "type": "String"
@@ -1824,9 +1788,7 @@
   "@peopleMetOver": {"placeholders": {"years": {"type": "int"}}},
   "peopleMetRange": "{from}–{to} years ago",
   "@peopleMetRange": {"placeholders": {"from": {"type": "int"}, "to": {"type": "int"}}},
-  "peopleFilterAttention": "Needs attention",
   "peopleNoDate": "No date",
-  "peopleAttentionHint": "No photos, no group, or no First met date",
   "peopleShowAll": "Show All {count}",
   "@peopleShowAll": {"placeholders": {"count": {"type": "int"}}},
   "peopleSelectMenu": "Select People",
@@ -1907,9 +1869,6 @@
   "@analyzeFacesStarted": {"placeholders": {"count": {"type": "int"}}},
   "actionYes": "Yes",
   "actionNo": "No",
-  "detailFaceIsThis": "Is this {name}?",
-  "@detailFaceIsThis": {"placeholders": {"name": {"type": "String"}}},
-  "detailFacesAllNamed": "Every face here is already named.",
   "detailDetectingFaces": "Detecting faces…",
   "personChangesTitle": "Change History",
   "personChangesEmpty": "No changes yet.",
@@ -2016,6 +1975,7 @@
   "groupMembers": "{count, plural, one{1 person} other{{count} people}}",
   "@groupMembers": {"placeholders": {"count": {"type": "int"}}},
   "groupDelete": "Delete Group",
+  "detailFaceOpenPerson": "Open Page",
   "detailFaceChangePerson": "Change Person…",
   "detailFaceNotThem": "Not {name}",
   "@detailFaceNotThem": {"placeholders": {"name": {"type": "String"}}},

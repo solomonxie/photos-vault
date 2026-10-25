@@ -1,9 +1,6 @@
-import 'dart:typed_data';
-
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/l10n/app_localizations.dart';
-import 'package:photos_vault/photos/on_device_vision.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/viewer/person_avatar_picker.dart';
 
@@ -22,15 +19,7 @@ void main() {
     await people.addAssets(mia.id, ['a']);
     final analysis = FakeAiAnalysisStore();
     const face = FaceRect(0.2, 0.2, 0.3, 0.3);
-    await analysis.saveDescriptor(
-      localId: 'a',
-      face: face,
-      descriptor: FaceDescriptor(
-        vector: Float32List.fromList([1, 0]),
-        revision: 4,
-      ),
-      personId: mia.id,
-    );
+    await analysis.nameFaces([(localId: 'a', face: face)], mia.id);
 
     ({String localId, FaceRect? face})? chosen;
     await tester.pumpWidget(

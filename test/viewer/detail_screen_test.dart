@@ -1480,7 +1480,7 @@ void main() {
     });
   });
 
-  testWidgets('no AI Suggest, and Find Faces is on People', (tester) async {
+  testWidgets('no AI Suggest, and no Find Faces button', (tester) async {
     await tester.pumpWidget(
       _wrap(
         DetailScreen(
@@ -1496,18 +1496,9 @@ void main() {
     await tester.pumpAndSettle();
     await _scrollToInfoPanel(tester);
 
-    // No photo goes to an AI vendor; finding faces fills in People, so it
-    // sits under that heading.
+    // No photo goes to an AI vendor; faces are found when it opens.
     expect(find.text('AI Suggest'), findsNothing);
-    expect(
-      tester.getTopLeft(find.text('Find Faces')).dy,
-      greaterThan(tester.getTopLeft(find.text('Tags')).dy),
-    );
-    expect(
-      tester.getTopLeft(find.text('Find Faces')).dy,
-      greaterThan(tester.getBottomLeft(find.text('People')).dy),
-      reason: 'a row of its own under the heading, not inside it',
-    );
+    expect(find.text('Find Faces'), findsNothing);
   });
 
   testWidgets('a photo with coordinates offers a pin; one without does not', (

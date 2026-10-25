@@ -416,7 +416,6 @@ class FaceImport {
   ) async {
     final gone = await analysisStore.returnToGroup(personId, groupId, faces);
     await personStore.removeFaceTags(personId, gone);
-    analyzer?.namesChanged();
   }
 
   /// What naming a face does besides the face: the photo on the person's
@@ -455,9 +454,7 @@ class FaceImport {
       }
     }
     if (result.linked.isNotEmpty) {
-      analyzer
-        ?..namesChanged()
-        ..add(result.undescribed);
+      analyzer?.add(result.undescribed);
     }
   }
 }

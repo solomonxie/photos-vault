@@ -1,7 +1,5 @@
 import 'package:photos_vault/photos/ai_analysis.dart';
 import 'package:photos_vault/photos/ai_analysis_store.dart';
-import 'package:photos_vault/photos/face_matcher.dart';
-import 'package:photos_vault/photos/on_device_vision.dart';
 import 'package:photos_vault/photos/person.dart' show FaceRect;
 
 /// Pure-Dart, in-memory stand-in for [AiAnalysisStore] — see
@@ -59,14 +57,7 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     for (final d in mine) {
       final next = to(d.face);
       if (next == null && d.personId == null) continue;
-      _descriptors.add(
-        DescribedFace(
-          localId: localId,
-          face: next ?? d.face,
-          personId: d.personId,
-          descriptor: d.descriptor,
-        ),
-      );
+      _descriptors.add(_Face(localId, next ?? d.face, d.personId));
     }
     _suggestions.remove(localId);
   }
@@ -125,76 +116,11 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   };
 
   @override
-  Future<Map<String, Map<String, String>>> suggestionsOf(
-    Iterable<String> localIds,
-  ) async {
-    final all = await suggestionsByAsset();
-    return {for (final id in localIds) id: ?all[id]};
-  }
-
-  @override
-  Future<Map<String, FaceDescriptor>> unnamedDescriptorsOf(
-    Iterable<String> localIds,
-  ) async {
-    final ids = localIds.toSet();
-    return {
-      for (final d in _descriptors)
-        if (d.personId == null && ids.contains(d.localId))
-          AiAnalysisStore.faceKey(d.localId, d.face): d.descriptor,
-    };
-  }
-
-  @override
   Future<List<FaceRect>> facesFor(String localId) async =>
       _faces[localId] ?? const [];
 
-  final List<DescribedFace> _descriptors = [];
+  final List<_Face> _descriptors = [];
   final Map<String, Map<String, String?>> _suggestions = {};
-
-  @override
-  Future<void> saveDescriptor({
-    required String localId,
-    required FaceRect face,
-    required FaceDescriptor descriptor,
-    String? personId,
-  }) async {
-    if (descriptor.isEmpty) return;
-    final kept = _descriptors
-        .where((d) => d.localId == localId && d.face == face)
-        .firstOrNull
-        ?.personId;
-    _descriptors.removeWhere((d) => d.localId == localId && d.face == face);
-    _descriptors.add(
-      DescribedFace(
-        localId: localId,
-        face: face,
-        personId: personId ?? kept,
-        descriptor: descriptor,
-      ),
-    );
-  }
-
-  @override
-  Future<void> attachDescriptors(
-    Iterable<({String localId, FaceRect face})> faces,
-    String personId,
-  ) async {
-    for (final f in faces) {
-      await attachDescriptor(f.localId, f.face, personId);
-    }
-  }
-
-  @override
-  Future<Map<String, FaceDescriptor>> descriptorsOf(
-    Iterable<String> localIds,
-  ) async {
-    final ids = localIds.toSet();
-    return {
-      for (final d in _descriptors)
-        if (ids.contains(d.localId))
-          AiAnalysisStore.faceKey(d.localId, d.face): d.descriptor,
-    };
-  }
 
   @override
   Future<List<({String localId, FaceRect face})>> facesOfPerson(
@@ -272,16 +198,8 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
         (d) => d.localId == l.localId && d.face == l.face,
       );
       if (at >= 0 && _descriptors[at].personId != null) continue;
-      _descriptors.add(
-        DescribedFace(
-          localId: l.localId,
-          face: l.face,
-          personId: l.personId,
-          descriptor: at >= 0
-              ? _descriptors.removeAt(at).descriptor
-              : FaceDescriptor.decode(null, 0),
-        ),
-      );
+      if (at >= 0) _descriptors.removeAt(at);
+      _descriptors.add(_Face(l.localId, l.face, l.personId));
       if (at < 0) undescribed.add(l.localId);
       _members.remove(faceKey(l.localId, l.face));
       linked.add(l);
@@ -372,14 +290,7 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
       );
       if (at >= 0) {
         final d = _descriptors.removeAt(at);
-        _descriptors.add(
-          DescribedFace(
-            localId: d.localId,
-            face: d.face,
-            personId: null,
-            descriptor: d.descriptor,
-          ),
-        );
+        _descriptors.add(_Face(d.localId, d.face, null));
       }
       _members[faceKey(f.localId, f.face)] = (
         localId: f.localId,
@@ -420,28 +331,16 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   }
 
   @override
-  Future<void> clearSuggestionsOf(Iterable<String> localIds) async {
-    for (final id in localIds) {
-      _suggestions.remove(id);
-    }
-  }
-
-  @override
-  Future<void> attachDescriptor(
-    String localId,
-    FaceRect face,
+  Future<void> nameFaces(
+    Iterable<({String localId, FaceRect face})> faces,
     String personId,
   ) async {
-    final i = _descriptors.indexWhere(
-      (d) => d.localId == localId && d.face == face,
-    );
-    if (i < 0) return;
-    _descriptors[i] = DescribedFace(
-      localId: localId,
-      face: face,
-      personId: personId,
-      descriptor: _descriptors[i].descriptor,
-    );
+    for (final f in faces) {
+      _descriptors.removeWhere(
+        (d) => d.localId == f.localId && d.face == f.face,
+      );
+      _descriptors.add(_Face(f.localId, f.face, personId));
+    }
   }
 
   @override
@@ -451,47 +350,6 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     }
     return null;
   }
-
-  @override
-  Future<FaceDescriptor?> descriptorFor(String localId, FaceRect face) async {
-    for (final d in _descriptors) {
-      if (d.localId == localId && d.face == face) return d.descriptor;
-    }
-    return null;
-  }
-
-  @override
-  Future<List<DescribedFace>> allDescribedFaces() async =>
-      List.of(_descriptors);
-
-  @override
-  Future<List<ConfirmedFace>> confirmedFaces({int perPerson = 12}) async {
-    final kept = <String, int>{};
-    return [
-      for (final d in _descriptors.reversed)
-        if (d.personId != null &&
-            (kept[d.personId!] = (kept[d.personId!] ?? 0) + 1) <= perPerson)
-          ConfirmedFace(
-            personId: d.personId!,
-            localId: d.localId,
-            descriptor: d.descriptor,
-          ),
-    ];
-  }
-
-  @override
-  Future<List<ConfirmedFace>> confirmedFacesFor(
-    String personId, {
-    int limit = 40,
-  }) async => [
-    for (final d in _descriptors.reversed)
-      if (d.personId == personId)
-        ConfirmedFace(
-          personId: personId,
-          localId: d.localId,
-          descriptor: d.descriptor,
-        ),
-  ].take(limit).toList();
 
   @override
   Future<void> forgetFacesOf(Iterable<String> localIds) async {
@@ -514,12 +372,7 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     for (var i = 0; i < _descriptors.length; i++) {
       final d = _descriptors[i];
       if (d.personId != from) continue;
-      _descriptors[i] = DescribedFace(
-        localId: d.localId,
-        face: d.face,
-        descriptor: d.descriptor,
-        personId: to,
-      );
+      _descriptors[i] = _Face(d.localId, d.face, to);
     }
     for (final byFace in _suggestions.values) {
       byFace.updateAll((_, id) => id == from ? to : id);
@@ -530,11 +383,7 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   Future<void> forgetPerson(String personId) async {
     for (var i = 0; i < _descriptors.length; i++) {
       if (_descriptors[i].personId != personId) continue;
-      _descriptors[i] = DescribedFace(
-        localId: _descriptors[i].localId,
-        face: _descriptors[i].face,
-        descriptor: _descriptors[i].descriptor,
-      );
+      _descriptors[i] = _Face(_descriptors[i].localId, _descriptors[i].face);
     }
     for (final byFace in _suggestions.values) {
       byFace.removeWhere((_, id) => id == personId);
@@ -551,12 +400,7 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     for (var i = 0; i < _descriptors.length; i++) {
       final d = _descriptors[i];
       if (d.personId != from || !ids.contains(d.localId)) continue;
-      _descriptors[i] = DescribedFace(
-        localId: d.localId,
-        face: d.face,
-        personId: to,
-        descriptor: d.descriptor,
-      );
+      _descriptors[i] = _Face(d.localId, d.face, to);
     }
   }
 
@@ -569,11 +413,7 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     for (var i = 0; i < _descriptors.length; i++) {
       final d = _descriptors[i];
       if (d.personId != personId || !ids.contains(d.localId)) continue;
-      _descriptors[i] = DescribedFace(
-        localId: d.localId,
-        face: d.face,
-        descriptor: d.descriptor,
-      );
+      _descriptors[i] = _Face(d.localId, d.face);
     }
   }
 
@@ -581,43 +421,9 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   Future<void> forgetDescriptor(String localId, FaceRect face) async {
     for (var i = 0; i < _descriptors.length; i++) {
       if (_descriptors[i].localId != localId) continue;
-      _descriptors[i] = DescribedFace(
-        localId: _descriptors[i].localId,
-        face: _descriptors[i].face,
-        descriptor: _descriptors[i].descriptor,
-      );
+      _descriptors[i] = _Face(_descriptors[i].localId, _descriptors[i].face);
     }
   }
-
-  @override
-  Future<void> saveSuggestions(
-    String localId,
-    Map<String, String?> byFace,
-  ) async => _suggestions.putIfAbsent(localId, () => {}).addAll(byFace);
-
-  @override
-  Future<Map<String, Map<String, String>>> suggestionsByAsset() async => {
-    for (final entry in _suggestions.entries)
-      if ({
-            for (final e in entry.value.entries)
-              if (e.value != null) e.key: e.value!,
-          }
-          case final named when named.isNotEmpty)
-        entry.key: named,
-  };
-
-  @override
-  Future<Map<String, String>> suggestionsFor(String localId) async => {
-    for (final e in (_suggestions[localId] ?? const {}).entries)
-      if (e.value != null) e.key: e.value!,
-  };
-
-  @override
-  Future<Set<String>> matchedAssets() async => _suggestions.keys.toSet();
-
-  @override
-  Future<void> clearSuggestions(String localId) async =>
-      _suggestions.remove(localId);
 
   @override
   Future<void> clearAll() async {
@@ -628,9 +434,6 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     _members.clear();
     _groups.clear();
   }
-
-  @override
-  Future<void> clearAllSuggestions() async => _suggestions.clear();
 
   @override
   Future<void> forgetFaces() async {
@@ -647,21 +450,13 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   }
 
   @override
-  Future<Set<String>> staleDescriptorAssets(Set<int> livePipelines) async => {
-    for (final d in _descriptors)
-      if (!livePipelines.contains(d.descriptor.pipeline)) d.localId,
-  };
-
-  @override
-  Future<Set<String>> assetsWithDescriptors() async => {
-    for (final d in _descriptors)
-      if (d.personId != null) d.localId,
-  };
-
-  @override
-  Future<bool> hasDescriptorsFor(String personId) async =>
-      _descriptors.any((d) => d.personId == personId);
-
-  @override
   Future<bool> copyTo(String dest, Set<String> hiddenIds) async => false;
+}
+
+class _Face {
+  _Face(this.localId, this.face, [this.personId]);
+
+  final String localId;
+  final FaceRect face;
+  final String? personId;
 }
