@@ -992,6 +992,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       ),
       child: SafeArea(
         child: ListView(
+          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
           padding: const EdgeInsets.symmetric(vertical: 16),
           children: [
             Center(
@@ -1074,6 +1075,8 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                   controller: _bio,
                   readOnly: _loading,
                   maxLines: null,
+                  onTapOutside: (_) =>
+                      FocusManager.instance.primaryFocus?.unfocus(),
                   textAlign: TextAlign.center,
                   placeholder: l10n.personProfileBioEmpty,
                   style: const TextStyle(

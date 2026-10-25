@@ -339,7 +339,11 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Mia'), findsOneWidget);
-    expect(find.text('1'), findsOneWidget);
+    final row = find.ancestor(
+      of: find.text('Mia'),
+      matching: find.byType(CupertinoListTile),
+    );
+    expect(find.descendant(of: row, matching: find.text('1')), findsOneWidget);
     expect(find.text('5'), findsNothing);
   });
 
@@ -485,6 +489,7 @@ void main() {
     expect(find.text('People with no photos'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('people-no-photos-row')));
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('people-bare-page')), findsOneWidget);
     expect(find.text('Zoe'), findsOneWidget);
   });
 
@@ -503,14 +508,12 @@ void main() {
 
     double top(Finder f) => tester.getTopLeft(f).dy;
     final mias = top(find.text('Mia'));
-    expect(
-      top(find.byKey(const ValueKey('people-no-photos-row'))),
-      lessThan(mias),
-    );
-    expect(
-      top(find.byKey(const ValueKey('people-groups-row'))),
-      lessThan(mias),
-    );
+    final groups = top(find.byKey(const ValueKey('people-groups-row')));
+    final bare = top(find.byKey(const ValueKey('people-no-photos-row')));
+    final ungrouped = top(find.byKey(const ValueKey('people-ungrouped-row')));
+    expect(groups, lessThan(bare));
+    expect(bare, lessThan(ungrouped));
+    expect(ungrouped, lessThan(mias));
   });
 
   testWidgets('New Group names a group and adds its first people', (
@@ -531,6 +534,7 @@ void main() {
 
     await tester.tap(find.byKey(const ValueKey('people-groups-row')));
     await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('people-groups-page')), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('people-new-group')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(CupertinoTextField).last, 'Climbing');
@@ -987,16 +991,13 @@ void main() {
     await tester.pump(const Duration(seconds: 6));
   });
 
-  testWidgets('a group chip filters in one tap, and holds over a reload', (
-    tester,
-  ) async {
+  testWidgets('a group filter holds over a reload', (tester) async {
     final people = await grouped();
     await show(tester, people);
 
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('people-group-chip-g1')),
-    );
-    await tester.tap(find.byKey(const ValueKey('people-group-chip-g1')));
+    await tester.tap(find.byKey(const ValueKey('people-filter-group')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.textContaining('Acme').last);
     await tester.pumpAndSettle();
     expect(find.text('Zoe'), findsNothing);
     expect(find.text('Mia'), findsOneWidget);
@@ -1014,21 +1015,6 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Mia Wu'), findsOneWidget);
     expect(find.text('Daniel'), findsOneWidget);
-  });
-
-  testWidgets('Needs attention keeps those with no photos, group or date', (
-    tester,
-  ) async {
-    final people = await grouped();
-    await show(tester, people);
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('people-filter-attention')),
-    );
-    await tester.tap(find.byKey(const ValueKey('people-filter-attention')));
-    await tester.pumpAndSettle();
-    // Nobody has photos here, so everyone needs attention.
-    expect(find.text('Zoe'), findsOneWidget);
-    expect(find.text('Mia'), findsOneWidget);
   });
 
   testWidgets('Remove from Group takes the picked out of a group', (
@@ -1067,12 +1053,13 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('peopleSort-name')));
     await tester.pumpAndSettle();
     // Not folded behind "Show all": the index needs everyone listed.
-    await tester.ensureVisible(
-      find.byKey(const ValueKey('people-filter-attention')),
+    await tester.scrollUntilVisible(
+      find.byKey(const ValueKey('people-show-all')),
+      300,
+      scrollable: find.byType(Scrollable).first,
     );
-    await tester.tap(find.byKey(const ValueKey('people-filter-attention')));
+    await tester.tap(find.byKey(const ValueKey('people-show-all')));
     await tester.pumpAndSettle();
-
     expect(find.byKey(const ValueKey('people-index')), findsOneWidget);
     await tester.tap(
       find.descendant(
@@ -1092,16 +1079,6 @@ void main() {
     final mia = await personStore.create(name: 'Mia');
     final dan = await personStore.create(name: 'Daniel');
     await personStore.create(name: 'Zoe');
-    await personStore.saveDetail(
-      mia.id,
-      const PersonDetail(gender: Gender.female),
-      scope: PersonScope.open,
-    );
-    await personStore.saveDetail(
-      dan.id,
-      const PersonDetail(gender: Gender.male),
-      scope: PersonScope.open,
-    );
     const acme = PersonGroup(id: 'g1', name: 'Acme', kind: GroupKind.company);
     await personStore.joinGroup(mia.id, acme, scope: PersonScope.open);
     await personStore.joinGroup(dan.id, acme, scope: PersonScope.open);
@@ -1117,22 +1094,6 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Zoe'), findsOneWidget);
-
-    await tester.tap(find.byKey(const ValueKey('people-filter-gender')));
-    await tester.pumpAndSettle();
-    await tester.tap(
-      find.byKey(const ValueKey('people-filter-option-Gender.female')),
-    );
-    await tester.pumpAndSettle();
-    expect(find.text('Mia'), findsOneWidget);
-    expect(find.text('Daniel'), findsNothing);
-    expect(find.text('Zoe'), findsNothing);
-
-    // Filters narrow together: back to any gender first.
-    await tester.tap(find.byKey(const ValueKey('people-filter-gender')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('people-filter-any')));
-    await tester.pumpAndSettle();
 
     // One Group dropdown, then the group picked from a searchable list.
     await tester.tap(find.byKey(const ValueKey('people-filter-group')));
@@ -1179,5 +1140,31 @@ void main() {
     expect(find.text('Add Person'), findsOne);
     expect(find.text('Import from CSV…'), findsOne);
     expect(find.text('Export to CSV'), findsOne);
+  });
+
+  testWidgets('imported groups lead Faces to Name, their faces not '
+      'asked about again', (tester) async {
+    final (analyses, records) = await seed();
+    await analyses.importNamedFaces(
+      const [],
+      grouped: [(localId: 'p1', face: _face, groupId: 'g1')],
+      groups: const {'g1': 'Mia'},
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: FakePersonStore(),
+          assetRecordStore: records,
+          aiAnalysisStore: analyses,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _openFaces(tester);
+
+    expect(find.byKey(const ValueKey('people-imported-g1')), findsOneWidget);
+    expect(find.text('Mia?'), findsOneWidget);
+    expect(find.byKey(ValueKey('face:p1:${_face.encode()}')), findsNothing);
   });
 }

@@ -3,7 +3,7 @@
 The real app on the iOS simulator against a fake S3.
 
 - `scenarios_test.dart` — hide / delete / restore / dates, service level.
-- `flows_test.dart` — each multi-step flow through the UI (favourite, bin and recover, permanent delete, declined Photos prompt, Download Full Resolution, albums, tags, upload, Check Now, lost originals, Flagged Items, hide and unhide, settings), DB and bucket checked after every step.
+- `flows_test.dart` — each multi-step flow through the UI (favourite, bin and recover, permanent delete, declined Photos prompt, Download Full Resolution, albums, tags, upload, Check Now, lost originals, Suggestions, hide and unhide, settings), DB and bucket checked after every step.
 - `tour_test.dart` — starts `App` on a seeded library and taps every control on every screen it reaches (`tour_kit.dart`'s crawler), then the hidden album and each album. Fails on any exception or overflow.
 - `tour_kit.dart` — shared rig: fakes for the sheets a test can't tap (Photos delete prompt, file picker, share, Safari), an error recorder, the crawler.
 

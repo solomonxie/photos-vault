@@ -35,7 +35,7 @@
 ### 4. One listing, kept in the db
 - The normal cloud sync lists `originals/` and `thumbnails/` into a `bucket_object` table (`key, size, lastModified, claimedByRecord`), incrementally, off the UI isolate, skipped when nothing changed.
 - No hidden flag anywhere in the table. It holds names the bucket already shows to anyone who can list it.
-- Hidden albums scan this table locally: recompute the locator from each name's nonce. A match costs one ranged GET for the v2 metadata, then goes into the album index (`HiddenBucketScan`). The listing runs on app pause, at most every 12 hours and never over an empty library (a fresh install has not restored its records), and again from the album menu and the Flagged Items page.
+- Hidden albums scan this table locally: recompute the locator from each name's nonce. A match costs one ranged GET for the v2 metadata, then goes into the album index (`HiddenBucketScan`). The listing runs on app pause, at most every 12 hours and never over an empty library (a fresh install has not restored its records), and again from the album menu and the Suggestions page.
 
 ### 5. Library behaviour
 - Names that fit the protocol are neither shown nor imported: they may be hidden carriers and only an album can say.
@@ -90,7 +90,7 @@ An unclaimed original is a **likely leftover**, not a new photo, when:
 
 - Read from the same 64 KB the carrier probe already fetches; videos walk
   top-level boxes to `moov`.
-- Listed on Flagged Items (Ignore · Import anyway); never counted in the
+- Listed on Suggestions (Ignore · Import anyway); never counted in the
   Cloud row's offer, never imported by the batch.
 - Import date: header date › name stamp › LastModified.
 - Ignored keys live in `app_state` (`bucket_ignored_keys`); detection skips

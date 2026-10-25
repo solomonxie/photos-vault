@@ -43,6 +43,15 @@ class FakeAssetRecordStore implements AssetRecordStore {
   );
 
   @override
+  Future<List<({String localId, String? key, String? hash})>>
+  originalKeys() async => [
+    for (final r in _records.values)
+      if (r.stateOf(DerivativeKind.original) case final o
+          when o.destinationKey != null || o.backedUpHash != null)
+        (localId: r.localId, key: o.destinationKey, hash: o.backedUpHash),
+  ];
+
+  @override
   Future<List<Map<String, Object?>>> uploadRows() async => [
     for (final MapEntry(:key, :value) in uploads.entries)
       for (final e in value.entries)

@@ -216,6 +216,210 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   };
 
   @override
+  Future<Map<String, Map<FaceRect, String>>> namedFacesOf(
+    Iterable<String> localIds,
+  ) async => {
+    for (final id in localIds.toSet())
+      if (await namedFacesIn(id) case final named when named.isNotEmpty)
+        id: named,
+  };
+
+  @override
+  Future<Map<String, ({List<FaceRect> faces, bool legacy})>> faceRowsOf(
+    Iterable<String> localIds,
+  ) async => {
+    for (final id in localIds.toSet())
+      if (_analyses[id] case final a?)
+        id: (
+          faces: a.needsLookingAt ? const <FaceRect>[] : _faces[id] ?? const [],
+          legacy: !a.needsLookingAt && legacy.contains(id),
+        ),
+  };
+
+  /// Group id → (suggest, dismissed); face key → (group, removed).
+  final _groups = <String, ({String? suggest, bool dismissed})>{};
+  final _members =
+      <String, ({String localId, FaceRect face, String group, bool removed})>{};
+
+  @override
+  Future<FaceImportWrite> importNamedFaces(
+    List<FaceLink> links, {
+    Map<String, List<FaceRect>> added = const {},
+    List<GroupedFace> grouped = const [],
+    Map<String, String?> groups = const {},
+    bool clearAll = true,
+  }) async {
+    added.forEach((id, boxes) {
+      if (legacy.contains(id)) return;
+      final pending = _analyses[id]?.needsLookingAt ?? true;
+      final faces = [
+        if (!pending) ...?_faces[id],
+        for (final b in boxes)
+          if (pending || !(_faces[id]?.contains(b) ?? false)) b,
+      ];
+      _faces[id] = faces;
+      _analyses[id] = AiPhotoAnalysis(
+        localId: id,
+        peopleCount: faces.length,
+        analyzedAt: DateTime.now(),
+      );
+    });
+    final linked = <FaceLink>[];
+    final undescribed = <String>{};
+    for (final l in links) {
+      if (legacy.contains(l.localId)) continue;
+      final at = _descriptors.indexWhere(
+        (d) => d.localId == l.localId && d.face == l.face,
+      );
+      if (at >= 0 && _descriptors[at].personId != null) continue;
+      _descriptors.add(
+        DescribedFace(
+          localId: l.localId,
+          face: l.face,
+          personId: l.personId,
+          descriptor: at >= 0
+              ? _descriptors.removeAt(at).descriptor
+              : FaceDescriptor.decode(null, 0),
+        ),
+      );
+      if (at < 0) undescribed.add(l.localId);
+      _members.remove(faceKey(l.localId, l.face));
+      linked.add(l);
+    }
+    for (final g in grouped) {
+      _groups.putIfAbsent(
+        g.groupId,
+        () => (suggest: groups[g.groupId], dismissed: false),
+      );
+    }
+    var count = 0;
+    for (final g in grouped) {
+      if (legacy.contains(g.localId)) continue;
+      if (_descriptors.any(
+        (d) => d.localId == g.localId && d.face == g.face && d.personId != null,
+      )) {
+        continue;
+      }
+      final key = faceKey(g.localId, g.face);
+      final had = _members[key];
+      bool dead(String id) => _groups[id]?.dismissed ?? false;
+      if (had == null ||
+          (had.group != g.groupId &&
+              (had.removed || dead(had.group)) &&
+              !dead(g.groupId))) {
+        _members[key] = (
+          localId: g.localId,
+          face: g.face,
+          group: g.groupId,
+          removed: false,
+        );
+      }
+      count++;
+    }
+    if (clearAll) {
+      _suggestions.clear();
+    } else {
+      for (final l in linked) {
+        _suggestions.remove(l.localId);
+      }
+    }
+    return (linked: linked, undescribed: undescribed, grouped: count);
+  }
+
+  static String faceKey(String localId, FaceRect face) =>
+      AiAnalysisStore.faceKey(localId, face);
+
+  @override
+  Future<Map<String, Set<String>>> groupedFaces() async {
+    final out = <String, Set<String>>{};
+    for (final m in _members.values) {
+      if (m.removed || (_groups[m.group]?.dismissed ?? true)) continue;
+      (out[m.localId] ??= {}).add(m.face.encode());
+    }
+    return out;
+  }
+
+  @override
+  Future<List<StoredFaceGroup>> faceGroups() async {
+    final faces = <String, List<({String localId, FaceRect face})>>{};
+    for (final m in _members.values) {
+      if (m.removed || (_groups[m.group]?.dismissed ?? true)) continue;
+      if (_descriptors.any(
+        (d) => d.localId == m.localId && d.face == m.face && d.personId != null,
+      )) {
+        continue;
+      }
+      (faces[m.group] ??= []).add((localId: m.localId, face: m.face));
+    }
+    return [
+      for (final MapEntry(:key, :value) in faces.entries)
+        StoredFaceGroup(id: key, suggest: _groups[key]!.suggest, faces: value),
+    ];
+  }
+
+  @override
+  Future<Set<String>> returnToGroup(
+    String personId,
+    String groupId,
+    List<({String localId, FaceRect face})> faces,
+  ) async {
+    for (final f in faces) {
+      final at = _descriptors.indexWhere(
+        (d) =>
+            d.localId == f.localId &&
+            d.face == f.face &&
+            d.personId == personId,
+      );
+      if (at >= 0) {
+        final d = _descriptors.removeAt(at);
+        _descriptors.add(
+          DescribedFace(
+            localId: d.localId,
+            face: d.face,
+            personId: null,
+            descriptor: d.descriptor,
+          ),
+        );
+      }
+      _members[faceKey(f.localId, f.face)] = (
+        localId: f.localId,
+        face: f.face,
+        group: groupId,
+        removed: false,
+      );
+    }
+    final ids = {for (final f in faces) f.localId};
+    return {
+      for (final id in ids)
+        if (!_descriptors.any((d) => d.localId == id && d.personId == personId))
+          id,
+    };
+  }
+
+  @override
+  Future<void> ungroupFaces(
+    Iterable<({String localId, FaceRect face})> faces,
+  ) async {
+    for (final f in faces) {
+      final key = faceKey(f.localId, f.face);
+      final m = _members[key];
+      if (m == null) continue;
+      _members[key] = (
+        localId: m.localId,
+        face: m.face,
+        group: m.group,
+        removed: true,
+      );
+    }
+  }
+
+  @override
+  Future<void> dismissGroup(String id) async {
+    final g = _groups[id];
+    if (g != null) _groups[id] = (suggest: g.suggest, dismissed: true);
+  }
+
+  @override
   Future<void> clearSuggestionsOf(Iterable<String> localIds) async {
     for (final id in localIds) {
       _suggestions.remove(id);
@@ -295,6 +499,7 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     _descriptors.removeWhere((d) => ids.contains(d.localId));
     _suggestions.removeWhere((id, _) => ids.contains(id));
     _faces.removeWhere((id, _) => ids.contains(id));
+    _members.removeWhere((_, m) => ids.contains(m.localId));
   }
 
   @override
@@ -420,6 +625,8 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     _faces.clear();
     _descriptors.clear();
     _suggestions.clear();
+    _members.clear();
+    _groups.clear();
   }
 
   @override

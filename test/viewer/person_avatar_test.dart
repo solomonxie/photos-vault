@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/photos/person.dart';
@@ -119,6 +121,20 @@ void main() {
     await tester.pump();
 
     expect(store.reads, 1);
+  });
+
+  test('decode slots go to the newest asker once full', () async {
+    final slots = DecodeSlots(1);
+    await slots.acquire();
+    final order = <String>[];
+    unawaited(slots.acquire().then((_) => order.add('old')));
+    unawaited(slots.acquire().then((_) => order.add('new')));
+    slots.release();
+    await Future<void>.delayed(Duration.zero);
+    expect(order, ['new']);
+    slots.release();
+    await Future<void>.delayed(Duration.zero);
+    expect(order, ['new', 'old']);
   });
 
   test('the crop cache keeps the newest and frees the rest', () async {

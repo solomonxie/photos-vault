@@ -27,7 +27,7 @@ import 'settings_section.dart';
 
 /// "Cloud Settings": the buckets, the upload settings and the app-data
 /// copies, each in its own inset group. Backing up runs on its own; what it
-/// is doing shows under Flagged Items. See
+/// is doing shows under Suggestions. See
 /// `docs/design/uiux/cloud-redesign.md`.
 class SettingsScreen extends StatefulWidget {
   const SettingsScreen({

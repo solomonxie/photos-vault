@@ -2100,6 +2100,26 @@ class AssetRecordStore {
     return rows.isNotEmpty;
   }
 
+  /// Every original's bucket key and content hash, by local id: one read,
+  /// no records built — what a file naming photos by key is matched on.
+  Future<List<({String localId, String? key, String? hash})>>
+  originalKeys() async {
+    final db = await _open();
+    final rows = await db.query(
+      _table,
+      columns: const ['local_id', 'original_key', 'original_hash'],
+      where: 'original_key IS NOT NULL OR original_hash IS NOT NULL',
+    );
+    return [
+      for (final row in rows)
+        (
+          localId: row['local_id'] as String,
+          key: row['original_key'] as String?,
+          hash: row['original_hash'] as String?,
+        ),
+    ];
+  }
+
   Future<List<Map<String, Object?>>> uploadRows() async {
     final db = await _open();
     return db.query(_derivativeTargetTable);
@@ -4094,7 +4114,7 @@ extension VisibleRecords on AssetRecordStore {
 /// anything but upload state (rows in or out, dates, flags, places);
 /// [visibility] is a row hidden, binned or removed; [flags] is [shape] or
 /// an upload outcome (anything but pending to uploading and back), what
-/// Flagged Items is worked out from. All for lists this can't vouch for.
+/// Suggestions is worked out from. All for lists this can't vouch for.
 ({bool shape, bool visibility, bool flags}) libraryDelta(
   List<AssetRecord>? before,
   List<AssetRecord> after,

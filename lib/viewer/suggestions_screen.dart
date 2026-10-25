@@ -9,7 +9,6 @@ import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/album_suggestions.dart';
 import '../photos/merge_suggestions.dart';
-import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/fix_queue.dart';
 import '../photos/flag_scan.dart';
@@ -21,9 +20,8 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'album_suggestions_screen.dart';
 import 'merge_people_screen.dart';
-import 'ungrouped_people_screen.dart';
-import 'flagged_action_screen.dart';
-import 'flagged_copy.dart';
+import 'suggestion_action_screen.dart';
+import 'suggestion_copy.dart';
 import 'library_index.dart';
 
 /// What can be done about this phone's space and the bucket's odd files,
@@ -35,8 +33,8 @@ import 'library_index.dart';
 ///
 /// The work runs in [FixQueue], not here, so the page can be left. See
 /// `docs/design/uiux/storage.md`.
-class FlaggedItemsScreen extends StatefulWidget {
-  const FlaggedItemsScreen({
+class SuggestionsScreen extends StatefulWidget {
+  const SuggestionsScreen({
     super.key,
     required this.store,
     required this.targetsStore,
@@ -73,10 +71,10 @@ class FlaggedItemsScreen extends StatefulWidget {
   static Duration pollEvery = const Duration(seconds: 5);
 
   @override
-  State<FlaggedItemsScreen> createState() => _FlaggedItemsScreenState();
+  State<SuggestionsScreen> createState() => _SuggestionsScreenState();
 }
 
-class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
+class _SuggestionsScreenState extends State<SuggestionsScreen> {
   FixQueue get _queue => widget.queue;
 
   late final FlagScan _scan =
@@ -112,7 +110,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
     _compute();
     unawaited(_loadSuggestions());
     unawaited(_scan.open());
-    _poll = Timer.periodic(FlaggedItemsScreen.pollEvery, (_) {
+    _poll = Timer.periodic(SuggestionsScreen.pollEvery, (_) {
       final covered = !(ModalRoute.of(context)?.isCurrent ?? true);
       final away =
           WidgetsBinding.instance.lifecycleState != AppLifecycleState.resumed;
@@ -173,7 +171,6 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   List<AssetRecord> _archivedOnPhone = const [];
 
   List<MergeSuggestion> _merges = const [];
-  List<Person> _ungrouped = const [];
 
   /// Bounded by the number of people, not photos: every pair once.
   Future<void> _loadMerges() async {
@@ -190,26 +187,11 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
       await people.listAll(),
       dismissed: dismissed,
     );
-    final ungrouped = await ungroupedPeople(people);
     if (mounted) {
       setState(() {
         _merges = found;
-        _ungrouped = ungrouped;
       });
     }
-  }
-
-  Future<void> _openUngrouped() async {
-    await Navigator.of(context).push(
-      CupertinoPageRoute<void>(
-        builder: (_) => UngroupedPeopleScreen(
-          people: _ungrouped,
-          personStore: widget.personStore!,
-          assetRecordStore: widget.store,
-        ),
-      ),
-    );
-    await _loadMerges();
   }
 
   Future<void> _openMerges() async {
@@ -297,8 +279,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
     await _loadSuggestions();
   }
 
-  bool get _organizing =>
-      _suggestions.isNotEmpty || _merges.isNotEmpty || _ungrouped.isNotEmpty;
+  bool get _organizing => _suggestions.isNotEmpty || _merges.isNotEmpty;
 
   /// Albums to make, people to merge or group: tidying rather than fixing,
   /// under one heading.
@@ -322,7 +303,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
       if (_suggestions.isNotEmpty)
         card(
           _ActionRow(
-            key: const ValueKey('flagged-album-suggestions'),
+            key: const ValueKey('suggestions-album-suggestions'),
             icon: CupertinoIcons.rectangle_stack_badge_plus,
             title: l10n.albumSuggestionsTitle,
             body: l10n.albumSuggestionsHow(AlbumSuggestions.perDay),
@@ -336,23 +317,12 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
       if (_merges.isNotEmpty)
         card(
           _ActionRow(
-            key: const ValueKey('flagged-merge-people'),
+            key: const ValueKey('suggestions-merge-people'),
             icon: CupertinoIcons.person_2_fill,
             title: l10n.mergePeopleTitle,
             body: l10n.mergePeopleHow,
             amount: l10n.mergePeopleAmount(_merges.length),
             onTap: _openMerges,
-          ),
-        ),
-      if (_ungrouped.isNotEmpty)
-        card(
-          _ActionRow(
-            key: const ValueKey('flagged-ungrouped-people'),
-            icon: CupertinoIcons.person_3_fill,
-            title: l10n.ungroupedTitle,
-            body: l10n.ungroupedHow,
-            amount: l10n.ungroupedAmount(_ungrouped.length),
-            onTap: _openUngrouped,
           ),
         ),
     ];
@@ -375,10 +345,10 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   void _derive() {
     if (!mounted) return;
     setState(_compute);
-    if (FlaggedItemsScreen.demoOpenAction) {
+    if (SuggestionsScreen.demoOpenAction) {
       final first = [..._phone.entries, ..._inBucket.entries];
       if (first.isNotEmpty) {
-        FlaggedItemsScreen.demoOpenAction = false;
+        SuggestionsScreen.demoOpenAction = false;
         Timer(const Duration(seconds: 2), () {
           if (mounted) _openAction(first.first.key, first.first.value);
         });
@@ -442,13 +412,13 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
     Padding(
       padding: const EdgeInsets.only(top: 24, bottom: 6, left: 4),
       child: Text(
-        l10n.flaggedGroupReview.toUpperCase(),
+        l10n.suggestionsGroupReview.toUpperCase(),
         style: settingsHintStyle,
       ),
     ),
     Padding(
       padding: const EdgeInsets.only(left: 4, bottom: 8),
-      child: Text(l10n.flaggedReviewNote, style: settingsHintStyle),
+      child: Text(l10n.suggestionsReviewNote, style: settingsHintStyle),
     ),
     Container(
       decoration: BoxDecoration(
@@ -459,10 +429,10 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
         children: [
           for (final item in _scan.result.review)
             _ActionRow(
-              key: ValueKey('flagged-review-${item.localId}'),
+              key: ValueKey('suggestions-review-${item.localId}'),
               icon: CupertinoIcons.info,
-              title: l10n.flaggedCarrierStemTitle,
-              body: l10n.flaggedCarrierStemBody,
+              title: l10n.suggestionsCarrierStemTitle,
+              body: l10n.suggestionsCarrierStemBody,
               amount: '',
               onTap: () => widget.onOpenAsset?.call(item.localId),
             ),
@@ -493,7 +463,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   Future<void> _openAction(FlagSolution solution, List<Flag> flags) =>
       Navigator.of(context).push(
         CupertinoPageRoute<void>(
-          builder: (_) => FlaggedActionScreen(
+          builder: (_) => SuggestionActionScreen(
             solution: solution,
             flags: flags,
             queue: _queue,
@@ -523,11 +493,11 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
       backgroundColor: settingsPageBackground,
       navigationBar: CupertinoNavigationBar(
         backgroundColor: settingsPageBackground,
-        middle: Text(l10n.flaggedTitle),
+        middle: Text(l10n.suggestionsTitle),
         trailing: _loading
             ? const CupertinoActivityIndicator(radius: 8)
             : SettingsAccentButton(
-                label: l10n.flaggedRescan,
+                label: l10n.suggestionsRescan,
                 onPressed: _rescan,
               ),
       ),
@@ -543,17 +513,17 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
             _header(l10n),
             if (_phone.isNotEmpty || _archivedOnPhone.isNotEmpty)
               ..._section(
-                l10n.flaggedGroupPhone,
+                l10n.suggestionsGroupPhone,
                 null,
                 _phone,
                 extra: [
                   if (_archivedOnPhone.isNotEmpty)
                     _ActionRow(
-                      key: const ValueKey('flagged-archived-on-phone'),
+                      key: const ValueKey('suggestions-archived-on-phone'),
                       icon: CupertinoIcons.archivebox,
-                      title: l10n.flaggedArchivedTitle,
-                      body: l10n.flaggedArchivedHow,
-                      amount: l10n.flaggedArchivedAmount(
+                      title: l10n.suggestionsArchivedTitle,
+                      body: l10n.suggestionsArchivedHow,
+                      amount: l10n.suggestionsArchivedAmount(
                         _archivedOnPhone.length,
                       ),
                       onTap: _openArchivedOnPhone,
@@ -561,14 +531,14 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
                 ],
               ),
             if (_inBucket.isNotEmpty)
-              ..._section(l10n.flaggedGroupBucket, null, _inBucket),
+              ..._section(l10n.suggestionsGroupBucket, null, _inBucket),
             if (review.isNotEmpty) ..._reviewSection(l10n),
             if (_organizing) ..._organizeSection(l10n),
             if (nothing)
               Padding(
                 padding: const EdgeInsets.symmetric(vertical: 48),
                 child: Text(
-                  l10n.flaggedNone,
+                  l10n.suggestionsNone,
                   textAlign: TextAlign.center,
                   style: settingsHintStyle,
                 ),
@@ -586,8 +556,8 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
       // added since is a line under it, not a page that looks rescanned.
       Text(
         _loading && _problemCount == 0 && _scan.result.stamp == null
-            ? l10n.flaggedLooking
-            : l10n.flaggedHeading(_problemCount),
+            ? l10n.suggestionsLooking
+            : l10n.suggestionsHeading(_problemCount),
         style: settingsHeadingStyle,
       ),
       if (_scan.storageRunning && _scan.toScan > 0)
@@ -604,11 +574,14 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
           ),
         ),
       if (_backingUp > 0)
-        Text(l10n.flaggedWaitingBackup(_backingUp), style: settingsHintStyle),
+        Text(
+          l10n.suggestionsWaitingBackup(_backingUp),
+          style: settingsHintStyle,
+        ),
       if (_saving > 0) ...[
         const SizedBox(height: 4),
         Text(
-          l10n.flaggedFreesUpTo(formatBytes(_saving)),
+          l10n.suggestionsFreesUpTo(formatBytes(_saving)),
           style: settingsFooterStyle,
         ),
       ],
@@ -631,7 +604,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   /// Originals filed by a run and not yet asked about: iOS's delete sheet
   /// comes from here, where the page says what it is for.
   Widget _swapsBanner(AppLocalizations l10n) => Container(
-    key: const ValueKey('flagged-swaps'),
+    key: const ValueKey('suggestions-swaps'),
     margin: const EdgeInsets.only(top: 12),
     padding: const EdgeInsets.fromLTRB(12, 10, 4, 10),
     decoration: BoxDecoration(
@@ -642,17 +615,17 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
       children: [
         Expanded(
           child: Text(
-            l10n.flaggedSwapsWaiting(_queue.swapsWaiting),
+            l10n.suggestionsSwapsWaiting(_queue.swapsWaiting),
             style: settingsRowSubtitleStyle,
           ),
         ),
         CupertinoButton(
-          key: const ValueKey('flagged-swaps-finish'),
+          key: const ValueKey('suggestions-swaps-finish'),
           padding: const EdgeInsets.symmetric(horizontal: 10),
           minimumSize: const Size(0, 30),
           onPressed: _queue.finishPending,
           child: Text(
-            l10n.flaggedSwapsFinish,
+            l10n.suggestionsSwapsFinish,
             style: const TextStyle(fontSize: 14),
           ),
         ),
@@ -691,7 +664,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
                 color: settingsSeparator,
               ),
             _ActionRow(
-              key: ValueKey('flagged-action-${s.name}'),
+              key: ValueKey('suggestions-action-${s.name}'),
               icon: solutionIcon(s),
               title: solutionLabel(AppLocalizations.of(context)!, s),
               body: solutionHow(AppLocalizations.of(context)!, s),
@@ -717,15 +690,15 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
   String _amount(AppLocalizations l10n, FlagSolution s, List<Flag> flags) {
     final (saving, eta, _) = _totals[s] ?? (0, Duration.zero, 0);
     return [
-      l10n.flaggedItemCount(flags.length),
-      if (saving > 0) l10n.flaggedSavesAbout(formatBytes(saving)),
+      l10n.suggestionsItemCount(flags.length),
+      if (saving > 0) l10n.suggestionsSavesAbout(formatBytes(saving)),
       etaLabel(l10n, eta),
     ].join(' · ');
   }
 
   String? _failedIn(AppLocalizations l10n, FlagSolution s) {
     final failed = _totals[s]?.$3 ?? 0;
-    return failed == 0 ? null : l10n.flaggedActionFailed(failed);
+    return failed == 0 ? null : l10n.suggestionsActionFailed(failed);
   }
 
   Widget _runCard(AppLocalizations l10n) {
@@ -760,8 +733,8 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
               Expanded(
                 child: Text(
                   finished
-                      ? l10n.flaggedRunDone
-                      : l10n.flaggedBatchProgress(q.progressed, q.total),
+                      ? l10n.suggestionsRunDone
+                      : l10n.suggestionsBatchProgress(q.progressed, q.total),
                   style: settingsRowTitleStyle,
                 ),
               ),
@@ -774,7 +747,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
                     ? null
                     : q.stop,
                 child: Text(
-                  finished ? l10n.actionOk : l10n.flaggedBatchStop,
+                  finished ? l10n.actionOk : l10n.suggestionsBatchStop,
                   style: const TextStyle(fontSize: 14),
                 ),
               ),
@@ -788,7 +761,7 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
           if (!finished && q.step != null) ...[
             const SizedBox(height: 6),
             Text(
-              key: const ValueKey('flagged-step'),
+              key: const ValueKey('suggestions-step'),
               [
                 actionLabel(l10n, q.step!.action),
                 q.step!.name,
@@ -804,8 +777,8 @@ class _FlaggedItemsScreenState extends State<FlaggedItemsScreen> {
             [
               if (finished && q.freedBytes > 0)
                 l10n.storageResultFreed(formatBytes(q.freedBytes)),
-              if (finished && q.failed > 0) l10n.flaggedBatchLeft(q.failed),
-              if (!finished) l10n.flaggedRunHint,
+              if (finished && q.failed > 0) l10n.suggestionsBatchLeft(q.failed),
+              if (!finished) l10n.suggestionsRunHint,
             ].join(' '),
             style: settingsHintStyle,
           ),

@@ -94,7 +94,7 @@ refuses when any record still names the key, when the object is a carrier
 a live HEAD (size, ETag where asked; never a smaller one for an old copy), and
 whenever a check goes unanswered. Callers: `PendingDeletes` (permanent delete,
 the bin, a hide's retraction, carriers an un-hide or hidden delete retired),
-the Flagged Items fixes, `NameMigration`, `HiddenMigration` and the bucket
+the Suggestions fixes, `NameMigration`, `HiddenMigration` and the bucket
 browser. Everything short of that — including an ordinary delete — leaves the
 backup alone, because it's the copy that outlives the phone.
 

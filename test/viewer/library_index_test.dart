@@ -257,39 +257,6 @@ void main() {
     expect(movesAnyOf({'a'}, [(before: null, after: a)]), isTrue);
   });
 
-  group('search', () {
-    test('texts are kept per record: a new list redoes only new records', () {
-      final a = _record('a', taken: DateTime(2024)).withTags(['Kyoto']);
-      final b = _record('b', taken: DateTime(2025)).withDescription('Dawn');
-      final first = SearchTexts.of([a, b])!;
-      final second = SearchTexts.of([a, b.withDescription('Dusk')])!;
-      expect(identical(first[0], second[0]), isTrue);
-      expect(second[1], contains('dusk'));
-    });
-
-    test('too many to make inline: left to warm', () async {
-      final many = [
-        for (var i = 0; i <= SearchTexts.inlineLimit; i++)
-          _record('m$i', taken: DateTime(2020)).withDescription('n$i'),
-      ];
-      expect(SearchTexts.of(many), isNull);
-      await SearchTexts.warm(many);
-      expect(SearchTexts.of(many)![7], searchTextOf(many[7]));
-    });
-
-    test('matches narrow from an earlier query, and back again', () {
-      final texts = ['kyoto temple', 'kyiv', 'tokyo', 'oslo'];
-      final matches = SearchMatches(texts);
-      List<int> naive(String q) => [
-        for (var i = 0; i < texts.length; i++)
-          if (texts[i].contains(q)) i,
-      ];
-      for (final q in ['k', 'ky', 'kyo', 'kyot', 'kyo', 'ky', 'o', 'yo', 'x']) {
-        expect(matches.of(q), naive(q), reason: q);
-      }
-    });
-  });
-
   test("a people zip's photos are in no library list, Archive included", () {
     final kept = _record(
       'z',

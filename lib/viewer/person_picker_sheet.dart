@@ -28,6 +28,7 @@ Future<Person?> showPersonPickerSheet({
   /// and nobody should have to remember which name in the list is their own.
   String? ownerId,
   bool autofocus = true,
+  String? initialQuery,
 }) {
   final l10n = AppLocalizations.of(context)!;
   final ordered = ownerId == null
@@ -49,6 +50,7 @@ Future<Person?> showPersonPickerSheet({
         query.isEmpty ? null : l10n.personPickerNewNamed(query),
     onCreate: (query) => personStore.create(name: query),
     autofocus: autofocus,
+    initialQuery: initialQuery,
   );
 }
 

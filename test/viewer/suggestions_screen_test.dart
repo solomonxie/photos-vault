@@ -17,9 +17,9 @@ import 'package:photos_vault/photos/flag_scan.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/storage/bucket_object.dart';
 import 'package:photos_vault/upload/bucket_flagged.dart';
-import 'package:photos_vault/viewer/flagged_action_screen.dart';
+import 'package:photos_vault/viewer/suggestion_action_screen.dart';
 import 'package:photos_vault/vault/hidden_repair.dart';
-import 'package:photos_vault/viewer/flagged_items_screen.dart';
+import 'package:photos_vault/viewer/suggestions_screen.dart';
 
 import '../settings/fake_secure_store.dart';
 
@@ -124,7 +124,7 @@ void main() {
     );
     await tester.pumpWidget(
       _wrap(
-        FlaggedItemsScreen(
+        SuggestionsScreen(
           store: store,
           targetsStore: targets,
           advisor: advisor,
@@ -141,14 +141,14 @@ void main() {
   }
 
   Finder action(String solution) =>
-      find.byKey(ValueKey('flagged-action-$solution'));
+      find.byKey(ValueKey('suggestions-action-$solution'));
 
   testWidgets('actions, not files: each says what it does, to how many', (
     tester,
   ) async {
     await open(tester, await seeded());
 
-    expect(find.text('1 item to fix'), findsOneWidget);
+    expect(find.text('1 suggestion'), findsOneWidget);
     expect(find.text('ON THIS IPHONE'), findsOneWidget);
     expect(action('optimize'), findsOneWidget);
     // Not backed up yet is the backup queue's business, not an action here.
@@ -164,7 +164,7 @@ void main() {
     await store.setArchived(['small', 'unsent'], true);
     await open(tester, store);
 
-    final row = find.byKey(const ValueKey('flagged-archived-on-phone'));
+    final row = find.byKey(const ValueKey('suggestions-archived-on-phone'));
     expect(row, findsOneWidget);
     expect(
       find.descendant(of: row, matching: find.text('1 photo')),
@@ -173,7 +173,7 @@ void main() {
     );
     await tester.tap(row);
     await tester.pumpAndSettle();
-    expect(find.byType(FlaggedActionScreen), findsOneWidget);
+    expect(find.byType(SuggestionActionScreen), findsOneWidget);
   });
 
   testWidgets('an archived photo on somebody\'s page stays on the phone', (
@@ -186,7 +186,7 @@ void main() {
     await people.addAssets(mia.id, ['big']);
     await open(tester, store, people: people);
 
-    final row = find.byKey(const ValueKey('flagged-archived-on-phone'));
+    final row = find.byKey(const ValueKey('suggestions-archived-on-phone'));
     expect(
       find.descendant(of: row, matching: find.text('1 photo')),
       findsOneWidget,
@@ -229,7 +229,7 @@ void main() {
     );
     await tester.pumpWidget(
       _wrap(
-        FlaggedItemsScreen(
+        SuggestionsScreen(
           store: store,
           targetsStore: targets,
           advisor: advisor,
@@ -249,7 +249,7 @@ void main() {
     await tester.pump(const Duration(milliseconds: 200));
     expect(scan.running, isTrue);
     expect(action('optimize'), findsOneWidget);
-    expect(find.text('1 item to fix'), findsOneWidget);
+    expect(find.text('1 suggestion'), findsOneWidget);
 
     gate.complete(true);
     await tester.runAsync(
@@ -278,14 +278,17 @@ void main() {
 
     await open(tester, store);
     await tester.scrollUntilVisible(
-      find.byKey(const ValueKey('flagged-review-big')),
+      find.byKey(const ValueKey('suggestions-review-big')),
       200,
     );
 
     expect(find.text('TO LOOK AT'), findsOneWidget);
-    expect(find.byKey(const ValueKey('flagged-review-big')), findsOneWidget);
     expect(
-      find.byKey(const ValueKey('flagged-review-manual:vault-x')),
+      find.byKey(const ValueKey('suggestions-review-big')),
+      findsOneWidget,
+    );
+    expect(
+      find.byKey(const ValueKey('suggestions-review-manual:vault-x')),
       findsNothing,
     );
   });
@@ -301,7 +304,7 @@ void main() {
     await open(tester, store);
 
     expect(action('optimize'), findsNothing);
-    expect(find.text('Nothing to fix'), findsOneWidget);
+    expect(find.text('No suggestions'), findsOneWidget);
     expect(
       find.text(
         "1 photo is still backing up. Optimize is offered once it's done.",
@@ -342,7 +345,7 @@ void main() {
 
     await tester.tap(action('optimize'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('flagged-hide')));
+    await tester.tap(find.byKey(const ValueKey('suggestions-hide')));
     await tester.pumpAndSettle(const Duration(milliseconds: 400));
 
     expect(action('optimize'), findsNothing);
@@ -409,7 +412,7 @@ void main() {
     );
     await tester.pumpWidget(
       _wrap(
-        FlaggedActionScreen(
+        SuggestionActionScreen(
           solution: FlagSolution.optimizeRemote,
           flags: [flag],
           queue: queue,
@@ -491,7 +494,7 @@ void main() {
       findsOneWidget,
     );
 
-    await tester.tap(find.byKey(const ValueKey('flagged-run')));
+    await tester.tap(find.byKey(const ValueKey('suggestions-run')));
     await tester.pumpAndSettle();
     expect(
       find.textContaining("They're removed from this app for good"),

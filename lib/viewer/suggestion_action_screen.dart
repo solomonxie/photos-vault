@@ -6,14 +6,14 @@ import '../photos/fix_queue.dart';
 import '../photos/storage_advice.dart' show formatBytes;
 import '../settings/settings_section.dart';
 import 'asset_grid.dart';
-import 'flagged_copy.dart';
+import 'suggestion_copy.dart';
 
 /// One action and everything it applies to. All selected to start with,
 /// except an action that replaces bucket originals: each of those is
 /// ticked by hand. Then one button does the rest. What
 /// is done drops out; what fails stays, saying why, ready to try again.
-class FlaggedActionScreen extends StatefulWidget {
-  const FlaggedActionScreen({
+class SuggestionActionScreen extends StatefulWidget {
+  const SuggestionActionScreen({
     super.key,
     required this.solution,
     required this.flags,
@@ -27,10 +27,10 @@ class FlaggedActionScreen extends StatefulWidget {
   final Future<void> Function(String localId)? onOpenAsset;
 
   @override
-  State<FlaggedActionScreen> createState() => _FlaggedActionScreenState();
+  State<SuggestionActionScreen> createState() => _SuggestionActionScreenState();
 }
 
-class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
+class _SuggestionActionScreenState extends State<SuggestionActionScreen> {
   FixQueue get _queue => widget.queue;
   late List<Flag> _flags = _open();
   late Set<String> _selected = solutionReplacesOriginal(widget.solution)
@@ -109,7 +109,7 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
     final go = await showCupertinoDialog<bool>(
       context: context,
       builder: (dialogContext) => CupertinoAlertDialog(
-        title: Text(l10n.flaggedConfirmTitle(label, chosen.length)),
+        title: Text(l10n.suggestionsConfirmTitle(label, chosen.length)),
         content: Text(permanentNote(l10n, widget.solution, chosen)),
         actions: [
           CupertinoDialogAction(
@@ -150,7 +150,9 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
         backgroundColor: settingsPageBackground,
         middle: Text(label),
         trailing: SettingsAccentButton(
-          label: allSelected ? l10n.flaggedSelectNone : l10n.flaggedSelectAll,
+          label: allSelected
+              ? l10n.suggestionsSelectNone
+              : l10n.suggestionsSelectAll,
           onPressed: () =>
               setState(() => _selected = allSelected ? {} : idle.toSet()),
         ),
@@ -206,11 +208,11 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
                     Padding(
                       padding: const EdgeInsets.only(bottom: 8),
                       child: Text(
-                        key: const ValueKey('flagged-run-summary'),
+                        key: const ValueKey('suggestions-run-summary'),
                         [
                           if (chosen.fold(0, (sum, f) => sum + f.saving)
                               case final saving when saving > 0)
-                            l10n.flaggedSavesAbout(formatBytes(saving)),
+                            l10n.suggestionsSavesAbout(formatBytes(saving)),
                           etaLabel(
                             l10n,
                             _queue.estimate(widget.solution, chosen),
@@ -222,18 +224,18 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
                   Row(
                     children: [
                       CupertinoButton(
-                        key: const ValueKey('flagged-hide'),
+                        key: const ValueKey('suggestions-hide'),
                         padding: const EdgeInsets.symmetric(horizontal: 8),
                         onPressed: chosen.isEmpty ? null : _hide,
                         child: Text(
-                          l10n.flaggedIgnore,
+                          l10n.suggestionsIgnore,
                           style: const TextStyle(fontSize: 15),
                         ),
                       ),
                       const SizedBox(width: 8),
                       Expanded(
                         child: CupertinoButton.filled(
-                          key: const ValueKey('flagged-run'),
+                          key: const ValueKey('suggestions-run'),
                           padding: const EdgeInsets.symmetric(vertical: 12),
                           onPressed: chosen.isEmpty ? null : _run,
                           child: Text(
@@ -340,7 +342,7 @@ class _FlaggedActionScreenState extends State<FlaggedActionScreen> {
                       DateFormat.yMMMd().format(flag.date),
                       // Only when it isn't simply the whole file.
                       if (flag.saving > 0 && flag.saving < flag.bytes)
-                        l10n.flaggedSavesAbout(formatBytes(flag.saving)),
+                        l10n.suggestionsSavesAbout(formatBytes(flag.saving)),
                       // A row's own time only once it is worth a glance.
                       if (_etaOf(flag) case final eta when eta.inSeconds >= 60)
                         etaLabel(l10n, eta),

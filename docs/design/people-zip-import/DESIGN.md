@@ -82,7 +82,7 @@ photos/<name>/<file>    folder name = that person's `name`
 
 ## Archived photos off the phone
 
-- Flagged Items → Albums → "Archived on This iPhone": archived, fully backed
+- Suggestions → Albums → "Archived on This iPhone": archived, fully backed
   up, not locked or hidden. Opens the Remove from iPhone action (same live
   bucket check as every removal); they stay in Archive, shown from the bucket.
 

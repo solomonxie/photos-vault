@@ -2,6 +2,8 @@ import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
 
+import '../photos/name_sound.dart';
+
 import '../l10n/app_localizations.dart';
 
 /// The sheet's search field — what a test types into.
@@ -80,6 +82,7 @@ Future<T?> showSearchPickerSheetOf<T>({
   Future<T?> Function(String query)? onCreate,
   String? emptyHint,
   bool autofocus = true,
+  String? initialQuery,
 }) {
   return showCupertinoModalPopup<T>(
     context: context,
@@ -94,6 +97,7 @@ Future<T?> showSearchPickerSheetOf<T>({
       onCreate: onCreate,
       emptyHint: emptyHint,
       allowAutofocus: autofocus,
+      initialQuery: initialQuery,
     ),
   );
 }
@@ -129,7 +133,11 @@ class _SearchPickerSheet<T> extends StatefulWidget {
     this.emptyHint,
     this.multi = false,
     this.allowAutofocus = true,
+    this.initialQuery,
   });
+
+  /// Typed in already: a name proposed elsewhere, one tap to accept.
+  final String? initialQuery;
 
   final bool multi;
   final bool allowAutofocus;
@@ -151,8 +159,8 @@ class _SearchPickerSheet<T> extends StatefulWidget {
 }
 
 class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
-  final _controller = TextEditingController();
-  String _query = '';
+  late final _controller = TextEditingController(text: widget.initialQuery);
+  late String _query = widget.initialQuery ?? '';
   final _chosen = <T>[];
 
   void _toggle(T option) => setState(() {
@@ -224,11 +232,7 @@ class _SearchPickerSheetState<T> extends State<_SearchPickerSheet<T>> {
     final l10n = AppLocalizations.of(context)!;
     final media = MediaQuery.of(context);
     final query = _query.trim();
-    final matches = widget.options
-        .where(
-          (o) => widget.labelOf(o).toLowerCase().contains(query.toLowerCase()),
-        )
-        .toList();
+    final matches = searchByName(widget.options, query, widget.labelOf);
     final createLabel = widget.onCreate == null
         ? null
         : widget.createLabel!(query);

@@ -13,7 +13,7 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'person_avatar.dart';
 
-/// Flagged Items → Merge People: each pair of likely-one people, with
+/// Suggestions → Merge People: each pair of likely-one people, with
 /// which to keep. Nothing merges without a confirm.
 class MergePeopleScreen extends StatefulWidget {
   const MergePeopleScreen({

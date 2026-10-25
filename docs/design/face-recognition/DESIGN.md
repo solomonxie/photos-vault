@@ -186,7 +186,8 @@ In order — each step measured before the next:
    ~30–60 MB int8). Keeps the 33 MB budget. Blocker: licence — InsightFace
    weights are non-commercial, and MS1M-trained weights carry dataset risk.
    Needs commercially licensed weights first.
-4. **Face file import — the server stays out of the app.** The app reads
+4. **Face file import — the server stays out of the app.** Designed in
+   `MAC-PIPELINE.md` (Oct 24). The app reads
    one file of face labels; where it came from is not its concern (a
    script, a container, another photo app's export, typed by hand). The
    repo ships tools that make it from a bucket, outside the app's scope

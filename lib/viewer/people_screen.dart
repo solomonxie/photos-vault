@@ -8,9 +8,12 @@ export '../photos/people_order.dart' show PeopleSort;
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/conversation_store.dart';
+import '../photos/name_sound.dart';
 import '../photos/person.dart';
 import '../photos/face_grouping.dart';
+import '../photos/face_analyzer.dart';
 import '../photos/face_identity.dart';
+import '../photos/face_import.dart';
 import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
 import '../photos/unnamed_faces.dart';
@@ -24,10 +27,12 @@ import 'person_avatar.dart';
 import 'profile_chip.dart';
 import 'person_page_screen.dart';
 import 'face_group_screen.dart';
+import 'face_import_screen.dart';
+import 'imported_group_screen.dart';
 import 'search_picker_sheet.dart';
 import 'person_picker_sheet.dart';
 import 'person_profile_screen.dart';
-import 'flagged_action_screen.dart';
+import 'suggestion_action_screen.dart';
 import 'group_screen.dart';
 import 'conversation_import_screen.dart';
 import 'group_picker.dart';
@@ -36,6 +41,7 @@ import 'private_album_gate.dart';
 import 'select_all.dart';
 import 'people_zip_screen.dart';
 import 'profile_transfer_screen.dart';
+import 'ungrouped_people_screen.dart';
 
 /// Collections' "People" row: named [Person] profiles (T7.1-T7.3), each with
 /// a photo count, plus a link down to the on-device people-*count* grouping
@@ -115,7 +121,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
   int _facesFound = 0;
   String _query = '';
   Map<PersonGroup, List<String>> _groups = const {};
-  Map<String, PersonDetail> _details = const {};
 
   PeopleSort _sort = PeopleSort.lastSeen;
   bool _loaded = false;
@@ -127,18 +132,16 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Map<String, DateTime> _lastKnown = const {};
 
   /// The filters row; null is Any. They narrow together.
-  Gender? _gender;
   MetBand? _met;
   PersonGroup? _group;
 
   /// No photos, no group, or no First met: the ones to fill in.
-  bool _attention = false;
-  Map<String, PersonSpan> _spans = const {};
   Set<String> _inAGroup = const {};
 
+  /// Open people in no group, most photos first: once per reload.
+  List<Person> _ungrouped = const [];
+
   /// The biggest few, one tap each beside the Group dropdown.
-  List<PersonGroup> _topGroups = const [];
-  static const _groupChips = 3;
 
   /// This is the page you open to work through them, so it shows far more
   /// than the home row's handful. Each one is a person, not a face, and
@@ -156,6 +159,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     super.initState();
     _reload();
     _loadChats();
+    _loadFaceGroups();
     // Flagged people only: catches up an import or merge cut short.
     unawaited(
       applyConversationSpans(widget.personStore).then((changed) {
@@ -167,6 +171,90 @@ class _PeopleScreenState extends State<PeopleScreen> {
   /// Messages per person: one grouped query, on opening and after an
   /// import — not with every reload, which no edit here changes.
   Map<String, int> _chats = const {};
+
+  /// Imported face groups still waiting for a name, biggest first, and
+  /// the records their faces draw from. Listed first in Faces to Name.
+  List<StoredFaceGroup> _imported = const [];
+  Map<String, AssetRecord> _importedRecords = const {};
+  int _importedFaces = 0;
+
+  Future<void> _loadFaceGroups() async {
+    final analysis = widget.aiAnalysisStore;
+    if (analysis == null) return;
+    try {
+      final found = await loadFaceGroups(analysis, widget.assetRecordStore);
+      if (!mounted) return;
+      setState(() {
+        _imported = found.groups;
+        _importedRecords = found.records;
+        _importedFaces = found.groups.fold(0, (n, g) => n + g.faces.length);
+      });
+      _pageTick.value++;
+    } catch (_) {
+      // No analysis database: nothing was imported.
+    }
+  }
+
+  Future<void> _openImported(StoredFaceGroup group) async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => ImportedGroupScreen(
+          group: group,
+          records: _importedRecords,
+          analysisStore: widget.aiAnalysisStore!,
+          assetRecordStore: widget.assetRecordStore,
+          personStore: widget.personStore,
+          onOpenAsset: widget.onOpenAsset,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _loadFaceGroups();
+    await _reload();
+  }
+
+  Widget _importedRow(AppLocalizations l10n, StoredFaceGroup group) =>
+      CupertinoListTile(
+        key: ValueKey('people-imported-${group.id}'),
+        leadingSize: _faceSize + 4,
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        leading: Container(
+          decoration: BoxDecoration(
+            shape: BoxShape.circle,
+            border: Border.all(color: CupertinoColors.systemGrey, width: 1.5),
+          ),
+          padding: const EdgeInsets.all(2),
+          child: PersonAvatar(
+            assetRecordStore: widget.assetRecordStore,
+            localId: group.faces.first.localId,
+            face: group.faces.first.face,
+            records: _importedRecords,
+            size: _faceSize,
+          ),
+        ),
+        title: Text(
+          group.suggest == null
+              ? l10n.peopleUnnamedFace
+              : l10n.peopleSuggestedFace(group.suggest!),
+          style: const TextStyle(color: CupertinoColors.systemGrey),
+        ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '${group.faces.length}',
+              style: const TextStyle(color: CupertinoColors.systemGrey),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              CupertinoIcons.chevron_forward,
+              size: 18,
+              color: CupertinoColors.systemGrey2,
+            ),
+          ],
+        ),
+        onTap: () => _openImported(group),
+      );
 
   Future<void> _loadChats() async {
     try {
@@ -199,7 +287,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
     }
     final groups = await widget.personStore.allGroups();
     final formerNames = await widget.personStore.allFormerNames();
-    final details = await widget.personStore.openDetails();
     final spans = await widget.personStore.openEventSpans();
     final byId = visibleRecordsOf(records);
     final (first: firstKnown, last: lastKnown) = knownDates(
@@ -218,7 +305,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
       counts: counts,
       firstKnown: firstKnown,
       lastKnown: lastKnown,
-      born: _bornOf(details),
     );
     if (!mounted) return;
     setState(() {
@@ -227,22 +313,16 @@ class _PeopleScreenState extends State<PeopleScreen> {
       _lastKnown = lastKnown;
       _groups = groups;
       _initials.clear();
-      _spans = spans;
+      _sounds.clear();
       _inAGroup = {for (final ids in groups.values) ...ids};
+      _ungrouped = [
+        for (final p in people)
+          if (!p.locked && !_inAGroup.contains(p.id)) p,
+      ]..sort((a, b) => (counts[b.id] ?? 0).compareTo(counts[a.id] ?? 0));
       // The filter's group by id: a reload hands out new instances, and
       // the old one is no key into the new map.
       _group = groups.keys.where((g) => g.id == _group?.id).firstOrNull;
-      _topGroups = [
-        for (final e
-            in groups.entries.toList()
-              ..sort((a, b) => b.value.length.compareTo(a.value.length))
-              ..length = groups.length < _groupChips
-                  ? groups.length
-                  : _groupChips)
-          e.key,
-      ];
       _formerNames = formerNames;
-      _details = details;
       _people = people;
       _counts = counts;
       _firstPhoto = firstPhoto;
@@ -251,12 +331,21 @@ class _PeopleScreenState extends State<PeopleScreen> {
       _unnamedFaces = unnamed.faces;
       _facesFound = unnamed.found;
     });
-    _facesTick.value++;
+    _pageTick.value++;
   }
 
-  static Map<String, DateTime> _bornOf(Map<String, PersonDetail> details) => {
-    for (final MapEntry(:key, :value) in details.entries) key: ?value.birthDate,
-  };
+  Future<void> _openUngrouped() async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => UngroupedPeopleScreen(
+          people: _ungrouped,
+          personStore: widget.personStore,
+          assetRecordStore: widget.assetRecordStore,
+        ),
+      ),
+    );
+    await _reload();
+  }
 
   Future<PeopleSort> _loadSort() => loadPeopleSort(widget.assetRecordStore);
 
@@ -268,7 +357,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
       counts: _counts,
       firstKnown: _firstKnown,
       lastKnown: _lastKnown,
-      born: _bornOf(_details),
     );
     setState(() {
       _sort = sort;
@@ -285,9 +373,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     PeopleSort.photos => l10n.peopleSortPhotos,
     PeopleSort.firstMet => l10n.peopleSortFirstMet,
     PeopleSort.lastSeen => l10n.peopleSortLastSeen,
-    PeopleSort.age => l10n.peopleSortAge,
     PeopleSort.name => l10n.peopleSortName,
-    PeopleSort.birthday => l10n.peopleSortBirthday,
   };
 
   void _showSort() {
@@ -446,7 +532,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
 
   @override
   void dispose() {
-    _facesTick.dispose();
+    _pageTick.dispose();
     _scroll.dispose();
     _undoTimer?.cancel();
     _undoToast?.remove();
@@ -512,21 +598,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
   }
 
   bool _matchesFilter(Person person, DateTime now) {
-    if (_gender case final gender? when _details[person.id]?.gender != gender) {
-      return false;
-    }
     if (_met case final band?) {
       final at = _firstKnown[person.id];
       if (at == null || !band.holds(_yearsSince(at, now))) return false;
     }
     if (_group case final group?) {
       if (!(_groups[group] ?? const []).contains(person.id)) return false;
-    }
-    if (_attention &&
-        (_counts[person.id] ?? 0) > 0 &&
-        _inAGroup.contains(person.id) &&
-        _spans[person.id]?.firstMet != null) {
-      return false;
     }
     return true;
   }
@@ -543,9 +620,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     ),
   );
 
-  /// Under the search box: one dropdown per filter, then the sort. Gender
-  /// and age come from the open profile only — a list anybody can see must
-  /// not narrow by something a passcode opens.
+  /// Under the search box: one dropdown per filter, then the sort.
   Widget _filterRow(AppLocalizations l10n) {
     String metLabel(MetBand b) => switch (b) {
       MetBand.thisYear => l10n.peopleMetThisYear,
@@ -557,24 +632,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
       padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
       child: Row(
         children: [
-          _FilterPill(
-            key: const ValueKey('people-filter-gender'),
-            label: switch (_gender) {
-              Gender.male => l10n.peopleFilterMale,
-              Gender.female => l10n.peopleFilterFemale,
-              null => l10n.peopleFilterGender,
-            },
-            active: _gender != null,
-            onTap: () => _pickOne<Gender>(
-              title: l10n.peopleFilterGender,
-              options: Gender.values,
-              current: _gender,
-              labelOf: (g) => g == Gender.male
-                  ? l10n.peopleFilterMale
-                  : l10n.peopleFilterFemale,
-              onPicked: (g) => setState(() => _gender = g),
-            ),
-          ),
           _FilterPill(
             key: const ValueKey('people-filter-met'),
             label: _met == null ? l10n.peopleFilterMet : metLabel(_met!),
@@ -601,21 +658,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
             active: false,
             onTap: _showSort,
           ),
-          _FilterPill(
-            key: const ValueKey('people-filter-attention'),
-            icon: CupertinoIcons.exclamationmark_circle,
-            label: l10n.peopleFilterAttention,
-            active: _attention,
-            onTap: () => setState(() => _attention = !_attention),
-          ),
-          for (final g in _topGroups)
-            if (g.id != _group?.id)
-              _FilterPill(
-                key: ValueKey('people-group-chip-${g.id}'),
-                label: g.name,
-                active: false,
-                onTap: () => setState(() => _group = g),
-              ),
         ],
       ),
     );
@@ -1342,7 +1384,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     if (mounted) await _reload();
   }
 
-  /// Opens the same page Flagged Items does, so the run is the queue's:
+  /// Opens the same page Suggestions does, so the run is the queue's:
   /// the bucket is checked live before any local copy goes.
   Future<void> _freeUpPicked() async {
     final queue = widget.fixQueue;
@@ -1391,7 +1433,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
   ) async {
     await Navigator.of(context).push(
       CupertinoPageRoute<void>(
-        builder: (_) => FlaggedActionScreen(
+        builder: (_) => SuggestionActionScreen(
           solution: solution,
           flags: flags,
           queue: queue,
@@ -1403,7 +1445,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
   }
 
   /// Bumped on every reload, so the faces page re-reads [_unnamedFaces].
-  final _facesTick = ValueNotifier<int>(0);
+  final _pageTick = ValueNotifier<int>(0);
   final _scroll = ScrollController();
 
   void _toTop() {
@@ -1417,8 +1459,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
 
   /// Folded to [_foldAt] until asked; a search or filter shows every match.
   bool _showAllPeople = false;
-  bool _showBare = false;
-  bool _showGroups = false;
 
   List<MapEntry<PersonGroup, List<String>>> _sortedGroups() =>
       _groups.entries.toList()..sort(
@@ -1471,9 +1511,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
 
   static const _foldAt = 10;
 
-  /// The no-photos list, folded the same way once opened.
-  bool _showAllBare = false;
-
   /// "Show all n" folded, "Show fewer" open: a long list folds back.
   Widget _foldToggle(
     AppLocalizations l10n,
@@ -1489,6 +1526,56 @@ class _PeopleScreenState extends State<PeopleScreen> {
           child: Text(open ? l10n.peopleShowFewer : l10n.peopleShowAll(total)),
         );
 
+  List<Widget> _groupRows(AppLocalizations l10n) => [
+    CupertinoListTile(
+      key: const ValueKey('people-new-group'),
+      title: Text(
+        l10n.peopleNewGroup,
+        style: TextStyle(color: CupertinoTheme.of(context).primaryColor),
+      ),
+      onTap: _newGroup,
+    ),
+    for (final MapEntry(key: group, value: ids) in _sortedGroups())
+      CupertinoListTile(
+        key: ValueKey('people-group-${group.id}'),
+        title: Text(group.name),
+        subtitle: Text(groupKindLabel(l10n, group.kind)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            Text(
+              '${ids.length}',
+              style: const TextStyle(color: CupertinoColors.systemGrey),
+            ),
+            const SizedBox(width: 4),
+            const Icon(
+              CupertinoIcons.chevron_forward,
+              size: 18,
+              color: CupertinoColors.systemGrey2,
+            ),
+          ],
+        ),
+        onTap: () => _openGroup(group),
+      ),
+  ];
+
+  /// A row's own page, rebuilt with every reload.
+  void _openSubpage(String title, Key key, List<Widget> Function() rows) {
+    Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => CupertinoPageScaffold(
+          navigationBar: CupertinoNavigationBar(middle: Text(title)),
+          child: SafeArea(
+            child: ValueListenableBuilder<int>(
+              valueListenable: _pageTick,
+              builder: (_, _, _) => ListView(key: key, children: rows()),
+            ),
+          ),
+        ),
+      ),
+    );
+  }
+
   /// The faces get their own page; here they are one row, above the list.
   void _openFaces() {
     final l10n = AppLocalizations.of(context)!;
@@ -1500,7 +1587,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
           ),
           child: SafeArea(
             child: ValueListenableBuilder<int>(
-              valueListenable: _facesTick,
+              valueListenable: _pageTick,
               builder: (_, _, _) => ListView(
                 key: const ValueKey('people-faces-page'),
                 children: [..._unnamedFaceRows(l10n)],
@@ -1523,7 +1610,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          '$_facesFound',
+          '${_importedFaces + _facesFound}',
           style: const TextStyle(color: CupertinoColors.systemGrey),
         ),
         const SizedBox(width: 4),
@@ -1550,7 +1637,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
           ),
           // The list is capped; this is how many there are.
           Text(
-            '$_facesFound',
+            '${_importedFaces + _facesFound}',
             style: const TextStyle(
               fontSize: 13,
               color: CupertinoColors.systemGrey,
@@ -1559,6 +1646,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
         ],
       ),
     ),
+    for (final group in _imported) _importedRow(l10n, group),
     for (final face in _unnamedFaces)
       CupertinoListTile(
         key: ValueKey('face:${face.localId}:${face.face.encode()}'),
@@ -1714,6 +1802,27 @@ class _PeopleScreenState extends State<PeopleScreen> {
     if (mounted) await _reload();
   }
 
+  Future<void> _openFaceImport() async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => FaceImportScreen(
+          import: FaceImport(
+            personStore: widget.personStore,
+            assetRecordStore: widget.assetRecordStore,
+            analysisStore:
+                widget.aiAnalysisStore ??
+                widget.faceIdentity?.analysisStore ??
+                AiAnalysisStore(),
+            analyzer: FaceAnalyzer.shared,
+          ),
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _loadFaceGroups();
+    await _reload();
+  }
+
   /// Adding somebody, and the whole registry in and out as a spreadsheet.
   void _showMenu() {
     final l10n = AppLocalizations.of(context)!;
@@ -1767,6 +1876,14 @@ class _PeopleScreenState extends State<PeopleScreen> {
             child: Text(l10n.peopleZipMenu),
           ),
           CupertinoActionSheetAction(
+            key: const ValueKey('peopleFacesImport'),
+            onPressed: () {
+              Navigator.of(sheet).pop();
+              _openFaceImport();
+            },
+            child: Text(l10n.peopleFacesImport),
+          ),
+          CupertinoActionSheetAction(
             key: const ValueKey('peopleConversationsImport'),
             onPressed: () {
               Navigator.of(sheet).pop();
@@ -1809,22 +1926,14 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final query = _query.trim().toLowerCase();
+    final heard = query.isEmpty ? null : NameSound.of(query);
     final now = DateTime.now();
     final filtered = [
       for (final person in _people)
-        if (query.isEmpty ||
-            person.name.toLowerCase().contains(query) ||
-            (_formerNames[person.id] ?? const []).any(
-              (n) => n.toLowerCase().contains(query),
-            ))
+        if (heard == null || _answers(person, query, heard))
           if (_matchesFilter(person, now)) person,
     ];
-    final narrowed =
-        query.isNotEmpty ||
-        _gender != null ||
-        _met != null ||
-        _group != null ||
-        _attention;
+    final narrowed = query.isNotEmpty || _met != null || _group != null;
     // No visible photo: one row to open, unless searched or filtered for,
     // or nobody has one yet.
     final fold = !narrowed && filtered.any((p) => (_counts[p.id] ?? 0) > 0);
@@ -1936,6 +2045,21 @@ class _PeopleScreenState extends State<PeopleScreen> {
   final _initials = <String, String>{};
   String _initialOf(Person p) => _initials[p.id] ??= nameInitial(p.name);
 
+  /// Name and former names, worked out on the first search after a reload.
+  final _sounds = <String, List<NameSound>>{};
+
+  bool _answers(Person p, String query, NameSound heard) {
+    final former = _formerNames[p.id] ?? const <String>[];
+    if (p.name.toLowerCase().contains(query) ||
+        former.any((n) => n.toLowerCase().contains(query))) {
+      return true;
+    }
+    final sounds = _sounds[p.id] ??= [
+      for (final n in [p.name, ...former]) NameSound.of(n),
+    ];
+    return sounds.any((s) => s.answers(heard));
+  }
+
   List<Widget> _rowsWithHeadings(AppLocalizations l10n, List<Person> rows) {
     String? last;
     return [
@@ -2011,14 +2135,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
         (PeopleSort.lastSeen, _, final at?) => Text(
           l10n.peopleSeenOn(DateFormat.yMMMd().format(at)),
         ),
-        (PeopleSort.birthday, _, _)
-            when _details[person.id]?.birthDate != null =>
-          Text(
-            l10n.peopleBirthdayIn(
-              DateFormat.MMMd().format(_details[person.id]!.birthDate!),
-              daysToBirthday(_details[person.id]!.birthDate!, DateTime.now()),
-            ),
-          ),
         _ => null,
       },
       trailing: Row(
@@ -2085,6 +2201,35 @@ class _PeopleScreenState extends State<PeopleScreen> {
           ),
         ),
       if (_people.isNotEmpty) _filterRow(l10n),
+      if (_people.isNotEmpty && query.isEmpty)
+        CupertinoListTile(
+          key: const ValueKey('people-groups-row'),
+          leading: const Icon(
+            CupertinoIcons.person_3,
+            color: CupertinoColors.systemGrey,
+          ),
+          title: Text(l10n.peopleGroupsRow),
+          trailing: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Text(
+                '${_groups.length}',
+                style: const TextStyle(color: CupertinoColors.systemGrey),
+              ),
+              const SizedBox(width: 4),
+              const Icon(
+                CupertinoIcons.chevron_forward,
+                size: 18,
+                color: CupertinoColors.systemGrey2,
+              ),
+            ],
+          ),
+          onTap: () => _openSubpage(
+            l10n.peopleGroupsRow,
+            const ValueKey('people-groups-page'),
+            () => _groupRows(l10n),
+          ),
+        ),
       // Things to sort out first, the list itself after.
       if (bare.isNotEmpty)
         CupertinoListTile(
@@ -2102,97 +2247,56 @@ class _PeopleScreenState extends State<PeopleScreen> {
                 style: const TextStyle(color: CupertinoColors.systemGrey),
               ),
               const SizedBox(width: 4),
-              Icon(
-                _showBare
-                    ? CupertinoIcons.chevron_down
-                    : CupertinoIcons.chevron_forward,
+              const Icon(
+                CupertinoIcons.chevron_forward,
                 size: 18,
                 color: CupertinoColors.systemGrey2,
               ),
             ],
           ),
-          onTap: () => setState(() => _showBare = !_showBare),
+          onTap: () => _openSubpage(
+            l10n.peopleNoPhotosRow,
+            const ValueKey('people-bare-page'),
+            () => [
+              for (final p in _people)
+                if ((_counts[p.id] ?? 0) == 0) _personRow(l10n, p),
+            ],
+          ),
         ),
-      if (_showBare) ...[
-        for (final person in _showAllBare ? bare : bare.take(_foldAt))
-          _personRow(l10n, person),
-        _foldToggle(
-          l10n,
-          const ValueKey('people-bare-show-all'),
-          bare.length,
-          _showAllBare,
-          () => setState(() => _showAllBare = !_showAllBare),
-        ),
-      ],
-      if (_people.isNotEmpty && query.isEmpty)
+      if (_ungrouped.isNotEmpty && query.isEmpty)
         CupertinoListTile(
-          key: const ValueKey('people-groups-row'),
+          key: const ValueKey('people-ungrouped-row'),
           leading: const Icon(
-            CupertinoIcons.person_3,
+            CupertinoIcons.person_3_fill,
             color: CupertinoColors.systemGrey,
           ),
-          title: Text(l10n.peopleGroupsRow),
+          title: Text(l10n.ungroupedTitle),
           trailing: Row(
             mainAxisSize: MainAxisSize.min,
             children: [
               Text(
-                '${_groups.length}',
+                '${_ungrouped.length}',
                 style: const TextStyle(color: CupertinoColors.systemGrey),
               ),
               const SizedBox(width: 4),
-              Icon(
-                _showGroups
-                    ? CupertinoIcons.chevron_down
-                    : CupertinoIcons.chevron_forward,
+              const Icon(
+                CupertinoIcons.chevron_forward,
                 size: 18,
                 color: CupertinoColors.systemGrey2,
               ),
             ],
           ),
-          onTap: () => setState(() => _showGroups = !_showGroups),
+          onTap: _openUngrouped,
         ),
-      if (_showGroups && query.isEmpty) ...[
-        CupertinoListTile(
-          key: const ValueKey('people-new-group'),
-          padding: const EdgeInsets.fromLTRB(56, 8, 16, 8),
-          title: Text(
-            l10n.peopleNewGroup,
-            style: TextStyle(color: CupertinoTheme.of(context).primaryColor),
-          ),
-          onTap: _newGroup,
-        ),
-        for (final MapEntry(key: group, value: ids) in _sortedGroups())
-          CupertinoListTile(
-            key: ValueKey('people-group-${group.id}'),
-            padding: const EdgeInsets.fromLTRB(56, 8, 16, 8),
-            title: Text(group.name),
-            subtitle: Text(groupKindLabel(l10n, group.kind)),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '${ids.length}',
-                  style: const TextStyle(color: CupertinoColors.systemGrey),
-                ),
-                const SizedBox(width: 4),
-                const Icon(
-                  CupertinoIcons.chevron_forward,
-                  size: 18,
-                  color: CupertinoColors.systemGrey2,
-                ),
-              ],
-            ),
-            onTap: () => _openGroup(group),
-          ),
-      ],
-      if (_unnamedFaces.isNotEmpty && query.isEmpty) _facesRow(l10n),
+      if ((_imported.isNotEmpty || _unnamedFaces.isNotEmpty) && query.isEmpty)
+        _facesRow(l10n),
       if (_people.isNotEmpty) _sectionHeading(l10n.peopleSectionNamed),
       if (!_loaded)
         const Padding(
           padding: EdgeInsets.only(top: 48),
           child: CupertinoActivityIndicator(),
         )
-      else if (_people.isEmpty && _unnamedFaces.isEmpty)
+      else if (_people.isEmpty && _unnamedFaces.isEmpty && _imported.isEmpty)
         Padding(
           padding: const EdgeInsets.only(top: 48),
           child: Center(

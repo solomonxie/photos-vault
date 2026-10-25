@@ -47,7 +47,7 @@ abstract final class AlbumSuggestions {
   /// not archived), in grid order; [filed] the ids in any album.
   ///
   /// One pass over [home]. On the UI isolate, knowingly: run on opening
-  /// Flagged Items and after an action there, never per build, and copying
+  /// Suggestions and after an action there, never per build, and copying
   /// the records to an isolate costs more than the pass.
   static List<AlbumSuggestion> of(
     List<AssetRecord> home,

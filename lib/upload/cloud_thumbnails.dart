@@ -53,7 +53,7 @@ class CloudThumbnails {
     _queued.remove(localId);
   }
 
-  /// A thumbnail made elsewhere (Flagged Items), for tiles already showing
+  /// A thumbnail made elsewhere (Suggestions), for tiles already showing
   /// their placeholder.
   void landed(String localId, String path) {
     _started.add(localId);

@@ -29,7 +29,7 @@ Future<List<Person>> ungroupedPeople(PersonStore store) async {
   });
 }
 
-/// Flagged Items → People Without a Group: tick some, add them to a group.
+/// Suggestions → People Without a Group: tick some, add them to a group.
 class UngroupedPeopleScreen extends StatefulWidget {
   const UngroupedPeopleScreen({
     super.key,

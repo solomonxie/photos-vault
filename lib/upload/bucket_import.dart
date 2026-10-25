@@ -238,15 +238,15 @@ class BucketImport {
 
   Future<ImportResult> _run(bool relist) async {
     final listed = relist ? await _indexer.refresh() : true;
-    final flaggedNow = await _flags.detect(inspect: _fixer.inspect);
+    final suggestionsNow = await _flags.detect(inspect: _fixer.inspect);
     final todo = [
-      for (final f in flaggedNow)
+      for (final f in suggestionsNow)
         if (f.kind != FlagKind.orphanThumbnail &&
             f.kind != FlagKind.likelyLeftover &&
             f.likelyDuplicateOf == null)
           f,
     ];
-    final duplicates = flaggedNow
+    final duplicates = suggestionsNow
         .where(
           (f) =>
               f.kind != FlagKind.orphanThumbnail &&

@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/name_sound.dart';
 import '../photos/face_grouping.dart';
 import '../photos/face_identity.dart';
 import '../photos/person.dart';
@@ -312,10 +313,11 @@ class _FaceGroupScreenState extends State<FaceGroupScreen> {
       return [for (final person in _people.take(5)) _personOption(person)];
     }
     final query = typed.toLowerCase();
-    final matches = _people
-        .where((p) => p.name.toLowerCase().contains(query))
-        .take(4)
-        .toList();
+    final matches = searchByName(
+      _people,
+      query,
+      (p) => p.name,
+    ).take(4).toList();
     final exact = matches.any((p) => p.name.toLowerCase() == query);
     return [
       for (final person in matches) _personOption(person),

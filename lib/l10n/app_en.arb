@@ -284,95 +284,95 @@
       }
     }
   },
-  "flaggedTitle": "Flagged Items",
-  "flaggedRescan": "Rescan",
-  "flaggedNone": "Nothing flagged",
-  "flaggedOffProtocolReason": "Name doesn't follow the app's scheme",
-  "flaggedOrphanReason": "Thumbnail without a photo",
-  "flaggedGroupPhone": "On this iPhone",
-  "flaggedGroupBucket": "In your bucket",
-  "flaggedRemoveOldCopy": "Delete Old Copies",
-  "flaggedOldCopyReason": "An older upload of a photo now backed up as {name}.",
-  "@flaggedOldCopyReason": {
+  "suggestionsTitle": "Suggestions",
+  "suggestionsRescan": "Rescan",
+  "suggestionsNone": "All tidy for now.",
+  "suggestionsOffProtocolReason": "Name doesn't follow the app's scheme",
+  "suggestionsOrphanReason": "Thumbnail without a photo",
+  "suggestionsGroupPhone": "On this iPhone",
+  "suggestionsGroupBucket": "In your bucket",
+  "suggestionsRemoveOldCopy": "Delete Old Copies",
+  "suggestionsOldCopyReason": "An older upload of a photo now backed up as {name}.",
+  "@suggestionsOldCopyReason": {
     "placeholders": {
       "name": {
         "type": "String"
       }
     }
   },
-  "flaggedConfirmOldCopyBody": "These are older uploads of photos that are already backed up under their current names. Deleting them frees bucket space; the photos stay backed up.",
-  "flaggedHowBackUp": "Not in your bucket yet. Nothing else is offered until they are.",
-  "flaggedHowOptimize": "Replaces each with a smaller copy on this iPhone, and in your bucket on the next sync.",
-  "flaggedHowRemoveFromDevice": "Deletes them from this iPhone to free space. Full quality stays in your bucket, and a preview stays here.",
-  "flaggedHowImport": "In your bucket, but not shown in this app yet.",
-  "flaggedHowRename": "Named by another app or an older version. Renaming lets this app recognise them.",
-  "flaggedHowReformat": "Bulky formats like PNG or TIFF, converted to a smaller copy in your bucket.",
-  "flaggedHowRemoveThumbnail": "Previews whose photo is no longer in your bucket.",
-  "flaggedHowRemoveOldCopy": "Extra copies of photos that are already backed up.",
-  "flaggedHowIgnore": "Leaves these files alone and stops listing them.",
-  "flaggedHowImportAnyway": "Looks like an old copy. Adds it to the library anyway.",
-  "flaggedSavesAbout": "saves about {size}",
-  "@flaggedSavesAbout": {
+  "suggestionsConfirmOldCopyBody": "These are older uploads of photos that are already backed up under their current names. Deleting them frees bucket space; the photos stay backed up.",
+  "suggestionsHowBackUp": "Not in your bucket yet. Nothing else is offered until they are.",
+  "suggestionsHowOptimize": "Replaces each with a smaller copy on this iPhone, and in your bucket on the next sync.",
+  "suggestionsHowRemoveFromDevice": "Deletes them from this iPhone to free space. Full quality stays in your bucket, and a preview stays here.",
+  "suggestionsHowImport": "In your bucket, but not shown in this app yet.",
+  "suggestionsHowRename": "Named by another app or an older version. Renaming lets this app recognise them.",
+  "suggestionsHowReformat": "Bulky formats like PNG or TIFF, converted to a smaller copy in your bucket.",
+  "suggestionsHowRemoveThumbnail": "Previews whose photo is no longer in your bucket.",
+  "suggestionsHowRemoveOldCopy": "Extra copies of photos that are already backed up.",
+  "suggestionsHowIgnore": "Leaves these files alone and stops listing them.",
+  "suggestionsHowImportAnyway": "Looks like an old copy. Adds it to the library anyway.",
+  "suggestionsSavesAbout": "saves about {size}",
+  "@suggestionsSavesAbout": {
     "placeholders": {
       "size": {
         "type": "String"
       }
     }
   },
-  "flaggedItemCount": "{count, plural, one{1 item} other{{count} items}}",
-  "@flaggedItemCount": {
+  "suggestionsItemCount": "{count, plural, one{1 item} other{{count} items}}",
+  "@suggestionsItemCount": {
     "placeholders": {
       "count": {
         "type": "int"
       }
     }
   },
-  "flaggedPermanent": "They're deleted from your bucket for good.",
-  "flaggedPermanentReplace": "The original in your bucket is replaced by the smaller copy. This can't be undone.",
-  "flaggedPermanentOnlyCopy": "{count, plural, one{1 of them has} other{{count} of them have}} no other full-quality copy anywhere.",
-  "@flaggedPermanentOnlyCopy": {
+  "suggestionsPermanent": "They're deleted from your bucket for good.",
+  "suggestionsPermanentReplace": "The original in your bucket is replaced by the smaller copy. This can't be undone.",
+  "suggestionsPermanentOnlyCopy": "{count, plural, one{1 of them has} other{{count} of them have}} no other full-quality copy anywhere.",
+  "@suggestionsPermanentOnlyCopy": {
     "placeholders": {
       "count": {
         "type": "int"
       }
     }
   },
-  "flaggedSelectAll": "Select All",
-  "flaggedSelectNone": "Deselect All",
-  "flaggedActionFailed": "{count, plural, one{1 couldn't be done last time} other{{count} couldn't be done last time}}",
-  "@flaggedActionFailed": {
+  "suggestionsSelectAll": "Select All",
+  "suggestionsSelectNone": "Deselect All",
+  "suggestionsActionFailed": "{count, plural, one{1 couldn't be done last time} other{{count} couldn't be done last time}}",
+  "@suggestionsActionFailed": {
     "placeholders": {
       "count": {
         "type": "int"
       }
     }
   },
-  "flaggedRemoveDuplicates": "Delete Duplicates",
-  "flaggedHowRemoveDuplicate": "Exact copies of photos you already have. One of each is kept; the rest go to Recently Deleted.",
-  "flaggedHowRemoveBucketDuplicate": "Byte-for-byte copies of another file in your bucket. One of each is kept.",
-  "flaggedProblemDuplicate": "Duplicate",
-  "flaggedDuplicateOf": "Same file as {name}, which is kept.",
-  "@flaggedDuplicateOf": {
+  "suggestionsRemoveDuplicates": "Delete Duplicates",
+  "suggestionsHowRemoveDuplicate": "Exact copies of photos you already have. One of each is kept; the rest go to Recently Deleted.",
+  "suggestionsHowRemoveBucketDuplicate": "Byte-for-byte copies of another file in your bucket. One of each is kept.",
+  "suggestionsProblemDuplicate": "Duplicate",
+  "suggestionsDuplicateOf": "Same file as {name}, which is kept.",
+  "@suggestionsDuplicateOf": {
     "placeholders": {
       "name": {
         "type": "String"
       }
     }
   },
-  "flaggedHowOptimizeRemote": "Replaces the original in your bucket with a smaller copy, for good. Any copy on this iPhone is kept as it is.",
-  "flaggedConfirmOptimizeRemoteBody": "In your bucket, photos become HEIF up to 2560 px and videos 1080p HEVC, replacing the original for good. Any copy on this iPhone isn't touched; a photo only in the bucket has no full-quality copy left.",
-  "flaggedEtaSeconds": "a few seconds",
-  "flaggedEtaUnderMinute": "under a minute",
-  "flaggedEtaMinutes": "{minutes, plural, one{about 1 min} other{about {minutes} min}}",
-  "@flaggedEtaMinutes": {
+  "suggestionsHowOptimizeRemote": "Replaces the original in your bucket with a smaller copy, for good. Any copy on this iPhone is kept as it is.",
+  "suggestionsConfirmOptimizeRemoteBody": "In your bucket, photos become HEIF up to 2560 px and videos 1080p HEVC, replacing the original for good. Any copy on this iPhone isn't touched; a photo only in the bucket has no full-quality copy left.",
+  "suggestionsEtaSeconds": "a few seconds",
+  "suggestionsEtaUnderMinute": "under a minute",
+  "suggestionsEtaMinutes": "{minutes, plural, one{about 1 min} other{about {minutes} min}}",
+  "@suggestionsEtaMinutes": {
     "placeholders": {
       "minutes": {
         "type": "int"
       }
     }
   },
-  "flaggedEtaHours": "about {hours} h {minutes} min",
-  "@flaggedEtaHours": {
+  "suggestionsEtaHours": "about {hours} h {minutes} min",
+  "@suggestionsEtaHours": {
     "placeholders": {
       "hours": {
         "type": "int"
@@ -382,16 +382,16 @@
       }
     }
   },
-  "flaggedStepOptimizing": "Optimizing",
-  "flaggedStepDownloading": "Downloading",
-  "flaggedStepUploading": "Uploading",
-  "flaggedStepDeleting": "Deleting",
-  "flaggedStepRenaming": "Renaming",
-  "flaggedStepAdding": "Adding to library",
-  "flaggedStepConverting": "Converting",
-  "flaggedStepConfirming": "Waiting for your OK in the iOS prompt",
-  "flaggedHighResolution": "{width} × {height} → 2560 px",
-  "@flaggedHighResolution": {
+  "suggestionsStepOptimizing": "Optimizing",
+  "suggestionsStepDownloading": "Downloading",
+  "suggestionsStepUploading": "Uploading",
+  "suggestionsStepDeleting": "Deleting",
+  "suggestionsStepRenaming": "Renaming",
+  "suggestionsStepAdding": "Adding to library",
+  "suggestionsStepConverting": "Converting",
+  "suggestionsStepConfirming": "Waiting for your OK in the iOS prompt",
+  "suggestionsHighResolution": "{width} × {height} → 2560 px",
+  "@suggestionsHighResolution": {
     "placeholders": {
       "width": {
         "type": "int"
@@ -401,11 +401,11 @@
       }
     }
   },
-  "flaggedRename": "Fix Names",
-  "flaggedReformat": "Convert to HEIF",
-  "flaggedRemove": "Delete Thumbnails",
-  "flaggedBatchProgress": "Fixing {done} of {total}…",
-  "@flaggedBatchProgress": {
+  "suggestionsRename": "Fix Names",
+  "suggestionsReformat": "Convert to HEIF",
+  "suggestionsRemove": "Delete Thumbnails",
+  "suggestionsBatchProgress": "Fixing {done} of {total}…",
+  "@suggestionsBatchProgress": {
     "placeholders": {
       "done": {
         "type": "int"
@@ -415,34 +415,34 @@
       }
     }
   },
-  "flaggedBatchStop": "Stop",
-  "flaggedBatchLeft": "{count} could not be fixed and are still listed.",
-  "@flaggedBatchLeft": {
+  "suggestionsBatchStop": "Stop",
+  "suggestionsBatchLeft": "{count} could not be fixed and are still listed.",
+  "@suggestionsBatchLeft": {
     "placeholders": {
       "count": {
         "type": "int"
       }
     }
   },
-  "flaggedNeedsAlbum": "Looks like a hidden photo. Open its album and it will be tidied there.",
-  "flaggedWaitingBackup": "{count, plural, one{1 photo is still backing up. Optimize is offered once it's done.} other{{count} photos are still backing up. Optimize is offered once they're done.}}",
-  "@flaggedWaitingBackup": {
+  "suggestionsNeedsAlbum": "Looks like a hidden photo. Open its album and it will be tidied there.",
+  "suggestionsWaitingBackup": "{count, plural, one{1 photo is still backing up. Optimize is offered once it's done.} other{{count} photos are still backing up. Optimize is offered once they're done.}}",
+  "@suggestionsWaitingBackup": {
     "placeholders": {
       "count": {
         "type": "int"
       }
     }
   },
-  "flaggedSwapsWaiting": "{count, plural, one{1 photo is ready to leave Photos. A copy of it stays.} other{{count} photos are ready to leave Photos. A copy of each stays.}}",
-  "@flaggedSwapsWaiting": {
+  "suggestionsSwapsWaiting": "{count, plural, one{1 photo is ready to leave Photos. A copy of it stays.} other{{count} photos are ready to leave Photos. A copy of each stays.}}",
+  "@suggestionsSwapsWaiting": {
     "placeholders": {
       "count": {
         "type": "int"
       }
     }
   },
-  "flaggedSwapsFinish": "Remove from Photos",
-  "flaggedFailed": "Couldn't finish. Nothing was changed.",
+  "suggestionsSwapsFinish": "Remove from Photos",
+  "suggestionsFailed": "Couldn't finish. Nothing was changed.",
   "privateAlbumHideDownloadTitle": "Download to hide?",
   "privateAlbumHideDownloadBody": "{count, plural, =1{This photo is only in your bucket. It will be downloaded, hidden, and its plain copy removed from the bucket.} other{These {count} photos are only in your bucket. They will be downloaded, hidden, and their plain copies removed from the bucket.}}",
   "@privateAlbumHideDownloadBody": {
@@ -453,13 +453,13 @@
     }
   },
   "privateAlbumHideDownloadContinue": "Download and Hide",
-  "flaggedUnclaimedReason": "In the bucket, but not in your library",
-  "flaggedLeftoverReason": "Probably an old copy of a photo you already have: it has no date of its own, only the day it was uploaded",
-  "flaggedIgnore": "Hide from List",
-  "flaggedImportAnyway": "Add Anyway",
-  "flaggedImport": "Add to Library",
-  "flaggedLikelyDuplicate": "Same size as {name}, which you already have. Left alone.",
-  "@flaggedLikelyDuplicate": {
+  "suggestionsUnclaimedReason": "In the bucket, but not in your library",
+  "suggestionsLeftoverReason": "Probably an old copy of a photo you already have: it has no date of its own, only the day it was uploaded",
+  "suggestionsIgnore": "Hide from List",
+  "suggestionsImportAnyway": "Add Anyway",
+  "suggestionsImport": "Add to Library",
+  "suggestionsLikelyDuplicate": "Same size as {name}, which you already have. Left alone.",
+  "@suggestionsLikelyDuplicate": {
     "placeholders": {
       "name": {
         "type": "String"
@@ -540,10 +540,10 @@
   "settingsRemoveAllAppDataWithHidden": "Remove All, Including Hidden Photos",
   "settingsRemoveAllAppDataKeptFiles": "Photos the app stores itself, like imports and edits, were kept: the app couldn't confirm which of them exist nowhere else.",
   "settingsRemoveAllAppDataRefused": "Nothing was removed. Some of the photos you chose to keep aren't confirmed in your buckets yet. Let the backup finish, or remove everything including hidden photos.",
-  "flaggedGroupReview": "To look at",
-  "flaggedReviewNote": "Found by a one-time check. Nothing was changed, and there is nothing to run.",
-  "flaggedCarrierStemTitle": "Bucket copy under an old hidden name",
-  "flaggedCarrierStemBody": "This photo was un-hidden by an earlier version, which may have sent it in the clear over its encrypted copy. Check the bucket copy if this photo matters.",
+  "suggestionsGroupReview": "To look at",
+  "suggestionsReviewNote": "Found by a one-time check. Nothing was changed, and there is nothing to run.",
+  "suggestionsCarrierStemTitle": "Bucket copy under an old hidden name",
+  "suggestionsCarrierStemBody": "This photo was un-hidden by an earlier version, which may have sent it in the clear over its encrypted copy. Check the bucket copy if this photo matters.",
   "privateAlbumTwoCarriers": "{count, plural, one{1 photo here has a second encrypted copy in your buckets, left by an earlier version. Nothing was changed.} other{{count} photos here have a second encrypted copy in your buckets, left by an earlier version. Nothing was changed.}}",
   "@privateAlbumTwoCarriers": {
     "placeholders": {
@@ -681,7 +681,7 @@
   "bucketShowInBucket": "Show in Bucket",
   "bucketOpenInBrowser": "Open in Browser",
   "bucketObjectUnreachable": "This photo's file isn't in any bucket this phone can reach.",
-  "collectionsStorageRow": "Flagged Items",
+  "collectionsStorageRow": "Suggestions",
   "privateAlbumFewDecoysTitle": "Few photos to hide among",
   "privateAlbumFewDecoysBody": "Your library has fewer than 100 photos. Hidden photos are disguised as copies of your other photos, so with this few the same decoys repeat and are easy to spot. They're still encrypted with your code, so nobody can open them.",
   "privateAlbumFewDecoysContinue": "Continue",
@@ -1037,8 +1037,6 @@
   "peopleSectionNamed": "PEOPLE",
   "peopleSectionGroups": "GROUPS",
   "peopleFilterAll": "All",
-  "peopleFilterMale": "Male",
-  "peopleFilterFemale": "Female",
   "ownerThisIsMe": "This is me",
   "ownerThisIsMeNote": "Marks whose phone this is, so other profiles can say how they relate to you.",
   "ownerPickerMe": "Me",
@@ -1418,9 +1416,9 @@
   "eventsLastSeen": "Last seen",
   "peopleSortMenu": "Sort…",
   "peopleSortTitle": "Sort People",
-  "peopleSortPhotos": "Most Photos",
-  "peopleSortFirstMet": "First Met (earliest first)",
-  "peopleSortLastSeen": "Last Seen (latest first)",
+  "peopleSortPhotos": "Photos",
+  "peopleSortFirstMet": "Met",
+  "peopleSortLastSeen": "Recent",
   "peopleSortName": "Name",
   "peopleMetOn": "met {date}",
   "@peopleMetOn": {"placeholders": {"date": {"type": "String"}}},
@@ -1444,6 +1442,54 @@
   "peopleAddPerson": "Add Person",
   "peopleCsvImport": "Import from CSV…",
   "peopleCsvExport": "Export to CSV",
+  "peopleFacesImport": "Import Faces File…",
+  "faceImportTitle": "Import Faces",
+  "faceImportHint": "Names for faces from a faces.json file. Nothing changes until you tap the button below, and a face already named here keeps its name.",
+  "faceImportReading": "Reading the file…",
+  "faceImportPickAnother": "Choose a File",
+  "faceImportFaces": "{count, plural, one{1 face to name} other{{count} faces to name}}",
+  "@faceImportFaces": {"placeholders": {"count": {"type": "int"}}},
+  "faceImportNewPeople": "{count, plural, one{1 new person} other{{count} new people}}",
+  "@faceImportNewPeople": {"placeholders": {"count": {"type": "int"}}},
+  "faceImportUnchanged": "{count, plural, one{1 face already named the same} other{{count} faces already named the same}}",
+  "@faceImportUnchanged": {"placeholders": {"count": {"type": "int"}}},
+  "faceImportSkipped": "{count, plural, one{1 photo skipped: not here or not shown} other{{count} photos skipped: not here or not shown}}",
+  "@faceImportSkipped": {"placeholders": {"count": {"type": "int"}}},
+  "faceImportUnreadable": "{count, plural, one{1 entry couldn't be read} other{{count} entries couldn't be read}}",
+  "@faceImportUnreadable": {"placeholders": {"count": {"type": "int"}}},
+  "faceImportConflicts": "{count, plural, one{1 conflict, not applied} other{{count} conflicts, not applied}}",
+  "@faceImportConflicts": {"placeholders": {"count": {"type": "int"}}},
+  "faceImportNamedHere": "File says {file}; named {here} here",
+  "@faceImportNamedHere": {"placeholders": {"file": {"type": "String"}, "here": {"type": "String"}}},
+  "faceImportSharedName": "{count} people are called {name}",
+  "@faceImportSharedName": {"placeholders": {"count": {"type": "int"}, "name": {"type": "String"}}},
+  "faceImportMore": "{count, plural, one{and 1 more} other{and {count} more}}",
+  "@faceImportMore": {"placeholders": {"count": {"type": "int"}}},
+  "faceImportApply": "{count, plural, one{Name 1 Face} other{Name {count} Faces}}",
+  "@faceImportApply": {"placeholders": {"count": {"type": "int"}}},
+  "faceImportDone": "{faces, plural, one{1 face named} other{{faces} faces named}}{people, plural, =0{.} one{, 1 person added.} other{, {people} people added.}}",
+  "@faceImportDone": {"placeholders": {"faces": {"type": "int"}, "people": {"type": "int"}}},
+  "faceImportGrouped": "{faces, plural, one{1 face} other{{faces} faces}} in {groups, plural, one{1 group} other{{groups} groups}}, to name under People → Faces to Name",
+  "@faceImportGrouped": {"placeholders": {"faces": {"type": "int"}, "groups": {"type": "int"}}},
+  "faceImportNamedNotGrouped": "{count, plural, one{1 face already named, left out of its group} other{{count} faces already named, left out of their groups}}",
+  "@faceImportNamedNotGrouped": {"placeholders": {"count": {"type": "int"}}},
+  "faceImportApplyAll": "Import",
+  "faceImportGroupedDone": "{count, plural, one{1 face put in a group.} other{{count} faces put in groups.}} Name them under People → Faces to Name.",
+  "@faceImportGroupedDone": {"placeholders": {"count": {"type": "int"}}},
+  "faceGroupsUnnamed": "Unnamed",
+  "faceGroupsSelected": "{selected} of {total} ticked · tap to leave one out, hold to open the photo",
+  "@faceGroupsSelected": {"placeholders": {"selected": {"type": "int"}, "total": {"type": "int"}}},
+  "faceGroupsSelectAll": "Tick All",
+  "faceGroupsSelectNone": "Untick All",
+  "faceGroupsUndo": "Undo",
+  "faceGroupsName": "Name…",
+  "faceGroupsNotThis": "Not This Group",
+  "faceGroupsDelete": "Delete Group",
+  "faceGroupsDeleteConfirm": "Delete this group? Its faces stay, unnamed.",
+  "faceGroupsPickTitle": "Who is this?",
+  "faceGroupsNamed": "{count, plural, one{1 face named {name}.} other{{count} faces named {name}.}}",
+  "@faceGroupsNamed": {"placeholders": {"count": {"type": "int"}, "name": {"type": "String"}}},
+  "faceImportNothing": "Nothing in this file names a face in a photo here.",
   "profileCsvTitle": "Profiles as a spreadsheet",
   "profileCsvHint": "One row per person, one column per field. Export to edit them anywhere; import to bring them back. Profiles kept behind a passcode are not in the file.",
   "profileCsvExportButton": "Export profiles",
@@ -1640,32 +1686,32 @@
   "cloudQualityRow": "Upload Quality",
   "cloudFillOrderRow": "Fill Order",
   "cloudLocalCopiesFooter": "Also kept on this iPhone for 7 days, in Files → On My iPhone → Photos Vault.",
-  "flaggedHeading": "{count, plural, =0{Nothing to fix} one{1 item to fix} other{{count} items to fix}}",
-  "@flaggedHeading": {
+  "suggestionsHeading": "{count, plural, =0{No suggestions} one{1 suggestion} other{{count} suggestions}}",
+  "@suggestionsHeading": {
     "placeholders": {
       "count": {
         "type": "int"
       }
     }
   },
-  "flaggedFreesUpTo": "Frees up to {size} on this phone",
-  "@flaggedFreesUpTo": {
+  "suggestionsFreesUpTo": "Frees up to {size} on this phone",
+  "@suggestionsFreesUpTo": {
     "placeholders": {
       "size": {
         "type": "String"
       }
     }
   },
-  "flaggedLooking": "Looking for problems…",
-  "flaggedProblemOffProtocol": "Off-scheme name",
-  "flaggedProblemOrphan": "Orphan thumbnail",
-  "flaggedProblemUnclaimed": "Not in library",
-  "flaggedProblemLeftover": "Likely old copy",
-  "flaggedRunDone": "Done",
-  "flaggedRunHint": "Keeps going while you use the rest of the app. Large videos can take minutes each. When everything is done, iOS asks once to delete the originals.",
-  "flaggedUnverified": "Your bucket couldn't confirm it has the full-quality copy, so this was left alone.",
-  "flaggedConfirmTitle": "{action}: {count, plural, one{1 item} other{{count} items}}?",
-  "@flaggedConfirmTitle": {
+  "suggestionsLooking": "Looking for problems…",
+  "suggestionsProblemOffProtocol": "Off-scheme name",
+  "suggestionsProblemOrphan": "Orphan thumbnail",
+  "suggestionsProblemUnclaimed": "Not in library",
+  "suggestionsProblemLeftover": "Likely old copy",
+  "suggestionsRunDone": "Done",
+  "suggestionsRunHint": "Keeps going while you use the rest of the app. Large videos can take minutes each. When everything is done, iOS asks once to delete the originals.",
+  "suggestionsUnverified": "Your bucket couldn't confirm it has the full-quality copy, so this was left alone.",
+  "suggestionsConfirmTitle": "{action}: {count, plural, one{1 item} other{{count} items}}?",
+  "@suggestionsConfirmTitle": {
     "placeholders": {
       "action": {
         "type": "String"
@@ -1675,39 +1721,39 @@
       }
     }
   },
-  "flaggedConfirmRemoveBody": "Deletes the full photo from this iPhone to free space. Your bucket keeps the full-quality original, the iPhone keeps a small preview, and opening it downloads the original again.",
-  "flaggedConfirmOptimizeBody": "Photos become HEIF up to 2560 px and videos 1080p HEVC, replacing the original on this iPhone and in Photos. The smaller copy then replaces the one in your bucket too. Albums in the Photos app don't carry over.",
-  "flaggedConfirmReformatBody": "Each photo is downloaded, converted and uploaded as a smaller copy. The original is removed from the bucket once its copy is checked.",
-  "flaggedConfirmImportAnywayBody": "This looks like an old copy of a photo you already have.",
+  "suggestionsConfirmRemoveBody": "Deletes the full photo from this iPhone to free space. Your bucket keeps the full-quality original, the iPhone keeps a small preview, and opening it downloads the original again.",
+  "suggestionsConfirmOptimizeBody": "Photos become HEIF up to 2560 px and videos 1080p HEVC, replacing the original on this iPhone and in Photos. The smaller copy then replaces the one in your bucket too. Albums in the Photos app don't carry over.",
+  "suggestionsConfirmReformatBody": "Each photo is downloaded, converted and uploaded as a smaller copy. The original is removed from the bucket once its copy is checked.",
+  "suggestionsConfirmImportAnywayBody": "This looks like an old copy of a photo you already have.",
   "detailRestoreFailedTitle": "Couldn't download the full-resolution version",
   "detailRestoreFailedUnknown": "No bucket answered.",
-  "flaggedMakeThumbnails": "Make Thumbnails",
-  "flaggedHowMakeThumbnail": "Cloud-only, with no preview on this iPhone. Gets the bucket's thumbnail, or makes one from the start of the file without downloading all of it.",
-  "flaggedProblemNoThumbnail": "No thumbnail",
-  "flaggedNoThumbnailReason": "Cloud-only, with no preview on this iPhone",
-  "flaggedProblemMissing": "Missing from bucket",
-  "flaggedGetFromPhotos": "Get from Photos",
-  "flaggedHowGetFromPhotos": "No bucket set up now has these, but Photos still does. Uses the Photos copy again, so they get backed up.",
-  "flaggedRemoveFromLibrary": "Remove from Library",
-  "flaggedHowRemoveFromLibrary": "No bucket set up now has these, and neither does this iPhone or Photos. Nothing here can bring them back.",
-  "flaggedConfirmRemoveFromLibraryBody": "They're removed from this app for good. No bucket set up now has them, so they can't be downloaded again.",
-  "flaggedLostReason": "Not in any bucket set up now, and not on this iPhone",
-  "flaggedLostInPhotosReason": "Not in any bucket set up now; Photos still has it",
-  "flaggedFinishOptimize": "Finish Optimize",
-  "flaggedHowFinishOptimize": "A smaller copy from an earlier Optimize is in Photos beside its original. Keeps the copy and deletes the original, which stays in your bucket.",
-  "flaggedConfirmFinishOptimizeBody": "iOS asks once to delete the originals. Only originals whose full-size file is in your bucket are listed. Tags, people and albums move to the smaller copy.",
-  "flaggedProblemLeftoverCopy": "Copy left in Photos",
-  "flaggedLeftoverCopyReason": "Optimize saved a smaller copy but the original was never removed",
-  "flaggedRemoveExtraCopies": "Remove Extra Copies",
-  "flaggedHowRemoveExtraCopies": "This photo is in Photos more than once. Keeps one and deletes the rest. Your bucket keeps the full-size original.",
-  "flaggedConfirmExtraCopiesBody": "iOS asks once to delete the extra copies. They stay in Photos' Recently Deleted for 30 days.",
-  "flaggedProblemExtraCopies": "Extra copies in Photos",
-  "flaggedExtraCopiesReason": "Optimize left more than one copy of this photo in Photos",
-  "flaggedHowRemoveImportCopy": "Imported from your bucket, but already in your library with its real date. Removes this copy; your photo stays.",
-  "flaggedAttachLiveHalf": "Link Motion",
-  "flaggedHowAttachLiveHalf": "The moving half of a Live Photo already in your library, under the same name. Links it to that photo; nothing in your bucket changes.",
-  "flaggedProblemLiveHalf": "Live Photo motion not linked",
-  "flaggedLiveHalfReason": "Motion of a Live Photo already in your library",
+  "suggestionsMakeThumbnails": "Make Thumbnails",
+  "suggestionsHowMakeThumbnail": "Cloud-only, with no preview on this iPhone. Gets the bucket's thumbnail, or makes one from the start of the file without downloading all of it.",
+  "suggestionsProblemNoThumbnail": "No thumbnail",
+  "suggestionsNoThumbnailReason": "Cloud-only, with no preview on this iPhone",
+  "suggestionsProblemMissing": "Missing from bucket",
+  "suggestionsGetFromPhotos": "Get from Photos",
+  "suggestionsHowGetFromPhotos": "No bucket set up now has these, but Photos still does. Uses the Photos copy again, so they get backed up.",
+  "suggestionsRemoveFromLibrary": "Remove from Library",
+  "suggestionsHowRemoveFromLibrary": "No bucket set up now has these, and neither does this iPhone or Photos. Nothing here can bring them back.",
+  "suggestionsConfirmRemoveFromLibraryBody": "They're removed from this app for good. No bucket set up now has them, so they can't be downloaded again.",
+  "suggestionsLostReason": "Not in any bucket set up now, and not on this iPhone",
+  "suggestionsLostInPhotosReason": "Not in any bucket set up now; Photos still has it",
+  "suggestionsFinishOptimize": "Finish Optimize",
+  "suggestionsHowFinishOptimize": "A smaller copy from an earlier Optimize is in Photos beside its original. Keeps the copy and deletes the original, which stays in your bucket.",
+  "suggestionsConfirmFinishOptimizeBody": "iOS asks once to delete the originals. Only originals whose full-size file is in your bucket are listed. Tags, people and albums move to the smaller copy.",
+  "suggestionsProblemLeftoverCopy": "Copy left in Photos",
+  "suggestionsLeftoverCopyReason": "Optimize saved a smaller copy but the original was never removed",
+  "suggestionsRemoveExtraCopies": "Remove Extra Copies",
+  "suggestionsHowRemoveExtraCopies": "This photo is in Photos more than once. Keeps one and deletes the rest. Your bucket keeps the full-size original.",
+  "suggestionsConfirmExtraCopiesBody": "iOS asks once to delete the extra copies. They stay in Photos' Recently Deleted for 30 days.",
+  "suggestionsProblemExtraCopies": "Extra copies in Photos",
+  "suggestionsExtraCopiesReason": "Optimize left more than one copy of this photo in Photos",
+  "suggestionsHowRemoveImportCopy": "Imported from your bucket, but already in your library with its real date. Removes this copy; your photo stays.",
+  "suggestionsAttachLiveHalf": "Link Motion",
+  "suggestionsHowAttachLiveHalf": "The moving half of a Live Photo already in your library, under the same name. Links it to that photo; nothing in your bucket changes.",
+  "suggestionsProblemLiveHalf": "Live Photo motion not linked",
+  "suggestionsLiveHalfReason": "Motion of a Live Photo already in your library",
   "shareInboxTitle": "{count, plural, one{1 shared item is waiting} other{{count} shared items are waiting}}",
   "@shareInboxTitle": {
     "placeholders": {
@@ -1764,14 +1810,13 @@
   "peopleZipSkipPeople": "Skip to Photos",
   "peopleZipNotInPeople": "not in People",
   "peopleZipNoPhotos": "No photos loaded.",
-  "flaggedArchivedTitle": "Delete Local Copy",
-  "flaggedArchivedHow": "Archived photos already in your bucket. Delete this iPhone's copy to free space; they stay in Archive and open from the bucket.",
-  "flaggedArchivedAmount": "{count, plural, one{1 photo} other{{count} photos}}",
-  "@flaggedArchivedAmount": {"placeholders": {"count": {"type": "int"}}},
+  "suggestionsArchivedTitle": "Delete Local Copy",
+  "suggestionsArchivedHow": "Archived photos already in your bucket. Delete this iPhone's copy to free space; they stay in Archive and open from the bucket.",
+  "suggestionsArchivedAmount": "{count, plural, one{1 photo} other{{count} photos}}",
+  "@suggestionsArchivedAmount": {"placeholders": {"count": {"type": "int"}}},
   "personPageHideUnder": "Hide Under Person",
   "personPageSelectHint": "Tap photos to select them.",
   "peopleFilterGroup": "Group",
-  "peopleFilterGender": "Gender",
   "peopleFilterMet": "Met",
   "peopleFilterAny": "Any",
   "peopleMetThisYear": "Within a year",
@@ -1779,10 +1824,6 @@
   "@peopleMetOver": {"placeholders": {"years": {"type": "int"}}},
   "peopleMetRange": "{from}–{to} years ago",
   "@peopleMetRange": {"placeholders": {"from": {"type": "int"}, "to": {"type": "int"}}},
-  "peopleSortAge": "Age (youngest first)",
-  "peopleSortBirthday": "Birthday (soonest first)",
-  "peopleBirthdayIn": "{date} · {days, plural, =0{today} =1{tomorrow} other{in {days} days}}",
-  "@peopleBirthdayIn": {"placeholders": {"date": {"type": "String"}, "days": {"type": "int"}}},
   "peopleFilterAttention": "Needs attention",
   "peopleNoDate": "No date",
   "peopleAttentionHint": "No photos, no group, or no First met date",
@@ -1804,16 +1845,13 @@
   "peopleBatchUnhideSkipped": "{count, plural, one{1 older filed photo needs its person's hidden folder opened.} other{{count} older filed photos need their person's hidden folder opened.}}",
   "@peopleBatchUnhideSkipped": {"placeholders": {"count": {"type": "int"}}},
   "peopleBatchNothingToFree": "None of their photos are both backed up and on this iPhone.",
-  "peopleBatchNothingToOptimize": "Nothing of theirs to optimize in the last storage scan. Rescan in Flagged Items to check again.",
+  "peopleBatchNothingToOptimize": "Nothing of theirs to optimize in the last storage scan. Rescan in Suggestions to check again.",
   "mergePeopleTitle": "Merge People",
   "mergePeopleHow": "People with the same name, one name inside another, or names that look or sound alike. Keep one; the other's photos, faces and details move to it.",
   "mergePeopleAmount": "{count, plural, one{1 pair} other{{count} pairs}}",
   "@mergePeopleAmount": {"placeholders": {"count": {"type": "int"}}},
   "mergePeopleEmpty": "No more people to merge.",
   "ungroupedTitle": "People Without a Group",
-  "ungroupedHow": "Pick a few and add them to a group, so People can filter by it.",
-  "ungroupedAmount": "{count, plural, one{1 person} other{{count} people}}",
-  "@ungroupedAmount": {"placeholders": {"count": {"type": "int"}}},
   "ungroupedEmpty": "Everyone is in a group.",
   "groupPickerNewNamed": "New Group \"{name}\"",
   "@groupPickerNewNamed": {"placeholders": {"name": {"type": "String"}}},

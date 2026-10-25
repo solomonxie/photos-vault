@@ -16,7 +16,6 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
    ▼
  LibraryScreen ── one page: day grid, then collections, then utilities
    │  + add files ──▶ [Files picker · OS]
-   │  🔍 search ──▶ filters the grid in place
    │  tile ──▶ DetailScreen ──▶ [Edit ▸ Crop | Rotate | Resize]
    │                        └──▶ [Share ▸ Original | Export As…]
    │  hold tile ──▶ selection mode (bar at the bottom)
@@ -34,14 +33,14 @@ secondary · `( x )` text button · `›` pushes · `⟳` working · `←` annot
         Analyze Queue ──▶ AnalyzeQueueScreen
         Hidden ──▶ [PrivateAlbumGate] ──▶ PrivateAlbumScreen
         Recently Deleted ──▶ RecentlyDeletedScreen
-        Flagged Items ──▶ FlaggedItemsScreen
+        Suggestions ──▶ SuggestionsScreen
 ```
 
 ## Files
 
 | File | Covers |
 |---|---|
-| `library.md` | the one page: grid, search, collections, utilities, selection |
+| `library.md` | the one page: grid, collections, utilities, selection |
 | `detail.md` | media viewer, info panel, edit and share menus |
 | `people.md` | people list, person page, profile, history, graph |
 | `collections.md` | albums, favorites, groups, smart collections, hidden, deleted |

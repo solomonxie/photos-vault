@@ -44,18 +44,6 @@ People / Places, then More. Opens at the **newest** photo.
  └─────────────────────────────────────────┘
 ```
 
-Search and import are **bar buttons, not fields**: the page opens at the
-newest photo, so anything parked at the top of the scroll content sits a
-decade of scrolling away.
-
-```
- tap 🔍 ↓
- Library                                      ＋   Cancel   ← not a second ✕
- ┌─────────────────────────────────────────────────────┐
- │ 🔍 Search                                        ⊗  │  pinned under the
- └─────────────────────────────────────────────────────┘  bar, not scrolled
-```
-
 ## States
 
 ```
@@ -96,8 +84,8 @@ with the batch *metadata* edits (Set Place, Adjust Date & Time),
 which belong together because that is what they are: a list of fields to
 set, each opening a picker of its own anyway.
 
-**Archive** (More sheet, tile menu, detail toolbar): out of this grid and
-search, into the built-in Archive album; still in its albums and people.
+**Archive** (More sheet, tile menu, detail toolbar): out of this grid,
+into the built-in Archive album; still in its albums and people.
 Unarchive from Archive's tiles or detail toolbar. `isArchived` on the record,
 backed up in the app snapshot.
 

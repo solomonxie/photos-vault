@@ -26,15 +26,4 @@ void main() {
     sortPeople(people, PeopleSort.name);
     expect([for (final p in people) p.name], ['Amy', '王小明', 'Zoe']);
   });
-
-  test('birthday sort: soonest first, unknown last', () {
-    final people = [_p('a', 'A'), _p('b', 'B'), _p('c', 'C')];
-    sortPeople(
-      people,
-      PeopleSort.birthday,
-      born: {'a': DateTime(1990, 1, 2), 'b': DateTime(1985, 11, 1)},
-      today: DateTime(2026, 10, 24),
-    );
-    expect([for (final p in people) p.id], ['b', 'a', 'c']);
-  });
 }

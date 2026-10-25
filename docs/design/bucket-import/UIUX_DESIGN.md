@@ -3,11 +3,11 @@
 ## Cloud Settings
 Row under Your Cloud Bucket: **Import from Bucket**. Tap scans, imports, fetches thumbnails, then reports ("Imported N items", "Nothing new in the bucket", "Couldn't reach the bucket"). Spinner while running; disabled with no bucket. Shipped in `lib/settings/settings_screen.dart`.
 
-## Utility menu: Flagged Items
-The menu entry becomes **Flagged Items**. The first row opens the existing Optimize Storage page; below it, the bucket's flagged objects. Select mode, chips and a badge are not built.
+## Utility menu: Suggestions
+The menu entry becomes **Suggestions**. The first row opens the existing Optimize Storage page; below it, the bucket's flagged objects. Select mode, chips and a badge are not built.
 
 ```
- ‹ Library              Flagged Items
+ ‹ Library              Suggestions
  ( All 12 ) ( Storage 4 ) ( Bucket 8 )
 
  ┌─────────────────────────────────────────────┐

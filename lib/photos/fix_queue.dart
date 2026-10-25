@@ -86,7 +86,7 @@ enum FlagSolution {
       values.firstWhere((s) => s._storageFix == fix);
 }
 
-/// One row of the Flagged Items page: a photo with space to give back, or
+/// One row of the Suggestions page: a photo with space to give back, or
 /// a bucket object the app doesn't understand.
 class Flag {
   Flag._({
@@ -256,7 +256,7 @@ class FixJob {
       FixJob(flag, solution, state, failure: failure, detail: detail);
 }
 
-/// Runs the fixes asked for on the Flagged Items page, one after another,
+/// Runs the fixes asked for on the Suggestions page, one after another,
 /// whether or not the page is open.
 ///
 /// Owned by the library screen, so leaving the page doesn't stop it. The
@@ -474,7 +474,7 @@ class FixQueue extends ChangeNotifier {
   /// filed it. Off the list (the banner covers them) until it's answered.
   final Map<String, FixJob?> _filed = {};
 
-  /// Originals filed and not yet asked about: the Flagged Items banner.
+  /// Originals filed and not yet asked about: the Suggestions banner.
   int swapsWaiting = 0;
 
   /// Whether this run ends with the prompt: only one somebody started. A

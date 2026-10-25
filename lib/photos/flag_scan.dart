@@ -14,7 +14,7 @@ import '../vault/hidden_repair.dart';
 import 'fix_queue.dart';
 import 'storage_advice.dart';
 
-/// Everything Flagged Items lists, from one scan.
+/// Everything Suggestions lists, from one scan.
 ///
 /// [flags] is every kind together, one entry per id, hidden photos never
 /// among them, before the queue's own filter (done, kept, filed).
@@ -39,7 +39,7 @@ class FlagScanResult {
   final String? stamp;
 }
 
-/// The one detector behind Flagged Items: storage, duplicates, cloud-only,
+/// The one detector behind Suggestions: storage, duplicates, cloud-only,
 /// records and the bucket, read from one snapshot of the library and the
 /// bucket index, one scan at a time.
 ///

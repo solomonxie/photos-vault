@@ -25,7 +25,7 @@ class RepairItem {
   final String localId;
   final RepairKind kind;
 
-  /// Shown only inside its album, never in Flagged Items.
+  /// Shown only inside its album, never in Suggestions.
   final bool hidden;
 
   Map<String, Object?> toJson() => {

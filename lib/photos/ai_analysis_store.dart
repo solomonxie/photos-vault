@@ -39,6 +39,30 @@ Map<FaceRect, FaceRect> carryFaces(List<FaceRect> old, List<FaceRect> found) {
   return out;
 }
 
+/// One face put to one person.
+typedef FaceLink = ({String localId, FaceRect face, String personId});
+
+/// One unnamed face put in an imported group.
+typedef GroupedFace = ({String localId, FaceRect face, String groupId});
+
+/// What [AiAnalysisStore.importNamedFaces] wrote.
+typedef FaceImportWrite = ({
+  List<FaceLink> linked,
+  Set<String> undescribed,
+  int grouped,
+});
+
+/// An imported group of unnamed faces, waiting for a name.
+class StoredFaceGroup {
+  const StoredFaceGroup({required this.id, required this.faces, this.suggest});
+
+  final String id;
+
+  /// A name the file proposed. Nothing is named until somebody taps.
+  final String? suggest;
+  final List<({String localId, FaceRect face})> faces;
+}
+
 /// Local `sqflite` store of what the on-device pass found per photo (faces,
 /// their descriptors and guesses), keyed by `AssetRecord.localId`. The
 /// `tags`/`description`/`reviewed` columns are left over from the removed
@@ -67,6 +91,12 @@ class AiAnalysisStore {
 
   /// One row per face the matcher has looked at, named or not.
   static const _suggestionTable = 'face_suggestion';
+
+  /// Imported groups of unnamed faces ([StoredFaceGroup]), and which face
+  /// is in which. A deleted group stays as `dismissed`, and a face taken
+  /// out as `removed`, so the same file imported again changes nothing.
+  static const _groupTable = 'face_group';
+  static const _memberTable = 'face_group_member';
 
   /// Bumped after every write to faces, descriptors or guesses, by any
   /// instance: they share one file. What a cached face pass keys on.
@@ -223,6 +253,27 @@ class AiAnalysisStore {
       'CREATE INDEX IF NOT EXISTS face_suggestion_person '
       'ON $_suggestionTable (person_id) WHERE person_id IS NOT NULL',
     );
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_groupTable (
+        id TEXT PRIMARY KEY,
+        suggest TEXT,
+        created_at INTEGER NOT NULL,
+        dismissed INTEGER NOT NULL DEFAULT 0
+      )
+    ''');
+    await db.execute('''
+      CREATE TABLE IF NOT EXISTS $_memberTable (
+        local_id TEXT NOT NULL,
+        face TEXT NOT NULL,
+        group_id TEXT NOT NULL,
+        removed INTEGER NOT NULL DEFAULT 0,
+        PRIMARY KEY (local_id, face)
+      )
+    ''');
+    await db.execute(
+      'CREATE INDEX IF NOT EXISTS face_group_member_group '
+      'ON $_memberTable (group_id)',
+    );
   }
 
   /// What the matcher guessed, per face. A row with a null `person_id` is
@@ -333,7 +384,10 @@ class AiAnalysisStore {
       'ON CONFLICT (local_id, face) DO UPDATE SET '
       'revision = excluded.revision, vector = excluded.vector, '
       'person_id = COALESCE(excluded.person_id, person_id), '
+      // An imported name not yet described is dated 0 (see
+      // [importNamedFaces]); described, it takes its date now.
       'confirmed_at = CASE WHEN excluded.person_id IS NULL '
+      'AND $_descriptorTable.confirmed_at > 0 '
       'THEN confirmed_at ELSE excluded.confirmed_at END',
       [
         localId,
@@ -430,6 +484,367 @@ class AiAnalysisStore {
         FaceRect.decode(row['face'] as String?) ?? _wholeFrame:
             row['person_id'] as String,
     };
+  }
+
+  /// [namedFacesIn] for many photos, keyed by local id.
+  Future<Map<String, Map<FaceRect, String>>> namedFacesOf(
+    Iterable<String> localIds,
+  ) async {
+    final out = <String, Map<FaceRect, String>>{};
+    await _eachRead(
+      localIds,
+      (where) =>
+          'SELECT local_id, face, person_id FROM $_descriptorTable '
+          'WHERE person_id IS NOT NULL AND $where',
+      (row) {
+        final face = FaceRect.decode(row['face'] as String?);
+        if (face == null) return;
+        (out[row['local_id'] as String] ??= {})[face] =
+            row['person_id'] as String;
+      },
+    );
+    return out;
+  }
+
+  /// The found boxes of these photos, and whether they are still on the
+  /// raw sensor buffer (05#7). Photos never looked at, or owed another
+  /// look, have none.
+  Future<Map<String, ({List<FaceRect> faces, bool legacy})>> faceRowsOf(
+    Iterable<String> localIds,
+  ) async {
+    final out = <String, ({List<FaceRect> faces, bool legacy})>{};
+    await _eachRead(
+      localIds,
+      (where) =>
+          'SELECT local_id, people_count, faces, upright FROM $_table '
+          'WHERE $where',
+      (row) {
+        final pending = (row['people_count'] as num) < 0;
+        out[row['local_id'] as String] = (
+          faces: pending
+              ? const <FaceRect>[]
+              : decodeFaces(row['faces'] as String?),
+          legacy: !pending && row['upright'] == 0,
+        );
+      },
+    );
+    return out;
+  }
+
+  /// Names faces, and puts unnamed ones in groups, from an imported face
+  /// file — or names a group's faces — in one transaction. [added] boxes
+  /// join each photo's found faces first; a photo never looked at takes
+  /// them as its faces. A face already named keeps its name and is never
+  /// put in a group, and a photo whose boxes are still on the sensor
+  /// buffer is left alone. A face named here leaves its group.
+  ///
+  /// A face with no descriptor gets an empty one, named and dated 0, so it
+  /// sorts behind every described reference and takes no place in the
+  /// cap from one: the analyze pass describes it the next time the photo
+  /// is looked at, keeping the name and dating it then.
+  /// [clearAll]: every guess goes, the reference set changed wholesale;
+  /// otherwise only these photos' guesses.
+  Future<FaceImportWrite> importNamedFaces(
+    List<FaceLink> links, {
+    Map<String, List<FaceRect>> added = const {},
+    List<GroupedFace> grouped = const [],
+    Map<String, String?> groups = const {},
+    bool clearAll = true,
+  }) async {
+    if (links.isEmpty && grouped.isEmpty) {
+      return (linked: <FaceLink>[], undescribed: <String>{}, grouped: 0);
+    }
+    final ids = {
+      for (final l in links) l.localId,
+      for (final g in grouped) g.localId,
+    }.toList();
+    final db = await _open();
+    final result = await db.transaction((txn) async {
+      final rows = <String, Map<String, Object?>>{};
+      final described = <String, String?>{};
+      for (var i = 0; i < ids.length; i += 900) {
+        final chunk = ids.skip(i).take(900).toList();
+        final where =
+            'local_id IN (${List.filled(chunk.length, '?').join(',')})';
+        for (final row in await txn.rawQuery(
+          'SELECT local_id, people_count, faces, upright FROM $_table '
+          'WHERE $where',
+          chunk,
+        )) {
+          rows[row['local_id'] as String] = row;
+        }
+        for (final row in await txn.rawQuery(
+          'SELECT local_id, face, person_id FROM $_descriptorTable '
+          'WHERE $where',
+          chunk,
+        )) {
+          described['${row['local_id']}|${row['face']}'] =
+              row['person_id'] as String?;
+        }
+      }
+      final now = DateTime.now().millisecondsSinceEpoch;
+      final batch = txn.batch();
+      final legacy = {
+        for (final MapEntry(:key, :value) in rows.entries)
+          if (value['upright'] == 0 && (value['people_count'] as num) >= 0) key,
+      };
+      added.forEach((localId, boxes) {
+        if (legacy.contains(localId)) return;
+        final row = rows[localId];
+        final pending = row == null || (row['people_count'] as num) < 0;
+        final faces = [if (!pending) ...decodeFaces(row['faces'] as String?)];
+        for (final box in boxes) {
+          if (!faces.contains(box)) faces.add(box);
+        }
+        batch.insert(_table, {
+          'local_id': localId,
+          'people_count': faces.length,
+          'analyzed_at': now,
+          'faces': encodeFaces(faces),
+          'upright': 1,
+        }, conflictAlgorithm: sqflite.ConflictAlgorithm.ignore);
+        batch.update(
+          _table,
+          {
+            'people_count': faces.length,
+            'faces': encodeFaces(faces),
+            'upright': 1,
+            if (pending) 'analyzed_at': now,
+          },
+          where: 'local_id = ?',
+          whereArgs: [localId],
+        );
+      });
+      final linked = <FaceLink>[];
+      final undescribed = <String>{};
+      for (final l in links) {
+        if (legacy.contains(l.localId)) continue;
+        final key = faceKey(l.localId, l.face);
+        if (described.containsKey(key)) {
+          if (described[key] != null) continue;
+          batch.update(
+            _descriptorTable,
+            {'person_id': l.personId, 'confirmed_at': now},
+            where: 'local_id = ? AND face = ? AND person_id IS NULL',
+            whereArgs: [l.localId, l.face.encode()],
+          );
+        } else {
+          batch.insert(_descriptorTable, {
+            'local_id': l.localId,
+            'face': l.face.encode(),
+            'person_id': l.personId,
+            'revision': 0,
+            'vector': Uint8List(0),
+            'confirmed_at': 0,
+          }, conflictAlgorithm: sqflite.ConflictAlgorithm.ignore);
+          undescribed.add(l.localId);
+        }
+        batch.delete(
+          _memberTable,
+          where: 'local_id = ? AND face = ?',
+          whereArgs: [l.localId, l.face.encode()],
+        );
+        described[key] = l.personId;
+        linked.add(l);
+      }
+      for (final id in {for (final g in grouped) g.groupId}) {
+        batch.insert(_groupTable, {
+          'id': id,
+          'suggest': groups[id],
+          'created_at': now,
+        }, conflictAlgorithm: sqflite.ConflictAlgorithm.ignore);
+      }
+      var groupedCount = 0;
+      for (final g in grouped) {
+        if (legacy.contains(g.localId)) continue;
+        if (described[faceKey(g.localId, g.face)] != null) continue;
+        // The same file again changes nothing. A newer run moves a face
+        // only out of a deleted group, or one it was taken out of.
+        batch.rawInsert(
+          'INSERT INTO $_memberTable (local_id, face, group_id, removed) '
+          'VALUES (?, ?, ?, 0) '
+          'ON CONFLICT (local_id, face) DO UPDATE SET '
+          'group_id = excluded.group_id, removed = 0 '
+          'WHERE excluded.group_id <> $_memberTable.group_id '
+          'AND ($_memberTable.removed = 1 OR $_memberTable.group_id IN '
+          '(SELECT id FROM $_groupTable WHERE dismissed = 1)) '
+          'AND excluded.group_id NOT IN '
+          '(SELECT id FROM $_groupTable WHERE dismissed = 1)',
+          [g.localId, g.face.encode(), g.groupId],
+        );
+        groupedCount++;
+      }
+      if (clearAll) {
+        batch.delete(_suggestionTable);
+      } else {
+        final named = {for (final l in linked) l.localId}.toList();
+        for (var i = 0; i < named.length; i += 900) {
+          final chunk = named.skip(i).take(900).toList();
+          batch.delete(
+            _suggestionTable,
+            where: 'local_id IN (${List.filled(chunk.length, '?').join(',')})',
+            whereArgs: chunk,
+          );
+        }
+      }
+      await batch.commit(noResult: true);
+      return (linked: linked, undescribed: undescribed, grouped: groupedCount);
+    });
+    _writes++;
+    return result;
+  }
+
+  /// Every live group with unnamed faces still in it. Hidden photos'
+  /// faces are already gone ([forgetFacesOf]); the caller still filters
+  /// by what may be shown.
+  Future<List<StoredFaceGroup>> faceGroups() async {
+    final db = await _open();
+    final groups = await db.query(_groupTable, where: 'dismissed = 0');
+    final rows = await db.rawQuery(
+      'SELECT m.group_id, m.local_id, m.face FROM $_memberTable m '
+      'JOIN $_groupTable g ON g.id = m.group_id '
+      'WHERE g.dismissed = 0 AND m.removed = 0 AND NOT EXISTS ('
+      'SELECT 1 FROM $_descriptorTable d WHERE d.local_id = m.local_id '
+      'AND d.face = m.face AND d.person_id IS NOT NULL)',
+    );
+    final faces = <String, List<({String localId, FaceRect face})>>{};
+    for (final row in rows) {
+      final face = FaceRect.decode(row['face'] as String?);
+      if (face == null) continue;
+      (faces[row['group_id'] as String] ??= []).add((
+        localId: row['local_id'] as String,
+        face: face,
+      ));
+    }
+    return [
+      for (final g in groups)
+        if (faces[g['id']] case final mine?)
+          StoredFaceGroup(
+            id: g['id'] as String,
+            suggest: g['suggest'] as String?,
+            faces: mine,
+          ),
+    ];
+  }
+
+  /// Faces waiting in a live group, encoded, by photo: they're named
+  /// there, not asked about again in Faces to Name. Cached until the next
+  /// write.
+  Future<Map<String, Set<String>>> groupedFaces() async {
+    final at = _writes;
+    final held = _grouped;
+    if (held != null && held.at == at) return held.faces;
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT m.local_id, m.face FROM $_memberTable m '
+      'JOIN $_groupTable g ON g.id = m.group_id '
+      'WHERE g.dismissed = 0 AND m.removed = 0',
+    );
+    final faces = <String, Set<String>>{};
+    for (final row in rows) {
+      (faces[row['local_id'] as String] ??= {}).add(row['face'] as String);
+    }
+    _grouped = (at: at, faces: faces);
+    return faces;
+  }
+
+  ({int at, Map<String, Set<String>> faces})? _grouped;
+
+  /// Undoes naming [faces] [personId]'s from group [groupId]: the names
+  /// come off and the faces go back in the group. The photos where
+  /// [personId] has no named face left.
+  Future<Set<String>> returnToGroup(
+    String personId,
+    String groupId,
+    List<({String localId, FaceRect face})> faces,
+  ) async {
+    final db = await _open();
+    await db.transaction((txn) async {
+      final batch = txn.batch();
+      for (final f in faces) {
+        batch.update(
+          _descriptorTable,
+          {'person_id': null},
+          where: 'local_id = ? AND face = ? AND person_id = ?',
+          whereArgs: [f.localId, f.face.encode(), personId],
+        );
+        batch.rawInsert(
+          'INSERT INTO $_memberTable (local_id, face, group_id, removed) '
+          'VALUES (?, ?, ?, 0) ON CONFLICT (local_id, face) DO UPDATE SET '
+          'group_id = excluded.group_id, removed = 0',
+          [f.localId, f.face.encode(), groupId],
+        );
+      }
+      await batch.commit(noResult: true);
+    });
+    _writes++;
+    final ids = {for (final f in faces) f.localId};
+    final named = await namedFacesOf(ids);
+    return {
+      for (final id in ids)
+        if (!(named[id]?.containsValue(personId) ?? false)) id,
+    };
+  }
+
+  /// Takes faces out of their group: "not this group". They stay unnamed,
+  /// and the same file imported again doesn't put them back.
+  Future<void> ungroupFaces(
+    Iterable<({String localId, FaceRect face})> faces,
+  ) async {
+    final db = await _open();
+    final batch = db.batch();
+    for (final f in faces) {
+      batch.update(
+        _memberTable,
+        {'removed': 1},
+        where: 'local_id = ? AND face = ?',
+        whereArgs: [f.localId, f.face.encode()],
+      );
+    }
+    await batch.commit(noResult: true);
+    _writes++;
+  }
+
+  /// Deletes a group. Kept as a marker, so importing the same file again
+  /// doesn't bring it back.
+  Future<void> dismissGroup(String id) async {
+    final db = await _open();
+    await db.update(
+      _groupTable,
+      {'dismissed': 1},
+      where: 'id = ?',
+      whereArgs: [id],
+    );
+    _writes++;
+  }
+
+  /// Moves this photo's group memberships onto the boxes [map] picks; a
+  /// face nobody's box lands on leaves its group.
+  static Future<void> _carryGroups(
+    sqflite.DatabaseExecutor txn,
+    String localId,
+    Map<FaceRect, FaceRect> Function(List<FaceRect> old) map,
+  ) async {
+    final rows = await txn.query(
+      _memberTable,
+      where: 'local_id = ?',
+      whereArgs: [localId],
+    );
+    if (rows.isEmpty) return;
+    final old = [
+      for (final row in rows) FaceRect.decode(row['face'] as String?),
+    ];
+    final moved = map([...old.nonNulls]);
+    if (old.every((f) => f != null && moved[f] == f)) return;
+    await txn.delete(_memberTable, where: 'local_id = ?', whereArgs: [localId]);
+    for (var i = 0; i < rows.length; i++) {
+      final to = old[i] == null ? null : moved[old[i]];
+      if (to == null) continue;
+      await txn.insert(_memberTable, {
+        ...rows[i],
+        'face': to.encode(),
+      }, conflictAlgorithm: sqflite.ConflictAlgorithm.ignore);
+    }
   }
 
   /// [suggestionsByAsset] for these photos only.
@@ -754,6 +1169,7 @@ class AiAnalysisStore {
         batch
           ..delete(_descriptorTable, where: where, whereArgs: ids)
           ..delete(_suggestionTable, where: where, whereArgs: ids)
+          ..delete(_memberTable, where: where, whereArgs: ids)
           ..update(
             _table,
             {'people_count': _neverLooked, 'faces': ''},
@@ -768,6 +1184,7 @@ class AiAnalysisStore {
         batch
           ..delete(_descriptorTable, where: where, whereArgs: ids)
           ..delete(_suggestionTable, where: where, whereArgs: ids)
+          ..delete(_memberTable, where: where, whereArgs: ids)
           ..delete(_table, where: where, whereArgs: ids);
       });
 
@@ -900,7 +1317,12 @@ class AiAnalysisStore {
     dest,
     dropIds: hiddenIds,
     scrub: [
-      for (final table in [_table, _descriptorTable, _suggestionTable])
+      for (final table in [
+        _table,
+        _descriptorTable,
+        _suggestionTable,
+        _memberTable,
+      ])
         'DELETE FROM $table WHERE local_id IN (SELECT id FROM drop_ids)',
     ],
   );
@@ -916,6 +1338,8 @@ class AiAnalysisStore {
     final batch = db.batch()
       ..delete(_suggestionTable)
       ..delete(_descriptorTable)
+      ..delete(_memberTable)
+      ..delete(_groupTable)
       ..delete(_table);
     await batch.commit(noResult: true);
     _writes++;
@@ -962,6 +1386,7 @@ class AiAnalysisStore {
         }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
       }
       await _carryDescriptors(txn, localId, (old) => carryFaces(old, faces));
+      await _carryGroups(txn, localId, (old) => carryFaces(old, faces));
     });
     _writes++;
   }
@@ -1047,6 +1472,11 @@ class AiAnalysisStore {
       );
       if (orientation <= 1 || orientation > 8) return;
       await _carryDescriptors(
+        txn,
+        localId,
+        (old) => {for (final f in old) f: f.oriented(orientation)},
+      );
+      await _carryGroups(
         txn,
         localId,
         (old) => {for (final f in old) f: f.oriented(orientation)},

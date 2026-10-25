@@ -478,17 +478,15 @@ void main() {
     await r.targets.setQueuePaused(false);
   });
 
-  flow('Flagged Items: a stray bucket photo is added to the library', (
-    r,
-  ) async {
+  flow('Suggestions: a stray bucket photo is added to the library', (r) async {
     await r.photo('anchor', backedUp: true);
     final stray = jpeg(120, 90, 250, 250, 0);
     final key = '${prefix}originals/20200101120000_${'a' * 32}.jpg';
     await put(r.target, key, stray);
     await r.launch();
-    await r.scrollTo(find.text('Flagged Items'));
+    await r.scrollTo(find.text('Suggestions'));
     await r.tap(find.text('Add to Library'));
-    await r.tap(find.byKey(const ValueKey('flagged-run')));
+    await r.tap(find.byKey(const ValueKey('suggestions-run')));
     await r.until(
       () async => (await r.store.listAll()).any(
         (rec) => rec.stateOf(DerivativeKind.original).destinationKey == key,
@@ -614,7 +612,7 @@ void main() {
   });
 
   flow('a cloud-only photo the bucket lost: Check Now says lost, marks it '
-      'failed, and Flagged Items counts it', (r) async {
+      'failed, and Suggestions counts it', (r) async {
     final (id, _) = await r.cloudOnly('LOSTONE');
     final key = (await r.record(id))
         .stateOf(DerivativeKind.original)
@@ -632,11 +630,11 @@ void main() {
     );
     await r.untilShown(find.textContaining('has no copy on this phone'));
     await r.home();
-    await r.scrollTo(find.text('Flagged Items'));
+    await r.scrollTo(find.text('Suggestions'));
     await r.untilShown(find.text('1 photo is missing from the bucket'));
   });
 
-  flow('Flagged Items: an odd file is hidden from the list and left in '
+  flow('Suggestions: an odd file is hidden from the list and left in '
       'the bucket; exact copies lose all but one', (r) async {
     await r.photo('anchor2', backedUp: true);
     const odd = '${prefix}originals/holiday snap.jpg';
@@ -647,21 +645,21 @@ void main() {
     await put(r.target, a, same);
     await put(r.target, b, same);
     await r.launch();
-    await r.scrollTo(find.text('Flagged Items'));
+    await r.scrollTo(find.text('Suggestions'));
     await r.wait(3);
     await r.nav.shot('flagged list');
 
     await r.tap(find.text('Fix Names'));
-    await r.tap(find.byKey(const ValueKey('flagged-hide')));
+    await r.tap(find.byKey(const ValueKey('suggestions-hide')));
     await r.wait(1);
     await r.home();
-    await r.scrollTo(find.text('Flagged Items'));
+    await r.scrollTo(find.text('Suggestions'));
     await r.wait(3);
     expect(find.text('Fix Names'), findsNothing, reason: 'hidden from list');
     expect(await r.objectStatus(odd), 200);
 
     await r.tap(find.text('Delete Duplicates'));
-    await r.tap(find.byKey(const ValueKey('flagged-run')));
+    await r.tap(find.byKey(const ValueKey('suggestions-run')));
     await r.tap(find.text('Delete Duplicates').last);
     await r.until(
       () async =>

@@ -109,7 +109,7 @@ import 'private_album_screen.dart';
 import 'recently_deleted_screen.dart';
 import 'safety_screen.dart';
 import 'search_picker_sheet.dart';
-import 'flagged_items_screen.dart';
+import 'suggestions_screen.dart';
 import 'zoom_page_route.dart';
 
 /// The whole app, one page — matches real Photos: no separate "Library" vs
@@ -353,7 +353,7 @@ class LibraryScreenState extends State<LibraryScreen>
     verifier: _backupVerifier,
   );
 
-  /// Lives here rather than on the Flagged Items page, so leaving the page
+  /// Lives here rather than on the Suggestions page, so leaving the page
   /// doesn't stop a run.
   late final BucketFixer _bucketFixer = BucketFixer(
     store: assetRecordStore,
@@ -547,7 +547,6 @@ class LibraryScreenState extends State<LibraryScreen>
   /// Enough to be worth scrolling, few enough that a fresh library doesn't
   /// put a thousand strangers in front of the user's own albums.
   static const _unnamedFacesShown = 20;
-  String _query = '';
   bool _busy = false;
   bool _removingAppData = false;
 
@@ -574,14 +573,6 @@ class LibraryScreenState extends State<LibraryScreen>
 
   /// Reaches the grid's scroll anchor (see [_jumpHome]).
   final _gridKey = GlobalKey<AssetGridViewState>();
-
-  /// Whether the search field is open. It filters the grid in place rather
-  /// than pushing a results page: the results *are* the library, minus what
-  /// doesn't match, and a second screen showing the same grid would be the
-  /// same screen.
-  bool _searching = false;
-  final _searchController = TextEditingController();
-  final _searchFocus = FocusNode();
 
   /// iOS is short of memory and asking for some back. Thumbnails are the
   /// obvious thing to hand over: every byte of them can be fetched from
@@ -672,33 +663,8 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  void _toggleSearch() => setState(() {
-    _searching = !_searching;
-    _searchDebounce?.cancel();
-    if (_searching) {
-      _warmSearch(_home);
-    } else {
-      _searchController.clear();
-      _query = '';
-      _searchFocus.unfocus();
-    }
-  });
-
-  /// An empty search bar that's lost focus is just something in the way, so
-  /// it closes itself. A bar with something typed in it stays: it's the
-  /// only thing on screen saying why the grid is missing most of the
-  /// library, and the way back to all of it.
-  void _onSearchFocusChanged() {
-    if (_searchFocus.hasFocus || !_searching) return;
-    if (_searchController.text.trim().isNotEmpty) return;
-    setState(() => _searching = false);
-  }
-
   @override
   void dispose() {
-    _searchFocus.removeListener(_onSearchFocusChanged);
-    _searchFocus.dispose();
-    _searchController.dispose();
     PhotoManager.removeChangeCallback(_onPhotoLibraryChanged);
     WidgetsBinding.instance.removeObserver(this);
     _trickle?.cancel();
@@ -707,7 +673,6 @@ class LibraryScreenState extends State<LibraryScreen>
       done.complete();
     }
     _missingDebounce?.cancel();
-    _searchDebounce?.cancel();
     syncQueue.draining.removeListener(_onDrainingChanged);
     _fixQueue.removeListener(_onFixQueueChanged);
     _fixLeft.dispose();
@@ -749,7 +714,6 @@ class LibraryScreenState extends State<LibraryScreen>
         if (mounted) reload(faces: true);
       });
     });
-    _searchFocus.addListener(_onSearchFocusChanged);
     _watchPhotoLibrary();
     syncQueue.draining.addListener(_onDrainingChanged);
     _fixQueue.addListener(_onFixQueueChanged);
@@ -779,7 +743,7 @@ class LibraryScreenState extends State<LibraryScreen>
         );
       case 'album':
         if (_albums.isNotEmpty) _openAlbum(_albums.first);
-      case 'flagged' || 'flagged-action':
+      case 'suggestions' || 'suggestions-action':
         // A few odd bucket files beside the demo photos, so every section
         // has something in it.
         final demoTargets = await _backupTargetsStore.loadAll();
@@ -801,9 +765,9 @@ class LibraryScreenState extends State<LibraryScreen>
               lastModified: DateTime(2025, 6, 1),
             ),
         ]);
-        FlaggedItemsScreen.demoOpenAction = screen == 'flagged-action';
+        SuggestionsScreen.demoOpenAction = screen == 'suggestions-action';
         _push(
-          FlaggedItemsScreen(
+          SuggestionsScreen(
             store: assetRecordStore,
             targetsStore: _backupTargetsStore,
             advisor: _storageAdvisor,
@@ -837,7 +801,7 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
-  /// The Flagged Items row shows a run draining from anywhere in the app:
+  /// The Suggestions row shows a run draining from anywhere in the app:
   /// items left, null while idle. Only that row listens.
   final _fixLeft = ValueNotifier<int?>(null);
 
@@ -1564,13 +1528,6 @@ class LibraryScreenState extends State<LibraryScreen>
               await _personStore.openEventSpans(),
             )
           : null;
-      final born = sort == PeopleSort.age || sort == PeopleSort.birthday
-          ? {
-              for (final MapEntry(:key, :value)
-                  in (await _personStore.openDetails()).entries)
-                key: ?value.birthDate,
-            }
-          : const <String, DateTime>{};
       final sorted = [...people];
       sortPeople(
         sorted,
@@ -1578,7 +1535,6 @@ class LibraryScreenState extends State<LibraryScreen>
         counts: personPhotoCounts,
         firstKnown: dates?.first ?? const {},
         lastKnown: dates?.last ?? const {},
-        born: born,
       );
       if (!_samePeople(sorted, people) || !identical(people, _people)) {
         people = sorted;
@@ -1702,71 +1658,6 @@ class LibraryScreenState extends State<LibraryScreen>
       ),
     );
     if (mounted) await reload(faces: true);
-  }
-
-  /// The one derived list that depends on what is typed. Free while
-  /// nothing is, and one pass per new query or library — not per build:
-  /// the grid lays itself out again for every new list it is handed. A
-  /// query that extends the last one only looks at its matches.
-  List<AssetRecord> get _filtered {
-    if (_query.isEmpty) {
-      _search = null;
-      return _home;
-    }
-    final cached = _filteredCache;
-    if (cached != null &&
-        cached.query == _query &&
-        identical(cached.from, _home)) {
-      return cached.list;
-    }
-    final active = _home;
-    var search = _search;
-    if (search == null || !identical(search.from, active)) {
-      final texts = SearchTexts.of(active);
-      if (texts == null) {
-        _warmSearch(active);
-        // For the few frames until the texts are made: the last answer.
-        return cached?.list ?? const [];
-      }
-      search = _search = (from: active, matches: SearchMatches(texts));
-    }
-    final hits = search.matches.of(_query.toLowerCase());
-    final list = [for (final i in hits) active[i]];
-    _filteredCache = (query: _query, from: active, list: list);
-    return list;
-  }
-
-  ({String query, List<AssetRecord> from, List<AssetRecord> list})?
-  _filteredCache;
-
-  /// Per library while a search is open, not per keystroke.
-  ({List<AssetRecord> from, SearchMatches matches})? _search;
-
-  Future<void>? _warming;
-
-  /// Search texts for a big library, made off the UI isolate.
-  void _warmSearch(List<AssetRecord> records) {
-    if (_warming != null) return;
-    _warming = SearchTexts.warm(records).whenComplete(() {
-      _warming = null;
-      if (mounted && _query.isNotEmpty) setState(() {});
-    });
-  }
-
-  /// Typing settles before the grid filters: a pass per keystroke is a
-  /// pass nobody sees.
-  static const _searchDelay = Duration(milliseconds: 150);
-  Timer? _searchDebounce;
-
-  void _onQueryChanged(String value) {
-    _searchDebounce?.cancel();
-    if (value.isEmpty) {
-      setState(() => _query = '');
-      return;
-    }
-    _searchDebounce = Timer(_searchDelay, () {
-      if (mounted) setState(() => _query = value);
-    });
   }
 
   void _openGroup(String title, List<AssetRecord> records) => _push(
@@ -2477,9 +2368,9 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _openRecord(AssetRecord record) async {
-    final visible = _filtered;
+    final visible = _home;
     // Opened from the queue, the photo may not be in the current grid at
-    // all — hidden, deleted, or filtered out by a search. Show it on its
+    // all — hidden or deleted. Show it on its
     // own rather than dropping the tap or, worse, indexing at -1.
     final sorted = indexInOrder(visible, record);
     final index = sorted >= 0
@@ -2527,7 +2418,7 @@ class LibraryScreenState extends State<LibraryScreen>
     if (record == null) return;
     if (!_sweep.active) _sweepFrom = record;
     final from = _sweepFrom;
-    final grid = _filtered;
+    final grid = _home;
     // The grid is in [recordOrder]: two binary searches, no 40k index.
     // A tile re-dated under the finger isn't where its date says: looked
     // for by id, once.
@@ -3137,7 +3028,7 @@ class LibraryScreenState extends State<LibraryScreen>
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final filtered = _filtered;
+    final filtered = _home;
     final selection = _selection;
 
     return Listener(
@@ -3206,12 +3097,8 @@ class LibraryScreenState extends State<LibraryScreen>
                     ),
                   ),
                   trailingSlivers: _trailingSlivers(l10n, selection),
-                  // A query rests on its newest result, not on Albums
-                  // below results that would sit off screen above.
-                  restKey: _query.isEmpty ? _albumsKey : null,
-                  restInset:
-                      _navigationBarHeight +
-                      (_searching ? _searchBarHeight : 0),
+                  restKey: _albumsKey,
+                  restInset: _navigationBarHeight,
                 ),
                 if (selection != null)
                   Positioned(
@@ -3251,39 +3138,11 @@ class LibraryScreenState extends State<LibraryScreen>
           Positioned(
             top: MediaQuery.paddingOf(context).top,
             left: 0,
-            // Short of the bar's own trailing button. A translucent overlay
-            // still wins the gesture arena against anything under it, so
-            // covering the search button would leave it unpressable — the
-            // tappable "header" is the title area, not the controls on it.
-            right: _navigationBarActionWidth,
+            right: 0,
             height: _navigationBarHeight,
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,
               onTap: _jumpHome,
-            ),
-          ),
-        // Pinned under the navigation bar rather than scrolled with the
-        // content, for the same reason it's a button: wherever you are in
-        // the library, that's where you type.
-        if (_searching)
-          Positioned(
-            top: MediaQuery.paddingOf(context).top + _navigationBarHeight,
-            left: 0,
-            right: 0,
-            child: ColoredBox(
-              color: const Color(0xFF1C1C1E),
-              child: SizedBox(
-                height: _searchBarHeight,
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                  child: CupertinoSearchTextField(
-                    controller: _searchController,
-                    focusNode: _searchFocus,
-                    autofocus: true,
-                    onChanged: _onQueryChanged,
-                  ),
-                ),
-              ),
             ),
           ),
       ],
@@ -3293,14 +3152,6 @@ class LibraryScreenState extends State<LibraryScreen>
   /// `CupertinoSliverNavigationBar`'s collapsed height — the strip that
   /// stays pinned under the status bar however far the page is scrolled.
   static const _navigationBarHeight = 44.0;
-
-  /// The pinned search field under it, which the rest also clears.
-  static const _searchBarHeight = 52.0;
-
-  /// Kept clear at the trailing end of the bar for its search button. A translucent overlay still wins the gesture arena against
-  /// what's under it, so anything covered here is a button that can't be
-  /// pressed.
-  static const _navigationBarActionWidth = 88.0;
 
   /// The system's own status-bar tap. It never reaches the widget tree — iOS
   /// hands it to the engine, which forwards it to every
@@ -3334,35 +3185,12 @@ class LibraryScreenState extends State<LibraryScreen>
         onTap: _jumpHome,
         child: Text(l10n.tabLibrary),
       ),
-      // A button, not a field. A search box living at the top of the scroll
-      // content is a box nobody can reach: the page opens on Albums, below
-      // the newest photo, so the field sat a decade of scrolling away.
-      // Importing from Files is rare enough to live in More.
-      trailing: Row(
-        mainAxisSize: MainAxisSize.min,
-        children: [
-          if (_selecting)
-            SelectionDoneButton(
+      trailing: _selecting
+          ? SelectionDoneButton(
               key: const ValueKey('librarySelectionDone'),
               onPressed: () => setState(() => _selection = null),
             )
-          else if (_all.isNotEmpty)
-            CupertinoButton(
-              padding: const EdgeInsets.symmetric(horizontal: 6),
-              minimumSize: const Size(40, 44),
-              onPressed: _toggleSearch,
-              // "Cancel" while open, not a second ✕: the field has its own
-              // clear button, and two identical crosses a centimetre apart
-              // mean different things.
-              child: _searching
-                  ? Text(
-                      l10n.actionCancel,
-                      style: const TextStyle(fontSize: 15),
-                    )
-                  : const Icon(CupertinoIcons.search, size: 24),
-            ),
-        ],
-      ),
+          : null,
     ),
   ];
 
@@ -3534,7 +3362,7 @@ class LibraryScreenState extends State<LibraryScreen>
               count: left,
               busy: left != null,
               onTap: () => _push(
-                FlaggedItemsScreen(
+                SuggestionsScreen(
                   store: assetRecordStore,
                   targetsStore: _backupTargetsStore,
                   advisor: _storageAdvisor,

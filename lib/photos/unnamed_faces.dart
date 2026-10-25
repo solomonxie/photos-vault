@@ -47,10 +47,12 @@ Future<UnnamedFaces> findUnnamedFaces({
 }) async {
   const none = (faces: <UnnamedFace>[], found: 0);
   final Map<String, int> counts;
+  final Map<String, Set<String>> grouped;
   final int revision;
   try {
     revision = analysisStore.revision;
-    counts = await analysisStore.faceCounts();
+    grouped = await analysisStore.groupedFaces();
+    counts = _ungroupedCounts(await analysisStore.faceCounts(), grouped);
   } catch (_) {
     // No analysis database yet (a fresh install, a widget test) — the
     // caller just shows the named people.
@@ -92,7 +94,9 @@ Future<UnnamedFaces> findUnnamedFaces({
   final photoOf = <int>[];
   for (final (i, localId) in window.indexed) {
     final guesses = suggestions[localId] ?? const {};
+    final inGroups = grouped[localId] ?? const {};
     for (final face in faces[localId] ?? const <FaceRect>[]) {
+      if (inGroups.contains(face.encode())) continue;
       final personId = guesses[face.encode()];
       flat.add(
         UnnamedFace(
@@ -132,6 +136,18 @@ Future<UnnamedFaces> findUnnamedFaces({
   final shown = groups.take(limit).toList();
   _memo[limit] = (key: key, faces: shown);
   return (faces: shown, found: found);
+}
+
+/// [counts] less the faces an import grouped: those are listed as groups instead.
+Map<String, int> _ungroupedCounts(
+  Map<String, int> counts,
+  Map<String, Set<String>> grouped,
+) {
+  if (grouped.isEmpty) return counts;
+  return {
+    for (final MapEntry(:key, :value) in counts.entries)
+      if (value - (grouped[key]?.length ?? 0) case final n when n > 0) key: n,
+  };
 }
 
 /// The last answer per [findUnnamedFaces] `limit`. A delete, hide or

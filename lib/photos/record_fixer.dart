@@ -389,7 +389,7 @@ class RecordFixer {
   /// Compares each bucket import not yet compared against every thumbnail
   /// here, off the UI isolate, and keeps the answer. Slow on a big library
   /// (every thumbnail decoded), so it runs in the background after a sync
-  /// and once per import, never while Flagged Items waits.
+  /// and once per import, never while Suggestions waits.
   static Future<void> checkImports(AssetRecordStore store) =>
       _checking ??= _checkImports(store).whenComplete(() => _checking = null);
 

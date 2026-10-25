@@ -1,9 +1,9 @@
-# Flagged Items
+# Suggestions
 
-`lib/viewer/flagged_items_screen.dart` — More → Flagged Items. A list of
+`lib/viewer/suggestions_screen.dart` — More → Suggestions. A list of
 **actions**, not files: each says what it does, to how many, and what it
-saves; tapping one opens its items (`flagged_action_screen.dart`). Shared
-wording in `flagged_copy.dart`.
+saves; tapping one opens its items (`suggestion_action_screen.dart`). Shared
+wording in `suggestion_copy.dart`.
 
 Was a file list with problem chips, per-row buttons and ⋯ menus, and
 batch pills keyed by solution. Two taxonomies (problem chips, solution
@@ -35,7 +35,7 @@ files — every tap a guess. Replaced.
 ## The page
 
 ```
- ‹ Library              Flagged Items                ( Rescan )
+ ‹ Library              Suggestions                ( Rescan )
  23 items to fix
  Checking 40 of 189 new photos…      ← only while new ones are measured
  ON THIS IPHONE
@@ -100,7 +100,7 @@ since is a line under it.
 
 - Stop ends the run after the item in flight; what hadn't started is
   dropped and stays listed.
-- More → Flagged Items shows `⟳ 28` while a run is going, from anywhere.
+- More → Suggestions shows `⟳ 28` while a run is going, from anywhere.
 
 **Where it runs.** `FixQueue` (`lib/photos/fix_queue.dart`) is owned by the
 library screen, not the page: leaving the page changes nothing. Waiting
@@ -219,6 +219,6 @@ not deleted batch by batch: each is filed as a `pending_swap` row as it is
 done, and one iOS prompt takes all of them when the run ends. Right before
 it, each is checked live: the copy still in Photos, the original in a
 bucket (HEAD), the record unchanged; unanswered stays filed. A quit before
-that prompt leaves them to the Flagged Items banner ("N photos are ready to
+that prompt leaves them to the Suggestions banner ("N photos are ready to
 leave Photos" · Remove from Photos), never a prompt at launch; declined, the
 smaller copies are taken back out.

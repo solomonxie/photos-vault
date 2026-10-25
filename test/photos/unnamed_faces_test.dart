@@ -107,6 +107,21 @@ void main() {
     expect(found.faces.map((f) => f.localId), ['a']);
   });
 
+  test('faces in an import group are left to Face Groups', () async {
+    await faceIn('a', [1, 0, 0]);
+    await faceIn('b', [0, 1, 0]);
+    await store.importNamedFaces(
+      const [],
+      grouped: [(localId: 'a', face: face, groupId: 'g1')],
+      groups: const {'g1': null},
+    );
+
+    final found = await find([_record('a', 1), _record('b', 2)]);
+
+    expect(found.found, 1);
+    expect(found.faces.map((f) => f.localId), ['b']);
+  });
+
   test('a named face does not fold the strangers', () async {
     await faceIn('a', [1, 0, 0]);
     await faceIn('named', [1, 0, 0], personId: 'nina');

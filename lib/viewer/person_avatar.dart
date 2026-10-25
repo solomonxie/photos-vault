@@ -1,8 +1,10 @@
 import 'dart:async';
+import 'dart:collection';
 import 'dart:math' as math;
 import 'dart:ui' as ui;
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/scheduler.dart';
 
 import '../photos/person.dart';
 import '../storage/asset_record.dart';
@@ -221,6 +223,7 @@ class _FaceCropState extends State<_FaceCrop> {
   List<ImageProvider> _providers = const [];
   var _attempt = 0;
   var _key = '';
+  var _holding = false;
 
   @override
   void initState() {
@@ -241,6 +244,7 @@ class _FaceCropState extends State<_FaceCrop> {
   @override
   void dispose() {
     _detach();
+    _free();
     _image?.dispose();
     super.dispose();
   }
@@ -256,8 +260,34 @@ class _FaceCropState extends State<_FaceCrop> {
     _image = image;
   }
 
+  void _free() {
+    if (!_holding) return;
+    _holding = false;
+    decodeSlots.release();
+  }
+
+  /// A fling mounts and drops tiles faster than photos decode: wait for
+  /// the scroll to slow, then for a slot.
+  Future<bool> _turn(String key) async {
+    await null; // out of initState: the scroll physics read the view
+    while (mounted &&
+        _key == key &&
+        Scrollable.recommendDeferredLoadingForContext(context)) {
+      await SchedulerBinding.instance.endOfFrame;
+    }
+    if (!mounted || _key != key) return false;
+    await decodeSlots.acquire();
+    if (!mounted || _key != key) {
+      decodeSlots.release();
+      return false;
+    }
+    _holding = true;
+    return true;
+  }
+
   Future<void> _resolve() async {
     _detach();
+    _free();
     final record = widget.record;
     final key =
         '${record.localId}|${widget.face.encode()}|${widget.pixels}|'
@@ -267,11 +297,15 @@ class _FaceCropState extends State<_FaceCrop> {
       setState(() => _show(held));
       return;
     }
+    if (!await _turn(key)) return;
     final providers = await assetImageProviders(
       record,
       fittedSize: widget.decodeWidth,
     );
-    if (!mounted || _key != key) return;
+    if (!mounted || _key != key) {
+      _free();
+      return;
+    }
     _providers = providers;
     _attempt = 0;
     _load();
@@ -281,7 +315,10 @@ class _FaceCropState extends State<_FaceCrop> {
   /// same fallback order the grid tiles draw with.
   void _load() {
     _detach();
-    if (_attempt >= _providers.length) return;
+    if (_attempt >= _providers.length) {
+      _free();
+      return;
+    }
     final key = _key;
     final provider = ResizeImage(
       _providers[_attempt],
@@ -317,6 +354,7 @@ class _FaceCropState extends State<_FaceCrop> {
     } finally {
       info.dispose();
       unawaited(provider.evict());
+      if (_key == key) _free();
     }
     faceCrops.put(key, crop);
     if (!mounted || _key != key) return;
@@ -351,7 +389,37 @@ Future<ui.Image> cropFace(ui.Image image, FaceRect face, int pixels) {
 
 /// Face crops made this session, most recently used last, so an avatar
 /// scrolled back in is drawn at once. ~300 KB each at 92 pt on a 3x screen.
-final faceCrops = FaceCropCache(64);
+final faceCrops = FaceCropCache(160);
+
+/// Photos decoding for a crop at once, newest asker first: the tiles on
+/// screen now, not the ones a scroll already passed.
+final decodeSlots = DecodeSlots(3);
+
+class DecodeSlots {
+  DecodeSlots(this.size);
+
+  final int size;
+  var _used = 0;
+  final _waiting = Queue<Completer<void>>();
+
+  Future<void> acquire() {
+    if (_used < size) {
+      _used++;
+      return Future.value();
+    }
+    final turn = Completer<void>();
+    _waiting.add(turn);
+    return turn.future;
+  }
+
+  void release() {
+    if (_waiting.isNotEmpty) {
+      _waiting.removeLast().complete();
+    } else {
+      _used--;
+    }
+  }
+}
 
 class FaceCropCache {
   FaceCropCache(this.capacity);

@@ -119,6 +119,7 @@ void main() {
     expect(indexes.map((r) => r['name']), {
       'face_descriptor_person',
       'face_suggestion_person',
+      'face_group_member_group',
     });
     expect(
       await plan(

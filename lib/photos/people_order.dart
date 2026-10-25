@@ -6,7 +6,7 @@ import 'pinyin.dart';
 import 'person_store.dart';
 
 /// How people are ordered, on People and on the home page alike.
-enum PeopleSort { photos, firstMet, lastSeen, age, name, birthday }
+enum PeopleSort { photos, firstMet, lastSeen, name }
 
 const peopleSortKey = 'people_sort_v1';
 
@@ -61,19 +61,10 @@ void sortPeople(
   Map<String, int> counts = const {},
   Map<String, DateTime> firstKnown = const {},
   Map<String, DateTime> lastKnown = const {},
-  Map<String, DateTime> born = const {},
-  DateTime? today,
 }) {
-  final now = today ?? DateTime.now();
   final keys = sort == PeopleSort.name
       ? {for (final p in people) p.id: nameSortKey(p.name)}
       : const <String, String>{};
-  int bySoonest(Person a, Person b) {
-    final x = born[a.id], y = born[b.id];
-    if (x == null || y == null) return x == null ? (y == null ? 0 : 1) : -1;
-    return daysToBirthday(x, now).compareTo(daysToBirthday(y, now));
-  }
-
   int byDate(Map<String, DateTime> at, Person a, Person b, bool newest) {
     final x = at[a.id], y = at[b.id];
     if (x == null || y == null) return x == null ? (y == null ? 0 : 1) : -1;
@@ -85,10 +76,7 @@ void sortPeople(
       PeopleSort.photos => (counts[b.id] ?? 0).compareTo(counts[a.id] ?? 0),
       PeopleSort.firstMet => byDate(firstKnown, a, b, false),
       PeopleSort.lastSeen => byDate(lastKnown, a, b, true),
-      // Youngest first: the latest birth date.
-      PeopleSort.age => byDate(born, a, b, true),
       PeopleSort.name => keys[a.id]!.compareTo(keys[b.id]!),
-      PeopleSort.birthday => bySoonest(a, b),
     },
   );
 }

@@ -102,9 +102,9 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
   live "gone" from Photos and a proven kept copy for exact duplicates.
 - `storage_advice.dart` / `storage_optimizer.dart` — what's costing space and
   what to do about it.
-- `fix_queue.dart` — the Flagged Items page's fixes, phone and bucket alike:
+- `fix_queue.dart` — the Suggestions page's fixes, phone and bucket alike:
   a persisted queue owned by the library screen, so a run outlives the page
-  and a kill. Behind `../viewer/flagged_items_screen.dart`.
+  and a kill. Behind `../viewer/suggestions_screen.dart`.
   The scan is metadata-only for camera-roll assets (`AssetEntity.fileSize`
   reads `PHAssetResource.fileSize`), so sizing a ten-year library pulls
   nothing down from iCloud. The two re-encode fixes rewrite the local copy
@@ -113,7 +113,7 @@ AssetRecordStore.upsert(sourceType: manualFile, sourcePath: owned.path)
   local file so the next change check doesn't upload the shrunken one over
   it. Findings are filed in app state (`storage_scan_v1`) so the page opens
   on last time's answer rather than re-walking the library every visit.
-- `flag_scan.dart` — the one detector behind Flagged Items: every kind from
+- `flag_scan.dart` — the one detector behind Suggestions: every kind from
   one snapshot, single-flight, persisted (`flag_scan_v1`) with a stamp of
   its inputs, so the page shows the last result and rescans only when they
   move. Each kind is flagged only where its fix can succeed; after a scan

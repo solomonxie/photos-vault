@@ -1,0 +1,109 @@
+<!doctype html>
+<meta charset="utf-8">
+<title>Faces review</title>
+<style>
+  body { margin: 0; font: 14px -apple-system, sans-serif; display: flex; height: 100vh; }
+  nav { width: 260px; overflow: auto; border-right: 1px solid #ddd; background: #fafafa; }
+  nav h3 { margin: 12px 12px 4px; font-size: 12px; color: #888; text-transform: uppercase; }
+  nav a { display: block; padding: 5px 12px; color: #222; text-decoration: none; cursor: pointer; }
+  nav a.on { background: #0a84ff; color: #fff; }
+  main { flex: 1; display: flex; flex-direction: column; }
+  header { padding: 10px; border-bottom: 1px solid #ddd; display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+  header b { margin-right: 8px; }
+  #grid { flex: 1; overflow: auto; padding: 10px; display: flex; flex-wrap: wrap; gap: 6px; align-content: flex-start; }
+  .f { position: relative; width: 120px; height: 120px; cursor: pointer; border: 3px solid #0a84ff; border-radius: 6px; overflow: hidden; }
+  .f.off { border-color: transparent; opacity: .35; }
+  .f img { width: 100%; height: 100%; }
+  .f span { position: absolute; right: 2px; bottom: 2px; background: #000a; color: #fff; font-size: 11px; padding: 0 3px; border-radius: 3px; }
+  #ctx { position: fixed; inset: 0; background: #000c; display: none; align-items: center; justify-content: center; }
+  #ctx img { max-width: 90vw; max-height: 90vh; }
+  input { padding: 5px; width: 200px; }
+  button { padding: 5px 10px; }
+  small { color: #888; }
+</style>
+<nav id="nav"></nav>
+<main>
+  <header>
+    <b id="title"></b>
+    <input id="name" list="names" placeholder="Name">
+    <datalist id="names"></datalist>
+    <button id="nameBtn">Name selected</button>
+    <button id="accept"></button>
+    <button id="ignore">Not a person / ignore</button>
+    <button id="keep"></button>
+    <button id="unlabel">Remove label</button>
+    <button id="all">All</button><button id="none">None</button>
+    <small>Click toggles. Alt-click shows the photo. Untick wrong faces, then name the rest.</small>
+  </header>
+  <div id="grid"></div>
+</main>
+<div id="ctx"><img></div>
+<script>
+let S, cur, off = new Set();
+const $ = id => document.getElementById(id);
+const post = (path, body) => fetch(path, {method: 'POST', body: JSON.stringify(body)});
+
+async function load(keep) {
+  S = await (await fetch('/api/state')).json();
+  $('names').innerHTML = S.names.map(n => `<option value="${n}">`).join('');
+  const chk = S.groups.filter(g => g.kind === 'check');
+  const sug = S.groups.filter(g => g.kind === 'suggest'), cl = S.groups.filter(g => g.kind === 'cluster');
+  const item = (id, label, n) => `<a data-id="${id}">${label} <small>${n}</small></a>`;
+  $('nav').innerHTML =
+    (chk.length ? `<h3>Check these: don't fit the person</h3>` + chk.map(g => item('k:' + g.key, g.person, g.faces.length)).join('') : '') +
+    `<h3>Suggested</h3>` + sug.map(g => item('s:' + g.key, g.person, g.faces.length)).join('') +
+    `<h3>Unnamed groups</h3>` + cl.map((g, i) => item('c:' + g.key, 'Group ' + (i + 1), g.faces.length)).join('') +
+    `<h3>Named</h3>` + S.people.map(p => item('p:' + p.name, p.name, p.faces.length)).join('');
+  $('nav').querySelectorAll('a').forEach(a => a.onclick = () => show(a.dataset.id));
+  const first = $('nav').querySelector('a');
+  show(keep && find(keep) ? keep : first && first.dataset.id);
+}
+
+function find(id) {
+  const [k, v] = [id.slice(0, 1), id.slice(2)];
+  if (k === 'p') { const p = S.people.find(p => p.name === v); return p && {title: p.name, named: p.name, faces: p.faces.map(i => ({id: i}))}; }
+  const kind = {s: 'suggest', k: 'check', c: 'cluster'}[k];
+  const g = S.groups.find(g => g.key === v && g.kind === kind);
+  if (g && kind === 'check') return {title: `Labelled ${g.person}, but unlike their other faces`, check: g.person, named: g.person, faces: g.faces};
+  return g && {title: g.person ? 'Suggested: ' + g.person : 'Unnamed group', person: g.person, faces: g.faces};
+}
+
+function show(id) {
+  cur = id; off.clear();
+  $('nav').querySelectorAll('a').forEach(a => a.classList.toggle('on', a.dataset.id === id));
+  const g = id && find(id);
+  if (!g) { $('title').textContent = 'Nothing left'; $('grid').innerHTML = ''; return; }
+  $('title').textContent = `${g.title} (${g.faces.length})`;
+  $('accept').style.display = g.person ? '' : 'none';
+  $('accept').textContent = g.person ? `Accept as ${g.person}` : '';
+  $('unlabel').style.display = g.named ? '' : 'none';
+  $('keep').style.display = g.check ? '' : 'none';
+  $('keep').textContent = g.check ? `It is ${g.check}: keep` : '';
+  $('nameBtn').textContent = g.named ? 'Rename selected' : 'Name selected';
+  $('grid').innerHTML = g.faces.map(f =>
+    `<div class="f" data-id="${f.id}"><img loading="lazy" src="/crop/${f.id}.jpg">${f.sim ? `<span>${f.sim}</span>` : ''}</div>`).join('');
+  $('grid').querySelectorAll('.f').forEach(el => el.onclick = e => {
+    const fid = +el.dataset.id;
+    if (e.altKey) { $('ctx').querySelector('img').src = '/photo/' + fid; $('ctx').style.display = 'flex'; return; }
+    off.has(fid) ? off.delete(fid) : off.add(fid);
+    el.classList.toggle('off');
+  });
+}
+
+const selected = () => find(cur).faces.map(f => f.id).filter(i => !off.has(i));
+async function act(path, body) {
+  const ids = selected();
+  if (!ids.length) return;
+  await post(path, {ids, ...body});
+  load(cur);
+}
+$('nameBtn').onclick = () => { const n = $('name').value.trim(); if (n) act('/api/label', {person: n}); };
+$('accept').onclick = () => act('/api/label', {person: find(cur).person});
+$('ignore').onclick = () => act('/api/label', {person: null});
+$('unlabel').onclick = () => act('/api/unlabel', {});
+$('keep').onclick = () => act('/api/keep', {});
+$('all').onclick = () => { off.clear(); show(cur); };
+$('none').onclick = () => { const g = find(cur); show(cur); g.faces.forEach(f => off.add(f.id)); $('grid').querySelectorAll('.f').forEach(el => el.classList.add('off')); };
+$('ctx').onclick = () => $('ctx').style.display = 'none';
+load();
+</script>
