@@ -92,7 +92,7 @@ reruns minutes.
   closest wins. No match → add the face with the imported box.
 - Imported faces are confirmed faces: face ↔ person links. The phone does
   no matching of its own (removed 25 Oct 2026; see `DESIGN.md`).
-- Entry point: People ⋯ → Import Faces File (Files picker), next to the
+- Entry point: More → Developer Options → Import Faces File (Files picker), next to the
   existing CSV/zip imports.
 - Group faces: stored as group membership, never named on import.
 - People → Faces to Name: the imported groups, by size. Open a group →

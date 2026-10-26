@@ -1,7 +1,7 @@
 # Faces from the Mac
 
 Names faces across the library on the Mac, for the app to import
-(People ⋯ → Import Faces File). Design: `docs/design/face-recognition/MAC-PIPELINE.md`.
+(More → Developer Options → Import Faces File). Design: `docs/design/face-recognition/MAC-PIPELINE.md`.
 
 ## Setup
 ```

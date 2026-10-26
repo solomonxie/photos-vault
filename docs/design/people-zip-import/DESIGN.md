@@ -37,7 +37,7 @@ photos/<name>/<file>    folder name = that person's `name`
 
 ## Flow
 
-1. People ⋯ → Import People Zip → file browser.
+1. More → Developer Options → Import People Zip → file browser.
 2. Choose People (only if the zip has profiles): tick who to add or update;
    new / already here; conflicts resolved. Import N People, or Skip to Photos.
 3. Choose Photos: people in People now; photo count, Import and Hide ticks,
@@ -127,10 +127,11 @@ Per row, how it meets a profile already here:
 
 ## Conversations
 
-- Chat history (QQ, WeChat, SMS, WhatsApp) extracted on the Mac into `.jsonl`, one message per line: `person`, `source`, `chat`, `at` (local, no zone), `from_me`, `sender`, `text`, `kind`. One-to-one chats only. A `.zip` of `.jsonl` files works too; several files at once.
-- People ⋯ → Import Conversations. Parsed off the UI isolate; a review row per name with its message count and date range.
+- Chat history (QQ, WeChat, SMS, iMessage, WhatsApp, Messenger, Instagram) extracted on the Mac (`tools/chats`) into `.jsonl`, one message per line: `person`, `source`, `chat`, `at` (local, no zone), `from_me`, `sender`, `text`, `kind`. One-to-one chats only. A `.zip` of `.jsonl` files works too; several files at once.
+- More → Developer Options → Import Chat History. Parsed off the UI isolate; a review row per name with its message count and date range.
 - Attaches to people already here only, never creates one. One exact same-name person → attached by default (orange); similar or shared names wait for a choice; a name matching nobody is greyed and skipped unless pointed at someone (Change Name… or a candidate).
 - `conversations.db`, table `message`, primary key sha256 of `chat|at|from_me|text`: re-importing adds nothing. Written in transactions of 1,000.
 - Merge moves a person's messages to the kept one; delete forgets them.
-- First met moves back / Last seen moves up to a person's earliest / latest message, never the other way. Driven by a `span_pending` flag set when their messages change (import, merge), cleared after an import or merge and on opening People: no scan per launch.
+- First met moves back to a person's earliest message, never forward. Driven by a `span_pending` flag set when their messages change (import, merge), cleared after an import or merge and on opening People: no scan per launch.
+- Last seen is never written from photos or chats: shown as the latest of the date set by hand, other events, newest visible photo and newest message (`knownDates`), so removing a photo moves it back. Dates written that way by older builds are dropped once (exact photo/message time, no notes or tags).
 - Profile → Conversations (n): bubbles, day separators, newest at the bottom, pages of 200 loaded on scrolling up; search within the person; chat label when they have several.
