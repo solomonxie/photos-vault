@@ -218,14 +218,19 @@ class EgoIndex {
   static int _rank(bool explicit, RelationshipType type) =>
       (explicit ? 0 : 10) + _closeness(type);
 
-  int _closer(EgoTie a, EgoTie b) {
-    if (a.explicit != b.explicit) return a.explicit ? -1 : 1;
-    final c = _closeness(a.type).compareTo(_closeness(b.type));
-    if (c != 0) return c;
-    final s = b.sharedPhotos.compareTo(a.sharedPhotos);
-    if (s != 0) return s;
-    return _names[a.personId]!.compareTo(_names[b.personId]!);
-  }
+  int _closer(EgoTie a, EgoTie b) => compareTies(a, b, _names);
+}
+
+/// Closest first: drawn before implied by a group, then how close the tie
+/// (spouse, parent/child, sibling…), then shared photos, then name. The
+/// graph's sectors and the profile's folded lists rank the same way.
+int compareTies(EgoTie a, EgoTie b, Map<String, String> names) {
+  if (a.explicit != b.explicit) return a.explicit ? -1 : 1;
+  final c = _closeness(a.type).compareTo(_closeness(b.type));
+  if (c != 0) return c;
+  final s = b.sharedPhotos.compareTo(a.sharedPhotos);
+  if (s != 0) return s;
+  return (names[a.personId] ?? '').compareTo(names[b.personId] ?? '');
 }
 
 /// Where each drawn node sits: sectors as arcs of one ring, a "+N" node

@@ -425,6 +425,16 @@ class FakePersonStore implements PersonStore {
   };
 
   @override
+  Future<Map<String, int>> sharedPhotoCounts(String personId) async {
+    final mine = _members[personId] ?? const <String>{};
+    return {
+      for (final MapEntry(:key, :value) in _members.entries)
+        if (key != personId && value.any(mine.contains))
+          key: value.where(mine.contains).length,
+    };
+  }
+
+  @override
   Future<List<Person>> peopleFor(String localId) async => _members.entries
       .where((e) => e.value.contains(localId))
       .map((e) => _people[e.key])

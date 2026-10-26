@@ -1470,6 +1470,18 @@ class PersonStore {
     return byPerson;
   }
 
+  /// How many photos [personId] shares with each other person, in one query.
+  Future<Map<String, int>> sharedPhotoCounts(String personId) async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT b.person_id AS id, COUNT(*) AS n FROM $_memberTable a '
+      'JOIN $_memberTable b ON b.local_id = a.local_id '
+      'WHERE a.person_id = ? AND b.person_id != ? GROUP BY b.person_id',
+      [personId, personId],
+    );
+    return {for (final r in rows) r['id'] as String: r['n'] as int};
+  }
+
   /// Reverse of [localIdsIn] — every [Person] tagged in one photo, for the
   /// detail screen's People section.
   Future<List<Person>> peopleFor(String localId) async {
