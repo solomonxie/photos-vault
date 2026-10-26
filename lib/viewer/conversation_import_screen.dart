@@ -84,15 +84,12 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
       if (_targets.containsKey(i) || _newPeople.contains(i)) i,
   ];
 
+  /// The closest candidate, until tapped to choose another.
   void _defaultAttach(int i) {
-    final same = [
-      for (final p in _candidates[i] ?? const <Person>[])
-        if (_sameName(i, p)) p,
-    ];
-    if (same.length == 1) {
-      _targets[i] = same.single.id;
-      _defaulted.add(i);
-    }
+    final closest = (_candidates[i] ?? const <Person>[]).firstOrNull;
+    if (closest == null) return;
+    _targets[i] = closest.id;
+    _defaulted.add(i);
   }
 
   @override
@@ -260,7 +257,16 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
 
   String? _matchLabel(AppLocalizations l10n, int i) {
     final candidates = _candidates[i] ?? const [];
-    if (_defaulted.contains(i)) return l10n.conversationsAttachingDefault;
+    if (_defaulted.contains(i)) {
+      final into = candidates.first;
+      final others = candidates.length - 1;
+      if (others == 0 && _sameName(i, into)) {
+        return l10n.conversationsAttachingDefault;
+      }
+      return others == 0
+          ? l10n.conversationsAttachingClosest(into.name)
+          : l10n.conversationsAttachingClosestOf(into.name, others);
+    }
     if (_newPeople.contains(i)) return l10n.conversationsNewPerson(_nameOf(i));
     if (_targets[i] case final id?) {
       final into = _people.where((p) => p.id == id).firstOrNull;

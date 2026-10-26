@@ -33,4 +33,16 @@ void main() {
     );
     expect(importCandidates('Daniel', people), isEmpty);
   });
+
+  test('closest first: the name nearest in length', () {
+    final daniels = [
+      _p('a', 'Daniel Alexander'),
+      _p('b', 'Daniel Lee'),
+      _p('c', 'Daniel Xu'),
+    ];
+    expect(
+      [for (final p in importCandidates('Daniel', daniels)) p.id],
+      ['c', 'b', 'a'],
+    );
+  });
 }

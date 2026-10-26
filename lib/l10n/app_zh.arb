@@ -1375,6 +1375,8 @@
   "conversationsReviewHeading": "{count, plural, other{{count} 个名字}}",
   "conversationsRowStats": "{count, plural, other{{count} 条消息}} · {range}",
   "conversationsAttachingDefault": "归到同名的人物 — 轻点更改",
+  "conversationsAttachingClosest": "最接近：{name} — 轻点更改",
+  "conversationsAttachingClosestOf": "最接近：{name} — 轻点从另外 {others} 位中选择",
   "conversationsAttachTo": "归到 {name}",
   "conversationsNotInPeople": "不在人物中 — 轻点选择一个人",
   "conversationsApply": "{count, plural, =0{未选择} other{为 {count} 人导入}}",

@@ -27,11 +27,12 @@ final _file = [
 ].join('\n');
 
 void main() {
-  testWidgets('same name attaches by default, similar waits, nobody is '
+  testWidgets('same name and closest match attach by default, nobody is '
       'never added', (tester) async {
     final people = FakePersonStore();
     final liu = await people.create(name: '刘越');
     final daniel = await people.create(name: 'Daniel Lee');
+    await people.create(name: 'Daniel Alexander');
     final conversations = FakeConversationStore();
     await tester.pumpWidget(
       _wrap(
@@ -49,7 +50,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Similar first, then the default attach, then nobody.
+    // Closest guess first, then the same-name attach, then nobody.
     expect(
       find.descendant(
         of: find.byKey(const ValueKey('conversation-row-0')),
@@ -58,13 +59,16 @@ void main() {
       findsOne,
     );
     expect(
+      find.text('Closest match: Daniel Lee — tap to choose from 1 more'),
+      findsOne,
+    );
+    expect(
       find.text('Attaching to the person with this name — tap to change'),
       findsOne,
     );
     expect(find.text('Not in People — tap to choose someone'), findsOne);
-    expect(find.byKey(const ValueKey('importNeedsChoice')), findsOne);
-    final apply = find.byKey(const ValueKey('conversationsApply'));
-    expect(tester.widget<CupertinoButton>(apply).onPressed, isNull);
+    expect(find.byKey(const ValueKey('importNeedsChoice')), findsNothing);
+    expect(find.text('Import for 2 people'), findsOne);
 
     // Nobody stays out unless asked; asked, they're a new person.
     await tester.tap(find.text('Stranger'));
@@ -73,19 +77,12 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Not in People — tap to choose someone'), findsOne);
 
-    await tester.tap(find.byKey(const ValueKey('conversation-row-0')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('importMergeInto-0')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('importNeedsChoice')), findsNothing);
-    expect(find.text('Import for 2 people'), findsOne);
-
-    await tester.tap(apply);
+    await tester.tap(find.byKey(const ValueKey('conversationsApply')));
     await tester.pumpAndSettle();
     expect(await conversations.countsByPerson(), {liu.id: 2, daniel.id: 1});
     expect(
       (await people.listAll()).length,
-      2,
+      3,
       reason: 'Stranger was not added',
     );
     expect(find.byKey(const ValueKey('conversationsDone')), findsOne);

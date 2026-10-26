@@ -9,6 +9,7 @@ import 'search_picker_sheet.dart';
 /// Who an import row might be: people with its name, or failing that a
 /// similar one — one name inside the other ("Mia" and "Mia Chen"), or
 /// sounding or spelt nearly alike ("Katherine", "晓明" for "Xiao Ming").
+/// Closest first.
 List<Person> importCandidates(String name, List<Person> people) {
   final key = name.trim().toLowerCase();
   final same = [
@@ -16,10 +17,18 @@ List<Person> importCandidates(String name, List<Person> people) {
       if (p.name.trim().toLowerCase() == key) p,
   ];
   if (same.isNotEmpty) return same;
+  // Closest first: the name nearest in length to this one.
+  int gap(Person p) => (p.name.trim().length - key.length).abs();
   final inside = [
     for (final p in people)
       if (MergeSuggestion.alike(p.name, name)) p,
   ];
+  final order = {for (final (i, p) in inside.indexed) p.id: i};
+  inside.sort(
+    (a, b) => gap(a) != gap(b)
+        ? gap(a).compareTo(gap(b))
+        : order[a.id]!.compareTo(order[b.id]!),
+  );
   final ids = {for (final p in inside) p.id};
   return [
     ...inside,
