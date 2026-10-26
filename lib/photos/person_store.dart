@@ -1035,10 +1035,32 @@ class PersonStore {
     });
   }
 
-  /// Moves [personId]'s Last seen up to [at] when that's newer. Never back:
-  /// an older photo of them is no news.
-  Future<void> markSeen(String personId, DateTime at) =>
-      _moveFixed(personId, PersonEventType.lastSeen, at, at.isAfter);
+  /// Last seen dates photos and chats used to write, from before Last seen
+  /// was worked out on the fly: an open one with no notes or tags, dated
+  /// to the millisecond like one of their photos or messages ([derived]).
+  /// A date set by hand is a calendar day, which no capture time matches.
+  /// Returns how many were removed.
+  Future<int> dropDerivedLastSeen(
+    Future<bool> Function(String personId, DateTime at) derived,
+  ) async {
+    final db = await _open();
+    final rows = await db.query(
+      _eventTable,
+      columns: const ['id', 'person_id', 'at', 'tags', 'notes'],
+      where: "passcode_hash = '' AND type = ? AND at IS NOT NULL",
+      whereArgs: [PersonEventType.lastSeen.name],
+    );
+    var removed = 0;
+    for (final row in rows) {
+      if ((row['notes'] as String? ?? '').isNotEmpty) continue;
+      if ((row['tags'] as String? ?? '[]') != '[]') continue;
+      final at = DateTime.fromMillisecondsSinceEpoch(row['at']! as int);
+      if (!await derived(row['person_id']! as String, at)) continue;
+      await removeEvent(row['id']! as String, scope: PersonScope.open);
+      removed++;
+    }
+    return removed;
+  }
 
   /// Moves [personId]'s First met back to [at] when that's earlier.
   Future<void> markMet(String personId, DateTime at) =>

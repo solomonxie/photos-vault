@@ -174,9 +174,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('peopleMenu')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Add Person'));
+    await tester.tap(find.byKey(const ValueKey('peopleAddPerson')));
     await tester.pumpAndSettle();
 
     // Straight onto the profile page, in the name field.
@@ -206,9 +204,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('peopleMenu')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Add Person'));
+    await tester.tap(find.byKey(const ValueKey('peopleAddPerson')));
     await tester.pumpAndSettle();
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -380,7 +376,7 @@ void main() {
 
     await tester.longPress(find.text('Mia'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleMenu-hide')));
+    await tester.tap(find.byKey(const ValueKey('peopleBatchHide')));
     await tester.pumpAndSettle();
     expect(
       find.text('Only their profile photo is left, and it stays.'),
@@ -388,7 +384,7 @@ void main() {
     );
   });
 
-  testWidgets('holding a row renames, merges into another, or deletes', (
+  testWidgets('held, a row is picked to rename, merge or delete', (
     tester,
   ) async {
     final personStore = FakePersonStore();
@@ -407,7 +403,9 @@ void main() {
 
     await tester.longPress(find.text('Mia'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleMenu-rename')));
+    await tester.tap(find.byKey(const ValueKey('peopleBatchMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchRename')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('peopleRenameField')),
@@ -419,11 +417,9 @@ void main() {
 
     await tester.longPress(find.text('Zoe'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleMenu-merge')));
+    await tester.tap(find.text('Mia Wu'));
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('Mia Wu ·'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(searchPickerDoneKey));
+    await tester.tap(find.byKey(const ValueKey('peopleBatchMerge')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('peopleMergeKeep-${mia.id}')));
     await tester.pumpAndSettle();
@@ -437,9 +433,15 @@ void main() {
 
     await tester.longPress(find.text('Mia Wu'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleMenu-delete')));
+    await tester.tap(find.byKey(const ValueKey('peopleBatchMore')));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleDeleteConfirm')));
+    await tester.tap(find.byKey(const ValueKey('peopleBatchDelete')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchDeleteConfirm')));
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.byKey(const ValueKey('peopleBatchDeleteConfirmAgain')),
+    );
     await tester.pumpAndSettle();
     expect(await personStore.listAll(), isEmpty);
   });
@@ -464,11 +466,9 @@ void main() {
     Future<void> startMerge() async {
       await tester.longPress(find.text('Zoe'));
       await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('peopleMenu-merge')));
+      await tester.tap(find.text('Mia'));
       await tester.pumpAndSettle();
-      await tester.tap(find.textContaining('Mia ·'));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(searchPickerDoneKey));
+      await tester.tap(find.byKey(const ValueKey('peopleBatchMerge')));
       await tester.pumpAndSettle();
     }
 
@@ -480,6 +480,8 @@ void main() {
         await tester.pumpAndSettle();
       }
       await tester.tap(find.text('Cancel').last);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('peopleSelectionDone')));
       await tester.pumpAndSettle();
       expect(await personStore.getById(zoe.id), isNotNull);
       expect((await personStore.allMemberships())[zoe.id], ['p1']);
@@ -503,11 +505,9 @@ void main() {
     await tester.pumpAndSettle();
     await tester.longPress(find.text('Mia'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleMenu-merge')));
+    await tester.tap(find.text('Zoe'));
     await tester.pumpAndSettle();
-    await tester.tap(find.textContaining('Zoe ·'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(searchPickerDoneKey));
+    await tester.tap(find.byKey(const ValueKey('peopleBatchMerge')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(ValueKey('peopleMergeKeep-${mia.id}')));
     await tester.pumpAndSettle();
@@ -533,11 +533,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleMenu')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleSelectMode')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Mia'));
+    await tester.longPress(find.text('Mia'));
     await tester.tap(find.text('Zoe'));
     await tester.pumpAndSettle();
 
@@ -584,8 +580,6 @@ void main() {
     await tester.pumpAndSettle();
     await tester.longPress(find.text('Mia'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleMenu-select')));
-    await tester.pumpAndSettle();
     expect(find.text('1 Selected'), findsOneWidget);
     expect(find.byKey(ValueKey('people-pick-${mia.id}')), findsOneWidget);
     await tester.tap(find.text('Zoe'));
@@ -631,11 +625,7 @@ void main() {
     );
     await tester.pumpAndSettle();
     Future<void> pickBoth() async {
-      await tester.tap(find.byKey(const ValueKey('peopleMenu')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('peopleSelectMode')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Mia'));
+      await tester.longPress(find.text('Mia'));
       await tester.tap(find.text('Zoe'));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('peopleBatchEdit')));
@@ -676,11 +666,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleMenu')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleSelectMode')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Mia'));
+    await tester.longPress(find.text('Mia'));
     await tester.tap(find.text('Zoe'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('peopleBatchMerge')));
@@ -708,11 +694,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('peopleMenu')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleSelectMode')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Mia'));
+    await tester.longPress(find.text('Mia'));
     await tester.pumpAndSettle();
 
     expect(find.text('1 Selected'), findsOneWidget);
@@ -789,7 +771,9 @@ void main() {
     await show(tester, people);
     await tester.longPress(find.text('Mia'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleMenu-rename')));
+    await tester.tap(find.byKey(const ValueKey('peopleBatchMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchRename')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('peopleRenameField')),
@@ -817,7 +801,9 @@ void main() {
     // A rename reloads; the filter must still be Acme, not nobody.
     await tester.longPress(find.text('Mia'));
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleMenu-rename')));
+    await tester.tap(find.byKey(const ValueKey('peopleBatchMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchRename')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.byKey(const ValueKey('peopleRenameField')),
@@ -835,8 +821,6 @@ void main() {
     final people = await grouped();
     await show(tester, people);
     await tester.longPress(find.text('Mia'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleMenu-select')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('peopleBatchMore')));
     await tester.pumpAndSettle();
@@ -930,9 +914,7 @@ void main() {
     expect(find.text('Zoe'), findsOneWidget);
   });
 
-  testWidgets('the top-right menu adds a person and imports or exports CSV', (
-    tester,
-  ) async {
+  testWidgets('the top right is one + that adds a person', (tester) async {
     final personStore = FakePersonStore();
     await personStore.create(name: 'Mia');
 
@@ -946,12 +928,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('peopleMenu')));
-    await tester.pumpAndSettle();
-
-    expect(find.text('Add Person'), findsOne);
-    expect(find.text('Import from CSV…'), findsOne);
-    expect(find.text('Export to CSV'), findsOne);
+    expect(find.byKey(const ValueKey('peopleAddPerson')), findsOneWidget);
+    expect(find.byIcon(CupertinoIcons.ellipsis_circle), findsNothing);
   });
 
   testWidgets('imported groups make up Faces to Name', (tester) async {

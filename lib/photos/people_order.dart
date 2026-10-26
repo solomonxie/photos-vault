@@ -21,13 +21,17 @@ Future<PeopleSort> loadPeopleSort(AssetRecordStore store) async {
 }
 
 /// First met and last seen per person: their events, widened by the dates
-/// of their visible photos ([visible] by id). One pass over memberships.
+/// of their visible photos ([visible] by id). Last seen is never stored
+/// from photos or [chats] (newest message by person): it's the latest of
+/// all of them, so removing a photo moves it back. One pass over
+/// memberships.
 ({Map<String, DateTime> first, Map<String, DateTime> last}) knownDates(
   List<Person> people,
   Map<String, List<String>> members,
   Map<String, AssetRecord> visible,
-  Map<String, PersonSpan> spans,
-) {
+  Map<String, PersonSpan> spans, {
+  Map<String, DateTime> chats = const {},
+}) {
   final firstKnown = <String, DateTime>{};
   final lastKnown = <String, DateTime>{};
   DateTime? min(DateTime? a, DateTime? b) =>
@@ -46,7 +50,10 @@ Future<PeopleSort> loadPeopleSort(AssetRecordStore store) async {
     }
     final span = spans[person.id];
     final first = span?.firstMet ?? min(span?.earliest, earliest);
-    final last = max(max(span?.lastSeen, span?.latest), latest);
+    final last = max(
+      max(max(span?.lastSeen, span?.latest), latest),
+      chats[person.id],
+    );
     if (first != null) firstKnown[person.id] = first;
     if (last != null) lastKnown[person.id] = last;
   }

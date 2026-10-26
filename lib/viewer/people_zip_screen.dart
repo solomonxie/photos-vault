@@ -17,7 +17,7 @@ import '../vault/passcode_tags.dart';
 import 'import_name_choice.dart';
 import 'private_album_gate.dart';
 
-/// People ⋯ → Import People Zip, in two steps: which profiles to add or
+/// Developer Options → Import People Zip, in two steps: which profiles to add or
 /// update, then which photos to load for people already in People — hide
 /// or not, and which photos. See `docs/design/people-zip-import/DESIGN.md`.
 class PeopleZipScreen extends StatefulWidget {

@@ -10,24 +10,19 @@ void main() {
   late FakeAssetRecordStore records;
   late FakeAiAnalysisStore analyses;
   late FaceIdentityService identity;
-  final seen = <String, DateTime>{};
 
   const face = FaceRect(0.3, 0.3, 0.4, 0.4);
 
   setUp(() {
     records = FakeAssetRecordStore();
     analyses = FakeAiAnalysisStore();
-    seen.clear();
-    identity = FaceIdentityService(
-      analysisStore: analyses,
-      onSeen: (id, at) async => seen[id] = at,
-    );
+    identity = FaceIdentityService(analysisStore: analyses);
   });
 
   Future<AssetRecord> photo(String id) =>
       records.upsert(localId: id, contentHash: id, platform: 'ios');
 
-  test('naming links each face and moves Last seen up', () async {
+  test('naming links each face', () async {
     final a = await photo('a');
     final b = await photo('b');
 
@@ -39,7 +34,6 @@ void main() {
     expect(saved, isTrue);
     expect(await analyses.faceOfPersonIn('a', 'nina'), face);
     expect(await analyses.faceOfPersonIn('b', 'nina'), face);
-    expect(seen.keys, ['nina']);
   });
 
   test('taking back one face leaves the others', () async {

@@ -26,6 +26,7 @@ class ImportedGroupScreen extends StatefulWidget {
     required this.assetRecordStore,
     required this.personStore,
     this.onOpenAsset,
+    this.onLeft,
   });
 
   final StoredFaceGroup group;
@@ -36,6 +37,10 @@ class ImportedGroupScreen extends StatefulWidget {
   final AssetRecordStore assetRecordStore;
   final PersonStore personStore;
   final Future<void> Function(String localId)? onOpenAsset;
+
+  /// The faces still unnamed here, after every change: the list behind
+  /// updates at once instead of after a full reload.
+  final ValueChanged<List<({String localId, FaceRect face})>>? onLeft;
 
   @override
   State<ImportedGroupScreen> createState() => _ImportedGroupScreenState();
@@ -75,6 +80,7 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
       for (final (i, f) in _faces.indexed)
         if (_off.contains(i)) f,
     ];
+    widget.onLeft?.call(rest);
     if (rest.isEmpty && _undo == null) {
       Navigator.of(context).pop();
       return;
@@ -100,6 +106,7 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
     try {
       await _import.unname(undo.personId, widget.group.id, undo.faces);
       if (!mounted) return;
+      widget.onLeft?.call([...undo.faces, ..._faces]);
       setState(() {
         _faces = [...undo.faces, ..._faces];
         _off.clear();
@@ -173,6 +180,7 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
     );
     if (yes != true || !mounted) return;
     await widget.analysisStore.dismissGroup(widget.group.id);
+    widget.onLeft?.call(const []);
     if (mounted) Navigator.of(context).pop();
   }
 

@@ -1,6 +1,7 @@
 import 'dart:convert';
 import 'dart:io';
 import 'dart:isolate';
+import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
@@ -17,11 +18,12 @@ class ConversationMessage {
     required this.text,
     required this.kind,
     required this.hash,
+    this.thumb,
   });
 
   final String chat;
 
-  /// qq, wechat, sms or whatsapp.
+  /// qq, wechat, sms, imessage, whatsapp, messenger or instagram.
   final String source;
 
   /// Local wall-clock time, as the export wrote it.
@@ -35,6 +37,10 @@ class ConversationMessage {
 
   /// What makes a message the same one again on a re-import.
   final String hash;
+
+  /// A small JPEG of the picture, video or file it carried, if the export
+  /// had one: a few kilobytes, kept in the database with the message.
+  final Uint8List? thumb;
 
   static String hashOf(String chat, DateTime at, bool fromMe, String text) =>
       sha256
@@ -168,11 +174,22 @@ class _Reader {
         text: text,
         kind: kind.isEmpty ? 'text' : kind,
         hash: ConversationMessage.hashOf(chat, at, fromMe, text),
+        thumb: _thumb(row['thumb']),
       ),
     );
   }
 
   static String _string(Object? v) => v is String ? v : '';
+
+  /// Base64, with or without a `data:` prefix; anything else is none.
+  static Uint8List? _thumb(Object? v) {
+    if (v is! String || v.isEmpty) return null;
+    try {
+      return base64Decode(v.substring(v.indexOf(',') + 1));
+    } on FormatException {
+      return null;
+    }
+  }
 
   ConversationExport done() => ConversationExport(
     _byName.values.toList()..sort((a, b) {

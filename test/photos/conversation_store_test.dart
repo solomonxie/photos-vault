@@ -1,4 +1,5 @@
 import 'dart:io';
+import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/photos/conversation_file.dart';
@@ -92,7 +93,7 @@ void main() {
     expect(await store.countFor('keep'), 0);
   });
 
-  test('conversations move First met back and Last seen up', () async {
+  test('conversations move First met back; Last seen is worked out', () async {
     final store = newStore();
     final people = FakePersonStore();
     final mia = await people.create(name: 'Mia');
@@ -100,7 +101,6 @@ void main() {
         e.where((x) => x.type == t).single.at;
 
     await people.markMet(mia.id, DateTime(2009, 8, 17, 22, 3));
-    await people.markSeen(mia.id, DateTime(2009, 8, 17, 22, 5));
     await store.insert(mia.id, [_m(1, 'a'), _m(4, 'b')]);
     expect(await applyConversationSpans(people, store: store), isTrue);
     var events = await people.eventsFor(mia.id);
@@ -108,11 +108,8 @@ void main() {
       fixed(events, PersonEventType.firstMet),
       DateTime(2009, 8, 17, 22, 1),
     );
-    expect(
-      fixed(events, PersonEventType.lastSeen),
-      DateTime(2009, 8, 17, 22, 5),
-      reason: 'a photo later than the chat stays',
-    );
+    expect(events.where((e) => e.isLastSeen), isEmpty);
+    expect(await store.latestFor(mia.id), DateTime(2009, 8, 17, 22, 4));
 
     expect(await applyConversationSpans(people, store: store), isFalse);
     await store.insert(mia.id, [_m(1, 'a')]);
@@ -127,9 +124,9 @@ void main() {
     await store.movePerson(other.id, mia.id);
     await people.remove(other.id);
     expect(await applyConversationSpans(people, store: store), isTrue);
-    events = await people.eventsFor(mia.id);
+    expect(await store.latestFor(mia.id), DateTime(2009, 8, 17, 22, 9));
     expect(
-      fixed(events, PersonEventType.lastSeen),
+      (await store.latestByPerson())[mia.id],
       DateTime(2009, 8, 17, 22, 9),
     );
   });
@@ -169,4 +166,86 @@ void main() {
     addTearDown(store.close);
     expect(await store.pendingSpans(), {'a': (DateTime(2009), DateTime(2009))});
   });
+
+  test(
+    'a thumbnail arriving later is added to a message already here',
+    () async {
+      final store = newStore();
+      final plain = _m(1, 'pic');
+      await store.insert('p1', [plain]);
+      final withThumb = ConversationMessage(
+        chat: plain.chat,
+        source: plain.source,
+        at: plain.at,
+        fromMe: plain.fromMe,
+        sender: plain.sender,
+        text: plain.text,
+        kind: 'image',
+        hash: plain.hash,
+        thumb: Uint8List.fromList([1, 2, 3]),
+      );
+      expect(await store.insert('p1', [withThumb]), 0);
+      final page = await store.page('p1');
+      expect(page.single.thumb, [1, 2, 3]);
+    },
+  );
+
+  test('thumb is base64, with or without a data: prefix', () {
+    final export = readConversationLines(
+      '{"person": "A", "at": "2020-01-01T00:00:00", "thumb": "AQID"}\n'
+      '{"person": "A", "at": "2020-01-01T00:00:01", "thumb": "data:image/jpeg;base64,AQID"}\n'
+      '{"person": "A", "at": "2020-01-01T00:00:02", "thumb": "%%%"}\n',
+    );
+    final thumbs = export.people.single.messages.map((m) => m.thumb).toList();
+    expect(thumbs[0], [1, 2, 3]);
+    expect(thumbs[1], [1, 2, 3]);
+    expect(thumbs[2], isNull);
+  });
+
+  test(
+    'a v3 database (thumbnails as files) upgrades and keeps its messages',
+    () async {
+      final dir = await Directory.systemTemp.createTemp('conv');
+      addTearDown(() => dir.delete(recursive: true));
+      final path = '${dir.path}/c.db';
+      final v3 = await databaseFactoryFfi.openDatabase(
+        path,
+        options: OpenDatabaseOptions(
+          version: 3,
+          onCreate: (db, _) async {
+            await db.execute(
+              'CREATE TABLE span_pending (person_id TEXT PRIMARY KEY)',
+            );
+            await db.execute(
+              'CREATE TABLE message (person_id TEXT NOT NULL, chat TEXT NOT NULL, '
+              'source TEXT NOT NULL, at INTEGER NOT NULL, from_me INTEGER NOT NULL, '
+              'sender TEXT NOT NULL, text TEXT NOT NULL, kind TEXT NOT NULL, '
+              "hash TEXT PRIMARY KEY, media TEXT NOT NULL DEFAULT '')",
+            );
+          },
+        ),
+      );
+      final m = _m(3, 'kept');
+      await v3.insert('message', {
+        'person_id': 'a',
+        'chat': m.chat,
+        'source': m.source,
+        'at': m.at.millisecondsSinceEpoch,
+        'from_me': m.fromMe ? 1 : 0,
+        'sender': m.sender,
+        'text': m.text,
+        'kind': m.kind,
+        'hash': m.hash,
+      });
+      await v3.close();
+      final store = ConversationStore(
+        databaseFactory: databaseFactoryFfi,
+        path: path,
+      );
+      addTearDown(store.close);
+      final page = await store.page('a');
+      expect(page.single.text, 'kept');
+      expect(page.single.thumb, isNull);
+    },
+  );
 }

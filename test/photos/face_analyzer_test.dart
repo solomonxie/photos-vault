@@ -184,29 +184,6 @@ void main() {
     expect(analyzer.working.value, isEmpty);
   });
 
-  test(
-    "confirming a face moves that person's Last seen to the photo",
-    () async {
-      await records.upsert(
-        localId: 'a',
-        contentHash: 'a',
-        platform: 'ios',
-        createdAt: DateTime(2024, 5, 1),
-      );
-      final seen = <(String, DateTime)>[];
-      final analyzer = build(
-        identity: FaceIdentityService(
-          analysisStore: analyses,
-          onSeen: (id, at) async => seen.add((id, at)),
-        ),
-        taggedPeopleOf: (_) async => ['nina'],
-      );
-      analyzer.add(['a']);
-      await analyzer.idle;
-      expect(seen, [('nina', DateTime(2024, 5, 1))]);
-    },
-  );
-
   test('which photos have faces is read back at start', () async {
     await analyses.saveFaceCount(
       localId: 'old',

@@ -426,7 +426,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.text('Add Files'));
+    // The empty library's button; More holds a second Add Files row.
+    await tester.tap(find.widgetWithText(CupertinoButton, 'Add Files'));
     await tester.pumpAndSettle();
 
     expect(find.text('Added 0 files, 0 backed up.'), findsOneWidget);

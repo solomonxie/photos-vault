@@ -1,8 +1,8 @@
 import '../storage/asset_record.dart';
 import 'ai_analysis_store.dart';
 import 'conversation_store.dart';
-import 'people_zip.dart' show undatedImport;
 import 'person.dart';
+import 'words_store.dart';
 
 /// Forgets everything remembered about a person, from anywhere.
 ///
@@ -21,6 +21,7 @@ Future<void> forgetPersonFaces(
     // No analysis database — nothing was remembered to forget.
   }
   await forgetConversations(personId);
+  await forgetWords(personId);
 }
 
 /// Forgets the faces of photos being hidden, so no face search, count or
@@ -63,15 +64,10 @@ Future<FaceRect?> faceOfPersonIn(
   }
 }
 
-/// Which face is whose: the links naming makes, and the person's Last
-/// seen that follows. Nothing here guesses — recognition comes from the
-/// Mac import (`docs/design/face-recognition/MAC-PIPELINE.md`).
+/// Which face is whose: the links naming makes. Nothing here guesses —
+/// recognition comes from the Mac import (`docs/design/face-recognition/MAC-PIPELINE.md`).
 class FaceIdentityService {
-  FaceIdentityService({required this.analysisStore, this.onSeen});
-
-  /// A face confirmed as someone, and the newest date among those photos:
-  /// their Last seen moves up to it ([PersonStore.markSeen]).
-  final Future<void> Function(String personId, DateTime at)? onSeen;
+  FaceIdentityService({required this.analysisStore});
 
   final AiAnalysisStore analysisStore;
 
@@ -90,19 +86,6 @@ class FaceIdentityService {
     String personId,
   ) async {
     if (faces.isEmpty) return false;
-    DateTime? newest;
-    for (final f in faces) {
-      final r = f.record;
-      // A hidden photo says nothing in the open; an undated import's date
-      // is the day it came in.
-      if (!r.isVisibleInLibrary || undatedImport(r)) continue;
-      if (newest == null || r.createdAt.isAfter(newest)) newest = r.createdAt;
-    }
-    if (newest != null) {
-      try {
-        await onSeen?.call(personId, newest);
-      } catch (_) {}
-    }
     try {
       await analysisStore.nameFaces([
         for (final f in faces) (localId: f.record.localId, face: f.face),

@@ -1,3 +1,5 @@
+import 'dart:typed_data';
+
 import 'package:path/path.dart' as p;
 import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:sqflite/sqflite.dart'
@@ -55,13 +57,20 @@ class ConversationStore {
     final db = await _factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 4,
         onUpgrade: (db, from, to) async {
           if (from < 2) {
             await _createPending(db);
             await db.execute(
               'INSERT OR IGNORE INTO $_pending SELECT DISTINCT person_id FROM $_table',
             );
+          }
+          if (from < 4) {
+            await db.execute('ALTER TABLE $_table ADD COLUMN thumb BLOB');
+          }
+          if (from == 3) {
+            // v3 kept thumbnails as files; none were ever imported that way.
+            await db.execute('ALTER TABLE $_table DROP COLUMN media');
           }
         },
         onCreate: (db, version) async {
@@ -76,7 +85,8 @@ class ConversationStore {
               sender TEXT NOT NULL,
               text TEXT NOT NULL,
               kind TEXT NOT NULL,
-              hash TEXT PRIMARY KEY
+              hash TEXT PRIMARY KEY,
+              thumb BLOB
             )
           ''');
           await db.execute(
@@ -127,11 +137,24 @@ class ConversationStore {
             'text': m.text,
             'kind': m.kind,
             'hash': m.hash,
+            'thumb': m.thumb,
           }, conflictAlgorithm: ConflictAlgorithm.ignore);
         }
         await batch.commit(noResult: true);
         final added = await _changes(txn) - before;
         if (added > 0) await _flag(txn, personId);
+        // A message already here from a text-only import gains its thumbnail.
+        final thumbs = txn.batch();
+        for (final m in messages.sublist(i, end)) {
+          if (m.thumb == null) continue;
+          thumbs.update(
+            _table,
+            {'thumb': m.thumb},
+            where: 'hash = ? AND thumb IS NULL',
+            whereArgs: [m.hash],
+          );
+        }
+        await thumbs.commit(noResult: true);
         return added;
       });
       onProgress?.call(end);
@@ -239,6 +262,40 @@ class ConversationStore {
     return rows.map(_message).toList();
   }
 
+  /// Whether [personId] has a message at exactly [at].
+  Future<bool> hasMessageAt(String personId, DateTime at) async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT 1 FROM $_table WHERE person_id = ? AND at = ? LIMIT 1',
+      [personId, at.millisecondsSinceEpoch],
+    );
+    return rows.isNotEmpty;
+  }
+
+  /// [personId]'s newest message, or null.
+  Future<DateTime?> latestFor(String personId) async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT MAX(at) AS hi FROM $_table WHERE person_id = ?',
+      [personId],
+    );
+    final ms = rows.firstOrNull?['hi'];
+    return ms is int ? DateTime.fromMillisecondsSinceEpoch(ms) : null;
+  }
+
+  /// Each person's newest message, in one query: part of their Last seen.
+  Future<Map<String, DateTime>> latestByPerson() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT person_id, MAX(at) AS hi FROM $_table GROUP BY person_id',
+    );
+    return {
+      for (final r in rows)
+        if ((r['person_id'], r['hi']) case (final String id, final int ms))
+          id: DateTime.fromMillisecondsSinceEpoch(ms),
+    };
+  }
+
   /// Earliest and latest message of each flagged person, in one query.
   Future<Map<String, (DateTime, DateTime)>> pendingSpans() async {
     final db = await _open();
@@ -298,6 +355,7 @@ class ConversationStore {
         text: r['text'] as String,
         kind: r['kind'] as String,
         hash: r['hash'] as String,
+        thumb: r['thumb'] as Uint8List?,
       );
 }
 
@@ -327,6 +385,16 @@ Future<void> forgetConversations(
 
 /// Moves each flagged person's First met back and Last seen up to their
 /// conversations, then unflags them. Nothing flagged is one empty query.
+/// [ConversationStore.latestByPerson], or nothing where there's no chat
+/// database (tests).
+Future<Map<String, DateTime>> latestChats([ConversationStore? store]) async {
+  try {
+    return await (store ?? ConversationStore()).latestByPerson();
+  } catch (_) {
+    return const {};
+  }
+}
+
 /// True when someone was looked at.
 Future<bool> applyConversationSpans(
   PersonStore personStore, {
@@ -337,10 +405,9 @@ Future<bool> applyConversationSpans(
     final spans = await conversations.pendingSpans();
     if (spans.isEmpty) return false;
     final alive = {for (final p in await personStore.listAll()) p.id};
-    for (final MapEntry(key: id, value: (lo, hi)) in spans.entries) {
+    for (final MapEntry(key: id, value: (lo, _)) in spans.entries) {
       if (!alive.contains(id)) continue;
       await personStore.markMet(id, lo);
-      await personStore.markSeen(id, hi);
     }
     await conversations.clearPending(spans.keys);
     return true;

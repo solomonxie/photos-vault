@@ -161,16 +161,41 @@ void main() {
     expect(await store.formerNames(keep.id), ['M. Chen', 'Mia Chen']);
   });
 
-  test('Last seen only ever moves forward', () async {
+  test('Last seen dates copied from photos or chats are dropped; one '
+      'set by hand or with notes stays', () async {
     final store = newStore();
-    final mia = await store.create(name: 'Mia');
-    await store.markSeen(mia.id, DateTime(2020));
-    await store.markSeen(mia.id, DateTime(2010));
-    var events = await store.eventsFor(mia.id);
-    expect(events.where((e) => e.isLastSeen).single.at, DateTime(2020));
-    await store.markSeen(mia.id, DateTime(2024));
-    events = await store.eventsFor(mia.id);
-    expect(events.where((e) => e.isLastSeen).single.at, DateTime(2024));
+    final derived = await store.create(name: 'A');
+    final picked = await store.create(name: 'B');
+    final noted = await store.create(name: 'C');
+    final photoAt = DateTime(2024, 5, 1, 14, 3, 22, 123);
+    for (final (p, at, notes) in [
+      (derived, photoAt, ''),
+      (picked, DateTime(2024, 5, 1), ''),
+      (noted, photoAt, 'at the wedding'),
+    ]) {
+      await store.saveEvent(
+        PersonEvent(
+          id: store.newId(),
+          personId: p.id,
+          type: PersonEventType.lastSeen,
+          at: at,
+          notes: notes,
+        ),
+        scope: PersonScope.open,
+      );
+    }
+
+    final n = await store.dropDerivedLastSeen((_, at) async => at == photoAt);
+
+    expect(n, 1);
+    Future<DateTime?> seen(Person p) async =>
+        (await store.eventsFor(p.id))
+            .where((e) => e.isLastSeen)
+            .firstOrNull
+            ?.at;
+    expect(await seen(derived), isNull);
+    expect(await seen(picked), DateTime(2024, 5, 1));
+    expect(await seen(noted), photoAt);
   });
 
   test('First met only ever moves back', () async {

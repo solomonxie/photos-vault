@@ -19,6 +19,20 @@ class FakeConversationStore implements ConversationStore {
   Future<void> close() async {}
 
   @override
+  Future<bool> hasMessageAt(String personId, DateTime at) async =>
+      _of(personId).any((m) => m.at == at);
+
+  @override
+  Future<DateTime?> latestFor(String personId) async =>
+      _of(personId).firstOrNull?.at;
+
+  @override
+  Future<Map<String, DateTime>> latestByPerson() async => {
+    for (final id in {for (final (id, _) in rows.values) id})
+      id: _of(id).first.at,
+  };
+
+  @override
   Future<int> insert(
     String personId,
     List<ConversationMessage> messages, {

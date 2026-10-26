@@ -8,6 +8,7 @@ import '../photos/conversation_store.dart';
 import '../photos/merge_suggestions.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
+import '../photos/words_store.dart';
 import '../settings/settings_section.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
@@ -287,6 +288,7 @@ Future<bool> mergePeopleInto(
     if (outcome != PersonMergeOutcome.merged) continue;
     await aiAnalysisStore?.movePerson(person.id, keep.id);
     await moveConversations(person.id, keep.id, store: conversationStore);
+    await moveWords(person.id, keep.id);
     merged++;
   }
   if (merged > 0) {

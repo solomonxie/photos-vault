@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:typed_data';
 
 import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
@@ -39,6 +40,35 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   /// Search hits, newest first; null when not searching.
   List<ConversationMessage>? _hits;
+
+  Widget _thumb(Uint8List bytes) {
+    final dpr = MediaQuery.devicePixelRatioOf(context);
+    return Padding(
+      padding: const EdgeInsets.only(bottom: 4),
+      child: GestureDetector(
+        onTap: () => Navigator.of(context).push(
+          CupertinoPageRoute<void>(
+            fullscreenDialog: true,
+            builder: (_) => CupertinoPageScaffold(
+              backgroundColor: CupertinoColors.black,
+              navigationBar: const CupertinoNavigationBar(),
+              child: Center(child: Image.memory(bytes)),
+            ),
+          ),
+        ),
+        child: ClipRRect(
+          borderRadius: BorderRadius.circular(10),
+          child: Image.memory(
+            bytes,
+            width: 160,
+            cacheWidth: (160 * dpr).round(),
+            fit: BoxFit.cover,
+            errorBuilder: (_, _, _) => const SizedBox.shrink(),
+          ),
+        ),
+      ),
+    );
+  }
 
   @override
   void initState() {
@@ -116,6 +146,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
       'wechat' => 'WeChat',
       'sms' => 'SMS',
       'whatsapp' => 'WhatsApp',
+      'imessage' => 'iMessage',
+      'messenger' => 'Messenger',
+      'instagram' => 'Instagram',
       final s => s,
     };
     final colon = m.chat.indexOf(':');
@@ -163,14 +196,16 @@ class _ConversationScreenState extends State<ConversationScreen> {
             crossAxisAlignment: CrossAxisAlignment.stretch,
             mainAxisSize: MainAxisSize.min,
             children: [
-              Text(
-                _body(l10n, m),
-                style: TextStyle(
-                  fontSize: 16,
-                  color: CupertinoColors.white,
-                  fontStyle: m.text.isEmpty ? FontStyle.italic : null,
+              if (m.thumb case final thumb?) _thumb(thumb),
+              if (m.text.isNotEmpty || m.thumb == null)
+                Text(
+                  _body(l10n, m),
+                  style: TextStyle(
+                    fontSize: 16,
+                    color: CupertinoColors.white,
+                    fontStyle: m.text.isEmpty ? FontStyle.italic : null,
+                  ),
                 ),
-              ),
               Text(
                 (dated ? _dated : _clock).format(m.at),
                 textAlign: TextAlign.end,

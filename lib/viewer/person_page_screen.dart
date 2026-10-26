@@ -303,7 +303,6 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
       widget.faceIdentity ??
       FaceIdentityService(
         analysisStore: widget.aiAnalysisStore ?? AiAnalysisStore(),
-        onSeen: widget.personStore.markSeen,
       );
 
   Future<void> _removeFromPerson(AssetRecord record) async {

@@ -32,7 +32,7 @@ class ConversationImportScreen extends StatefulWidget {
   /// Overridable so a test needn't leave the fake clock for an isolate.
   final Future<ConversationExport> Function(List<String> paths)? readFiles;
 
-  /// Pick at once: how the People menu opens it.
+  /// Pick at once: how Developer Options opens it.
   final bool pickOnOpen;
 
   @override

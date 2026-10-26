@@ -58,10 +58,6 @@ class FakePersonStore implements PersonStore {
       );
 
   @override
-  Future<void> markSeen(String personId, DateTime at) =>
-      _moveFixed(personId, PersonEventType.lastSeen, at, at.isAfter);
-
-  @override
   Future<void> markMet(String personId, DateTime at) =>
       _moveFixed(personId, PersonEventType.firstMet, at, at.isBefore);
 
@@ -212,6 +208,21 @@ class FakePersonStore implements PersonStore {
   @override
   Future<void> removeEvent(String id, {required PersonScope scope}) async =>
       events.remove(id);
+
+  @override
+  Future<int> dropDerivedLastSeen(
+    Future<bool> Function(String personId, DateTime at) derived,
+  ) async {
+    var removed = 0;
+    for (final e in events.values.toList()) {
+      if (!e.isLastSeen || e.at == null) continue;
+      if (e.notes.isNotEmpty || e.tags.isNotEmpty) continue;
+      if (!await derived(e.personId, e.at!)) continue;
+      events.remove(e.id);
+      removed++;
+    }
+    return removed;
+  }
 
   @override
   Future<List<PersonEvent>> eventsFor(

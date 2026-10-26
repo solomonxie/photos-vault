@@ -16,6 +16,7 @@ import 'package:path/path.dart' as p;
 import '../l10n/app_localizations.dart';
 import '../demo/demo_flag.dart';
 import '../demo/demo_mode.dart';
+import '../photos/conversation_store.dart';
 import '../photos/derived_asset.dart';
 import '../photos/flag_scan.dart';
 import '../photos/asset_removal.dart';
@@ -93,6 +94,7 @@ import 'asset_grid_view.dart';
 import 'asset_group_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
+import 'developer_options_screen.dart';
 import 'favorites_screen.dart';
 import 'resize_photos.dart';
 import 'select_all.dart';
@@ -497,8 +499,10 @@ class LibraryScreenState extends State<LibraryScreen>
   /// reference set every screen's suggestions are measured against.
   late final FaceIdentityService _faceIdentity = FaceIdentityService(
     analysisStore: _aiAnalysisStore,
-    onSeen: _personStore.markSeen,
   );
+
+  /// Newest chat per person: part of Last seen when People sorts by it.
+  late final _conversations = ConversationStore();
 
   List<AssetRecord> _all = const [];
   LibraryIndex? _index;
@@ -1509,6 +1513,7 @@ class LibraryScreenState extends State<LibraryScreen>
               personMembers,
               visibleRecordsOf(all),
               await _personStore.openEventSpans(),
+              chats: await latestChats(_conversations),
             )
           : null;
       final sorted = [...people];
@@ -3310,6 +3315,26 @@ class LibraryScreenState extends State<LibraryScreen>
             color: CupertinoColors.systemBlue,
             title: l10n.collectionsLanguageRow,
             onTap: _pickLanguage,
+          ),
+          // Photos and videos straight from Files — an SD card, a folder
+          // copied onto the phone — never through Photos.
+          _row(
+            icon: CupertinoIcons.folder_fill_badge_plus,
+            color: CupertinoColors.systemGreen,
+            title: l10n.libraryAddFilesButton,
+            onTap: addFiles,
+          ),
+          _row(
+            icon: CupertinoIcons.hammer_fill,
+            color: CupertinoColors.systemIndigo,
+            title: l10n.collectionsDeveloperRow,
+            onTap: () => _push(
+              DeveloperOptionsScreen(
+                personStore: _personStore,
+                assetRecordStore: assetRecordStore,
+                analysisStore: _aiAnalysisStore,
+              ),
+            ),
           ),
           _row(
             icon: CupertinoIcons.eye_slash_fill,

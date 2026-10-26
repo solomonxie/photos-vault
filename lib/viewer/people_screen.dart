@@ -10,7 +10,6 @@ import '../photos/ai_analysis_store.dart';
 import '../photos/conversation_store.dart';
 import '../photos/name_sound.dart';
 import '../photos/person.dart';
-import '../photos/face_analyzer.dart';
 import '../photos/face_identity.dart';
 import '../photos/face_import.dart';
 import '../photos/person_detail.dart';
@@ -24,19 +23,15 @@ import '../storage/asset_record_store.dart';
 import 'person_avatar.dart';
 import 'profile_chip.dart';
 import 'person_page_screen.dart';
-import 'face_import_screen.dart';
 import 'imported_group_screen.dart';
 import 'search_picker_sheet.dart';
 import 'person_profile_screen.dart';
 import 'suggestion_action_screen.dart';
 import 'group_screen.dart';
-import 'conversation_import_screen.dart';
 import 'group_picker.dart';
 import 'merge_people_screen.dart' show mergePeopleInto;
 import 'private_album_gate.dart';
 import 'select_all.dart';
-import 'people_zip_screen.dart';
-import 'profile_transfer_screen.dart';
 import 'ungrouped_people_screen.dart';
 
 /// Collections' "People" row: named [Person] profiles (T7.1-T7.3), each with
@@ -144,12 +139,47 @@ class _PeopleScreenState extends State<PeopleScreen> {
     _reload();
     _loadChats();
     _loadFaceGroups();
+    unawaited(
+      _dropDerivedLastSeen().then((n) {
+        if (n > 0 && mounted) _reload();
+      }),
+    );
     // Flagged people only: catches up an import or merge cut short.
     unawaited(
       applyConversationSpans(widget.personStore).then((changed) {
         if (changed && mounted) _reload();
       }),
     );
+  }
+
+  /// Once per install: Last seen dates that photos and chats wrote before
+  /// it was worked out on the fly ([knownDates]), so removing a photo can
+  /// move it back.
+  Future<int> _dropDerivedLastSeen() async {
+    const key = 'people.lastSeenDerivedDropped';
+    try {
+      final settings = widget.assetRecordStore;
+      if (await settings.getAppState(key) == '1') return 0;
+      final members = await widget.personStore.allMemberships();
+      final taken = {
+        for (final r in await settings.listAll())
+          r.localId: r.createdAt.millisecondsSinceEpoch,
+      };
+      final chats = widget.conversationStore ?? ConversationStore();
+      final n = await widget.personStore.dropDerivedLastSeen((id, at) async {
+        final ms = at.millisecondsSinceEpoch;
+        if ((members[id] ?? const []).any((p) => taken[p] == ms)) return true;
+        try {
+          return await chats.hasMessageAt(id, at);
+        } catch (_) {
+          return false;
+        }
+      });
+      await settings.setAppState(key, '1');
+      return n;
+    } catch (_) {
+      return 0;
+    }
   }
 
   /// Messages per person: one grouped query, on opening and after an
@@ -160,7 +190,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
   /// the records their faces draw from. Listed first in Faces to Name.
   List<StoredFaceGroup> _imported = const [];
   Map<String, AssetRecord> _importedRecords = const {};
-  int _importedFaces = 0;
 
   Future<void> _loadFaceGroups() async {
     final analysis = widget.aiAnalysisStore;
@@ -171,7 +200,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
       setState(() {
         _imported = found.groups;
         _importedRecords = found.records;
-        _importedFaces = found.groups.fold(0, (n, g) => n + g.faces.length);
       });
       _pageTick.value++;
     } catch (_) {
@@ -180,6 +208,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
   }
 
   Future<void> _openImported(StoredFaceGroup group) async {
+    var left = group.faces;
     await Navigator.of(context).push(
       CupertinoPageRoute<void>(
         builder: (_) => ImportedGroupScreen(
@@ -189,10 +218,24 @@ class _PeopleScreenState extends State<PeopleScreen> {
           assetRecordStore: widget.assetRecordStore,
           personStore: widget.personStore,
           onOpenAsset: widget.onOpenAsset,
+          onLeft: (faces) => left = faces,
         ),
       ),
     );
     if (!mounted) return;
+    // At once from what the page reports; the full read follows.
+    if (!identical(left, group.faces)) {
+      setState(() {
+        _imported = [
+          for (final g in _imported)
+            if (g.id != group.id)
+              g
+            else if (left.isNotEmpty)
+              StoredFaceGroup(id: g.id, suggest: g.suggest, faces: left),
+        ];
+      });
+      _pageTick.value++;
+    }
     await _loadFaceGroups();
     await _reload();
   }
@@ -278,6 +321,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
       members,
       byId,
       spans,
+      chats: await latestChats(widget.conversationStore),
     );
     final sort = await _loadSort();
     sortPeople(
@@ -577,36 +621,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
         ),
       ),
     );
-  }
-
-  /// Off everyone; nobody is removed. The open set's only — a sealed set's
-  /// groups are its own.
-  Future<void> _deleteGroup(PersonGroup group) async {
-    final l10n = AppLocalizations.of(context)!;
-    final ok = await showCupertinoDialog<bool>(
-      context: context,
-      builder: (dialog) => CupertinoAlertDialog(
-        title: Text(l10n.peopleDeleteGroupTitle(group.name)),
-        content: Text(l10n.peopleDeleteGroupBody(_groups[group]?.length ?? 0)),
-        actions: [
-          CupertinoDialogAction(
-            isDefaultAction: true,
-            onPressed: () => Navigator.of(dialog).pop(false),
-            child: Text(l10n.actionCancel),
-          ),
-          CupertinoDialogAction(
-            key: const ValueKey('peopleDeleteGroupConfirm'),
-            isDestructiveAction: true,
-            onPressed: () => Navigator.of(dialog).pop(true),
-            child: Text(l10n.actionDelete),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    await widget.personStore.deleteGroup(group.id, scope: PersonScope.open);
-    setState(() => _group = null);
-    await _reload();
   }
 
   /// A searchable list, not a chip or a row per group: there can be
@@ -1078,59 +1092,18 @@ class _PeopleScreenState extends State<PeopleScreen> {
     });
   }
 
-  // ------------------------------------------------------------ row menu
+  /// Holding a row starts select mode with that person picked.
+  void _startSelecting(Person person) => setState(() {
+    _selecting = true;
+    _dismissUndo();
+    _picked = {person.id};
+  });
 
-  Future<void> _personMenu(Person person) async {
-    final l10n = AppLocalizations.of(context)!;
-    final action = await showCupertinoModalPopup<String>(
-      context: context,
-      builder: (sheet) => CupertinoActionSheet(
-        title: Text(person.name),
-        actions: [
-          for (final (key, label) in [
-            ('select', l10n.peopleMenuSelect),
-            ('group', l10n.peopleBatchAddToGroup),
-            ('rename', l10n.peopleMenuRename),
-            ('merge', l10n.peopleMenuMerge),
-            ('hide', l10n.peopleMenuHideAll),
-          ])
-            CupertinoActionSheetAction(
-              key: ValueKey('peopleMenu-$key'),
-              onPressed: () => Navigator.of(sheet).pop(key),
-              child: Text(label),
-            ),
-          CupertinoActionSheetAction(
-            key: const ValueKey('peopleMenu-delete'),
-            isDestructiveAction: true,
-            onPressed: () => Navigator.of(sheet).pop('delete'),
-            child: Text(l10n.personProfileDeletePerson),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(sheet).pop(),
-          child: Text(l10n.actionCancel),
-        ),
-      ),
-    );
-    if (!mounted) return;
-    switch (action) {
-      case 'select':
-        setState(() {
-          _selecting = true;
-          _dismissUndo();
-          _picked = {person.id};
-        });
-      case 'group':
-        await _addToGroup({person.id});
-      case 'rename':
-        await _rename(person);
-      case 'merge':
-        await _mergeWith(person);
-      case 'hide':
-        await _hidePeople({person.id});
-      case 'delete':
-        await _delete(person);
-    }
+  Future<void> _renamePicked() async {
+    final person = _people.where((p) => _picked.contains(p.id)).firstOrNull;
+    if (_picked.length != 1 || person == null) return;
+    _endSelecting();
+    await _rename(person);
   }
 
   Future<void> _rename(Person person) async {
@@ -1177,79 +1150,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
       }
       if (mounted) await _reload();
     });
-  }
-
-  /// Picks any number of others, then who of them all stays.
-  Future<void> _mergeWith(Person person) async {
-    final l10n = AppLocalizations.of(context)!;
-    final others = [
-      for (final p in _people)
-        if (p.id != person.id) p,
-    ]..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
-    final chosen = await showSearchPickerSheetMulti<Person>(
-      context: context,
-      title: l10n.peopleMergeWithTitle(person.name),
-      options: others,
-      labelOf: (p) =>
-          '${p.name} · ${l10n.mergePeoplePhotos(_counts[p.id] ?? 0)}',
-    );
-    if (chosen == null || chosen.isEmpty || !mounted) return;
-    final all = [person, ...chosen];
-    final keep = await _chooseKeep(all);
-    if (keep == null || !mounted) return;
-    await mergePeopleInto(
-      context,
-      keep: keep,
-      gone: [
-        for (final p in all)
-          if (p.id != keep.id) p,
-      ],
-      personStore: widget.personStore,
-      assetRecordStore: widget.assetRecordStore,
-      aiAnalysisStore: widget.aiAnalysisStore,
-    );
-    if (mounted) await _reload();
-  }
-
-  /// As the profile's Delete: refused while their hidden folder holds
-  /// photos, since its code dies with their id.
-  Future<void> _delete(Person person) async {
-    final l10n = AppLocalizations.of(context)!;
-    if (await personHasHiddenFolder(
-      widget.assetRecordStore,
-      person.id,
-      aliases: await widget.personStore.aliasesOf(person.id),
-    )) {
-      if (!mounted) return;
-      return _note(l10n.personProfileDeleteBlockedBody);
-    }
-    if (!mounted) return;
-    final ok = await showCupertinoDialog<bool>(
-      context: context,
-      builder: (dialog) => CupertinoAlertDialog(
-        title: Text(l10n.personProfileDeleteConfirmTitle),
-        content: Text(l10n.personProfileDeleteConfirmBody),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(dialog).pop(false),
-            child: Text(l10n.actionCancel),
-          ),
-          CupertinoDialogAction(
-            key: const ValueKey('peopleDeleteConfirm'),
-            isDestructiveAction: true,
-            onPressed: () => Navigator.of(dialog).pop(true),
-            child: Text(l10n.actionDelete),
-          ),
-        ],
-      ),
-    );
-    if (ok != true || !mounted) return;
-    await widget.personStore.remove(person.id);
-    await forgetPersonFaces(
-      person.id,
-      analysisStore: widget.faceIdentity?.analysisStore,
-    );
-    if (mounted) await _reload();
   }
 
   /// Opens the same page Suggestions does, so the run is the queue's:
@@ -1478,7 +1378,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          '$_importedFaces',
+          '${_imported.length}',
           style: const TextStyle(color: CupertinoColors.systemGrey),
         ),
         const SizedBox(width: 4),
@@ -1504,7 +1404,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
             ),
           ),
           Text(
-            '$_importedFaces',
+            '${_imported.length}',
             style: const TextStyle(
               fontSize: 13,
               color: CupertinoColors.systemGrey,
@@ -1570,151 +1470,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
         .then((_) => _reload());
   }
 
-  /// Reloads on the way back: an import adds people to the list behind it.
-  Future<void> _openProfileTransfer([ProfileTransferStart? start]) async {
-    await Navigator.of(context).push(
-      CupertinoPageRoute(
-        builder: (_) => ProfileTransferScreen(
-          personStore: widget.personStore,
-          start: start,
-        ),
-      ),
-    );
-    if (mounted) await _reload();
-  }
-
-  Future<void> _openPeopleZip() async {
-    await Navigator.of(context).push(
-      CupertinoPageRoute<void>(
-        builder: (_) => PeopleZipScreen(
-          personStore: widget.personStore,
-          assetRecordStore: widget.assetRecordStore,
-        ),
-      ),
-    );
-    if (mounted) await _reload();
-  }
-
-  Future<void> _openFaceImport() async {
-    await Navigator.of(context).push(
-      CupertinoPageRoute<void>(
-        builder: (_) => FaceImportScreen(
-          import: FaceImport(
-            personStore: widget.personStore,
-            assetRecordStore: widget.assetRecordStore,
-            analysisStore:
-                widget.aiAnalysisStore ??
-                widget.faceIdentity?.analysisStore ??
-                AiAnalysisStore(),
-            analyzer: FaceAnalyzer.shared,
-          ),
-        ),
-      ),
-    );
-    if (!mounted) return;
-    await _loadFaceGroups();
-    await _reload();
-  }
-
-  /// Adding somebody, and the whole registry in and out as a spreadsheet.
-  void _showMenu() {
-    final l10n = AppLocalizations.of(context)!;
-    showCupertinoModalPopup<void>(
-      context: context,
-      builder: (sheet) => CupertinoActionSheet(
-        actions: [
-          if (_group case final group?)
-            CupertinoActionSheetAction(
-              key: const ValueKey('peopleDeleteGroup'),
-              isDestructiveAction: true,
-              onPressed: () {
-                Navigator.of(sheet).pop();
-                _deleteGroup(group);
-              },
-              child: Text(l10n.peopleDeleteGroup(group.name)),
-            ),
-          CupertinoActionSheetAction(
-            key: const ValueKey('peopleSelectMode'),
-            onPressed: () {
-              Navigator.of(sheet).pop();
-              setState(() {
-                _selecting = true;
-                _dismissUndo();
-              });
-            },
-            child: Text(l10n.peopleSelectMenu),
-          ),
-          CupertinoActionSheetAction(
-            key: const ValueKey('peopleAddPerson'),
-            onPressed: () {
-              Navigator.of(sheet).pop();
-              _addPerson();
-            },
-            child: Text(l10n.peopleAddPerson),
-          ),
-          CupertinoActionSheetAction(
-            key: const ValueKey('peopleCsvImport'),
-            onPressed: () {
-              Navigator.of(sheet).pop();
-              _openProfileTransfer(ProfileTransferStart.import);
-            },
-            child: Text(l10n.peopleCsvImport),
-          ),
-          CupertinoActionSheetAction(
-            key: const ValueKey('peopleZipImport'),
-            onPressed: () {
-              Navigator.of(sheet).pop();
-              _openPeopleZip();
-            },
-            child: Text(l10n.peopleZipMenu),
-          ),
-          CupertinoActionSheetAction(
-            key: const ValueKey('peopleFacesImport'),
-            onPressed: () {
-              Navigator.of(sheet).pop();
-              _openFaceImport();
-            },
-            child: Text(l10n.peopleFacesImport),
-          ),
-          CupertinoActionSheetAction(
-            key: const ValueKey('peopleConversationsImport'),
-            onPressed: () {
-              Navigator.of(sheet).pop();
-              Navigator.of(context)
-                  .push(
-                    CupertinoPageRoute<void>(
-                      builder: (_) => ConversationImportScreen(
-                        personStore: widget.personStore,
-                        conversationStore: widget.conversationStore,
-                        pickOnOpen: true,
-                      ),
-                    ),
-                  )
-                  .then((_) {
-                    if (!mounted) return;
-                    _loadChats();
-                    _reload();
-                  });
-            },
-            child: Text(l10n.peopleConversationsImport),
-          ),
-          CupertinoActionSheetAction(
-            key: const ValueKey('peopleCsvExport'),
-            onPressed: () {
-              Navigator.of(sheet).pop();
-              _openProfileTransfer(ProfileTransferStart.export);
-            },
-            child: Text(l10n.peopleCsvExport),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(sheet).pop(),
-          child: Text(l10n.actionCancel),
-        ),
-      ),
-    );
-  }
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -1770,10 +1525,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
                 onPressed: _endSelecting,
               )
             : CupertinoButton(
-                key: const ValueKey('peopleMenu'),
+                key: const ValueKey('peopleAddPerson'),
                 padding: EdgeInsets.zero,
-                onPressed: _showMenu,
-                child: const Icon(CupertinoIcons.ellipsis_circle),
+                onPressed: _addPerson,
+                child: const Icon(CupertinoIcons.add),
               ),
       ),
       child: SafeArea(
@@ -1808,6 +1563,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   onUnhide: _unhidePicked,
                   onMerge: _mergePicked,
                   onEdit: _editPicked,
+                  onRename: _renamePicked,
                   onAddToGroup: _addPickedToGroup,
                   onLeaveGroup: _removePickedFromGroup,
                   onDelete: _deletePicked,
@@ -1899,7 +1655,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
 
   Widget _personRow(AppLocalizations l10n, Person person) => GestureDetector(
     key: ValueKey('people-row-${person.id}'),
-    onLongPress: _selecting ? null : () => _personMenu(person),
+    onLongPress: _selecting ? null : () => _startSelecting(person),
     child: CupertinoListTile(
       key: ValueKey(person.id),
       // Same size as the faces below, and for the same
@@ -1916,7 +1672,23 @@ class _PeopleScreenState extends State<PeopleScreen> {
         records: _recordsById,
         size: _faceSize,
       ),
-      title: Text(person.name),
+      // Beside the name: a mark that they have chats, not a count of them
+      // next to the photo count.
+      title: Row(
+        children: [
+          Flexible(child: Text(person.name, overflow: TextOverflow.ellipsis)),
+          if ((_chats[person.id] ?? 0) > 0)
+            Padding(
+              key: ValueKey('people-chats-${person.id}'),
+              padding: const EdgeInsets.only(left: 6),
+              child: const Icon(
+                CupertinoIcons.chat_bubble_2,
+                size: 16,
+                color: CupertinoColors.systemGrey,
+              ),
+            ),
+        ],
+      ),
       subtitle: switch ((
         _sort,
         _firstKnown[person.id],
@@ -1933,16 +1705,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
       trailing: Row(
         mainAxisSize: MainAxisSize.min,
         children: [
-          if ((_chats[person.id] ?? 0) > 0)
-            Padding(
-              key: ValueKey('people-chats-${person.id}'),
-              padding: const EdgeInsets.only(right: 6),
-              child: const Icon(
-                CupertinoIcons.chat_bubble_2,
-                size: 16,
-                color: CupertinoColors.systemGrey,
-              ),
-            ),
           Text(
             '${_counts[person.id] ?? 0}',
             style: const TextStyle(color: CupertinoColors.systemGrey),
@@ -2138,6 +1900,12 @@ class _PeopleSelectionBar extends StatelessWidget {
       builder: (sheet) => CupertinoActionSheet(
         title: Text(l10n.selectionTitle(count)),
         actions: [
+          if (count == 1)
+            CupertinoActionSheetAction(
+              key: const ValueKey('peopleBatchRename'),
+              onPressed: () => run(sheet, onRename),
+              child: Text(l10n.peopleMenuRename),
+            ),
           CupertinoActionSheetAction(
             key: const ValueKey('peopleBatchGroup'),
             onPressed: () => run(sheet, onAddToGroup),
@@ -2181,6 +1949,7 @@ class _PeopleSelectionBar extends StatelessWidget {
     required this.onUnhide,
     required this.onMerge,
     required this.onEdit,
+    required this.onRename,
     required this.onAddToGroup,
     required this.onLeaveGroup,
     required this.onDelete,
@@ -2193,6 +1962,7 @@ class _PeopleSelectionBar extends StatelessWidget {
   final VoidCallback onUnhide;
   final VoidCallback onMerge;
   final VoidCallback onEdit;
+  final VoidCallback onRename;
   final VoidCallback onAddToGroup;
   final VoidCallback onLeaveGroup;
   final VoidCallback onDelete;

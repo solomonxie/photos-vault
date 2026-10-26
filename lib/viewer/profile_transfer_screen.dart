@@ -38,7 +38,7 @@ class ProfileTransferScreen extends StatefulWidget {
     this.start,
   });
 
-  /// Run at once on opening: the People menu's Import or Export.
+  /// Run at once on opening: Developer Options' Import or Export.
   final ProfileTransferStart? start;
 
   final PersonStore personStore;

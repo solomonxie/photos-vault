@@ -2179,7 +2179,6 @@ class _InfoPanelState extends State<_InfoPanel> {
   /// Remembers which face is whose once it's named.
   late final FaceIdentityService _faceIdentity = FaceIdentityService(
     analysisStore: _onDeviceAnalysis.analysisStore,
-    onSeen: widget.personStore.markSeen,
   );
 
   /// [faces] minus those already named here: asking again about a face

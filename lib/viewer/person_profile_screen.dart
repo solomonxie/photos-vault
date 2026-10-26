@@ -8,7 +8,10 @@ import '../photos/person.dart';
 import '../photos/face_identity.dart';
 import '../photos/person_detail.dart';
 import '../photos/person_owner.dart';
+import '../photos/people_zip.dart' show undatedImport;
 import '../photos/person_store.dart';
+import '../photos/words_file.dart';
+import '../photos/words_store.dart';
 import '../storage/asset_record_store.dart';
 import '../vault/keys.dart';
 import '../vault/passcode_tags.dart';
@@ -28,6 +31,7 @@ import 'person_history_detail_screen.dart';
 import 'person_page_screen.dart';
 import 'person_picker_sheet.dart';
 import 'search_picker_sheet.dart';
+import 'words_screen.dart';
 
 /// The full editable profile behind a person page's name chevron.
 ///
@@ -59,9 +63,11 @@ class PersonProfileScreen extends StatefulWidget {
     this.vaultKeys,
     this.autofocusName = false,
     this.conversationStore,
+    this.wordsStore,
   });
 
   final ConversationStore? conversationStore;
+  final WordsStore? wordsStore;
 
   final Person person;
   final PersonStore personStore;
@@ -116,6 +122,8 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   late final ConversationStore _conversationStore =
       widget.conversationStore ?? ConversationStore();
   int _conversations = 0;
+  late final WordsStore _wordsStore = widget.wordsStore ?? WordsStore();
+  Map<WritingKind, int> _wordCounts = const {};
   late final PersonOwner _owner = PersonOwner(widget.assetRecordStore);
 
   String? _ownerId;
@@ -137,6 +145,94 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     _reload();
     _loadFormerNames();
     _loadConversationCount();
+    _loadWordCounts();
+  }
+
+  /// Newest visible photo and newest chat message: with the events, what
+  /// Last seen is worked out from. Never written down, so removing a photo
+  /// moves it back.
+  DateTime? _photoSeen;
+  DateTime? _chatSeen;
+
+  Future<void> _loadSeen() async {
+    DateTime? photo;
+    DateTime? chat;
+    try {
+      final ids = await widget.personStore.localIdsIn(_person.id);
+      final shown = await widget.assetRecordStore.getVisibleByLocalIds(ids);
+      for (final r in shown.values) {
+        if (undatedImport(r)) continue;
+        if (photo == null || r.createdAt.isAfter(photo)) photo = r.createdAt;
+      }
+    } catch (_) {}
+    try {
+      chat = await _conversationStore.latestFor(_person.id);
+    } catch (_) {}
+    if (mounted) {
+      setState(() {
+        _photoSeen = photo;
+        _chatSeen = chat;
+      });
+    }
+  }
+
+  Future<void> _loadWordCounts() async {
+    try {
+      final counts = await _wordsStore.countsByKind(_person.id);
+      if (mounted) setState(() => _wordCounts = counts);
+    } catch (_) {
+      // No words database: nothing imported.
+    }
+  }
+
+  Future<void> _openWords([WritingKind? kind]) => Navigator.of(context).push(
+    CupertinoPageRoute<void>(
+      builder: (_) =>
+          WordsScreen(person: _person, store: _wordsStore, kind: kind),
+    ),
+  );
+
+  /// One row per kind, most first; nothing imported shows where they'd come from.
+  Widget _wordsSection(AppLocalizations l10n) {
+    if (_wordCounts.isEmpty) {
+      return _promptRow(
+        key: profileSectionPromptKey(l10n.wordsHeader),
+        title: l10n.wordsHeader,
+        hint: l10n.wordsPrompt,
+        onTap: () {},
+      );
+    }
+    final kinds = _wordCounts.entries.toList()
+      ..sort((a, b) => b.value.compareTo(a.value));
+    final total = kinds.fold(0, (n, e) => n + e.value);
+    final number = NumberFormat.decimalPattern();
+    Widget row(String title, int n, VoidCallback onTap, {Key? key}) =>
+        CupertinoListTile(
+          key: key,
+          title: Text(title),
+          additionalInfo: Text(number.format(n)),
+          trailing: const Icon(
+            CupertinoIcons.chevron_forward,
+            size: 18,
+            color: CupertinoColors.systemGrey2,
+          ),
+          onTap: onTap,
+        );
+    return CupertinoListSection.insetGrouped(
+      margin: const EdgeInsets.symmetric(horizontal: 16),
+      backgroundColor: _cardBackground,
+      decoration: _cardDecoration,
+      children: [
+        row(
+          l10n.wordsAll,
+          total,
+          _openWords,
+          key: const ValueKey('personWordsAll'),
+        ),
+        for (final MapEntry(:key, :value) in kinds)
+          row(writingKindLabel(l10n, key), value, () => _openWords(key)),
+      ],
+    );
   }
 
   Future<void> _loadConversationCount() async {
@@ -258,6 +354,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   }
 
   Future<void> _reload() async {
+    _loadSeen();
     final store = widget.personStore;
     final scope = _scope;
     final ns = scope.passcodeHash;
@@ -1113,6 +1210,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                 category: HistoryCategory.job,
               ),
               const SizedBox(height: 20),
+              _sectionHeader(l10n.wordsHeader),
+              _wordsSection(l10n),
+              const SizedBox(height: 20),
               _sectionHeader(
                 l10n.personProfileLocationHeader,
                 onAdd: () => _editLocation(),
@@ -1672,12 +1772,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           ),
         ),
         CupertinoListTile(
+          key: const ValueKey('profileLastSeen'),
           title: Text(l10n.eventsLastSeen),
-          subtitle: Text(
-            lastSeen?.at == null
-                ? l10n.eventsNotSet
-                : _eventDate(lastSeen!.at!),
-          ),
+          subtitle: Text(_seenText(l10n, lastSeen?.at)),
           trailing: const Icon(
             CupertinoIcons.chevron_right,
             size: 16,
@@ -1718,6 +1815,25 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   }
 
   static String _eventDate(DateTime at) => DateFormat.yMMMd().format(at);
+
+  /// The latest of the date set here, any other event, their newest
+  /// photo and newest chat — and which of them it is.
+  String _seenText(AppLocalizations l10n, DateTime? set) {
+    DateTime? event;
+    for (final e in _events) {
+      if (e.isFixed || e.at == null) continue;
+      if (event == null || e.at!.isAfter(event)) event = e.at;
+    }
+    final candidates = [
+      if (set != null) (set, null),
+      if (event != null) (event, l10n.eventsSeenFromEvent),
+      if (_photoSeen case final at?) (at, l10n.eventsSeenFromPhoto),
+      if (_chatSeen case final at?) (at, l10n.eventsSeenFromChat),
+    ];
+    if (candidates.isEmpty) return l10n.eventsNotSet;
+    final (at, from) = candidates.reduce((a, b) => b.$1.isAfter(a.$1) ? b : a);
+    return from == null ? _eventDate(at) : '${_eventDate(at)} · $from';
+  }
 
   Future<void> _removeEvent(AppLocalizations l10n, PersonEvent event) async {
     final confirmed = await showCupertinoDialog<bool>(

@@ -5,7 +5,6 @@ import '../storage/asset_record_store.dart';
 import 'ai_analysis_store.dart';
 import 'face_analyzer.dart';
 import 'face_file.dart';
-import 'people_zip.dart' show undatedImport;
 import 'person.dart';
 import 'person_store.dart';
 import 'profile_transfer.dart' show PersonMatches;
@@ -436,13 +435,6 @@ class FaceImport {
         fillAvatar: false,
         viaFace: true,
       );
-      DateTime? newest;
-      for (final f in faces) {
-        final r = records[f.localId]!;
-        if (undatedImport(r)) continue;
-        if (newest == null || r.createdAt.isAfter(newest)) newest = r.createdAt;
-      }
-      if (newest != null) await personStore.markSeen(personId, newest);
       final person = await personStore.getById(personId);
       if (person != null && person.avatarLocalId == null) {
         await personStore.update(

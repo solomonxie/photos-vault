@@ -1,6 +1,8 @@
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/photos/people_order.dart';
 import 'package:photos_vault/photos/person.dart';
+import 'package:photos_vault/photos/person_store.dart';
+import 'package:photos_vault/storage/asset_record.dart';
 
 Person _p(String id, String name) => Person(
   id: id,
@@ -25,5 +27,36 @@ void main() {
     final people = [_p('1', 'Zoe'), _p('2', '王小明'), _p('3', 'Amy')];
     sortPeople(people, PeopleSort.name);
     expect([for (final p in people) p.name], ['Amy', '王小明', 'Zoe']);
+  });
+
+  test('Last seen is the latest of what is known now, never a stored '
+      'photo date', () {
+    AssetRecord photo(String id, DateTime at) => AssetRecord(
+      localId: id,
+      contentHash: id,
+      platform: 'ios',
+      createdAt: at,
+      updatedAt: at,
+    );
+    final mia = _p('m', 'Mia');
+    final photos = {
+      'old': photo('old', DateTime(2019)),
+      'new': photo('new', DateTime(2024)),
+    };
+    DateTime? last(
+      List<String> ids, {
+      DateTime? set,
+      Map<String, DateTime> chats = const {},
+    }) => knownDates([mia], {'m': ids}, photos, {
+      if (set != null) 'm': PersonSpan(lastSeen: set, latest: set),
+    }, chats: chats).last['m'];
+
+    expect(last(['old', 'new']), DateTime(2024));
+    expect(last(['old']), DateTime(2019), reason: 'a removed photo drops out');
+    expect(last(['old'], set: DateTime(2021)), DateTime(2021));
+    expect(
+      last(['old'], set: DateTime(2021), chats: {'m': DateTime(2023)}),
+      DateTime(2023),
+    );
   });
 }
