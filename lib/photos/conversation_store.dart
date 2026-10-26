@@ -325,6 +325,31 @@ class ConversationStore {
     return rows.map(_message).toList();
   }
 
+  /// What's already stored of [chats]: each message's hash, and whether
+  /// it still lacks a picture or a clip. A few queries, however many chats.
+  Future<Map<String, ({bool noThumb, bool noVoice})>> storedIn(
+    Iterable<String> chats,
+  ) async {
+    final db = await _open();
+    final all = chats.toList();
+    final out = <String, ({bool noThumb, bool noVoice})>{};
+    for (var i = 0; i < all.length; i += 500) {
+      final part = all.sublist(i, i + 500 > all.length ? all.length : i + 500);
+      final rows = await db.rawQuery(
+        'SELECT hash, thumb IS NULL AS nt, voice IS NULL AS nv FROM $_table '
+        'WHERE chat IN (${List.filled(part.length, '?').join(',')})',
+        part,
+      );
+      for (final r in rows) {
+        out[r['hash'] as String] = (
+          noThumb: r['nt'] == 1,
+          noVoice: r['nv'] == 1,
+        );
+      }
+    }
+    return out;
+  }
+
   /// Whether [personId] has a message at exactly [at].
   Future<bool> hasMessageAt(String personId, DateTime at) async {
     final db = await _open();
