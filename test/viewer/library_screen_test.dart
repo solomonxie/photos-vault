@@ -261,6 +261,9 @@ void main() {
         ),
       ),
     );
+    // The first frame, before the library is read: not the sections
+    // that follow the grid.
+    expect(find.text('More'), findsNothing);
     await tester.pumpAndSettle();
 
     final screen = tester.view.physicalSize / tester.view.devicePixelRatio;

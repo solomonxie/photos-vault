@@ -3135,7 +3135,11 @@ class LibraryScreenState extends State<LibraryScreen>
                       ),
                     ),
                   ),
-                  trailingSlivers: _trailingSlivers(l10n, selection),
+                  // Nothing below the grid until it has photos: an empty
+                  // grid put More at the top of a cold launch for a beat.
+                  trailingSlivers: _loaded
+                      ? _trailingSlivers(l10n, selection)
+                      : const [],
                   // Opens on the grid, newest photos along the bottom;
                   // Albums and People are a scroll down.
                 ),
