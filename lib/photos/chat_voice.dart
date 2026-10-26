@@ -38,26 +38,29 @@ class ChatVoice {
       File(p.join((await folder()).path, name));
 
   /// Moves the staged clips of [messages] in; a clip already there stays.
-  Future<void> adopt(Iterable<ConversationMessage> messages) async {
+  /// The names now in the folder: only those may be written on a row.
+  Future<Set<String>> adopt(Iterable<ConversationMessage> messages) async {
     final voiced = [
       for (final m in messages)
         if (m.voice != null) m.voice!,
     ];
-    if (voiced.isEmpty) return;
+    if (voiced.isEmpty) return const {};
     final from = (await staging()).path;
     final to = await folder();
     await to.create(recursive: true);
+    final present = <String>{};
     for (final name in voiced) {
       final staged = File(p.join(from, name));
       final target = p.join(to.path, name);
       try {
-        if (await File(target).exists()) continue;
-        await staged.rename(target);
+        if (!await File(target).exists()) await staged.rename(target);
+        present.add(name);
       } on FileSystemException {
-        // Not staged (read elsewhere) or already moved: the row says so
-        // only once a file is there, see [ConversationStore.insert].
+        // Not staged (read elsewhere, or the staging was cleared): the
+        // row gets no clip, and a later import can still bring it.
       }
     }
+    return present;
   }
 }
 

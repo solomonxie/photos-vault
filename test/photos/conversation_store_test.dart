@@ -199,6 +199,55 @@ void main() {
     expect(kept.existsSync(), isFalse);
   });
 
+  test('a voice message whose clip never arrived is offered again and '
+      'mended by the next import', () async {
+    final root = await Directory.systemTemp.createTemp('voice');
+    addTearDown(() => root.delete(recursive: true));
+    final voice = ChatVoice(
+      support: () async => Directory(p.join(root.path, 'support')),
+      temp: () async => Directory(p.join(root.path, 'tmp')),
+    );
+    final store = ConversationStore(
+      databaseFactory: databaseFactoryFfi,
+      path: inMemoryDatabasePath,
+      voice: voice,
+    );
+    addTearDown(store.close);
+    final plain = _m(3, '');
+    final name = ChatVoice.fileNameOf(plain.hash);
+    ConversationMessage voiced() => ConversationMessage(
+      chat: plain.chat,
+      source: plain.source,
+      at: plain.at,
+      fromMe: plain.fromMe,
+      sender: plain.sender,
+      text: plain.text,
+      kind: 'voice',
+      hash: plain.hash,
+      voice: name,
+      voiceMs: 1500,
+    );
+
+    // Imported with nothing staged: the row names no clip.
+    await store.insert('mia', [voiced()]);
+    expect((await store.page('mia')).single.voice, isNull);
+    expect((await store.storedIn([plain.chat]))[plain.hash]!.noVoice, isTrue);
+
+    // A row naming a clip that isn't on disk still counts as lacking it.
+    final staged = File(p.join((await voice.staging()).path, name));
+    await staged.parent.create(recursive: true);
+    await staged.writeAsBytes([5, 6]);
+    await store.insert('mia', [voiced()]);
+    expect((await store.storedIn([plain.chat]))[plain.hash]!.noVoice, isFalse);
+    await (await voice.fileFor(name)).delete();
+    expect((await store.storedIn([plain.chat]))[plain.hash]!.noVoice, isTrue);
+
+    await staged.writeAsBytes([7, 8]);
+    await store.insert('mia', [voiced()]);
+    expect((await voice.fileFor(name)).readAsBytesSync(), [7, 8]);
+    expect((await store.page('mia')).single.voice, name);
+  });
+
   test('an older database flags everyone once', () async {
     final dir = await Directory.systemTemp.createTemp('conv');
     addTearDown(() => dir.delete(recursive: true));
