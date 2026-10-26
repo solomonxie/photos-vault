@@ -3122,8 +3122,8 @@ class LibraryScreenState extends State<LibraryScreen>
                     ),
                   ),
                   trailingSlivers: _trailingSlivers(l10n, selection),
-                  restKey: _albumsKey,
-                  restInset: _navigationBarHeight,
+                  // Opens on the grid, newest photos along the bottom;
+                  // Albums and People are a scroll down.
                 ),
                 if (selection != null)
                   Positioned(
@@ -3188,12 +3188,8 @@ class LibraryScreenState extends State<LibraryScreen>
   @override
   void handleStatusBarTap() => _jumpHome();
 
-  /// Home rests Albums at the top of the screen, not the newest photo:
-  /// the photos are a scroll up.
-  final _albumsKey = GlobalKey();
-
-  /// Back home to Albums — and, tapped again from there, on up to the very
-  /// top. Bound to the status bar, the navigation bar and the large
+  /// Back home to the newest photos — and, tapped again from there, on up
+  /// to the very top. Bound to the status bar, the navigation bar and the large
   /// title: the whole header, which is what a thumb reaches for when it's
   /// lost.
   void _jumpHome() => _gridKey.currentState?.toggleAnchor();
@@ -3225,7 +3221,6 @@ class LibraryScreenState extends State<LibraryScreen>
   ) => [
     if (_all.isNotEmpty) ...[
       SliverToBoxAdapter(
-        key: _albumsKey,
         child: _SubsectionHeader(
           title: l10n.collectionsAlbums,
           onAdd: _createAlbum,

@@ -228,16 +228,21 @@ void main() {
     expect(find.byType(StatusDot), findsOneWidget);
   });
 
-  testWidgets('home opens on Albums, with the photos above', (tester) async {
+  testWidgets('home opens on the grid, newest photos along the bottom', (
+    tester,
+  ) async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     final recordStore = FakeAssetRecordStore();
-    await recordStore.upsert(
-      localId: 'manual:abc',
-      contentHash: 'abc',
-      platform: 'ios',
-      sourceType: AssetSourceType.manualFile,
-      sourcePath: '/tmp/library_screen_test.jpg',
-    );
+    for (var i = 0; i < 120; i++) {
+      await recordStore.upsert(
+        localId: 'manual:$i',
+        contentHash: 'h$i',
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/library_screen_test_$i.jpg',
+        createdAt: DateTime(2020).add(Duration(hours: i)),
+      );
+    }
 
     await tester.pumpWidget(
       _wrap(
@@ -258,12 +263,12 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final albums = tester.getRect(find.text('Albums'));
-    expect(albums.top, lessThan(120));
-    expect(
-      tester.getRect(find.byKey(const ValueKey('manual:abc'))).bottom,
-      lessThanOrEqualTo(albums.top),
-    );
+    final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+    final newest = tester.getRect(find.byKey(const ValueKey('manual:119')));
+    expect(newest.bottom, lessThanOrEqualTo(screen.height));
+    expect(newest.bottom, greaterThan(screen.height - 200));
+    expect(find.byKey(const ValueKey('manual:0')), findsNothing);
+    expect(find.text('Albums'), findsNothing);
   });
 
   testWidgets('tapping a listed file opens the detail screen', (tester) async {

@@ -10,6 +10,7 @@ import '../photos/person.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
+import 'face_crop_disk.dart';
 
 /// A person's profile picture — resolved on demand from their
 /// `avatarLocalId` (one of their own tagged photos, not a separate upload),
@@ -300,6 +301,17 @@ class _FaceCropState extends State<_FaceCrop> {
       setState(() => _show(held));
       return;
     }
+    // Last launch's crop: a small file, not a photo decode.
+    if (await faceCropDisk.read(key) case final saved?) {
+      if (!mounted || _key != key) {
+        saved.dispose();
+        return;
+      }
+      faceCrops.put(key, saved);
+      setState(() => _show(saved.clone()));
+      return;
+    }
+    if (!mounted || _key != key) return;
     if (!await _turn(key)) return;
     final providers = await assetImageProviders(
       record,
@@ -360,6 +372,7 @@ class _FaceCropState extends State<_FaceCrop> {
       if (_key == key) _free();
     }
     faceCrops.put(key, crop);
+    unawaited(faceCropDisk.write(key, crop));
     if (!mounted || _key != key) return;
     setState(() => _show(crop.clone()));
   }
