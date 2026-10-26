@@ -109,6 +109,10 @@ class AssetGridViewState extends State<AssetGridView> {
   /// after that the user's scroll position is theirs to keep.
   bool _anchored = false;
 
+  /// Photos are hidden until the first post-frame anchor has run, so the
+  /// top of the grid never shows for a frame before the jump to the rest.
+  bool _placed = false;
+
   /// The rest last jumped to: a rebuild re-anchors only when it moved.
   double? _restAt;
 
@@ -393,51 +397,60 @@ class AssetGridViewState extends State<AssetGridView> {
       _anchorAfterLayout();
     }
 
+    if (!_placed && !_layout.isEmpty) {
+      // Shown from the next frame: this one's post-frame anchor has jumped.
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (mounted && !_placed) setState(() => _placed = true);
+      });
+    }
     final empty = widget.emptySliver;
     return Stack(
       children: [
-        CustomScrollView(
-          controller: _scrollController,
-          slivers: [
-            ...widget.leadingSlivers,
-            if (_layout.isEmpty && empty != null)
-              empty
-            else
-              ...assetGridSlivers(
-                context: context,
-                records: widget.records,
-                layout: _layout,
-                gridKey: _gridKey,
-                onTap: widget.onTap,
-                onLongPress: widget.onLongPress,
-                onMissing: widget.onMissing,
-                onSelectDragUpdate: widget.onSelectDragUpdate,
-                onSelectDragEnd: widget.onSelectDragEnd,
-                selectedIds: widget.selectedIds,
-                selection: widget.selection,
-                markedId: widget.markedId,
-                actionsFor: widget.actionsFor,
-              ),
-            if (widget.onAdd != null && !_layout.isEmpty)
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: EdgeInsets.fromLTRB(
-                    _layout.horizontalPadding,
-                    0,
-                    _layout.horizontalPadding,
-                    _layout.spacing,
-                  ),
-                  child: Align(
-                    alignment: Alignment.centerLeft,
-                    child: AddPhotosTile(
-                      extent: _layout.tileExtent,
-                      onTap: widget.onAdd!,
+        Opacity(
+          opacity: _placed || _layout.isEmpty ? 1 : 0,
+          child: CustomScrollView(
+            controller: _scrollController,
+            slivers: [
+              ...widget.leadingSlivers,
+              if (_layout.isEmpty && empty != null)
+                empty
+              else
+                ...assetGridSlivers(
+                  context: context,
+                  records: widget.records,
+                  layout: _layout,
+                  gridKey: _gridKey,
+                  onTap: widget.onTap,
+                  onLongPress: widget.onLongPress,
+                  onMissing: widget.onMissing,
+                  onSelectDragUpdate: widget.onSelectDragUpdate,
+                  onSelectDragEnd: widget.onSelectDragEnd,
+                  selectedIds: widget.selectedIds,
+                  selection: widget.selection,
+                  markedId: widget.markedId,
+                  actionsFor: widget.actionsFor,
+                ),
+              if (widget.onAdd != null && !_layout.isEmpty)
+                SliverToBoxAdapter(
+                  child: Padding(
+                    padding: EdgeInsets.fromLTRB(
+                      _layout.horizontalPadding,
+                      0,
+                      _layout.horizontalPadding,
+                      _layout.spacing,
+                    ),
+                    child: Align(
+                      alignment: Alignment.centerLeft,
+                      child: AddPhotosTile(
+                        extent: _layout.tileExtent,
+                        onTap: widget.onAdd!,
+                      ),
                     ),
                   ),
                 ),
-              ),
-            ...widget.trailingSlivers,
-          ],
+              ...widget.trailingSlivers,
+            ],
+          ),
         ),
         Positioned.fill(
           child: DateScrubber(

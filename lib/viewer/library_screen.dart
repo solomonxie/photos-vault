@@ -88,7 +88,6 @@ import 'home_summary.dart';
 import 'library_index.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
-import 'grid_skeleton.dart';
 import 'select_sweep.dart';
 import '../upload/bucket_leftovers.dart';
 import '../upload/cloud_thumbnails.dart';
@@ -3094,8 +3093,11 @@ class LibraryScreenState extends State<LibraryScreen>
                   // empty `_all` is also what "hasn't loaded yet" looks
                   // like, and offering "No Photos Yet — Add Files" for a
                   // moment on every launch says the library is gone.
+                  // Nothing rather than a skeleton: the page opens at its
+                  // rest (Albums at the top), and a skeleton grid there
+                  // only drew a frame of the wrong place before the jump.
                   emptySliver: !_loaded
-                      ? const SliverToBoxAdapter(child: GridSkeleton())
+                      ? const SliverToBoxAdapter(child: SizedBox.shrink())
                       : _all.isEmpty
                       ? SliverToBoxAdapter(
                           child: _EmptyState(busy: _busy, onAddFiles: addFiles),
