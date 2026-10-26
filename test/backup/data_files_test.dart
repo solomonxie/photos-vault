@@ -275,6 +275,29 @@ void main() {
     expect(await words2.countFor('p1'), 2);
   });
 
+  test('voice clips are in the set and come back on a fresh phone', () async {
+    final (chats, words, support) = await _phone(dir);
+    final clip = File(p.join(support.path, 'chats/voice/abc.mp3'));
+    await clip.parent.create(recursive: true);
+    await clip.writeAsBytes([9, 8, 7]);
+    final set = await _files(chats, words, support).collect();
+    addTearDown(set.dispose);
+    expect(set.entries.map((e) => e.name), contains('chats/voice/abc.mp3'));
+
+    final fresh = Directory(p.join(dir.path, 'fresh'))..createSync();
+    final (chats2, words2, support2) = await _phone(fresh, withData: false);
+    Future<bool> fetch(String sha, String to) async {
+      await File(set.files[sha]!).copy(to);
+      return true;
+    }
+
+    await _files(chats2, words2, support2).restore(set.entries, fetch);
+    expect(
+      File(p.join(support2.path, 'chats/voice/abc.mp3')).readAsBytesSync(),
+      [9, 8, 7],
+    );
+  });
+
   test(
     'a blob that does not match its hash is skipped, the rest restore',
     () async {

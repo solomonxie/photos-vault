@@ -1,6 +1,7 @@
 import 'dart:convert';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
 import 'package:photos_vault/l10n/app_localizations.dart';
@@ -16,6 +17,46 @@ final _png = base64Decode(
 );
 
 void main() {
+  testWidgets('a voice message plays and shows its length', (tester) async {
+    final store = FakeConversationStore();
+    await store.insert('p', [
+      ConversationMessage(
+        chat: 'wechat:1',
+        source: 'wechat',
+        at: DateTime(2020),
+        fromMe: false,
+        sender: '',
+        text: '',
+        kind: 'voice',
+        hash: 'h1',
+        voice: 'h1.mp3',
+        voiceMs: 4200,
+      ),
+    ]);
+    final played = <String>[];
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('byo.photos/voice_clip'),
+      (call) async {
+        played.add(call.method);
+        return call.method == 'play' ? 4.2 : null;
+      },
+    );
+    final now = DateTime.now();
+    await tester.pumpWidget(
+      CupertinoApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: ConversationScreen(
+          person: Person(id: 'p', name: 'Mia', createdAt: now, updatedAt: now),
+          store: store,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('5″'), findsOne);
+    expect(find.byIcon(CupertinoIcons.play_circle_fill), findsOne);
+  });
+
   testWidgets('a picture opens full; a tap or a pull down closes it', (
     tester,
   ) async {

@@ -5,7 +5,10 @@ import 'dart:typed_data';
 
 import 'package:archive/archive_io.dart';
 import 'package:crypto/crypto.dart';
+import 'package:flutter/services.dart' show MissingPluginException;
 import 'package:path/path.dart' as p;
+
+import 'chat_voice.dart';
 
 /// One line of a chat export: a message to or from one person.
 class ConversationMessage {
@@ -19,6 +22,8 @@ class ConversationMessage {
     required this.kind,
     required this.hash,
     this.thumb,
+    this.voice,
+    this.voiceMs,
   });
 
   final String chat;
@@ -42,6 +47,11 @@ class ConversationMessage {
   /// had one: a few kilobytes, kept in the database with the message.
   final Uint8List? thumb;
 
+  /// The voice clip's file name under `chats/voice` (see `chat_voice.dart`),
+  /// and its length; null when the export carried no audio.
+  final String? voice;
+  final int? voiceMs;
+
   static String hashOf(String chat, DateTime at, bool fromMe, String text) =>
       sha256
           .convert(
@@ -61,8 +71,14 @@ class ConversationPerson {
   DateTime? first;
   DateTime? last;
 
+  /// Whether any message is a voice message, or a picture.
+  bool hasVoice = false;
+  bool hasImages = false;
+
   void _add(ConversationMessage m) {
     messages.add(m);
+    if (m.kind == 'voice') hasVoice = true;
+    if (m.kind == 'image') hasImages = true;
     if (first == null || m.at.isBefore(first!)) first = m.at;
     if (last == null || m.at.isAfter(last!)) last = m.at;
   }
@@ -79,13 +95,34 @@ class ConversationExport {
 }
 
 /// Reads `.jsonl` files, and `.jsonl` files inside `.zip`s, off the UI
-/// isolate: an export runs to tens of megabytes.
-Future<ConversationExport> readConversationFiles(List<String> paths) =>
-    Isolate.run(() => readConversationFilesHere(paths));
+/// isolate: an export runs to tens of megabytes. Voice clips are written
+/// to [stageDir] as they're read, never held: they run to a hundred.
+Future<ConversationExport> readConversationFiles(
+  List<String> paths, {
+  String? stageDir,
+}) async {
+  String? stage = stageDir;
+  try {
+    stage ??= (await chatVoice.staging()).path;
+  } on MissingPluginException {
+    // No path_provider (a test): clips are dropped.
+  }
+  return Isolate.run(() async {
+    if (stage != null) {
+      final dir = Directory(stage);
+      if (dir.existsSync()) dir.deleteSync(recursive: true);
+      dir.createSync(recursive: true);
+    }
+    return readConversationFilesHere(paths, stageDir: stage);
+  });
+}
 
 /// [readConversationFiles] on the calling isolate.
-Future<ConversationExport> readConversationFilesHere(List<String> paths) async {
-  final reader = _Reader();
+Future<ConversationExport> readConversationFilesHere(
+  List<String> paths, {
+  String? stageDir,
+}) async {
+  final reader = _Reader(stageDir);
   for (final path in paths) {
     if (p.extension(path).toLowerCase() == '.zip') {
       final input = InputFileStream(path);
@@ -119,13 +156,17 @@ Future<ConversationExport> readConversationFilesHere(List<String> paths) async {
 }
 
 /// [ConversationExport] of in-memory text, for tests.
-ConversationExport readConversationLines(String text) {
-  final reader = _Reader();
+ConversationExport readConversationLines(String text, {String? stageDir}) {
+  final reader = _Reader(stageDir);
   LineSplitter.split(text).forEach(reader.line);
   return reader.done();
 }
 
 class _Reader {
+  _Reader(this._stageDir);
+
+  /// Where clips go; null drops them.
+  final String? _stageDir;
   final _byName = <String, ConversationPerson>{};
   var _skipped = 0;
 
@@ -166,6 +207,15 @@ class _Reader {
     final text = _string(row['text']);
     final source = _string(row['source']);
     final kind = _string(row['kind']);
+    final hash = ConversationMessage.hashOf(chat, at, fromMe, text);
+    final stage = _stageDir;
+    final clip = stage == null ? null : _bytes(row['voice']);
+    String? voice;
+    if (stage != null && clip != null) {
+      voice = ChatVoice.fileNameOf(hash);
+      // Off the UI isolate: this whole reader runs in [Isolate.run].
+      File(p.join(stage, voice)).writeAsBytesSync(clip);
+    }
     return (
       name.trim(),
       ConversationMessage(
@@ -176,8 +226,12 @@ class _Reader {
         sender: _string(row['sender']),
         text: text,
         kind: kind.isEmpty ? 'text' : kind,
-        hash: ConversationMessage.hashOf(chat, at, fromMe, text),
-        thumb: _thumb(row['thumb']),
+        hash: hash,
+        thumb: _bytes(row['thumb']),
+        voice: voice,
+        voiceMs: voice == null || row['voice_ms'] is! int
+            ? null
+            : row['voice_ms'] as int,
       ),
     );
   }
@@ -185,7 +239,7 @@ class _Reader {
   static String _string(Object? v) => v is String ? v : '';
 
   /// Base64, with or without a `data:` prefix; anything else is none.
-  static Uint8List? _thumb(Object? v) {
+  static Uint8List? _bytes(Object? v) {
     if (v is! String || v.isEmpty) return null;
     try {
       return base64Decode(v.substring(v.indexOf(',') + 1));

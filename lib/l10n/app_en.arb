@@ -2014,6 +2014,8 @@
   "conversationsSearch": "Search messages",
   "conversationsNoResults": "No messages match.",
   "conversationsKindImage": "[Photo]",
+  "conversationsVoicePlay": "Play voice message",
+  "conversationsVoiceStop": "Stop voice message",
   "conversationsKindVoice": "[Voice message]",
   "conversationsKindFile": "[File]",
   "conversationsKindOther": "[Message]",

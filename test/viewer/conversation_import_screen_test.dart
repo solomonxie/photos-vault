@@ -29,6 +29,37 @@ final _file = [
 ].join('\n');
 
 void main() {
+  testWidgets('a row marks voice and pictures in what it would bring', (
+    tester,
+  ) async {
+    String line(String person, String kind) =>
+        '{"person":"$person","chat":"wechat:$person",'
+        '"at":"2020-01-01T10:00:00","kind":"$kind"}';
+    await tester.pumpWidget(
+      _wrap(
+        ConversationImportScreen(
+          personStore: FakePersonStore(),
+          conversationStore: FakeConversationStore(),
+          pickOnOpen: true,
+          pickFiles: () async => ['a.jsonl'],
+          readFiles: (_) async => readConversationLines(
+            [
+              line('Mia', 'voice'),
+              line('Mia', 'image'),
+              line('Mia', 'text'),
+              line('Zoe', 'text'),
+            ].join('\n'),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('conversation-voice-0')), findsOne);
+    expect(find.byKey(const ValueKey('conversation-images-0')), findsOne);
+    expect(find.byKey(const ValueKey('conversation-voice-1')), findsNothing);
+    expect(find.byKey(const ValueKey('conversation-images-1')), findsNothing);
+  });
+
   testWidgets('same name and closest match attach by default, nobody is '
       'never added', (tester) async {
     final people = FakePersonStore();

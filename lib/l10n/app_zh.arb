@@ -1398,6 +1398,8 @@
   "conversationsSearch": "搜索消息",
   "conversationsNoResults": "没有匹配的消息。",
   "conversationsKindImage": "[图片]",
+  "conversationsVoicePlay": "播放语音",
+  "conversationsVoiceStop": "停止语音",
   "conversationsKindVoice": "[语音]",
   "conversationsKindFile": "[文件]",
   "conversationsKindOther": "[消息]",

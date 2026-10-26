@@ -2,6 +2,8 @@ import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
+import 'package:path/path.dart' as p;
+import 'package:photos_vault/photos/chat_voice.dart';
 import 'package:photos_vault/photos/conversation_file.dart';
 import 'package:photos_vault/photos/conversation_store.dart';
 import 'package:photos_vault/photos/person_detail.dart';
@@ -149,6 +151,52 @@ void main() {
     ]);
     expect(await store.latestFor('mia'), DateTime(2009, 8, 17, 22, 4));
     expect((await store.latestByPerson())['mia'], DateTime(2009, 8, 17, 22, 4));
+  });
+
+  test('a clip moves in on import, joins a row already here, goes with '
+      'its person', () async {
+    final root = await Directory.systemTemp.createTemp('voice');
+    addTearDown(() => root.delete(recursive: true));
+    final voice = ChatVoice(
+      support: () async => Directory(p.join(root.path, 'support')),
+      temp: () async => Directory(p.join(root.path, 'tmp')),
+    );
+    final store = ConversationStore(
+      databaseFactory: databaseFactoryFfi,
+      path: inMemoryDatabasePath,
+      voice: voice,
+    );
+    addTearDown(store.close);
+    final plain = _m(3, '');
+    await store.insert('mia', [plain]);
+    final mark = await store.dataMark();
+
+    final name = ChatVoice.fileNameOf(plain.hash);
+    final staged = File(p.join((await voice.staging()).path, name));
+    await staged.parent.create(recursive: true);
+    await staged.writeAsBytes([5, 6]);
+    final voiced = ConversationMessage(
+      chat: plain.chat,
+      source: plain.source,
+      at: plain.at,
+      fromMe: plain.fromMe,
+      sender: plain.sender,
+      text: plain.text,
+      kind: 'voice',
+      hash: plain.hash,
+      voice: name,
+      voiceMs: 1500,
+    );
+    expect(await store.insert('mia', [voiced]), 0);
+    final kept = await voice.fileFor(name);
+    expect(kept.readAsBytesSync(), [5, 6]);
+    expect(staged.existsSync(), isFalse);
+    final row = (await store.page('mia')).single;
+    expect((row.voice, row.voiceMs), (name, 1500));
+    expect(await store.dataMark(), isNot(mark));
+
+    await store.forgetPerson('mia');
+    expect(kept.existsSync(), isFalse);
   });
 
   test('an older database flags everyone once', () async {

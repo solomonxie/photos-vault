@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 
 import '../photos/ai_analysis_store.dart';
 import '../photos/conversation_store.dart';
+import '../photos/chat_voice.dart';
 import '../photos/words_store.dart';
 
 /// Everything the app holds that isn't rows in `library.json`: the chat
@@ -24,6 +25,7 @@ import '../photos/words_store.dart';
 /// | `words.db` | gzip of a `VACUUM INTO` copy |
 /// | `ai_analysis.db` | gzip of a copy without hidden photos' faces |
 /// | `words/media/…` | each picture as it is |
+/// | `chats/voice/…` | each voice clip as it is |
 ///
 /// Not here, on purpose: `photos_vault.db`, `people.db`, `photo_albums.db`
 /// (their rows are `library.json`), and `sync_jobs.db` — the upload queue,
@@ -125,13 +127,14 @@ class DataFiles {
   final WordsStore? words;
   final AiAnalysisStore? analysis;
 
-  /// Where `words/media` lives. Overridable so a test never asks iOS.
+  /// Where `words/media` and `chats/voice` live. Overridable so a test never asks iOS.
   final Future<Directory> Function() _supportDirectory;
 
   static const conversationsName = 'conversations.db';
   static const wordsName = 'words.db';
   static const analysisName = 'ai_analysis.db';
   static const mediaFolder = 'words/media';
+  static const voiceFolder = ChatVoice.folderName;
 
   /// Moves whenever any of the three stores is written. Best-effort per
   /// store: one that can't be opened (never used) counts as zero.
@@ -184,26 +187,29 @@ class DataFiles {
       if (analysis case final a?) {
         await db(analysisName, (dest) => a.copyTo(dest, hiddenIds));
       }
-      if (words != null) {
-        final support = (await _supportDirectory()).path;
-        final media = Directory(p.join(support, mediaFolder));
-        if (await media.exists()) {
-          final paths = [
-            await for (final f in media.list(recursive: true))
-              if (f is File) f.path,
-          ];
-          final hashed = await Isolate.run(() => _hashAll(paths));
-          for (final (path, sha, size) in hashed) {
-            entries.add(
-              DataFileEntry(
-                name: p.posix.joinAll(p.split(p.relative(path, from: support))),
-                kind: 'file',
-                sha256: sha,
-                bytes: size,
-              ),
-            );
-            files[sha] = path;
-          }
+      final folders = [
+        if (words != null) mediaFolder,
+        if (conversations != null) voiceFolder,
+      ];
+      final support = folders.isEmpty ? '' : (await _supportDirectory()).path;
+      for (final folder in folders) {
+        final dir = Directory(p.joinAll([support, ...p.posix.split(folder)]));
+        if (!await dir.exists()) continue;
+        final paths = [
+          await for (final f in dir.list(recursive: true))
+            if (f is File) f.path,
+        ];
+        final hashed = await Isolate.run(() => _hashAll(paths));
+        for (final (path, sha, size) in hashed) {
+          entries.add(
+            DataFileEntry(
+              name: p.posix.joinAll(p.split(p.relative(path, from: support))),
+              kind: 'file',
+              sha256: sha,
+              bytes: size,
+            ),
+          );
+          files[sha] = path;
         }
       }
     } catch (_) {
@@ -277,9 +283,11 @@ class DataFiles {
     return true;
   }
 
-  /// Only under `words/media/`, and never outside it.
+  /// Only under `words/media/` or `chats/voice/`, and never outside them.
   static String? _fileTarget(String name, String support) {
-    if (!name.startsWith('$mediaFolder/') || name.contains('..')) return null;
+    final inside =
+        name.startsWith('$mediaFolder/') || name.startsWith('$voiceFolder/');
+    if (!inside || name.contains('..')) return null;
     return p.joinAll([support, ...p.posix.split(name)]);
   }
 }

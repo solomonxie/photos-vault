@@ -30,6 +30,11 @@ import UIKit
       StillVideoChannel.register(with: registrar)
     }
     if let registrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "VoiceClipChannel"
+    ) {
+      VoiceClipChannel.register(with: registrar)
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(
       forPlugin: "BackupExclusionChannel"
     ) {
       BackupExclusionChannel.register(with: registrar)

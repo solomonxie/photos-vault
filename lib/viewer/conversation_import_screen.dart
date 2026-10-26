@@ -331,12 +331,40 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
                         : settingsRowTitleStyle,
                   ),
                   const SizedBox(height: 2),
-                  Text(
-                    l10n.conversationsRowStats(
-                      row.messages.length,
-                      _range(row),
-                    ),
-                    style: settingsFooterStyle,
+                  Row(
+                    children: [
+                      Flexible(
+                        child: Text(
+                          l10n.conversationsRowStats(
+                            row.messages.length,
+                            _range(row),
+                          ),
+                          style: settingsFooterStyle,
+                        ),
+                      ),
+                      if (row.hasVoice)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 6),
+                          child: Icon(
+                            CupertinoIcons.mic,
+                            key: ValueKey('conversation-voice-$i'),
+                            size: 14,
+                            color: settingsTertiary,
+                            semanticLabel: l10n.conversationsKindVoice,
+                          ),
+                        ),
+                      if (row.hasImages)
+                        Padding(
+                          padding: const EdgeInsets.only(left: 4),
+                          child: Icon(
+                            CupertinoIcons.photo,
+                            key: ValueKey('conversation-images-$i'),
+                            size: 14,
+                            color: settingsTertiary,
+                            semanticLabel: l10n.conversationsKindImage,
+                          ),
+                        ),
+                    ],
                   ),
                   if (_matchLabel(l10n, i) case final label?)
                     Text(

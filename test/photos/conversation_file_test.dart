@@ -39,6 +39,26 @@ void main() {
     expect(export.people.single.messages.single.text, 'y');
   });
 
+  test('a voice clip is staged as a file, not held; flags per person', () {
+    final stage = Directory.systemTemp.createTempSync('voice');
+    addTearDown(() => stage.deleteSync(recursive: true));
+    final export = readConversationLines(
+      '{"person":"Mia","chat":"wechat:m","at":"2020-01-01T00:00:00",'
+      '"kind":"voice","voice":"${base64Encode([1, 2, 3])}","voice_ms":4200}\n'
+      '{"person":"Zoe","chat":"wechat:z","at":"2020-01-01T00:00:00",'
+      '"kind":"image"}\n',
+      stageDir: stage.path,
+    );
+    final mia = export.people.firstWhere((p) => p.name == 'Mia');
+    final m = mia.messages.single;
+    expect(m.voice, '${m.hash}.mp3');
+    expect(m.voiceMs, 4200);
+    expect(File(p.join(stage.path, m.voice!)).readAsBytesSync(), [1, 2, 3]);
+    expect((mia.hasVoice, mia.hasImages), (true, false));
+    final zoe = export.people.firstWhere((p) => p.name == 'Zoe');
+    expect((zoe.hasVoice, zoe.hasImages), (false, true));
+  });
+
   test('the same message hashes the same; another differs', () {
     final a = readConversationLines(_lines).people.first.messages.first;
     final b = readConversationLines(_lines).people.first.messages.first;

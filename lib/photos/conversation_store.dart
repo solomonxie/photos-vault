@@ -1,3 +1,4 @@
+import 'dart:io';
 import 'dart:typed_data';
 
 import 'package:path/path.dart' as p;
@@ -6,6 +7,7 @@ import 'package:sqflite/sqflite.dart'
     show ConflictAlgorithm, Database, DatabaseFactory, OpenDatabaseOptions;
 
 import '../backup/database_copy.dart';
+import 'chat_voice.dart';
 import 'conversation_file.dart';
 import 'person_store.dart';
 
@@ -20,10 +22,15 @@ class ConversationChat {
 /// Local `sqflite` store of imported chat history, one row per message,
 /// keyed by its [ConversationMessage.hash] so a re-import adds nothing.
 class ConversationStore {
-  ConversationStore({DatabaseFactory? databaseFactory, String? path})
-    : this._(databaseFactory, path);
+  ConversationStore({
+    DatabaseFactory? databaseFactory,
+    String? path,
+    ChatVoice? voice,
+  }) : this._(databaseFactory, path, voice);
 
-  ConversationStore._(this._databaseFactory, this._path);
+  ConversationStore._(this._databaseFactory, this._path, this._voice);
+
+  final ChatVoice? _voice;
 
   /// Resolved on first use: the global factory throws where there's no
   /// `sqflite` (a widget test).
@@ -58,7 +65,7 @@ class ConversationStore {
     final db = await _factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 4,
+        version: 5,
         onUpgrade: (db, from, to) async {
           if (from < 2) {
             await _createPending(db);
@@ -68,6 +75,10 @@ class ConversationStore {
           }
           if (from < 4) {
             await db.execute('ALTER TABLE $_table ADD COLUMN thumb BLOB');
+          }
+          if (from < 5) {
+            await db.execute('ALTER TABLE $_table ADD COLUMN voice TEXT');
+            await db.execute('ALTER TABLE $_table ADD COLUMN voice_ms INTEGER');
           }
           if (from == 3) {
             // v3 kept thumbnails as files; none were ever imported that way.
@@ -87,7 +98,9 @@ class ConversationStore {
               text TEXT NOT NULL,
               kind TEXT NOT NULL,
               hash TEXT PRIMARY KEY,
-              thumb BLOB
+              thumb BLOB,
+              voice TEXT,
+              voice_ms INTEGER
             )
           ''');
           await db.execute(
@@ -121,6 +134,7 @@ class ConversationStore {
     void Function(int done)? onProgress,
   }) async {
     final db = await _open();
+    await (_voice ?? chatVoice).adopt(messages);
     var added = 0;
     for (var i = 0; i < messages.length; i += _chunk) {
       final end = i + _chunk > messages.length ? messages.length : i + _chunk;
@@ -139,21 +153,33 @@ class ConversationStore {
             'kind': m.kind,
             'hash': m.hash,
             'thumb': m.thumb,
+            'voice': m.voice,
+            'voice_ms': m.voiceMs,
           }, conflictAlgorithm: ConflictAlgorithm.ignore);
         }
         await batch.commit(noResult: true);
         final added = await _changes(txn) - before;
         if (added > 0) await _flag(txn, personId);
-        // A message already here from a text-only import gains its thumbnail.
+        // A message already here from a text-only import gains its
+        // thumbnail, or its clip.
         final thumbs = txn.batch();
         for (final m in messages.sublist(i, end)) {
-          if (m.thumb == null) continue;
-          thumbs.update(
-            _table,
-            {'thumb': m.thumb},
-            where: 'hash = ? AND thumb IS NULL',
-            whereArgs: [m.hash],
-          );
+          if (m.thumb != null) {
+            thumbs.update(
+              _table,
+              {'thumb': m.thumb},
+              where: 'hash = ? AND thumb IS NULL',
+              whereArgs: [m.hash],
+            );
+          }
+          if (m.voice != null) {
+            thumbs.update(
+              _table,
+              {'voice': m.voice, 'voice_ms': m.voiceMs},
+              where: 'hash = ? AND voice IS NULL',
+              whereArgs: [m.hash],
+            );
+          }
         }
         await thumbs.commit(noResult: true);
         return added;
@@ -349,9 +375,12 @@ class ConversationStore {
   Future<int> mergeFrom(String path) async =>
       mergeDatabase(await _open(), path);
 
-  /// Moves on an import, a merge, a delete or a thumbnail arriving.
-  Future<int> dataMark() async =>
-      tablesMark(await _open(), [_table], extra: {_table: 'length(thumb)'});
+  /// Moves on an import, a merge, a delete or a thumbnail or clip arriving.
+  Future<int> dataMark() async => tablesMark(
+    await _open(),
+    [_table],
+    extra: {_table: 'IFNULL(length(thumb), 0) + IFNULL(voice_ms, 0)'},
+  );
 
   /// Two people merged into one.
   Future<void> movePerson(String from, String to) async {
@@ -371,11 +400,25 @@ class ConversationStore {
   /// A person deleted takes their conversations with them.
   Future<void> forgetPerson(String personId) async {
     final db = await _open();
+    final clips = await db.query(
+      _table,
+      columns: ['voice'],
+      where: 'person_id = ? AND voice IS NOT NULL',
+      whereArgs: [personId],
+    );
     await db.transaction((txn) async {
       for (final table in [_table, _pending]) {
         await txn.delete(table, where: 'person_id = ?', whereArgs: [personId]);
       }
     });
+    for (final r in clips) {
+      try {
+        await (await (_voice ?? chatVoice).fileFor(r['voice'] as String))
+            .delete();
+      } on FileSystemException {
+        // Already gone.
+      }
+    }
   }
 
   static ConversationMessage _message(Map<String, Object?> r) =>
@@ -389,6 +432,8 @@ class ConversationStore {
         kind: r['kind'] as String,
         hash: r['hash'] as String,
         thumb: r['thumb'] as Uint8List?,
+        voice: r['voice'] as String?,
+        voiceMs: r['voice_ms'] as int?,
       );
 }
 

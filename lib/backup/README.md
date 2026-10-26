@@ -22,8 +22,8 @@ app on its own.
 ```
 
 **Two halves.** `library.json` (rows of the three main stores) rides in each
-day's zip. Everything else — `conversations.db`, `words.db`, `ai_analysis.db`
-and `words/media/` — is too big for that: each goes up as a **blob**,
+day's zip. Everything else — `conversations.db`, `words.db`, `ai_analysis.db`,
+`words/media/` and `chats/voice/` — is too big for that: each goes up as a **blob**,
 `blobs/<sha256>`, once, and the zip's `data-files.json` lists which blobs
 make up that day (`data_files.dart`). A zip is written only after every blob
 it names is confirmed there; a day whose blobs can't be gathered writes no

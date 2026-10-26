@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/chat_voice.dart';
 import '../photos/conversation_file.dart';
 import '../photos/conversation_store.dart';
 import '../photos/person.dart';
@@ -80,6 +81,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   @override
   void dispose() {
+    if (VoicePlayer.instance.playing.value != null) {
+      unawaited(VoicePlayer.instance.stop());
+    }
     _debounce?.cancel();
     _scroll.dispose();
     _query.dispose();
@@ -188,7 +192,9 @@ class _ConversationScreenState extends State<ConversationScreen> {
             mainAxisSize: MainAxisSize.min,
             children: [
               if (m.thumb case final thumb?) _thumb(thumb),
-              if (m.text.isNotEmpty || m.thumb == null)
+              if (m.voice case final voice?)
+                _VoiceClip(name: voice, length: m.voiceMs)
+              else if (m.text.isNotEmpty || m.thumb == null)
                 Text(
                   _body(l10n, m),
                   style: TextStyle(
@@ -320,6 +326,56 @@ class _FullImageState extends State<_FullImage> {
           ),
         ),
       ),
+    );
+  }
+}
+
+/// Play / stop and the clip's length; one plays at a time.
+class _VoiceClip extends StatelessWidget {
+  const _VoiceClip({required this.name, this.length});
+
+  final String name;
+  final int? length;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final player = VoicePlayer.instance;
+    final seconds = ((length ?? 0) / 1000).ceil();
+    return ValueListenableBuilder(
+      valueListenable: player.playing,
+      builder: (context, playing, _) {
+        final on = playing == name;
+        return CupertinoButton(
+          key: ValueKey('voice:$name'),
+          padding: EdgeInsets.zero,
+          minimumSize: const Size(44, 32),
+          onPressed: () => on ? player.stop() : player.play(name),
+          child: Row(
+            mainAxisSize: MainAxisSize.min,
+            children: [
+              Icon(
+                on
+                    ? CupertinoIcons.stop_circle_fill
+                    : CupertinoIcons.play_circle_fill,
+                color: CupertinoColors.white,
+                size: 28,
+                semanticLabel: on
+                    ? l10n.conversationsVoiceStop
+                    : l10n.conversationsVoicePlay,
+              ),
+              const SizedBox(width: 8),
+              Text(
+                length == null ? l10n.conversationsKindVoice : '$seconds″',
+                style: const TextStyle(
+                  fontSize: 16,
+                  color: CupertinoColors.white,
+                ),
+              ),
+            ],
+          ),
+        );
+      },
     );
   }
 }
