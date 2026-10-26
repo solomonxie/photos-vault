@@ -140,9 +140,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await tester.tap(find.byKey(const ValueKey('personPageSelect')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('manual:a')));
+    expect(find.byKey(const ValueKey('personPageHidden')), findsOneWidget);
+    expect(find.byKey(const ValueKey('personPageAddPhotos')), findsOneWidget);
+    await _hold(tester, find.byKey(const ValueKey('manual:a')));
+    await tester.tap(find.text('Select').last);
     await tester.pumpAndSettle();
     expect(find.text('1 Selected'), findsOneWidget);
     await tester.tap(find.text('Select All'));

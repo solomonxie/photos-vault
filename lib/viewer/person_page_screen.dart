@@ -351,30 +351,6 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     );
   }
 
-  Future<void> _showMenu() async {
-    final l10n = AppLocalizations.of(context)!;
-    final choice = await showCupertinoModalPopup<VoidCallback>(
-      context: context,
-      builder: (sheetContext) => CupertinoActionSheet(
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () => Navigator.of(sheetContext).pop(_addPhotos),
-            child: Text(l10n.personPageAddPhotos),
-          ),
-          CupertinoActionSheetAction(
-            onPressed: () => Navigator.of(sheetContext).pop(_openHidden),
-            child: Text(l10n.personPageHidden),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(sheetContext).pop(),
-          child: Text(l10n.actionCancel),
-        ),
-      ),
-    );
-    choice?.call();
-  }
-
   /// This person's own hidden folder — see [personAlbumCode]. Photos go in
   /// by hand only, never by face recognition, and they show nowhere else.
   /// Folders of people merged into them, under the same digits, join it.
@@ -398,6 +374,19 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
       }
     },
     title: AppLocalizations.of(context)!.personPageHiddenTitle(_person.name),
+  );
+
+  Widget _addPhotosButton(AppLocalizations l10n) => CupertinoButton(
+    key: const ValueKey('personPageAddPhotos'),
+    onPressed: _addPhotos,
+    child: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        const Icon(CupertinoIcons.plus_circle),
+        const SizedBox(width: 6),
+        Text(l10n.personPageAddPhotos),
+      ],
+    ),
   );
 
   @override
@@ -424,23 +413,12 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                 key: const ValueKey('personSelectionDone'),
                 onPressed: _endSelecting,
               )
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_records.isNotEmpty)
-                    CupertinoButton(
-                      key: const ValueKey('personPageSelect'),
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      onPressed: () => setState(() => _selecting = true),
-                      child: Text(l10n.albumSelect),
-                    ),
-                  CupertinoButton(
-                    key: const ValueKey('personPageMenu'),
-                    padding: EdgeInsets.zero,
-                    onPressed: _showMenu,
-                    child: const Icon(CupertinoIcons.ellipsis_circle),
-                  ),
-                ],
+            // A keypad, not a padlock — see the profile page.
+            : CupertinoButton(
+                key: const ValueKey('personPageHidden'),
+                padding: EdgeInsets.zero,
+                onPressed: _openHidden,
+                child: const Icon(CupertinoIcons.number),
               ),
       ),
       child: SafeArea(
@@ -529,9 +507,17 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
         Expanded(
           child: _records.isEmpty
               ? Center(
-                  child: Text(
-                    l10n.personPagePhotosEmpty,
-                    style: const TextStyle(color: CupertinoColors.systemGrey),
+                  child: Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        l10n.personPagePhotosEmpty,
+                        style: const TextStyle(
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ),
+                      _addPhotosButton(l10n),
+                    ],
                   ),
                 )
               : AssetGridView(
@@ -544,7 +530,14 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                   trailingSlivers: [
                     // Clear of the selection bar.
                     if (_selecting)
-                      const SliverToBoxAdapter(child: SizedBox(height: 120)),
+                      const SliverToBoxAdapter(child: SizedBox(height: 120))
+                    else
+                      SliverToBoxAdapter(
+                        child: Padding(
+                          padding: const EdgeInsets.symmetric(vertical: 16),
+                          child: Center(child: _addPhotosButton(l10n)),
+                        ),
+                      ),
                   ],
                   actionsFor: (r) => [
                     TileAction(
