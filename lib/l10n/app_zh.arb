@@ -1458,10 +1458,10 @@
   "devSectionLife": "生平",
   "devWordsTitle": "导入文字",
   "devWordsSummary": "博客、动态、论文、报告、邮件——一个人写下的一切，连同图片和视频，导入到一个人名下。",
-  "devWordsHow": "• 在 Mac 上用 tools/words 从你的文件和导出数据生成。\n• 导入前显示各类数量；由你选择是谁的文字（默认是你自己）。\n• 每篇文字有固定 id：重新导入较新的文件会替换，不会重复。\n• 显示在此人页面的「文字」中。",
+  "devWordsHow": "• 在 Mac 上从你的文件和导出数据生成。\n• 导入前显示各类数量；由你选择是谁的文字（默认是你自己）。\n• 每篇文字有固定 id：重新导入较新的文件会替换，不会重复。\n• 显示在此人页面的「文字」中。",
   "devWordsSpec": "文件：包含 words.jsonl 和 media/ 文件夹的 .zip（或单独的 .jsonl）。\n\n• 必填：id、text（Markdown）。\n• title；at（ISO 8601，本地时间；可只有日期）。\n• kind：blog、post、essay、fiction、paper、thesis、report、email、note 或 other。\n• source、origin：发表的地方，以及来源文件。\n• 图片和视频：在 text 中写 ![说明](media/<id>/<文件>)，zip 中该路径放文件。",
   "devJobsTitle": "导入工作经历",
   "devJobsSummary": "雇主、时间、职位和项目，导入到一个人的「工作」部分。",
-  "devJobsHow": "• 在 Mac 上用 tools/jobs 生成。\n• 导入前显示每份工作及时间；由你选择是谁的经历。\n• 已有相同雇主和起始年份的工作会被替换；其余新增。不会删除任何内容。",
+  "devJobsHow": "• 在 Mac 上生成。\n• 导入前显示每份工作及时间；由你选择是谁的经历。\n• 已有相同雇主和起始年份的工作会被替换；其余新增。不会删除任何内容。",
   "devJobsSpec": "文件：带 \"jobs\" 列表的 .json。\n\n• 必填：employer。\n• start、end：yyyy、yyyy-mm 或 yyyy-mm-dd；end 为 null 或 \"present\" 表示至今。\n• notes；fields (label, value)。\n• titles (title, description, start, end)、projects (name, description, tags, start, end)、awards (title, description, start, end)。"
 }

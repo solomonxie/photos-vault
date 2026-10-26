@@ -1,5 +1,3 @@
-import 'dart:io';
-
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/photos/person_store.dart';
@@ -63,13 +61,4 @@ void main() {
       expect(jobs.single.personId, person.id);
     },
   );
-
-  test('the Mac-made work history parses', () {
-    final made = File('tools/jobs/work_history.json');
-    if (!made.existsSync()) return;
-    final file = WorkHistoryFile.parse(made.readAsStringSync());
-    expect(file.jobs, isNotEmpty);
-    expect(file.jobs.every((j) => j.title.isNotEmpty), isTrue);
-    expect(file.jobs.map((j) => j.id).toSet(), hasLength(file.jobs.length));
-  });
 }

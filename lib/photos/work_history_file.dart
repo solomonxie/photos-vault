@@ -6,7 +6,7 @@ import 'person.dart';
 import 'person_store.dart';
 
 /// A work-history file made on the Mac: jobs for the profile's Job
-/// section. See `tools/jobs/README.md`.
+/// section.
 ///
 /// ```json
 /// {"version": 1, "jobs": [{"employer": "…", "start": "2012-03",

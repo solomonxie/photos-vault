@@ -2076,10 +2076,10 @@
   "devSectionLife": "Life",
   "devWordsTitle": "Import Writings",
   "devWordsSummary": "Blogs, posts, papers, reports, emails — anything someone wrote, with its pictures and videos, onto one person.",
-  "devWordsHow": "• Made on the Mac by tools/words from your files and exports.\n• Shows how many of each kind before importing; you choose whose writings they are (you, by default).\n• Each writing has a stable id: re-importing a newer file replaces, never duplicates.\n• They show under Words on the person's page.",
+  "devWordsHow": "• Made on the Mac from your files and exports.\n• Shows how many of each kind before importing; you choose whose writings they are (you, by default).\n• Each writing has a stable id: re-importing a newer file replaces, never duplicates.\n• They show under Words on the person's page.",
   "devWordsSpec": "File: .zip holding words.jsonl and a media/ folder (or a bare .jsonl).\n\n• Required: id, text (Markdown).\n• title; at (ISO 8601, local; may be a date only).\n• kind: blog, post, essay, fiction, paper, thesis, report, email, note or other.\n• source, origin: where it was published, and the file it came from.\n• Pictures and videos: ![caption](media/<id>/<file>) in text, the file at that path in the zip.",
   "devJobsTitle": "Import Work History",
   "devJobsSummary": "Employers, dates, roles and projects, into one person's Job section.",
-  "devJobsHow": "• Made on the Mac by tools/jobs.\n• Shows every job and its dates before importing; you choose whose history it is.\n• A job already there with the same employer and start year is replaced; others are added. Nothing is removed.",
+  "devJobsHow": "• Made on the Mac.\n• Shows every job and its dates before importing; you choose whose history it is.\n• A job already there with the same employer and start year is replaced; others are added. Nothing is removed.",
   "devJobsSpec": "File: .json with a \"jobs\" list.\n\n• Required: employer.\n• start, end: yyyy, yyyy-mm or yyyy-mm-dd; end null or \"present\" is ongoing.\n• notes; fields (label, value).\n• titles (title, description, start, end), projects (name, description, tags, start, end), awards (title, description, start, end)."
 }

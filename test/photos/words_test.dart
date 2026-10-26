@@ -122,21 +122,4 @@ void main() {
     expect(await store.countFor('p2'), 0);
     expect(media.existsSync(), isFalse);
   });
-
-  test('the Mac-made words zip reads', () async {
-    final made = File('tools/words/work/words.zip');
-    if (!made.existsSync()) return;
-    final export = await readWordsFileHere(made.path);
-    expect(export.writings, isNotEmpty);
-    expect(export.skipped, 0);
-    expect(
-      export.writings.map((w) => w.id).toSet(),
-      hasLength(export.writings.length),
-    );
-    expect(export.writings.where((w) => w.kind == WritingKind.other), isEmpty);
-    // ignore: avoid_print
-    print(
-      '${export.writings.length} writings, ${export.mediaFiles} media, ${export.counts}',
-    );
-  });
 }
