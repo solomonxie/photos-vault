@@ -135,6 +135,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await _scrollTo(tester, find.byKey(profileSectionAddKey('Education')));
       await tester.tap(find.byKey(profileSectionAddKey('Education')));
       await tester.pumpAndSettle();
       await tester.enterText(find.byKey(searchPickerFieldKey), 'UC Berkeley');
@@ -153,6 +154,7 @@ void main() {
       await tester.tap(find.byType(CupertinoNavigationBarBackButton));
       await tester.pumpAndSettle();
 
+      await _scrollTo(tester, find.text('UC Berkeley'));
       expect(find.text('UC Berkeley'), findsOneWidget);
     },
   );
@@ -184,6 +186,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
+      await _scrollTo(tester, find.byKey(profileSectionAddKey('Education')));
       await tester.tap(find.byKey(profileSectionAddKey('Education')));
       await tester.pumpAndSettle();
       await tester.tap(find.text('MIT'));
@@ -386,11 +389,11 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // A heading and a "+" told nobody what the section was for.
-    expect(find.text('School'), findsOneWidget);
+    // One "Add" line each, saying what the section would hold.
+    expect(find.text('Add Education'), findsOneWidget);
     expect(find.text('Start – End · Majors / Degrees'), findsOneWidget);
-    expect(find.text('Company'), findsOneWidget);
-    expect(find.text('Place'), findsOneWidget);
+    expect(find.text('Add Job'), findsOneWidget);
+    expect(find.text('Add Places Lived'), findsOneWidget);
     expect(find.text('Origin or relocation · Year'), findsOneWidget);
 
     // More details offers its fields as chips rather than as eight rows of
@@ -872,97 +875,85 @@ void main() {
     expect(find.byType(CupertinoNavigationBarBackButton), findsOneWidget);
   });
 
-  testWidgets(
-    'the pencil icon on a relationship row re-opens the picker to edit it',
-    (tester) async {
-      final personStore = FakePersonStore();
-      final mia = await personStore.create(name: 'Mia');
-      final daniel = await personStore.create(name: 'Daniel');
-      await personStore.addRelationship(
-        mia.id,
-        daniel.id,
-        RelationshipType.friend,
-        scope: PersonScope.open,
-      );
+  testWidgets('in Edit, tapping a relationship re-opens the picker', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final daniel = await personStore.create(name: 'Daniel');
+    await personStore.addRelationship(
+      mia.id,
+      daniel.id,
+      RelationshipType.friend,
+      scope: PersonScope.open,
+    );
 
-      await tester.pumpWidget(
-        _wrap(
-          PersonProfileScreen(
-            person: mia,
-            personStore: personStore,
-            assetRecordStore: FakeAssetRecordStore(),
-          ),
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      await _scrollTo(
-        tester,
-        find.byIcon(CupertinoIcons.pencil, skipOffstage: false),
-      );
-      await tester.tap(find.byIcon(CupertinoIcons.pencil));
-      await tester.pumpAndSettle();
-      // Re-opens the searchable person picker (Daniel is still selectable —
-      // editing doesn't exclude the relationship's own current target). The
-      // picker is a sheet over the page now, so the row behind it still
-      // carries a "Daniel" of its own — `.last` is the sheet's.
-      await tester.tap(find.text('Daniel').last);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Sibling'));
-      await tester.pumpAndSettle();
+    final edit = find.byKey(profileSectionEditKey('Relationships'));
+    await _scrollTo(tester, edit);
+    await tester.tap(edit);
+    await tester.pumpAndSettle();
+    await tester.tap(find.widgetWithText(CupertinoListTile, 'Daniel'));
+    await tester.pumpAndSettle();
+    // The picker is a sheet over the page; the row behind it still carries
+    // a "Daniel" of its own — `.last` is the sheet's.
+    await tester.tap(find.text('Daniel').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Sibling'));
+    await tester.pumpAndSettle();
 
-      final relationships = await personStore.relationshipsFor(mia.id);
-      expect(relationships.single.type, RelationshipType.sibling);
-    },
-  );
+    final relationships = await personStore.relationshipsFor(mia.id);
+    expect(relationships.single.type, RelationshipType.sibling);
+  });
 
-  testWidgets(
-    'deleting a relationship asks for confirmation before removing it',
-    (tester) async {
-      final personStore = FakePersonStore();
-      final mia = await personStore.create(name: 'Mia');
-      final daniel = await personStore.create(name: 'Daniel');
-      await personStore.addRelationship(
-        mia.id,
-        daniel.id,
-        RelationshipType.friend,
-        scope: PersonScope.open,
-      );
+  testWidgets('a relationship swiped away is gone, and Undo brings it back', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final daniel = await personStore.create(name: 'Daniel');
+    await personStore.addRelationship(
+      mia.id,
+      daniel.id,
+      RelationshipType.friend,
+      scope: PersonScope.open,
+    );
 
-      await tester.pumpWidget(
-        _wrap(
-          PersonProfileScreen(
-            person: mia,
-            personStore: personStore,
-            assetRecordStore: FakeAssetRecordStore(),
-          ),
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
 
-      final deleteButton = find.byIcon(
-        CupertinoIcons.xmark_circle,
-        skipOffstage: false,
-      );
-      await _scrollTo(tester, deleteButton);
-      await tester.pumpAndSettle();
-      await tester.tap(deleteButton);
-      await tester.pumpAndSettle();
+    final row = find.widgetWithText(CupertinoListTile, 'Daniel');
+    await _scrollTo(tester, row);
+    await tester.drag(row, const Offset(-600, 0));
+    await tester.pumpAndSettle();
 
-      // Cancelling leaves the relationship in place.
-      expect(find.text('Remove this relationship?'), findsOneWidget);
-      await tester.tap(find.text('Cancel'));
-      await tester.pumpAndSettle();
-      expect(await personStore.relationshipsFor(mia.id), hasLength(1));
-
-      await tester.tap(deleteButton);
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Delete'));
-      await tester.pumpAndSettle();
-
-      expect(await personStore.relationshipsFor(mia.id), isEmpty);
-    },
-  );
+    expect(await personStore.relationshipsFor(mia.id), isEmpty);
+    expect(find.text('Removed Daniel'), findsOneWidget);
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+    expect(
+      (await personStore.relationshipsFor(mia.id)).single.type,
+      RelationshipType.friend,
+    );
+  });
 
   testWidgets('relationships are grouped into subsections by type', (
     tester,
@@ -1106,9 +1097,9 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    await _scrollTo(tester, find.text('Shanghai', skipOffstage: false));
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Shanghai'));
+    final row = find.widgetWithText(CupertinoListTile, 'Shanghai');
+    await _scrollTo(tester, row);
+    await tester.tap(row);
     await tester.pumpAndSettle();
     // Pre-filled from the existing entry.
     expect(find.text('Edit Location'), findsOneWidget);
@@ -1127,9 +1118,7 @@ void main() {
     expect(locations.single.place, 'Beijing');
   });
 
-  testWidgets('removing a place asks first, and Cancel keeps it', (
-    tester,
-  ) async {
+  testWidgets('a place swiped away can be put back', (tester) async {
     final personStore = FakePersonStore();
     final mia = await personStore.create(name: 'Mia');
     await personStore.addLocation(
@@ -1152,33 +1141,30 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await _scrollTo(tester, find.text('Shanghai', skipOffstage: false));
-    await tester.pumpAndSettle();
-    final remove = find.descendant(
-      of: find.widgetWithText(CupertinoListTile, 'Shanghai'),
-      matching: find.byIcon(CupertinoIcons.xmark_circle),
-    );
-
-    await tester.tap(remove);
-    await tester.pumpAndSettle();
-    expect(find.text('Remove this location?'), findsOneWidget);
-    await tester.tap(find.text('Cancel'));
-    await tester.pumpAndSettle();
-    expect(await personStore.locationsFor(mia.id), hasLength(1));
-
-    await tester.tap(remove);
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Delete'));
+    final row = find.widgetWithText(CupertinoListTile, 'Shanghai');
+    await _scrollTo(tester, row);
+    await tester.drag(row, const Offset(-600, 0));
     await tester.pumpAndSettle();
     expect(await personStore.locationsFor(mia.id), isEmpty);
+
+    await tester.tap(find.text('Undo'));
+    await tester.pumpAndSettle();
+    expect((await personStore.locationsFor(mia.id)).single.place, 'Shanghai');
   });
 
-  testWidgets('More details sits after Places Lived, Relationships after it', (
+  testWidgets('Relationships before Places Lived, More details after it', (
     tester,
   ) async {
     await _useTallSurface(tester);
     final personStore = FakePersonStore();
     final mia = await personStore.create(name: 'Mia');
+    final dan = await personStore.create(name: 'Daniel');
+    await personStore.addRelationship(
+      mia.id,
+      dan.id,
+      RelationshipType.friend,
+      scope: PersonScope.open,
+    );
     await personStore.addLocation(
       PersonLocation(
         id: 'loc-1',
@@ -1201,21 +1187,18 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final placesLivedTop = tester
-        .getTopLeft(find.text('Places Lived', skipOffstage: false))
-        .dy;
-    final moreDetailsTop = tester
-        .getTopLeft(find.text('More details', skipOffstage: false))
-        .dy;
-    final relationshipsTop = tester
-        .getTopLeft(find.text('Relationships', skipOffstage: false))
-        .dy;
-    expect(moreDetailsTop, greaterThan(placesLivedTop));
-    expect(relationshipsTop, greaterThan(moreDetailsTop));
+    double top(String text) =>
+        tester.getTopLeft(find.text(text, skipOffstage: false)).dy;
+    expect(top('Places Lived'), greaterThan(top('Relationships')));
+    expect(top('More details'), greaterThan(top('Places Lived')));
 
     final addButton = find.byKey(customFieldsAddKey);
     await _scrollTo(tester, addButton);
     await tester.tap(addButton);
+    await tester.pumpAndSettle();
+    // The usual labels are offered first; Other is a blank one.
+    expect(find.text('WeChat'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('customFieldOther')));
     await tester.pumpAndSettle();
     await tester.enterText(
       find.widgetWithText(CupertinoTextField, 'Field'),
@@ -1232,6 +1215,7 @@ void main() {
     expect(saved.customFields.single.label, 'Nickname');
     expect(saved.customFields.single.value, 'Mimi');
   });
+
   testWidgets('a profile says how its person stands to you', (tester) async {
     await _useTallSurface(tester);
     final personStore = FakePersonStore();
@@ -1286,14 +1270,18 @@ void main() {
     expect(find.text('Your sibling'), findsNothing);
   });
 
-  testWidgets('a derived link offers nothing to delete', (tester) async {
+  testWidgets('group links are one row that opens the people behind it', (
+    tester,
+  ) async {
     await _useTallSurface(tester);
     final personStore = FakePersonStore();
     final mia = await personStore.create(name: 'Mia');
-    final dan = await personStore.create(name: 'Daniel');
+    await personStore.create(name: 'Daniel');
     const acme = PersonGroup(id: 'g1', name: 'Acme', kind: GroupKind.company);
     await personStore.joinGroup(mia.id, acme, scope: PersonScope.open);
-    await personStore.joinGroup(dan.id, acme, scope: PersonScope.open);
+    for (final p in await personStore.listAll()) {
+      await personStore.joinGroup(p.id, acme, scope: PersonScope.open);
+    }
 
     await tester.pumpWidget(
       _wrap(
@@ -1306,14 +1294,17 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Daniel shows as a colleague because they share a company group.
-    expect(find.text('Daniel', skipOffstage: false), findsOneWidget);
-    // But there is no row behind it, so nothing to edit and nothing to
-    // delete — offering either deleted an unrelated row or nothing at all.
-    expect(
-      find.byIcon(CupertinoIcons.pencil, skipOffstage: false),
-      findsNothing,
+    // Not listed one by one under Relationships: one row for the group.
+    expect(find.text('Daniel', skipOffstage: false), findsNothing);
+    await tester.tap(find.text('Colleagues at Acme'));
+    await tester.pumpAndSettle();
+    expect(find.text('Daniel'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('profilePeopleSearch')),
+      'zzz',
     );
+    await tester.pump();
+    expect(find.text('Daniel'), findsNothing);
   });
 
   testWidgets('a person whose hidden folder holds photos cannot be deleted', (

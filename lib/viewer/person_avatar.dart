@@ -16,6 +16,9 @@ import 'asset_grid.dart';
 /// cropped to [face] when the photo is a group shot and only part of it is
 /// them. Falls back to [fallbackLocalId], then a plain person glyph, when
 /// the photo is gone or not visible outside the private gate.
+/// The avatar that flies between a person's page and their profile.
+String personAvatarHeroTag(String personId) => 'person-avatar:$personId';
+
 class PersonAvatar extends StatefulWidget {
   const PersonAvatar({
     super.key,

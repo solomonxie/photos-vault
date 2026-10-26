@@ -8,6 +8,7 @@ import '../l10n/app_localizations.dart';
 import '../photos/conversation_file.dart';
 import '../photos/conversation_store.dart';
 import '../photos/person.dart';
+import 'profile_previews.dart' show chatSourceLabel;
 
 /// A person's imported chats, newest at the bottom. Pages of [_pageSize]
 /// load as the list scrolls up, so 50k messages are never all in memory.
@@ -141,16 +142,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
   }
 
   static String _chatLabel(ConversationMessage m) {
-    final source = switch (m.source) {
-      'qq' => 'QQ',
-      'wechat' => 'WeChat',
-      'sms' => 'SMS',
-      'whatsapp' => 'WhatsApp',
-      'imessage' => 'iMessage',
-      'messenger' => 'Messenger',
-      'instagram' => 'Instagram',
-      final s => s,
-    };
+    final source = chatSourceLabel(m.source);
     final colon = m.chat.indexOf(':');
     final id = colon < 0 ? m.chat : m.chat.substring(colon + 1);
     return id.isEmpty ? source : '$source · $id';

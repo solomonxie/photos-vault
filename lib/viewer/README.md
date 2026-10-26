@@ -34,12 +34,18 @@ LibraryScreen                                          library_screen.dart
   │     "+" ──► a new Person straight into PersonProfileScreen, name focused;
   │             left unnamed, it is dropped rather than kept as an empty row
   │     tap a person ──► PersonPageScreen                   person_page_screen.dart
-  │                         their tagged photos + a chevron to:
+  │                         header (avatar, name, job · city · age): tap or
+  │                         swipe up, avatar flies across (Hero), to:
   │                       PersonProfileScreen                person_profile_screen.dart
+  │                         summary card + pinned jumps     profile_summary.dart
+  │                         folding sections, Edit, swipe + Undo
+  │                                                         profile_section.dart, undo_toast.dart
+  │                         chats / words / job timeline    profile_previews.dart
+  │                         relationships, ranked, searchable  profile_relationships.dart
+  │                         group links ──► ProfilePeopleListScreen  profile_people_list_screen.dart
+  │                         impression                      profile_impression.dart
   │                         tap the avatar ──► PersonAvatarPicker  person_avatar_picker.dart
-  │                         bio fields (passcode+hint lock over them),
-  │                         relationships ──► PersonGraphScreen  person_graph_screen.dart
-  │                         location history
+  │                         graph ──► PersonGraphScreen     person_graph_screen.dart
   │
   └─ "Utilities" section
         Import Photos      ──► (no push) ManualAddService.pickAndEnqueue()
