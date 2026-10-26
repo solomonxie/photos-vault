@@ -257,14 +257,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       }
       final last = await _conversationStore.page(_person.id, limit: 1);
       final chats = await _conversationStore.chatsOf(_person.id);
-      final months = await _conversationStore.monthsOf(_person.id);
       final bySource = <String, int>{};
       for (final c in chats) {
         bySource[c.source] = (bySource[c.source] ?? 0) + c.count;
-      }
-      final byYear = <int, int>{};
-      for (final MapEntry(key: (year, _), :value) in months.entries) {
-        byYear[year] = (byYear[year] ?? 0) + value;
       }
       if (!mounted) return;
       setState(() {
@@ -273,7 +268,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           total: n,
           last: last.firstOrNull,
           bySource: bySource,
-          byYear: byYear,
         );
       });
     } catch (_) {
@@ -1494,7 +1488,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
             ),
             SliverToBoxAdapter(
               child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+                padding: const EdgeInsets.only(top: 8),
                 child: ProfileCard(
                   children: [
                     _linkRow(

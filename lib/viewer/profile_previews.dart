@@ -9,19 +9,17 @@ import 'profile_section.dart';
 import 'words_screen.dart' show writingKindLabel;
 
 /// What the profile shows of someone's chats: the latest message, how many
-/// from each app, and a line of messages per year.
+/// from each app.
 class ChatsPreviewData {
   const ChatsPreviewData({
     required this.total,
     this.last,
     this.bySource = const {},
-    this.byYear = const {},
   });
 
   final int total;
   final ConversationMessage? last;
   final Map<String, int> bySource;
-  final Map<int, int> byYear;
 
   static const empty = ChatsPreviewData(total: 0);
 }
@@ -69,14 +67,6 @@ class ChatsPreview extends StatelessWidget {
                         style: const TextStyle(fontWeight: FontWeight.w600),
                       ),
                     ),
-                    if (data.byYear.length > 1)
-                      SizedBox(
-                        width: 96,
-                        height: 24,
-                        child: CustomPaint(
-                          painter: SparklinePainter(data.byYear),
-                        ),
-                      ),
                     const SizedBox(width: 6),
                     const Icon(
                       CupertinoIcons.chevron_forward,
@@ -142,42 +132,6 @@ class _Pill extends StatelessWidget {
       style: const TextStyle(fontSize: 12, color: CupertinoColors.systemGrey),
     ),
   );
-}
-
-/// Messages per year as one line, empty years at zero.
-class SparklinePainter extends CustomPainter {
-  SparklinePainter(this.byYear);
-
-  final Map<int, int> byYear;
-
-  @override
-  void paint(Canvas canvas, Size size) {
-    if (byYear.isEmpty) return;
-    final years = byYear.keys.toList()..sort();
-    final first = years.first, span = years.last - first;
-    if (span == 0) return;
-    final most = byYear.values.reduce((a, b) => a > b ? a : b);
-    final path = Path();
-    for (var y = 0; y <= span; y++) {
-      final n = byYear[first + y] ?? 0;
-      final p = Offset(
-        size.width * y / span,
-        size.height - 2 - (size.height - 4) * n / most,
-      );
-      y == 0 ? path.moveTo(p.dx, p.dy) : path.lineTo(p.dx, p.dy);
-    }
-    canvas.drawPath(
-      path,
-      Paint()
-        ..color = CupertinoColors.activeGreen
-        ..style = PaintingStyle.stroke
-        ..strokeWidth = 1.5
-        ..strokeJoin = StrokeJoin.round,
-    );
-  }
-
-  @override
-  bool shouldRepaint(SparklinePainter old) => old.byYear != byYear;
 }
 
 /// The latest three pieces, then "All N".

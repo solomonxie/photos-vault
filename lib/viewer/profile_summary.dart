@@ -151,7 +151,11 @@ class ProfileJumpBar extends SliverPersistentHeaderDelegate {
   @override
   Widget build(BuildContext context, double shrinkOffset, bool overlaps) =>
       Container(
-        color: CupertinoColors.black,
+        // The page's own background, so the pinned bar is no band of its own.
+        color: CupertinoDynamicColor.resolve(
+          CupertinoTheme.of(context).scaffoldBackgroundColor,
+          context,
+        ),
         alignment: Alignment.centerLeft,
         child: SingleChildScrollView(
           scrollDirection: Axis.horizontal,
@@ -165,14 +169,20 @@ class ProfileJumpBar extends SliverPersistentHeaderDelegate {
                     key: ValueKey('profileJump:$id'),
                     padding: const EdgeInsets.symmetric(horizontal: 12),
                     minimumSize: const Size(0, 30),
-                    color: const Color(0xFF2C2C2E),
+                    color: CupertinoDynamicColor.resolve(
+                      CupertinoColors.tertiarySystemFill,
+                      context,
+                    ),
                     borderRadius: BorderRadius.circular(15),
                     onPressed: () => onJump(id),
                     child: Text(
                       label,
-                      style: const TextStyle(
+                      style: TextStyle(
                         fontSize: 14,
-                        color: CupertinoColors.white,
+                        color: CupertinoDynamicColor.resolve(
+                          CupertinoColors.label,
+                          context,
+                        ),
                       ),
                     ),
                   ),

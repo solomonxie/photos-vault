@@ -60,42 +60,49 @@ class ProfileSectionHeader extends StatelessWidget {
       onTap: onToggle,
       child: Padding(
         padding: const EdgeInsets.fromLTRB(16, 20, 8, 6),
+        // Title, count and chevron share one Expanded, so Edit and "+" sit
+        // at the right edge: a Flexible beside a Spacer splits the slack.
         child: Row(
           children: [
-            Flexible(
-              child: Text(
-                title,
-                maxLines: 1,
-                overflow: TextOverflow.ellipsis,
-                style: const TextStyle(
-                  fontWeight: FontWeight.bold,
-                  fontSize: 17,
-                ),
+            Expanded(
+              child: Row(
+                children: [
+                  Flexible(
+                    child: Text(
+                      title,
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
+                      style: const TextStyle(
+                        fontWeight: FontWeight.bold,
+                        fontSize: 17,
+                      ),
+                    ),
+                  ),
+                  if (count case final n? when n > 0)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 6),
+                      child: Text(
+                        '$n',
+                        style: const TextStyle(
+                          fontSize: 15,
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ),
+                    ),
+                  if (onToggle != null)
+                    Padding(
+                      padding: const EdgeInsets.only(left: 4),
+                      child: Icon(
+                        folded
+                            ? CupertinoIcons.chevron_forward
+                            : CupertinoIcons.chevron_down,
+                        size: 14,
+                        color: CupertinoColors.systemGrey,
+                      ),
+                    ),
+                ],
               ),
             ),
-            if (count case final n? when n > 0)
-              Padding(
-                padding: const EdgeInsets.only(left: 6),
-                child: Text(
-                  '$n',
-                  style: const TextStyle(
-                    fontSize: 15,
-                    color: CupertinoColors.systemGrey,
-                  ),
-                ),
-              ),
-            if (onToggle != null)
-              Padding(
-                padding: const EdgeInsets.only(left: 4),
-                child: Icon(
-                  folded
-                      ? CupertinoIcons.chevron_forward
-                      : CupertinoIcons.chevron_down,
-                  size: 14,
-                  color: CupertinoColors.systemGrey,
-                ),
-              ),
-            const Spacer(),
             if (onEdit != null && !folded)
               CupertinoButton(
                 key: profileSectionEditKey(title),
