@@ -35,6 +35,17 @@ say so rather than falling back to a simulator.
 every local database with it. Use `xcrun devicectl device install app`
 instead — it upgrades in place and keeps the data.
 
+## Every piece of user data is backed up — no exceptions
+
+Anything the app stores that the user made or imported must be in the app-data
+backup (`lib/backup/`): every database under `DatabaseHome.names`, and every
+file folder the app owns (e.g. writings' pictures, chat thumbnails). A new
+store, table or folder is not done until the daily snapshot carries it and a
+fresh-install restore puts it back — with a test proving both. Its changes must
+also move the backup's change mark, or the daily gate never fires for it.
+"It can be re-imported from the Mac" is not a reason to leave it out. If
+something is knowingly excluded, say so to the user up front, not after.
+
 ## iOS signing
 
 iCloud needs a container registered against this app's App ID; see the
