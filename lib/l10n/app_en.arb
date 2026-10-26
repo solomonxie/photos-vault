@@ -2085,5 +2085,11 @@
   "devJobsTitle": "Import Work History",
   "devJobsSummary": "Employers, dates, roles and projects, into one person's Job section.",
   "devJobsHow": "• Made on the Mac.\n• Shows every job and its dates before importing; you choose whose history it is.\n• A job already there with the same employer and start year is replaced; others are added. Nothing is removed.",
-  "devJobsSpec": "File: .json with a \"jobs\" list.\n\n• Required: employer.\n• start, end: yyyy, yyyy-mm or yyyy-mm-dd; end null or \"present\" is ongoing.\n• notes; fields (label, value).\n• titles (title, description, start, end), projects (name, description, tags, start, end), awards (title, description, start, end)."
+  "devJobsSpec": "File: .json with a \"jobs\" list.\n\n• Required: employer.\n• start, end: yyyy, yyyy-mm or yyyy-mm-dd; end null or \"present\" is ongoing.\n• notes; fields (label, value).\n• titles (title, description, start, end), projects (name, description, tags, start, end), awards (title, description, start, end).",
+  "personGraphFamily": "Family",
+  "personGraphFriends": "Friends",
+  "personGraphColleagues": "Colleagues",
+  "personGraphSchoolmates": "Schoolmates",
+  "personGraphOthers": "Others",
+  "personGraphOpenProfile": "Open Profile"
 }

@@ -1465,5 +1465,11 @@
   "devJobsTitle": "导入工作经历",
   "devJobsSummary": "雇主、时间、职位和项目，导入到一个人的「工作」部分。",
   "devJobsHow": "• 在 Mac 上生成。\n• 导入前显示每份工作及时间；由你选择是谁的经历。\n• 已有相同雇主和起始年份的工作会被替换；其余新增。不会删除任何内容。",
-  "devJobsSpec": "文件：带 \"jobs\" 列表的 .json。\n\n• 必填：employer。\n• start、end：yyyy、yyyy-mm 或 yyyy-mm-dd；end 为 null 或 \"present\" 表示至今。\n• notes；fields (label, value)。\n• titles (title, description, start, end)、projects (name, description, tags, start, end)、awards (title, description, start, end)。"
+  "devJobsSpec": "文件：带 \"jobs\" 列表的 .json。\n\n• 必填：employer。\n• start、end：yyyy、yyyy-mm 或 yyyy-mm-dd；end 为 null 或 \"present\" 表示至今。\n• notes；fields (label, value)。\n• titles (title, description, start, end)、projects (name, description, tags, start, end)、awards (title, description, start, end)。",
+  "personGraphFamily": "家人",
+  "personGraphFriends": "朋友",
+  "personGraphColleagues": "同事",
+  "personGraphSchoolmates": "同学",
+  "personGraphOthers": "其他",
+  "personGraphOpenProfile": "打开资料"
 }

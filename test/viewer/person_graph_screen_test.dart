@@ -58,8 +58,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Mia'), findsOneWidget);
-    expect(find.text('Daniel'), findsOneWidget);
+    expect(find.byKey(ValueKey('graph-${mia.id}')), findsOneWidget);
+    expect(find.byKey(ValueKey('graph-${daniel.id}')), findsOneWidget);
     // Zoe is in the library but not in Mia's net.
     expect(find.text('Zoe'), findsNothing);
   });
@@ -123,4 +123,65 @@ void main() {
       expect(viewer.maxScale, greaterThan(1));
     },
   );
+
+  testWidgets('a big group folds behind "+N"; tapping someone recenters, '
+      'back returns', (tester) async {
+    tester.view.physicalSize = const Size(1200, 2400);
+    addTearDown(tester.view.reset);
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final pal = await personStore.create(name: 'Pal');
+    await personStore.addRelationship(
+      mia.id,
+      pal.id,
+      RelationshipType.friend,
+      scope: PersonScope.open,
+    );
+    for (var i = 0; i < 30; i++) {
+      final f = await personStore.create(name: 'F$i');
+      await personStore.addRelationship(
+        mia.id,
+        f.id,
+        RelationshipType.friend,
+        scope: PersonScope.open,
+      );
+    }
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonGraphScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+          focusPersonId: mia.id,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('+19'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('graphMore-friend')));
+    await tester.pumpAndSettle();
+    expect(find.text('Friends · 31'), findsOneWidget);
+    await tester.tap(
+      find.descendant(
+        of: find.byType(CupertinoListTile),
+        matching: find.text('F0'),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(ValueKey('graph-${mia.id}')), findsOneWidget);
+    expect(find.byKey(const ValueKey('graphMore-friend')), findsNothing);
+    expect(
+      find.descendant(
+        of: find.byType(CupertinoNavigationBar),
+        matching: find.text('F0'),
+      ),
+      findsOneWidget,
+    );
+
+    await tester.binding.handlePopRoute();
+    await tester.pumpAndSettle();
+    expect(find.text('+19'), findsOneWidget);
+  });
 }
