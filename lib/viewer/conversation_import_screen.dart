@@ -55,9 +55,6 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
   String? _done;
   int _skippedLines = 0;
 
-  /// Messages in the file that are already imported, left out.
-  int _alreadyHere = 0;
-
   List<ConversationPerson> _found = const [];
   List<Person> _people = const [];
   Map<int, List<Person>> _candidates = {};
@@ -127,31 +124,7 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
       final paths = await (widget.pickFiles ?? _pickWithSystemBrowser)();
       if (paths.isEmpty || !mounted) return;
       setState(() => _reading = true);
-      final read = await (widget.readFiles ?? readConversationFiles)(paths);
-      // Only what this would add: messages already here are left out,
-      // unless they'd bring the picture or clip the stored one lacks.
-      var stored = const <String, ({bool noThumb, bool noVoice})>{};
-      try {
-        stored = await _store.storedIn({
-          for (final row in read.people)
-            for (final m in row.messages) m.chat,
-        });
-      } catch (_) {
-        // No conversations database yet: everything is new.
-      }
-      var already = 0;
-      final fresh = <ConversationPerson>[];
-      for (final row in read.people) {
-        final kept = row.where((m) {
-          final had = stored[m.hash];
-          return had == null ||
-              (m.thumb != null && had.noThumb) ||
-              (m.voice != null && had.noVoice);
-        });
-        already += row.messages.length - kept.messages.length;
-        if (kept.messages.isNotEmpty) fresh.add(kept);
-      }
-      final export = ConversationExport(fresh, read.skipped);
+      final export = await (widget.readFiles ?? readConversationFiles)(paths);
       final people = await widget.personStore.listAll();
       var chats = const <String, Set<String>>{};
       try {
@@ -188,7 +161,6 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
         _people = people;
         _found = rows;
         _skippedLines = export.skipped;
-        _alreadyHere = already;
         _known = known;
         _handles = {for (final (i, row) in rows.indexed) i: handles[row]!};
         _candidates = {
@@ -215,9 +187,7 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
           if (_taken(i)) _accepted.add(i);
         }
         if (rows.isEmpty) {
-          _error = already > 0
-              ? AppLocalizations.of(context)!.conversationsAllHere(already)
-              : AppLocalizations.of(context)!.conversationsNothing;
+          _error = AppLocalizations.of(context)!.conversationsNothing;
         }
       });
     } catch (error) {
@@ -567,12 +537,9 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
                       const SizedBox(height: 20),
                       SettingsSection(
                         heading: l10n.conversationsReviewHeading(_found.length),
-                        hint: [
-                          if (_alreadyHere > 0)
-                            l10n.conversationsAlreadyHere(_alreadyHere),
-                          if (_skippedLines > 0)
-                            l10n.conversationsSkippedLines(_skippedLines),
-                        ].join(' · ').nullIfEmpty,
+                        hint: _skippedLines > 0
+                            ? l10n.conversationsSkippedLines(_skippedLines)
+                            : null,
                         action: selectable.isEmpty
                             ? null
                             : CupertinoButton(
@@ -842,8 +809,4 @@ class _PreviewScreenState extends State<_PreviewScreen> {
       ),
     );
   }
-}
-
-extension on String {
-  String? get nullIfEmpty => isEmpty ? null : this;
 }

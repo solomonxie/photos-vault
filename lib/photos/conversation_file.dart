@@ -75,15 +75,6 @@ class ConversationPerson {
   bool hasVoice = false;
   bool hasImages = false;
 
-  /// The same person with only the messages [keep] lets through.
-  ConversationPerson where(bool Function(ConversationMessage) keep) {
-    final out = ConversationPerson(name);
-    for (final m in messages) {
-      if (keep(m)) out._add(m);
-    }
-    return out;
-  }
-
   void _add(ConversationMessage m) {
     messages.add(m);
     if (m.kind == 'voice') hasVoice = true;

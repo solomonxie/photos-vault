@@ -327,44 +327,6 @@ class ConversationStore {
     return rows.map(_message).toList();
   }
 
-  /// What's already stored of [chats]: each message's hash, whether it
-  /// still lacks a picture, and whether it lacks a clip — a clip named in
-  /// the row but missing on disk counts as lacking. A few queries, however
-  /// many chats.
-  Future<Map<String, ({bool noThumb, bool noVoice})>> storedIn(
-    Iterable<String> chats,
-  ) async {
-    final db = await _open();
-    final all = chats.toList();
-    final out = <String, ({bool noThumb, bool noVoice})>{};
-    final named = <String, String>{};
-    for (var i = 0; i < all.length; i += 500) {
-      final part = all.sublist(i, i + 500 > all.length ? all.length : i + 500);
-      final rows = await db.rawQuery(
-        'SELECT hash, thumb IS NULL AS nt, voice FROM $_table '
-        'WHERE chat IN (${List.filled(part.length, '?').join(',')})',
-        part,
-      );
-      for (final r in rows) {
-        final hash = r['hash'] as String;
-        final voice = r['voice'] as String?;
-        out[hash] = (noThumb: r['nt'] == 1, noVoice: voice == null);
-        if (voice != null) named[hash] = voice;
-      }
-    }
-    if (named.isNotEmpty) {
-      final voice = _voice ?? chatVoice;
-      final folder = (await voice.folder()).path;
-      // Async, one per clip: bounded by the voice messages of these chats.
-      for (final MapEntry(key: hash, value: name) in named.entries) {
-        if (!await File(p.join(folder, name)).exists()) {
-          out[hash] = (noThumb: out[hash]!.noThumb, noVoice: true);
-        }
-      }
-    }
-    return out;
-  }
-
   /// Whether [personId] has a message at exactly [at].
   Future<bool> hasMessageAt(String personId, DateTime at) async {
     final db = await _open();

@@ -199,8 +199,8 @@ void main() {
     expect(kept.existsSync(), isFalse);
   });
 
-  test('a voice message whose clip never arrived is offered again and '
-      'mended by the next import', () async {
+  test('a voice message imported without its clip gets it from the next '
+      'import', () async {
     final root = await Directory.systemTemp.createTemp('voice');
     addTearDown(() => root.delete(recursive: true));
     final voice = ChatVoice(
@@ -228,22 +228,14 @@ void main() {
       voiceMs: 1500,
     );
 
-    // Imported with nothing staged: the row names no clip.
+    // Nothing staged: the row names no clip it doesn't have.
     await store.insert('mia', [voiced()]);
     expect((await store.page('mia')).single.voice, isNull);
-    expect((await store.storedIn([plain.chat]))[plain.hash]!.noVoice, isTrue);
 
-    // A row naming a clip that isn't on disk still counts as lacking it.
     final staged = File(p.join((await voice.staging()).path, name));
     await staged.parent.create(recursive: true);
-    await staged.writeAsBytes([5, 6]);
-    await store.insert('mia', [voiced()]);
-    expect((await store.storedIn([plain.chat]))[plain.hash]!.noVoice, isFalse);
-    await (await voice.fileFor(name)).delete();
-    expect((await store.storedIn([plain.chat]))[plain.hash]!.noVoice, isTrue);
-
     await staged.writeAsBytes([7, 8]);
-    await store.insert('mia', [voiced()]);
+    expect(await store.insert('mia', [voiced()]), 0);
     expect((await voice.fileFor(name)).readAsBytesSync(), [7, 8]);
     expect((await store.page('mia')).single.voice, name);
   });

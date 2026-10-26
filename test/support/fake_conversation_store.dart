@@ -112,18 +112,6 @@ class FakeConversationStore implements ConversationStore {
   }
 
   @override
-  Future<Map<String, ({bool noThumb, bool noVoice})>> storedIn(
-    Iterable<String> chats,
-  ) async {
-    final wanted = chats.toSet();
-    return {
-      for (final (_, m) in rows.values)
-        if (wanted.contains(m.chat))
-          m.hash: (noThumb: m.thumb == null, noVoice: m.voice == null),
-    };
-  }
-
-  @override
   Future<List<ConversationMessage>> page(
     String personId, {
     ConversationMessage? before,

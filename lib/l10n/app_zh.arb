@@ -1394,8 +1394,6 @@
   "conversationsApply": "{count, plural, =0{未选择} other{为 {count} 人导入}}",
   "conversationsImporting": "正在导入 {done} / {total} 条消息…",
   "conversationsDone": "已为 {people, plural, other{{people} 人}}添加 {added} 条消息；{duplicates} 条已存在。",
-  "conversationsAlreadyHere": "{count, plural, other{{count} 条消息已导入，不再显示}}",
-  "conversationsAllHere": "{count, plural, other{没有新内容：{count} 条消息都已导入。}}",
   "conversationsSkippedLines": "{count, plural, other{{count} 行不是消息}}",
   "conversationsNothing": "这些文件中没有消息。",
   "personConversationsRow": "聊天记录（{count}）",

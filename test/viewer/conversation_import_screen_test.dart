@@ -191,53 +191,41 @@ void main() {
     );
   });
 
-  testWidgets('a rename that matches someone attaches; re-import shows '
-      'nothing already here', (tester) async {
+  testWidgets('a rename that matches someone attaches; re-import adds none', (
+    tester,
+  ) async {
     final people = FakePersonStore();
     final mia = await people.create(name: 'Mia');
     final conversations = FakeConversationStore();
-    var lines = [_line('Stranger', 4, 'd'), _line('Stranger', 5, 'e')];
     await tester.pumpWidget(
       _wrap(
         ConversationImportScreen(
           personStore: people,
           conversationStore: conversations,
           pickFiles: () async => ['a.jsonl'],
-          readFiles: (_) async => readConversationLines(lines.join('\n')),
+          readFiles: (_) async => readConversationLines(
+            [_line('Stranger', 4, 'd'), _line('Stranger', 5, 'e')].join('\n'),
+          ),
         ),
       ),
     );
-    await tester.tap(find.byKey(const ValueKey('conversationsChooseFiles')));
-    await tester.pumpAndSettle();
-    expect(find.text('Import for 0 people'), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('conversation-row-0')));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('importRename')));
-    await tester.pumpAndSettle();
-    await tester.enterText(find.byKey(searchPickerFieldKey), 'Mia');
-    await tester.testTextInput.receiveAction(TextInputAction.done);
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('conversationsApply')));
-    await tester.pumpAndSettle();
+    for (var round = 0; round < 2; round++) {
+      await tester.tap(find.byKey(const ValueKey('conversationsChooseFiles')));
+      await tester.pumpAndSettle();
+      expect(find.text('Import for 0 people'), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('conversation-row-0')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('importRename')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byKey(searchPickerFieldKey), 'Mia');
+      await tester.testTextInput.receiveAction(TextInputAction.done);
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('conversationsApply')));
+      await tester.pumpAndSettle();
+    }
     expect(await conversations.countsByPerson(), {mia.id: 2});
-
-    // The same file again: nothing to review.
-    await tester.tap(find.byKey(const ValueKey('conversationsChooseFiles')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('conversation-row-0')), findsNothing);
     expect(
-      find.text('Nothing new: all 2 messages are already imported.'),
-      findsOne,
-    );
-
-    // One more message: only it comes up, the rest counted as here.
-    lines = [...lines, _line('Stranger', 6, 'f')];
-    await tester.tap(find.byKey(const ValueKey('conversationsChooseFiles')));
-    await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('conversation-row-0')), findsOne);
-    expect(find.byKey(const ValueKey('conversation-row-1')), findsNothing);
-    expect(
-      find.textContaining('2 messages already imported, not shown'),
+      find.text('0 messages added for 1 person; 2 already here.'),
       findsOne,
     );
     expect(
@@ -246,6 +234,7 @@ void main() {
           if (c.kind == 'imported') c,
       ].length,
       1,
+      reason: 'a re-import that adds nothing logs nothing',
     );
   });
 
