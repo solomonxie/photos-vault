@@ -14,6 +14,7 @@ import 'words_screen.dart';
 Future<PersonImportPlan> readWordsPlan(
   String path,
   AppLocalizations l10n, {
+  required PersonStore personStore,
   WordsStore? store,
 }) async {
   final export = await readWordsFile(path);
@@ -48,6 +49,9 @@ Future<PersonImportPlan> readWordsPlan(
         export.writings,
         onProgress: (done) => onProgress(0.5 + done / total / 2),
       );
+      await personStore.logImports({
+        personId: {'source': 'words', 'count': total},
+      });
       return l10n.wordsImported(total);
     },
   );
@@ -91,6 +95,9 @@ Future<PersonImportPlan> readWorkHistoryPlan(
         file,
         scope: PersonScope.open,
       );
+      await store.logImports({
+        personId: {'source': 'jobs', 'added': added, 'replaced': replaced},
+      });
       onProgress(1);
       return l10n.workHistoryImported(added, replaced);
     },

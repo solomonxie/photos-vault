@@ -36,6 +36,20 @@ void main() {
     for (final c in changes) c.kind,
   ];
 
+  test('imports are logged per person, in one batch', () async {
+    final store = newStore();
+    final mia = await store.create(name: 'Mia');
+    final zoe = await store.create(name: 'Zoe');
+    await store.logImports({
+      mia.id: {'source': 'chats', 'count': 3},
+      zoe.id: {'source': 'words', 'count': 1},
+    });
+    final changes = await store.changesOf(mia.id);
+    expect(kinds(changes), ['imported', 'created']);
+    expect(changes.first.after, '{"source":"chats","count":3}');
+    expect(kinds(await store.changesOf(zoe.id)), ['imported', 'created']);
+  });
+
   test('a name typed letter by letter is one change, old to new', () async {
     final store = newStore();
     var mia = await store.create(name: 'Mi');

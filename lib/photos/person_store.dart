@@ -1088,6 +1088,25 @@ class PersonStore {
     );
   }
 
+  /// One "imported" line per person, in one batch: chats and writings go
+  /// to other databases, where no trigger here sees them. Each value is
+  /// what came in — `source` (chats, words, jobs, profile, people) plus
+  /// counts — kept as JSON in `after`.
+  Future<void> logImports(Map<String, Map<String, Object?>> byPerson) async {
+    if (byPerson.isEmpty) return;
+    final db = await _open();
+    final batch = db.batch();
+    for (final MapEntry(:key, :value) in byPerson.entries) {
+      batch.rawInsert(
+        'INSERT INTO $_changeTable (person_id, at, kind, before, after) '
+        "SELECT ?, $_nowMs, 'imported', NULL, ? "
+        'WHERE NOT EXISTS (SELECT 1 FROM $_muteTable)',
+        [key, jsonEncode(value)],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
   /// [personId]'s changes, newest first.
   Future<List<PersonChange>> changesOf(String personId) async {
     final db = await _open();

@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/viewer/search_picker_sheet.dart';
@@ -90,6 +92,13 @@ void main() {
       find.text('3 messages added for 2 people; 0 already here.'),
       findsOne,
     );
+    final logged = (await people.changesOf(liu.id)).first;
+    expect(logged.kind, 'imported');
+    expect(jsonDecode(logged.after!), {
+      'source': 'chats',
+      'count': 2,
+      'sources': ['qq'],
+    });
   });
 
   testWidgets('a rename that matches someone attaches; re-import adds none', (
@@ -128,6 +137,14 @@ void main() {
     expect(
       find.text('0 messages added for 1 person; 2 already here.'),
       findsOne,
+    );
+    expect(
+      [
+        for (final c in await people.changesOf(mia.id))
+          if (c.kind == 'imported') c,
+      ].length,
+      1,
+      reason: 'a re-import that adds nothing logs nothing',
     );
   });
 

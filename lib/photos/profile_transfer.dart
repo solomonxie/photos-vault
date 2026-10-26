@@ -94,9 +94,11 @@ class ProfileTransfer {
   /// can't: a name two people share is answered in the preview (see
   /// [PersonMatches]). A row with no target goes by name, and a new person
   /// when nobody has it.
+  /// [source] names the file kind in each person's change log.
   Future<ProfileImportResult> write(
     Iterable<ProfileCsvRow> rows, {
     List<PersonTarget?> targets = const [],
+    String source = 'profile',
   }) async {
     final all = await store.listAll();
     final byId = {for (final person in all) person.id: person};
@@ -154,6 +156,12 @@ class ProfileTransfer {
         row.lastSeen,
         row.mode,
       );
+    }
+    // A set under a passcode is never logged.
+    if (passcodeHash == openNamespace) {
+      await store.logImports({
+        for (final id in ids) id: {'source': source},
+      });
     }
     return ProfileImportResult(
       created: created,

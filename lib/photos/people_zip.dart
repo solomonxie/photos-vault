@@ -231,6 +231,7 @@ class PeopleZipImporter {
               ProfileCsvRow(name: pick.displayName),
       ],
       targets: [for (final pick in chosen) pick.target],
+      source: 'people',
     );
     for (final (i, pick) in chosen.indexed) {
       pick.personId = written.personIds[i];

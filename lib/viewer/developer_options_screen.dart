@@ -220,7 +220,8 @@ class DeveloperOptionsScreen extends StatelessWidget {
                   title: l10n.devWordsTitle,
                   hint: l10n.devWordsSummary,
                   extensions: const ['zip', 'jsonl'],
-                  read: (path) => readWordsPlan(path, l10n),
+                  read: (path) =>
+                      readWordsPlan(path, l10n, personStore: personStore),
                   personStore: personStore,
                   assetRecordStore: assetRecordStore,
                   pickOnOpen: true,

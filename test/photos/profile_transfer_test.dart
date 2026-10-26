@@ -74,6 +74,9 @@ void main() {
 
     expect(result.created, 1);
     expect(result.updated, 1);
+    for (final id in result.personIds) {
+      expect((await store.changesOf(id)).first.after, '{"source":"profile"}');
+    }
     final people = await store.listAll();
     expect(people.map((p) => p.name), ['Mia', 'Daniel']);
     final mia = people.first;

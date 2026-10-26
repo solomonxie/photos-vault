@@ -217,18 +217,36 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
         _targets[i] = made[name.toLowerCase()] ??=
             (await widget.personStore.create(name: name)).id;
       }
+      final log = <String, ({int count, Set<String> sources})>{};
       for (final i in rows) {
         final base = written;
-        added += await _store.insert(
+        final messages = _found[i].messages;
+        final n = await _store.insert(
           _targets[i]!,
-          _found[i].messages,
+          messages,
           onProgress: (n) {
             if (mounted) setState(() => _progress = (base + n, total));
           },
         );
-        written += _found[i].messages.length;
+        added += n;
+        written += messages.length;
+        if (n > 0) {
+          final had = log[_targets[i]!];
+          log[_targets[i]!] = (
+            count: (had?.count ?? 0) + n,
+            sources: {...?had?.sources, for (final m in messages) m.source},
+          );
+        }
       }
       await applyConversationSpans(widget.personStore, store: _store);
+      await widget.personStore.logImports({
+        for (final MapEntry(:key, :value) in log.entries)
+          key: {
+            'source': 'chats',
+            'count': value.count,
+            'sources': value.sources.toList()..sort(),
+          },
+      });
       final people = {for (final i in rows) _targets[i]!}.length;
       if (!mounted) return;
       setState(() {

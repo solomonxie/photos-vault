@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/photos/person_detail.dart';
 import 'package:photos_vault/vault/keys.dart' show AlbumKeys;
@@ -80,6 +82,13 @@ class FakePersonStore implements PersonStore {
       ),
       scope: PersonScope.open,
     );
+  }
+
+  @override
+  Future<void> logImports(Map<String, Map<String, Object?>> byPerson) async {
+    for (final MapEntry(:key, :value) in byPerson.entries) {
+      _log(key, 'imported', null, jsonEncode(value));
+    }
   }
 
   @override

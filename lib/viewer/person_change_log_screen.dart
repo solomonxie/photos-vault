@@ -10,6 +10,7 @@ import '../photos/person_store.dart';
 import '../settings/settings_section.dart';
 import 'person_event_sheet.dart' show eventTypeLabel;
 import 'person_profile_screen.dart' show relationshipTypeLabel;
+import 'profile_previews.dart' show chatSourceLabel;
 
 /// Everything changed on one person, newest first: names they went by,
 /// details, photos, groups, events, places and links.
@@ -167,7 +168,42 @@ class _PersonChangeLogScreenState extends State<PersonChangeLogScreen> {
     '${e['title'] ?? ''}',
   ].join(' · ');
 
+  (String, List<String>) imported(Map<String, Object?> e) {
+    final count = e['count'] as int? ?? 0;
+    final sources = [
+      for (final s in (e['sources'] as List?) ?? const [])
+        chatSourceLabel('$s'),
+    ];
+    return switch (e['source']) {
+      'chats' => (
+        l10n.personChangeImportedChats,
+        [
+          [
+            l10n.personChangeImportedMessages(count),
+            if (sources.isNotEmpty) sources.join(', '),
+          ].join(' · '),
+        ],
+      ),
+      'words' => (
+        l10n.personChangeImportedWords,
+        [l10n.personChangeImportedWritings(count)],
+      ),
+      'jobs' => (
+        l10n.personChangeImportedJobs,
+        [
+          l10n.workHistoryImported(
+            e['added'] as int? ?? 0,
+            e['replaced'] as int? ?? 0,
+          ),
+        ],
+      ),
+      'people' => (l10n.personChangeImportedPeople, const []),
+      _ => (l10n.personChangeImportedProfile, const []),
+    };
+  }
+
   return switch (c.kind) {
+    'imported' => imported(json(c.after)),
     'created' => (l10n.personChangeCreated, [?c.after]),
     'name' => (l10n.personChangeName, [arrow(c.before, c.after)]),
     'merged' => (l10n.personChangeMerged(c.before ?? ''), const []),
