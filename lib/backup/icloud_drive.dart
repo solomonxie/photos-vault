@@ -156,6 +156,58 @@ class ICloudDrive {
     }
   }
 
+  /// Copies the file at [path] in as blob [name] (`blobs/<sha256>`). The
+  /// bytes never pass through the channel: a hundred-megabyte database
+  /// would. A blob already there is left as it is — same name, same bytes.
+  Future<bool> putBlob(String name, String path) async {
+    if (DemoFlag.active) return false;
+    try {
+      return await _channel.invokeMethod<bool>('putBlob', {
+            'name': name,
+            'path': path,
+          }) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Copies blob [name] out to [path], waiting for iCloud to bring it down.
+  Future<bool> getBlob(String name, String path) async {
+    if (DemoFlag.active) return false;
+    try {
+      return await _channel.invokeMethod<bool>('getBlob', {
+            'name': name,
+            'path': path,
+          }) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Every blob's name; null when the folder couldn't be read, which is
+  /// not the same as empty and must never be taken for it.
+  Future<List<String>?> listBlobs() async {
+    if (DemoFlag.active) return null;
+    try {
+      final names = await _channel.invokeMethod<List<Object?>>('listBlobs');
+      return names?.whereType<String>().toList();
+    } catch (_) {
+      return null;
+    }
+  }
+
+  Future<bool> deleteBlob(String name) async {
+    if (DemoFlag.active) return false;
+    try {
+      return await _channel.invokeMethod<bool>('deleteBlob', {'name': name}) ??
+          false;
+    } catch (_) {
+      return false;
+    }
+  }
+
   /// When the newest file was written, for the row's subtitle.
   Future<DateTime?> latestWriteAt() async {
     try {

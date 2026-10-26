@@ -955,6 +955,21 @@ class AiAnalysisStore {
     ],
   );
 
+  /// Rows of a backed-up copy at [path] added to this store; a face here
+  /// already keeps what it has. See [mergeDatabase].
+  Future<int> mergeFrom(String path) async =>
+      mergeDatabase(await _open(), path);
+
+  /// Moves whenever a face, label, group or suggestion is written. The
+  /// change log doesn't cover this database; the backup gate needs this.
+  Future<int> dataMark() async => tablesMark(await _open(), [
+    _table,
+    _descriptorTable,
+    _suggestionTable,
+    _groupTable,
+    _memberTable,
+  ]);
+
   Future<void> close() async {
     await _db?.close();
     _db = null;

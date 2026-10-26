@@ -14,7 +14,9 @@ import '../backup/snapshot_file.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/failure_text.dart';
 import '../photos/ai_analysis_store.dart';
+import '../photos/conversation_store.dart';
 import '../photos/person_store.dart';
+import '../photos/words_store.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record_store.dart';
 import 'add_backup_screen.dart';
@@ -79,6 +81,8 @@ class _SettingsScreenState extends State<SettingsScreen>
     albumStore: AlbumStore(),
     personStore: PersonStore(),
     aiAnalysisStore: AiAnalysisStore(),
+    conversationStore: ConversationStore(),
+    wordsStore: WordsStore(),
   );
 
   late final ICloudBackup _icloudBackup =
@@ -102,7 +106,14 @@ class _SettingsScreenState extends State<SettingsScreen>
       LocalVault(snapshots: _snapshots, settings: _assetRecordStore);
 
   late final SnapshotFile _snapshotFile =
-      widget.snapshotFile ?? SnapshotFile(snapshots: _snapshots, vault: _vault);
+      widget.snapshotFile ??
+      SnapshotFile(
+        snapshots: _snapshots,
+        vault: _vault,
+        fetchBlob: (sha, path) async =>
+            await _icloudBackup.fetchBlob(sha, path) ||
+            await _bucketBackup.fetchBlob(sha, path),
+      );
 
   bool _exporting = false;
   bool _restoring = false;

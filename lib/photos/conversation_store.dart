@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart' as sqflite;
 import 'package:sqflite/sqflite.dart'
     show ConflictAlgorithm, Database, DatabaseFactory, OpenDatabaseOptions;
 
+import '../backup/database_copy.dart';
 import 'conversation_file.dart';
 import 'person_store.dart';
 
@@ -319,6 +320,19 @@ class ConversationStore {
     }
     await batch.commit(noResult: true);
   }
+
+  /// A consistent copy at [dest], for the backup.
+  Future<bool> copyTo(String dest) async =>
+      copyDatabase(await _open(), _factory, dest);
+
+  /// Rows of a backed-up copy at [path] added here; a message already here
+  /// keeps what it has.
+  Future<int> mergeFrom(String path) async =>
+      mergeDatabase(await _open(), path);
+
+  /// Moves on an import, a merge, a delete or a thumbnail arriving.
+  Future<int> dataMark() async =>
+      tablesMark(await _open(), [_table], extra: {_table: 'length(thumb)'});
 
   /// Two people merged into one.
   Future<void> movePerson(String from, String to) async {

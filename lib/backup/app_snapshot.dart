@@ -1,12 +1,15 @@
+import 'dart:io';
 import 'dart:convert';
 
 import 'package:path/path.dart' as p;
 
 import '../photos/ai_analysis_store.dart';
+import '../photos/conversation_store.dart';
 import '../photos/person.dart';
 import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
 import '../photos/record_fixer.dart';
+import '../photos/words_store.dart';
 import '../storage/album_store.dart';
 import '../storage/note.dart';
 import '../viewer/built_in_album.dart';
@@ -15,6 +18,7 @@ import '../storage/asset_record_store.dart';
 import '../storage/membership_sweep.dart';
 import '../vault/passcode_tags.dart';
 import 'change_log.dart';
+import 'data_files.dart';
 
 /// Everything this app knows that isn't a photo.
 ///
@@ -55,6 +59,7 @@ class AppSnapshot {
     required this.albums,
     required this.people,
     this.vault = const {},
+    this.dataFiles = const [],
   });
 
   /// Bumped when the shape changes in a way an older build can't read.
@@ -72,6 +77,21 @@ class AppSnapshot {
   /// the passcode-tag key's escrow. Nothing here opens without a
   /// passphrase. Absent from snapshots written before it.
   final Map<String, Object?> vault;
+
+  /// Which blobs held the chats, writings and faces that day — read from
+  /// the zip's `data-files.json`, not from `library.json`, so builds that
+  /// never heard of it read the rest unchanged. Empty in older backups.
+  final List<DataFileEntry> dataFiles;
+
+  AppSnapshot withDataFiles(List<DataFileEntry> files) => AppSnapshot(
+    version: version,
+    exportedAt: exportedAt,
+    assets: assets,
+    albums: albums,
+    people: people,
+    vault: vault,
+    dataFiles: files,
+  );
 
   bool get isEmpty => assets.isEmpty && albums.isEmpty && people.isEmpty;
 
@@ -152,7 +172,39 @@ class AppSnapshotIo {
     required this.personStore,
     this.aiAnalysisStore,
     this.hasAsset,
+    this.conversationStore,
+    this.wordsStore,
+    this.supportDirectory,
   });
+
+  /// Chats and writings: outside `library.json`, backed up as blobs.
+  /// See `data_files.dart`.
+  final ConversationStore? conversationStore;
+  final WordsStore? wordsStore;
+
+  /// Where `words/media` is; overridable so a test never asks iOS.
+  final Future<Directory> Function()? supportDirectory;
+
+  late final DataFiles dataFiles = DataFiles(
+    conversations: conversationStore,
+    words: wordsStore,
+    analysis: aiAnalysisStore,
+    supportDirectory: supportDirectory,
+  );
+
+  /// The day's blobs, staged. The caller disposes the set.
+  Future<DataFileSet> collectDataFiles() async =>
+      dataFiles.collect(hiddenIds: await assetRecordStore.hiddenIds());
+
+  /// After a restore's rows: the chats, writings and faces its zip listed,
+  /// fetched through [fetch]. Never throws; returns how many came back.
+  Future<int> restoreDataFiles(AppSnapshot snapshot, BlobFetch fetch) async {
+    try {
+      return await dataFiles.restore(snapshot.dataFiles, fetch);
+    } catch (_) {
+      return 0;
+    }
+  }
 
   /// Whether Photos on this phone has an asset id (null: couldn't tell).
   /// Without it a restored row never takes over a scanned twin by shape.
@@ -181,6 +233,7 @@ class AppSnapshotIo {
     String directory,
     String lead, {
     bool slim = false,
+    bool withChats = true,
   }) async {
     final hidden = await assetRecordStore.hiddenIds();
     String at(String name) => p.join(directory, '$lead-$name.db');
@@ -189,6 +242,8 @@ class AppSnapshotIo {
       albumStore.copyTo(at('photo_albums'), hidden, slim: slim),
       personStore.copyTo(at('people'), hidden, slim: slim),
       ?aiAnalysisStore?.copyTo(at('ai_analysis'), hidden),
+      if (withChats) ?conversationStore?.copyTo(at('conversations')),
+      if (withChats) ?wordsStore?.copyTo(at('words')),
     ];
     var written = 0;
     for (final copy in copies) {
@@ -203,7 +258,9 @@ class AppSnapshotIo {
   Future<int> changeMark() async =>
       await assetRecordStore.changeMark() +
       await albumStore.changeMark() +
-      await personStore.changeMark();
+      await personStore.changeMark() +
+      // Chats, writings and faces keep no change log: their own marks.
+      await dataFiles.mark();
 
   /// The change log as it travels in the backup zip — one document, the
   /// three databases' logs side by side. Never replayed on restore; it

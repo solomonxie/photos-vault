@@ -34,6 +34,29 @@ class _FakeDrive implements ICloudDrive {
   @override
   Future<ICloudState> status() async => ICloudState.available;
 
+  /// Blobs by name, copied by bytes.
+  final blobs = <String, List<int>>{};
+
+  @override
+  Future<bool> putBlob(String name, String path) async {
+    blobs[name] ??= await File(path).readAsBytes();
+    return true;
+  }
+
+  @override
+  Future<bool> getBlob(String name, String path) async {
+    final bytes = blobs[name];
+    if (bytes == null) return false;
+    await File(path).writeAsBytes(bytes);
+    return true;
+  }
+
+  @override
+  Future<List<String>?> listBlobs() async => blobs.keys.toList();
+
+  @override
+  Future<bool> deleteBlob(String name) async => blobs.remove(name) != null;
+
   @override
   Future<bool> write(String name, String contents) async => false;
 

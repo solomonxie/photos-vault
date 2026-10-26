@@ -7,10 +7,12 @@ import '../settings/s3_backup_target.dart';
 import '../settings/s3_listing.dart';
 import '../storage/asset_record_store.dart';
 import '../upload/bucket_http.dart';
+import '../upload/bucket_ops.dart';
 import '../upload/s3_uploader.dart';
 import '../upload/signing.dart';
 import 'app_snapshot.dart';
 import 'backup_schedule.dart';
+import 'data_files.dart';
 import 'snapshot_archive.dart';
 import 'snapshot_index.dart';
 
@@ -24,12 +26,21 @@ import 'snapshot_index.dart';
 /// restored from the first that answers — newest day first, and falling
 /// back to the monthly zips and the `library.json` older builds wrote.
 ///
-/// **Nothing here is ever deleted.** Where iCloud prunes to ten because the
-/// user pays for that storage by the account, a bucket is already theirs
-/// and a few hundred kilobytes a day is the price of being able to ask what
-/// the library looked like in March. Write-only credentials are the common
-/// case and the right default anyway: a bucket this app cannot delete from
-/// cannot be wiped by a bug in this app.
+/// The chats, writings and faces go beside the zips as blobs,
+/// `app-data/blobs/<sha256>`, each sent once and never again while it is
+/// unchanged; the zip lists which ones it needs (see `data_files.dart`). A
+/// zip is only written once every blob it names is proven there by a live
+/// HEAD. Blobs are never deleted: they only grow when the data really
+/// changes.
+///
+/// **Thinned, never emptied.** Daily zips are kept for [keepDailyDays]
+/// days; older months keep their newest daily and lose the rest — "what
+/// did March look like" still has an answer, at a twelfth of the cost.
+/// Only exact `YYYYMMDD.zip` names are ever deleted, only after a complete
+/// live listing, only once that month's keeper answers a HEAD, and only on
+/// a run that wrote today's zip. Write-only credentials (the common case)
+/// make the delete fail, and thinning simply stops: nothing else depends on
+/// it.
 ///
 /// It is the second destination, not a replacement — both switches can be
 /// on, and having the copy in two places is the point of offering two.
@@ -49,7 +60,18 @@ class BucketBackup {
       String? continuationToken,
     })?
     list,
+    Future<bool> Function({
+      required String filePath,
+      required String key,
+      required S3BackupTarget target,
+    })?
+    putFile,
+    BucketOps? ops,
+    DateTime Function()? now,
   }) : _put = put ?? http.put,
+       _putFile = putFile ?? S3Uploader().put,
+       _ops = ops ?? BucketOps(),
+       _now = now ?? DateTime.now,
        _download =
            download ??
            (get != null ? fetchThroughGet(get) : S3Downloader().fetch),
@@ -77,6 +99,20 @@ class BucketBackup {
   /// temporary file first to hand a background upload a path would be work
   /// for nothing.
   final Future<http.Response> Function(Uri url, {Object? body}) _put;
+
+  /// Blobs go up from their file on the native background transfer —
+  /// a hundred megabytes of chats must not sit in memory or stop when the
+  /// app is backgrounded.
+  final Future<bool> Function({
+    required String filePath,
+    required String key,
+    required S3BackupTarget target,
+  })
+  _putFile;
+
+  /// HEADs, and the one guarded archive delete.
+  final BucketOps _ops;
+  final DateTime Function() _now;
 
   /// Archives come down to a file on the background transfer.
   final FetchToFile _download;
@@ -145,31 +181,123 @@ class BucketBackup {
     final targets = await targetsStore.loadAll();
     if (targets.isEmpty) return false;
     final built = payload ?? await SnapshotPayload.build(snapshots);
-    final body = built.zip;
-    final index = built.csv;
-    final name = dailyArchiveName(DateTime.now());
-    var wrote = false;
-    for (final target in targets) {
-      try {
-        final url = await presignPutUrl(
-          target: target,
-          key: keyFor(target, name),
-        );
-        final response = await bucketRequest(
-          _put(url, body: body),
-          timeout: putTimeout,
-        );
-        wrote = wrote || response.statusCode == 200;
-      } catch (_) {
-        // Unreachable bucket, expired credentials — the next one may work,
-        // and the copy in iCloud may already have it covered.
+    try {
+      // Missing the chats and writings, it would be the newest zip and
+      // restore as if they never existed. Tomorrow tries again.
+      if (!built.complete) return false;
+      final today = _now();
+      final name = dailyArchiveName(today);
+      var wrote = false;
+      for (final target in targets) {
+        if (!await _sendBlobs(target, built.files)) continue;
+        var ok = false;
+        try {
+          final url = await presignPutUrl(
+            target: target,
+            key: keyFor(target, name),
+          );
+          final response = await bucketRequest(
+            _put(url, body: built.zip),
+            timeout: putTimeout,
+          );
+          ok = response.statusCode == 200;
+        } catch (_) {
+          // Unreachable bucket, expired credentials — the next one may
+          // work, and the copy in iCloud may already have it covered.
+        }
+        await _writeIndex(target, built.csv);
+        if (!ok) continue;
+        wrote = true;
+        try {
+          await _thin(target, today);
+        } catch (_) {
+          // Thinning is housekeeping; the day's copy is already safe.
+        }
       }
-      await _writeIndex(target, index);
+      // Only after a bucket actually took it. Recorded before, a failed
+      // upload is remembered as done and the next day's gate skips for good.
+      if (wrote) await schedule.recordSuccess();
+      return wrote;
+    } finally {
+      if (payload == null) await built.dispose();
     }
-    // Only after a bucket actually took it. Recorded before, a failed
-    // upload is remembered as done and the next day's gate skips for good.
-    if (wrote) await schedule.recordSuccess();
-    return wrote;
+  }
+
+  /// Every blob [files] names, present in [target] — proven by a live HEAD,
+  /// sent from its file when it isn't. False if any one can't be: the zip
+  /// naming them must not go up without them.
+  Future<bool> _sendBlobs(S3BackupTarget target, DataFileSet? files) async {
+    if (files == null) return true;
+    final sent = <String>{};
+    for (final entry in files.entries) {
+      if (!sent.add(entry.sha256)) continue;
+      final key = keyFor(target, '$blobFolder/${entry.sha256}');
+      final there = await _ops.head(target, key);
+      if (there.state == Probe.unknown) return false;
+      if (there.isPresent && (there.size ?? entry.bytes) == entry.bytes) {
+        continue;
+      }
+      final path = files.files[entry.sha256];
+      if (path == null) return false;
+      if (!await _putFile(filePath: path, key: key, target: target)) {
+        return false;
+      }
+      if (!(await _ops.head(target, key)).isPresent) return false;
+    }
+    return true;
+  }
+
+  /// The blobs' folder under `app-data/`.
+  static const blobFolder = 'blobs';
+
+  /// Days of dailies kept whole before a month is thinned to one.
+  static const keepDailyDays = 30;
+
+  /// Most deletions in one run: a first run over years of dailies spreads
+  /// out over a few days rather than firing thousands of DELETEs at once.
+  static const maxDeletesPerRun = 200;
+
+  /// See the class comment. Lists afresh, all pages, and plans from that
+  /// alone; a page that doesn't answer deletes nothing.
+  Future<void> _thin(S3BackupTarget target, DateTime today) async {
+    final names = <String>[];
+    String? token;
+    var page = 0;
+    do {
+      if (page++ >= maxListingPages) return;
+      final listing = await _list(
+        target: target,
+        // Dailies all start with the year; blobs/ and index.csv don't, so
+        // the listing stays the size of the archives.
+        prefix: keyFor(target, '2'),
+        continuationToken: token,
+      );
+      if (listing.outcome != S3ListingOutcome.ok || listing.page == null) {
+        return;
+      }
+      names.addAll(listing.page!.objects.map((o) => o.key.split('/').last));
+      token = listing.page!.nextToken;
+    } while (token != null);
+    final todays = dailyArchiveName(today);
+    if (!names.contains(todays)) return;
+    var deleted = 0;
+    for (final (doomed, keeper) in thinningPlan(names, today)) {
+      if (deleted >= maxDeletesPerRun) return;
+      final outcome = await _ops.deleteOldArchive(
+        target,
+        keyFor(target, doomed),
+        keeperKey: keyFor(target, keeper),
+      );
+      switch (outcome) {
+        case ArchiveDelete.deleted:
+          deleted++;
+        case ArchiveDelete.refused:
+          continue;
+        case ArchiveDelete.failed:
+          // Write-only credentials, most likely: stop for this bucket.
+          return;
+      }
+    }
   }
 
   /// The readable index, loose in `app-data/` rather than only inside the
@@ -206,13 +334,25 @@ class BucketBackup {
   Future<bool> backUpBeforeDeletion() async {
     final targets = await targetsStore.loadAll();
     if (targets.isEmpty) return false;
-    final body = zipSnapshot(
-      await snapshots.export(),
-      changeLog: await snapshots.changeLog(),
-    );
-    final name = preDeletionArchiveName(DateTime.now());
+    final built = await SnapshotPayload.build(snapshots);
+    try {
+      return await _writeBeforeDeletion(targets, built);
+    } finally {
+      await built.dispose();
+    }
+  }
+
+  Future<bool> _writeBeforeDeletion(
+    List<S3BackupTarget> targets,
+    SnapshotPayload built,
+  ) async {
+    final body = built.zip;
+    final name = preDeletionArchiveName(_now());
     var wrote = false;
     for (final target in targets) {
+      // The final copy still goes up without its blobs if they can't: the
+      // rows are what a wipe destroys first.
+      await _sendBlobs(target, built.files);
       try {
         final url = await presignPutUrl(
           target: target,
@@ -268,6 +408,7 @@ class BucketBackup {
 
   Future<int> restoreFrom(AppSnapshot snapshot) async {
     final restored = await snapshots.import(snapshot);
+    await snapshots.restoreDataFiles(snapshot, fetchBlob);
     await markRestored();
     // Switched on for whoever restored: they plainly want the copy kept,
     // and asking again asks a question already answered.
@@ -337,6 +478,24 @@ class BucketBackup {
     return snapshot == null || snapshot.isEmpty
         ? null
         : RestoreCandidate(snapshot);
+  }
+
+  /// A blob from the first bucket that has it. Also what a restore from a
+  /// file picked by hand fetches through: the file is the zip, the blobs it
+  /// lists are here.
+  Future<bool> fetchBlob(String sha256, String toPath) async {
+    if (!isBlobName(sha256)) return false;
+    for (final target in await targetsStore.loadAll()) {
+      try {
+        final got = await _download(
+          target,
+          keyFor(target, '$blobFolder/$sha256'),
+          toPath,
+        );
+        if (got.saved) return true;
+      } catch (_) {}
+    }
+    return false;
   }
 
   /// Ten thousand objects of `app-data/`: decades of dailies.

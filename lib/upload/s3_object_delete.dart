@@ -9,8 +9,8 @@ import 'bucket_http.dart';
 /// Deletes one object from the bucket — signed `DELETE`, same credentials
 /// and signing as every other call this app makes.
 ///
-/// Only ever called by `BucketOps.rawDelete`, behind `deleteGuarded`'s
-/// checks. Nothing else in the app may call it.
+/// Only ever called by `BucketOps.rawDelete`, behind `deleteGuarded`'s or
+/// `deleteOldArchive`'s checks. Nothing else in the app may call it.
 ///
 /// Returns whether the object is gone, which includes it never having been
 /// there: S3 answers a delete for a missing key with `204` anyway, and a

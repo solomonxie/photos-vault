@@ -17,6 +17,7 @@ import '../l10n/app_localizations.dart';
 import '../demo/demo_flag.dart';
 import '../demo/demo_mode.dart';
 import '../photos/conversation_store.dart';
+import '../photos/words_store.dart';
 import '../photos/derived_asset.dart';
 import '../photos/flag_scan.dart';
 import '../photos/asset_removal.dart';
@@ -286,6 +287,8 @@ class LibraryScreenState extends State<LibraryScreen>
     personStore: _personStore,
     aiAnalysisStore: _aiAnalysisStore,
     hasAsset: (id) => _photoLibraryService.hasAsset(id),
+    conversationStore: ConversationStore(),
+    wordsStore: WordsStore(),
   );
 
   late final PauseBackup _pauseBackup = PauseBackup(

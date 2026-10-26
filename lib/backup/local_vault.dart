@@ -179,7 +179,12 @@ class LocalVault {
     if (!await _writeZip(name)) return null;
     // The raw copies take the same shape, with the database's own name
     // where the app's goes: `20260918-143210-pre-deletion-asset_record.db`.
-    await _copyDatabases(prefix: '${archiveStamp(_now())}-$label');
+    await _copyDatabases(
+      prefix: '${archiveStamp(_now())}-$label',
+      // Chats and writings are a hundred megabytes and more; worth a copy
+      // before the one operation that deletes them, not before every import.
+      withChats: label == 'pre-deletion',
+    );
     return File(p.join((await _documentsDirectory()).path, name));
   }
 
@@ -188,7 +193,9 @@ class LocalVault {
   /// importable, and a file imported from anywhere restorable.
   Future<bool> _writeZip(String name, {SnapshotPayload? payload}) async {
     try {
-      final bytes = (payload ?? await SnapshotPayload.build(snapshots)).zip;
+      final bytes =
+          (payload ?? await SnapshotPayload.build(snapshots, dataFiles: false))
+              .zip;
       final directory = await _documentsDirectory();
       await directory.create(recursive: true);
       await File(p.join(directory.path, name)).writeAsBytes(bytes, flush: true);
@@ -203,7 +210,7 @@ class LocalVault {
 
   /// The raw files, checkpointed first so the copy isn't missing the writes
   /// still sitting in the `-wal` sidecar.
-  Future<void> _copyDatabases({String? prefix}) async {
+  Future<void> _copyDatabases({String? prefix, bool withChats = true}) async {
     try {
       final directory = Directory(
         p.join((await _supportDirectory()).path, databaseCopyDirectory),
@@ -220,7 +227,12 @@ class LocalVault {
       // On the databases' own connections, which wait the second or two a
       // compact copy takes; once a day and before bulk operations only.
       // The daily one slim; a pre-deletion copy keeps everything.
-      await snapshots.copyDatabases(directory.path, lead, slim: prefix == null);
+      await snapshots.copyDatabases(
+        directory.path,
+        lead,
+        slim: prefix == null,
+        withChats: withChats,
+      );
     } catch (_) {
       // Same as the zip: unattended, and the zip already went out.
     }

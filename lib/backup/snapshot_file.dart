@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import 'app_snapshot.dart';
+import 'data_files.dart';
 import 'local_vault.dart';
 import 'snapshot_archive.dart';
 
@@ -27,11 +28,17 @@ class SnapshotFile {
     Future<List<PlatformFile>> Function({FileType type, bool allowMultiple})?
     picker,
     DateTime Function()? now,
+    this.fetchBlob,
   }) : _outboxDirectory = outboxDirectory ?? getTemporaryDirectory,
        _picker = picker ?? FilePicker.pickFiles,
        _now = now ?? DateTime.now;
 
   final AppSnapshotIo snapshots;
+
+  /// Where the blobs a picked zip lists are fetched from — iCloud, then the
+  /// buckets. The file holds the rows; the chats and writings it names are
+  /// up there. Null: rows only.
+  final BlobFetch? fetchBlob;
 
   /// Where the before-restore copy is taken. An import is exactly the
   /// "large operation" `LocalVault.guard` exists for.
@@ -106,6 +113,10 @@ class SnapshotFile {
   /// `settings_screen.dart`.
   Future<int> restore(AppSnapshot snapshot) async {
     await vault.guard('restore');
-    return snapshots.import(snapshot);
+    final restored = await snapshots.import(snapshot);
+    if (fetchBlob case final fetch?) {
+      await snapshots.restoreDataFiles(snapshot, fetch);
+    }
+    return restored;
   }
 }

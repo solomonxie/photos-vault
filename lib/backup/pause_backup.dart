@@ -71,15 +71,24 @@ class PauseBackup {
     if (!vaultDue && !icloudDue && !bucketDue) return;
     final SnapshotPayload payload;
     try {
-      payload = await SnapshotPayload.build(snapshots);
+      // Rows only when the phone's copy is all that's owed: the blobs are
+      // a hundred megabytes of copying for destinations not going today.
+      payload = await SnapshotPayload.build(
+        snapshots,
+        dataFiles: icloudDue || bucketDue,
+      );
     } catch (_) {
       return;
     }
-    await Future.wait([
-      if (vaultDue) _quietly(() => vault.copyNow(payload: payload)),
-      if (icloudDue) _quietly(() => icloud.backUpNow(payload: payload)),
-      if (bucketDue) _quietly(() => bucket.backUpNow(payload: payload)),
-    ]);
+    try {
+      await Future.wait([
+        if (vaultDue) _quietly(() => vault.copyNow(payload: payload)),
+        if (icloudDue) _quietly(() => icloud.backUpNow(payload: payload)),
+        if (bucketDue) _quietly(() => bucket.backUpNow(payload: payload)),
+      ]);
+    } finally {
+      await payload.dispose();
+    }
   }
 
   static Future<bool> _ask(Future<bool> Function() question) async {

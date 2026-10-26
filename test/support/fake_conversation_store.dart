@@ -6,6 +6,15 @@ class FakeConversationStore implements ConversationStore {
   final rows = <String, (String, ConversationMessage)>{};
   final pending = <String>{};
 
+  @override
+  Future<bool> copyTo(String dest) async => false;
+
+  @override
+  Future<int> mergeFrom(String path) async => 0;
+
+  @override
+  Future<int> dataMark() async => rows.length;
+
   List<ConversationMessage> _of(String personId) =>
       [
         for (final (id, m) in rows.values)

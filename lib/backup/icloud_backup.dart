@@ -4,6 +4,7 @@ import 'dart:typed_data';
 import '../storage/asset_record_store.dart';
 import 'app_snapshot.dart';
 import 'backup_schedule.dart';
+import 'data_files.dart';
 import 'icloud_drive.dart';
 import 'snapshot_archive.dart';
 import 'snapshot_index.dart';
@@ -28,7 +29,7 @@ import 'snapshot_index.dart';
 /// count rather than an age, because here the user pays for the storage
 /// and a count is what bounds the bill — the opposite of `LocalVault`,
 /// where age is what keeps the promise legible. Depth beyond ten days is
-/// the bucket's job: it never deletes anything.
+/// the bucket's job: a month of dailies, then one a month.
 ///
 /// The restore reads the newest zip, and falls back to a `202609.zip` or
 /// the `library.json` older builds wrote, so an upgrade never loses the
@@ -95,6 +96,31 @@ class ICloudBackup {
   Future<bool> backUpNow({SnapshotPayload? payload}) async {
     if (await drive.status() != ICloudState.available) return false;
     final built = payload ?? await SnapshotPayload.build(snapshots);
+    try {
+      return await _write(built);
+    } finally {
+      if (payload == null) await built.dispose();
+    }
+  }
+
+  /// Every blob first, then the zip naming them: a zip whose blobs never
+  /// arrived would be the newest copy and restore without the chats.
+  Future<bool> _sendBlobs(DataFileSet? files) async {
+    if (files == null) return true;
+    final sent = <String>{};
+    for (final entry in files.entries) {
+      if (!sent.add(entry.sha256)) continue;
+      final path = files.files[entry.sha256];
+      if (path == null || !await drive.putBlob(entry.sha256, path)) {
+        return false;
+      }
+    }
+    return true;
+  }
+
+  Future<bool> _write(SnapshotPayload built) async {
+    if (!built.complete) return false;
+    if (!await _sendBlobs(built.files)) return false;
     final wrote = await drive.writeBytes(
       dailyArchiveName(DateTime.now()),
       built.zip,
@@ -110,20 +136,55 @@ class ICloudBackup {
     );
     await schedule.recordSuccess();
     await _pruneOldCopies();
+    try {
+      await _dropUnusedBlobs(built.files, dailyArchiveName(DateTime.now()));
+    } catch (_) {
+      // Housekeeping; tomorrow's run looks again.
+    }
     return true;
+  }
+
+  /// Deletes blobs no kept archive names — the folder is the user's paid
+  /// storage. Only after every kept archive's list was actually read: one
+  /// unreadable zip, or a blob listing that didn't come back, and nothing
+  /// is deleted.
+  Future<void> _dropUnusedBlobs(DataFileSet? today, String todays) async {
+    final blobs = await drive.listBlobs();
+    if (blobs == null || blobs.isEmpty) return;
+    final listed = await drive.list();
+    // An unreadable folder lists as empty; the zip just written must be in
+    // it, or this listing proves nothing about what the others reference.
+    if (!listed.contains(todays)) return;
+    final used = <String>{...?today?.entries.map((e) => e.sha256)};
+    for (final name in listed.where(isSnapshotArchiveName)) {
+      final bytes = await drive.readBytes(name);
+      if (bytes == null) return;
+      final files = dataFilesIn(bytes);
+      if (files == null) return;
+      used.addAll(files.map((e) => e.sha256));
+    }
+    for (final blob in blobs) {
+      if (isBlobName(blob) && !used.contains(blob)) {
+        await drive.deleteBlob(blob);
+      }
+    }
   }
 
   /// A final archive that is intentionally never replaced by the normal
   /// daily snapshot after the library has been emptied.
   Future<bool> backUpBeforeDeletion() async {
     if (await drive.status() != ICloudState.available) return false;
-    return await drive.writeBytes(
-      preDeletionArchiveName(DateTime.now()),
-      zipSnapshot(
-        await snapshots.export(),
-        changeLog: await snapshots.changeLog(),
-      ),
-    );
+    final built = await SnapshotPayload.build(snapshots);
+    try {
+      // Still written if the blobs can't be: a wipe takes the rows first.
+      await _sendBlobs(built.files);
+      return await drive.writeBytes(
+        preDeletionArchiveName(DateTime.now()),
+        built.zip,
+      );
+    } finally {
+      await built.dispose();
+    }
   }
 
   /// Backs up only if switched on, and only when it's owed — what every
@@ -199,12 +260,17 @@ class ICloudBackup {
 
   Future<int> restoreFrom(AppSnapshot snapshot) async {
     final restored = await snapshots.import(snapshot);
+    await snapshots.restoreDataFiles(snapshot, fetchBlob);
     await markRestored();
     // Switched on for whoever restored: they plainly want the copy kept,
     // and asking again is asking a question already answered.
     await settings.setAppState(enabledKey, 'true');
     return restored;
   }
+
+  /// A blob from this folder, copied out to [toPath].
+  Future<bool> fetchBlob(String sha256, String toPath) =>
+      isBlobName(sha256) ? drive.getBlob(sha256, toPath) : Future.value(false);
 
   Future<void> markRestored() =>
       settings.setAppState(restoredKey, DateTime.now().toIso8601String());

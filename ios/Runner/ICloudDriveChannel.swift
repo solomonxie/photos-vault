@@ -83,6 +83,42 @@ class ICloudDriveChannel {
         return
       }
       result(delete(name: name))
+    case "putBlob":
+      guard let arguments = call.arguments as? [String: Any],
+            let name = arguments["name"] as? String,
+            let path = arguments["path"] as? String
+      else {
+        result(false)
+        return
+      }
+      DispatchQueue.global(qos: .utility).async {
+        let ok = putBlob(name: name, from: URL(fileURLWithPath: path))
+        DispatchQueue.main.async { result(ok) }
+      }
+    case "getBlob":
+      guard let arguments = call.arguments as? [String: Any],
+            let name = arguments["name"] as? String,
+            let path = arguments["path"] as? String
+      else {
+        result(false)
+        return
+      }
+      DispatchQueue.global(qos: .utility).async {
+        let ok = getBlob(name: name, to: URL(fileURLWithPath: path))
+        DispatchQueue.main.async { result(ok) }
+      }
+    case "listBlobs":
+      // nil, not [], when the folder can't be read: garbage collection
+      // must never mistake "couldn't look" for "nothing there".
+      result(listBlobs())
+    case "deleteBlob":
+      guard let arguments = call.arguments as? [String: Any],
+            let name = arguments["name"] as? String
+      else {
+        result(false)
+        return
+      }
+      result(deleteBlob(name: name))
     case "beginBackgroundTask":
       DispatchQueue.main.async { result(beginTask()) }
     case "endBackgroundTask":
@@ -240,6 +276,90 @@ class ICloudDriveChannel {
       )
       return (try? FileManager.default.removeItem(at: placeholder)) != nil
     }
+  }
+
+  // MARK: - Blobs
+
+  /// `blobs/<sha256>`: the chats, writings and faces, each once. Names are
+  /// checked to be exactly 64 hex digits, so nothing reaches outside it.
+  private static func blobURL(_ name: String) -> URL? {
+    guard name.count == 64,
+          name.allSatisfy({ "0123456789abcdef".contains($0) }),
+          let root = containerURL()
+    else { return nil }
+    return root.appendingPathComponent("blobs", isDirectory: true)
+      .appendingPathComponent(name)
+  }
+
+  /// Copied in from a file, coordinated, replacing nothing that's there:
+  /// a blob's name is its content, so one already present is the same bytes.
+  private static func putBlob(name: String, from source: URL) -> Bool {
+    guard let file = blobURL(name) else { return false }
+    let manager = FileManager.default
+    if manager.fileExists(atPath: file.path) { return true }
+    do {
+      try manager.createDirectory(
+        at: file.deletingLastPathComponent(),
+        withIntermediateDirectories: true
+      )
+    } catch {
+      return false
+    }
+    var ok = false
+    var error: NSError?
+    NSFileCoordinator(filePresenter: nil).coordinate(
+      writingItemAt: file, options: .forReplacing, error: &error
+    ) { url in
+      let temp = url.deletingLastPathComponent()
+        .appendingPathComponent(".\(name).part")
+      try? manager.removeItem(at: temp)
+      do {
+        try manager.copyItem(at: source, to: temp)
+        try manager.moveItem(at: temp, to: url)
+        ok = true
+      } catch {
+        try? manager.removeItem(at: temp)
+      }
+    }
+    return ok && error == nil
+  }
+
+  /// Copied out to [destination], waiting for iCloud to bring it down.
+  private static func getBlob(name: String, to destination: URL) -> Bool {
+    guard let file = blobURL(name) else { return false }
+    try? FileManager.default.startDownloadingUbiquitousItem(at: file)
+    let coordinator = NSFileCoordinator(filePresenter: nil)
+    DispatchQueue.global(qos: .utility).asyncAfter(deadline: .now() + 300) {
+      coordinator.cancel()
+    }
+    var ok = false
+    var error: NSError?
+    coordinator.coordinate(readingItemAt: file, options: [], error: &error) {
+      url in
+      try? FileManager.default.removeItem(at: destination)
+      ok = (try? FileManager.default.copyItem(at: url, to: destination)) != nil
+    }
+    return ok
+  }
+
+  private static func listBlobs() -> [String]? {
+    guard let root = containerURL() else { return nil }
+    let folder = root.appendingPathComponent("blobs", isDirectory: true)
+    if !FileManager.default.fileExists(atPath: folder.path) { return [] }
+    guard let files = try? FileManager.default.contentsOfDirectory(
+      at: folder, includingPropertiesForKeys: nil
+    ) else { return nil }
+    return Set(files.map { itemName($0.lastPathComponent) })
+      .filter { $0.count == 64 }
+      .sorted()
+  }
+
+  private static func deleteBlob(name: String) -> Bool {
+    guard let file = blobURL(name) else { return false }
+    if (try? FileManager.default.removeItem(at: file)) != nil { return true }
+    let placeholder = file.deletingLastPathComponent()
+      .appendingPathComponent("." + name + ".icloud")
+    return (try? FileManager.default.removeItem(at: placeholder)) != nil
   }
 
   /// The newest snapshot of the given kind. Names sort by date — the app

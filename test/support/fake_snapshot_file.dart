@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:photos_vault/backup/app_snapshot.dart';
+import 'package:photos_vault/backup/data_files.dart';
 import 'package:photos_vault/backup/local_vault.dart';
 import 'package:photos_vault/backup/snapshot_file.dart';
 
@@ -16,6 +17,9 @@ class FakeSnapshotFile implements SnapshotFile {
 
   @override
   final LocalVault vault;
+
+  @override
+  BlobFetch? get fetchBlob => null;
 
   /// What the picker hands back. `null` stands for both a cancelled pick
   /// and a file that isn't one of ours — which the screen treats alike.

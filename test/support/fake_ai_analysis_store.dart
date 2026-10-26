@@ -16,6 +16,12 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   Future<void> close() async {}
 
   @override
+  Future<int> dataMark() async => _analyses.length + _faces.length;
+
+  @override
+  Future<int> mergeFrom(String path) async => 0;
+
+  @override
   Future<void> save(AiPhotoAnalysis analysis) async =>
       _analyses[analysis.localId] = analysis;
 

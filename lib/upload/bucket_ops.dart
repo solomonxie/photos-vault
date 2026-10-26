@@ -252,11 +252,55 @@ class BucketOps {
     return DeleteOutcome.deleted;
   }
 
-  /// The DELETE itself. Only [deleteGuarded] calls it.
+  /// Removes one old daily app-data archive — `<prefix>app-data/YYYYMMDD.zip`
+  /// and no other shape of key — once [keeperKey], the archive kept for the
+  /// same month, is proven live. Anything unanswered keeps both.
+  ///
+  /// Separate from [deleteGuarded] because these are not photos: no record
+  /// names them and none is a carrier. What makes it safe is the shape check
+  /// and the live keeper.
+  Future<ArchiveDelete> deleteOldArchive(
+    S3BackupTarget target,
+    String key, {
+    required String keeperKey,
+  }) async {
+    if (!isDailyArchiveKey(target, key) ||
+        !isDailyArchiveKey(target, keeperKey) ||
+        key == keeperKey) {
+      return ArchiveDelete.refused;
+    }
+    final kept = await head(target, keeperKey);
+    if (!kept.isPresent) return ArchiveDelete.refused;
+    final doomed = await head(target, key);
+    switch (doomed.state) {
+      case Probe.absent:
+        return ArchiveDelete.deleted;
+      case Probe.unknown:
+        return ArchiveDelete.refused;
+      case Probe.present:
+    }
+    return await rawDelete(target, key)
+        ? ArchiveDelete.deleted
+        : ArchiveDelete.failed;
+  }
+
+  /// The DELETE itself. Only [deleteGuarded] and [deleteOldArchive] call it.
   @protected
   @visibleForOverriding
   Future<bool> rawDelete(S3BackupTarget target, String key) =>
       deleteObject(target: target, key: key, client: _client);
+}
+
+enum ArchiveDelete { deleted, refused, failed }
+
+/// `<prefix>app-data/YYYYMMDD.zip` in [target], exactly.
+bool isDailyArchiveKey(S3BackupTarget target, String key) {
+  final prefix = target.prefix.isEmpty || target.prefix.endsWith('/')
+      ? target.prefix
+      : '${target.prefix}/';
+  final folder = '${prefix}app-data/';
+  return key.startsWith(folder) &&
+      RegExp(r'^\d{8}\.zip$').hasMatch(key.substring(folder.length));
 }
 
 bool isVideoKey(String key) {
