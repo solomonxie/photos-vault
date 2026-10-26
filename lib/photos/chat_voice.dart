@@ -81,7 +81,11 @@ class VoicePlayer {
   /// couldn't be played.
   Future<Duration?> play(String name) async {
     try {
-      final file = await chatVoice.fileFor(name);
+      // Not imported yet (an import's preview): its staged copy.
+      var file = await chatVoice.fileFor(name);
+      if (!await file.exists()) {
+        file = File(p.join((await chatVoice.staging()).path, name));
+      }
       final seconds = await _channel.invokeMethod<double>('play', file.path);
       playing.value = name;
       return seconds == null

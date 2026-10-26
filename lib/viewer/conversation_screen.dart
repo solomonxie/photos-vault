@@ -193,7 +193,7 @@ class _ConversationScreenState extends State<ConversationScreen> {
             children: [
               if (m.thumb case final thumb?) _thumb(thumb),
               if (m.voice case final voice?)
-                _VoiceClip(name: voice, length: m.voiceMs)
+                VoiceClipButton(name: voice, length: m.voiceMs)
               else if (m.text.isNotEmpty || m.thumb == null)
                 Text(
                   _body(l10n, m),
@@ -331,8 +331,8 @@ class _FullImageState extends State<_FullImage> {
 }
 
 /// Play / stop and the clip's length; one plays at a time.
-class _VoiceClip extends StatelessWidget {
-  const _VoiceClip({required this.name, this.length});
+class VoiceClipButton extends StatelessWidget {
+  const VoiceClipButton({super.key, required this.name, this.length});
 
   final String name;
   final int? length;
