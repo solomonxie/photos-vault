@@ -11,6 +11,7 @@ import '../backup/change_log.dart';
 import '../backup/database_copy.dart';
 import '../storage/after_first_frame.dart';
 import '../vault/keys.dart' show AlbumKeys;
+import 'known_names.dart';
 import 'person.dart';
 import 'person_detail.dart';
 
@@ -62,6 +63,9 @@ class PersonStore {
   /// Ids merged into a person. Hidden folders are keyed by person id, so
   /// a merged-away id is how theirs are still found.
   static const _aliasTable = 'person_alias';
+
+  /// Names and handles imports knew someone by. See [KnownAs].
+  static const _knownTable = 'person_known_as';
 
   /// Photo memberships whose person no longer exists.
   Future<void> dropMembersOfMissingPeople() async {
@@ -254,6 +258,11 @@ class PersonStore {
       'CREATE TABLE IF NOT EXISTS $_aliasTable '
       '(alias_id TEXT PRIMARY KEY, person_id TEXT NOT NULL)',
     );
+    await db.execute(
+      'CREATE TABLE IF NOT EXISTS $_knownTable (person_id TEXT NOT NULL, '
+      'kind TEXT NOT NULL, key TEXT NOT NULL, value TEXT NOT NULL, '
+      'added_at INTEGER NOT NULL, PRIMARY KEY (person_id, kind, key))',
+    );
     await _installPersonChanges(db);
     await installChangeLog(
       db,
@@ -266,6 +275,7 @@ class PersonStore {
         _detailTable,
         _eventTable,
         _groupTable,
+        _knownTable,
       ],
       private: {
         for (final table in [_personTable, ..._sealedTables])
@@ -829,6 +839,7 @@ class PersonStore {
       ..delete(_locationTable)
       ..delete(_historyTable)
       ..delete(_personTable)
+      ..delete(_knownTable)
       ..delete(changeLogTable);
     await batch.commit(noResult: true);
   }
@@ -1031,6 +1042,7 @@ class PersonStore {
       );
       await txn.delete(_personTable, where: 'id = ?', whereArgs: [id]);
       await txn.delete(_aliasTable, where: 'person_id = ?', whereArgs: [id]);
+      await txn.delete(_knownTable, where: 'person_id = ?', whereArgs: [id]);
       await txn.delete(_changeTable, where: 'person_id = ?', whereArgs: [id]);
     });
   }
@@ -1106,6 +1118,91 @@ class PersonStore {
     }
     await batch.commit(noResult: true);
   }
+
+  /// Remembers what imports called people, so the next one matches them
+  /// without asking. Names equal to the person's own are left out; one
+  /// already known is kept as it was. One batch.
+  Future<void> rememberKnownAs(Iterable<KnownAs> known) async {
+    final list = known.where((k) => k.key.isNotEmpty).toList();
+    if (list.isEmpty) return;
+    final db = await _open();
+    final ids = {for (final k in list) k.personId}.toList();
+    final names = {
+      for (final r in await db.query(
+        _personTable,
+        columns: ['id', 'name'],
+        where: 'id IN (${List.filled(ids.length, '?').join(',')})',
+        whereArgs: ids,
+      ))
+        r['id'] as String: nameKey(r['name'] as String),
+    };
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final batch = db.batch();
+    for (final k in list) {
+      final own = names[k.personId];
+      if (own == null) continue;
+      if (k.kind == KnownAs.name && k.key == own) continue;
+      batch.insert(_knownTable, {
+        'person_id': k.personId,
+        'kind': k.kind,
+        'key': k.key,
+        'value': k.value.trim(),
+        'added_at': now,
+      }, conflictAlgorithm: sqflite.ConflictAlgorithm.ignore);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Every remembered name and handle, oldest first.
+  Future<List<KnownAs>> allKnownAs() async {
+    final db = await _open();
+    return [
+      for (final r in await db.query(_knownTable, orderBy: 'added_at, rowid'))
+        KnownAs(
+          personId: r['person_id'] as String,
+          kind: r['kind'] as String,
+          value: r['value'] as String,
+        ),
+    ];
+  }
+
+  Future<List<KnownAs>> knownAsOf(String personId) async {
+    final db = await _open();
+    return [
+      for (final r in await db.query(
+        _knownTable,
+        where: 'person_id = ?',
+        whereArgs: [personId],
+        orderBy: 'added_at, rowid',
+      ))
+        KnownAs(
+          personId: personId,
+          kind: r['kind'] as String,
+          value: r['value'] as String,
+        ),
+    ];
+  }
+
+  Future<void> forgetKnownAs(KnownAs known) async {
+    final db = await _open();
+    await db.delete(
+      _knownTable,
+      where: 'person_id = ? AND kind = ? AND key = ?',
+      whereArgs: [known.personId, known.kind, known.key],
+    );
+  }
+
+  /// One read for an import: remembered names and handles, and the names
+  /// people went by before a rename or merge.
+  Future<KnownNames> knownNames(
+    List<Person> people, {
+    Map<String, Set<String>> handles = const {},
+  }) async => KnownNames(
+    people,
+    known: await allKnownAs(),
+    former: await allFormerNames(),
+    handles: handles,
+  );
 
   /// The `source` of each person's "imported" lines so far.
   Future<Map<String, Set<String>>> importedSources() async {
@@ -1307,6 +1404,15 @@ class PersonStore {
         'alias_id': goneId,
         'person_id': keepId,
       }, conflictAlgorithm: sqflite.ConflictAlgorithm.replace);
+      await txn.rawUpdate(
+        'UPDATE OR IGNORE $_knownTable SET person_id = ? WHERE person_id = ?',
+        [keepId, goneId],
+      );
+      await txn.delete(
+        _knownTable,
+        where: 'person_id = ?',
+        whereArgs: [goneId],
+      );
       await txn.delete(
         _relationshipTable,
         where: 'person_id = ? OR related_person_id = ?',

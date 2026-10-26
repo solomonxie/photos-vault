@@ -8,6 +8,7 @@ import 'package:path_provider/path_provider.dart';
 import '../l10n/app_localizations.dart';
 import '../l10n/failure_text.dart';
 import '../photos/people_zip.dart';
+import '../photos/known_names.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/profile_transfer.dart';
@@ -57,8 +58,10 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
   /// Who each row might be, for its name as it stands.
   final Map<PeopleZipPick, List<Person>> _candidates = {};
 
-  List<Person> _candidatesOf(PeopleZipPick pick) =>
-      _candidates[pick] ??= importCandidates(pick.displayName, _people);
+  List<Person> _candidatesOf(PeopleZipPick pick) => _candidates[pick] ??=
+      importCandidates(pick.displayName, _people, known: _known);
+
+  KnownNames _known = KnownNames.none;
 
   /// Rows merged into their one same-name person by default, not by a
   /// tap: orange until the user says otherwise.
@@ -73,6 +76,13 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
   }
 
   void _defaultMerge(PeopleZipPick pick) {
+    // Who an earlier import or a rename says they are: theirs, no asking.
+    if (pick.name == null) {
+      if (_known.remembered(pick.person.name) case final p?) {
+        pick.target ??= PersonTarget(p.id);
+        return;
+      }
+    }
     final only = _onlySame(pick);
     if (only == null) return;
     pick.target ??= PersonTarget(only.id);
@@ -177,6 +187,7 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
         unawaited(FilePicker.clearTemporaryFiles().catchError((_) {}));
       }
       final people = await widget.personStore.listAll();
+      final known = await widget.personStore.knownNames(people);
       if (!mounted) {
         await zip.discard();
         return;
@@ -184,6 +195,7 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
       setState(() {
         _zip = zip;
         _people = people;
+        _known = known;
         _candidates.clear();
         _defaulted.clear();
         _picks = [for (final person in zip.people) PeopleZipPick(person)];
@@ -261,6 +273,13 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
     PeopleZipResult result;
     try {
       _profiles = await _importer.writeProfiles(_rows);
+      // The zip's own name for them, known next time. Not for anyone
+      // going behind a passcode.
+      await widget.personStore.rememberKnownAs([
+        for (final pick in _rows)
+          if (pick.personId case final id? when pick.include && !pick.hide)
+            KnownAs(personId: id, kind: KnownAs.name, value: pick.person.name),
+      ]);
       result = await _importer.run(
         _rows,
         code: code,

@@ -5,6 +5,7 @@ import '../storage/asset_record_store.dart';
 import 'ai_analysis_store.dart';
 import 'face_analyzer.dart';
 import 'face_file.dart';
+import 'known_names.dart';
 import 'person.dart';
 import 'person_store.dart';
 import 'profile_transfer.dart' show PersonMatches;
@@ -180,11 +181,12 @@ FaceImportPlan planFaceImport({
   required Map<String, ({List<FaceRect> faces, bool legacy})> rows,
   required Map<String, Map<FaceRect, String>> named,
   required List<Person> people,
+  KnownNames? known,
   Map<String, FaceFileGroup> groups = const {},
   int unknown = 0,
   int unreadable = 0,
 }) {
-  final matches = PersonMatches(people);
+  final matches = PersonMatches(people, known: known);
   final names = {for (final person in people) person.id: person.name};
   final links = <FaceImportLink>[];
   final grouped = <FaceImportGroupFace>[];
@@ -307,6 +309,7 @@ class FaceImport {
     );
     final ids = resolved.photos.keys.toList();
     final records = await assetRecordStore.getByLocalIds(ids);
+    final people = await personStore.listAll();
     return planFaceImport(
       photos: resolved.photos,
       visible: {
@@ -315,7 +318,8 @@ class FaceImport {
       },
       rows: await analysisStore.faceRowsOf(ids),
       named: await analysisStore.namedFacesOf(ids),
-      people: await personStore.listAll(),
+      people: people,
+      known: await personStore.knownNames(people),
       groups: file.groups,
       unknown: resolved.unknown,
       unreadable: file.unreadable,
@@ -344,7 +348,10 @@ class FaceImport {
     };
     final people = await personStore.listAll();
     final byId = {for (final person in people) person.id: person};
-    final matches = PersonMatches(people);
+    final matches = PersonMatches(
+      people,
+      known: await personStore.knownNames(people),
+    );
     final made = <String, Person>{};
     final links = <FaceLink>[];
     final added = <String, List<FaceRect>>{};

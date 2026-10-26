@@ -5,6 +5,7 @@
 /// what an import overwrites can be tested without a widget.
 library;
 
+import 'known_names.dart';
 import 'person.dart';
 import 'person_detail.dart';
 import 'person_store.dart';
@@ -477,19 +478,22 @@ class PersonTarget {
   final String? personId;
 }
 
-/// The people a name could mean, from one read of the registry.
+/// The people a name could mean, from one read of the registry: theirs,
+/// or failing that whoever [known] remembers it as.
 class PersonMatches {
-  PersonMatches(Iterable<Person> people) {
+  PersonMatches(Iterable<Person> people, {this.known}) {
     for (final person in people) {
       (_byName[_key(person.name)] ??= []).add(person);
     }
   }
 
   final _byName = <String, List<Person>>{};
+  final KnownNames? known;
 
   static String _key(String name) => name.trim().toLowerCase();
 
-  List<Person> of(String name) => _byName[_key(name)] ?? const [];
+  List<Person> of(String name) =>
+      _byName[_key(name)] ?? known?.of(name) ?? const [];
 
   /// Two or more people answer to it: the user picks.
   bool ambiguous(String name) => of(name).length > 1;

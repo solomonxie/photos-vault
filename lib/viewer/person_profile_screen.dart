@@ -4,6 +4,7 @@ import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/conversation_store.dart';
+import '../photos/known_names.dart';
 import '../photos/name_parts.dart';
 import '../photos/person.dart';
 import '../photos/face_identity.dart';
@@ -21,6 +22,7 @@ import 'conversation_screen.dart';
 import 'custom_fields_editor.dart';
 import 'person_event_sheet.dart';
 import 'person_traits_editor.dart';
+import 'known_as_screen.dart';
 import 'profile_chip.dart';
 import 'private_album_gate.dart';
 import 'profile_impression.dart';
@@ -377,9 +379,49 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   /// Names they went by before: renamed from, or merged in.
   List<String> _formerNames = const [];
 
+  /// What imports called them: names, and chats.
+  List<KnownAs> _knownAs = const [];
+
   Future<void> _loadFormerNames() async {
     final names = await widget.personStore.formerNames(_person.id);
-    if (mounted) setState(() => _formerNames = names);
+    final known = await widget.personStore.knownAsOf(_person.id);
+    if (mounted) {
+      setState(() {
+        _formerNames = names;
+        _knownAs = known;
+      });
+    }
+  }
+
+  /// Former and remembered names, each once; chats only when no name.
+  List<String> get _alsoKnownAs {
+    final names = <String>[];
+    void add(String n) {
+      if (!names.any((o) => nameKey(o) == nameKey(n))) names.add(n);
+    }
+
+    _formerNames.forEach(add);
+    for (final k in _knownAs) {
+      if (k.kind == KnownAs.name) add(k.value);
+    }
+    if (names.isEmpty) {
+      for (final k in _knownAs) {
+        add(k.value);
+      }
+    }
+    return names;
+  }
+
+  Future<void> _openKnownAs() async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => KnownAsScreen(
+          personId: _person.id,
+          personStore: widget.personStore,
+        ),
+      ),
+    );
+    await _loadFormerNames();
   }
 
   @override
@@ -1321,16 +1363,23 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           },
         ),
       ),
-      if (_formerNames.isNotEmpty)
-        Padding(
-          padding: const EdgeInsets.fromLTRB(24, 2, 24, 0),
-          child: Text(
-            l10n.personAlsoKnownAs(_formerNames.join(', ')),
-            key: const ValueKey('personAlsoKnownAs'),
-            textAlign: TextAlign.center,
-            style: const TextStyle(
-              fontSize: 13,
-              color: CupertinoColors.systemGrey,
+      if (_alsoKnownAs case final names when names.isNotEmpty)
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          // Remembered ones can be forgotten there; former names can't.
+          onTap: _knownAs.isEmpty ? null : _openKnownAs,
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(24, 2, 24, 0),
+            child: Text(
+              l10n.personAlsoKnownAs(names.join(', ')),
+              key: const ValueKey('personAlsoKnownAs'),
+              textAlign: TextAlign.center,
+              maxLines: 2,
+              overflow: TextOverflow.ellipsis,
+              style: const TextStyle(
+                fontSize: 13,
+                color: CupertinoColors.systemGrey,
+              ),
             ),
           ),
         ),

@@ -132,6 +132,65 @@ void main() {
     });
   });
 
+  testWidgets('a choice is remembered: the next import attaches by name, '
+      'and by chat under another name', (tester) async {
+    final people = FakePersonStore();
+    final mia = await people.create(name: 'Mia');
+    final conversations = FakeConversationStore();
+    var file = [_line('Stranger', 4, 'd')].join('\n');
+    await tester.pumpWidget(
+      _wrap(
+        ConversationImportScreen(
+          personStore: people,
+          conversationStore: conversations,
+          pickFiles: () async => ['a.jsonl'],
+          readFiles: (_) async => readConversationLines(file),
+        ),
+      ),
+    );
+    Future<void> pick() async {
+      await tester.tap(find.byKey(const ValueKey('conversationsChooseFiles')));
+      await tester.pumpAndSettle();
+    }
+
+    await pick();
+    await tester.tap(find.byKey(const ValueKey('conversation-row-0')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('importRename')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byKey(searchPickerFieldKey), 'Mia');
+    await tester.testTextInput.receiveAction(TextInputAction.done);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('conversationsApply')));
+    await tester.pumpAndSettle();
+    expect(
+      [for (final k in await people.knownAsOf(mia.id)) k.value],
+      ['Stranger', 'qq:Stranger'],
+    );
+
+    // The same name again: theirs, nothing to choose.
+    file = _line('Stranger', 6, 'f');
+    await pick();
+    expect(find.text('Remembered: Mia'), findsOne);
+    await tester.tap(find.byKey(const ValueKey('conversationsApply')));
+    await tester.pumpAndSettle();
+
+    // Another name on the same chat: still theirs.
+    file =
+        '{"person":"S.","source":"qq","chat":"qq:Stranger",'
+        '"at":"2020-01-01T11:00:00","text":"g"}';
+    await pick();
+    expect(find.text('Remembered: Mia'), findsOne);
+    await tester.tap(find.byKey(const ValueKey('conversationsApply')));
+    await tester.pumpAndSettle();
+    expect(await conversations.countsByPerson(), {mia.id: 3});
+    expect(
+      await people.knownAsOf(mia.id),
+      hasLength(3),
+      reason: '"S." joins; the chat is not added twice',
+    );
+  });
+
   testWidgets('a rename that matches someone attaches; re-import adds none', (
     tester,
   ) async {

@@ -201,6 +201,20 @@ class ConversationStore {
     return {for (final r in rows) r['person_id'] as String: r['n'] as int};
   }
 
+  /// Each person's chats (`wechat:wxid_…`), from what is already here: how
+  /// a re-import knows who a chat is without asking again. One scan.
+  Future<Map<String, Set<String>>> chatsByPerson() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT DISTINCT person_id, chat FROM $_table',
+    );
+    final out = <String, Set<String>>{};
+    for (final r in rows) {
+      (out[r['person_id'] as String] ??= {}).add(r['chat'] as String);
+    }
+    return out;
+  }
+
   /// Messages per person per source (qq, wechat…), in one query.
   Future<Map<String, Map<String, int>>> countsBySource() async {
     final db = await _open();

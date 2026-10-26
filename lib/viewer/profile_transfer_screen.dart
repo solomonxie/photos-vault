@@ -9,6 +9,7 @@ import 'package:share_plus/share_plus.dart';
 
 import '../l10n/app_localizations.dart';
 import '../l10n/failure_text.dart';
+import '../photos/known_names.dart';
 import '../photos/person.dart';
 import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
@@ -83,8 +84,19 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
   /// tap: shown in orange until the user says otherwise.
   final Set<int> _defaulted = {};
 
+  /// Rows going to whoever an earlier import or a rename says they are.
+  final Set<int> _remembered = {};
+  KnownNames _known = KnownNames.none;
+
   /// One person with exactly this name: merge into them unless told not to.
   void _defaultMerge(int i) {
+    if (!_names.containsKey(i)) {
+      if (_known.remembered(_found[i].name) case final p?) {
+        _targets[i] = PersonTarget(p.id);
+        _remembered.add(i);
+        return;
+      }
+    }
     final same = [
       for (final p in _candidates[i] ?? const <Person>[])
         if (_sameName(i, p)) p,
@@ -136,7 +148,8 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
         _names[i] = choice.name;
         _targets.remove(i);
         _defaulted.remove(i);
-        _candidates[i] = importCandidates(choice.name, _people);
+        _remembered.remove(i);
+        _candidates[i] = importCandidates(choice.name, _people, known: _known);
         _defaultMerge(i);
       });
       if (_taken(i) && !_targets.containsKey(i)) await _resolve(i);
@@ -145,6 +158,7 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
     setState(() {
       _targets[i] = targetOf(choice)!;
       _defaulted.remove(i);
+      _remembered.remove(i);
     });
   }
 
@@ -158,6 +172,11 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
     final candidates = _candidates[i] ?? const [];
     final target = _targets[i];
     final renamed = _names.containsKey(i);
+    if (_remembered.contains(i)) {
+      final id = _targets[i]?.personId;
+      final into = _people.where((p) => p.id == id).firstOrNull;
+      return l10n.importRemembered(into?.name ?? _nameOf(i));
+    }
     if (_defaulted.contains(i)) return l10n.importMergingDefault;
     if (target?.personId case final id?) {
       final into = candidates.where((p) => p.id == id).firstOrNull;
@@ -238,17 +257,23 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
       if (picked == null) return;
       final file = readProfileCsv(_decode(picked.bytes));
       final people = await widget.personStore.listAll();
+      // Names behind a passcode are never remembered, so none are looked up.
+      final known = widget.passcodeHash == openNamespace
+          ? await widget.personStore.knownNames(people)
+          : KnownNames.none;
       final candidates = {
         for (final (i, row) in file.rows.indexed)
-          i: importCandidates(row.name, people),
+          i: importCandidates(row.name, people, known: known),
       };
       if (!mounted) return;
       setState(() {
         _people = people;
+        _known = known;
         _candidates = candidates;
         _names.clear();
         _targets.clear();
         _defaulted.clear();
+        _remembered.clear();
         _fileName = picked.name;
         _found = file.rows;
         for (var i = 0; i < file.rows.length; i++) {
@@ -295,6 +320,17 @@ class _ProfileTransferScreenState extends State<ProfileTransferScreen> {
         [for (final index in rows) _found[index].withName(_nameOf(index))],
         targets: [for (final index in rows) _targets[index]],
       );
+      if (widget.passcodeHash == openNamespace) {
+        await widget.personStore.rememberKnownAs([
+          for (final (k, index) in rows.indexed)
+            if (k < result.personIds.length)
+              KnownAs(
+                personId: result.personIds[k],
+                kind: KnownAs.name,
+                value: _found[index].name,
+              ),
+        ]);
+      }
       if (!mounted) return;
       setState(() {
         _done = l10n.profileCsvImported(result.created, result.updated);

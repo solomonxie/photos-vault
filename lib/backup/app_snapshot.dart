@@ -5,6 +5,7 @@ import 'package:path/path.dart' as p;
 
 import '../photos/ai_analysis_store.dart';
 import '../photos/conversation_store.dart';
+import '../photos/known_names.dart';
 import '../photos/person.dart';
 import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
@@ -337,12 +338,21 @@ class AppSnapshotIo {
     final people = <Map<String, Object?>>[];
     final personMembers = await personStore.allMemberships();
     final sets = await personStore.exportSets();
+    final knownAs = <String, List<KnownAs>>{};
+    for (final k in await personStore.allKnownAs()) {
+      (knownAs[k.personId] ??= []).add(k);
+    }
     for (final person in await personStore.listAll()) {
       final row = _personRow(
         person,
         shown(personMembers[person.id] ?? const <String>[]),
         sets[person.id] ?? PersonExportSet(),
       );
+      if (knownAs[person.id] case final known?) {
+        row['knownAs'] = [
+          for (final k in known) {'kind': k.kind, 'value': k.value},
+        ];
+      }
       if (hidden.contains(person.avatarLocalId)) {
         row['avatarLocalId'] = null;
         row['avatarFace'] = null;
@@ -849,6 +859,13 @@ class AppSnapshotIo {
         scope: PersonScope.open,
       );
     }
+    await personStore.rememberKnownAs([
+      for (final k
+          in (row['knownAs'] as List<dynamic>? ?? const [])
+              .whereType<Map<String, Object?>>())
+        if ((k['kind'], k['value']) case (final String kind, final String v))
+          KnownAs(personId: id, kind: kind, value: v),
+    ]);
   }
 
   /// The open set, and whatever was kept behind a passcode.

@@ -1,14 +1,19 @@
+import 'dart:async';
+
 import 'package:file_picker/file_picker.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
 import '../l10n/failure_text.dart';
+import '../photos/chat_voice.dart';
 import '../photos/conversation_file.dart';
 import '../photos/conversation_store.dart';
+import '../photos/known_names.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../settings/settings_section.dart';
+import 'conversation_screen.dart' show VoiceClipButton;
 import 'import_name_choice.dart';
 
 /// Chat history onto people already here. Never adds a person: a name
@@ -60,6 +65,13 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
 
   /// Attached to their one same-name person by default, not by a tap.
   final Set<int> _defaulted = {};
+
+  /// Attached to who an earlier import or a rename says they are.
+  final Set<int> _remembered = {};
+  KnownNames _known = KnownNames.none;
+
+  /// Each row's chats (`wechat:wxid_…`): remembered with whoever it goes to.
+  Map<int, Set<String>> _handles = {};
   final Set<int> _accepted = {};
 
   /// Rows that become a new person, under the name they show, on import.
@@ -114,10 +126,22 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
       setState(() => _reading = true);
       final export = await (widget.readFiles ?? readConversationFiles)(paths);
       final people = await widget.personStore.listAll();
+      var chats = const <String, Set<String>>{};
+      try {
+        chats = await _store.chatsByPerson();
+      } catch (_) {
+        // No conversations database yet: nothing to recognise.
+      }
+      final known = await widget.personStore.knownNames(people, handles: chats);
+      final handles = {
+        for (final row in export.people)
+          row: {for (final m in row.messages) m.chat},
+      };
       if (!mounted) return;
       // Rows needing a choice first; the rest by how much was said, so
       // the chats that matter most come first, known or not.
       int rank(ConversationPerson row) {
+        if (known.remembered(row.name, handles[row]!) != null) return 1;
         final c = importCandidates(row.name, people);
         if (c.isEmpty) return 1;
         final same = c.where(
@@ -137,16 +161,29 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
         _people = people;
         _found = rows;
         _skippedLines = export.skipped;
+        _known = known;
+        _handles = {for (final (i, row) in rows.indexed) i: handles[row]!};
         _candidates = {
           for (final (i, row) in rows.indexed)
-            i: importCandidates(row.name, people),
+            i: importCandidates(
+              row.name,
+              people,
+              known: known,
+              handles: handles[row]!,
+            ),
         };
         _names.clear();
         _targets.clear();
         _defaulted.clear();
+        _remembered.clear();
         _accepted.clear();
         for (var i = 0; i < rows.length; i++) {
-          _defaultAttach(i);
+          if (known.remembered(rows[i].name, _handles[i]!) case final p?) {
+            _targets[i] = p.id;
+            _remembered.add(i);
+          } else {
+            _defaultAttach(i);
+          }
           if (_taken(i)) _accepted.add(i);
         }
         if (rows.isEmpty) {
@@ -176,12 +213,13 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
     if (choice == null || !mounted) return;
     setState(() {
       _defaulted.remove(i);
+      _remembered.remove(i);
       switch (choice) {
         case ImportRename(:final name):
           _names[i] = name;
           _targets.remove(i);
           _newPeople.remove(i);
-          _candidates[i] = importCandidates(name, _people);
+          _candidates[i] = importCandidates(name, _people, known: _known);
           _defaultAttach(i);
           // A name nobody has, typed on purpose: they're new.
           if (!_taken(i)) _newPeople.add(i);
@@ -238,6 +276,18 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
           );
         }
       }
+      // What this file calls them, and their chats: known next time.
+      await widget.personStore.rememberKnownAs([
+        for (final i in rows) ...[
+          KnownAs(
+            personId: _targets[i]!,
+            kind: KnownAs.name,
+            value: _found[i].name,
+          ),
+          for (final chat in _handles[i] ?? const <String>{})
+            KnownAs(personId: _targets[i]!, kind: KnownAs.handle, value: chat),
+        ],
+      ]);
       await applyConversationSpans(widget.personStore, store: _store);
       await widget.personStore.logImports({
         for (final MapEntry(:key, :value) in log.entries)
@@ -275,6 +325,10 @@ class _ConversationImportScreenState extends State<ConversationImportScreen> {
 
   String? _matchLabel(AppLocalizations l10n, int i) {
     final candidates = _candidates[i] ?? const [];
+    if (_remembered.contains(i)) {
+      final into = _people.where((p) => p.id == _targets[i]).firstOrNull;
+      return l10n.importRemembered(into?.name ?? _nameOf(i));
+    }
     if (_defaulted.contains(i)) {
       final into = candidates.first;
       final others = candidates.length - 1;
@@ -617,6 +671,14 @@ class _PreviewScreenState extends State<_PreviewScreen> {
     _shown = _all;
   }
 
+  @override
+  void dispose() {
+    if (VoicePlayer.instance.playing.value != null) {
+      unawaited(VoicePlayer.instance.stop());
+    }
+    super.dispose();
+  }
+
   void _search(String q) => setState(() {
     _query = q.trim().toLowerCase();
     _shown = _query.isEmpty
@@ -699,13 +761,35 @@ class _PreviewScreenState extends State<_PreviewScreen> {
                                 color: Color(0xB3FFFFFF),
                               ),
                             ),
-                          Text(
-                            m.text.isEmpty ? '[${m.kind}]' : m.text,
-                            style: const TextStyle(
-                              fontSize: 15,
-                              color: CupertinoColors.white,
+                          if (m.thumb case final thumb?)
+                            Padding(
+                              padding: const EdgeInsets.symmetric(vertical: 4),
+                              child: ClipRRect(
+                                borderRadius: BorderRadius.circular(10),
+                                child: Image.memory(
+                                  thumb,
+                                  width: 160,
+                                  cacheWidth:
+                                      (160 *
+                                              MediaQuery.devicePixelRatioOf(
+                                                context,
+                                              ))
+                                          .round(),
+                                  errorBuilder: (_, _, _) =>
+                                      const SizedBox.shrink(),
+                                ),
+                              ),
                             ),
-                          ),
+                          if (m.voice case final voice?)
+                            VoiceClipButton(name: voice, length: m.voiceMs)
+                          else if (m.text.isNotEmpty || m.thumb == null)
+                            Text(
+                              m.text.isEmpty ? '[${m.kind}]' : m.text,
+                              style: const TextStyle(
+                                fontSize: 15,
+                                color: CupertinoColors.white,
+                              ),
+                            ),
                           Text(
                             DateFormat.yMMMd().add_jm().format(m.at),
                             style: const TextStyle(

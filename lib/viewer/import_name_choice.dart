@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import '../photos/known_names.dart';
 import '../photos/merge_suggestions.dart';
 import '../photos/person.dart';
 import '../photos/profile_transfer.dart';
@@ -9,12 +10,23 @@ import 'search_picker_sheet.dart';
 /// Who an import row might be: people with its name, or failing that a
 /// similar one — one name inside the other ("Mia" and "Mia Chen"), or
 /// sounding or spelt nearly alike ("Katherine", "晓明" for "Xiao Ming").
-/// Closest first.
-List<Person> importCandidates(String name, List<Person> people) {
+/// Closest first. Whoever [known] remembers it as — by one of [handles],
+/// or a name an import or rename gave them — counts as the same name, and
+/// comes first.
+List<Person> importCandidates(
+  String name,
+  List<Person> people, {
+  KnownNames? known,
+  Iterable<String> handles = const [],
+}) {
   final key = name.trim().toLowerCase();
+  final remembered = known?.of(name, handles) ?? const <Person>[];
   final same = [
+    ...remembered,
     for (final p in people)
-      if (p.name.trim().toLowerCase() == key) p,
+      if (p.name.trim().toLowerCase() == key &&
+          !remembered.any((r) => r.id == p.id))
+        p,
   ];
   if (same.isNotEmpty) return same;
   // Closest first: the name nearest in length to this one.

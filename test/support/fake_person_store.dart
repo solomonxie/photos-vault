@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:photos_vault/photos/known_names.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/photos/person_detail.dart';
 import 'package:photos_vault/vault/keys.dart' show AlbumKeys;
@@ -83,6 +84,53 @@ class FakePersonStore implements PersonStore {
       scope: PersonScope.open,
     );
   }
+
+  final _known = <KnownAs>[];
+
+  @override
+  Future<void> rememberKnownAs(Iterable<KnownAs> known) async {
+    for (final k in known) {
+      final person = _people[k.personId];
+      if (person == null || k.key.isEmpty) continue;
+      if (k.kind == KnownAs.name && k.key == nameKey(person.name)) continue;
+      if (_known.any(
+        (o) => o.personId == k.personId && o.kind == k.kind && o.key == k.key,
+      )) {
+        continue;
+      }
+      _known.add(
+        KnownAs(personId: k.personId, kind: k.kind, value: k.value.trim()),
+      );
+    }
+  }
+
+  @override
+  Future<List<KnownAs>> allKnownAs() async => [..._known];
+
+  @override
+  Future<List<KnownAs>> knownAsOf(String personId) async => [
+    for (final k in _known)
+      if (k.personId == personId) k,
+  ];
+
+  @override
+  Future<void> forgetKnownAs(KnownAs known) async => _known.removeWhere(
+    (k) =>
+        k.personId == known.personId &&
+        k.kind == known.kind &&
+        k.key == known.key,
+  );
+
+  @override
+  Future<KnownNames> knownNames(
+    List<Person> people, {
+    Map<String, Set<String>> handles = const {},
+  }) async => KnownNames(
+    people,
+    known: _known,
+    former: await allFormerNames(),
+    handles: handles,
+  );
 
   @override
   Future<void> logImports(Map<String, Map<String, Object?>> byPerson) async {
@@ -348,7 +396,13 @@ class FakePersonStore implements PersonStore {
     final carried = _aliases.remove(goneId) ?? const [];
     final history = _changes.remove(goneId) ?? const [];
     final goneName = _people[goneId]!.name;
+    final known = [
+      for (final k in _known)
+        if (k.personId == goneId)
+          KnownAs(personId: keepId, kind: k.kind, value: k.value),
+    ];
     await remove(goneId);
+    await rememberKnownAs(known);
     _changes.putIfAbsent(keepId, () => []).insertAll(0, history);
     _log(keepId, 'merged', goneName, _people[keepId]!.name);
     _aliases.putIfAbsent(keepId, () => []).addAll([...carried, goneId]);
@@ -379,6 +433,7 @@ class FakePersonStore implements PersonStore {
   Future<void> remove(String id) async {
     _aliases.remove(id);
     _changes.remove(id);
+    _known.removeWhere((k) => k.personId == id);
     _people.remove(id);
     _members.remove(id);
     _relationships.remove(id);
@@ -626,6 +681,7 @@ class FakePersonStore implements PersonStore {
 
   @override
   Future<void> clearAll() async {
+    _known.clear();
     _people.clear();
     _members.clear();
     _relationships.clear();
