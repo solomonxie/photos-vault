@@ -6,6 +6,7 @@ import '../main.dart' show screenshotRequest;
 import 'package:flutter/cupertino.dart';
 import 'package:path_provider/path_provider.dart';
 import 'package:flutter/foundation.dart' show mapEquals;
+
 import 'package:flutter/gestures.dart' show HitTestResult;
 import 'package:flutter/rendering.dart' show RenderMetaData;
 import 'package:flutter/services.dart';
@@ -83,6 +84,7 @@ import '../upload/pending_deletes.dart';
 import '../upload/sync_job_store.dart';
 import '../upload/s3_uploader.dart';
 import '../upload/sync_queue.dart';
+import 'home_summary.dart';
 import 'library_index.dart';
 import 'album_screen.dart';
 import 'asset_grid.dart';
@@ -1384,6 +1386,7 @@ class LibraryScreenState extends State<LibraryScreen>
   }) async {
     final firstLoad = !_loaded;
     if (firstLoad) await _paintNewest();
+    if (firstLoad) await _paintLastCollections();
     final all = await assetRecordStore.listAll();
     // The same list instance back means the library itself hasn't moved
     // (see [AssetRecordStore.listAll]) — so everything derived from it is
@@ -1555,7 +1558,83 @@ class LibraryScreenState extends State<LibraryScreen>
       _people = people;
       _personPhotoCounts = personPhotoCounts;
       _personFirstPhotos = personFirstPhotos;
+      _earlyAlbumCounts = null;
+      _earlyPeople = false;
     });
+    _rememberCollections();
+  }
+
+  /// Last launch's rows, until the first full reload replaces them.
+  Map<String, int>? _earlyAlbumCounts;
+  bool _earlyPeople = false;
+  String? _summaryWritten;
+
+  /// People and Albums as they were last time, straight after the newest
+  /// photos: the full read they otherwise wait for is most of a second.
+  Future<void> _paintLastCollections() async {
+    try {
+      final text = await assetRecordStore.getAppState(HomeSummary.appStateKey);
+      final summary = HomeSummary.decode(text);
+      if (summary == null) return;
+      _summaryWritten = text;
+      final albums = await _albumStore.listAll();
+      final people = await _personStore.listAll();
+      final covers = await assetRecordStore.getVisibleByLocalIds(
+        summary.albumCovers.values,
+      );
+      final rank = {for (final (i, id) in summary.people.indexed) id: i};
+      final known = [
+        for (final p in people)
+          if (rank.containsKey(p.id)) p,
+      ]..sort((a, b) => rank[a.id]!.compareTo(rank[b.id]!));
+      if (!mounted || _personStamp != null) return;
+      setState(() {
+        _albums = albums;
+        _albumAssets = {
+          for (final a in albums)
+            if (covers[summary.albumCovers[a.id]] case final cover?)
+              a.id: [cover],
+        };
+        _earlyAlbumCounts = summary.albumCounts;
+        _people = known;
+        _personPhotoCounts = summary.personCounts;
+        _personFirstPhotos = summary.personFirsts;
+        _earlyPeople = true;
+      });
+    } catch (_) {
+      // The full reload draws them a moment later.
+    }
+  }
+
+  void _rememberCollections() {
+    String? coverOf(Album album, List<AssetRecord> records) {
+      if (records.isEmpty) return null;
+      final chosen = album.coverLocalId;
+      if (chosen != null && records.any((r) => r.localId == chosen)) {
+        return chosen;
+      }
+      return records.last.localId;
+    }
+
+    final text = HomeSummary(
+      people: [for (final p in _people) p.id],
+      personCounts: _personPhotoCounts,
+      personFirsts: _personFirstPhotos,
+      albumCounts: {
+        for (final a in _albums) a.id: _albumAssets[a.id]?.length ?? 0,
+      },
+      albumCovers: {
+        for (final a in _albums)
+          a.id: ?coverOf(a, _albumAssets[a.id] ?? const []),
+      },
+    ).encode();
+    if (text == _summaryWritten) return;
+    _summaryWritten = text;
+    unawaited(
+      assetRecordStore
+          .setAppState(HomeSummary.appStateKey, text)
+          .catchError((_) {}),
+    );
   }
 
   /// What the last [reload] read albums and people at (see
@@ -3209,6 +3288,7 @@ class LibraryScreenState extends State<LibraryScreen>
                 _ => _AlbumCard(
                   album: _albums[i - 4],
                   records: _albumAssets[_albums[i - 4].id] ?? const [],
+                  count: _earlyAlbumCounts?[_albums[i - 4].id],
                   onTap: () => _openAlbum(_albums[i - 4]),
                   onDelete: () => _confirmDeleteAlbum(_albums[i - 4]),
                 ),
@@ -3246,7 +3326,11 @@ class LibraryScreenState extends State<LibraryScreen>
                       child: _PersonCard(
                         person: person,
                         assetRecordStore: assetRecordStore,
-                        records: assetRecordStore.visibleById,
+                        // Early, the library isn't read yet: each avatar
+                        // looks itself up.
+                        records: _earlyPeople
+                            ? null
+                            : assetRecordStore.visibleById,
                         photoCount: _personPhotoCounts[person.id] ?? 0,
                         firstPhoto: _personFirstPhotos[person.id],
                         onTap: () => _openPerson(person),
@@ -3517,10 +3601,14 @@ class _AlbumCard extends StatelessWidget {
     required this.onTap,
     this.builtIn,
     this.onDelete,
+    this.count,
   });
 
   final Album album;
   final List<AssetRecord> records;
+
+  /// Last launch's count, while [records] holds only the cover.
+  final int? count;
   final VoidCallback onTap;
 
   /// Set for the two the library makes itself, which draw a coloured cover
@@ -3633,7 +3721,7 @@ class _AlbumCard extends StatelessWidget {
           const SizedBox(height: 6),
           Text(album.name, maxLines: 1, overflow: TextOverflow.ellipsis),
           Text(
-            '${records.length}',
+            '${count ?? records.length}',
             style: const TextStyle(
               color: CupertinoColors.systemGrey,
               fontSize: 13,
