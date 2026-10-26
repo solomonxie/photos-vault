@@ -18,6 +18,7 @@ import '../l10n/app_localizations.dart';
 import '../demo/demo_flag.dart';
 import '../demo/demo_mode.dart';
 import '../photos/conversation_store.dart';
+import '../photos/import_log_backfill.dart';
 import '../photos/words_store.dart';
 import '../photos/derived_asset.dart';
 import '../photos/flag_scan.dart';
@@ -695,6 +696,16 @@ class LibraryScreenState extends State<LibraryScreen>
     // running, so any unpacked zip left is litter.
     _housekeeping = Timer(const Duration(seconds: 5), () async {
       await _markZipPhotosOnce();
+      if (!mounted) return;
+      try {
+        await backfillImportLog(
+          people: _personStore,
+          settings: assetRecordStore,
+          chats: _conversations,
+        );
+      } catch (_) {
+        // Tried again next launch.
+      }
       if (!mounted) return;
       await PeopleZip.sweepLeftovers(await getTemporaryDirectory());
     });

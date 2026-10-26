@@ -59,6 +59,16 @@ class FakeConversationStore implements ConversationStore {
   }
 
   @override
+  Future<Map<String, Map<String, int>>> countsBySource() async {
+    final out = <String, Map<String, int>>{};
+    for (final (id, m) in rows.values) {
+      final of = out[id] ??= {};
+      of[m.source] = (of[m.source] ?? 0) + 1;
+    }
+    return out;
+  }
+
+  @override
   Future<Map<String, int>> countsByPerson() async {
     final out = <String, int>{};
     for (final (id, _) in rows.values) {

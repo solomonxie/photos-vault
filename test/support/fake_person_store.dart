@@ -92,6 +92,26 @@ class FakePersonStore implements PersonStore {
   }
 
   @override
+  Future<Map<String, Set<String>>> importedSources() async => {
+    for (final MapEntry(:key, :value) in _changes.entries)
+      if (value.where((c) => c.kind == 'imported') case final lines
+          when lines.isNotEmpty)
+        key: {
+          for (final c in lines)
+            (jsonDecode(c.after!) as Map)['source'] as String,
+        },
+  };
+
+  @override
+  Future<Map<String, int>> importedJobCounts() async {
+    final out = <String, int>{};
+    for (final e in _history.values) {
+      if (e.id.startsWith('job-')) out[e.personId] = (out[e.personId] ?? 0) + 1;
+    }
+    return out;
+  }
+
+  @override
   Future<List<PersonChange>> changesOf(String personId) async => [
     ...?_changes[personId],
   ];

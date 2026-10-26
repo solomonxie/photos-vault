@@ -110,6 +110,15 @@ class WordsStore {
     }
   }
 
+  /// Writings per person, in one query.
+  Future<Map<String, int>> countsByPerson() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT person_id, COUNT(*) AS n FROM $_table GROUP BY person_id',
+    );
+    return {for (final r in rows) r['person_id'] as String: r['n'] as int};
+  }
+
   Future<int> countFor(String personId) async {
     final db = await _open();
     final rows = await db.rawQuery(

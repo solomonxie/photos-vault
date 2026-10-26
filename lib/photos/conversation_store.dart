@@ -175,6 +175,21 @@ class ConversationStore {
     return {for (final r in rows) r['person_id'] as String: r['n'] as int};
   }
 
+  /// Messages per person per source (qq, wechat…), in one query.
+  Future<Map<String, Map<String, int>>> countsBySource() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT person_id, source, COUNT(*) AS n FROM $_table '
+      'GROUP BY person_id, source',
+    );
+    final out = <String, Map<String, int>>{};
+    for (final r in rows) {
+      (out[r['person_id'] as String] ??= {})[r['source'] as String] =
+          r['n'] as int;
+    }
+    return out;
+  }
+
   Future<int> countFor(String personId) async {
     final db = await _open();
     final rows = await db.rawQuery(

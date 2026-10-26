@@ -1107,6 +1107,39 @@ class PersonStore {
     await batch.commit(noResult: true);
   }
 
+  /// The `source` of each person's "imported" lines so far.
+  Future<Map<String, Set<String>>> importedSources() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT person_id, after FROM $_changeTable '
+      "WHERE kind = 'imported'",
+    );
+    final out = <String, Set<String>>{};
+    for (final r in rows) {
+      try {
+        final source = (jsonDecode(r['after'] as String) as Map)['source'];
+        if (source is String) {
+          (out[r['person_id'] as String] ??= {}).add(source);
+        }
+      } catch (_) {
+        // Unreadable: as if never logged.
+      }
+    }
+    return out;
+  }
+
+  /// Open jobs that came from a work-history file — those carry its
+  /// content ids (`job-…`, see `WorkHistoryFile`) — per person.
+  Future<Map<String, int>> importedJobCounts() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT person_id, COUNT(*) AS n FROM $_historyTable '
+      "WHERE passcode_hash = ? AND id LIKE 'job-%' GROUP BY person_id",
+      [openNamespace],
+    );
+    return {for (final r in rows) r['person_id'] as String: r['n'] as int};
+  }
+
   /// [personId]'s changes, newest first.
   Future<List<PersonChange>> changesOf(String personId) async {
     final db = await _open();
