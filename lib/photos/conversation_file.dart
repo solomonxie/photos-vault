@@ -157,7 +157,10 @@ class _Reader {
       return null;
     }
     final at = DateTime.tryParse(atText);
-    if (at == null) return null;
+    // A day's grace for time zones; anything later is a bad stamp.
+    if (at == null || at.isAfter(DateTime.now().add(const Duration(days: 1)))) {
+      return null;
+    }
     final chat = _string(row['chat']);
     final fromMe = row['from_me'] == true;
     final text = _string(row['text']);

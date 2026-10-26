@@ -30,6 +30,15 @@ void main() {
     expect(export.people.last.messages.single.text, 'line one\nline two');
   });
 
+  test('a message dated in the future is a bad line', () {
+    final export = readConversationLines(
+      '{"person":"Mia","chat":"sms:1","at":"2999-01-01T00:00:00","text":"x"}\n'
+      '{"person":"Mia","chat":"sms:1","at":"2020-01-01T00:00:00","text":"y"}\n',
+    );
+    expect(export.skipped, 1);
+    expect(export.people.single.messages.single.text, 'y');
+  });
+
   test('the same message hashes the same; another differs', () {
     final a = readConversationLines(_lines).people.first.messages.first;
     final b = readConversationLines(_lines).people.first.messages.first;

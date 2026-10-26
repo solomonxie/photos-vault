@@ -1,12 +1,13 @@
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'people_zip.dart' show undatedImport;
+import 'conversation_store.dart';
 import 'person.dart';
 import 'pinyin.dart';
 import 'person_store.dart';
 
 /// How people are ordered, on People and on the home page alike.
-enum PeopleSort { photos, firstMet, lastSeen, name }
+enum PeopleSort { photos, messages, firstMet, lastSeen, name }
 
 const peopleSortKey = 'people_sort_v1';
 
@@ -17,6 +18,15 @@ Future<PeopleSort> loadPeopleSort(AssetRecordStore store) async {
         PeopleSort.lastSeen;
   } catch (_) {
     return PeopleSort.lastSeen;
+  }
+}
+
+/// Messages per person; none when there is no conversations database.
+Future<Map<String, int>> messageCounts([ConversationStore? store]) async {
+  try {
+    return await (store ?? ConversationStore()).countsByPerson();
+  } catch (_) {
+    return const {};
   }
 }
 
@@ -66,6 +76,7 @@ void sortPeople(
   List<Person> people,
   PeopleSort sort, {
   Map<String, int> counts = const {},
+  Map<String, int> messages = const {},
   Map<String, DateTime> firstKnown = const {},
   Map<String, DateTime> lastKnown = const {},
 }) {
@@ -81,6 +92,9 @@ void sortPeople(
   people.sort(
     (a, b) => switch (sort) {
       PeopleSort.photos => (counts[b.id] ?? 0).compareTo(counts[a.id] ?? 0),
+      PeopleSort.messages => (messages[b.id] ?? 0).compareTo(
+        messages[a.id] ?? 0,
+      ),
       PeopleSort.firstMet => byDate(firstKnown, a, b, false),
       PeopleSort.lastSeen => byDate(lastKnown, a, b, true),
       PeopleSort.name => keys[a.id]!.compareTo(keys[b.id]!),

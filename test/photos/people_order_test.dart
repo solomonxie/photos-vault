@@ -20,6 +20,12 @@ void main() {
     expect(daysToBirthday(DateTime(2000, 2, 29), today), 128);
   });
 
+  test('by messages: most first, none last', () {
+    final people = [_p('1', 'A'), _p('2', 'B'), _p('3', 'C')];
+    sortPeople(people, PeopleSort.messages, messages: {'2': 5, '3': 40});
+    expect([for (final p in people) p.id], ['3', '2', '1']);
+  });
+
   test('Chinese names file under their pinyin initial', () {
     expect(nameInitial('王小明'), 'W');
     expect(nameInitial('wendy'), 'W');

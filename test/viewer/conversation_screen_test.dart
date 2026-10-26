@@ -1,3 +1,5 @@
+import 'dart:convert';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:intl/intl.dart';
@@ -8,7 +10,71 @@ import 'package:photos_vault/viewer/conversation_screen.dart';
 
 import '../support/fake_conversation_store.dart';
 
+// 1×1 transparent PNG.
+final _png = base64Decode(
+  'iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mNkYPhfDwAChwGA60e6kgAAAABJRU5ErkJggg==',
+);
+
 void main() {
+  testWidgets('a picture opens full; a tap or a pull down closes it', (
+    tester,
+  ) async {
+    final store = FakeConversationStore();
+    await store.insert('p', [
+      ConversationMessage(
+        chat: 'qq:1',
+        source: 'qq',
+        at: DateTime(2020),
+        fromMe: true,
+        sender: '',
+        text: '',
+        kind: 'image',
+        hash: 'h1',
+        thumb: _png,
+      ),
+    ]);
+    final now = DateTime.now();
+    await tester.pumpWidget(
+      CupertinoApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: ConversationScreen(
+          person: Person(id: 'p', name: 'Mia', createdAt: now, updatedAt: now),
+          store: store,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final full = find.byKey(const ValueKey('chatImageFull'));
+    // A test never decodes the picture, so it lays out at no size: the
+    // tap is called rather than aimed.
+    void openThumb() => tester
+        .widget<GestureDetector>(
+          find
+              .ancestor(
+                of: find.byWidgetPredicate((w) => w is Image && w.width == 160),
+                matching: find.byType(GestureDetector),
+              )
+              .first,
+        )
+        .onTap!();
+    openThumb();
+    await tester.pumpAndSettle();
+    expect(full, findsOne);
+    await tester.tap(full);
+    await tester.pumpAndSettle();
+    expect(full, findsNothing);
+
+    openThumb();
+    await tester.pumpAndSettle();
+    await tester.drag(full, const Offset(0, 40));
+    await tester.pumpAndSettle();
+    expect(full, findsOne, reason: 'a short pull springs back');
+    await tester.drag(full, const Offset(0, 300));
+    await tester.pumpAndSettle();
+    expect(full, findsNothing);
+  });
+
   testWidgets('newest at the bottom; older pages load on scrolling up', (
     tester,
   ) async {

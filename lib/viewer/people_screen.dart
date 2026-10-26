@@ -324,16 +324,21 @@ class _PeopleScreenState extends State<PeopleScreen> {
       chats: await latestChats(widget.conversationStore),
     );
     final sort = await _loadSort();
+    final messages = sort == PeopleSort.messages
+        ? await messageCounts(widget.conversationStore)
+        : _chats;
     sortPeople(
       people,
       sort,
       counts: counts,
+      messages: messages,
       firstKnown: firstKnown,
       lastKnown: lastKnown,
     );
     if (!mounted) return;
     setState(() {
       _sort = sort;
+      if (sort == PeopleSort.messages) _chats = messages;
       _firstKnown = firstKnown;
       _lastKnown = lastKnown;
       _groups = groups;
@@ -373,11 +378,16 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Future<PeopleSort> _loadSort() => loadPeopleSort(widget.assetRecordStore);
 
   Future<void> _setSort(PeopleSort sort) async {
+    if (sort == PeopleSort.messages) {
+      _chats = await messageCounts(widget.conversationStore);
+      if (!mounted) return;
+    }
     final people = [..._people];
     sortPeople(
       people,
       sort,
       counts: _counts,
+      messages: _chats,
       firstKnown: _firstKnown,
       lastKnown: _lastKnown,
     );
@@ -394,6 +404,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
 
   static String _sortLabel(AppLocalizations l10n, PeopleSort s) => switch (s) {
     PeopleSort.photos => l10n.peopleSortPhotos,
+    PeopleSort.messages => l10n.peopleSortMessages,
     PeopleSort.firstMet => l10n.peopleSortFirstMet,
     PeopleSort.lastSeen => l10n.peopleSortLastSeen,
     PeopleSort.name => l10n.peopleSortName,
@@ -847,8 +858,13 @@ class _PeopleScreenState extends State<PeopleScreen> {
       for (final person in _people)
         if (_picked.contains(person.id)) person,
     ];
-    if (picked.length < 2) return;
-    final keep = await _chooseKeep(picked);
+    if (picked.isEmpty) return;
+    final keep = picked.length == 1 ? picked.single : await _chooseKeep(picked);
+    if (picked.length == 1 && keep != null) {
+      final other = await _chooseMergeIn(keep);
+      if (other == null) return;
+      picked.add(other);
+    }
     if (keep == null || !mounted) return;
     final merged = await mergePeopleInto(
       context,
@@ -864,6 +880,20 @@ class _PeopleScreenState extends State<PeopleScreen> {
     if (!mounted) return;
     if (merged) _endSelecting();
     await _reload();
+  }
+
+  /// One picked: who merges into them.
+  Future<Person?> _chooseMergeIn(Person keep) {
+    final l10n = AppLocalizations.of(context)!;
+    return showSearchPickerSheetOf<Person>(
+      context: context,
+      title: l10n.peopleMergeInTitle(keep.name),
+      options: [
+        for (final p in _people)
+          if (p.id != keep.id) p,
+      ],
+      labelOf: (p) => p.name,
+    );
   }
 
   Future<Person?> _chooseKeep(List<Person> picked) {
@@ -2047,7 +2077,7 @@ class _PeopleSelectionBar extends StatelessWidget {
               action(
                 CupertinoIcons.person_2,
                 l10n.peopleBatchMerge,
-                count < 2 ? null : onMerge,
+                onMerge,
                 const ValueKey('peopleBatchMerge'),
               ),
               action(

@@ -1526,6 +1526,9 @@ class LibraryScreenState extends State<LibraryScreen>
         sorted,
         sort,
         counts: personPhotoCounts,
+        messages: sort == PeopleSort.messages
+            ? await messageCounts(_conversations)
+            : const {},
         firstKnown: dates?.first ?? const {},
         lastKnown: dates?.last ?? const {},
       );

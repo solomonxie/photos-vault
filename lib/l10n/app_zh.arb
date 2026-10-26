@@ -1268,6 +1268,8 @@
   "mergePeopleSealed": "两人在同一密码下都有私密资料。请打开后手动合并。",
   "peopleDeleteGroupTitle": "删除“{name}”？",
   "peopleDeleteGroupBody": "{count} 人将退出该群组，不会从人物中删除任何人。",
+    "peopleMergeInTitle": "合并到{name}",
+  "peopleSortMessages": "消息",
   "peopleBatchMerge": "合并",
   "peopleMergeKeepTitle": "保留哪一位？",
   "peopleMergeKeepBody": "保留此人的名字和资料，其他人合并到此人。",

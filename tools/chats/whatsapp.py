@@ -52,6 +52,8 @@ def from_backup(backup: Path | None = None):
         number = jid.split("@")[0]
         person = (partner or "").strip() or f"+{number}"
         at = datetime.fromtimestamp(date + APPLE_EPOCH)
+        if at > datetime.now():  # unsent drafts carry bogus future stamps
+            continue
         out.append(row(person, "whatsapp", f"whatsapp:+{number}", at, from_me, text, kind))
     con.close()
     return out

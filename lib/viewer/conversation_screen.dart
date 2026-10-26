@@ -47,14 +47,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
     return Padding(
       padding: const EdgeInsets.only(bottom: 4),
       child: GestureDetector(
+        // Tap again, or swipe it away, to close — like Messages.
         onTap: () => Navigator.of(context).push(
-          CupertinoPageRoute<void>(
-            fullscreenDialog: true,
-            builder: (_) => CupertinoPageScaffold(
-              backgroundColor: CupertinoColors.black,
-              navigationBar: const CupertinoNavigationBar(),
-              child: Center(child: Image.memory(bytes)),
-            ),
+          PageRouteBuilder<void>(
+            opaque: false,
+            pageBuilder: (_, _, _) => _FullImage(bytes),
+            transitionsBuilder: (_, animation, _, child) =>
+                FadeTransition(opacity: animation, child: child),
           ),
         ),
         child: ClipRRect(
@@ -274,6 +273,51 @@ class _ConversationScreenState extends State<ConversationScreen> {
                     ),
             ),
           ],
+        ),
+      ),
+    );
+  }
+}
+
+/// Tap to close, or pull it down: it follows the finger, the black fades,
+/// and letting go far or fast enough closes it.
+class _FullImage extends StatefulWidget {
+  const _FullImage(this.bytes);
+
+  final Uint8List bytes;
+
+  @override
+  State<_FullImage> createState() => _FullImageState();
+}
+
+class _FullImageState extends State<_FullImage> {
+  double _drag = 0;
+
+  void _close() => Navigator.of(context).pop();
+
+  @override
+  Widget build(BuildContext context) {
+    final height = MediaQuery.sizeOf(context).height;
+    final fade = (1 - _drag.abs() / (height / 2)).clamp(0.0, 1.0);
+    return GestureDetector(
+      key: const ValueKey('chatImageFull'),
+      behavior: HitTestBehavior.opaque,
+      onTap: _close,
+      onVerticalDragUpdate: (d) => setState(() => _drag += d.delta.dy),
+      onVerticalDragEnd: (d) {
+        if (_drag.abs() > 100 || (d.primaryVelocity ?? 0).abs() > 700) {
+          _close();
+        } else {
+          setState(() => _drag = 0);
+        }
+      },
+      child: ColoredBox(
+        color: CupertinoColors.black.withValues(alpha: fade),
+        child: SizedBox.expand(
+          child: Transform.translate(
+            offset: Offset(0, _drag),
+            child: Center(child: Image.memory(widget.bytes)),
+          ),
         ),
       ),
     );

@@ -680,6 +680,34 @@ void main() {
     expect(find.byKey(const ValueKey('peopleBatchMerge')), findsNothing);
   });
 
+  testWidgets('Merge with one picked chooses who merges into them', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final zoe = await personStore.create(name: 'Zoe');
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.longPress(find.text('Mia'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchMerge')));
+    await tester.pumpAndSettle();
+    expect(find.text('Merge into Mia'), findsOneWidget);
+    await tester.tap(find.text('Zoe').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('mergePeopleConfirm')));
+    await tester.pumpAndSettle();
+    expect(await personStore.getById(zoe.id), isNull);
+    expect(await personStore.getById(mia.id), isNotNull);
+  });
+
   testWidgets('Select People picks several for the batch bar', (tester) async {
     final personStore = FakePersonStore();
     final mia = await personStore.create(name: 'Mia');

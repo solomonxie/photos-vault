@@ -131,6 +131,26 @@ void main() {
     );
   });
 
+  test('Last seen from chats ignores a message dated ahead of now', () async {
+    final store = newStore();
+    final future = DateTime.now().add(const Duration(days: 30));
+    await store.insert('mia', [
+      _m(4, 'b'),
+      ConversationMessage(
+        chat: 'qq:1',
+        source: 'qq',
+        at: future,
+        fromMe: true,
+        sender: 'x',
+        text: 'draft',
+        kind: 'text',
+        hash: ConversationMessage.hashOf('qq:1', future, true, 'draft'),
+      ),
+    ]);
+    expect(await store.latestFor('mia'), DateTime(2009, 8, 17, 22, 4));
+    expect((await store.latestByPerson())['mia'], DateTime(2009, 8, 17, 22, 4));
+  });
+
   test('an older database flags everyone once', () async {
     final dir = await Directory.systemTemp.createTemp('conv');
     addTearDown(() => dir.delete(recursive: true));

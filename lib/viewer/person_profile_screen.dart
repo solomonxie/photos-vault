@@ -1188,7 +1188,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   (DateTime, String?)? _lastSeen(AppLocalizations l10n, DateTime? set) {
     DateTime? event;
     for (final e in _events) {
-      if (e.isFixed || e.at == null) continue;
+      if (e.isFixed || e.at == null || e.at!.isAfter(DateTime.now())) {
+        continue;
+      }
       if (event == null || e.at!.isAfter(event)) event = e.at;
     }
     final candidates = [
@@ -1197,6 +1199,8 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       if (_photoSeen case final at?) (at, l10n.eventsSeenFromPhoto),
       if (_chatSeen case final at?) (at, l10n.eventsSeenFromChat),
     ];
+    final now = DateTime.now();
+    candidates.removeWhere((c) => c.$1.isAfter(now));
     if (candidates.isEmpty) return null;
     return candidates.reduce((a, b) => b.$1.isAfter(a.$1) ? b : a);
   }

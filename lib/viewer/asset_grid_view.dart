@@ -113,6 +113,10 @@ class AssetGridViewState extends State<AssetGridView> {
   /// top of the grid never shows for a frame before the jump to the rest.
   bool _placed = false;
 
+  /// Not yet touched: every rebuild holds the rest, so nothing settling
+  /// in late (a viewport, rows below, the full library) leaves it short.
+  bool _touched = false;
+
   /// The rest last jumped to: a rebuild re-anchors only when it moved.
   double? _restAt;
 
@@ -189,6 +193,7 @@ class AssetGridViewState extends State<AssetGridView> {
   }
 
   void jumpToOldest() {
+    _touched = true;
     if (_scrollController.hasClients) {
       _scrollController.jumpTo(_scrollController.position.minScrollExtent);
     }
@@ -391,6 +396,8 @@ class AssetGridViewState extends State<AssetGridView> {
     } else if (_restChanged) {
       _restChanged = false;
       _anchorAfterLayout(force: true);
+    } else if (_anchored && !_touched) {
+      _anchorAfterLayout(force: true);
     } else if (widget.restKey != null && _anchored && isAtNewest) {
       // What follows the rest sliver can still be filling in — People,
       // Places — which moves where a clamped rest lands, so stay on it.
@@ -404,7 +411,7 @@ class AssetGridViewState extends State<AssetGridView> {
       });
     }
     final empty = widget.emptySliver;
-    return Stack(
+    final stack = Stack(
       children: [
         Opacity(
           opacity: _placed || _layout.isEmpty ? 1 : 0,
@@ -462,5 +469,6 @@ class AssetGridViewState extends State<AssetGridView> {
         ),
       ],
     );
+    return Listener(onPointerDown: (_) => _touched = true, child: stack);
   }
 }

@@ -273,12 +273,14 @@ class ConversationStore {
     return rows.isNotEmpty;
   }
 
-  /// [personId]'s newest message, or null.
+  /// [personId]'s newest message, or null. Never one dated ahead of now:
+  /// an export can carry a bogus future stamp, and Last seen can't be after
+  /// today.
   Future<DateTime?> latestFor(String personId) async {
     final db = await _open();
     final rows = await db.rawQuery(
-      'SELECT MAX(at) AS hi FROM $_table WHERE person_id = ?',
-      [personId],
+      'SELECT MAX(at) AS hi FROM $_table WHERE person_id = ? AND at <= ?',
+      [personId, DateTime.now().millisecondsSinceEpoch],
     );
     final ms = rows.firstOrNull?['hi'];
     return ms is int ? DateTime.fromMillisecondsSinceEpoch(ms) : null;
@@ -288,7 +290,9 @@ class ConversationStore {
   Future<Map<String, DateTime>> latestByPerson() async {
     final db = await _open();
     final rows = await db.rawQuery(
-      'SELECT person_id, MAX(at) AS hi FROM $_table GROUP BY person_id',
+      'SELECT person_id, MAX(at) AS hi FROM $_table WHERE at <= ? '
+      'GROUP BY person_id',
+      [DateTime.now().millisecondsSinceEpoch],
     );
     return {
       for (final r in rows)

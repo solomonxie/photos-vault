@@ -271,6 +271,51 @@ void main() {
     expect(find.text('Albums'), findsNothing);
   });
 
+  testWidgets('untouched, home stays on the newest when the screen settles', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    for (var i = 0; i < 120; i++) {
+      await recordStore.upsert(
+        localId: 'manual:$i',
+        contentHash: 'h$i',
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/library_screen_test_$i.jpg',
+        createdAt: DateTime(2020).add(Duration(hours: i)),
+      );
+    }
+    final size = tester.view.physicalSize;
+    tester.view.physicalSize = Size(size.width, size.height - 300);
+    addTearDown(tester.view.resetPhysicalSize);
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    tester.view.physicalSize = size;
+    await tester.pumpAndSettle();
+
+    final screen = tester.view.physicalSize / tester.view.devicePixelRatio;
+    final newest = tester.getRect(find.byKey(const ValueKey('manual:119')));
+    expect(newest.bottom, lessThanOrEqualTo(screen.height));
+    expect(newest.bottom, greaterThan(screen.height - 50));
+  });
+
   testWidgets('tapping a listed file opens the detail screen', (tester) async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     final recordStore = FakeAssetRecordStore();
