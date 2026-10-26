@@ -38,6 +38,13 @@ class _ConversationScreenState extends State<ConversationScreen> {
 
   bool _loading = false;
   bool _end = false;
+
+  /// Only this kind of message (text, image, voice); null for all.
+  String? _kind;
+
+  /// Bumped by a filter change, so a page still loading for the old one
+  /// is dropped.
+  int _generation = 0;
   bool _severalChats = false;
 
   /// Search hits, newest first; null when not searching.
@@ -103,20 +110,34 @@ class _ConversationScreenState extends State<ConversationScreen> {
   Future<void> _loadOlder() async {
     if (_loading || _end) return;
     _loading = true;
+    final generation = _generation;
     try {
       final page = await widget.store.page(
         widget.person.id,
         before: _messages.lastOrNull,
         limit: _pageSize,
+        kind: _kind,
       );
-      if (!mounted) return;
+      if (!mounted || generation != _generation) return;
       setState(() {
         _messages.addAll(page);
         _end = page.length < _pageSize;
       });
     } finally {
-      _loading = false;
+      if (generation == _generation) _loading = false;
     }
+  }
+
+  void _filter(String? kind) {
+    setState(() {
+      _kind = kind;
+      _generation++;
+      _messages.clear();
+      _end = false;
+      _loading = false;
+    });
+    _loadOlder();
+    if (_query.text.trim().isNotEmpty) _search(_query.text);
   }
 
   void _search(String text) {
@@ -126,7 +147,11 @@ class _ConversationScreenState extends State<ConversationScreen> {
       return;
     }
     _debounce = Timer(const Duration(milliseconds: 250), () async {
-      final hits = await widget.store.search(widget.person.id, text);
+      final hits = await widget.store.search(
+        widget.person.id,
+        text,
+        kind: _kind,
+      );
       if (mounted && _query.text == text) setState(() => _hits = hits);
     });
   }
@@ -248,6 +273,23 @@ class _ConversationScreenState extends State<ConversationScreen> {
                 controller: _query,
                 placeholder: l10n.conversationsSearch,
                 onChanged: _search,
+              ),
+            ),
+            Padding(
+              padding: const EdgeInsets.fromLTRB(12, 4, 12, 4),
+              child: SizedBox(
+                width: double.infinity,
+                child: CupertinoSlidingSegmentedControl<String>(
+                  key: const ValueKey('conversationKind'),
+                  groupValue: _kind ?? '',
+                  onValueChanged: (v) => _filter(v == '' ? null : v),
+                  children: {
+                    '': Text(l10n.conversationsFilterAll),
+                    'text': Text(l10n.conversationsFilterText),
+                    'image': Text(l10n.conversationsFilterPictures),
+                    'voice': Text(l10n.conversationsFilterVoice),
+                  },
+                ),
               ),
             ),
             Expanded(

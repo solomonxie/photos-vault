@@ -17,6 +17,58 @@ final _png = base64Decode(
 );
 
 void main() {
+  testWidgets('the kind filter shows only text, pictures or voice', (
+    tester,
+  ) async {
+    final store = FakeConversationStore();
+    ConversationMessage m(int i, String kind, String text) =>
+        ConversationMessage(
+          chat: 'wechat:1',
+          source: 'wechat',
+          at: DateTime(2021, 1, 1, 10, i),
+          fromMe: false,
+          sender: '',
+          text: text,
+          kind: kind,
+          hash: 'k$i',
+        );
+    await store.insert('p', [
+      m(1, 'text', 'hello'),
+      m(2, 'image', 'a photo caption'),
+      m(3, 'voice', 'voice note'),
+    ]);
+    final now = DateTime.now();
+    await tester.pumpWidget(
+      CupertinoApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: ConversationScreen(
+          person: Person(id: 'p', name: 'Mia', createdAt: now, updatedAt: now),
+          store: store,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('hello'), findsOne);
+    expect(find.text('voice note'), findsOne);
+
+    await tester.tap(find.text('Text'));
+    await tester.pumpAndSettle();
+    expect(find.text('hello'), findsOne);
+    expect(find.text('voice note'), findsNothing);
+    expect(find.text('a photo caption'), findsNothing);
+
+    await tester.tap(find.text('Voice'));
+    await tester.pumpAndSettle();
+    expect(find.text('voice note'), findsOne);
+    expect(find.text('hello'), findsNothing);
+
+    await tester.tap(find.text('All'));
+    await tester.pumpAndSettle();
+    expect(find.text('hello'), findsOne);
+    expect(find.text('a photo caption'), findsOne);
+  });
+
   testWidgets('a voice message plays and shows its length', (tester) async {
     final store = FakeConversationStore();
     await store.insert('p', [
@@ -169,7 +221,12 @@ void main() {
     await tester.enterText(find.byType(CupertinoSearchTextField), 'msg 12');
     await tester.pump(const Duration(milliseconds: 300));
     await tester.pumpAndSettle();
-    expect(find.text('msg 12'), findsOne);
+    Future<void> reach(String text) => tester.scrollUntilVisible(
+      find.text(text),
+      100,
+      scrollable: find.byType(Scrollable).last,
+    );
+    await reach('msg 120');
     expect(find.text('msg 120'), findsOne);
     expect(
       find.text(
@@ -179,5 +236,7 @@ void main() {
       ),
       findsOne,
     );
+    await reach('msg 12');
+    expect(find.text('msg 12'), findsOne);
   });
 }

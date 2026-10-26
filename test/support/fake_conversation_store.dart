@@ -116,8 +116,12 @@ class FakeConversationStore implements ConversationStore {
     String personId, {
     ConversationMessage? before,
     int limit = 200,
+    String? kind,
   }) async {
-    final all = _of(personId);
+    final all = [
+      for (final m in _of(personId))
+        if (kind == null || m.kind == kind) m,
+    ];
     final start = before == null
         ? 0
         : all.indexWhere((m) => m.hash == before.hash) + 1;
@@ -129,9 +133,13 @@ class FakeConversationStore implements ConversationStore {
     String personId,
     String query, {
     int limit = 200,
+    String? kind,
   }) async => [
     for (final m in _of(personId))
-      if (query.trim().isNotEmpty && m.text.contains(query.trim())) m,
+      if (query.trim().isNotEmpty &&
+          m.text.contains(query.trim()) &&
+          (kind == null || m.kind == kind))
+        m,
   ].take(limit).toList();
 
   @override

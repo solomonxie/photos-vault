@@ -277,15 +277,19 @@ class ConversationStore {
     String personId, {
     ConversationMessage? before,
     int limit = 200,
+    String? kind,
   }) async {
     final db = await _open();
     final rows = await db.query(
       _table,
-      where: before == null
-          ? 'person_id = ?'
-          : 'person_id = ? AND (at < ? OR (at = ? AND hash < ?))',
+      where: [
+        'person_id = ?',
+        if (kind != null) 'kind = ?',
+        if (before != null) '(at < ? OR (at = ? AND hash < ?))',
+      ].join(' AND '),
       whereArgs: [
         personId,
+        ?kind,
         if (before != null) ...[
           before.at.millisecondsSinceEpoch,
           before.at.millisecondsSinceEpoch,
@@ -298,11 +302,12 @@ class ConversationStore {
     return rows.map(_message).toList();
   }
 
-  /// Newest first, text containing [query].
+  /// Newest first, text containing [query]; of one [kind] if given.
   Future<List<ConversationMessage>> search(
     String personId,
     String query, {
     int limit = 200,
+    String? kind,
   }) async {
     final q = query.trim();
     if (q.isEmpty) return const [];
@@ -310,8 +315,10 @@ class ConversationStore {
     final escaped = q.replaceAllMapped(RegExp(r'[\\%_]'), (m) => '\\${m[0]}');
     final rows = await db.query(
       _table,
-      where: "person_id = ? AND text LIKE ? ESCAPE '\\'",
-      whereArgs: [personId, '%$escaped%'],
+      where:
+          "person_id = ? AND text LIKE ? ESCAPE '\\'"
+          '${kind == null ? '' : ' AND kind = ?'}',
+      whereArgs: [personId, '%$escaped%', ?kind],
       orderBy: 'at DESC, hash DESC',
       limit: limit,
     );
