@@ -22,6 +22,7 @@ import 'person_avatar.dart';
 import 'person_picker_sheet.dart';
 import 'person_profile_screen.dart';
 import 'private_album_gate.dart';
+import 'profile_summary.dart' show profileFacts;
 import 'private_album_screen.dart' show PrivateAlbumScreen;
 import 'select_all.dart';
 import 'select_sweep.dart';
@@ -62,6 +63,9 @@ class PersonPageScreen extends StatefulWidget {
 class _PersonPageScreenState extends State<PersonPageScreen> {
   late Person _person = widget.person;
   List<AssetRecord> _records = const [];
+
+  /// Age, current job, city — under the name, from the open set only.
+  List<String> _facts = const [];
 
   @override
   void initState() {
@@ -228,15 +232,33 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
           if (r.isVisibleInLibrary) r,
       ],
     );
+    await _loadFacts();
+  }
+
+  Future<void> _loadFacts() async {
+    final store = widget.personStore;
+    final detail = await store.detailFor(_person.id);
+    final jobs = await store.historyFor(_person.id, HistoryCategory.job);
+    final places = await store.locationsFor(_person.id);
+    if (!mounted) return;
+    setState(
+      () => _facts = profileFacts(
+        AppLocalizations.of(context)!,
+        detail: detail,
+        jobs: jobs,
+        locations: places,
+      ),
+    );
   }
 
   Future<void> _openProfile() async {
     await Navigator.of(context).push(
       CupertinoPageRoute(
-        builder: (_) => PersonProfileScreen(
+        builder: (profile) => PersonProfileScreen(
           person: _person,
           personStore: widget.personStore,
           assetRecordStore: widget.assetRecordStore,
+          onOpenPhotos: () => Navigator.of(profile).pop(),
         ),
       ),
     );
@@ -451,57 +473,110 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
   Widget _body(AppLocalizations l10n) {
     return Column(
       children: [
-        Padding(
-          padding: const EdgeInsets.symmetric(vertical: 16),
-          child: Column(
-            children: [
-              PersonAvatar.forPerson(
-                assetRecordStore: widget.assetRecordStore,
-                person: _person,
-                firstTaggedLocalId: _records.firstOrNull?.localId,
-                size: 88,
-              ),
-              const SizedBox(height: 8),
-              // The whole line, not the glyphs on it: a bare
-              // `GestureDetector` around a min-width Row is only
-              // hit-testable where something is painted, so the gaps
-              // between the letters — and most of the line — did
-              // nothing, leaving the chevron looking like the only
-              // target.
-              GestureDetector(
-                key: PersonPageScreen.nameLineKey,
-                behavior: HitTestBehavior.opaque,
-                onTap: _openProfile,
-                child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                    horizontal: 16,
-                    vertical: 8,
+        // The whole header opens the profile: a tap anywhere on it, or a
+        // swipe up, with the avatar flying across.
+        GestureDetector(
+          behavior: HitTestBehavior.opaque,
+          onTap: _openProfile,
+          onVerticalDragEnd: (d) {
+            if ((d.primaryVelocity ?? 0) < -300) _openProfile();
+          },
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+            child: Column(
+              children: [
+                Hero(
+                  tag: personAvatarHeroTag(_person.id),
+                  child: PersonAvatar.forPerson(
+                    assetRecordStore: widget.assetRecordStore,
+                    person: _person,
+                    firstTaggedLocalId: _records.firstOrNull?.localId,
+                    size: 88,
                   ),
-                  child: Row(
-                    mainAxisAlignment: MainAxisAlignment.center,
-                    children: [
-                      Flexible(
-                        child: Text(
-                          _person.name,
-                          maxLines: 1,
-                          overflow: TextOverflow.ellipsis,
-                          style: const TextStyle(
-                            fontSize: 20,
-                            fontWeight: FontWeight.bold,
+                ),
+                const SizedBox(height: 8),
+                // The whole line, not the glyphs on it: a bare
+                // `GestureDetector` around a min-width Row is only
+                // hit-testable where something is painted.
+                GestureDetector(
+                  key: PersonPageScreen.nameLineKey,
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _openProfile,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(vertical: 4),
+                    child: Row(
+                      mainAxisAlignment: MainAxisAlignment.center,
+                      children: [
+                        Flexible(
+                          child: Text(
+                            _person.name,
+                            maxLines: 1,
+                            overflow: TextOverflow.ellipsis,
+                            style: const TextStyle(
+                              fontSize: 20,
+                              fontWeight: FontWeight.bold,
+                            ),
                           ),
                         ),
-                      ),
-                      const SizedBox(width: 4),
+                        const SizedBox(width: 4),
+                        const Icon(
+                          CupertinoIcons.chevron_forward,
+                          size: 18,
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ],
+                    ),
+                  ),
+                ),
+                if (_facts.isNotEmpty)
+                  Text(
+                    _facts.join(' · '),
+                    key: const ValueKey('personPageFacts'),
+                    textAlign: TextAlign.center,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontSize: 14,
+                      color: CupertinoColors.systemGrey,
+                    ),
+                  ),
+                const SizedBox(height: 8),
+                Container(
+                  key: const ValueKey('personPageProfilePill'),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 12,
+                    vertical: 5,
+                  ),
+                  decoration: BoxDecoration(
+                    color: CupertinoColors.activeBlue.withValues(alpha: 0.16),
+                    borderRadius: BorderRadius.circular(14),
+                  ),
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
                       const Icon(
-                        CupertinoIcons.chevron_forward,
-                        size: 18,
-                        color: CupertinoColors.systemGrey,
+                        CupertinoIcons.person_crop_circle,
+                        size: 15,
+                        color: CupertinoColors.activeBlue,
+                      ),
+                      const SizedBox(width: 5),
+                      Text(
+                        l10n.personPageOpenProfile,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: CupertinoColors.activeBlue,
+                        ),
+                      ),
+                      const Icon(
+                        CupertinoIcons.chevron_up,
+                        size: 12,
+                        color: CupertinoColors.activeBlue,
                       ),
                     ],
                   ),
                 ),
-              ),
-            ],
+              ],
+            ),
           ),
         ),
         Expanded(
