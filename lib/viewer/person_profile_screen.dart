@@ -18,6 +18,7 @@ import '../vault/passcode_tags.dart';
 import '../vault/passphrase_sheet.dart';
 import 'conversation_screen.dart';
 import 'custom_fields_editor.dart';
+import 'fold_toggle.dart';
 import 'person_event_sheet.dart';
 import 'person_traits_editor.dart';
 import 'profile_chip.dart';
@@ -129,6 +130,8 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   String? _ownerId;
   List<PersonRelationship> _relationships = const [];
   List<Person> _allPeople = const [];
+  Map<String, String> _namesById = const {};
+  final _expandedRelationships = <RelationshipType>{};
   List<PersonLocation> _locations = const [];
   List<PersonHistoryEntry> _education = const [];
   List<PersonHistoryEntry> _jobs = const [];
@@ -404,6 +407,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     setState(() {
       _detail = detail;
       _allPeople = allPeople;
+      _namesById = {for (final p in allPeople) p.id: p.name};
       _locations = locations;
       _education = education;
       _jobs = jobs;
@@ -595,6 +599,15 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       }
     }
   }
+
+  /// Typed links before ones that only come from a shared group, so the
+  /// folded top five are the people actually named here.
+  List<PersonRelationship> _relationshipGroup(RelationshipType type) => [
+    for (final r in _relationships)
+      if (r.type == type && !r.derived) r,
+    for (final r in _relationships)
+      if (r.type == type && r.derived) r,
+  ];
 
   String _relationshipLabel(AppLocalizations l10n, RelationshipType type) =>
       relationshipTypeLabel(l10n, type);
@@ -1277,84 +1290,94 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
                 onAdd: () => _addOrEditRelationship(),
               ),
               for (final type in RelationshipType.values)
-                if (_relationships.where((r) => r.type == type).toList()
-                    case final group when group.isNotEmpty) ...[
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
-                    child: Text(
-                      _relationshipLabel(l10n, type),
-                      style: const TextStyle(
-                        fontSize: 13,
-                        fontWeight: FontWeight.w600,
-                        color: CupertinoColors.systemGrey,
+                if (_relationshipGroup(type) case final all when all.isNotEmpty)
+                  if (_expandedRelationships.contains(type) ||
+                              all.length <= foldedCount
+                          ? all
+                          : all.take(foldedCount).toList()
+                      case final group) ...[
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 4, 16, 4),
+                      child: Text(
+                        _relationshipLabel(l10n, type),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: CupertinoColors.systemGrey,
+                        ),
                       ),
                     ),
-                  ),
-                  CupertinoListSection.insetGrouped(
-                    margin: const EdgeInsets.symmetric(horizontal: 16),
-                    backgroundColor: _cardBackground,
-                    decoration: _cardDecoration,
-                    children: [
-                      for (final relationship in group)
-                        CupertinoListTile(
-                          title: Text(
-                            _allPeople
-                                    .where(
-                                      (p) =>
-                                          p.id == relationship.relatedPersonId,
-                                    )
-                                    .map((p) => p.name)
-                                    .firstOrNull ??
-                                '?',
+                    CupertinoListSection.insetGrouped(
+                      margin: const EdgeInsets.symmetric(horizontal: 16),
+                      backgroundColor: _cardBackground,
+                      decoration: _cardDecoration,
+                      children: [
+                        for (final relationship in group)
+                          CupertinoListTile(
+                            title: Text(
+                              _namesById[relationship.relatedPersonId] ?? '?',
+                            ),
+                            subtitle:
+                                relationship.organization == null ||
+                                    relationship.organization!.isEmpty
+                                ? null
+                                : Text(relationship.organization!),
+                            // Nothing to edit or delete on a link that comes
+                            // from a shared group: there is no row behind it,
+                            // and the way to remove it is to leave the group.
+                            // Offering the buttons anyway would have deleted
+                            // some unrelated explicit row, or nothing at all.
+                            trailing: relationship.derived
+                                ? const Icon(
+                                    CupertinoIcons.person_2,
+                                    size: 18,
+                                    color: CupertinoColors.systemGrey2,
+                                  )
+                                : Row(
+                                    mainAxisSize: MainAxisSize.min,
+                                    children: [
+                                      CupertinoButton(
+                                        padding: EdgeInsets.zero,
+                                        onPressed: () => _addOrEditRelationship(
+                                          existing: relationship,
+                                        ),
+                                        child: const Icon(
+                                          CupertinoIcons.pencil,
+                                          size: 20,
+                                          color: CupertinoColors.systemGrey,
+                                        ),
+                                      ),
+                                      const SizedBox(width: 12),
+                                      CupertinoButton(
+                                        padding: EdgeInsets.zero,
+                                        onPressed: () =>
+                                            _removeRelationship(relationship),
+                                        child: const Icon(
+                                          CupertinoIcons.xmark_circle,
+                                          color: CupertinoColors.systemGrey,
+                                        ),
+                                      ),
+                                    ],
+                                  ),
+                            onTap: () => _openRelatedPerson(relationship),
                           ),
-                          subtitle:
-                              relationship.organization == null ||
-                                  relationship.organization!.isEmpty
-                              ? null
-                              : Text(relationship.organization!),
-                          // Nothing to edit or delete on a link that comes
-                          // from a shared group: there is no row behind it,
-                          // and the way to remove it is to leave the group.
-                          // Offering the buttons anyway would have deleted
-                          // some unrelated explicit row, or nothing at all.
-                          trailing: relationship.derived
-                              ? const Icon(
-                                  CupertinoIcons.person_2,
-                                  size: 18,
-                                  color: CupertinoColors.systemGrey2,
-                                )
-                              : Row(
-                                  mainAxisSize: MainAxisSize.min,
-                                  children: [
-                                    CupertinoButton(
-                                      padding: EdgeInsets.zero,
-                                      onPressed: () => _addOrEditRelationship(
-                                        existing: relationship,
-                                      ),
-                                      child: const Icon(
-                                        CupertinoIcons.pencil,
-                                        size: 20,
-                                        color: CupertinoColors.systemGrey,
-                                      ),
-                                    ),
-                                    const SizedBox(width: 12),
-                                    CupertinoButton(
-                                      padding: EdgeInsets.zero,
-                                      onPressed: () =>
-                                          _removeRelationship(relationship),
-                                      child: const Icon(
-                                        CupertinoIcons.xmark_circle,
-                                        color: CupertinoColors.systemGrey,
-                                      ),
-                                    ),
-                                  ],
-                                ),
-                          onTap: () => _openRelatedPerson(relationship),
+                      ],
+                    ),
+                    if (all.length > foldedCount)
+                      Align(
+                        alignment: AlignmentDirectional.centerStart,
+                        child: FoldToggle(
+                          total: all.length,
+                          expanded: _expandedRelationships.contains(type),
+                          onPressed: () => setState(() {
+                            if (!_expandedRelationships.remove(type)) {
+                              _expandedRelationships.add(type);
+                            }
+                          }),
                         ),
-                    ],
-                  ),
-                  const SizedBox(height: 8),
-                ],
+                      ),
+                    const SizedBox(height: 8),
+                  ],
               CupertinoButton(
                 padding: EdgeInsets.zero,
                 onPressed: () => Navigator.of(context).push(

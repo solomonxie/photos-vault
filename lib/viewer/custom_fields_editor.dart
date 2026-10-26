@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
+import 'fold_toggle.dart';
 import '../photos/person.dart';
 
 /// Findable by name rather than by counting, same as the profile's own
@@ -58,6 +59,8 @@ class _CustomFieldsEditorState extends State<CustomFieldsEditor> {
     ]);
   }
 
+  bool _expanded = false;
+
   void _add() {
     setState(
       () => _rows = [
@@ -65,6 +68,8 @@ class _CustomFieldsEditorState extends State<CustomFieldsEditor> {
         (label: TextEditingController(), value: TextEditingController()),
       ],
     );
+    // The new row is last: open the list so it's on screen.
+    _expanded = true;
     _emit();
   }
 
@@ -79,6 +84,8 @@ class _CustomFieldsEditorState extends State<CustomFieldsEditor> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
+    final folds = _rows.length > foldedCount;
+    final shown = folds && !_expanded ? foldedCount : _rows.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -109,10 +116,10 @@ class _CustomFieldsEditorState extends State<CustomFieldsEditor> {
             padding: const EdgeInsets.symmetric(horizontal: 16),
             child: Column(
               children: [
-                for (var i = 0; i < _rows.length; i++)
+                for (var i = 0; i < shown; i++)
                   Container(
                     padding: const EdgeInsets.symmetric(vertical: 10),
-                    decoration: i == _rows.length - 1
+                    decoration: i == shown - 1
                         ? null
                         : const BoxDecoration(
                             border: Border(
@@ -162,6 +169,15 @@ class _CustomFieldsEditorState extends State<CustomFieldsEditor> {
                     ),
                   ),
               ],
+            ),
+          ),
+        if (folds)
+          Align(
+            alignment: AlignmentDirectional.centerStart,
+            child: FoldToggle(
+              total: _rows.length,
+              expanded: _expanded,
+              onPressed: () => setState(() => _expanded = !_expanded),
             ),
           ),
       ],

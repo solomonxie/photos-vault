@@ -635,6 +635,47 @@ void main() {
     expect(relationships.single.type, RelationshipType.friend);
   });
 
+  testWidgets('a long relationship group shows five until opened', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    for (var i = 0; i < 7; i++) {
+      final f = await personStore.create(name: 'Friend $i');
+      await personStore.addRelationship(
+        mia.id,
+        f.id,
+        RelationshipType.friend,
+        scope: PersonScope.open,
+      );
+    }
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final showAll = find.text('Show All (7)');
+    await _scrollTo(tester, showAll);
+    expect(
+      find.textContaining('Friend ', skipOffstage: false),
+      findsNWidgets(5),
+    );
+    await tester.tap(showAll);
+    await tester.pumpAndSettle();
+    expect(
+      find.textContaining('Friend ', skipOffstage: false),
+      findsNWidgets(7),
+    );
+    expect(find.text('Show Less', skipOffstage: false), findsOneWidget);
+  });
+
   testWidgets('typing a name and tapping create is the whole flow', (
     tester,
   ) async {
