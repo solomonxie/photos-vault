@@ -5,6 +5,7 @@ import 'package:flutter/cupertino.dart';
 import '../photos/library_metadata.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/asset_removal.dart';
+import '../photos/travel_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/note.dart';
@@ -30,7 +31,11 @@ class AssetGroupScreen extends StatefulWidget {
     this.dateOf = PhotoGridLayout.takenAt,
     this.notes,
     this.archive = false,
+    this.travelStore,
   });
+
+  /// See [DetailScreen.travelStore].
+  final TravelStore? travelStore;
 
   /// This is the Archive: tiles and the detail toolbar offer Unarchive.
   final bool archive;
@@ -157,6 +162,7 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
           onDelete: _delete,
           onToggleFavorite: _toggleFavorite,
           onToggleArchive: widget.archive ? _toggleArchiveInDetail : null,
+          travelStore: widget.travelStore,
         ),
       ),
     );

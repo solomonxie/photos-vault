@@ -259,6 +259,22 @@ class FakeTravelStore implements TravelStore {
   ]..sort(_byStart);
 
   @override
+  Future<Map<String, RouteOutline>> routeOutlines() async => {
+    for (final id in routesById.keys)
+      if ((stopsOf[id] ?? const []).isNotEmpty)
+        id: RouteOutline(
+          stops: [
+            for (final s in stopsOf[id]!)
+              if (placesById[s.placeId] != null) placesById[s.placeId]!,
+          ],
+          flights: {
+            for (final (i, l) in (legsOf[id] ?? const <RouteLeg>[]).indexed)
+              if (l.mode == LegMode.flight) i,
+          },
+        ),
+  };
+
+  @override
   Future<RouteDetail?> routeDetail(String id) async {
     final route = routesById[id];
     if (route == null) return null;

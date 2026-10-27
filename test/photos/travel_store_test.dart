@@ -150,6 +150,18 @@ void main() {
       expect((await store.routesThrough(stops[1].id)).single.id, route.id);
     });
 
+    test('outlines: every route\'s stops and flights in one call', () async {
+      await store.saveLeg(route.id, 1, const RouteLeg(mode: LegMode.flight));
+      final empty = await store.createRoute(title: 'Nowhere yet');
+      final outlines = await store.routeOutlines();
+      expect(
+        [for (final p in outlines[route.id]!.stops) p.name],
+        ['Tokyo', 'Kyoto', 'Osaka'],
+      );
+      expect(outlines[route.id]!.flights, {1});
+      expect(outlines[empty.id], isNull);
+    });
+
     test('appending a stop keeps every leg as it was', () async {
       final nara = await city('Nara');
       await store.setStops(route.id, [

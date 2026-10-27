@@ -458,6 +458,36 @@ class TravelStore {
     return [for (final r in rows) _route(r)];
   }
 
+  /// Every route's outline by id: two queries for all of them.
+  Future<Map<String, RouteOutline>> routeOutlines() async {
+    final db = await _open();
+    final stops = await db.rawQuery(
+      'SELECT s.route_id, p.* FROM stop s JOIN place p ON p.id = s.place_id '
+      'ORDER BY s.route_id, s.position',
+    );
+    final flights = await db.query(
+      'leg',
+      columns: ['route_id', 'position'],
+      where: 'mode = ?',
+      whereArgs: [LegMode.flight.name],
+    );
+    final places = <String, List<Place>>{};
+    for (final r in stops) {
+      (places[r['route_id'] as String] ??= []).add(_place(r));
+    }
+    final flown = <String, Set<int>>{};
+    for (final r in flights) {
+      (flown[r['route_id'] as String] ??= {}).add(r['position'] as int);
+    }
+    return {
+      for (final id in {...places.keys, ...flown.keys})
+        id: RouteOutline(
+          stops: places[id] ?? const [],
+          flights: flown[id] ?? const {},
+        ),
+    };
+  }
+
   /// The route, its stops and legs in order, and their places: four
   /// queries, none per stop.
   Future<RouteDetail?> routeDetail(String id) async {
@@ -817,4 +847,21 @@ class TravelStore {
     note: r['note'] as String? ?? '',
     needsReview: r['needs_review'] == 1,
   );
+}
+
+/// Best-effort, own handle — as [moveWords] does.
+Future<void> moveTravel(String from, String to, {TravelStore? store}) async {
+  try {
+    await (store ?? TravelStore()).movePerson(from, to);
+  } catch (_) {
+    // No travel database — nothing linked.
+  }
+}
+
+Future<void> forgetTravel(String personId, {TravelStore? store}) async {
+  try {
+    await (store ?? TravelStore()).forgetPerson(personId);
+  } catch (_) {
+    // No travel database — nothing linked.
+  }
 }

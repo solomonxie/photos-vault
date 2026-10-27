@@ -12,6 +12,9 @@ import '../photos/person_detail.dart';
 import '../photos/person_owner.dart';
 import '../photos/people_zip.dart' show undatedImport;
 import '../photos/person_store.dart';
+import '../photos/place_search.dart';
+import '../photos/travel.dart';
+import '../photos/travel_store.dart';
 import '../photos/words_file.dart';
 import '../photos/words_store.dart';
 import '../storage/asset_record_store.dart';
@@ -31,6 +34,8 @@ import 'profile_previews.dart';
 import 'profile_relationships.dart';
 import 'profile_section.dart';
 import 'profile_summary.dart';
+import 'route_screen.dart';
+import 'travel_entry_editor.dart';
 import 'undo_toast.dart';
 import 'person_avatar.dart';
 import 'person_avatar_picker.dart';
@@ -72,6 +77,8 @@ class PersonProfileScreen extends StatefulWidget {
     this.autofocusName = false,
     this.conversationStore,
     this.wordsStore,
+    this.travelStore,
+    this.placeSearch,
     this.onOpenPhotos,
   });
 
@@ -81,6 +88,8 @@ class PersonProfileScreen extends StatefulWidget {
 
   final ConversationStore? conversationStore;
   final WordsStore? wordsStore;
+  final TravelStore? travelStore;
+  final PlaceSearch? placeSearch;
 
   final Person person;
   final PersonStore personStore;
@@ -133,6 +142,11 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   late final WordsStore _wordsStore = widget.wordsStore ?? WordsStore();
   Map<WritingKind, int> _wordCounts = const {};
   List<WritingSummary> _latestWords = const [];
+  late final TravelStore _travelStore = widget.travelStore ?? TravelStore();
+  late final PlaceSearch _placeSearch = widget.placeSearch ?? PlaceSearch();
+  List<TravelRoute> _travelRoutes = const [];
+  List<TravelEntry> _travelEntries = const [];
+  Map<String, Place> _travelPlaces = const {};
   int _photoCount = 0;
   Map<String, int> _sharedPhotos = const {};
   Map<String, Person> _peopleById = const {};
@@ -146,7 +160,15 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   final _undo = UndoToast();
   final _scroll = ScrollController();
   final _anchors = {
-    for (final id in ['about', 'chats', 'words', 'people', 'work', 'life'])
+    for (final id in [
+      'about',
+      'chats',
+      'words',
+      'travels',
+      'people',
+      'work',
+      'life',
+    ])
       id: GlobalKey(),
   };
   final _fieldsKey = GlobalKey<CustomFieldsEditorState>();
@@ -173,6 +195,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     _loadFormerNames();
     _loadChats();
     _loadWords();
+    _loadTravels();
   }
 
   /// Newest visible photo and newest chat message: with the events, what
@@ -241,6 +264,71 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
         builder: (_) => WritingScreen(id: w.id, store: _wordsStore),
       ),
     ),
+  );
+
+  /// Routes and entries they're linked to: two queries, a third for the
+  /// entries' place names.
+  Future<void> _loadTravels() async {
+    try {
+      final routes = await _travelStore.routesLinkedTo(
+        LinkTarget.person,
+        _person.id,
+      );
+      final entries = await _travelStore.entriesLinkedTo(
+        LinkTarget.person,
+        _person.id,
+      );
+      final places = entries.isEmpty
+          ? const <String, Place>{}
+          : {for (final p in await _travelStore.places()) p.id: p};
+      if (mounted) {
+        setState(() {
+          _travelRoutes = routes;
+          _travelEntries = entries;
+          _travelPlaces = places;
+        });
+      }
+    } catch (_) {
+      // No travel database: nothing linked.
+    }
+  }
+
+  Future<void> _openRoute(TravelRoute r) async {
+    await Navigator.of(context).push<void>(
+      CupertinoPageRoute(
+        builder: (_) => RouteScreen(
+          travelStore: _travelStore,
+          placeSearch: _placeSearch,
+          routeId: r.id,
+          assetRecordStore: widget.assetRecordStore,
+          personStore: widget.personStore,
+        ),
+      ),
+    );
+    await _loadTravels();
+  }
+
+  Future<void> _openTravelEntry(TravelEntry e) async {
+    await Navigator.of(context).push<void>(
+      CupertinoPageRoute(
+        builder: (_) => TravelEntryEditor(
+          travelStore: _travelStore,
+          entry: e,
+          placeName: _travelPlaces[e.placeId]?.name ?? '',
+          assetRecordStore: widget.assetRecordStore,
+          personStore: widget.personStore,
+        ),
+      ),
+    );
+    await _loadTravels();
+  }
+
+  Widget _travelsSection() => TravelsPreview(
+    routes: _travelRoutes,
+    entries: _travelEntries,
+    places: _travelPlaces,
+    onOpenRoute: _openRoute,
+    onOpenEntry: _openTravelEntry,
   );
 
   /// Count, newest message, per-app counts and per-year counts: four
@@ -1503,6 +1591,14 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
               emptyHint: l10n.wordsPrompt,
               body: _wordsSection,
             ),
+            if (_travelRoutes.isNotEmpty || _travelEntries.isNotEmpty)
+              ..._section(
+                id: 'travels',
+                anchor: 'travels',
+                title: l10n.travelsHeader,
+                count: _travelRoutes.length + _travelEntries.length,
+                body: _travelsSection,
+              ),
             ..._section(
               id: 'relationships',
               anchor: 'people',

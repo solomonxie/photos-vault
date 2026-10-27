@@ -2,6 +2,7 @@ import '../storage/asset_record.dart';
 import 'ai_analysis_store.dart';
 import 'conversation_store.dart';
 import 'person.dart';
+import 'travel_store.dart';
 import 'words_store.dart';
 
 /// Forgets everything remembered about a person, from anywhere.
@@ -22,6 +23,7 @@ Future<void> forgetPersonFaces(
   }
   await forgetConversations(personId);
   await forgetWords(personId);
+  await forgetTravel(personId);
 }
 
 /// Forgets the faces of photos being hidden, so no face search, count or

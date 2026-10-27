@@ -10,6 +10,7 @@ import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/photos/person_store.dart';
+import 'package:photos_vault/photos/travel.dart';
 
 import 'package:photos_vault/photos/person_detail.dart';
 import 'package:photos_vault/photos/person_owner.dart';
@@ -18,6 +19,7 @@ import 'package:photos_vault/vault/keys.dart';
 import '../settings/fake_secure_store.dart';
 import '../support/fake_asset_record_store.dart';
 import '../support/fake_person_store.dart';
+import '../support/fake_travel_store.dart';
 
 Widget _wrap(Widget child) => CupertinoApp(
   localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -53,6 +55,42 @@ Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
 }
 
 void main() {
+  testWidgets('Travels lists the routes and entries the person is linked to', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final personStore = FakePersonStore();
+    final person = await personStore.create(name: 'Mia');
+    final travel = FakeTravelStore();
+    final kyoto = await travel.findOrCreateCity(
+      name: 'Kyoto',
+      lat: 35,
+      lng: 135.7,
+    );
+    final route = await travel.createRoute(title: 'Japan');
+    final entry = await travel.saveEntry(
+      travel.newEntry(placeId: kyoto.id, kind: EntryKind.diary),
+    );
+    final mia = TravelLink(LinkTarget.person, person.id);
+    await travel.setLinks(LinkOwner.route, route.id, [mia]);
+    await travel.setLinks(LinkOwner.entry, entry.id, [mia]);
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: person,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+          travelStore: travel,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _scrollTo(tester, find.text('Travels'));
+    expect(find.byKey(ValueKey('travelsRoute-${route.id}')), findsOne);
+    expect(find.byKey(ValueKey('travelsEntry-${entry.id}')), findsOne);
+    expect(find.text('Kyoto'), findsOne, reason: 'untitled: the place');
+  });
+
   testWidgets('editing the About field persists it to the store', (
     tester,
   ) async {

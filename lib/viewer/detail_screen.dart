@@ -28,6 +28,9 @@ import '../photos/face_identity.dart';
 import '../photos/on_device_analysis.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
+import '../photos/place_search.dart';
+import '../photos/travel.dart';
+import '../photos/travel_store.dart';
 import '../photos/temp_renders.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/bucket_location.dart';
@@ -48,6 +51,8 @@ import 'motion_playback.dart';
 import 'link_text.dart';
 import 'photo_edit_screen.dart';
 import 'person_picker_sheet.dart';
+import 'place_screen.dart';
+import 'travel_entry_editor.dart';
 import 'search_picker_sheet.dart';
 import 'video_controls.dart';
 
@@ -118,7 +123,12 @@ class DetailScreen extends StatefulWidget {
     this.restoreOriginal,
     this.restoreThumbnail,
     this.onDeviceAnalysis,
+    this.travelStore,
   });
+
+  /// Puts "Write About This Place" under a photo's location. Null: not
+  /// offered (viewers opened where there's no travel diary to hand).
+  final TravelStore? travelStore;
 
   final List<AssetRecord> records;
   final int initialIndex;
@@ -778,6 +788,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   resolveLiveVideo: widget.resolveLivePhotoVideo,
                   motionPlayback: _motionPlayback,
                   resolvePlaceName: widget.resolvePlaceName,
+                  travelStore: widget.travelStore,
                   restoreOriginal: widget.restoreOriginal,
                   restoreThumbnail: widget.restoreThumbnail,
                   onDeviceAnalysis: widget.onDeviceAnalysis,
@@ -893,10 +904,12 @@ class _MediaPage extends StatefulWidget {
     this.resolveFile,
     this.resolveLiveVideo,
     this.resolvePlaceName,
+    this.travelStore,
     this.restoreOriginal,
     this.restoreThumbnail,
   });
 
+  final TravelStore? travelStore;
   final AssetRecord record;
 
   /// The page the pager is on. A Photos video is only exported for it —
@@ -1666,6 +1679,7 @@ class _MediaPageState extends State<_MediaPage>
                   onRestoreOriginal: _restoreOriginal,
                   onDeviceAnalysis: widget.onDeviceAnalysis,
                   resolvePlaceName: widget.resolvePlaceName,
+                  travelStore: widget.travelStore,
                   resolvedPath: _path,
                   videoController: _videoController,
                   assetRecordStore: widget.assetRecordStore,
@@ -1891,6 +1905,7 @@ class _InfoPanel extends StatefulWidget {
     required this.onRestoreOriginal,
     required this.onDeviceAnalysis,
     required this.resolvePlaceName,
+    required this.travelStore,
     required this.resolvedPath,
     required this.videoController,
     required this.assetRecordStore,
@@ -1922,6 +1937,9 @@ class _InfoPanel extends StatefulWidget {
 
   /// See [DetailScreen.resolvePlaceName].
   final Future<String?> Function(AssetRecord record)? resolvePlaceName;
+
+  /// See [DetailScreen.travelStore].
+  final TravelStore? travelStore;
 
   /// See [DetailScreen.onDeviceAnalysis].
   final OnDeviceAnalysisService? onDeviceAnalysis;
@@ -1963,6 +1981,7 @@ class _InfoPanelState extends State<_InfoPanel> {
     _loadPeopleThenFaces();
     _loadAlbums();
     _fillLocationFromMetadata();
+    _loadTravel();
     _analyzed = FaceAnalyzer.shared?.finished.listen((id) {
       if (id == widget.record.localId && mounted) {
         _loadFoundFaces();
@@ -2000,6 +2019,135 @@ class _InfoPanelState extends State<_InfoPanel> {
       _loadPeopleThenFaces();
       _loadAlbums();
       _fillLocationFromMetadata();
+    }
+    if (oldWidget.record.localId != widget.record.localId ||
+        oldWidget.record.location != widget.record.location) {
+      _loadTravel();
+    }
+  }
+
+  /// The travel diary's city for this photo, once written about.
+  Place? _travelCity;
+  int _travelEntries = 0;
+  bool _travelOpening = false;
+
+  bool get _offersTravel {
+    final r = widget.record;
+    return widget.travelStore != null &&
+        !r.isHidden &&
+        r.passcodeHash == null &&
+        (r.hasCoordinates || (r.location?.trim().isNotEmpty ?? false));
+  }
+
+  /// "Melbourne, Australia" as `PhotoLocationService` names it, split.
+  static (String, String)? _cityNamed(String? location) {
+    final text = location?.trim() ?? '';
+    if (text.isEmpty) return null;
+    final comma = text.lastIndexOf(',');
+    if (comma < 0) return (text, '');
+    return (text.substring(0, comma).trim(), text.substring(comma + 1).trim());
+  }
+
+  Future<void> _loadTravel() async {
+    _travelCity = null;
+    _travelEntries = 0;
+    final store = widget.travelStore;
+    final named = _cityNamed(widget.record.location);
+    if (store == null || !_offersTravel || named == null) return;
+    final id = widget.record.localId;
+    try {
+      final (name, country) = named;
+      final city = (await store.places())
+          .where(
+            (p) =>
+                p.isCity &&
+                p.name.toLowerCase() == name.toLowerCase() &&
+                (country.isEmpty ||
+                    p.country.isEmpty ||
+                    p.country.toLowerCase() == country.toLowerCase()),
+          )
+          .firstOrNull;
+      if (city == null) return;
+      final counts = await store.entryCountsByPlace();
+      if (!mounted || widget.record.localId != id) return;
+      setState(() {
+        _travelCity = city;
+        _travelEntries = counts[city.id]?.total ?? 0;
+      });
+    } catch (_) {
+      // No travel database here (a test): the row just says "write".
+    }
+  }
+
+  /// Opens the city's page once there's a diary, else a new entry there
+  /// with this photo in it.
+  Future<void> _openTravel() async {
+    final store = widget.travelStore;
+    if (store == null || _travelOpening) return;
+    final search = PlaceSearch();
+    if (_travelCity case final city? when _travelEntries > 0) {
+      await Navigator.of(context).push(
+        CupertinoPageRoute(
+          builder: (_) => PlaceScreen(
+            travelStore: store,
+            placeSearch: search,
+            placeId: city.id,
+            assetRecordStore: widget.assetRecordStore,
+            personStore: widget.personStore,
+          ),
+        ),
+      );
+      await _loadTravel();
+      if (mounted) setState(() {});
+      return;
+    }
+    _travelOpening = true;
+    try {
+      final record = widget.record;
+      var named = _cityNamed(record.location);
+      var lat = record.latitude;
+      var lng = record.longitude;
+      if (lat == null || lng == null) {
+        final found = await search.search(record.location!.trim());
+        final hit =
+            found.where((r) => r.isCity).firstOrNull ?? found.firstOrNull;
+        if (hit == null) return;
+        lat = hit.lat;
+        lng = hit.lng;
+      }
+      named ??= await search.cityAt(lat, lng);
+      if (named == null || !mounted) return;
+      final city =
+          _travelCity ??
+          await store.findOrCreateCity(
+            name: named.$1,
+            country: named.$2,
+            lat: lat,
+            lng: lng,
+          );
+      final taken = record.createdAt;
+      if (!mounted) return;
+      await Navigator.of(context).push<bool>(
+        CupertinoPageRoute(
+          builder: (_) => TravelEntryEditor(
+            travelStore: store,
+            entry: store.newEntry(
+              placeId: city.id,
+              kind: EntryKind.diary,
+              at: DateTime(taken.year, taken.month, taken.day),
+            ),
+            placeName: city.name,
+            isNew: true,
+            assetRecordStore: widget.assetRecordStore,
+            personStore: widget.personStore,
+            initialAssetIds: [record.localId],
+          ),
+        ),
+      );
+      await _loadTravel();
+      if (mounted) setState(() {});
+    } finally {
+      _travelOpening = false;
     }
   }
 
@@ -2759,6 +2907,22 @@ class _InfoPanelState extends State<_InfoPanel> {
                       ),
                 onTap: _editLocation,
               ),
+              if (_offersTravel)
+                CupertinoListTile(
+                  key: const ValueKey('detailTravel'),
+                  leading: const Icon(
+                    CupertinoIcons.book,
+                    color: CupertinoColors.activeBlue,
+                  ),
+                  title: Text(
+                    _travelCity != null && _travelEntries > 0
+                        ? l10n.travelDiaryFor(_travelCity!.name, _travelEntries)
+                        : l10n.travelWriteAboutPlace,
+                    style: const TextStyle(color: CupertinoColors.activeBlue),
+                  ),
+                  trailing: const CupertinoListTileChevron(),
+                  onTap: _openTravel,
+                ),
               if (_width != null && _height != null)
                 CupertinoListTile(
                   title: Text(l10n.detailInfoDimensions),

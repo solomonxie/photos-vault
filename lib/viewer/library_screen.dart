@@ -21,6 +21,7 @@ import '../photos/conversation_store.dart';
 import '../photos/import_log_backfill.dart';
 import '../photos/travel_store.dart';
 import '../photos/words_store.dart';
+import '../photos/place_search.dart';
 import '../photos/derived_asset.dart';
 import '../photos/flag_scan.dart';
 import '../photos/asset_removal.dart';
@@ -96,6 +97,7 @@ import '../upload/cloud_thumbnails.dart';
 import 'built_in_album.dart';
 import 'asset_grid_view.dart';
 import 'asset_group_screen.dart';
+import 'travel_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'developer_options_screen.dart';
@@ -144,6 +146,8 @@ class LibraryScreen extends StatefulWidget {
     this.thumbnailCache,
     this.syncJobStore,
     this.onDeviceAnalysis,
+    this.travelStore,
+    this.placeSearch,
     this.restoreOriginal,
   });
 
@@ -228,6 +232,8 @@ class LibraryScreen extends StatefulWidget {
 
   /// Overridable for tests so they never reach the Vision platform channel.
   final OnDeviceAnalysisService? onDeviceAnalysis;
+  final TravelStore? travelStore;
+  final PlaceSearch? placeSearch;
 
   @override
   State<LibraryScreen> createState() => LibraryScreenState();
@@ -243,6 +249,8 @@ class LibraryScreenState extends State<LibraryScreen>
   late final ManualAddService _manualAddService =
       widget.manualAddService ?? ManualAddService(store: assetRecordStore);
   late final PersonStore _personStore = widget.personStore ?? PersonStore();
+  late final TravelStore _travelStore = widget.travelStore ?? TravelStore();
+  late final PlaceSearch _placeSearch = widget.placeSearch ?? PlaceSearch();
   late final VaultKeys _vaultKeys = VaultKeys();
   late final HiddenBackup _hiddenBackup = HiddenBackup(
     records: assetRecordStore,
@@ -292,7 +300,7 @@ class LibraryScreenState extends State<LibraryScreen>
     hasAsset: (id) => _photoLibraryService.hasAsset(id),
     conversationStore: ConversationStore(),
     wordsStore: WordsStore(),
-    travelStore: TravelStore(),
+    travelStore: _travelStore,
   );
 
   late final PauseBackup _pauseBackup = PauseBackup(
@@ -1703,6 +1711,19 @@ class LibraryScreenState extends State<LibraryScreen>
       title: title,
       records: records,
       assetRecordStore: assetRecordStore,
+      travelStore: _travelStore,
+    ),
+  );
+
+  /// Places, grown into the travel diary.
+  void _openTravel() => _push(
+    TravelScreen(
+      travelStore: _travelStore,
+      placeSearch: _placeSearch,
+      assetRecordStore: assetRecordStore,
+      personStore: _personStore,
+      placeGroups: _places,
+      onOpenGroup: _openGroup,
     ),
   );
 
@@ -2429,6 +2450,7 @@ class LibraryScreenState extends State<LibraryScreen>
           assetRecordStore: assetRecordStore,
           personStore: _personStore,
           albumStore: _albumStore,
+          travelStore: _travelStore,
         ),
       ),
     );
@@ -3358,7 +3380,11 @@ class LibraryScreenState extends State<LibraryScreen>
               ),
       ),
       SliverToBoxAdapter(
-        child: _SubsectionHeader(title: l10n.collectionsPlacesRow),
+        child: _SubsectionHeader(
+          key: const ValueKey('placesHeader'),
+          title: l10n.collectionsPlacesRow,
+          onMore: _openTravel,
+        ),
       ),
       SliverToBoxAdapter(
         child: _GroupList(
@@ -3970,7 +3996,12 @@ class _SectionHeader extends StatelessWidget {
 /// nobody was looking for: you look for people, or for a place, and the
 /// extra level only pushed all three further down.
 class _SubsectionHeader extends StatelessWidget {
-  const _SubsectionHeader({required this.title, this.onMore, this.onAdd});
+  const _SubsectionHeader({
+    super.key,
+    required this.title,
+    this.onMore,
+    this.onAdd,
+  });
 
   final String title;
 

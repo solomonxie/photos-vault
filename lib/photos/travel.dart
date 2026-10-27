@@ -230,6 +230,17 @@ class RouteDetail {
   final Map<String, Place> places;
 }
 
+/// A route's stops in order and which legs are flights: what a list card
+/// draws.
+class RouteOutline {
+  const RouteOutline({this.stops = const [], this.flights = const {}});
+
+  final List<Place> stops;
+
+  /// Leg positions flown.
+  final Set<int> flights;
+}
+
 enum LinkOwner { entry, route }
 
 enum LinkTarget {

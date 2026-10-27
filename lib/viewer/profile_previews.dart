@@ -4,8 +4,10 @@ import 'package:intl/intl.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/conversation_file.dart';
 import '../photos/person.dart';
+import '../photos/travel.dart';
 import '../photos/words_file.dart';
 import 'profile_section.dart';
+import 'route_screen.dart' show routeDates;
 import 'words_screen.dart' show writingKindLabel;
 
 /// What the profile shows of someone's chats: the latest message, how many
@@ -182,6 +184,75 @@ class WordsPreview extends StatelessWidget {
           ),
           onTap: onOpenAll,
         ),
+      ],
+    );
+  }
+}
+
+/// Routes, then diary entries and impressions, they're linked to.
+class TravelsPreview extends StatelessWidget {
+  const TravelsPreview({
+    super.key,
+    required this.routes,
+    required this.entries,
+    required this.places,
+    required this.onOpenRoute,
+    required this.onOpenEntry,
+  });
+
+  final List<TravelRoute> routes;
+  final List<TravelEntry> entries;
+  final Map<String, Place> places;
+  final ValueChanged<TravelRoute> onOpenRoute;
+  final ValueChanged<TravelEntry> onOpenEntry;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    const chevron = Icon(
+      CupertinoIcons.chevron_forward,
+      size: 18,
+      color: CupertinoColors.systemGrey2,
+    );
+    return ProfileCard(
+      children: [
+        for (final r in routes)
+          CupertinoListTile(
+            key: ValueKey('travelsRoute-${r.id}'),
+            leading: const Icon(CupertinoIcons.map),
+            title: Text(r.title.isEmpty ? l10n.routeUntitled : r.title),
+            subtitle: routeDates(r).isEmpty ? null : Text(routeDates(r)),
+            trailing: chevron,
+            onTap: () => onOpenRoute(r),
+          ),
+        for (final e in entries)
+          CupertinoListTile(
+            key: ValueKey('travelsEntry-${e.id}'),
+            leading: Icon(
+              e.kind == EntryKind.impression
+                  ? CupertinoIcons.star
+                  : CupertinoIcons.book,
+            ),
+            title: Text(
+              e.title.isNotEmpty ? e.title : places[e.placeId]?.name ?? '',
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            subtitle: Text(
+              [
+                e.kind == EntryKind.impression
+                    ? l10n.travelsImpression
+                    : l10n.travelsDiary,
+                if (e.title.isNotEmpty && places[e.placeId] != null)
+                  places[e.placeId]!.name,
+                if (e.at != null) DateFormat.yMMMd().format(e.at!),
+              ].join(' · '),
+              maxLines: 1,
+              overflow: TextOverflow.ellipsis,
+            ),
+            trailing: chevron,
+            onTap: () => onOpenEntry(e),
+          ),
       ],
     );
   }

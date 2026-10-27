@@ -20,6 +20,7 @@ import 'package:photos_vault/viewer/asset_grid.dart';
 import 'package:photos_vault/viewer/asset_grid_view.dart';
 import 'package:photos_vault/viewer/built_in_album.dart';
 import 'package:photos_vault/viewer/detail_screen.dart';
+import 'package:photos_vault/viewer/travel_screen.dart';
 import 'package:photos_vault/viewer/library_screen.dart';
 import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:file_picker/file_picker.dart';
@@ -35,6 +36,7 @@ import '../support/fake_album_store.dart';
 import '../support/fake_asset_record_store.dart';
 import '../support/fake_local_vault.dart';
 import '../support/fake_person_store.dart';
+import '../support/fake_travel_store.dart';
 import '../support/fake_sync_job_store.dart';
 
 // Never touches the real `background_downloader` platform channel — this
@@ -1397,6 +1399,49 @@ void main() {
     await tester.tap(find.text('See All').first);
     await tester.pumpAndSettle();
     expect(find.text('No people yet. Tap + to add someone.'), findsWidgets);
+  });
+
+  testWidgets("Places' See All opens the travel diary", (tester) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:one',
+      contentHash: 'one',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/one.jpg',
+    );
+    await tester.binding.setSurfaceSize(const Size(400, 3200));
+    addTearDown(() => tester.binding.setSurfaceSize(null));
+
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+          aiAnalysisStore: FakeAiAnalysisStore(),
+          travelStore: FakeTravelStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('placesHeader')),
+        matching: find.text('See All'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byType(TravelScreen), findsOne);
   });
 
   testWidgets('Albums always shows, with Videos in it and a way to make one', (
