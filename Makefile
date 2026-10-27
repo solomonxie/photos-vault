@@ -8,6 +8,11 @@
 FLUTTER := $(shell [ -x .tools/flutter/bin/flutter ] && echo .tools/flutter/bin/flutter || echo flutter)
 DART    := $(shell [ -x .tools/flutter/bin/dart ] && echo .tools/flutter/bin/dart || echo dart)
 
+# App Store Connect API key for uploads, instead of Xcode's account:
+# Opt in: set -a; . ~/.appstoreconnect/asc.env; make upload. The key needs the
+# Admin role to sign in the cloud; without it the Xcode account is used.
+ASC_AUTH := $(if $(and $(ASC_KEY_ID),$(ASC_ISSUER_ID)),-authenticationKeyPath $(HOME)/.appstoreconnect/private_keys/AuthKey_$(ASC_KEY_ID).p8 -authenticationKeyID $(ASC_KEY_ID) -authenticationKeyIssuerID $(ASC_ISSUER_ID))
+
 # The paired iPhone, unless you name one: make install DEVICE=<udid>
 DEVICE ?= $(shell xcrun devicectl list devices 2>/dev/null | awk '/physical/ { for (i = 1; i <= NF; i++) if ($$i ~ /^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{16}$$/) { print $$i; exit } }')
 
@@ -75,7 +80,7 @@ upload: ## Upload the archive that already exists, without rebuilding
 	xcodebuild -exportArchive \
 	  -archivePath build/ios/archive/Runner.xcarchive \
 	  -exportOptionsPlist ios/ExportOptions.plist \
-	  -exportPath build/ios/ipa -allowProvisioningUpdates
+	  -exportPath build/ios/ipa -allowProvisioningUpdates $(ASC_AUTH)
 
 release: check ## Test, archive and upload to App Store Connect
 	./scripts/release-ios.sh

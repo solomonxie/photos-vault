@@ -60,10 +60,17 @@ KEEP="$HOME/Library/Developer/Xcode/Archives/photos-vault-symbols/$BUILD"
 mkdir -p "$KEEP"
 cp -R "$SYMBOLS/." "$KEEP/"
 
+# An App Store Connect API key, when set, instead of Xcode's signed-in account.
+AUTH=()
+if [ -n "${ASC_KEY_ID:-}" ] && [ -n "${ASC_ISSUER_ID:-}" ]; then
+  AUTH=(-authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_$ASC_KEY_ID.p8"
+    -authenticationKeyID "$ASC_KEY_ID" -authenticationKeyIssuerID "$ASC_ISSUER_ID")
+fi
+
 xcodebuild -exportArchive \
   -archivePath "$ARCHIVE" \
   -exportOptionsPlist ios/ExportOptions.plist \
-  -exportPath build/ios/ipa -allowProvisioningUpdates
+  -exportPath build/ios/ipa -allowProvisioningUpdates ${AUTH[@]+"${AUTH[@]}"}
 
 echo
 echo "Uploaded build $BUILD. Processing in App Store Connect takes 15–60 min."
