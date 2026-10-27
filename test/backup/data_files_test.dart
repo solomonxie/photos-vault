@@ -13,6 +13,8 @@ import 'package:photos_vault/backup/data_files.dart';
 import 'package:photos_vault/backup/snapshot_archive.dart';
 import 'package:photos_vault/photos/conversation_file.dart';
 import 'package:photos_vault/photos/conversation_store.dart';
+import 'package:photos_vault/photos/travel.dart';
+import 'package:photos_vault/photos/travel_store.dart';
 import 'package:photos_vault/photos/words_file.dart';
 import 'package:photos_vault/photos/words_store.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
@@ -353,6 +355,105 @@ void main() {
     final page = await chats.page('p9');
     expect(page.single.text, 'old');
     expect(page.single.thumb, isNull);
+  });
+
+  test(
+    'the travel diary goes up as a blob and a fresh phone gets it back',
+    () async {
+      final (chats, words, support) = await _phone(dir);
+      final travel = TravelStore(
+        databaseFactory: databaseFactoryFfi,
+        path: p.join(dir.path, 'travel.db'),
+      );
+      addTearDown(travel.close);
+      final kyoto = await travel.findOrCreateCity(
+        name: 'Kyoto',
+        country: 'Japan',
+        lat: 35,
+        lng: 135.7,
+      );
+      final entry = await travel.saveEntry(
+        travel
+            .newEntry(placeId: kyoto.id, kind: EntryKind.impression)
+            .copyWith(text: 'calm', rating: () => 5),
+      );
+      await travel.setLinks(LinkOwner.entry, entry.id, const [
+        TravelLink(LinkTarget.person, 'p1'),
+      ]);
+      final route = await travel.createRoute(title: 'Japan');
+      await travel.setStops(route.id, [RouteStop(placeId: kyoto.id)]);
+      DataFiles files(
+        TravelStore t,
+        ConversationStore c,
+        WordsStore w,
+        Directory s,
+      ) => DataFiles(
+        conversations: c,
+        words: w,
+        travel: t,
+        supportDirectory: () async => s,
+      );
+      final set = await files(travel, chats, words, support).collect();
+      addTearDown(set.dispose);
+      expect(set.entries.map((e) => e.name), contains('travel.db'));
+
+      final fresh = Directory(p.join(dir.path, 'fresh'))..createSync();
+      final (chats2, words2, support2) = await _phone(fresh, withData: false);
+      final travel2 = TravelStore(
+        databaseFactory: databaseFactoryFfi,
+        path: p.join(fresh.path, 'travel.db'),
+      );
+      addTearDown(travel2.close);
+      Future<bool> fetch(String sha, String to) async {
+        await File(set.files[sha]!).copy(to);
+        return true;
+      }
+
+      final restore = files(travel2, chats2, words2, support2);
+      await restore.restore(set.entries, fetch);
+      expect((await travel2.places()).single.name, 'Kyoto');
+      final back = (await travel2.entriesAt(kyoto.id)).single;
+      expect((back.text, back.rating), ('calm', 5));
+      expect(await travel2.linksFor(LinkOwner.entry, [entry.id]), {
+        entry.id: const [TravelLink(LinkTarget.person, 'p1')],
+      });
+      expect((await travel2.routeDetail(route.id))!.stops, hasLength(1));
+      await restore.restore(set.entries, fetch);
+      expect(
+        await travel2.places(),
+        hasLength(1),
+        reason: 'twice adds nothing',
+      );
+    },
+  );
+
+  test('writing in the travel diary moves the backup mark', () async {
+    final (chats, words, support) = await _phone(dir, withData: false);
+    final travel = TravelStore(
+      databaseFactory: databaseFactoryFfi,
+      path: p.join(dir.path, 'travel.db'),
+    );
+    addTearDown(travel.close);
+    final io = AppSnapshotIo(
+      assetRecordStore: FakeAssetRecordStore(),
+      albumStore: FakeAlbumStore(),
+      personStore: FakePersonStore(),
+      conversationStore: chats,
+      wordsStore: words,
+      travelStore: travel,
+      supportDirectory: () async => support,
+    );
+    final before = await io.changeMark();
+    final place = await travel.createPlace(
+      name: 'Kyoto',
+      kind: PlaceKind.city,
+      lat: 35,
+      lng: 135.7,
+    );
+    final made = await io.changeMark();
+    expect(made, isNot(before));
+    await travel.updatePlace(place.copyWith(name: 'Kyōto'));
+    expect(await io.changeMark(), isNot(made));
   });
 
   test('importing chats moves the backup mark', () async {

@@ -35,6 +35,11 @@ import UIKit
       VoiceClipChannel.register(with: registrar)
     }
     if let registrar = engineBridge.pluginRegistry.registrar(
+      forPlugin: "MapChannel"
+    ) {
+      MapChannel.register(with: registrar)
+    }
+    if let registrar = engineBridge.pluginRegistry.registrar(
       forPlugin: "BackupExclusionChannel"
     ) {
       BackupExclusionChannel.register(with: registrar)

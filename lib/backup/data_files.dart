@@ -9,6 +9,7 @@ import 'package:path_provider/path_provider.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/conversation_store.dart';
 import '../photos/chat_voice.dart';
+import '../photos/travel_store.dart';
 import '../photos/words_store.dart';
 
 /// Everything the app holds that isn't rows in `library.json`: the chat
@@ -23,6 +24,7 @@ import '../photos/words_store.dart';
 /// |---|---|
 /// | `conversations.db` | gzip of a `VACUUM INTO` copy |
 /// | `words.db` | gzip of a `VACUUM INTO` copy |
+/// | `travel.db` | gzip of a `VACUUM INTO` copy |
 /// | `ai_analysis.db` | gzip of a copy without hidden photos' faces |
 /// | `words/media/…` | each picture as it is |
 /// | `chats/voice/…` | each voice clip as it is |
@@ -119,12 +121,14 @@ class DataFiles {
   DataFiles({
     this.conversations,
     this.words,
+    this.travel,
     this.analysis,
     Future<Directory> Function()? supportDirectory,
   }) : _supportDirectory = supportDirectory ?? getApplicationSupportDirectory;
 
   final ConversationStore? conversations;
   final WordsStore? words;
+  final TravelStore? travel;
   final AiAnalysisStore? analysis;
 
   /// Where `words/media` and `chats/voice` live. Overridable so a test never asks iOS.
@@ -132,6 +136,7 @@ class DataFiles {
 
   static const conversationsName = 'conversations.db';
   static const wordsName = 'words.db';
+  static const travelName = TravelStore.fileName;
   static const analysisName = 'ai_analysis.db';
   static const mediaFolder = 'words/media';
   static const voiceFolder = ChatVoice.folderName;
@@ -143,6 +148,7 @@ class DataFiles {
     for (final read in [
       () => conversations?.dataMark(),
       () => words?.dataMark(),
+      () => travel?.dataMark(),
       () => analysis?.dataMark(),
     ]) {
       try {
@@ -184,6 +190,7 @@ class DataFiles {
     try {
       if (conversations case final c?) await db(conversationsName, c.copyTo);
       if (words case final w?) await db(wordsName, w.copyTo);
+      if (travel case final t?) await db(travelName, t.copyTo);
       if (analysis case final a?) {
         await db(analysisName, (dest) => a.copyTo(dest, hiddenIds));
       }
@@ -275,6 +282,7 @@ class DataFiles {
     final merge = switch (entry.name) {
       conversationsName => conversations?.mergeFrom,
       wordsName => words?.mergeFrom,
+      travelName => travel?.mergeFrom,
       analysisName => analysis?.mergeFrom,
       _ => null,
     };
