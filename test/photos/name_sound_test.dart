@@ -46,4 +46,16 @@ void main() {
     expect(searchByName(names, 'xiaoming', (n) => n), ['王小明']);
     expect(searchByName(names, '', (n) => n), names);
   });
+
+  test('a search lists the whole name first, then starts, words, inside, '
+      'then by sound', () {
+    final names = ['Amiah Lee', 'Mia Chen', 'Lee Mia', 'Mia', 'Mya'];
+    expect(searchByName(names, 'Mia', (n) => n), [
+      'Mia',
+      'Mia Chen',
+      'Lee Mia',
+      'Amiah Lee',
+      'Mya',
+    ]);
+  });
 }

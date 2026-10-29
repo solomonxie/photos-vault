@@ -147,26 +147,54 @@ class NameSound {
   }
 }
 
-/// [items] whose name answers [query]: those that contain it as typed
-/// first, then those found by pinyin, initials, sound or a slip.
+/// How well [name] answers [typed] (trimmed, lower case): 0 the whole
+/// name, 1 its start, 2 a word's start, 3 anywhere in it, 4 by pinyin,
+/// initials, sound or a slip; null not at all. Lower is better.
+int? nameRank(String name, String typed, NameSound heard) {
+  final lower = name.trim().toLowerCase();
+  if (lower == typed) return 0;
+  if (lower.startsWith(typed)) return 1;
+  final at = lower.indexOf(typed);
+  if (at > 0) return _letterOrDigit.hasMatch(lower[at - 1]) ? 3 : 2;
+  return _soundOf(name).answers(heard) ? 4 : null;
+}
+
+final _letterOrDigit = RegExp(r'[\p{L}\p{N}]', unicode: true);
+
+/// The best [nameRank] over several names: someone's name and former ones.
+int? bestNameRank(Iterable<String> names, String typed, NameSound heard) {
+  int? best;
+  for (final n in names) {
+    final r = nameRank(n, typed, heard);
+    if (r != null && (best == null || r < best)) best = r;
+    if (best == 0) break;
+  }
+  return best;
+}
+
+/// [items] whose name answers [query], best match first; ties keep their
+/// order.
 List<T> searchByName<T>(
   Iterable<T> items,
   String query,
   String Function(T) nameOf,
+) => searchByNames(items, query, (item) => [nameOf(item)]);
+
+/// [searchByName] over several names per item.
+List<T> searchByNames<T>(
+  Iterable<T> items,
+  String query,
+  Iterable<String> Function(T) namesOf,
 ) {
   final typed = query.trim().toLowerCase();
   if (typed.isEmpty) return items.toList();
   final heard = NameSound.of(typed);
-  final plain = <T>[], heardOnly = <T>[];
+  final tiers = List.generate(5, (_) => <T>[]);
   for (final item in items) {
-    final name = nameOf(item);
-    if (name.toLowerCase().contains(typed)) {
-      plain.add(item);
-    } else if (_soundOf(name).answers(heard)) {
-      heardOnly.add(item);
-    }
+    final rank = bestNameRank(namesOf(item), typed, heard);
+    if (rank != null) tiers[rank].add(item);
   }
-  return [...plain, ...heardOnly];
+  return [for (final t in tiers) ...t];
 }
 
 /// Names read once a session: a search runs per keystroke over every one.

@@ -143,7 +143,11 @@ void main() {
     await tester.enterText(search, 'friend 13');
     await tester.pump();
     expect(find.text('Friend 13'), findsOneWidget);
-    expect(find.text('Friend 12'), findsNothing);
+    // Fuzzy finds the rest of the Friends too, but the one typed leads.
+    expect(
+      tester.getTopLeft(find.text('Friend 13')).dy,
+      lessThan(tester.getTopLeft(find.text('Friend 12')).dy),
+    );
 
     await tester.enterText(search, '');
     await tester.pump();

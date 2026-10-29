@@ -97,6 +97,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
   List<Person> _people = const [];
   Map<String, int> _counts = const {};
 
+  /// Every photo tagged, hidden ones too: where someone sits in the list.
+  /// Hiding their photos must not send them to the bottom, or out of sight.
+  Map<String, int> _tagged = const {};
+
   /// Names each person went by before; search finds them by those too.
   Map<String, List<String>> _formerNames = const {};
   Map<String, String> _firstPhoto = const {};
@@ -299,7 +303,9 @@ class _PeopleScreenState extends State<PeopleScreen> {
     // Counted over what may be shown: a hidden photo in the count gives
     // away that it exists.
     final visible = visibleIdsOf(records);
+    final present = {for (final r in records) r.localId};
     final counts = <String, int>{};
+    final taggedCounts = <String, int>{};
     final firstPhoto = <String, String>{};
     final tagged = <String>{};
     final members = _members = await widget.personStore.allMemberships();
@@ -309,6 +315,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
           if (visible.contains(id)) id,
       ];
       counts[person.id] = shown.length;
+      taggedCounts[person.id] = [
+        for (final id in members[person.id] ?? const <String>[])
+          if (present.contains(id)) id,
+      ].length;
       tagged.addAll(members[person.id] ?? const <String>[]);
       if (shown.isNotEmpty) firstPhoto[person.id] = shown.first;
     }
@@ -330,7 +340,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     sortPeople(
       people,
       sort,
-      counts: counts,
+      counts: taggedCounts,
       messages: messages,
       firstKnown: firstKnown,
       lastKnown: lastKnown,
@@ -343,7 +353,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
       _lastKnown = lastKnown;
       _groups = groups;
       _initials.clear();
-      _sounds.clear();
       _inAGroup = {for (final ids in groups.values) ...ids};
       _ungrouped = [
         for (final p in people)
@@ -355,6 +364,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
       _formerNames = formerNames;
       _people = people;
       _counts = counts;
+      _tagged = taggedCounts;
       _firstPhoto = firstPhoto;
       _recordsById = records.isEmpty ? null : byId;
       _loaded = true;
@@ -386,7 +396,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     sortPeople(
       people,
       sort,
-      counts: _counts,
+      counts: _tagged,
       messages: _chats,
       firstKnown: _firstKnown,
       lastKnown: _lastKnown,
@@ -1504,24 +1514,27 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final query = _query.trim().toLowerCase();
-    final heard = query.isEmpty ? null : NameSound.of(query);
     final now = DateTime.now();
-    final filtered = [
-      for (final person in _people)
-        if (heard == null || _answers(person, query, heard))
+    // Searched: best match first, whatever the sort.
+    final filtered = searchByNames(
+      [
+        for (final person in _people)
           if (_matchesFilter(person, now)) person,
-    ];
+      ],
+      query,
+      (p) => [p.name, ...?_formerNames[p.id]],
+    );
     final narrowed = query.isNotEmpty || _met != null || _group != null;
     // No visible photo: one row to open, unless searched or filtered for,
     // or nobody has one yet.
-    final fold = !narrowed && filtered.any((p) => (_counts[p.id] ?? 0) > 0);
+    final fold = !narrowed && filtered.any((p) => (_tagged[p.id] ?? 0) > 0);
     final main = [
       for (final p in filtered)
-        if (!fold || (_counts[p.id] ?? 0) > 0) p,
+        if (!fold || (_tagged[p.id] ?? 0) > 0) p,
     ];
     final bare = [
       for (final p in filtered)
-        if (fold && (_counts[p.id] ?? 0) == 0) p,
+        if (fold && (_tagged[p.id] ?? 0) == 0) p,
     ];
     final folded = _showAllPeople || narrowed
         ? main
@@ -1624,26 +1637,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
   final _initials = <String, String>{};
   String _initialOf(Person p) => _initials[p.id] ??= nameInitial(p.name);
 
-  /// Name and former names, worked out on the first search after a reload.
-  final _sounds = <String, List<NameSound>>{};
-
-  bool _answers(Person p, String query, NameSound heard) {
-    final former = _formerNames[p.id] ?? const <String>[];
-    if (p.name.toLowerCase().contains(query) ||
-        former.any((n) => n.toLowerCase().contains(query))) {
-      return true;
-    }
-    final sounds = _sounds[p.id] ??= [
-      for (final n in [p.name, ...former]) NameSound.of(n),
-    ];
-    return sounds.any((s) => s.answers(heard));
-  }
-
   List<Widget> _rowsWithHeadings(AppLocalizations l10n, List<Person> rows) {
     String? last;
     return [
       for (final p in rows) ...[
-        if (_headingOf(l10n, p) case final h? when h != last) ...[
+        if (_query.trim().isEmpty ? _headingOf(l10n, p) : null case final h?
+            when h != last) ...[
           Padding(
             key: _headingKeys.putIfAbsent(h, GlobalKey.new),
             padding: const EdgeInsets.fromLTRB(16, 10, 16, 2),
@@ -1845,7 +1844,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
             const ValueKey('people-bare-page'),
             () => [
               for (final p in _people)
-                if ((_counts[p.id] ?? 0) == 0) _personRow(l10n, p),
+                if ((_tagged[p.id] ?? 0) == 0) _personRow(l10n, p),
             ],
           ),
         ),

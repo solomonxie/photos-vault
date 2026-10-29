@@ -6,6 +6,7 @@ import '../photos/person_store.dart';
 import '../storage/asset_record_store.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
+import '../photos/name_sound.dart';
 
 /// Everyone a group links somebody to, searchable, built as it scrolls —
 /// a company of a thousand is one row on the profile and this list behind
@@ -43,14 +44,7 @@ class _ProfilePeopleListScreenState extends State<ProfilePeopleListScreen> {
 
   void _filter(String text) {
     final q = text.trim().toLowerCase();
-    setState(
-      () => _shown = q.isEmpty
-          ? widget.people
-          : [
-              for (final p in widget.people)
-                if (p.name.toLowerCase().contains(q)) p,
-            ],
-    );
+    setState(() => _shown = searchByName(widget.people, q, (p) => p.name));
   }
 
   @override

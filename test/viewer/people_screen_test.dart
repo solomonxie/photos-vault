@@ -301,6 +301,32 @@ void main() {
     expect(find.text('Zoe'), findsOneWidget);
   });
 
+  testWidgets('someone whose photos are all hidden stays in the list, '
+      'not folded away', (tester) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.addAssets(mia.id, ['h1', 'h2', 'h3']);
+    final zoe = await personStore.create(name: 'Zoe');
+    await personStore.addAssets(zoe.id, ['z1']);
+    await personStore.create(name: 'Bare');
+    final photos = await _withPhotos(['h1', 'h2', 'h3', 'z1']);
+    for (final id in ['h1', 'h2', 'h3']) {
+      await photos.setPasscodeHash(id, 'hash');
+    }
+    await tester.pumpWidget(
+      _wrap(PeopleScreen(personStore: personStore, assetRecordStore: photos)),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.text('Mia'), findsOneWidget);
+    expect(find.text('Bare'), findsNothing, reason: 'folded: never tagged');
+    final row = find.ancestor(
+      of: find.text('Mia'),
+      matching: find.byType(CupertinoListTile),
+    );
+    expect(find.descendant(of: row, matching: find.text('0')), findsOneWidget);
+  });
+
   testWidgets('no-photos and groups rows sit above the named list', (
     tester,
   ) async {

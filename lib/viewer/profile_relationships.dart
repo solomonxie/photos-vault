@@ -7,6 +7,7 @@ import '../storage/asset_record_store.dart';
 import 'fold_toggle.dart';
 import 'person_avatar.dart';
 import 'profile_section.dart';
+import '../photos/name_sound.dart';
 
 /// Above this many, the section gets a search field and type filters.
 const relationshipSearchFrom = 20;
@@ -113,12 +114,14 @@ class _ProfileRelationshipsState extends State<ProfileRelationships> {
         SliverToBoxAdapter(child: _searchBar(l10n)),
     ];
     if (searching) {
-      final hits = [
-        for (final r in _ranked)
-          if ((_filter == null || r.type == _filter) &&
-              (query.isEmpty || _name(r).toLowerCase().contains(query)))
-            r,
-      ];
+      final hits = searchByName(
+        [
+          for (final r in _ranked)
+            if (_filter == null || r.type == _filter) r,
+        ],
+        query,
+        _name,
+      );
       slivers.add(_rows(hits));
       if (hits.isEmpty) {
         slivers.add(

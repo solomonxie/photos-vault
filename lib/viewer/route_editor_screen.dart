@@ -16,6 +16,7 @@ import 'asset_picker_screen.dart';
 import 'native_map.dart';
 import 'route_screen.dart';
 import 'search_picker_sheet.dart';
+import '../photos/name_sound.dart';
 
 /// Edits a route in place: every change is written as it's made, so there
 /// is nothing to lose on the way back. Pops `true` when the route was
@@ -1028,10 +1029,7 @@ class _PlaceSearchSheetState extends State<_PlaceSearchSheet> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final q = _query.text.trim().toLowerCase();
-    final mine = [
-      for (final p in _mine)
-        if (q.isEmpty || p.name.toLowerCase().contains(q)) p,
-    ];
+    final mine = searchByName(_mine, q, (p) => p.name);
     final height = MediaQuery.sizeOf(context).height * 0.8;
     return Container(
       height: height,
