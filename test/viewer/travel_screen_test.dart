@@ -84,6 +84,8 @@ void main() {
       _wrap(TravelScreen(travelStore: store, placeSearch: _search())),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.text('Diary'));
+    await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('nativeMapPlaceholder')), findsOne);
     expect(find.text('Japan'), findsOne);
@@ -109,6 +111,8 @@ void main() {
         TravelScreen(travelStore: FakeTravelStore(), placeSearch: _search()),
       ),
     );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Diary'));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('travelPlacesEmpty')), findsOne);
   });
@@ -136,6 +140,8 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Diary'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('travelAddPlace')));
     await tester.pumpAndSettle();
@@ -177,6 +183,8 @@ void main() {
     await tester.pumpWidget(
       _wrap(TravelScreen(travelStore: store, placeSearch: _search())),
     );
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Diary'));
     await tester.pumpAndSettle();
     tester.widget<NativeMap>(find.byType(NativeMap)).onLongPress!(35.01, 135.7);
     await tester.pumpAndSettle();

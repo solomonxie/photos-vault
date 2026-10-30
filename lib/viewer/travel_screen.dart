@@ -40,13 +40,14 @@ class TravelScreen extends StatefulWidget {
   State<TravelScreen> createState() => _TravelScreenState();
 }
 
-enum _Tab { places, routes, photos }
+enum _Tab { photos, places, routes }
 
 /// A country's cities, and the points no city claimed.
 typedef _Country = ({String name, List<Place> cities, List<Place> loose});
 
 class _TravelScreenState extends State<TravelScreen> {
-  _Tab _tab = _Tab.places;
+  // See All on the library's Places row: its photos first, like the row.
+  _Tab _tab = _Tab.photos;
   bool _loaded = false;
   List<Place> _places = const [];
   List<MapPinData> _pins = const [];
@@ -143,7 +144,7 @@ class _TravelScreenState extends State<TravelScreen> {
     final l10n = AppLocalizations.of(context)!;
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
-        middle: Text(l10n.travelTitle),
+        middle: Text(l10n.collectionsPlacesRow),
         trailing: _tab == _Tab.places
             ? CupertinoButton(
                 key: const ValueKey('travelAddPlace'),
@@ -165,9 +166,9 @@ class _TravelScreenState extends State<TravelScreen> {
                   key: const ValueKey('travelTabs'),
                   groupValue: _tab,
                   children: {
+                    _Tab.photos: Text(l10n.travelSegmentPhotos),
                     _Tab.places: Text(l10n.travelSegmentPlaces),
                     _Tab.routes: Text(l10n.travelSegmentRoutes),
-                    _Tab.photos: Text(l10n.travelSegmentPhotos),
                   },
                   onValueChanged: (t) => setState(() => _tab = t ?? _tab),
                 ),

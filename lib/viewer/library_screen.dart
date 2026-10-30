@@ -1480,10 +1480,13 @@ class LibraryScreenState extends State<LibraryScreen>
     // over every analysis — which is a second or two on a real library,
     // and the grid used to spend all of it blank. Put the grid up now and
     // let the rest land in the second paint.
-    // And on later loads too: a new photo is what somebody is waiting
-    // for, and albums, people and their counts below take seconds on a
-    // big library. They follow in the second paint.
-    if (firstLoad || (index != null && !onScreen && !stale)) {
+    // Later loads paint once, at the end: a second full-page rebuild per
+    // reload stalls the grid mid-scroll. New photos don't wait for it,
+    // [_showLibraryNow] puts them up first.
+    final newIndex = !firstLoad && index != null && !identical(index, _index)
+        ? index
+        : null;
+    if (firstLoad) {
       if (!mounted) return;
       setState(() {
         _loaded = true;
@@ -1492,7 +1495,9 @@ class LibraryScreenState extends State<LibraryScreen>
     }
     if (!firstLoad && statusOnly && !delta.shape && !faces) {
       // Only upload state moved (a backup queued or landed): the tiles
-      // needed the new records, nothing else on the page does.
+      // need the new records, nothing else on the page does.
+      if (!mounted) return;
+      if (newIndex != null) setState(() => _applyLibrary(newIndex));
       _reloadedAll = all;
       return;
     }
@@ -1613,7 +1618,7 @@ class LibraryScreenState extends State<LibraryScreen>
     _tagged = tagged;
     final same =
         _loaded &&
-        index == null &&
+        newIndex == null &&
         identical(albums, _albums) &&
         identical(albumAssets, _albumAssets) &&
         mapEquals(builtInCovers, _builtInCovers) &&
@@ -1630,6 +1635,7 @@ class LibraryScreenState extends State<LibraryScreen>
       _personFirstPhotos = personFirstPhotos;
       _earlyAlbumCounts = null;
       _earlyPeople = false;
+      if (newIndex != null) _applyLibrary(newIndex);
     });
     _rememberCollections();
   }
@@ -2073,7 +2079,9 @@ class LibraryScreenState extends State<LibraryScreen>
   ]) async {
     // Up now, not behind a reload already running and one queued after
     // it: each re-reads albums and people, seconds on a big library.
-    if (await _showLibraryNow()) trace?.mark('shown');
+    // Only for added photos: an edit or an iCloud sync touching assets
+    // takes the queue, or every Photos change rebuilds the page mid-scroll.
+    if (added.isNotEmpty && await _showLibraryNow()) trace?.mark('shown');
     await reload();
     trace
       ?..mark(trace.has('shown') ? 'reloaded' : 'shown')
