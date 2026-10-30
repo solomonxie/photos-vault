@@ -44,6 +44,15 @@ class PendingDelete {
     untilWhole: json['w'] == true,
   );
 
+  factory PendingDelete.fromRow(Map<String, Object?> row) => PendingDelete(
+    objectKey: row['object_key'] as String,
+    targetId: row['target_id'] as String,
+    localId: row['local_id'] as String?,
+    carrier: row['carrier'] == 1,
+    keep: row['keep'] as String?,
+    untilWhole: row['until_whole'] == 1,
+  );
+
   final String objectKey;
 
   /// Empty means "whichever bucket is configured": the task was made with
@@ -105,6 +114,20 @@ class PendingDelete {
     if (untilWhole) 'w': true,
   };
 
+  Map<String, Object?> toRow([String group = '']) => {
+    'grp': group,
+    'object_key': objectKey,
+    'target_id': targetId,
+    'local_id': localId,
+    'carrier': carrier ? 1 : 0,
+    'keep': keep,
+    'until_whole': untilWhole ? 1 : 0,
+  };
+
+  ({String group, String objectKey, String targetId}) rowKey([
+    String group = '',
+  ]) => (group: group, objectKey: objectKey, targetId: targetId);
+
   @override
   bool operator ==(Object other) =>
       other is PendingDelete &&
@@ -123,9 +146,8 @@ class BlockedTarget {
   final int waiting;
 }
 
-/// Serialises read-modify-write on one `app_state` string: two concurrent
-/// adds (a hide and a drain, two screens) would otherwise each write back
-/// the list they read, and one task would be lost.
+/// Serialises a queue's read-then-write passes (a drain, a release, a
+/// take) against each other.
 class _Lock {
   Future<void> _tail = Future.value();
 
@@ -143,7 +165,7 @@ class PendingDeletes {
   final AssetRecordStore store;
   final BucketOps _ops;
 
-  static const _key = 'pending_object_deletes';
+  static const _queue = 'pending';
   static const _failsKey = 'pending_object_delete_fails';
   static final _lock = _Lock();
 
@@ -151,31 +173,16 @@ class PendingDeletes {
   /// before it is called blocked.
   static const blockedAfter = 3;
 
-  Future<List<PendingDelete>> pending() async {
-    final raw = await store.getAppState(_key);
-    if (raw == null || raw.isEmpty) return const [];
-    try {
-      return [
-        for (final e in jsonDecode(raw) as List)
-          PendingDelete.fromJson(e as Map<String, dynamic>),
-      ];
-    } catch (_) {
-      // Unreadable row. Dropping the list would leave plain copies in a
-      // bucket forever with nothing pointing at them, so treat it as empty
-      // and let the next hide re-queue what it knows about.
-      return const [];
-    }
-  }
+  Future<List<PendingDelete>> pending() async => [
+    for (final row in await store.queuedDeletes(_queue))
+      PendingDelete.fromRow(row),
+  ];
 
-  Future<int> count() async => (await pending()).length;
+  Future<int> count() => store.queuedDeleteCount(_queue);
 
-  Future<void> add(Iterable<PendingDelete> tasks) => _lock.run(() async {
-    final all = {...await pending(), ...tasks};
-    await _write(all);
-  });
-
-  Future<void> _write(Iterable<PendingDelete> tasks) =>
-      store.setAppState(_key, jsonEncode([for (final t in tasks) t.toJson()]));
+  Future<void> add(Iterable<PendingDelete> tasks) => _lock.run(
+    () => store.queueDeletes(_queue, [for (final t in tasks) t.toRow()]),
+  );
 
   Future<Map<String, int>> _fails() async {
     final raw = await store.getAppState(_failsKey);
@@ -208,9 +215,9 @@ class PendingDeletes {
   /// Gives up on what is still owed to [targetId]: the bucket is dead and
   /// the user says so. The objects stay wherever they are.
   Future<void> forgetTarget(String targetId) => _lock.run(() async {
-    await _write([
+    await store.unqueueDeletes(_queue, [
       for (final t in await pending())
-        if (t.targetId != targetId) t,
+        if (t.targetId == targetId) t.rowKey(),
     ]);
     final fails = await _fails()
       ..remove(targetId);
@@ -355,24 +362,26 @@ class PendingDeletes {
           attempted[target.id] = (attempted[target.id] ?? 0) + 1;
       }
     }
-    // Re-read, under the lock, rather than write back what was read before
-    // the network round trips: a task added meanwhile (a hide, another
-    // drain) would otherwise be overwritten and never run.
+    // Re-read, under the lock: only what is still queued is touched, and a
+    // task added meanwhile (a hide, another drain) stays.
     return _lock.run(() async {
       final expanded = {for (final t in wildcards) t};
-      final left = <PendingDelete>[];
+      final gone = <PendingDelete>[];
+      final added = <PendingDelete>[];
       for (final t in await pending()) {
         if (expanded.contains(t)) {
-          left.addAll([
+          gone.add(t);
+          added.addAll([
             for (final target in targets)
               if (!done.contains(t.forTarget(target.id)))
                 t.forTarget(target.id),
           ]);
-        } else if (!done.contains(t)) {
-          left.add(t);
+        } else if (done.contains(t)) {
+          gone.add(t);
         }
       }
-      await _write(left);
+      await store.queueDeletes(_queue, [for (final t in added) t.toRow()]);
+      await store.unqueueDeletes(_queue, [for (final t in gone) t.rowKey()]);
       final fails = await _fails();
       for (final MapEntry(key: id, value: n) in attempted.entries) {
         if ((succeeded[id] ?? 0) > 0) {
@@ -382,7 +391,7 @@ class PendingDeletes {
         }
       }
       await store.setAppState(_failsKey, jsonEncode(fails));
-      return left.length;
+      return count();
     });
   }
 }
@@ -405,56 +414,57 @@ class PendingDeletes {
 class DeferredDeletes {
   DeferredDeletes({required this.store, PendingDeletes? pending})
     : _pending = pending ?? PendingDeletes(store: store),
-      _key = 'deferred_object_deletes',
+      _queue = 'deferred',
       _forHide = false;
 
   DeferredDeletes.untilCarrier({required this.store, PendingDeletes? pending})
     : _pending = pending ?? PendingDeletes(store: store),
-      _key = 'hide_held_deletes',
+      _queue = 'held',
       _forHide = true;
 
   final AssetRecordStore store;
   final PendingDeletes _pending;
-  final String _key;
+  final String _queue;
   final bool _forHide;
 
   static final _locks = <String, _Lock>{};
-  _Lock get _lock => _locks[_key] ??= _Lock();
+  _Lock get _lock => _locks[_queue] ??= _Lock();
 
   Future<Map<String, List<PendingDelete>>> waiting() async {
-    final raw = await store.getAppState(_key);
-    if (raw == null || raw.isEmpty) return const {};
-    try {
-      return {
-        for (final e in (jsonDecode(raw) as Map<String, dynamic>).entries)
-          e.key: [
-            for (final t in e.value as List)
-              PendingDelete.fromJson(t as Map<String, dynamic>),
-          ],
-      };
-    } catch (_) {
-      return const {};
+    final groups = <String, List<PendingDelete>>{};
+    for (final row in await store.queuedDeletes(_queue)) {
+      (groups[row['grp'] as String] ??= []).add(PendingDelete.fromRow(row));
     }
+    return groups;
   }
 
   Future<void> add(String localId, Iterable<PendingDelete> tasks) async {
     if (tasks.isEmpty) return;
-    await _lock.run(() async {
-      final all = {...await waiting()};
-      all[localId] = {...?all[localId], ...tasks}.toList();
-      await _write(all);
-    });
+    await _lock.run(
+      () =>
+          store.queueDeletes(_queue, [for (final t in tasks) t.toRow(localId)]),
+    );
   }
 
   /// Takes [localId]'s group out without deleting anything, and returns it.
   Future<List<PendingDelete>> take(String localId) async {
-    if (!(await waiting()).containsKey(localId)) return const [];
-    return _lock.run(() async {
-      final all = {...await waiting()};
-      final group = all.remove(localId);
-      if (group != null) await _write(all);
-      return group ?? const [];
-    });
+    if ((await store.queuedDeletes(_queue, group: localId)).isEmpty) {
+      return const [];
+    }
+    return _lock.run(() => _take(localId));
+  }
+
+  Future<List<PendingDelete>> _take(String localId) async {
+    final group = [
+      for (final row in await store.queuedDeletes(_queue, group: localId))
+        PendingDelete.fromRow(row),
+    ];
+    if (group.isNotEmpty) {
+      await store.unqueueDeletes(_queue, [
+        for (final t in group) t.rowKey(localId),
+      ]);
+    }
+    return group;
   }
 
   /// Hands every task whose keeper is up to [PendingDeletes], each naming
@@ -519,29 +529,25 @@ class DeferredDeletes {
     }
     if (settled.isEmpty) return 0;
     if (ready.isNotEmpty) await _pending.add(ready);
-    // Re-read: a group added meanwhile must survive this write.
+    // Only the rows read are replaced: one added meanwhile stays.
     await _lock.run(() async {
-      final all = {...await waiting()};
+      final added = <Map<String, Object?>>[];
+      final gone = <({String group, String objectKey, String targetId})>[];
       for (final MapEntry(key: id, value: left) in settled.entries) {
-        final added = {...?all[id]}.difference({...?groups[id]});
-        final rest = [...left, ...added];
-        if (rest.isEmpty) {
-          all.remove(id);
-        } else {
-          all[id] = rest;
-        }
+        final read = {...?groups[id]};
+        final kept = {...left};
+        added.addAll([
+          for (final t in kept)
+            if (!read.contains(t)) t.toRow(id),
+        ]);
+        gone.addAll([
+          for (final t in read)
+            if (!kept.contains(t)) t.rowKey(id),
+        ]);
       }
-      await _write(all);
+      await store.queueDeletes(_queue, added);
+      await store.unqueueDeletes(_queue, gone);
     });
     return ready.length;
   }
-
-  Future<void> _write(Map<String, List<PendingDelete>> groups) =>
-      store.setAppState(
-        _key,
-        jsonEncode({
-          for (final e in groups.entries)
-            e.key: [for (final t in e.value) t.toJson()],
-        }),
-      );
 }

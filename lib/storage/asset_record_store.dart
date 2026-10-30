@@ -116,7 +116,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 32,
+        version: 33,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createLibraryIdIndexSql);
@@ -133,6 +133,7 @@ class AssetRecordStore {
           await db.execute(_createRelinkIndexSql);
           await db.execute(_createBucketEditTableSql);
           await db.execute(_createChangeCheckTableSql);
+          await db.execute(_createDeleteQueueTableSql);
           await _addSpotChecked(db);
           await _addRevisions(db);
           await db.execute(_editedKeyIndexSql);
@@ -342,6 +343,10 @@ class AssetRecordStore {
               'ALTER TABLE $_table ADD COLUMN people_only INTEGER NOT NULL '
               'DEFAULT 0',
             );
+          }
+          if (oldVersion < 33) {
+            await db.execute(_createDeleteQueueTableSql);
+            await _importDeleteQueues(db);
           }
         },
       ),
@@ -962,6 +967,120 @@ class AssetRecordStore {
       checked INTEGER
     )
   ''';
+
+  /// Object deletions waiting their turn (`../upload/pending_deletes.dart`),
+  /// one row per task: `grp` is the photo a held group waits on, empty for
+  /// the plain queue. Rows, not one JSON list: a hide of thousands left a
+  /// list megabytes long, re-encoded on every upload.
+  static const _deleteQueueTable = 'delete_queue';
+
+  static const _createDeleteQueueTableSql =
+      '''
+    CREATE TABLE IF NOT EXISTS $_deleteQueueTable (
+      queue TEXT NOT NULL,
+      grp TEXT NOT NULL DEFAULT '',
+      object_key TEXT NOT NULL,
+      target_id TEXT NOT NULL,
+      local_id TEXT,
+      carrier INTEGER NOT NULL DEFAULT 0,
+      keep TEXT,
+      until_whole INTEGER NOT NULL DEFAULT 0,
+      PRIMARY KEY (queue, grp, object_key, target_id)
+    )
+  ''';
+
+  static const _legacyDeleteQueues = {
+    'pending_object_deletes': 'pending',
+    'deferred_object_deletes': 'deferred',
+    'hide_held_deletes': 'held',
+  };
+
+  /// The old JSON lists into [_deleteQueueTable], in SQL: one of them can
+  /// be megabytes.
+  static Future<void> _importDeleteQueues(Database db) async {
+    const columns =
+        'queue, grp, object_key, target_id, local_id, carrier, keep, '
+        'until_whole';
+    String task(String j) =>
+        "json_extract($j, '\$.k'), json_extract($j, '\$.t'), "
+        "json_extract($j, '\$.l'), coalesce(json_extract($j, '\$.c'), 0), "
+        "json_extract($j, '\$.p'), coalesce(json_extract($j, '\$.w'), 0)";
+    const valid =
+        'SELECT value FROM $_appStateTable WHERE key = ? AND json_valid(value)';
+    for (final MapEntry(key: key, value: queue)
+        in _legacyDeleteQueues.entries) {
+      try {
+        await db.rawInsert(
+          queue == 'pending'
+              ? 'INSERT OR IGNORE INTO $_deleteQueueTable ($columns) '
+                    "SELECT ?, '', ${task('t.value')} FROM json_each(($valid)) t"
+              : 'INSERT OR IGNORE INTO $_deleteQueueTable ($columns) '
+                    'SELECT ?, g.key, ${task('t.value')} '
+                    'FROM json_each(($valid)) g, json_each(g.value) t',
+          [queue, key],
+        );
+      } catch (_) {
+        // Unreadable: as the old reader, treated as empty.
+      }
+      await db.delete(_appStateTable, where: 'key = ?', whereArgs: [key]);
+    }
+  }
+
+  /// [queue]'s rows, oldest first; with [group], that group's only.
+  Future<List<Map<String, Object?>>> queuedDeletes(
+    String queue, {
+    String? group,
+  }) async {
+    final db = await _open();
+    return db.query(
+      _deleteQueueTable,
+      where: group == null ? 'queue = ?' : 'queue = ? AND grp = ?',
+      whereArgs: [queue, ?group],
+      orderBy: 'rowid',
+    );
+  }
+
+  Future<int> queuedDeleteCount(String queue) async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS n FROM $_deleteQueueTable WHERE queue = ?',
+      [queue],
+    );
+    return rows.single['n'] as int;
+  }
+
+  /// A row already queued under the same group, key and target stays as
+  /// it is.
+  Future<void> queueDeletes(
+    String queue,
+    Iterable<Map<String, Object?>> rows,
+  ) async {
+    final db = await _open();
+    final batch = db.batch();
+    for (final row in rows) {
+      batch.insert(_deleteQueueTable, {
+        ...row,
+        'queue': queue,
+      }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    }
+    await batch.commit(noResult: true);
+  }
+
+  Future<void> unqueueDeletes(
+    String queue,
+    Iterable<({String group, String objectKey, String targetId})> rows,
+  ) async {
+    final db = await _open();
+    final batch = db.batch();
+    for (final r in rows) {
+      batch.delete(
+        _deleteQueueTable,
+        where: 'queue = ? AND grp = ? AND object_key = ? AND target_id = ?',
+        whereArgs: [queue, r.group, r.objectKey, r.targetId],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
 
   /// `spot_checked`: when the spot check last had an answer from the
   /// bucket for a cloud-only photo (ms). Beside the change check: the same
@@ -1900,6 +2019,7 @@ class AssetRecordStore {
       ..delete(_bucketEditTable)
       ..delete(_relinkTable)
       ..delete(_changeCheckTable)
+      ..delete(_deleteQueueTable)
       ..delete(changeLogTable);
     await batch.commit(noResult: true);
     _dropCache();

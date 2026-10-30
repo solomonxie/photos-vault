@@ -7,6 +7,7 @@ import 'package:photos_vault/backup/change_log.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:photos_vault/storage/bucket_object.dart';
+import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -653,6 +654,86 @@ void main() {
         },
       );
     }
+  });
+
+  test('v32 to v33: every queued delete moves from app_state into rows, '
+      'nothing dropped, and the queues work on', () async {
+    final s = open();
+    await s.getAppState('x');
+    await s.close();
+    final legacy = await databaseFactoryFfi.openDatabase(dbPath());
+    await legacy.execute('DROP TABLE delete_queue');
+    await legacy.insert('app_state', {
+      'key': 'pending_object_deletes',
+      'value': jsonEncode([
+        {'k': 'a.jpg', 't': 'b1', 'l': 'photo:a', 'p': 'a.pvc', 'w': true},
+        {'k': 'c.jpg', 't': '', 'c': true},
+      ]),
+    });
+    await legacy.insert('app_state', {
+      'key': 'hide_held_deletes',
+      'value': jsonEncode({
+        'photo:h': [
+          {'k': 'h.jpg', 't': 'b1', 'l': 'photo:h'},
+          {'k': 'h_t.jpg', 't': 'b1', 'l': 'photo:h'},
+        ],
+        'photo:i': [
+          {'k': 'i.jpg', 't': '', 'l': 'photo:i'},
+        ],
+      }),
+    });
+    await legacy.insert('app_state', {
+      'key': 'deferred_object_deletes',
+      'value': jsonEncode({
+        'photo:u': [
+          {'k': 'u.pvc', 't': 'b1', 'l': 'photo:u', 'c': true},
+        ],
+      }),
+    });
+    await legacy.setVersion(32);
+    await legacy.close();
+
+    final upgraded = open();
+    for (final key in [
+      'pending_object_deletes',
+      'hide_held_deletes',
+      'deferred_object_deletes',
+    ]) {
+      expect(await upgraded.getAppState(key), isNull);
+    }
+    final pending = await PendingDeletes(store: upgraded).pending();
+    expect(
+      [for (final t in pending) t.toJson()],
+      [
+        {'k': 'a.jpg', 't': 'b1', 'l': 'photo:a', 'p': 'a.pvc', 'w': true},
+        {'k': 'c.jpg', 't': '', 'c': true},
+      ],
+    );
+    final held = DeferredDeletes.untilCarrier(store: upgraded);
+    expect(
+      {
+        for (final e in (await held.waiting()).entries)
+          e.key: [for (final t in e.value) t.objectKey],
+      },
+      {
+        'photo:h': ['h.jpg', 'h_t.jpg'],
+        'photo:i': ['i.jpg'],
+      },
+    );
+    final deferred = await DeferredDeletes(store: upgraded).waiting();
+    expect(deferred['photo:u']!.single.carrier, isTrue);
+
+    await held.add('photo:h', [
+      const PendingDelete(objectKey: 'h.jpg', targetId: 'b1'),
+      const PendingDelete(objectKey: 'h_m.jpg', targetId: 'b1'),
+    ]);
+    expect(
+      [for (final t in await held.take('photo:h')) t.objectKey],
+      ['h.jpg', 'h_t.jpg', 'h_m.jpg'],
+      reason: 'a duplicate is not queued twice',
+    );
+    expect((await held.waiting()).keys, ['photo:i']);
+    expect(await PendingDeletes(store: upgraded).count(), 2);
   });
 
   test('v28 to v29: the spot check\'s dates move into change_check, and '

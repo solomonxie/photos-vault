@@ -810,6 +810,55 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<void> setAppState(String key, String value) async =>
       _appState[key] = value;
 
+  /// `queue` → `grp|key|target` → row, in insertion order.
+  final deleteQueues = <String, Map<String, Map<String, Object?>>>{};
+
+  static String _queueKey(String group, String key, String target) =>
+      '$group|$key|$target';
+
+  @override
+  Future<List<Map<String, Object?>>> queuedDeletes(
+    String queue, {
+    String? group,
+  }) async => [
+    for (final row
+        in deleteQueues[queue]?.values ?? const <Map<String, Object?>>[])
+      if (group == null || row['grp'] == group)
+        <String, Object?>{...row, 'queue': queue},
+  ];
+
+  @override
+  Future<int> queuedDeleteCount(String queue) async =>
+      deleteQueues[queue]?.length ?? 0;
+
+  @override
+  Future<void> queueDeletes(
+    String queue,
+    Iterable<Map<String, Object?>> rows,
+  ) async {
+    final q = deleteQueues[queue] ??= {};
+    for (final row in rows) {
+      q.putIfAbsent(
+        _queueKey(
+          row['grp'] as String? ?? '',
+          row['object_key'] as String,
+          row['target_id'] as String,
+        ),
+        () => {...row, 'grp': row['grp'] ?? ''},
+      );
+    }
+  }
+
+  @override
+  Future<void> unqueueDeletes(
+    String queue,
+    Iterable<({String group, String objectKey, String targetId})> rows,
+  ) async {
+    for (final r in rows) {
+      deleteQueues[queue]?.remove(_queueKey(r.group, r.objectKey, r.targetId));
+    }
+  }
+
   final _placeNames = <String, PlaceNameEntry>{};
 
   @override
@@ -1160,6 +1209,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     if (throwOnClear) throw StateError('database unavailable');
     _records.clear();
     _appState.clear();
+    deleteQueues.clear();
     _placeNames.clear();
     swaps.clear();
     relinkPending.clear();
