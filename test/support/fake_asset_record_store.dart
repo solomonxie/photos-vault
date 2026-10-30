@@ -963,6 +963,18 @@ class FakeAssetRecordStore implements AssetRecordStore {
   };
 
   @override
+  Future<Map<String, Map<DerivativeKind, Map<String, String>>>>
+  targetsHoldingAll(Iterable<String> localIds) async => {
+    for (final id in localIds.toSet())
+      if ({
+            for (final kind in DerivativeKind.values)
+              kind: await targetsHolding(id, kind),
+          }..removeWhere((_, held) => held.isEmpty)
+          case final held when held.isNotEmpty)
+        id: held,
+  };
+
+  @override
   Future<void> recordUpload({
     required String localId,
     required DerivativeKind kind,

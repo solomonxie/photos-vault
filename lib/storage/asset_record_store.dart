@@ -2019,6 +2019,36 @@ class AssetRecordStore {
     };
   }
 
+  /// [targetsHolding] for many photos and every kind, in one query per
+  /// chunk: `localId` → kind → `targetId` → key. Photos holding nothing
+  /// are absent.
+  Future<Map<String, Map<DerivativeKind, Map<String, String>>>>
+  targetsHoldingAll(Iterable<String> localIds) async {
+    final ids = localIds.toSet().toList();
+    final out = <String, Map<DerivativeKind, Map<String, String>>>{};
+    if (ids.isEmpty) return out;
+    final kinds = DerivativeKind.values.asNameMap();
+    final db = await _open();
+    for (var i = 0; i < ids.length; i += 900) {
+      final chunk = ids.skip(i).take(900).toList();
+      final rows = await db.query(
+        _derivativeTargetTable,
+        columns: ['local_id', 'kind', 'target_id', 'destination_key'],
+        where: 'local_id IN (${List.filled(chunk.length, '?').join(',')})',
+        whereArgs: chunk,
+      );
+      for (final row in rows) {
+        final kind = kinds[row['kind']];
+        if (kind == null) continue;
+        out
+                .putIfAbsent(row['local_id'] as String, () => {})
+                .putIfAbsent(kind, () => {})[row['target_id'] as String] =
+            row['destination_key'] as String;
+      }
+    }
+    return out;
+  }
+
   /// Every per-bucket upload row, for the backup snapshot and for bulk
   /// deletes that would otherwise ask once per photo.
   /// Whether a photo other than [exceptLocalId] still names [key]: a file

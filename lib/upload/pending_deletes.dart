@@ -262,8 +262,14 @@ class PendingDeletes {
   Future<bool> _heldNow(PendingDelete task) async {
     final id = task.localId;
     if (id == null) return false;
-    for (final kind in DerivativeKind.values) {
-      final held = await store.targetsHolding(id, kind);
+    return _heldIn((await store.targetsHoldingAll([id]))[id], task);
+  }
+
+  static bool _heldIn(
+    Map<DerivativeKind, Map<String, String>>? holding,
+    PendingDelete task,
+  ) {
+    for (final held in holding?.values ?? const <Map<String, String>>[]) {
       if (task.targetId.isEmpty
           ? held.containsValue(task.objectKey)
           : held[task.targetId] == task.objectKey) {
@@ -303,11 +309,24 @@ class PendingDeletes {
     final done = <PendingDelete>{};
     final attempted = <String, int>{};
     final succeeded = <String, int>{};
+    // Thousands wait at once after a big hide: read up front in two
+    // queries, not five per task. Only a task about to be deleted is
+    // checked again, live.
+    final ids = {for (final w in work) ?w.task.localId};
+    final records = await store.getByLocalIds(ids);
+    final holding = await store.targetsHoldingAll(ids);
+    bool wholeIn(String? id) =>
+        id == null || (records[id]?.isFullyBackedUp ?? true);
     for (final (:task, :key) in work) {
       final target = byId[task.targetId];
       if (target == null) continue; // Dormant, not dropped.
-      if (await _heldNow(task)) {
+      if (_heldIn(holding[task.localId], task)) {
         done.add(task); // Someone's backup still: never this delete's.
+        continue;
+      }
+      if (task.untilWhole && !wholeIn(task.localId)) continue;
+      if (await _heldNow(task)) {
+        done.add(task);
         continue;
       }
       if (task.untilWhole && !await _whole(task.localId)) continue;
@@ -444,28 +463,31 @@ class DeferredDeletes {
   /// expanded over [targets], and waits while there are none. Returns how
   /// many tasks were released.
   ///
-  /// One lookup per waiting photo — bounded by photos in transition, never
-  /// by library size.
+  /// Two queries for all waiting photos: a hide of thousands leaves
+  /// thousands waiting, and one lookup each stalled the app for minutes.
   Future<int> release([List<S3BackupTarget> targets = const []]) async {
     final groups = await waiting();
     if (groups.isEmpty) return 0;
     final ready = <PendingDelete>[];
     final settled = <String, List<PendingDelete>>{};
+    final records = await store.getByLocalIds(groups.keys);
+    final holding = await store.targetsHoldingAll([
+      for (final r in records.values)
+        if (r.isFullyBackedUp) r.localId,
+    ]);
     for (final MapEntry(key: localId, value: tasks) in groups.entries) {
-      final record = await store.getByLocalId(localId);
+      final record = records[localId];
       if (record == null) continue;
       if (_forHide && record.passcodeHash == null) {
         settled[localId] = const [];
         continue;
       }
       if (!record.isFullyBackedUp) continue;
-      final keepers = await store.targetsHolding(
-        localId,
-        DerivativeKind.original,
-      );
+      final holds = holding[localId] ?? const {};
+      final keepers = holds[DerivativeKind.original] ?? const {};
       final held = <String>{
         for (final kind in DerivativeKind.values) ...[
-          ...(await store.targetsHolding(localId, kind)).values,
+          ...?holds[kind]?.values,
           ?record.stateOf(kind).destinationKey,
         ],
       };

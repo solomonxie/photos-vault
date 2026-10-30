@@ -3527,14 +3527,6 @@ class LibraryScreenState extends State<LibraryScreen>
             title: l10n.collectionsLanguageRow,
             onTap: _pickLanguage,
           ),
-          // Photos and videos straight from Files — an SD card, a folder
-          // copied onto the phone — never through Photos.
-          _row(
-            icon: CupertinoIcons.folder_fill_badge_plus,
-            color: CupertinoColors.systemGreen,
-            title: l10n.libraryAddFilesButton,
-            onTap: addFiles,
-          ),
           _row(
             icon: CupertinoIcons.hammer_fill,
             color: CupertinoColors.systemIndigo,

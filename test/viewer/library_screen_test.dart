@@ -482,7 +482,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // The empty library's button; More holds a second Add Files row.
+    // The empty library's button.
     await tester.tap(find.widgetWithText(CupertinoButton, 'Add Files'));
     await tester.pumpAndSettle();
 
