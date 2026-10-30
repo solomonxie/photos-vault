@@ -3516,6 +3516,18 @@ class AssetRecordStore {
     ];
   }
 
+  /// Whether [after] was published after [before], both [listAll]'s. True
+  /// when this store can't say (another store's list, [listNewest]).
+  bool isNewerList(List<AssetRecord> after, List<AssetRecord> before) {
+    if (identical(after, before)) return false;
+    final a = _generations[before];
+    final b = _generations[after];
+    if (a == null || b == null || a.store != _id || b.store != _id) {
+      return true;
+    }
+    return b.publish > a.publish;
+  }
+
   /// Visible records by id, read live from the cache [listAll] keeps (so
   /// at least as new as its last list). For lookups: no copy per list.
   late final Map<String, AssetRecord> visibleById = _VisibleById(this);

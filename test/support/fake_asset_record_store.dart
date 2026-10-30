@@ -252,6 +252,11 @@ class FakeAssetRecordStore implements AssetRecordStore {
       if (r.isVisibleInLibrary) r.localId: r,
   };
 
+  /// Every list is a fresh read: the later one asked for is the newer.
+  @override
+  bool isNewerList(List<AssetRecord> after, List<AssetRecord> before) =>
+      !identical(after, before);
+
   /// No diffs: every reload works its lists out again.
   @override
   List<RecordChange>? changesBetween(

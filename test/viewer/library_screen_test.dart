@@ -119,6 +119,7 @@ Future<void> _settleScan(WidgetTester tester) async {
 
 void main() {
   _reloadCoalescing();
+  _arrivals();
 
   testWidgets('shows the empty placeholder with no manual adds yet', (
     tester,
@@ -2294,4 +2295,130 @@ class _ScriptedChanges extends PhotoChanges {
     asked.add(token);
     return next;
   }
+}
+
+/// Albums whose read waits on [gate]: a reload held mid-way.
+class _HeldAlbums extends FakeAlbumStore {
+  Completer<void>? gate;
+
+  @override
+  Future<Object> changeStamp() async {
+    await gate?.future;
+    return super.changeStamp();
+  }
+}
+
+Future<void> _photosChanged(WidgetTester tester, Set<String> created) =>
+    tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      'com.fluttercandies/photo_manager/notify',
+      const StandardMethodCodec().encodeMethodCall(
+        MethodCall('change', {
+          'create': [
+            for (final id in created) {'id': id},
+          ],
+        }),
+      ),
+      (_) {},
+    );
+
+void _arrivals() {
+  Future<_HeldAlbums> open(
+    WidgetTester tester,
+    FakeAssetRecordStore recordStore,
+    Future<AssetEntity?> Function(String id) loadEntity,
+  ) async {
+    tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+      const MethodChannel('com.fluttercandies/photo_manager'),
+      (_) async => null,
+    );
+    addTearDown(
+      () => tester.binding.defaultBinaryMessenger.setMockMethodCallHandler(
+        const MethodChannel('com.fluttercandies/photo_manager'),
+        null,
+      ),
+    );
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final albums = _HeldAlbums();
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: albums,
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+          photoLibraryService: PhotoLibraryService(
+            store: recordStore,
+            requestPermission: () async => PermissionState.authorized,
+            listAssetPage: pagedFrom(const []),
+            loadEntity: loadEntity,
+          ),
+        ),
+      ),
+    );
+    await _settleScan(tester);
+    return albums;
+  }
+
+  AssetEntity entity(String id) => AssetEntity(
+    id: id,
+    typeInt: AssetType.image.index,
+    width: 100,
+    height: 100,
+    createDateSecond: DateTime(2030).millisecondsSinceEpoch ~/ 1000,
+  );
+
+  testWidgets('a photo added while open is on the grid before a slow '
+      'reload of albums and people is done', (tester) async {
+    final recordStore = FakeAssetRecordStore();
+    await recordStore.upsert(
+      localId: 'manual:old',
+      contentHash: 'old',
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: '/tmp/library_screen_test.jpg',
+    );
+    final albums = await open(
+      tester,
+      recordStore,
+      (id) async => id == 'new1' ? entity('new1') : null,
+    );
+    expect(find.byKey(const ValueKey('manual:old')), findsOneWidget);
+
+    albums.gate = Completer<void>();
+    await _photosChanged(tester, {'new1'});
+    await tester.pump();
+    await tester.pump();
+    expect(find.byKey(const ValueKey('photo:new1')), findsOneWidget);
+
+    albums.gate!.complete();
+    await _settleScan(tester);
+    expect(find.byKey(const ValueKey('photo:new1')), findsOneWidget);
+  });
+
+  testWidgets('a photo Photos cannot hand over yet is tried again soon', (
+    tester,
+  ) async {
+    final recordStore = FakeAssetRecordStore();
+    var asked = 0;
+    await open(tester, recordStore, (id) async {
+      if (id != 'late1') return null;
+      if (asked++ == 0) throw StateError('still saving');
+      return entity('late1');
+    });
+
+    await _photosChanged(tester, {'late1'});
+    await tester.pump();
+    expect(find.byKey(const ValueKey('photo:late1')), findsNothing);
+    await tester.pump(const Duration(seconds: 1));
+    await tester.pumpAndSettle();
+    expect(asked, 2);
+    expect(find.byKey(const ValueKey('photo:late1')), findsOneWidget);
+  });
 }

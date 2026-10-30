@@ -515,12 +515,17 @@ class PhotoLibraryService {
   /// two hundred photos or two hundred thousand. [syncAll] stays as the
   /// backstop for what happened while nobody was watching — notifications
   /// only arrive while the app is running.
-  Future<PhotoLibrarySyncResult> applyChange(PhotoLibraryChange change) async {
+  /// [onStage] hears `looked up` and `stored`, for [ArrivalLog].
+  Future<PhotoLibrarySyncResult> applyChange(
+    PhotoLibraryChange change, {
+    void Function(String stage)? onStage,
+  }) async {
     final added = <AssetRecord>[];
     var updated = 0;
 
     final ids = {...change.created, ...change.updated};
     final looked = await _lookUp(ids);
+    onStage?.call('looked up');
     // As before: a failed lookup fails the change; the next scan has it.
     if (looked.unknown.isNotEmpty) {
       throw StateError('${looked.unknown.length} assets unreadable');
@@ -557,6 +562,7 @@ class PhotoLibraryService {
       }
     }
 
+    onStage?.call('stored');
     updated += await _markMissing(change.deleted);
     return PhotoLibrarySyncResult(added: added, updated: updated);
   }

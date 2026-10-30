@@ -1616,5 +1616,9 @@
   "placeRename": "重命名",
   "placeDelete": "删除地点",
   "placeDeleteInUse": "这个地点还有记录、路线或其中的地点。请先移除它们。",
-  "placeInCity": "位于{city}"
+  "placeInCity": "位于{city}",
+  "devSectionArrivals": "新照片耗时",
+  "devArrivalsHint": "最近几次新照片出现在网格前所用的时间，最新的在前。每一行是距触发的时间：change = 照片应用通知了打开中的本应用，resume = 回到本应用，launch = 打开应用。",
+  "devArrivalsEmpty": "打开应用以来还没有新照片。",
+  "devArrivalsPhotos": "{count}张照片"
 }

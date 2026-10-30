@@ -2264,5 +2264,10 @@
   "placeDelete": "Delete Place",
   "placeDeleteInUse": "This place still has entries, routes or places inside it. Remove those first.",
   "placeInCity": "in {city}",
-  "@placeInCity": {"placeholders": {"city": {"type": "String"}}}
+  "@placeInCity": {"placeholders": {"city": {"type": "String"}}},
+  "devSectionArrivals": "New Photos Timing",
+  "devArrivalsHint": "How long the last new photos took to reach the grid, newest first. Each line is time since the trigger: change = Photos told the open app, resume = back to the app, launch = opened.",
+  "devArrivalsEmpty": "No new photos since the app opened.",
+  "devArrivalsPhotos": "{count, plural, =1{1 photo} other{{count} photos}}",
+  "@devArrivalsPhotos": {"placeholders": {"count": {"type": "int"}}}
 }

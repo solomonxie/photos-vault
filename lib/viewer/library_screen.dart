@@ -28,6 +28,7 @@ import '../photos/asset_removal.dart';
 import '../photos/library_metadata.dart';
 import '../photos/library_scanner.dart';
 import '../photos/ai_analysis_store.dart';
+import '../photos/arrival_log.dart';
 import '../photos/face_analyzer.dart';
 import '../photos/file_hash.dart' as file_hash;
 import '../photos/manual_add.dart';
@@ -520,6 +521,10 @@ class LibraryScreenState extends State<LibraryScreen>
   late final _conversations = ConversationStore();
 
   List<AssetRecord> _all = const [];
+
+  /// The list the last full [reload] derived albums, people and counts
+  /// from. Behind [_all] while [_showLibraryNow]'s list waits for one.
+  List<AssetRecord>? _reloadedAll;
   LibraryIndex? _index;
 
   /// Whether [reload] has finished once. Distinguishes a library that is
@@ -620,22 +625,28 @@ class LibraryScreenState extends State<LibraryScreen>
     // we weren't looking. The newest photos first and on their own lane,
     // then Photos' change history; the full pass only when that can't
     // vouch for what moved, or once a day.
-    unawaited(_refreshBucketListing());
-    unawaited(_scanRecentThenAll());
-    unawaited(_sweepLeftovers());
-    unawaited(_runScheduledSyncIfDue());
-    unawaited(_hiddenBackup.run().catchError((_) {}));
+    _recentTrace = ArrivalLog.shared.start('resume');
+    final recent = _libraryScanner.runRecent();
+    unawaited(recent.then((_) => _libraryScanner.runChanges()));
     unawaited(_offerShared());
-    _startTrickle();
+    // The rest writes to the same database the newest photos are read
+    // into: behind them, or a few seconds at most if that lane is slow.
+    unawaited(
+      recent.timeout(_resumeHold, onTimeout: () {}).then((_) {
+        if (!mounted) return;
+        unawaited(_refreshBucketListing());
+        unawaited(_sweepLeftovers());
+        unawaited(_runScheduledSyncIfDue());
+        unawaited(_hiddenBackup.run().catchError((_) {}));
+        _startTrickle();
+      }),
+    );
   }
 
-  /// The changes start once the newest photos are in: started together,
-  /// both queue on the one database connection and the recent lane, the
-  /// one somebody is waiting on, finishes behind them.
-  Future<void> _scanRecentThenAll() async {
-    await _libraryScanner.runRecent();
-    await _libraryScanner.runChanges();
-  }
+  static const _resumeHold = Duration(seconds: 3);
+
+  /// What the next recent-lane pass reports its timing to.
+  ArrivalTrace? _recentTrace;
 
   /// Keeping up with Photos while the app is open costs a notification per
   /// change, not a scan: iOS says exactly which assets were added, altered
@@ -654,16 +665,36 @@ class LibraryScreenState extends State<LibraryScreen>
   void _onPhotoLibraryChanged(MethodCall call) {
     final change = PhotoLibraryChange.parse(call);
     if (change == null || change.isEmpty) return;
-    unawaited(_applyPhotoLibraryChange(change));
+    unawaited(
+      _applyPhotoLibraryChange(change, ArrivalLog.shared.start('change')),
+    );
   }
 
-  Future<void> _applyPhotoLibraryChange(PhotoLibraryChange change) async {
+  /// Retries of a change Photos couldn't hand over yet (an asset still
+  /// being saved): soon, a few times, rather than at the next scan.
+  static const _changeRetries = [Duration(seconds: 1), Duration(seconds: 3)];
+
+  Future<void> _applyPhotoLibraryChange(
+    PhotoLibraryChange change,
+    ArrivalTrace trace, {
+    int attempt = 0,
+  }) async {
     try {
-      final result = await _photoLibraryService.applyChange(change);
-      if (result.isEmpty || !mounted) return;
-      await _showThenBackUp(result.added);
+      final result = await _photoLibraryService.applyChange(
+        change,
+        onStage: trace.mark,
+      );
+      if (result.isEmpty || !mounted) return trace.finish(0);
+      await _showThenBackUp(result.added, trace);
     } catch (_) {
-      // Whatever this notification carried, the next scan finds anyway.
+      if (attempt >= _changeRetries.length || !mounted) {
+        // Whatever this notification carried, the next scan finds anyway.
+        return trace.finish(0);
+      }
+      trace.mark('retry');
+      await Future<void>.delayed(_changeRetries[attempt]);
+      if (!mounted) return trace.finish(0);
+      await _applyPhotoLibraryChange(change, trace, attempt: attempt + 1);
     }
   }
 
@@ -918,7 +949,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // Fire-and-forget: the changes since the last pass, or a full scan when
     // they can't be had, must never block showing what's already on hand.
     // Re-`reload()`s itself once done. After the recent lane, as
-    // [_scanRecentThenAll].
+    // the resume path.
     unawaited(recent.then((_) => _libraryScanner.runChanges()));
     // Independent of camera-roll access: retries whatever's already
     // pending/failed if the configured sync frequency says it's due — the
@@ -1036,9 +1067,12 @@ class LibraryScreenState extends State<LibraryScreen>
   /// the oldest one that the library no longer has.
   /// Single-flight through [_libraryScanner], as is [_syncPhotoLibrary].
   Future<void> _syncRecentPhotos() async {
+    final trace = _recentTrace ?? ArrivalLog.shared.start('launch');
+    _recentTrace = null;
+    trace.mark('started');
     try {
       final access = await _photoLibraryService.requestAccess();
-      if (access == PhotoLibraryAccess.denied) return;
+      if (access == PhotoLibraryAccess.denied) return trace.finish(0);
       final result = await _photoLibraryService.syncRecent(
         // Same rule as the full pass: under "Selected Photos" the listing
         // is a handful of assets and everything else would look deleted.
@@ -1046,12 +1080,14 @@ class LibraryScreenState extends State<LibraryScreen>
       );
       // An asset restored from Photos' own trash gets another chance at
       // resolving, the same as after a full pass.
+      trace.mark('scanned');
       if (result.added.isNotEmpty) _retryUnresolvable();
-      if (result.isEmpty || !mounted) return;
-      await _showThenBackUp(result.added);
+      if (result.isEmpty || !mounted) return trace.finish(0);
+      await _showThenBackUp(result.added, trace);
     } catch (_) {
       // No platform channel, or the permission flow failed — the full pass
       // covers the same ground, just not as promptly.
+      trace.finish(0);
     }
   }
 
@@ -1408,26 +1444,34 @@ class LibraryScreenState extends State<LibraryScreen>
     if (firstLoad) await _paintNewest();
     if (firstLoad) await _paintLastCollections();
     final all = await assetRecordStore.listAll();
-    // The same list instance back means the library itself hasn't moved
-    // (see [AssetRecordStore.listAll]) — so everything derived from it is
-    // still good, down to the grid's own layout, which memoises on the
-    // identity of the list it was given.
-    final libraryChanged = !identical(all, _all);
-    final delta = libraryDelta(firstLoad ? null : _all, all);
-    // What moved since the last list, record by record, when the store
-    // can say: the derived lists below are patched by it, not redone.
-    final changes = firstLoad || !libraryChanged
+    // Measured against the list the last reload worked everything out
+    // from, not the one on screen: [_showLibraryNow] may have put a newer
+    // one up already, and what derives from it is still owed. The same
+    // list instance back means the library itself hasn't moved (see
+    // [AssetRecordStore.listAll]).
+    final base = firstLoad ? null : _reloadedAll;
+    final libraryChanged = !identical(all, base);
+    final delta = libraryDelta(base, all);
+    // What moved since then, record by record, when the store can say:
+    // the derived lists below are patched by it, not redone.
+    final changes = firstLoad || !libraryChanged || base == null
         ? null
-        : assetRecordStore.changesBetween(_all, all);
+        : assetRecordStore.changesBetween(base, all);
     final small = changes != null && changes.length <= LibraryIndex.patchLimit;
-    final index = libraryChanged || firstLoad
-        ? LibraryIndex.after(
+    // The grid's own index: from what's on screen, which is never newer
+    // than [all] here — a list from a read that finished first.
+    final onScreen = !firstLoad && identical(all, _all);
+    final stale = !firstLoad && !assetRecordStore.isNewerList(all, _all);
+    final index = !libraryChanged && !firstLoad
+        ? null
+        : onScreen || stale
+        ? _index
+        : LibraryIndex.after(
             firstLoad ? null : _index,
             all,
-            changes,
+            firstLoad ? null : assetRecordStore.changesBetween(_all, all),
             DateTime.now(),
-          )
-        : null;
+          );
     final active = index?.active ?? _active;
 
     // The photos are in, and on the first load they are the whole reason
@@ -1436,17 +1480,20 @@ class LibraryScreenState extends State<LibraryScreen>
     // over every analysis — which is a second or two on a real library,
     // and the grid used to spend all of it blank. Put the grid up now and
     // let the rest land in the second paint.
-    if (firstLoad) {
+    // And on later loads too: a new photo is what somebody is waiting
+    // for, and albums, people and their counts below take seconds on a
+    // big library. They follow in the second paint.
+    if (firstLoad || (index != null && !onScreen && !stale)) {
       if (!mounted) return;
       setState(() {
         _loaded = true;
         _applyLibrary(index!);
       });
-    } else if (statusOnly && !delta.shape && !faces) {
+    }
+    if (!firstLoad && statusOnly && !delta.shape && !faces) {
       // Only upload state moved (a backup queued or landed): the tiles
-      // need the new records, nothing else on the page does.
-      if (!mounted) return;
-      if (index != null) setState(() => _applyLibrary(index));
+      // needed the new records, nothing else on the page does.
+      _reloadedAll = all;
       return;
     }
 
@@ -1559,6 +1606,7 @@ class LibraryScreenState extends State<LibraryScreen>
       _peopleSort = sort;
     }
     if (!mounted) return;
+    _reloadedAll = all;
     _albumStamp = albumStamp;
     _albumsOf = albumsOf;
     _personStamp = personStamp;
@@ -1574,7 +1622,6 @@ class LibraryScreenState extends State<LibraryScreen>
     if (same) return;
     setState(() {
       _loaded = true;
-      if (index != null && !firstLoad) _applyLibrary(index);
       _albums = albums;
       _albumAssets = albumAssets;
       _builtInCovers = builtInCovers;
@@ -2020,14 +2067,40 @@ class LibraryScreenState extends State<LibraryScreen>
   /// New photos on screen first; queueing their backup is a few writes
   /// each, and the grid used to wait for all of them. No second reload:
   /// the drain's own, when it ends, shows their backup status.
-  Future<void> _showThenBackUp(List<AssetRecord> added) async {
+  Future<void> _showThenBackUp(
+    List<AssetRecord> added, [
+    ArrivalTrace? trace,
+  ]) async {
+    // Up now, not behind a reload already running and one queued after
+    // it: each re-reads albums and people, seconds on a big library.
+    if (await _showLibraryNow()) trace?.mark('shown');
     await reload();
+    trace
+      ?..mark(trace.has('shown') ? 'reloaded' : 'shown')
+      ..finish(added.length);
     if (added.isEmpty || !mounted) return;
     // Read again: on screen, a photo can be hidden before it's queued.
     final fresh = await assetRecordStore.getByLocalIds(
       added.map((r) => r.localId),
     );
     await _backUpRecords(fresh.values.toList());
+  }
+
+  /// The grid only, from the newest list, past the [reload] queue. What
+  /// derives from it (albums, people, counts) follows with the next
+  /// [reload]. False when there was nothing newer to show.
+  Future<bool> _showLibraryNow() async {
+    if (!_loaded || _reloadedAll == null) return false;
+    final all = await assetRecordStore.listAll();
+    if (!mounted || !assetRecordStore.isNewerList(all, _all)) return false;
+    final index = LibraryIndex.after(
+      _index,
+      all,
+      assetRecordStore.changesBetween(_all, all),
+      DateTime.now(),
+    );
+    setState(() => _applyLibrary(index));
+    return true;
   }
 
   Future<int> _backUpRecords(List<AssetRecord> records) =>

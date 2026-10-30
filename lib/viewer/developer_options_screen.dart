@@ -1,7 +1,9 @@
 import 'package:flutter/cupertino.dart';
+import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
+import '../photos/arrival_log.dart';
 import '../photos/conversation_store.dart';
 import '../photos/face_analyzer.dart';
 import '../photos/face_import.dart';
@@ -253,6 +255,59 @@ class DeveloperOptionsScreen extends StatelessWidget {
                 ),
               ),
             ),
+            const SizedBox(height: 28),
+            SettingsGroupHeading(title: l10n.devSectionArrivals),
+            const ArrivalTimings(),
+          ],
+        ),
+      ),
+    );
+  }
+}
+
+/// The last arrivals of new photos, stage by stage.
+class ArrivalTimings extends StatelessWidget {
+  const ArrivalTimings({super.key, this.log});
+
+  final ArrivalLog? log;
+
+  static String _ms(Duration d) => '${d.inMilliseconds} ms';
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    const small = TextStyle(fontSize: 13, color: CupertinoColors.systemGrey);
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: settingsPagePadding + 16),
+      child: ValueListenableBuilder(
+        valueListenable: (log ?? ArrivalLog.shared).entries,
+        builder: (context, entries, _) => Column(
+          key: const ValueKey('devArrivals'),
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(l10n.devArrivalsHint, style: settingsHintStyle),
+            const SizedBox(height: 8),
+            if (entries.isEmpty) Text(l10n.devArrivalsEmpty, style: small),
+            for (final a in entries)
+              Padding(
+                padding: const EdgeInsets.only(bottom: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Text(
+                      '${DateFormat.Hms().format(a.at)} · '
+                      '${a.trigger} · ${l10n.devArrivalsPhotos(a.photos)} · '
+                      '${_ms(a.total)}',
+                      style: const TextStyle(fontWeight: FontWeight.w600),
+                    ),
+                    Text(
+                      [for (final (n, d) in a.stages) '$n ${_ms(d)}']
+                          .join('  →  '),
+                      style: small,
+                    ),
+                  ],
+                ),
+              ),
           ],
         ),
       ),

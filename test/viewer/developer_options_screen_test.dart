@@ -1,6 +1,7 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/photos/arrival_log.dart';
 import 'package:photos_vault/viewer/developer_options_screen.dart';
 
 import '../support/fake_ai_analysis_store.dart';
@@ -56,5 +57,25 @@ void main() {
     await tester.tap(format);
     await tester.pumpAndSettle();
     expect(find.textContaining('mode (per row)'), findsNothing);
+  });
+
+  testWidgets('new photos\' timing reads stage by stage', (tester) async {
+    final log = ArrivalLog.shared;
+    log.start('change')
+      ..mark('looked up')
+      ..mark('shown')
+      ..finish(2);
+    log.start('resume').finish(0);
+    await tester.pumpWidget(
+      CupertinoApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: CupertinoPageScaffold(child: ArrivalTimings(log: log)),
+      ),
+    );
+    expect(log.entries.value, hasLength(1), reason: 'nothing came: not kept');
+    expect(find.textContaining('change · 2 photos'), findsOneWidget);
+    expect(find.textContaining('looked up'), findsOneWidget);
+    expect(find.textContaining('→  shown'), findsOneWidget);
   });
 }
