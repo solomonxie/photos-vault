@@ -36,6 +36,8 @@ class FakeTravelStore implements TravelStore {
     required double lng,
     String? parentId,
     String country = '',
+    String address = '',
+    String category = '',
   }) async {
     _rev++;
     final p = Place(
@@ -46,6 +48,8 @@ class FakeTravelStore implements TravelStore {
       lng: lng,
       parentId: parentId,
       country: country,
+      address: address,
+      category: category,
       createdAt: DateTime(2026),
     );
     return placesById[p.id] = p;
@@ -101,14 +105,51 @@ class FakeTravelStore implements TravelStore {
         return p;
       }
     }
+    final parent = await findOrCreateCountry(country, lat: lat, lng: lng);
     return createPlace(
       name: name,
       kind: PlaceKind.city,
       lat: lat,
       lng: lng,
+      parentId: parent?.id,
       country: country,
     );
   }
+
+  @override
+  Future<Place?> findOrCreateCountry(
+    String name, {
+    required double lat,
+    required double lng,
+  }) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return null;
+    for (final p in placesById.values) {
+      if (p.isCountry && p.name.toLowerCase() == trimmed.toLowerCase()) {
+        return p;
+      }
+    }
+    return createPlace(
+      name: trimmed,
+      kind: PlaceKind.country,
+      lat: lat,
+      lng: lng,
+      country: trimmed,
+    );
+  }
+
+  @override
+  Future<({int places, int plans, int impressions})> counts() async => (
+    places: placesById.length,
+    plans: routesById.length,
+    impressions: entriesById.length,
+  );
+
+  @override
+  Future<List<TravelEntry>> entriesAtAny(Set<String> placeIds) async => [
+    for (final e in entriesById.values)
+      if (placeIds.contains(e.placeId)) e,
+  ]..sort(TravelStore.compareEntries);
 
   @override
   Future<Map<String, PlaceEntryCounts>> entryCountsByPlace() async {

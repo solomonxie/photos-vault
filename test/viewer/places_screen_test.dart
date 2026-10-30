@@ -6,11 +6,11 @@ import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/photos/place_search.dart';
 import 'package:photos_vault/photos/travel.dart';
 import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/viewer/footprints_screens.dart';
 import 'package:photos_vault/viewer/native_map.dart';
 import 'package:photos_vault/viewer/place_screen.dart';
-import 'package:photos_vault/viewer/route_list_view.dart';
 import 'package:photos_vault/viewer/travel_entry_editor.dart';
-import 'package:photos_vault/viewer/travel_screen.dart';
+import 'package:photos_vault/viewer/places_screen.dart';
 
 import '../support/fake_asset_record_store.dart';
 import '../support/fake_person_store.dart';
@@ -52,24 +52,32 @@ AssetRecord _photo(String id, {String? location}) => AssetRecord(
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
-  testWidgets('places by country, cities with what is inside them', (
+  testWidgets('countries at the top; each place opens what is inside it', (
     tester,
   ) async {
     final store = FakeTravelStore();
-    final kyoto = await store.createPlace(
+    final kyoto = await store.findOrCreateCity(
       name: 'Kyoto',
-      kind: PlaceKind.city,
+      country: 'Japan',
       lat: 35,
       lng: 135.7,
-      country: 'Japan',
     );
-    await store.createPlace(
-      name: 'Kinkaku-ji',
-      kind: PlaceKind.point,
-      lat: 35.03,
-      lng: 135.72,
+    final gion = await store.createPlace(
+      name: 'Gion',
+      kind: PlaceKind.area,
+      lat: 35.0,
+      lng: 135.77,
       parentId: kyoto.id,
       country: 'Japan',
+    );
+    final cafe = await store.createPlace(
+      name: 'Kagizen',
+      kind: PlaceKind.point,
+      lat: 35.0,
+      lng: 135.77,
+      parentId: gion.id,
+      country: 'Japan',
+      category: 'Cafe',
     );
     await store.findOrCreateCity(
       name: 'Lisbon',
@@ -78,70 +86,87 @@ void main() {
       lng: -9.1,
     );
     await store.saveEntry(
-      store.newEntry(placeId: kyoto.id, kind: EntryKind.diary),
+      store
+          .newEntry(placeId: cafe.id, kind: EntryKind.impression)
+          .copyWith(title: 'Matcha warabi'),
     );
     await tester.pumpWidget(
-      _wrap(TravelScreen(travelStore: store, placeSearch: _search())),
+      _wrap(PlacesScreen(travelStore: store, placeSearch: _search())),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Diary'));
     await tester.pumpAndSettle();
 
     expect(find.byKey(const ValueKey('nativeMapPlaceholder')), findsOne);
     expect(find.text('Japan'), findsOne);
     expect(find.text('Portugal'), findsOne);
-    expect(find.text('1 place inside'), findsOne);
-    // The point sits on Kyoto's page, not in the country list.
-    expect(find.text('Kinkaku-ji'), findsNothing);
+    expect(find.text('Kyoto'), findsNothing);
     expect(
       tester.widget<NativeMap>(find.byType(NativeMap)).pins.map((p) => p.title),
-      containsAll(['Kyoto', 'Kinkaku-ji', 'Lisbon']),
+      containsAll(['Kyoto', 'Gion', 'Kagizen', 'Lisbon']),
     );
+
+    // A note on a pin is the country's too, and says where it was.
+    await tester.tap(find.text('Japan'));
+    await tester.pumpAndSettle();
+    expect(find.text('Matcha warabi'), findsOne);
+    expect(find.textContaining('at Kagizen'), findsOne);
+    expect(find.text('Inside Japan'), findsOne);
 
     await tester.tap(find.text('Kyoto'));
     await tester.pumpAndSettle();
-    expect(find.byType(PlaceScreen), findsOne);
-    expect(find.text('Kinkaku-ji'), findsOne);
-    expect(find.text('Places in Kyoto'), findsOne);
+    expect(
+      find.byKey(
+        ValueKey(
+          'placePath-${store.placesById.values.firstWhere((p) => p.isCountry).id}',
+        ),
+      ),
+      findsOne,
+    );
+    expect(find.text('Matcha warabi'), findsOne);
+    await tester.tap(find.text('Gion'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Kagizen'));
+    await tester.pumpAndSettle();
+    expect(find.textContaining('Cafe'), findsWidgets);
+    // Its own: no "at".
+    expect(find.text('Matcha warabi'), findsOne);
+    expect(find.textContaining('at Kagizen'), findsNothing);
   });
 
   testWidgets('nothing yet: says how to start', (tester) async {
     await tester.pumpWidget(
       _wrap(
-        TravelScreen(travelStore: FakeTravelStore(), placeSearch: _search()),
+        PlacesScreen(travelStore: FakeTravelStore(), placeSearch: _search()),
       ),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Diary'));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('travelPlacesEmpty')), findsOne);
   });
 
-  testWidgets('a point found by search is filed under its city', (
+  testWidgets('a business found by search is filed under country and city', (
     tester,
   ) async {
     final store = FakeTravelStore();
     await tester.pumpWidget(
       _wrap(
-        TravelScreen(
+        PlacesScreen(
           travelStore: store,
           placeSearch: _search(
             results: [
               {
                 'name': 'Kinkaku-ji',
+                'kind': 'point',
                 'locality': 'Kyoto',
                 'country': 'Japan',
+                'address': '1 Kinkakujicho',
+                'category': 'Landmark',
                 'lat': 35.03,
                 'lng': 135.72,
-                'isCity': false,
               },
             ],
           ),
         ),
       ),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.text('Diary'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('travelAddPlace')));
     await tester.pumpAndSettle();
@@ -155,12 +180,14 @@ void main() {
     await tester.pumpAndSettle();
 
     final places = await store.places();
+    final country = places.singleWhere((p) => p.isCountry);
     final city = places.singleWhere((p) => p.isCity);
-    final point = places.singleWhere((p) => !p.isCity);
-    expect((city.name, city.country), ('Kyoto', 'Japan'));
-    expect(point.parentId, city.id);
+    final pin = places.singleWhere((p) => p.kind == PlaceKind.point);
+    expect(country.name, 'Japan');
+    expect(city.parentId, country.id);
+    expect(pin.parentId, city.id);
+    expect((pin.address, pin.category), ('1 Kinkakujicho', 'Landmark'));
     expect(find.byType(PlaceScreen), findsOne);
-    expect(find.text('in Kyoto'), findsOne);
 
     // Found again: the same place, not a second one.
     await savePlaceResult(
@@ -172,19 +199,99 @@ void main() {
         country: 'Japan',
         lat: 35.031,
         lng: 135.721,
-        isCity: false,
       ),
     );
-    expect(await store.places(), hasLength(2));
+    expect(await store.places(), hasLength(3));
   });
 
-  testWidgets('a pin held down on the map is named and placed', (tester) async {
+  testWidgets('inside a place: a found place, an area by name, a pin', (
+    tester,
+  ) async {
     final store = FakeTravelStore();
+    final kyoto = await store.findOrCreateCity(
+      name: 'Kyoto',
+      country: 'Japan',
+      lat: 35,
+      lng: 135.7,
+    );
     await tester.pumpWidget(
-      _wrap(TravelScreen(travelStore: store, placeSearch: _search())),
+      _wrap(
+        PlaceScreen(
+          travelStore: store,
+          placeSearch: _search(
+            results: [
+              {
+                'name': 'Nishiki Market',
+                'kind': 'point',
+                'locality': 'Osaka',
+                'country': 'Japan',
+                'lat': 35.005,
+                'lng': 135.765,
+              },
+            ],
+          ),
+          placeId: kyoto.id,
+        ),
+      ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Diary'));
+
+    Future<void> addInside(String query) async {
+      await tester.ensureVisible(find.byKey(const ValueKey('placeAddPoint')));
+      await tester.tap(find.byKey(const ValueKey('placeAddPoint')));
+      await tester.pumpAndSettle();
+      await tester.enterText(
+        find.byKey(const ValueKey('travelPlaceSearch')),
+        query,
+      );
+      await tester.pump(const Duration(milliseconds: 400));
+      await tester.pumpAndSettle();
+    }
+
+    await addInside('nishiki');
+    await tester.tap(find.byKey(const ValueKey('travelSearchResult-0')));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    // Where it was added, whatever MapKit's town says.
+    expect(
+      store.placesById.values
+          .singleWhere((p) => p.name == 'Nishiki Market')
+          .parentId,
+      kyoto.id,
+    );
+
+    await addInside('Higashiyama');
+    await tester.tap(find.byKey(const ValueKey('placeAddArea')));
+    await tester.pumpAndSettle();
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    final area = store.placesById.values.singleWhere(
+      (p) => p.name == 'Higashiyama',
+    );
+    expect((area.kind, area.parentId), (PlaceKind.area, kyoto.id));
+
+    tester.widget<NativeMap>(find.byType(NativeMap)).onLongPress!(35.01, 135.7);
+    await tester.pumpAndSettle();
+    await tester.enterText(
+      find.byKey(const ValueKey('travelPinName')),
+      'Our ryokan',
+    );
+    await tester.tap(find.byKey(const ValueKey('travelPinSave')));
+    await tester.pumpAndSettle();
+    final pin = store.placesById.values.singleWhere(
+      (p) => p.name == 'Our ryokan',
+    );
+    expect((pin.kind, pin.parentId), (PlaceKind.point, kyoto.id));
+  });
+
+  testWidgets('a pin dropped on the top map finds its country and city', (
+    tester,
+  ) async {
+    final store = FakeTravelStore();
+    await tester.pumpWidget(
+      _wrap(PlacesScreen(travelStore: store, placeSearch: _search())),
+    );
     await tester.pumpAndSettle();
     tester.widget<NativeMap>(find.byType(NativeMap)).onLongPress!(35.01, 135.7);
     await tester.pumpAndSettle();
@@ -195,17 +302,63 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('travelPinSave')));
     await tester.pumpAndSettle();
 
-    final point = (await store.places()).singleWhere((p) => !p.isCity);
-    expect(point.name, 'Our ryokan');
-    expect(store.placesById[point.parentId]!.name, 'Kyoto');
-    expect(find.text('Our ryokan'), findsWidgets);
+    final pin = (await store.places()).singleWhere(
+      (p) => p.kind == PlaceKind.point,
+    );
+    final city = store.placesById[pin.parentId]!;
+    expect(city.name, 'Kyoto');
+    expect(store.placesById[city.parentId]!.name, 'Japan');
   });
 
-  testWidgets('routes and photos are tabs of the same screen', (tester) async {
+  testWidgets('moved into another place, or to the top', (tester) async {
+    final store = FakeTravelStore();
+    final kyoto = await store.findOrCreateCity(
+      name: 'Kyoto',
+      country: 'Japan',
+      lat: 35,
+      lng: 135.7,
+    );
+    final loose = await store.createPlace(
+      name: 'Fushimi Inari',
+      kind: PlaceKind.point,
+      lat: 34.97,
+      lng: 135.77,
+    );
+    await tester.pumpWidget(
+      _wrap(
+        PlaceScreen(
+          travelStore: store,
+          placeSearch: _search(),
+          placeId: loose.id,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('placeMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('placeMove')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('placeMoveTo-${kyoto.id}')));
+    await tester.pumpAndSettle();
+    expect(store.placesById[loose.id]!.parentId, kyoto.id);
+    expect(find.byKey(ValueKey('placePath-${kyoto.id}')), findsOne);
+
+    await tester.tap(find.byKey(const ValueKey('placeMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('placeMove')));
+    await tester.pumpAndSettle();
+    // Not into itself or what's inside it.
+    expect(find.byKey(ValueKey('placeMoveTo-${loose.id}')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('placeMoveTop')));
+    await tester.pumpAndSettle();
+    expect(store.placesById[loose.id]!.parentId, isNull);
+  });
+
+  testWidgets('photos by location are a row away', (tester) async {
     final opened = <String>[];
     await tester.pumpWidget(
       _wrap(
-        TravelScreen(
+        PlacesScreen(
           travelStore: FakeTravelStore(),
           placeSearch: _search(),
           placeGroups: {
@@ -216,15 +369,75 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Routes'));
+    await tester.tap(find.byKey(const ValueKey('placesPhotoGroups')));
     await tester.pumpAndSettle();
-    expect(find.byType(RouteListView), findsOne);
-    expect(find.byKey(const ValueKey('travelAddPlace')), findsNothing);
-
-    await tester.tap(find.text('Photos'));
-    await tester.pumpAndSettle();
+    expect(find.byType(PhotoPlacesScreen), findsOne);
     await tester.tap(find.text('Kyoto, Japan'));
     expect(opened, ['Kyoto, Japan']);
+  });
+
+  testWidgets('Impressions lists every one, newest first, with its place', (
+    tester,
+  ) async {
+    final store = FakeTravelStore();
+    final kyoto = await store.findOrCreateCity(
+      name: 'Kyoto',
+      country: 'Japan',
+      lat: 35,
+      lng: 135.7,
+    );
+    final cafe = await store.createPlace(
+      name: 'Kagizen',
+      kind: PlaceKind.point,
+      lat: 35,
+      lng: 135.77,
+      parentId: kyoto.id,
+    );
+    for (final (place, title, day) in [
+      (kyoto, 'Rain on the river', 1),
+      (cafe, 'Matcha warabi', 2),
+    ]) {
+      await store.saveEntry(
+        store
+            .newEntry(placeId: place.id, kind: EntryKind.impression)
+            .copyWith(title: title, at: () => DateTime(2025, 4, day)),
+      );
+    }
+    await tester.pumpWidget(
+      _wrap(ImpressionsScreen(travelStore: store, placeSearch: _search())),
+    );
+    await tester.pumpAndSettle();
+    final newer = tester.getTopLeft(find.text('Matcha warabi')).dy;
+    final older = tester.getTopLeft(find.text('Rain on the river')).dy;
+    expect(newer, lessThan(older));
+    expect(find.textContaining('at Kagizen, Kyoto'), findsOne);
+    expect(find.textContaining('at Kyoto'), findsOne);
+
+    await tester.tap(find.text('Matcha warabi'));
+    await tester.pumpAndSettle();
+    expect(find.byType(TravelEntryScreen), findsOne);
+  });
+
+  test('places as a tree: a missing parent or a loop files at the top', () {
+    Place at(String id, String? parent) => Place(
+      id: id,
+      name: id,
+      kind: PlaceKind.point,
+      lat: 0,
+      lng: 0,
+      parentId: parent,
+      createdAt: DateTime(2024),
+    );
+    final tree = placeTree([
+      at('jp', null),
+      at('kyoto', 'jp'),
+      at('gion', 'kyoto'),
+      at('orphan', 'gone'),
+      at('a', 'b'),
+      at('b', 'a'),
+    ]);
+    expect(tree[null]!.map((p) => p.id), ['a', 'b', 'jp', 'orphan']);
+    expect(placeAndBelow('jp', tree), {'jp', 'kyoto', 'gion'});
   });
 
   test('a city takes the photos filed under its name', () {
@@ -243,6 +456,20 @@ void main() {
       'Osaka, Japan': [_photo('c')],
     };
     expect(photosNamedFor(city, groups).map((r) => r.localId), ['a', 'b']);
+    expect(
+      photosNamedFor(
+        Place(
+          id: 'j',
+          name: 'Japan',
+          kind: PlaceKind.country,
+          lat: 0,
+          lng: 0,
+          createdAt: DateTime(2024),
+        ),
+        groups,
+      ).map((r) => r.localId),
+      ['a', 'c'],
+    );
     expect(
       photosNamedFor(
         Place(
@@ -287,17 +514,17 @@ void main() {
       ),
     );
 
-    testWidgets('a diary entry is written, read, and linked to a person', (
+    testWidgets('an impression is written, read, and linked to a person', (
       tester,
     ) async {
       final people = FakePersonStore();
       final mia = await people.create(name: 'Mia');
       await tester.pumpWidget(page(people: people));
       await tester.pumpAndSettle();
-      expect(find.text('Nothing written here yet.'), findsOne);
+      expect(find.text('No impressions here yet.'), findsOne);
       expect(find.byKey(const ValueKey('placePhotos')), findsOne);
 
-      await tester.tap(find.byKey(const ValueKey('placeWriteDiary')));
+      await tester.tap(find.byKey(const ValueKey('placeAddImpression')));
       await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const ValueKey('travelEntryTitle')),
@@ -315,12 +542,12 @@ void main() {
       await tester.pumpAndSettle();
 
       final entry = store.entriesById.values.single;
-      expect(entry.kind, EntryKind.diary);
+      expect(entry.kind, EntryKind.impression);
       expect(entry.title, 'First day');
       expect(store.links[(LinkOwner.entry, entry.id)], [
         TravelLink(LinkTarget.person, mia.id),
       ]);
-      expect(find.text('Diary'), findsOne);
+      expect(find.text('Impressions'), findsOne);
 
       await tester.tap(find.text('First day'));
       await tester.pumpAndSettle();
@@ -329,7 +556,7 @@ void main() {
       expect(find.text('Mia'), findsOne);
     });
 
-    testWidgets('an impression per visit, rated and tagged', (tester) async {
+    testWidgets('impressions, any number, rated and tagged', (tester) async {
       await tester.pumpWidget(page());
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('placeAddImpression')));

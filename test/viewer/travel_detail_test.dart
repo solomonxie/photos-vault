@@ -48,7 +48,7 @@ Future<void> _toPanel(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('a photo with a place starts a diary entry there, itself in '
+  testWidgets('a photo with a place starts an impression there, itself in '
       'it', (tester) async {
     final travel = FakeTravelStore();
     await tester.pumpWidget(
@@ -59,7 +59,7 @@ void main() {
     );
     await _toPanel(tester);
     final row = find.byKey(const ValueKey('detailTravel'));
-    expect(find.text('Write About This Place'), findsOne);
+    expect(find.text('Add Impression of This Place'), findsOne);
     await tester.ensureVisible(row);
     await tester.pumpAndSettle();
     await tester.tap(row);
@@ -72,7 +72,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('travelEntrySave')));
     await tester.pumpAndSettle();
 
-    final city = travel.placesById.values.single;
+    final city = travel.placesById.values.singleWhere((p) => p.isCity);
     expect((city.name, city.country, city.isCity), ('Kyoto', 'Japan', true));
     final entry = travel.entriesById.values.single;
     expect(entry.placeId, city.id);
@@ -80,7 +80,7 @@ void main() {
     expect(travel.links[(LinkOwner.entry, entry.id)], [
       const TravelLink(LinkTarget.asset, 'a'),
     ]);
-    expect(find.text('Diary for Kyoto (1)'), findsOne);
+    expect(find.text('Impressions of Kyoto (1)'), findsOne);
 
     await tester.ensureVisible(row);
     await tester.pumpAndSettle();

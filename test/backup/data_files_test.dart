@@ -411,7 +411,10 @@ void main() {
 
       final restore = files(travel2, chats2, words2, support2);
       await restore.restore(set.entries, fetch);
-      expect((await travel2.places()).single.name, 'Kyoto');
+      expect(
+        (await travel2.places()).map((p) => p.name),
+        unorderedEquals(['Kyoto', 'Japan']),
+      );
       final back = (await travel2.entriesAt(kyoto.id)).single;
       expect((back.text, back.rating), ('calm', 5));
       expect(await travel2.linksFor(LinkOwner.entry, [entry.id]), {
@@ -421,8 +424,8 @@ void main() {
       await restore.restore(set.entries, fetch);
       expect(
         await travel2.places(),
-        hasLength(1),
-        reason: 'twice adds nothing',
+        hasLength(2),
+        reason: 'twice adds nothing, not even a second Japan',
       );
     },
   );

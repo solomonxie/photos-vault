@@ -9,31 +9,36 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_group_screen.dart';
 import 'native_map.dart';
+import 'places_screen.dart';
 import 'route_screen.dart';
 import 'travel_entry_editor.dart';
-import 'travel_screen.dart';
 
 /// Photos the library filed under [place]'s name: "Kyoto, Japan" or plain
-/// "Kyoto", as `PhotoLocationService` writes them. Cities only; a point is
-/// too small for a town's name to mean it.
+/// "Kyoto", as `PhotoLocationService` writes them; for a country, every
+/// group ending in its name. Countries and cities only: a pin is too small
+/// for a town's name to mean it.
 List<AssetRecord> photosNamedFor(
   Place place,
   Map<String, List<AssetRecord>> groups,
 ) {
-  if (!place.isCity) return const [];
-  final names = {
-    place.name.toLowerCase(),
-    if (place.country.isNotEmpty)
-      '${place.name}, ${place.country}'.toLowerCase(),
+  final name = place.name.toLowerCase();
+  bool matches(String key) => switch (place.kind) {
+    PlaceKind.country => key == name || key.endsWith(', $name'),
+    PlaceKind.city =>
+      key == name ||
+          (place.country.isNotEmpty &&
+              key == '$name, ${place.country.toLowerCase()}'),
+    PlaceKind.area || PlaceKind.point => false,
   };
   return [
     for (final MapEntry(:key, :value) in groups.entries)
-      if (names.contains(key.toLowerCase())) ...value,
+      if (matches(key.toLowerCase())) ...value,
   ];
 }
 
-/// One place: its map, impressions (one per visit), diary, photos taken
-/// there, the places inside it and the routes through it.
+/// One place at any level: where it is (the places it's in), its map, the
+/// impressions written at it or anywhere inside it, photos, the places
+/// inside it and the travel plans through it.
 class PlaceScreen extends StatefulWidget {
   const PlaceScreen({
     super.key,
@@ -60,10 +65,13 @@ class PlaceScreen extends StatefulWidget {
 
 class _PlaceScreenState extends State<PlaceScreen> {
   Place? _place;
-  Place? _city;
-  List<TravelEntry> _impressions = const [];
-  List<TravelEntry> _diary = const [];
-  List<Place> _points = const [];
+  List<Place> _path = const [];
+  List<Place> _inside = const [];
+  Map<String, Place> _byId = const {};
+  Map<String?, List<Place>> _tree = const {};
+  PlaceTally _tally = const PlaceTally({}, {});
+  List<TravelEntry> _entries = const [];
+  Map<String, int> _photosOf = const {};
   List<TravelRoute> _routes = const [];
   List<MapPinData> _pins = const [];
   List<AssetRecord> _named = const [];
@@ -77,63 +85,73 @@ class _PlaceScreenState extends State<PlaceScreen> {
 
   Future<void> _load() async {
     final store = widget.travelStore;
-    final place = await store.place(widget.placeId);
+    final places = await store.places();
+    final byId = {for (final p in places) p.id: p};
+    final place = byId[widget.placeId];
     if (place == null) {
       if (mounted) Navigator.of(context).pop();
       return;
     }
-    final entries = await store.entriesAt(place.id);
-    final points = place.isCity
-        ? await store.placesIn(place.id)
-        : const <Place>[];
-    final city = place.parentId == null
-        ? null
-        : await store.place(place.parentId!);
+    final tree = placeTree(places);
+    final below = placeAndBelow(place.id, tree);
+    final entries = await store.entriesAtAny(below);
+    final counts = await store.entryCountsByPlace();
     final routes = await store.routesThrough(place.id);
     final links = await store.linksFor(LinkOwner.entry, [
       for (final e in entries) e.id,
     ]);
+    final path = <Place>[];
+    final seen = {place.id};
+    for (var up = byId[place.parentId]; up != null; up = byId[up.parentId]) {
+      if (!seen.add(up.id)) break;
+      path.insert(0, up);
+    }
+    final inside = tree[place.id] ?? const <Place>[];
     if (!mounted) return;
     setState(() {
       _place = place;
-      _city = city;
-      _impressions = [
-        for (final e in entries)
-          if (e.kind == EntryKind.impression) e,
-      ];
-      _diary = [
-        for (final e in entries)
-          if (e.kind == EntryKind.diary) e,
-      ];
-      _points = points;
+      _path = path;
+      _inside = inside;
+      _byId = byId;
+      _tree = tree;
+      _tally = PlaceTally.of(tree, counts);
+      _entries = entries;
       _routes = routes;
       _named = photosNamedFor(place, widget.placeGroups);
+      _photosOf = {
+        for (final MapEntry(:key, :value) in links.entries)
+          key: value.where((l) => l.target == LinkTarget.asset).length,
+      };
       _linkedPhotos = {
         for (final list in links.values)
           for (final l in list)
             if (l.target == LinkTarget.asset) l.id,
       };
       _pins = [
-        MapPinData(
-          id: place.id,
-          lat: place.lat,
-          lng: place.lng,
-          title: place.name,
-        ),
-        for (final p in points)
+        if (!place.isCountry || inside.isEmpty)
+          MapPinData(
+            id: place.id,
+            lat: place.lat,
+            lng: place.lng,
+            title: place.name,
+          ),
+        for (final p in inside)
           MapPinData(id: p.id, lat: p.lat, lng: p.lng, title: p.name),
       ];
     });
   }
 
-  Future<void> _write(EntryKind kind) async {
+  Future<void> _write() async {
     final place = _place;
     if (place == null) return;
     final changed = await Navigator.of(context).push<bool>(
       CupertinoPageRoute(
         builder: (_) => TravelEntryEditor(
           travelStore: widget.travelStore,
-          entry: widget.travelStore.newEntry(placeId: place.id, kind: kind),
+          entry: widget.travelStore.newEntry(
+            placeId: place.id,
+            kind: EntryKind.impression,
+          ),
           placeName: place.name,
           isNew: true,
           assetRecordStore: widget.assetRecordStore,
@@ -150,7 +168,7 @@ class _PlaceScreenState extends State<PlaceScreen> {
         builder: (_) => TravelEntryScreen(
           travelStore: widget.travelStore,
           entryId: e.id,
-          placeName: _place?.name ?? '',
+          placeName: _byId[e.placeId]?.name ?? _place?.name ?? '',
           assetRecordStore: widget.assetRecordStore,
           personStore: widget.personStore,
         ),
@@ -215,14 +233,29 @@ class _PlaceScreenState extends State<PlaceScreen> {
     );
   }
 
-  Future<void> _addPoint() async {
+  Future<void> _addInside() async {
     final place = _place;
     if (place == null) return;
     final added = await showAddPlaceSheet(
       context: context,
       travelStore: widget.travelStore,
       placeSearch: widget.placeSearch,
-      near: place,
+      under: place,
+    );
+    if (added == null || !mounted) return;
+    await _openPlace(added.id);
+  }
+
+  Future<void> _dropPin(double lat, double lng) async {
+    final place = _place;
+    if (place == null) return;
+    final added = await dropPlacePin(
+      context: context,
+      travelStore: widget.travelStore,
+      placeSearch: widget.placeSearch,
+      lat: lat,
+      lng: lng,
+      under: place,
     );
     if (added == null || !mounted) return;
     await _openPlace(added.id);
@@ -241,6 +274,11 @@ class _PlaceScreenState extends State<PlaceScreen> {
             child: Text(l10n.placeRename),
           ),
           CupertinoActionSheetAction(
+            key: const ValueKey('placeMove'),
+            onPressed: () => Navigator.of(sheet).pop('move'),
+            child: Text(l10n.placeMove),
+          ),
+          CupertinoActionSheetAction(
             key: const ValueKey('placeDelete'),
             isDestructiveAction: true,
             onPressed: () => Navigator.of(sheet).pop('delete'),
@@ -257,6 +295,8 @@ class _PlaceScreenState extends State<PlaceScreen> {
     switch (action) {
       case 'rename':
         await _rename();
+      case 'move':
+        await _move();
       case 'delete':
         await _delete();
     }
@@ -300,6 +340,78 @@ class _PlaceScreenState extends State<PlaceScreen> {
     await _load();
   }
 
+  /// Into another place, or to the top: anywhere but itself and what's
+  /// inside it.
+  Future<void> _move() async {
+    final place = _place;
+    if (place == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    final mine = placeAndBelow(place.id, _tree);
+    final rows = <(Place, int)>[];
+    void walk(String? parent, int depth) {
+      for (final p in _tree[parent] ?? const <Place>[]) {
+        if (mine.contains(p.id)) continue;
+        rows.add((p, depth));
+        walk(p.id, depth + 1);
+      }
+    }
+
+    walk(null, 0);
+    const top = '';
+    final picked = await showCupertinoModalPopup<String>(
+      context: context,
+      builder: (sheet) => CupertinoPopupSurface(
+        child: SizedBox(
+          height: MediaQuery.sizeOf(sheet).height * 0.7,
+          child: SafeArea(
+            top: false,
+            child: ListView(
+              children: [
+                Padding(
+                  padding: const EdgeInsets.all(16),
+                  child: Text(
+                    l10n.placeMoveTitle(place.name),
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                    ),
+                  ),
+                ),
+                CupertinoListTile(
+                  key: const ValueKey('placeMoveTop'),
+                  leading: const Icon(CupertinoIcons.globe),
+                  title: Text(l10n.placeMoveToTop),
+                  onTap: () => Navigator.of(sheet).pop(top),
+                ),
+                for (final (p, depth) in rows)
+                  CupertinoListTile(
+                    key: ValueKey('placeMoveTo-${p.id}'),
+                    padding: EdgeInsetsDirectional.only(
+                      start: 20.0 + depth * 20,
+                      end: 14,
+                    ),
+                    leading: Icon(placeIcon(p.kind)),
+                    title: Text(p.name),
+                    trailing: p.id == place.parentId
+                        ? const Icon(CupertinoIcons.check_mark)
+                        : null,
+                    onTap: () => Navigator.of(sheet).pop(p.id),
+                  ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+    if (picked == null) return;
+    final parent = picked == top ? null : picked;
+    if (parent == place.parentId) return;
+    await widget.travelStore.updatePlace(
+      place.copyWith(parentId: () => parent),
+    );
+    await _load();
+  }
+
   Future<void> _delete() async {
     final place = _place;
     if (place == null) return;
@@ -330,6 +442,7 @@ class _PlaceScreenState extends State<PlaceScreen> {
     final l10n = AppLocalizations.of(context)!;
     final place = _place;
     final photos = _linkedPhotos.length + _named.length;
+    const grey = TextStyle(color: CupertinoColors.systemGrey);
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(place?.name ?? ''),
@@ -347,11 +460,11 @@ class _PlaceScreenState extends State<PlaceScreen> {
                 padding: const EdgeInsets.only(bottom: 32),
                 children: [
                   SizedBox(
-                    height: 180,
+                    height: 200,
                     child: NativeMap(
                       pins: _pins,
-                      interactive: false,
                       onPinTap: _openPlace,
+                      onLongPress: _dropPin,
                     ),
                   ),
                   Padding(
@@ -359,6 +472,25 @@ class _PlaceScreenState extends State<PlaceScreen> {
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
+                        if (_path.isNotEmpty)
+                          Wrap(
+                            key: const ValueKey('placePath'),
+                            children: [
+                              for (final (i, p) in _path.indexed) ...[
+                                if (i > 0) const Text(' › ', style: grey),
+                                GestureDetector(
+                                  key: ValueKey('placePath-${p.id}'),
+                                  onTap: () => _openPlace(p.id),
+                                  child: Text(
+                                    p.name,
+                                    style: const TextStyle(
+                                      color: CupertinoColors.activeBlue,
+                                    ),
+                                  ),
+                                ),
+                              ],
+                            ],
+                          ),
                         Text(
                           place.name,
                           style: const TextStyle(
@@ -366,72 +498,46 @@ class _PlaceScreenState extends State<PlaceScreen> {
                             fontWeight: FontWeight.w700,
                           ),
                         ),
-                        if (_city case final city?)
-                          GestureDetector(
-                            key: const ValueKey('placeCity'),
-                            onTap: () => _openPlace(city.id),
-                            child: Text(
-                              l10n.placeInCity(city.name),
-                              style: const TextStyle(
-                                color: CupertinoColors.activeBlue,
-                              ),
-                            ),
-                          )
-                        else if (place.country.isNotEmpty)
-                          Text(
-                            place.country,
-                            style: const TextStyle(
-                              color: CupertinoColors.systemGrey,
-                            ),
-                          ),
+                        Text(
+                          [
+                            placeKindLabel(l10n, place.kind),
+                            if (place.category.isNotEmpty) place.category,
+                            if (place.address.isNotEmpty) place.address,
+                          ].join(' · '),
+                          style: grey,
+                        ),
                       ],
                     ),
                   ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: CupertinoButton.tinted(
-                            key: const ValueKey('placeWriteDiary'),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            onPressed: () => _write(EntryKind.diary),
-                            child: Text(l10n.placeWriteDiary),
-                          ),
-                        ),
-                        const SizedBox(width: 12),
-                        Expanded(
-                          child: CupertinoButton.tinted(
-                            key: const ValueKey('placeAddImpression'),
-                            padding: const EdgeInsets.symmetric(vertical: 10),
-                            onPressed: () => _write(EntryKind.impression),
-                            child: Text(l10n.placeAddImpression),
-                          ),
-                        ),
-                      ],
+                    child: CupertinoButton.tinted(
+                      key: const ValueKey('placeAddImpression'),
+                      padding: const EdgeInsets.symmetric(vertical: 10),
+                      onPressed: _write,
+                      child: Text(l10n.placeAddImpression),
                     ),
                   ),
-                  if (_impressions.isNotEmpty)
+                  if (_entries.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+                      child: Text(l10n.placeNoEntries, style: grey),
+                    )
+                  else
                     CupertinoListSection.insetGrouped(
                       header: Text(l10n.placeImpressions),
                       children: [
-                        for (final e in _impressions) _entryTile(l10n, e),
+                        for (final e in _entries)
+                          impressionTile(
+                            l10n,
+                            e,
+                            at: e.placeId == place.id
+                                ? null
+                                : _byId[e.placeId]?.name,
+                            photos: _photosOf[e.id] ?? 0,
+                            onTap: () => _read(e),
+                          ),
                       ],
-                    ),
-                  if (_diary.isNotEmpty)
-                    CupertinoListSection.insetGrouped(
-                      header: Text(l10n.placeDiary),
-                      children: [for (final e in _diary) _entryTile(l10n, e)],
-                    ),
-                  if (_impressions.isEmpty && _diary.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                      child: Text(
-                        l10n.placeNoEntries,
-                        style: const TextStyle(
-                          color: CupertinoColors.systemGrey,
-                        ),
-                      ),
                     ),
                   if (photos > 0 && widget.assetRecordStore != null)
                     CupertinoListSection.insetGrouped(
@@ -448,37 +554,32 @@ class _PlaceScreenState extends State<PlaceScreen> {
                         ),
                       ],
                     ),
-                  if (place.isCity)
-                    CupertinoListSection.insetGrouped(
-                      header: Text(l10n.placePoints(place.name)),
-                      children: [
-                        for (final p in _points)
-                          CupertinoListTile(
-                            key: ValueKey('placePoint-${p.id}'),
-                            leading: const Icon(
-                              CupertinoIcons.map_pin,
-                              color: CupertinoColors.systemTeal,
-                            ),
-                            title: Text(p.name),
-                            trailing: const CupertinoListTileChevron(),
-                            onTap: () => _openPlace(p.id),
-                          ),
-                        CupertinoListTile(
-                          key: const ValueKey('placeAddPoint'),
-                          leading: const Icon(
-                            CupertinoIcons.add_circled,
+                  CupertinoListSection.insetGrouped(
+                    header: Text(l10n.placePoints(place.name)),
+                    children: [
+                      for (final p in _inside)
+                        placeTile(
+                          l10n,
+                          p,
+                          _tally,
+                          onTap: () => _openPlace(p.id),
+                        ),
+                      CupertinoListTile(
+                        key: const ValueKey('placeAddPoint'),
+                        leading: const Icon(
+                          CupertinoIcons.add_circled,
+                          color: CupertinoColors.activeBlue,
+                        ),
+                        title: Text(
+                          l10n.placeAddPoint,
+                          style: const TextStyle(
                             color: CupertinoColors.activeBlue,
                           ),
-                          title: Text(
-                            l10n.placeAddPoint,
-                            style: const TextStyle(
-                              color: CupertinoColors.activeBlue,
-                            ),
-                          ),
-                          onTap: _addPoint,
                         ),
-                      ],
-                    ),
+                        onTap: _addInside,
+                      ),
+                    ],
+                  ),
                   if (_routes.isNotEmpty)
                     CupertinoListSection.insetGrouped(
                       header: Text(l10n.placeRoutesThrough),
@@ -501,24 +602,36 @@ class _PlaceScreenState extends State<PlaceScreen> {
             ),
     );
   }
+}
 
-  Widget _entryTile(AppLocalizations l10n, TravelEntry e) {
-    final line = travelEntryLine(e);
-    final excerpt = e.text.trim().split('\n').first;
-    return CupertinoListTile(
-      key: ValueKey('placeEntry-${e.id}'),
-      title: Text(
-        e.title.isNotEmpty
-            ? e.title
-            : (excerpt.isNotEmpty ? excerpt : l10n.travelEntryUntitled),
-        maxLines: 1,
-        overflow: TextOverflow.ellipsis,
-      ),
-      subtitle: line.isEmpty
-          ? null
-          : Text(line, maxLines: 1, overflow: TextOverflow.ellipsis),
-      trailing: const CupertinoListTileChevron(),
-      onTap: () => _read(e),
-    );
-  }
+/// An impression in a list: its title (or first line), the day, rating,
+/// where inside the page's place it was written ([at]) and its photos.
+Widget impressionTile(
+  AppLocalizations l10n,
+  TravelEntry e, {
+  String? at,
+  int photos = 0,
+  required VoidCallback onTap,
+}) {
+  final excerpt = e.text.trim().split('\n').first;
+  final line = [
+    if (at != null) l10n.impressionAt(at),
+    if (travelEntryLine(e) case final l when l.isNotEmpty) l,
+    if (photos > 0) l10n.travelEntryPhotosCount(photos),
+  ].join(' · ');
+  return CupertinoListTile(
+    key: ValueKey('placeEntry-${e.id}'),
+    title: Text(
+      e.title.isNotEmpty
+          ? e.title
+          : (excerpt.isNotEmpty ? excerpt : l10n.travelEntryUntitled),
+      maxLines: 1,
+      overflow: TextOverflow.ellipsis,
+    ),
+    subtitle: line.isEmpty
+        ? null
+        : Text(line, maxLines: 1, overflow: TextOverflow.ellipsis),
+    trailing: const CupertinoListTileChevron(),
+    onTap: onTap,
+  );
 }

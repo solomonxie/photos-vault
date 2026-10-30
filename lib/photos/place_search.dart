@@ -2,10 +2,13 @@ import 'package:flutter/foundation.dart' show listEquals;
 import 'package:flutter/services.dart';
 import 'package:geocoding/geocoding.dart' as geo;
 
+import 'travel.dart';
+
 /// Finding places for the travel diary, through MapKit on the phone
 /// (`ios/Runner/MapChannel.swift`, channel `byo.photos/places`):
 ///
-/// - [search]: cities and points by name (`MKLocalSearch`).
+/// - [search]: countries, cities, areas and pins (businesses too) by name
+///   (`MKLocalSearch`).
 /// - [snapshot]: a still map for a list row, cached as a JPEG.
 /// - [cityAt]: the town a coordinate is in (the OS geocoder), so a new
 ///   point can find its city.
@@ -93,19 +96,29 @@ class PlaceResult {
     required this.country,
     required this.lat,
     required this.lng,
-    required this.isCity,
+    this.kind = PlaceKind.point,
+    this.area = '',
+    this.address = '',
+    this.category = '',
   });
 
   final String name;
 
   /// The town it's in (for a city, usually its own name).
   final String locality;
+
+  /// The district it's in, when MapKit knows one.
+  final String area;
   final String country;
   final double lat;
   final double lng;
+  final PlaceKind kind;
 
-  /// A town on its own rather than an address or a business in one.
-  final bool isCity;
+  /// A business's street address and category; empty for anything else.
+  final String address;
+  final String category;
+
+  bool get isCity => kind == PlaceKind.city;
 
   static PlaceResult? fromMap(Object? raw) {
     if (raw is! Map) return null;
@@ -118,10 +131,15 @@ class PlaceResult {
     return PlaceResult(
       name: name,
       locality: raw['locality'] as String? ?? '',
+      area: raw['area'] as String? ?? '',
       country: raw['country'] as String? ?? '',
       lat: lat.toDouble(),
       lng: lng.toDouble(),
-      isCity: raw['isCity'] == true,
+      kind: raw['kind'] is String
+          ? PlaceKind.of(raw['kind'])
+          : (raw['isCity'] == true ? PlaceKind.city : PlaceKind.point),
+      address: raw['address'] as String? ?? '',
+      category: raw['category'] as String? ?? '',
     );
   }
 }

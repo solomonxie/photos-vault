@@ -98,7 +98,8 @@ import '../upload/cloud_thumbnails.dart';
 import 'built_in_album.dart';
 import 'asset_grid_view.dart';
 import 'asset_group_screen.dart';
-import 'travel_screen.dart';
+import 'footprints_screens.dart';
+import 'places_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'developer_options_screen.dart';
@@ -711,6 +712,7 @@ class LibraryScreenState extends State<LibraryScreen>
     syncQueue.draining.removeListener(_onDrainingChanged);
     _fixQueue.removeListener(_onFixQueueChanged);
     _fixLeft.dispose();
+    _footprints.dispose();
     _picked.dispose();
     syncQueue.dispose();
     _housekeeping?.cancel();
@@ -760,6 +762,7 @@ class LibraryScreenState extends State<LibraryScreen>
       });
     });
     _watchPhotoLibrary();
+    unawaited(_countFootprints());
     syncQueue.draining.addListener(_onDrainingChanged);
     _fixQueue.addListener(_onFixQueueChanged);
     _init();
@@ -1768,15 +1771,50 @@ class LibraryScreenState extends State<LibraryScreen>
     ),
   );
 
-  /// Places, grown into the travel diary.
-  void _openTravel() => _push(
-    TravelScreen(
+  /// Footprints' row counts: read on first build and after each visit.
+  final _footprints =
+      ValueNotifier<({int places, int plans, int impressions})?>(null);
+
+  Future<void> _countFootprints() async {
+    try {
+      _footprints.value = await _travelStore.counts();
+    } catch (_) {
+      // No travel database yet: the rows go without numbers.
+    }
+  }
+
+  Future<void> _openFootprint(Widget screen) async {
+    await Navigator.of(context)
+        .push(CupertinoPageRoute(builder: (_) => screen));
+    await _countFootprints();
+  }
+
+  void _openPlaces() => _openFootprint(
+    PlacesScreen(
       travelStore: _travelStore,
       placeSearch: _placeSearch,
       assetRecordStore: assetRecordStore,
       personStore: _personStore,
       placeGroups: _places,
       onOpenGroup: _openGroup,
+    ),
+  );
+
+  void _openTravelPlans() => _openFootprint(
+    TravelPlansScreen(
+      travelStore: _travelStore,
+      placeSearch: _placeSearch,
+      assetRecordStore: assetRecordStore,
+      personStore: _personStore,
+    ),
+  );
+
+  void _openImpressions() => _openFootprint(
+    ImpressionsScreen(
+      travelStore: _travelStore,
+      placeSearch: _placeSearch,
+      assetRecordStore: assetRecordStore,
+      personStore: _personStore,
     ),
   );
 
@@ -3462,18 +3500,52 @@ class LibraryScreenState extends State<LibraryScreen>
       ),
       SliverToBoxAdapter(
         child: _SubsectionHeader(
-          key: const ValueKey('placesHeader'),
-          title: l10n.collectionsPlacesRow,
-          onMore: _openTravel,
+          key: const ValueKey('footprintsHeader'),
+          title: l10n.footprintsTitle,
         ),
       ),
       SliverToBoxAdapter(
-        child: _GroupList(
-          groups: _places,
-          emptyNote: l10n.collectionsPlacesEmpty,
-          icon: CupertinoIcons.map_pin_ellipse,
-          color: CupertinoColors.systemTeal,
-          onTap: _openGroup,
+        child: ValueListenableBuilder(
+          valueListenable: _footprints,
+          builder: (context, counts, _) => CupertinoListSection.insetGrouped(
+            margin: const EdgeInsets.symmetric(horizontal: 16),
+            backgroundColor: const Color(0xFF1C1C1E),
+            decoration: const BoxDecoration(
+              color: Color(0xFF2C2C2E),
+              borderRadius: BorderRadius.all(Radius.circular(10)),
+            ),
+            children: [
+              KeyedSubtree(
+                key: const ValueKey('footprintsPlaces'),
+                child: _row(
+                  icon: CupertinoIcons.map_pin_ellipse,
+                  color: CupertinoColors.systemTeal,
+                  title: l10n.footprintsPlaces,
+                  count: counts?.places,
+                  onTap: _openPlaces,
+                ),
+              ),
+              KeyedSubtree(
+                key: const ValueKey('footprintsPlans'),
+                child: _row(
+                  icon: CupertinoIcons.arrow_branch,
+                  color: CupertinoColors.systemIndigo,
+                  title: l10n.footprintsPlans,
+                  count: counts?.plans,
+                  onTap: _openTravelPlans,
+                ),
+              ),
+              KeyedSubtree(
+                key: const ValueKey('footprintsImpressions'),
+                child: _row(
+                  icon: CupertinoIcons.text_quote,
+                  color: CupertinoColors.systemOrange,
+                  title: l10n.footprintsImpressions,
+                  onTap: _openImpressions,
+                ),
+              ),
+            ],
+          ),
         ),
       ),
     ],
@@ -4353,114 +4425,6 @@ class _SelectionAction extends StatelessWidget {
           ),
         ],
       ),
-    );
-  }
-}
-
-/// Places: one text row per distinct value the user has set.
-///
-/// These were cover cards, the same 140x190 as an album. A place is a word,
-/// though, and most places had no photo worth that much room — the section
-/// read as a row of grey pins with a name under each. A name and a count is
-/// the whole content, so it gets a line, and the section gets its screen
-/// back. Long lists fold after [_unfoldedRows], with the rest one tap
-/// away.
-class _GroupList extends StatefulWidget {
-  const _GroupList({
-    required this.groups,
-    required this.emptyNote,
-    required this.icon,
-    required this.color,
-    required this.onTap,
-  });
-
-  final Map<String, List<AssetRecord>> groups;
-  final String emptyNote;
-  final IconData icon;
-  final Color color;
-  final void Function(String title, List<AssetRecord> records) onTap;
-
-  /// Enough to see what's there without the page becoming a list of
-  /// places; the rest are one tap away.
-  static const _unfoldedRows = 5;
-
-  @override
-  State<_GroupList> createState() => _GroupListState();
-}
-
-class _GroupListState extends State<_GroupList> {
-  bool _showAll = false;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final entries = widget.groups.entries.toList();
-    if (entries.isEmpty) {
-      return Padding(
-        padding: const EdgeInsets.fromLTRB(16, 0, 16, 8),
-        child: Text(
-          widget.emptyNote,
-          style: const TextStyle(color: CupertinoColors.systemGrey),
-        ),
-      );
-    }
-
-    final visible = _showAll
-        ? entries
-        : entries.take(_GroupList._unfoldedRows).toList();
-    return CupertinoListSection.insetGrouped(
-      margin: const EdgeInsets.symmetric(horizontal: 16),
-      backgroundColor: const Color(0xFF1C1C1E),
-      decoration: const BoxDecoration(
-        color: Color(0xFF2C2C2E),
-        borderRadius: BorderRadius.all(Radius.circular(10)),
-      ),
-      children: [
-        for (final entry in visible)
-          CupertinoListTile(
-            key: ValueKey(entry.key),
-            leading: Container(
-              width: 29,
-              height: 29,
-              decoration: BoxDecoration(
-                color: widget.color,
-                borderRadius: BorderRadius.circular(7),
-              ),
-              child: Icon(widget.icon, color: CupertinoColors.white, size: 17),
-            ),
-            title: Text(
-              entry.key,
-              maxLines: 1,
-              overflow: TextOverflow.ellipsis,
-            ),
-            trailing: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  '${entry.value.length}',
-                  style: const TextStyle(color: CupertinoColors.systemGrey),
-                ),
-                const SizedBox(width: 4),
-                const Icon(
-                  CupertinoIcons.chevron_forward,
-                  size: 18,
-                  color: CupertinoColors.systemGrey2,
-                ),
-              ],
-            ),
-            onTap: () => widget.onTap(entry.key, entry.value),
-          ),
-        if (entries.length > visible.length || _showAll)
-          CupertinoListTile(
-            title: Text(
-              _showAll
-                  ? l10n.collectionsShowLess
-                  : l10n.collectionsShowAll(entries.length),
-              style: const TextStyle(color: CupertinoColors.activeBlue),
-            ),
-            onTap: () => setState(() => _showAll = !_showAll),
-          ),
-      ],
     );
   }
 }

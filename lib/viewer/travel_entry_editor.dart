@@ -9,6 +9,7 @@ import '../photos/travel.dart';
 import '../photos/travel_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import 'asset_grid.dart';
 import 'asset_group_screen.dart';
 import 'asset_picker_screen.dart';
 import 'person_picker_sheet.dart';
@@ -46,6 +47,7 @@ class _TravelEntryScreenState extends State<TravelEntryScreen> {
   TravelEntry? _entry;
   List<TravelLink> _links = const [];
   Map<String, String> _names = const {};
+  List<AssetRecord> _photos = const [];
   bool _changed = false;
 
   @override
@@ -66,11 +68,15 @@ class _TravelEntryScreenState extends State<TravelEntryScreen> {
         ]))[entry.id] ??
         const [];
     final names = await _personNames(widget.personStore, links);
+    final photos =
+        await widget.assetRecordStore?.listOf(_assetIds(links)) ??
+        const <AssetRecord>[];
     if (!mounted) return;
     setState(() {
       _entry = entry;
       _links = links;
       _names = names;
+      _photos = photos;
     });
   }
 
@@ -96,15 +102,13 @@ class _TravelEntryScreenState extends State<TravelEntryScreen> {
   Future<void> _openPhotos() async {
     final store = widget.assetRecordStore;
     if (store == null) return;
-    final records = await store.listOf(_assetIds(_links));
-    if (!mounted) return;
     await Navigator.of(context).push(
       CupertinoPageRoute(
         builder: (_) => AssetGroupScreen(
           title: _entry?.title.isNotEmpty == true
               ? _entry!.title
               : widget.placeName,
-          records: records,
+          records: _photos,
           assetRecordStore: store,
         ),
       ),
@@ -115,7 +119,6 @@ class _TravelEntryScreenState extends State<TravelEntryScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final e = _entry;
-    final photos = _assetIds(_links).length;
     final people = [
       for (final l in _links)
         if (l.target == LinkTarget.person) _names[l.id] ?? '?',
@@ -175,15 +178,26 @@ class _TravelEntryScreenState extends State<TravelEntryScreen> {
                       const SizedBox(height: 6),
                       _Chips(labels: people),
                     ],
-                    if (photos > 0 && widget.assetRecordStore != null) ...[
+                    if (_photos.isNotEmpty) ...[
                       const SizedBox(height: 12),
-                      CupertinoListTile(
+                      // Part of the note: the photos it's about, in it.
+                      LayoutBuilder(
                         key: const ValueKey('travelEntryPhotos'),
-                        padding: EdgeInsets.zero,
-                        leading: const Icon(CupertinoIcons.photo_on_rectangle),
-                        title: Text(l10n.travelEntryPhotosCount(photos)),
-                        trailing: const CupertinoListTileChevron(),
-                        onTap: _openPhotos,
+                        builder: (context, box) {
+                          final side = (box.maxWidth - 8) / 3;
+                          return Wrap(
+                            spacing: 4,
+                            runSpacing: 4,
+                            children: [
+                              for (final r in _photos)
+                                AssetTile(
+                                  record: r,
+                                  extent: side,
+                                  onTap: _openPhotos,
+                                ),
+                            ],
+                          );
+                        },
                       ),
                     ],
                   ],

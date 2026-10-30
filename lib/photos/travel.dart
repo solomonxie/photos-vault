@@ -1,20 +1,33 @@
 /// The travel diary's rows (see `docs/design/travel-diary.md`), as
 /// `TravelStore` reads and writes them.
 ///
-/// - [Place]: a city, or a point inside one ([Place.parentId]).
-/// - [TravelEntry]: a diary entry, or an impression (one per visit), at a
-///   place.
+/// - [Place]: a node in a tree of any depth — a country, its cities, then
+///   areas and pins inside them ([Place.parentId]).
+/// - [TravelEntry]: an impression (any number per place), or an older
+///   diary entry, at a place.
 /// - [TravelRoute] with its [RouteStop]s and the [RouteLeg]s between them,
-///   loaded together as a [RouteDetail].
+///   loaded together as a [RouteDetail]: a travel plan.
 /// - [TravelLink]: a photo or person attached to an entry or route.
 library;
 
+/// How big a place is. Any kind may sit inside any bigger one; [area] is
+/// anything between a city and a spot (a district, a neighbourhood, a
+/// campus), [point] a pin: an exact spot or a business at one.
 enum PlaceKind {
+  country,
   city,
+  area,
   point;
 
   static PlaceKind of(Object? name) =>
       values.firstWhere((v) => v.name == name, orElse: () => point);
+
+  /// What a place added inside one of these usually is.
+  PlaceKind get inside => switch (this) {
+    country => city,
+    city => area,
+    area || point => point,
+  };
 }
 
 class Place {
@@ -26,6 +39,8 @@ class Place {
     required this.lng,
     this.parentId,
     this.country = '',
+    this.address = '',
+    this.category = '',
     required this.createdAt,
   });
 
@@ -35,12 +50,20 @@ class Place {
   final double lat;
   final double lng;
 
-  /// The city a point is in; null for a city, or a point not yet placed.
+  /// The place this one is in; null at the top (a country, or a place not
+  /// filed anywhere yet).
   final String? parentId;
   final String country;
+
+  /// A business's street address, when the pin is one.
+  final String address;
+
+  /// MapKit's category for a business ("restaurant", "museum").
+  final String category;
   final DateTime createdAt;
 
   bool get isCity => kind == PlaceKind.city;
+  bool get isCountry => kind == PlaceKind.country;
 
   Place copyWith({
     String? name,
@@ -49,6 +72,8 @@ class Place {
     double? lng,
     String? Function()? parentId,
     String? country,
+    String? address,
+    String? category,
   }) => Place(
     id: id,
     name: name ?? this.name,
@@ -57,8 +82,49 @@ class Place {
     lng: lng ?? this.lng,
     parentId: parentId == null ? this.parentId : parentId(),
     country: country ?? this.country,
+    address: address ?? this.address,
+    category: category ?? this.category,
     createdAt: createdAt,
   );
+}
+
+/// [places] as a tree: children by parent id (null for the top), each
+/// list by name.
+Map<String?, List<Place>> placeTree(Iterable<Place> places) {
+  final byId = {for (final p in places) p.id: p};
+  // A place whose parents loop back to it can't be reached from the top.
+  bool loops(Place p) {
+    final seen = {p.id};
+    for (var up = byId[p.parentId]; up != null; up = byId[up.parentId]) {
+      if (!seen.add(up.id)) return true;
+    }
+    return false;
+  }
+
+  final out = <String?, List<Place>>{};
+  for (final p in places) {
+    // A parent that's gone, or a loop, files it at the top, not nowhere.
+    final parent = byId.containsKey(p.parentId) && !loops(p)
+        ? p.parentId
+        : null;
+    out.putIfAbsent(parent, () => []).add(p);
+  }
+  for (final list in out.values) {
+    list.sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
+  }
+  return out;
+}
+
+/// [id] and every place under it in [tree].
+Set<String> placeAndBelow(String id, Map<String?, List<Place>> tree) {
+  final out = <String>{};
+  final todo = [id];
+  while (todo.isNotEmpty) {
+    final next = todo.removeLast();
+    if (!out.add(next)) continue;
+    todo.addAll([for (final c in tree[next] ?? const <Place>[]) c.id]);
+  }
+  return out;
 }
 
 enum EntryKind {
@@ -69,8 +135,8 @@ enum EntryKind {
       values.firstWhere((v) => v.name == name, orElse: () => diary);
 }
 
-/// A diary entry, or an impression of one visit. [rating] and [tags] are
-/// for impressions; a diary entry leaves them empty.
+/// An impression of a place, or a diary entry from before impressions
+/// took over. [rating] is for impressions; a diary entry leaves it empty.
 class TravelEntry {
   const TravelEntry({
     required this.id,

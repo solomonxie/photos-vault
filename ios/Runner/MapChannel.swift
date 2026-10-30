@@ -237,7 +237,9 @@ final class MapPlatformView: NSObject, FlutterPlatformView, MKMapViewDelegate {
 // MARK: - Search
 
 enum PlaceSearch {
-  /// `{query, lat?, lng?}` → `[{name, locality, country, lat, lng, isCity}]`.
+  /// `{query, lat?, lng?}` → `[{name, kind, locality, area, country,
+  /// address, category, lat, lng, isCity}]`; kind is country, city, area
+  /// or point.
   static func search(_ args: [String: Any], _ result: @escaping FlutterResult) {
     guard let query = args["query"] as? String,
       !query.trimmingCharacters(in: .whitespaces).isEmpty
@@ -258,23 +260,52 @@ enum PlaceSearch {
     MKLocalSearch(request: request).start { response, _ in
       let items = (response?.mapItems ?? []).prefix(20).map { item -> [String: Any] in
         let mark = item.placemark
-        // A town on its own: no street, no business — the result *is* the place.
-        let isCity =
-          item.pointOfInterestCategory == nil && mark.thoroughfare == nil
-          && mark.locality != nil
-          && (item.name == mark.locality || item.name == mark.administrativeArea)
+        let name = item.name ?? mark.locality ?? ""
+        let business = item.pointOfInterestCategory != nil
+        let bare = !business && mark.thoroughfare == nil
+        let kind: String
+        if bare && mark.locality == nil && mark.subLocality == nil
+          && (name == mark.country || mark.administrativeArea == nil)
+        {
+          kind = "country"
+        } else if bare && mark.locality != nil
+          && (name == mark.locality || name == mark.administrativeArea)
+        {
+          kind = "city"
+        } else if bare {
+          kind = "area"
+        } else {
+          kind = "point"
+        }
+        let street = [mark.subThoroughfare, mark.thoroughfare]
+          .compactMap { $0 }.joined(separator: " ")
         return [
-          "name": item.name ?? mark.locality ?? "",
+          "name": name,
+          "kind": kind,
           "locality": mark.locality ?? mark.administrativeArea ?? "",
+          "area": mark.subLocality ?? "",
           "country": mark.country ?? "",
+          "address": business ? street : "",
+          "category": item.pointOfInterestCategory.map { category($0) } ?? "",
           "lat": mark.coordinate.latitude,
           "lng": mark.coordinate.longitude,
-          "isCity": isCity,
+          "isCity": kind == "city",
         ]
       }
       DispatchQueue.main.async { result(Array(items)) }
     }
   }
+}
+
+/// "MKPOICategoryRestaurant" → "Restaurant".
+private func category(_ c: MKPointOfInterestCategory) -> String {
+  let raw = c.rawValue.replacingOccurrences(of: "MKPOICategory", with: "")
+  var out = ""
+  for ch in raw {
+    if ch.isUppercase && !out.isEmpty { out.append(" ") }
+    out.append(ch)
+  }
+  return out
 }
 
 // MARK: - Snapshots

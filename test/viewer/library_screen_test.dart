@@ -20,7 +20,8 @@ import 'package:photos_vault/viewer/asset_grid.dart';
 import 'package:photos_vault/viewer/asset_grid_view.dart';
 import 'package:photos_vault/viewer/built_in_album.dart';
 import 'package:photos_vault/viewer/detail_screen.dart';
-import 'package:photos_vault/viewer/travel_screen.dart';
+import 'package:photos_vault/viewer/footprints_screens.dart';
+import 'package:photos_vault/viewer/places_screen.dart';
 import 'package:photos_vault/viewer/library_screen.dart';
 import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:file_picker/file_picker.dart';
@@ -1376,24 +1377,19 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Albums, People and Places are sections in their own right now —
+    // Albums, People and Footprints are sections in their own right now —
     // there's no "Collections" heading above them to look for.
     final albumsY = tester.getCenter(find.text('Albums')).dy;
     final peopleY = tester.getCenter(find.text('People')).dy;
+    final footprintsY = tester.getCenter(find.text('Footprints')).dy;
     final utilitiesY = tester.getCenter(find.text('More')).dy;
     expect(albumsY, lessThan(peopleY));
-    expect(peopleY, lessThan(utilitiesY));
-    expect(find.text('Places'), findsOneWidget);
+    expect(peopleY, lessThan(footprintsY));
+    expect(footprintsY, lessThan(utilitiesY));
 
-    // Places groups by what the user has set on each photo — nothing set
-    // here, so it shows its empty note. People (no people configured
-    // either) shows an empty-state hint below its header's own "More"
-    // button, which opens PeopleScreen.
+    // People (no people configured) shows an empty-state hint below its
+    // header's own "More" button, which opens PeopleScreen.
     expect(find.text('No people yet. Tap + to add someone.'), findsOneWidget);
-    expect(
-      find.text('Photos with a place set will show up here.'),
-      findsOneWidget,
-    );
 
     // The section headers' browse-all button. It used to say "More",
     // which now names the section holding the app's own tools.
@@ -1402,9 +1398,18 @@ void main() {
     expect(find.text('No people yet. Tap + to add someone.'), findsWidgets);
   });
 
-  testWidgets("Places' See All opens the travel diary", (tester) async {
+  testWidgets('Footprints: places, travel plans and impressions', (
+    tester,
+  ) async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     final recordStore = FakeAssetRecordStore();
+    final travel = FakeTravelStore();
+    await travel.findOrCreateCity(
+      name: 'Kyoto',
+      country: 'Japan',
+      lat: 35,
+      lng: 135.7,
+    );
     await recordStore.upsert(
       localId: 'manual:one',
       contentHash: 'one',
@@ -1430,19 +1435,32 @@ void main() {
             s3Uploader: _UnusedS3Uploader(),
           ),
           aiAnalysisStore: FakeAiAnalysisStore(),
-          travelStore: FakeTravelStore(),
+          travelStore: travel,
         ),
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(
+    // Kyoto and Japan.
+    expect(
       find.descendant(
-        of: find.byKey(const ValueKey('placesHeader')),
-        matching: find.text('See All'),
+        of: find.byKey(const ValueKey('footprintsPlaces')),
+        matching: find.text('2'),
       ),
+      findsOne,
     );
+    await tester.tap(find.byKey(const ValueKey('footprintsPlaces')));
     await tester.pumpAndSettle();
-    expect(find.byType(TravelScreen), findsOne);
+    expect(find.byType(PlacesScreen), findsOne);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('footprintsPlans')));
+    await tester.pumpAndSettle();
+    expect(find.byType(TravelPlansScreen), findsOne);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('footprintsImpressions')));
+    await tester.pumpAndSettle();
+    expect(find.byType(ImpressionsScreen), findsOne);
   });
 
   testWidgets('Albums always shows, with Videos in it and a way to make one', (
@@ -1511,56 +1529,6 @@ void main() {
     expect((await albumStore.listAll()).single.name, 'Japan');
     // Straight into the new album: the next question is what goes in it.
     expect(find.byType(AlbumScreen), findsOneWidget);
-  });
-
-  testWidgets('Places reads as a list, folding the long tail behind Show All', (
-    tester,
-  ) async {
-    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
-    final recordStore = FakeAssetRecordStore();
-    const places = ['Kyoto', 'Osaka', 'Nara', 'Tokyo', 'Hakone', 'Nikko'];
-    for (final (i, place) in places.indexed) {
-      await recordStore.upsert(
-        localId: 'manual:$place',
-        contentHash: place,
-        platform: 'ios',
-        sourceType: AssetSourceType.manualFile,
-        sourcePath: '/tmp/$place.jpg',
-        // Equal sizes go by their oldest photo.
-        createdAt: DateTime(2020).add(Duration(days: i)),
-      );
-      await recordStore.setLocation('manual:$place', place);
-    }
-
-    await tester.binding.setSurfaceSize(const Size(400, 3200));
-    addTearDown(() => tester.binding.setSurfaceSize(null));
-
-    await tester.pumpWidget(
-      _wrap(
-        LibraryScreen(
-          assetRecordStore: recordStore,
-          thumbnailCache: _noThumbnails(recordStore),
-          syncJobStore: FakeSyncJobStore(),
-          albumStore: FakeAlbumStore(),
-          personStore: FakePersonStore(),
-          backupTargetsStore: targetsStore,
-          backupCoordinator: BackupCoordinator(
-            targetsStore: targetsStore,
-            recordStore: recordStore,
-            s3Uploader: _UnusedS3Uploader(),
-          ),
-          aiAnalysisStore: FakeAiAnalysisStore(),
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    // Five of the six, then the way to the rest.
-    expect(find.text('Kyoto'), findsOneWidget);
-    expect(find.text('Nikko'), findsNothing);
-    await tester.tap(find.text('Show All (6)'));
-    await tester.pumpAndSettle();
-    expect(find.text('Nikko'), findsOneWidget);
   });
 
   testWidgets(

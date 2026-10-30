@@ -2133,7 +2133,7 @@ class _InfoPanelState extends State<_InfoPanel> {
             travelStore: store,
             entry: store.newEntry(
               placeId: city.id,
-              kind: EntryKind.diary,
+              kind: EntryKind.impression,
               at: DateTime(taken.year, taken.month, taken.day),
             ),
             placeName: city.name,

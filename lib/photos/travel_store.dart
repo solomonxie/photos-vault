@@ -14,7 +14,7 @@ import 'package:uuid/uuid.dart';
 import '../backup/database_copy.dart';
 import 'travel.dart';
 
-/// `travel.db`: places, diary entries and impressions, routes with their
+/// `travel.db`: a tree of places, impressions (and older diary entries), routes with their
 /// stops and legs, and the photos and people linked to them. See
 /// `docs/design/travel-diary.md`.
 ///
@@ -59,7 +59,11 @@ class TravelStore {
     final path = _path ?? p.join(await _factory.getDatabasesPath(), fileName);
     return _db = await _factory.openDatabase(
       path,
-      options: OpenDatabaseOptions(version: 1, onCreate: _create),
+      options: OpenDatabaseOptions(
+        version: 2,
+        onCreate: _create,
+        onUpgrade: _upgrade,
+      ),
     );
   }
 
@@ -74,6 +78,8 @@ class TravelStore {
           lng REAL NOT NULL,
           parent_id TEXT,
           country TEXT NOT NULL DEFAULT '',
+          address TEXT NOT NULL DEFAULT '',
+          category TEXT NOT NULL DEFAULT '',
           created_at INTEGER NOT NULL
         )
       ''')
@@ -141,6 +147,68 @@ class TravelStore {
     await batch.commit(noResult: true);
   }
 
+  /// 2: places became a tree under countries; pins gained an address and
+  /// a category.
+  static Future<void> _upgrade(Database db, int from, int to) async {
+    if (from < 2) {
+      await db.execute(
+        "ALTER TABLE place ADD COLUMN address TEXT NOT NULL DEFAULT ''",
+      );
+      await db.execute(
+        "ALTER TABLE place ADD COLUMN category TEXT NOT NULL DEFAULT ''",
+      );
+      await db.transaction((txn) async {
+        await _fileUnderCountries(txn);
+        await txn.rawUpdate('UPDATE rev SET n = n + 1 WHERE id = 1');
+      });
+    }
+  }
+
+  /// Every place at the top that knows its country goes under that
+  /// country's place, made where missing: what a version-1 database, or a
+  /// backup from one merged in, leaves at the top.
+  static Future<void> _fileUnderCountries(DatabaseExecutor txn) async {
+    final loose = await txn.rawQuery(
+      "SELECT country, AVG(lat) AS lat, AVG(lng) AS lng FROM place "
+      "WHERE parent_id IS NULL AND kind != 'country' AND country != '' "
+      'GROUP BY country COLLATE NOCASE',
+    );
+    for (final row in loose) {
+      final country = row['country'] as String;
+      final found = await txn.query(
+        'place',
+        columns: ['id'],
+        where: "kind = 'country' AND name = ? COLLATE NOCASE",
+        whereArgs: [country],
+        limit: 1,
+      );
+      final id = found.isNotEmpty
+          ? found.first['id'] as String
+          : const Uuid().v4();
+      if (found.isEmpty) {
+        await txn.insert(
+          'place',
+          _placeRow(
+            Place(
+              id: id,
+              name: country,
+              kind: PlaceKind.country,
+              lat: (row['lat'] as num).toDouble(),
+              lng: (row['lng'] as num).toDouble(),
+              country: country,
+              createdAt: DateTime.now(),
+            ),
+          ),
+        );
+      }
+      await txn.rawUpdate(
+        'UPDATE place SET parent_id = ? WHERE parent_id IS NULL '
+        "AND kind != 'country' AND country = ? COLLATE NOCASE",
+        [id, country],
+      );
+    }
+  }
+
   Future<void> close() async {
     final db = _db;
     _db = null;
@@ -168,6 +236,8 @@ class TravelStore {
     required double lng,
     String? parentId,
     String country = '',
+    String address = '',
+    String category = '',
   }) async {
     final place = Place(
       id: newId(),
@@ -177,6 +247,8 @@ class TravelStore {
       lng: lng,
       parentId: parentId,
       country: country,
+      address: address,
+      category: category,
       createdAt: DateTime.now(),
     );
     await _write((txn) => txn.insert('place', _placeRow(place)));
@@ -226,20 +298,46 @@ class TravelStore {
     return rows.isEmpty ? null : _place(rows.first);
   }
 
-  /// The points in a city, by name.
-  Future<List<Place>> placesIn(String cityId) async {
+  /// The places directly inside [parentId], by name.
+  Future<List<Place>> placesIn(String parentId) async {
     final db = await _open();
     final rows = await db.query(
       'place',
       where: 'parent_id = ?',
-      whereArgs: [cityId],
+      whereArgs: [parentId],
       orderBy: 'name COLLATE NOCASE',
     );
     return [for (final r in rows) _place(r)];
   }
 
+  /// The country called [name] (case-insensitive), made if there is none
+  /// yet; null for no name.
+  Future<Place?> findOrCreateCountry(
+    String name, {
+    required double lat,
+    required double lng,
+  }) async {
+    final trimmed = name.trim();
+    if (trimmed.isEmpty) return null;
+    final db = await _open();
+    final rows = await db.query(
+      'place',
+      where: "kind = 'country' AND name = ? COLLATE NOCASE",
+      whereArgs: [trimmed],
+      limit: 1,
+    );
+    if (rows.isNotEmpty) return _place(rows.first);
+    return createPlace(
+      name: trimmed,
+      kind: PlaceKind.country,
+      lat: lat,
+      lng: lng,
+      country: trimmed,
+    );
+  }
+
   /// The city called [name] in [country] (case-insensitive), made if there
-  /// is none yet.
+  /// is none yet, inside its country.
   Future<Place> findOrCreateCity({
     required String name,
     String country = '',
@@ -256,12 +354,30 @@ class TravelStore {
       limit: 1,
     );
     if (rows.isNotEmpty) return _place(rows.first);
+    final parent = await findOrCreateCountry(country, lat: lat, lng: lng);
     return createPlace(
       name: name,
       kind: PlaceKind.city,
       lat: lat,
       lng: lng,
+      parentId: parent?.id,
       country: country,
+    );
+  }
+
+  /// Places, travel plans and impressions, for the Footprints rows.
+  Future<({int places, int plans, int impressions})> counts() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT (SELECT COUNT(*) FROM place) AS p, '
+      '(SELECT COUNT(*) FROM route) AS r, '
+      '(SELECT COUNT(*) FROM entry) AS e',
+    );
+    final r = rows.first;
+    return (
+      places: r['p'] as int? ?? 0,
+      plans: r['r'] as int? ?? 0,
+      impressions: r['e'] as int? ?? 0,
     );
   }
 
@@ -350,6 +466,32 @@ class TravelStore {
       orderBy: _entryOrder,
     );
     return [for (final r in rows) _entry(r)];
+  }
+
+  /// At any of [placeIds] (a place and everything under it), newest
+  /// first.
+  Future<List<TravelEntry>> entriesAtAny(Set<String> placeIds) async {
+    if (placeIds.isEmpty) return const [];
+    final db = await _open();
+    final ids = placeIds.toList();
+    final out = <TravelEntry>[];
+    for (var i = 0; i < ids.length; i += _chunk) {
+      final chunk = ids.skip(i).take(_chunk).toList();
+      final rows = await db.query(
+        'entry',
+        where: 'place_id IN (${List.filled(chunk.length, '?').join(',')})',
+        whereArgs: chunk,
+      );
+      out.addAll([for (final r in rows) _entry(r)]);
+    }
+    return out..sort(compareEntries);
+  }
+
+  /// [_entryOrder] in Dart.
+  static int compareEntries(TravelEntry a, TravelEntry b) {
+    if ((a.at == null) != (b.at == null)) return a.at == null ? 1 : -1;
+    final at = (b.at ?? b.createdAt).compareTo(a.at ?? a.createdAt);
+    return at != 0 ? at : b.createdAt.compareTo(a.createdAt);
   }
 
   /// Across all places, newest first.
@@ -714,7 +856,7 @@ class TravelStore {
   Future<int> mergeFrom(String path) async {
     final added = await mergeDatabase(await _open(), path);
     if (added > 0) {
-      await _write((_) async {});
+      await _write(_fileUnderCountries);
     }
     return added;
   }
@@ -750,6 +892,8 @@ class TravelStore {
     'lng': p.lng,
     'parent_id': p.parentId,
     'country': p.country,
+    'address': p.address,
+    'category': p.category,
     'created_at': p.createdAt.millisecondsSinceEpoch,
   };
 
@@ -761,6 +905,8 @@ class TravelStore {
     lng: (r['lng'] as num).toDouble(),
     parentId: r['parent_id'] as String?,
     country: r['country'] as String? ?? '',
+    address: r['address'] as String? ?? '',
+    category: r['category'] as String? ?? '',
     createdAt: _time(r['created_at'])!,
   );
 

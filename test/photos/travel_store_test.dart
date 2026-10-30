@@ -38,9 +38,105 @@ void main() {
       parentId: kyoto.id,
     );
     expect((await store.placesIn(kyoto.id)).single.id, shrine.id);
-    expect(await store.places(), hasLength(2));
+    // Kyoto, inside Japan, made with it.
+    final japan = (await store.places()).singleWhere((p) => p.isCountry);
+    expect(kyoto.parentId, japan.id);
+    expect(await store.places(), hasLength(3));
     expect(await store.deletePlace(kyoto.id), isFalse, reason: 'has a point');
     expect(await store.deletePlace(shrine.id), isTrue);
+  });
+
+  test('impressions under a place, and what Footprints counts', () async {
+    final kyoto = await city('Kyoto');
+    final gion = await store.createPlace(
+      name: 'Gion',
+      kind: PlaceKind.area,
+      lat: 35,
+      lng: 135.77,
+      parentId: kyoto.id,
+      address: '',
+      category: '',
+    );
+    final cafe = await store.createPlace(
+      name: 'Kagizen',
+      kind: PlaceKind.point,
+      lat: 35,
+      lng: 135.77,
+      parentId: gion.id,
+      address: '264 Gionmachi',
+      category: 'Cafe',
+    );
+    for (final (place, day) in [(cafe, 1), (gion, 2), (cafe, 3)]) {
+      await store.saveEntry(
+        store
+            .newEntry(placeId: place.id, kind: EntryKind.impression)
+            .copyWith(at: () => DateTime(2025, 4, day)),
+      );
+    }
+    final tree = placeTree(await store.places());
+    final under = await store.entriesAtAny(placeAndBelow(kyoto.id, tree));
+    expect(under.map((e) => e.at!.day), [3, 2, 1]);
+    expect(await store.entriesAtAny({cafe.id}), hasLength(2));
+    expect((await store.place(cafe.id))!.category, 'Cafe');
+    expect(await store.counts(), (places: 4, plans: 0, impressions: 3));
+  });
+
+  test('a version-1 database: its places filed under countries', () async {
+    await store.close();
+    final path = p.join(dir.path, 'old.db');
+    final old = await databaseFactoryFfi.openDatabase(path);
+    await old.execute('''
+      CREATE TABLE place (id TEXT PRIMARY KEY, name TEXT NOT NULL,
+        kind TEXT NOT NULL, lat REAL NOT NULL, lng REAL NOT NULL,
+        parent_id TEXT, country TEXT NOT NULL DEFAULT '',
+        created_at INTEGER NOT NULL)
+    ''');
+    for (final t in [
+      'CREATE TABLE entry (id TEXT PRIMARY KEY, place_id TEXT NOT NULL, '
+          "kind TEXT NOT NULL, at INTEGER, title TEXT NOT NULL DEFAULT '', "
+          "text TEXT NOT NULL DEFAULT '', rating INTEGER, "
+          "tags TEXT NOT NULL DEFAULT '[]', created_at INTEGER NOT NULL, "
+          'updated_at INTEGER NOT NULL)',
+      'CREATE TABLE route (id TEXT PRIMARY KEY, title TEXT NOT NULL, '
+          "note TEXT NOT NULL DEFAULT '', starts INTEGER, ends INTEGER, "
+          'created_at INTEGER NOT NULL)',
+      'CREATE TABLE stop (route_id TEXT, position INTEGER, place_id TEXT, '
+          "arrived INTEGER, note TEXT NOT NULL DEFAULT '')",
+      'CREATE TABLE leg (route_id TEXT, position INTEGER, mode TEXT, '
+          "note TEXT NOT NULL DEFAULT '', from_place TEXT NOT NULL DEFAULT '', "
+          "to_place TEXT NOT NULL DEFAULT '', "
+          'needs_review INTEGER NOT NULL DEFAULT 0)',
+      'CREATE TABLE link (owner_kind TEXT, owner_id TEXT, target_kind TEXT, '
+          'target_id TEXT)',
+      'CREATE TABLE rev (id INTEGER PRIMARY KEY, n INTEGER NOT NULL)',
+      'INSERT INTO rev VALUES (1, 0)',
+    ]) {
+      await old.execute(t);
+    }
+    Future<void> place(String id, String kind, String? parent) =>
+        old.insert('place', {
+          'id': id,
+          'name': id,
+          'kind': kind,
+          'lat': 35.0,
+          'lng': 135.0,
+          'parent_id': parent,
+          'country': id == 'Lisbon' ? 'Portugal' : 'Japan',
+          'created_at': 0,
+        });
+    await place('Kyoto', 'city', null);
+    await place('Shrine', 'point', 'Kyoto');
+    await place('Lisbon', 'city', null);
+    await old.setVersion(1);
+    await old.close();
+
+    store = TravelStore(databaseFactory: databaseFactoryFfi, path: path);
+    final places = {for (final p in await store.places()) p.name: p};
+    expect(places.keys, containsAll(['Japan', 'Portugal']));
+    expect(places['Kyoto']!.parentId, places['Japan']!.id);
+    expect(places['Lisbon']!.parentId, places['Portugal']!.id);
+    expect(places['Shrine']!.parentId, 'Kyoto');
+    expect(places['Shrine']!.address, '');
   });
 
   test('entries: diary and impressions per visit, counted per place', () async {
@@ -208,7 +304,7 @@ void main() {
       await store.deleteRoute(route.id);
       expect(await store.routeDetail(route.id), isNull);
       expect(await store.routesLinkedTo(LinkTarget.person, 'mia'), isEmpty);
-      expect(await store.places(), hasLength(3));
+      expect(await store.places(), hasLength(4));
       expect(await store.isPlaceInUse(stops[0].id), isFalse);
     });
   });

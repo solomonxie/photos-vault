@@ -85,7 +85,7 @@ void main() {
       _wrap(RouteListView(travelStore: store, placeSearch: _search())),
     );
     await tester.pumpAndSettle();
-    expect(find.textContaining('No routes yet'), findsOne);
+    expect(find.textContaining('No travel plans yet'), findsOne);
 
     await tester.tap(find.byKey(const ValueKey('routeNew')));
     await tester.pumpAndSettle();
@@ -93,7 +93,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('routeEditorDone')));
     await tester.pumpAndSettle();
     expect(store.routesById, isEmpty);
-    expect(find.textContaining('No routes yet'), findsOne);
+    expect(find.textContaining('No travel plans yet'), findsOne);
   });
 
   testWidgets('a card shows the route; its page runs stop, leg, stop', (
@@ -222,7 +222,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('routeDeleteConfirm')));
     await tester.pumpAndSettle();
     expect(store.routesById, isEmpty);
-    expect(store.placesById, hasLength(3), reason: 'places stay');
+    expect(store.placesById, hasLength(4), reason: 'places stay');
   });
 
   testWidgets('a profile lists the routes and entries a person is in', (
