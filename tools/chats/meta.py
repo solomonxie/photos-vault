@@ -56,8 +56,8 @@ def _media_index(paths):
     return index
 
 
-def _media_of(m, index):
-    for key in ("photos", "videos", "gifs", "media", "files"):
+def _media_of(m, index, keys=("photos", "videos", "gifs", "media", "files")):
+    for key in keys:
         for item in m.get(key) or []:
             uri = item.get("uri") if isinstance(item, dict) else item
             if not isinstance(uri, str):
@@ -130,7 +130,8 @@ def extract(paths, source, me=None):
             seen.add(key)
             at = datetime.fromtimestamp(ms / 1000)
             media = _media_of(m, index) if kind in ("image", "file") else None
-            out.append(row(person, source, f"{source}:{thread_id}", at, sender == me, text, kind, sender, media))
+            audio = _media_of(m, index, ("audio_files",)) if kind == "voice" else None
+            out.append(row(person, source, f"{source}:{thread_id}", at, sender == me, text, kind, sender, media, audio))
     if groups:
         print(f"skipped {groups} group chats")
     return out

@@ -21,5 +21,6 @@ python3 tools/chats/run.py instagram <zip|dir>... [--me "Name"]
   the person; date order (day/month) is guessed per file.
 - **Messenger / Instagram**: Accounts Center → Download your information → Messages, JSON, all time.
   Pass every part zip; threads split across them are merged. Meta's Latin-1 mojibake is repaired.
+  Voice messages carry their clip (8 kbps MP3, needs `ffmpeg`).
   "You" is the name in the most threads unless `--me` is given. E2EE Messenger chats are often missing
   from this download.

@@ -15,8 +15,9 @@ VIDEO = {".mov", ".mp4", ".m4v", ".3gp", ".avi", ".webm"}
 PICTURE = {".jpg", ".jpeg", ".png", ".heic", ".heif", ".gif", ".webp", ".tif", ".tiff", ".bmp", ".ktx"}
 
 
-def row(person, source, chat, at: datetime, from_me, text, kind="text", sender=None, media=None):
-    """media: the picture, video or file it carried (a path, or (name, bytes)); becomes `thumb` on write."""
+def row(person, source, chat, at: datetime, from_me, text, kind="text", sender=None, media=None, audio=None):
+    """media: the picture, video or file it carried (a path, or (name, bytes)); becomes `thumb` on write.
+    audio: a voice message's clip, the same way; becomes `voice` (8 kbps MP3) and `voice_ms`."""
     assert kind in KINDS, kind
     r = {
         "person": person,
@@ -30,6 +31,8 @@ def row(person, source, chat, at: datetime, from_me, text, kind="text", sender=N
     }
     if media is not None:
         r["_media"] = media
+    if audio is not None:
+        r["_audio"] = audio
     return r
 
 
@@ -59,6 +62,21 @@ def thumbnail(src: Path, scratch: Path) -> bytes | None:
     return out.read_bytes() if out.exists() and out.stat().st_size else None
 
 
+def voice_clip(src: Path, scratch: Path):
+    """(MP3 bytes at 8 kbps / 8 kHz mono, length in ms), or None: telephone band, what the app keeps."""
+    out = scratch / f"{hashlib.sha1(str(src).encode()).hexdigest()[:12]}.mp3"
+    try:
+        subprocess.run(["ffmpeg", "-v", "error", "-y", "-i", str(src), "-vn", "-ac", "1", "-ar", "8000",
+                        "-b:a", "8k", str(out)], check=True, capture_output=True, timeout=120)
+        seconds = subprocess.run(["ffprobe", "-v", "error", "-show_entries", "format=duration",
+                                  "-of", "csv=p=0", str(out)], check=True, capture_output=True, text=True)
+        return out.read_bytes(), round(float(seconds.stdout.strip()) * 1000)
+    except (subprocess.CalledProcessError, subprocess.TimeoutExpired, ValueError, FileNotFoundError):
+        return None
+    finally:
+        out.unlink(missing_ok=True)
+
+
 def _materialise(media, scratch: Path) -> Path | None:
     if isinstance(media, Path):
         return media if media.exists() else None
@@ -76,6 +94,12 @@ def write(rows, out: Path):
     made = {}
     try:
         for r in rows:
+            audio = r.pop("_audio", None)
+            if audio is not None:
+                src = _materialise(audio, scratch)
+                clip = voice_clip(src, scratch) if src else None
+                if clip:
+                    r["voice"], r["voice_ms"] = base64.b64encode(clip[0]).decode(), clip[1]
             media = r.pop("_media", None)
             if media is None:
                 continue
@@ -89,5 +113,7 @@ def write(rows, out: Path):
         shutil.rmtree(scratch, ignore_errors=True)
     out.write_text("".join(json.dumps(r, ensure_ascii=False) + "\n" for r in rows), "utf-8")
     thumbs = sum(1 for r in rows if "thumb" in r)
+    clips = sum(1 for r in rows if "voice" in r)
     people = {r["person"] for r in rows}
-    print(f"{out}: {len(rows)} messages, {len(people)} people, {thumbs} thumbnails, {out.stat().st_size / 1e6:.1f} MB")
+    print(f"{out}: {len(rows)} messages, {len(people)} people, {thumbs} thumbnails, {clips} voice clips, "
+          f"{out.stat().st_size / 1e6:.1f} MB")
