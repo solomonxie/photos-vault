@@ -12,8 +12,8 @@ import '../storage/asset_record_store.dart';
 import 'native_map.dart';
 import 'place_screen.dart';
 
-/// Footprints → Places (`docs/design/travel-diary.md`): every place on a
-/// map, and the top of the tree (countries) below it. The library's photo
+/// Footprints → Places (`docs/design/travel-diary.md`): the top of the
+/// tree (countries), or every place as a pin on a map. The library's photo
 /// groups by location are one row away.
 class PlacesScreen extends StatefulWidget {
   const PlacesScreen({
@@ -41,6 +41,7 @@ class PlacesScreen extends StatefulWidget {
 
 class _PlacesScreenState extends State<PlacesScreen> {
   bool _loaded = false;
+  bool _map = false;
   List<Place> _top = const [];
   List<MapPinData> _pins = const [];
   PlaceTally _tally = const PlaceTally({}, {});
@@ -121,76 +122,70 @@ class _PlacesScreenState extends State<PlacesScreen> {
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(l10n.footprintsPlaces),
-        trailing: CupertinoButton(
-          key: const ValueKey('travelAddPlace'),
-          padding: EdgeInsets.zero,
-          onPressed: _add,
-          child: const Icon(CupertinoIcons.add),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CupertinoButton(
+              key: const ValueKey('placesMapToggle'),
+              padding: EdgeInsets.zero,
+              onPressed: () => setState(() => _map = !_map),
+              child: Icon(
+                _map ? CupertinoIcons.list_bullet : CupertinoIcons.map,
+              ),
+            ),
+            CupertinoButton(
+              key: const ValueKey('travelAddPlace'),
+              padding: EdgeInsets.zero,
+              onPressed: _add,
+              child: const Icon(CupertinoIcons.add),
+            ),
+          ],
         ),
       ),
       child: SafeArea(
         bottom: false,
         child: !_loaded
             ? const Center(child: CupertinoActivityIndicator())
-            : Column(
+            : _map
+            ? NativeMap(pins: _pins, onPinTap: _open, onLongPress: _dropPin)
+            : ListView(
+                padding: const EdgeInsets.only(bottom: 32),
                 children: [
-                  SizedBox(
-                    height: 240,
-                    child: NativeMap(
-                      pins: _pins,
-                      onPinTap: _open,
-                      onLongPress: _dropPin,
-                    ),
-                  ),
-                  Expanded(
-                    child: ListView(
-                      padding: const EdgeInsets.only(bottom: 32),
+                  if (widget.placeGroups.isNotEmpty)
+                    CupertinoListSection.insetGrouped(
                       children: [
-                        if (widget.placeGroups.isNotEmpty)
-                          CupertinoListSection.insetGrouped(
-                            children: [
-                              CupertinoListTile(
-                                key: const ValueKey('placesPhotoGroups'),
-                                leading: const Icon(
-                                  CupertinoIcons.map_pin_ellipse,
-                                  color: CupertinoColors.systemTeal,
-                                ),
-                                title: Text(l10n.placesPhotosByLocation),
-                                additionalInfo: Text(
-                                  '${widget.placeGroups.length}',
-                                ),
-                                trailing: const CupertinoListTileChevron(),
-                                onTap: _openPhotoPlaces,
-                              ),
-                            ],
+                        CupertinoListTile(
+                          key: const ValueKey('placesPhotoGroups'),
+                          leading: const Icon(
+                            CupertinoIcons.map_pin_ellipse,
+                            color: CupertinoColors.systemTeal,
                           ),
-                        if (_top.isEmpty)
-                          Padding(
-                            padding: const EdgeInsets.all(24),
-                            child: Text(
-                              l10n.travelPlacesEmpty,
-                              key: const ValueKey('travelPlacesEmpty'),
-                              textAlign: TextAlign.center,
-                              style: const TextStyle(
-                                color: CupertinoColors.systemGrey,
-                              ),
-                            ),
-                          )
-                        else
-                          CupertinoListSection.insetGrouped(
-                            children: [
-                              for (final p in _top)
-                                placeTile(
-                                  l10n,
-                                  p,
-                                  _tally,
-                                  onTap: () => _open(p.id),
-                                ),
-                            ],
-                          ),
+                          title: Text(l10n.placesPhotosByLocation),
+                          additionalInfo: Text('${widget.placeGroups.length}'),
+                          trailing: const CupertinoListTileChevron(),
+                          onTap: _openPhotoPlaces,
+                        ),
                       ],
                     ),
-                  ),
+                  if (_top.isEmpty)
+                    Padding(
+                      padding: const EdgeInsets.all(24),
+                      child: Text(
+                        l10n.travelPlacesEmpty,
+                        key: const ValueKey('travelPlacesEmpty'),
+                        textAlign: TextAlign.center,
+                        style: const TextStyle(
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ),
+                    )
+                  else
+                    CupertinoListSection.insetGrouped(
+                      children: [
+                        for (final p in _top)
+                          placeTile(l10n, p, _tally, onTap: () => _open(p.id)),
+                      ],
+                    ),
                 ],
               ),
       ),

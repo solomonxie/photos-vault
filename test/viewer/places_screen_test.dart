@@ -95,14 +95,20 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.byKey(const ValueKey('nativeMapPlaceholder')), findsOne);
+    // A list first; the map is a tap away, every place a pin.
+    expect(find.byType(NativeMap), findsNothing);
     expect(find.text('Japan'), findsOne);
     expect(find.text('Portugal'), findsOne);
     expect(find.text('Kyoto'), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('placesMapToggle')));
+    await tester.pumpAndSettle();
+    expect(find.text('Japan'), findsNothing);
     expect(
       tester.widget<NativeMap>(find.byType(NativeMap)).pins.map((p) => p.title),
       containsAll(['Kyoto', 'Gion', 'Kagizen', 'Lisbon']),
     );
+    await tester.tap(find.byKey(const ValueKey('placesMapToggle')));
+    await tester.pumpAndSettle();
 
     // A note on a pin is the country's too, and says where it was.
     await tester.tap(find.text('Japan'));
@@ -292,6 +298,8 @@ void main() {
     await tester.pumpWidget(
       _wrap(PlacesScreen(travelStore: store, placeSearch: _search())),
     );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('placesMapToggle')));
     await tester.pumpAndSettle();
     tester.widget<NativeMap>(find.byType(NativeMap)).onLongPress!(35.01, 135.7);
     await tester.pumpAndSettle();
