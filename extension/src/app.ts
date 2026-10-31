@@ -10,6 +10,8 @@ import { ago, count, t } from './ui/i18n';
 import { setupView, waitingView } from './ui/setup';
 import { thumbUrl } from './ui/thumbs';
 import { openViewer, viewerRefresh } from './ui/viewer';
+import { dropZone, pickFiles, uploadTray } from './upload/tray';
+import { Uploader } from './upload/uploader';
 
 const root = document.getElementById('app')!;
 const pullEvery = 30_000;
@@ -17,6 +19,8 @@ const pullEvery = 30_000;
 let bucket: Bucket;
 let engine: Engine;
 let editor: Editor;
+let uploader: Uploader;
+let tray: ReturnType<typeof uploadTray>;
 let lib: Library;
 let search: SearchIndex;
 let lastSynced = 0;
@@ -427,7 +431,14 @@ function shell() {
     h(
       'div',
       { class: 'app' },
-      h('div', { class: 'top' }, h('div', { class: 'brand' }, t('name')), searchBox(), chip),
+      h(
+        'div',
+        { class: 'top' },
+        h('div', { class: 'brand' }, t('name')),
+        searchBox(),
+        h('button', { class: 'upload-btn', onclick: () => pickFiles((f) => uploader.add(f)) }, t('upload')),
+        chip,
+      ),
       h(
         'nav',
         {},
@@ -443,6 +454,8 @@ function shell() {
       main,
     ),
   );
+  root.append(tray.el, dropZone((f) => uploader.add(f)));
+  tray.render();
   chip.onclick = () => syncPanel();
   renderChip();
 }
@@ -470,6 +483,11 @@ async function start(c: Connection) {
     return;
   }
   editor = new Editor(engine, rebuild, () => void engine.waiting().then((n) => ((waiting = n), renderChip())));
+  uploader = new Uploader(bucket, engine, editor, () => tray.render());
+  tray = uploadTray(uploader, (id) => {
+    const p = lib.photos.get(id);
+    if (p) openViewer(viewerContext(), p, [p]);
+  });
   // Cached library first: the grid is up before the network answers.
   if (engine.hasCheckpoint) {
     lib = buildLibrary(engine.state);

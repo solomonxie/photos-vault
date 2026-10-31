@@ -38,6 +38,9 @@ const assetFields = {
 /// Only on `add`: fixed for the photo's life.
 const assetAddOnly = {
   'content_hash',
+  // SHA-256 of the uploaded original: how a browser upload spots a photo
+  // already here (a camera-roll record's content_hash is its asset id).
+  'original_hash',
   'is_video',
   'is_live_photo',
   'width',

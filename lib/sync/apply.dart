@@ -9,6 +9,10 @@ import 'sync_store.dart';
 /// What [Applier.apply] did, for the screens to reload.
 class Applied {
   int assets = 0;
+
+  /// Photo records made here for photos added elsewhere: the albums and
+  /// people naming them are applied again so their memberships land.
+  int created = 0;
   int albums = 0;
   int people = 0;
 
@@ -16,7 +20,7 @@ class Applied {
   /// collected, and applying over them could have undone one.
   final deferred = <String>{};
 
-  bool get any => assets + albums + people > 0;
+  bool get any => assets + created + albums + people > 0;
 }
 
 /// Pulled, merged state → this phone's own rows. Raw SQL inside
@@ -38,7 +42,15 @@ class Applier {
     required this.assets,
     required this.albums,
     required this.people,
+    this.homeTargetId,
   });
+
+  /// The bucket a record made here says its objects are in.
+  final String? homeTargetId;
+
+  /// Records this applier made: photos added on another device, whose
+  /// originals are only in the bucket.
+  static const cloudPlatform = 'cloud';
 
   final SyncStore store;
   final Future<Database> Function() assets;
@@ -69,7 +81,8 @@ class Applier {
       if (n == null) {
         out.deferred.addAll(assetEnts.map((e) => 'asset/${e.id}'));
       } else {
-        out.assets = n;
+        out.assets = n.$1;
+        out.created = n.$2;
       }
     }
     // Memberships only for photos this phone has, and not hidden ones.
@@ -103,9 +116,9 @@ class Applier {
   }
 
   /// Null when local edits are waiting in this database.
-  static Future<int?> _guarded(
+  static Future<T?> _guarded<T>(
     Database db,
-    Future<int> Function(DatabaseExecutor txn) body,
+    Future<T> Function(DatabaseExecutor txn) body,
   ) => applyingRemote(db, (txn) async {
     final waiting = Sqflite.firstIntValue(
       await txn.rawQuery('SELECT COUNT(*) FROM $syncOutboxTable'),
@@ -162,15 +175,19 @@ class Applier {
     'created_at',
   ];
 
-  Future<int> _assets(DatabaseExecutor txn, List<EntityState> ents) async {
+  Future<(int, int)> _assets(
+    DatabaseExecutor txn,
+    List<EntityState> ents,
+  ) async {
     var changed = 0;
+    var created = 0;
     final ids = [for (final e in ents) e.id];
     final local = <String, Map<String, Object?>>{};
     for (var i = 0; i < ids.length; i += _chunk) {
       final part = ids.sublist(i, (i + _chunk).clamp(0, ids.length));
       for (final r in await txn.rawQuery(
-        'SELECT local_id, tags, deleted_at, binned_by FROM asset_record '
-        'WHERE passcode_hash IS NULL '
+        'SELECT local_id, tags, deleted_at, binned_by, platform, passcode_hash '
+        'FROM asset_record WHERE 1 '
         'AND local_id IN (${List.filled(part.length, '?').join(',')})',
         part,
       )) {
@@ -180,9 +197,31 @@ class Applier {
     final now = DateTime.now().millisecondsSinceEpoch;
     for (final ent in ents) {
       final row = local[ent.id];
-      if (row == null) continue;
       final f = ent.fields;
-      if (f['hidden']?.x == true || f['purged']?.x != null) continue;
+      final gone = f['hidden']?.x == true || f['purged']?.x != null;
+      if (row == null) {
+        if (!gone && await _create(txn, ent, now)) created++;
+        continue;
+      }
+      if (row['passcode_hash'] != null) continue;
+      if (gone) {
+        // Only a record this applier made: this phone's own photos are never
+        // another device's to remove.
+        if (row['platform'] == cloudPlatform) {
+          await txn.delete(
+            'asset_record',
+            where: 'local_id = ?',
+            whereArgs: [ent.id],
+          );
+          await txn.delete(
+            'derivative_target',
+            where: 'local_id = ?',
+            whereArgs: [ent.id],
+          );
+          changed++;
+        }
+        continue;
+      }
       final values = <String, Object?>{
         for (final c in _assetColumns)
           if (f.containsKey(c)) c: c == 'description' ? f[c]!.x ?? '' : f[c]!.x,
@@ -203,7 +242,71 @@ class Applier {
       ], values);
       if (n > 0) changed++;
     }
-    return changed;
+    return (changed, created);
+  }
+
+  /// A cloud-only record for a photo added on another device: its original
+  /// and thumbnail are in the bucket, nothing is on this phone
+  /// (`local_deleted`), so the upload engine leaves it alone and the grid
+  /// draws it from the cloud thumbnail. False without an original key.
+  Future<bool> _create(DatabaseExecutor txn, EntityState ent, int now) async {
+    final f = ent.fields;
+    Object? x(String k) => f[k]?.x;
+    final original = x('original_key');
+    if (original is! String || original.isEmpty) return false;
+    final taken = x('created_at') is int ? x('created_at') as int : now;
+    String? key(String k) =>
+        x(k) is String && (x(k) as String).isNotEmpty ? x(k) as String : null;
+    final keys = {
+      'original': original,
+      'thumbnail': key('thumbnail_key'),
+      'medium': key('medium_key'),
+      'live': key('live_key'),
+      'edited': key('edited_key'),
+    };
+    await txn.insert('asset_record', {
+      'local_id': ent.id,
+      'content_hash': x('content_hash') ?? ent.id,
+      'platform': cloudPlatform,
+      'source_type': 'manualFile',
+      'local_deleted': 1,
+      'is_video': _sql(x('is_video') ?? 0),
+      'is_live_photo': _sql(x('is_live_photo') ?? 0),
+      'description': x('description') ?? '',
+      'location': x('location'),
+      'latitude': x('latitude'),
+      'longitude': x('longitude'),
+      'width': x('width'),
+      'height': x('height'),
+      'is_favorite': _sql(x('is_favorite') ?? 0),
+      'is_archived': _sql(x('is_archived') ?? 0),
+      'deleted_at': x('deleted_at'),
+      'binned_by': x('deleted_at') == null ? null : binnedByCloud,
+      'tags': jsonEncode(ent.members('tags')),
+      'created_at': taken,
+      'updated_at': now,
+      'added_at': now,
+      for (final MapEntry(:key, :value) in keys.entries)
+        if (value != null) ...{
+          '${key}_status': 'uploaded',
+          '${key}_key': value,
+          if (key == 'original') '${key}_hash': x('original_hash'),
+        },
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    final target = homeTargetId;
+    if (target != null) {
+      for (final MapEntry(:key, :value) in keys.entries) {
+        if (value == null) continue;
+        await txn.insert('derivative_target', {
+          'local_id': ent.id,
+          'kind': key == 'live' ? 'livePhoto' : key,
+          'target_id': target,
+          'destination_key': value,
+          'uploaded_at': now,
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+      }
+    }
+    return true;
   }
 
   /// Bin marker for a photo binned on another device.

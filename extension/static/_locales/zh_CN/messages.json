@@ -423,5 +423,69 @@
  },
  "removeFromPerson": {
   "message": "从人物移除"
+ },
+ "upload": {
+  "message": "上传"
+ },
+ "retry": {
+  "message": "重试"
+ },
+ "alreadyHere": {
+  "message": "已在图库中"
+ },
+ "preparing": {
+  "message": "准备中…"
+ },
+ "waitingUpload": {
+  "message": "等待中"
+ },
+ "uploadPaused": {
+  "message": "已暂停 · 剩余 $A$",
+  "placeholders": {
+   "a": {
+    "content": "$1"
+   }
+  }
+ },
+ "uploadOffline": {
+  "message": "等待网络 · 剩余 $A$",
+  "placeholders": {
+   "a": {
+    "content": "$1"
+   }
+  }
+ },
+ "uploadPartial": {
+  "message": "已上传 $A$ · 失败 $B$",
+  "placeholders": {
+   "a": {
+    "content": "$1"
+   },
+   "b": {
+    "content": "$2"
+   }
+  }
+ },
+ "uploadDone": {
+  "message": "✓ 已上传 $A$",
+  "placeholders": {
+   "a": {
+    "content": "$1"
+   }
+  }
+ },
+ "dropToUpload": {
+  "message": "拖放到这里上传到存储桶"
+ },
+ "uploadProgress": {
+  "message": "正在上传第 $A$ / $B$ 张",
+  "placeholders": {
+   "a": {
+    "content": "$1"
+   },
+   "b": {
+    "content": "$2"
+   }
+  }
  }
 }

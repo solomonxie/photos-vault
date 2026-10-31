@@ -114,11 +114,12 @@ class CloudSync {
     people.syncDatabase,
   ];
 
-  late final _applier = Applier(
+  Future<Applier> _applier() async => Applier(
     store: store,
     assets: assets.syncDatabase,
     albums: albums.syncDatabase,
     people: people.syncDatabase,
+    homeTargetId: await store.meta('home_target'),
   );
 
   LogSync? _sync;
@@ -270,15 +271,31 @@ class CloudSync {
         ...deferredRaw.split('\n'),
     };
     final applied = Applied();
-    final list = all.toList();
-    for (var i = 0; i < list.length; i += 2000) {
-      final part = await _applier.apply(
-        list.sublist(i, (i + 2000).clamp(0, list.length)).toSet(),
-      );
-      applied.assets += part.assets;
-      applied.albums += part.albums;
-      applied.people += part.people;
-      applied.deferred.addAll(part.deferred);
+    final applier = await _applier();
+    Future<void> run(List<String> list) async {
+      for (var i = 0; i < list.length; i += 2000) {
+        final part = await applier.apply(
+          list.sublist(i, (i + 2000).clamp(0, list.length)).toSet(),
+        );
+        applied.assets += part.assets;
+        applied.created += part.created;
+        applied.albums += part.albums;
+        applied.people += part.people;
+        applied.deferred.addAll(part.deferred);
+      }
+    }
+
+    await run(all.toList());
+    // New records: the albums and people that name them were applied
+    // before they existed here, with those members left out.
+    if (applied.created > 0) {
+      final owners = <String>[];
+      await for (final page in store.keyPages()) {
+        owners.addAll(
+          page.where((k) => k.startsWith('album/') || k.startsWith('person/')),
+        );
+      }
+      await run(owners);
     }
     await store.setMeta('deferred', applied.deferred.join('\n'));
     if (applied.any) onApplied?.call(applied);

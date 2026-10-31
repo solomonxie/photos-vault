@@ -423,5 +423,69 @@
  },
  "removeFromPerson": {
   "message": "Remove from person"
+ },
+ "upload": {
+  "message": "Upload"
+ },
+ "retry": {
+  "message": "Retry"
+ },
+ "alreadyHere": {
+  "message": "Already in your library"
+ },
+ "preparing": {
+  "message": "Preparing…"
+ },
+ "waitingUpload": {
+  "message": "Waiting"
+ },
+ "uploadPaused": {
+  "message": "Paused · $A$ left",
+  "placeholders": {
+   "a": {
+    "content": "$1"
+   }
+  }
+ },
+ "uploadOffline": {
+  "message": "Waiting for connection · $A$ left",
+  "placeholders": {
+   "a": {
+    "content": "$1"
+   }
+  }
+ },
+ "uploadPartial": {
+  "message": "$A$ uploaded · $B$ failed",
+  "placeholders": {
+   "a": {
+    "content": "$1"
+   },
+   "b": {
+    "content": "$2"
+   }
+  }
+ },
+ "uploadDone": {
+  "message": "✓ $A$ uploaded",
+  "placeholders": {
+   "a": {
+    "content": "$1"
+   }
+  }
+ },
+ "dropToUpload": {
+  "message": "Drop to upload to your bucket"
+ },
+ "uploadProgress": {
+  "message": "Uploading $A$ of $B$",
+  "placeholders": {
+   "a": {
+    "content": "$1"
+   },
+   "b": {
+    "content": "$2"
+   }
+  }
  }
 }

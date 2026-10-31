@@ -56,9 +56,9 @@ Writes reach the bucket only after the phone has proved it applies them
 ## Phase 6: Upload from the computer
 Last, because it adds bytes on top of everything above.
 
-- [ ] T6.1 Upload tray: drop/pick, SHA-256 dedupe against `content_hash`, EXIF date/GPS, thumbnail/poster, multipart resume, HEAD both, then `asset.add` — see `uiux/upload.md` — depends: T5.1
+- [x] T6.1 Upload tray: drop/pick, SHA-256 dedupe against `original_hash`/`content_hash`, EXIF date/GPS, thumbnail/poster, multipart over 32 MB, HEAD both, then `asset.add`; named as the phone names its own (`web:<uuid>` hashed). Queue in memory: a tab closed mid-way drops what's left — see `extension/src/upload/` — depends: T5.1
 - [ ] T6.2 Phone mirrors `web:` originals to the other configured buckets on its backup pass — see `lib/upload/backup_coordinator.dart` — depends: T3.2, T6.1
-- [ ] T6.3 Cloud-only records on the phone for photos added elsewhere (browser, another phone): insert in the applier's transaction with keys and derivative targets, then re-apply the albums and people that name them — see `lib/sync/apply.dart`, `lib/upload/library_restore.dart` — depends: T3.2, T6.1
+- [x] T6.3 Cloud-only records on the phone for photos added elsewhere (`platform = 'cloud'`, `local_deleted`, keys + derivative targets on the home bucket), albums and people re-applied after; a purged or hidden one is removed only if this applier made it — see `lib/sync/apply.dart` — depends: T3.2, T6.1
 
 ## Phase 7: Proving no data loss
 Run before any release. Per the repo `CLAUDE.md`, this is the one test pass
