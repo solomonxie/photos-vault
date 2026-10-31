@@ -45,10 +45,13 @@ class LogSync {
   /// Of these asset ids, the ones behind a passcode: their memberships stay here.
   final Future<Set<String>> Function(Set<String> ids) privateAssets;
 
-  Future<void> _tail = Future.value();
+  /// Static: the foreground app and the background task run in one process,
+  /// each with its own [LogSync]. Two seals at once would both take the next
+  /// seq and write two different segments under one key.
+  static Future<void> _tail = Future.value();
 
-  /// One sync step at a time in this isolate.
-  Future<T> _locked<T>(Future<T> Function() body) {
+  /// One sync step at a time in this process.
+  static Future<T> _locked<T>(Future<T> Function() body) {
     final run = _tail.then((_) => body());
     _tail = run.then((_) {}, onError: (_) {});
     return run;
@@ -117,8 +120,20 @@ class LogSync {
   });
 
   Future<void> _seal() async {
-    final pending = await store.outbox();
-    if (pending.isEmpty) return;
+    final queued = await store.outbox();
+    if (queued.isEmpty) return;
+    final last = queued.last.$1;
+    // A caption saved per keystroke is one `set` per letter. Only the last
+    // of a run to one field matters: it has seen the others, so the merged
+    // result is the same without them.
+    final latest = <String, int>{};
+    for (final (n, c) in queued) {
+      if (c.o == OpKind.set) latest['${c.e}/${c.id}/${c.f}'] = n;
+    }
+    final pending = [
+      for (final (n, c) in queued)
+        if (c.o != OpKind.set || latest['${c.e}/${c.id}/${c.f}'] == n) (n, c),
+    ];
     final device = await store.device();
     final vv = await _vv();
     final others = {...vv}..remove(device);
@@ -161,7 +176,6 @@ class LogSync {
       ));
       seq++;
     }
-    final last = pending.last.$1;
     await store.save(
       state,
       meta: {

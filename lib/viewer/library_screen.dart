@@ -20,6 +20,7 @@ import '../demo/demo_mode.dart';
 import '../photos/conversation_store.dart';
 import '../photos/import_log_backfill.dart';
 import '../photos/travel_store.dart';
+import '../sync/cloud_sync.dart';
 import '../sync/sync_store.dart';
 import '../photos/words_store.dart';
 import '../photos/place_search.dart';
@@ -621,6 +622,8 @@ class LibraryScreenState extends State<LibraryScreen>
       // time iOS grants on the way out.
       unawaited(_pauseBackup.run());
       unawaited(_refreshBucketListing());
+      // Edits made just now go up before iOS suspends us.
+      unawaited(_cloudSync.tick());
       return;
     }
     if (state != AppLifecycleState.resumed || !mounted) return;
@@ -640,6 +643,7 @@ class LibraryScreenState extends State<LibraryScreen>
         unawaited(_refreshBucketListing());
         unawaited(_sweepLeftovers());
         unawaited(_runScheduledSyncIfDue());
+        unawaited(_cloudSync.tick());
         unawaited(_hiddenBackup.run().catchError((_) {}));
         _startTrickle();
       }),
@@ -701,8 +705,23 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
+  /// Library sync with the home bucket; see `lib/sync/cloud_sync.dart`.
+  late final CloudSync _cloudSync =
+      CloudSync(
+          assets: assetRecordStore,
+          albums: _albumStore,
+          people: _personStore,
+          targets: _backupTargetsStore,
+        )
+        ..onApplied = (_) {
+          if (mounted) reload();
+        };
+  Timer? _cloudTick;
+
   @override
   void dispose() {
+    _cloudTick?.cancel();
+    if (CloudSync.instance == _cloudSync) CloudSync.instance = null;
     PhotoManager.removeChangeCallback(_onPhotoLibraryChanged);
     WidgetsBinding.instance.removeObserver(this);
     _trickle?.cancel();
@@ -737,6 +756,13 @@ class LibraryScreenState extends State<LibraryScreen>
     );
     PrivateAlbumScreen.hiddenBackup = _hiddenBackup;
     FaceAnalyzer.shared = _faceAnalyzer;
+    CloudSync.instance = _cloudSync;
+    unawaited(_cloudSync.load());
+    // A round only when edits wait or two minutes have passed: see tick().
+    _cloudTick = Timer.periodic(
+      const Duration(seconds: 30),
+      (_) => unawaited(_cloudSync.tick()),
+    );
     // Housekeeping once the first screens are up. At launch no import is
     // running, so any unpacked zip left is litter.
     _housekeeping = Timer(const Duration(seconds: 5), () async {

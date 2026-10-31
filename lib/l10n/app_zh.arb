@@ -1637,5 +1637,22 @@
   "placeMove": "移入…",
   "placeMoveTitle": "将{place}移入",
   "placeMoveToTop": "顶层",
-  "impressionAt": "于{place}"
+  "impressionAt": "于{place}",
+  "syncHeading": "图库同步",
+  "syncRow": "同步图库到存储桶",
+  "syncFooter": "相册、人物、描述和收藏保存在你的存储桶里，Chrome 扩展和你的其他手机看到的是同一个图库。隐藏的照片不会离开这台手机。",
+  "syncHomeBucket": "主存储桶",
+  "syncNever": "尚未同步",
+  "syncLastSynced": "上次同步于 {when}",
+  "syncPublishing": "正在发布图库… {count}",
+  "syncWaiting": "等待上传",
+  "syncConflicts": "两处都有修改",
+  "syncNow": "立即同步",
+  "syncStoppedCollision": "同步已停止：另一台设备写入了这台手机的位置。你的修改保留在本机。",
+  "syncStoppedNewer": "同步已停止：图库由更新版本的应用写入。请更新后继续同步。",
+  "syncConflictTitle": "两处都有修改",
+  "syncConflictHere": "这台手机",
+  "syncConflictOther": "另一台设备",
+  "syncConflictKeep": "保留这个",
+  "syncConflictUseOther": "用另一个"
 }

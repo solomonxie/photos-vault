@@ -26,12 +26,12 @@ vectors. That's the cross-check that they agree.
 The phone holds all the data today, so it goes first. Until it publishes a
 checkpoint, the extension has nothing to show.
 
-- [ ] T3.1 Bootstrap: on enable, build the checkpoint from the local stores in an isolate and publish it with the device record — see `lib/sync/bootstrap.dart` — depends: T2.3, T2.4
-- [ ] T3.2 Applier: pulled ops → local rows in batched transactions off the UI path; cloud-only records for `web:` assets (thumbnail from `thumbnails/`, like `library_restore.dart`); store reloads patch, no full pass — see `lib/sync/apply.dart` — depends: T2.3, T2.4
-- [ ] T3.3 Scheduling: pull on foreground, every 2 min while open, in the BG task; flush on edit + on background — see `lib/upload/background_sync.dart` — depends: T3.2
-- [ ] T3.4 Checkpoint cadence: daily, by the device with the most ops since the last one — see `lib/sync/` — depends: T3.1
-- [ ] T3.5 Settings › Cloud Sync, home bucket picker, nav-bar badge, conflict card, "Binned on Chrome" — see `docs/design/cloud-sync/uiux/sync.md` — depends: T3.2
-- [ ] T3.6 Thumbnails for HEIC `web:` assets: render on the phone, PUT to `thumbnails/`, op `set thumbnail_key` — see `lib/photos/image_pipeline.dart` — depends: T3.2
+- [x] T3.1 Bootstrap/join: capture on first, then publish the library through the ordinary log + a checkpoint, or adopt the bucket's checkpoint, take its values for shared entities and queue only what it lacks — see `lib/sync/bootstrap.dart`, `lib/sync/cloud_sync.dart` — depends: T2.3, T2.4
+- [x] T3.2 Applier: merged state → this phone's rows in one transaction per database, skipped while local edits wait uncollected; existing photo records only (new ones: T6.3); albums deleted elsewhere keep their notes — see `lib/sync/apply.dart` — depends: T2.3, T2.4
+- [x] T3.3 Scheduling: a 30 s tick while open (round when edits wait or every 2 min), on resume and pause, once in the BG task — see `lib/sync/cloud_sync.dart`, `lib/viewer/library_screen.dart`, `lib/main.dart` — depends: T3.2
+- [x] T3.4 Checkpoint cadence: weekly per phone (thinning old checkpoints still open) — see `lib/sync/cloud_sync.dart` — depends: T3.1
+- [ ] T3.5 Settings › Library Sync group (done), conflict card in the detail panel (done); Library nav badge and "Binned on another device" in the Bin still open — see `docs/design/cloud-sync/uiux/sync.md` — depends: T3.2
+- [ ] T3.6 Thumbnails for HEIC `web:` assets: render on the phone, PUT to `thumbnails/`, op `set thumbnail_key` — see `lib/photos/image_pipeline.dart` — depends: T6.3
 
 ## Phase 4: Extension shell and browsing
 This needs the TS engine and a published checkpoint. It's read-only first, so
@@ -57,6 +57,7 @@ Last, because it adds bytes on top of everything above.
 
 - [ ] T6.1 Upload tray: drop/pick, SHA-256 dedupe against `content_hash`, EXIF date/GPS, thumbnail/poster, multipart resume, HEAD both, then `asset.add` — see `uiux/upload.md` — depends: T5.1
 - [ ] T6.2 Phone mirrors `web:` originals to the other configured buckets on its backup pass — see `lib/upload/backup_coordinator.dart` — depends: T3.2, T6.1
+- [ ] T6.3 Cloud-only records on the phone for photos added elsewhere (browser, another phone): insert in the applier's transaction with keys and derivative targets, then re-apply the albums and people that name them — see `lib/sync/apply.dart`, `lib/upload/library_restore.dart` — depends: T3.2, T6.1
 
 ## Phase 7: Proving no data loss
 Run before any release. Per the repo `CLAUDE.md`, this is the one test pass

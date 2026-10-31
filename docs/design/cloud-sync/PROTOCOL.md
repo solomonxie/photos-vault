@@ -123,13 +123,16 @@ Load = the newest checkpoint by `h` across devices. Then for each device,
 the segments with `seq > vv[device]`. A checkpoint is exactly the merge
 state, so loading it and applying the rest equals applying everything.
 
-**Bootstrap.** The first checkpoint (the phone publishing its library):
-- carries the phone's `add` ops as `seq 1`, `vv {}`, with `vv[phone] = 1` in
-  its header;
-- seq 1 is never written as a segment: the phone's log starts at
-  `000000000002`;
-- a device with no checkpoint loaded never edits. A library started
-  elsewhere couldn't be merged with the phone's.
+**Bootstrap.** A phone's first sync queues its whole library as `add`
+and `madd` ops through the ordinary log (segments from seq 1), then
+publishes a checkpoint.
+- Two phones bootstrapping at once both land in the log, so neither is
+  lost. The checkpoint only saves new devices the download.
+- A phone joining a library that already exists adopts the checkpoint,
+  takes the cloud's values for everything it shares, and adds only what
+  the cloud lacks.
+- A device with no state loaded never edits. A browser waits for the first
+  checkpoint.
 
 ## Pull
 

@@ -35,6 +35,8 @@ import '../photos/temp_renders.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/bucket_location.dart';
 import 'asset_grid.dart';
+import '../sync/cloud_sync.dart';
+import '../sync/merge.dart';
 import '../storage/album.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
@@ -1974,10 +1976,106 @@ class _InfoPanelState extends State<_InfoPanel> {
     text: widget.record.description,
   );
 
+  /// Captions or places this photo was given on two devices at once.
+  List<Conflict> _conflicts = const [];
+
+  Future<void> _loadConflicts() async {
+    final sync = CloudSync.instance;
+    if (sync == null) return;
+    final id = widget.record.localId;
+    try {
+      final found = await sync.conflictsFor('asset', id);
+      if (!mounted || widget.record.localId != id) return;
+      setState(() => _conflicts = found);
+    } catch (_) {
+      // No sync database (a test, or sync never turned on).
+    }
+  }
+
+  Future<void> _resolve(Conflict c, {required bool useOther}) async {
+    final sync = CloudSync.instance;
+    if (sync == null) return;
+    final value = useOther
+        ? c.x
+        : (c.f == 'description'
+              ? widget.record.description
+              : widget.record.location);
+    if (useOther) {
+      if (c.f == 'description') {
+        final text = c.x as String? ?? '';
+        _description.text = text;
+        _saveDescription(text);
+      } else {
+        await widget.assetRecordStore.setLocation(
+          widget.record.localId,
+          c.x as String?,
+        );
+        widget.onRecordChanged(widget.record.withLocation(c.x as String?));
+      }
+    }
+    await sync.resolve(c, value);
+    await _loadConflicts();
+  }
+
+  Widget _conflictCard(AppLocalizations l10n, Conflict c) {
+    final here = c.f == 'description'
+        ? widget.record.description
+        : widget.record.location ?? '';
+    const muted = TextStyle(color: CupertinoColors.systemGrey, fontSize: 13);
+    const body = TextStyle(color: CupertinoColors.white);
+    return Container(
+      width: double.infinity,
+      margin: const EdgeInsets.only(bottom: 12),
+      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+      decoration: const BoxDecoration(
+        color: Color(0xFF2C2C2E),
+        borderRadius: BorderRadius.all(Radius.circular(10)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(
+                CupertinoIcons.exclamationmark_triangle_fill,
+                size: 16,
+                color: CupertinoColors.systemYellow,
+              ),
+              const SizedBox(width: 6),
+              Text(l10n.syncConflictTitle, style: body),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(l10n.syncConflictHere, style: muted),
+          Text(here.isEmpty ? '—' : here, style: body),
+          const SizedBox(height: 6),
+          Text(l10n.syncConflictOther, style: muted),
+          Text('${c.x ?? '—'}', style: body),
+          Row(
+            mainAxisAlignment: MainAxisAlignment.end,
+            children: [
+              CupertinoButton(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                onPressed: () => _resolve(c, useOther: false),
+                child: Text(l10n.syncConflictKeep),
+              ),
+              CupertinoButton(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                onPressed: () => _resolve(c, useOther: true),
+                child: Text(l10n.syncConflictUseOther),
+              ),
+            ],
+          ),
+        ],
+      ),
+    );
+  }
+
   @override
   void initState() {
     super.initState();
     _load();
+    _loadConflicts();
     _loadPeopleThenFaces();
     _loadAlbums();
     _fillLocationFromMetadata();
@@ -2014,6 +2112,8 @@ class _InfoPanelState extends State<_InfoPanel> {
     }
     if (oldWidget.record.localId != widget.record.localId) {
       _description.text = widget.record.description;
+      _conflicts = const [];
+      _loadConflicts();
       _faces = const [];
       _faceRects = const [];
       _loadPeopleThenFaces();
@@ -2978,6 +3078,7 @@ class _InfoPanelState extends State<_InfoPanel> {
             ],
           ),
           const SizedBox(height: 16),
+          for (final c in _conflicts) _conflictCard(l10n, c),
           Container(
             width: double.infinity,
             padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),

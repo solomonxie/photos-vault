@@ -8,9 +8,13 @@ import 'package:flutter/scheduler.dart';
 
 import 'app.dart';
 import 'demo/demo_mode.dart';
+import 'photos/person_store.dart';
+import 'storage/album_store.dart';
+import 'storage/asset_record_store.dart';
 import 'storage/database_home.dart';
 import 'settings/app_store_region.dart';
 import 'settings/secure_store.dart';
+import 'sync/cloud_sync.dart';
 import 'upload/background_sync.dart';
 
 Future<void> main() async {
@@ -69,6 +73,19 @@ Future<void> backgroundSync() async {
     completed = await sync.run();
   } catch (_) {
     // Nothing to show anyone; the work stays pending for the next run.
+  }
+  // Library sync after the uploads: a photo is only shared once its
+  // original is up. Off unless the user turned it on; never throws.
+  try {
+    if (!sync.cancelled) {
+      await CloudSync(
+        assets: AssetRecordStore(),
+        albums: AlbumStore(),
+        people: PersonStore(),
+      ).round();
+    }
+  } catch (_) {
+    // The next run, or the next time the app is open.
   } finally {
     await channel.invokeMethod<void>('done', completed);
   }

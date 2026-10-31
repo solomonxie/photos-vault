@@ -182,6 +182,43 @@ class SyncStore {
     return (o ?? 0) + (s ?? 0);
   }
 
+  Future<int> conflictCount() async =>
+      Sqflite.firstIntValue(
+        await (await open()).rawQuery(
+          'SELECT COUNT(*) FROM entity WHERE conflicted = 1',
+        ),
+      ) ??
+      0;
+
+  /// Every entity key, a page at a time.
+  Stream<List<String>> keyPages({int page = 2000}) async* {
+    final db = await open();
+    var after = '';
+    while (true) {
+      final rows = await db.rawQuery(
+        'SELECT k FROM entity WHERE k > ? ORDER BY k LIMIT ?',
+        [after, page],
+      );
+      if (rows.isEmpty) return;
+      final keys = [for (final r in rows) r['k'] as String];
+      yield keys;
+      after = keys.last;
+    }
+  }
+
+  /// Back to a fresh device: a new id, no state, nothing queued. For a
+  /// change of home bucket — the old log's numbering means nothing in the new.
+  Future<void> reset() async {
+    final db = await open();
+    await db.transaction((txn) async {
+      for (final t in const ['meta', 'outbox', 'sealed', 'entity']) {
+        await txn.delete(t);
+      }
+      await txn.insert('meta', {'k': 'device', 'v': const Uuid().v4()});
+      await _bump(txn);
+    });
+  }
+
   // Sealed segments.
 
   Future<List<(int, List<int>)>> sealed() async => [

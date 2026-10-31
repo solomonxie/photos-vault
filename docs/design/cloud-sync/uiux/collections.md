@@ -47,8 +47,8 @@ A list, the same tree the phone builds. There's no map in v1.
 ## Bin
 ```
 ║ Bin                                                                      ║
-║ Photos here can be restored. Deleting them for good is done on your      ║
-║ phone, which checks every copy first.                                    ║
+║ Photos here can be restored for 30 days. After that your phone deletes   ║
+║ them for good, after checking every copy.                                ║
 ║ Binned Oct 29, 2026                                                      ║
 ║ ┌──────┬──────┐                                                          ║
 ║ │      │      │       select → ( Restore )                               ║

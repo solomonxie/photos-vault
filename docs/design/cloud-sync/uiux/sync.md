@@ -31,26 +31,29 @@ fatal   │ ⚠ Sync stopped: this extension is older than the     │
         │ Browsing still works; edits are kept here.           │
 ```
 
-## Phone: Settings › Cloud Sync
+## Phone: Settings › Library Sync
+A group on the Settings page, between App Data and Cloud Buckets, not a
+page of its own: one switch and what it needs.
 ```
-‹ Settings          Cloud Sync
-─────────────────────────────────────────────
-Sync library to bucket                    ─●
-Your albums, people, captions and favorites
-live in the bucket so the Chrome extension
-and your other phones see the same library.
-Hidden photos never leave this phone.
+LIBRARY SYNC
 ╭──────────────────────────────────────────╮
-│ Home bucket          sol-photos/vault/ › │
+│ Sync Library to Bucket               ─●  │
+│ Last synced 2 min ago                    │ ← or "Publishing your library… 4,210",
+├──────────────────────────────────────────┤   or the bucket's error, or "Sync stopped: …"
+│ Home Bucket                sol-photos  › │ ← only with 2+ buckets; fixed after first sync
 ├──────────────────────────────────────────┤
-│ Last synced                    just now  │
+│ Waiting to Upload                     3  │ ← only when > 0
 ├──────────────────────────────────────────┤
-│ Waiting to upload                     0  │
+│ Edited in Two Places                  1  │ ← only when > 0
 ├──────────────────────────────────────────┤
-│ Devices                              3 › │
+│ Sync Now                                 │
 ╰──────────────────────────────────────────╯
-first on    ⟳ Publishing your library… 41%   ← bootstrap checkpoint
+Albums, people, captions and favorites live in your bucket, so the
+Chrome extension and your other phones see the same library. Hidden
+photos never leave this phone.
 ```
+Off pauses the network only; edits keep being queued and go up when it's
+back on.
 
 ## Phone: status on the Library nav bar
 It shows only when something is off. A healthy sync has no badge.

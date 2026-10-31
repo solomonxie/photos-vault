@@ -17,6 +17,8 @@ import '../photos/ai_analysis_store.dart';
 import '../photos/conversation_store.dart';
 import '../photos/person_store.dart';
 import '../photos/travel_store.dart';
+import '../sync/cloud_sync.dart';
+import '../sync/log_sync.dart';
 import '../sync/sync_store.dart';
 import '../photos/words_store.dart';
 import '../storage/album_store.dart';
@@ -474,6 +476,11 @@ class _SettingsScreenState extends State<SettingsScreen>
                     onInfo: _explainAppData,
                   ),
                   _appDataGroup(l10n, targets),
+                  if (CloudSync.instance case final sync?) ...[
+                    const SizedBox(height: 28),
+                    SettingsGroupHeading(title: l10n.syncHeading),
+                    _syncGroup(l10n, targets, sync),
+                  ],
                   const SizedBox(height: 28),
                   SettingsGroupHeading(title: l10n.settingsCloudBucketsHeading),
                   _bucketsGroup(l10n, targets),
@@ -484,6 +491,98 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   // ----------------------------------------------------------------- groups
+
+  /// Chosen before the first sync; fixed after, since a different bucket
+  /// is a different log (see `SyncStore.reset`).
+  String? _syncHomeId;
+
+  Widget _syncGroup(
+    AppLocalizations l10n,
+    List<S3BackupTarget> targets,
+    CloudSync sync,
+  ) => ValueListenableBuilder<CloudSyncStatus>(
+    valueListenable: sync.status,
+    builder: (context, s, _) {
+      final homeId = s.homeTargetId ?? _syncHomeId;
+      final home =
+          targets.where((t) => t.id == homeId).firstOrNull ??
+          targets.firstOrNull;
+      final last = s.lastSyncedAt;
+      final progress = s.progress;
+      final subtitle = targets.isEmpty
+          ? l10n.settingsBucketDataNoBucket
+          : progress != null
+          ? l10n.syncPublishing(progress)
+          : s.fatal == SyncFatal.collision
+          ? l10n.syncStoppedCollision
+          : s.fatal == SyncFatal.newerProtocol
+          ? l10n.syncStoppedNewer
+          : s.error ??
+                (last == null
+                    ? l10n.syncNever
+                    : l10n.syncLastSynced(_formatWhen(last)));
+      return SettingsGroup(
+        footer: l10n.syncFooter,
+        children: [
+          SettingsGroupRow(
+            title: l10n.syncRow,
+            subtitle: subtitle,
+            trailing: s.busy
+                ? const CupertinoActivityIndicator(radius: 9)
+                : CupertinoSwitch(
+                    value: s.enabled,
+                    onChanged: home == null
+                        ? null
+                        : (on) =>
+                              unawaited(on ? sync.enable(home) : sync.pause()),
+                  ),
+          ),
+          if (home != null && targets.length > 1)
+            SettingsGroupRow(
+              title: l10n.syncHomeBucket,
+              value: home.bucket,
+              chevron: s.homeTargetId == null,
+              onTap: s.homeTargetId == null
+                  ? () => _pickSyncHome(targets)
+                  : null,
+            ),
+          if (s.waiting > 0)
+            SettingsGroupRow(title: l10n.syncWaiting, value: '${s.waiting}'),
+          if (s.conflicts > 0)
+            SettingsGroupRow(
+              title: l10n.syncConflicts,
+              value: '${s.conflicts}',
+            ),
+          if (s.enabled)
+            SettingsGroupRow(
+              title: l10n.syncNow,
+              accent: true,
+              onTap: s.busy ? null : () => unawaited(sync.round()),
+            ),
+        ],
+      );
+    },
+  );
+
+  Future<void> _pickSyncHome(List<S3BackupTarget> targets) async {
+    final picked = await showCupertinoModalPopup<String>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        actions: [
+          for (final t in targets)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(context).pop(t.id),
+              child: Text(t.bucket),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(CupertinoLocalizations.of(context).cancelButtonLabel),
+        ),
+      ),
+    );
+    if (picked != null && mounted) setState(() => _syncHomeId = picked);
+  }
 
   Widget _bucketsGroup(AppLocalizations l10n, List<S3BackupTarget> targets) =>
       SettingsGroup(
