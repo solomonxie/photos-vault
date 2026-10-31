@@ -62,6 +62,7 @@ Entities and fields (v1). Anything not listed never leaves the phone:
 | `asset` | `local_id` / `web:<uuid>` | `created_at` (taken), `latitude`, `longitude`, `is_favorite`, `is_archived`, `deleted_at`, `hidden`, `purged`, `original_key`, `thumbnail_key`, `medium_key`, `live_key`, `edited_key`; at `add`: `content_hash`, `is_video`, `is_live_photo`, `width`, `height` | `description`, `location` | `tags` |
 | `album` | UUID | `cover_local_id`, `deleted_at` | `name`, `description` | `members` (asset ids), `tags` |
 | `person` | UUID | `birth_date`, `gender`, `avatar_local_id`, `deleted_at`, `hidden` | `name`, `bio` | `members` (asset ids) |
+| `place` | UUID (travel.db) | `lat`, `lng`, `city`, `country` (names, resolved up its parents), `deleted_at` — pins only; an area is sent as a pin | `name`, `description` | `photos` (assets its diary entries link) |
 
 **Private stays private.** A hidden, locked or passcode-gated row never
 emits an op. Hiding an asset that was already synced emits

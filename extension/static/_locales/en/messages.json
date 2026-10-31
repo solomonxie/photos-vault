@@ -1,4 +1,221 @@
 {
-  "name": { "message": "Photos Vault" },
-  "description": { "message": "Your photo library, from your own bucket." }
+ "name": {
+  "message": "Photos Vault"
+ },
+ "description": {
+  "message": "Your photo library, from your own bucket."
+ },
+ "loading": {
+  "message": "Loading your library…"
+ },
+ "navPhotos": {
+  "message": "Photos"
+ },
+ "navAlbums": {
+  "message": "Albums"
+ },
+ "navPeople": {
+  "message": "People"
+ },
+ "navPlaces": {
+  "message": "Places"
+ },
+ "navBin": {
+  "message": "Bin"
+ },
+ "navConnection": {
+  "message": "Connection"
+ },
+ "today": {
+  "message": "Today"
+ },
+ "yesterday": {
+  "message": "Yesterday"
+ },
+ "justNow": {
+  "message": "just now"
+ },
+ "photosCount": {
+  "message": "$ARG$ photos",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "searchPlaceholder": {
+  "message": "Search captions, people, places"
+ },
+ "hit_place": {
+  "message": "PLACE"
+ },
+ "hit_person": {
+  "message": "PERSON"
+ },
+ "hit_album": {
+  "message": "ALBUM"
+ },
+ "hit_caption": {
+  "message": "CAPTIONS"
+ },
+ "statusSynced": {
+  "message": "Synced"
+ },
+ "statusSyncing": {
+  "message": "Syncing…"
+ },
+ "statusOffline": {
+  "message": "Offline"
+ },
+ "statusError": {
+  "message": "Sync problem"
+ },
+ "statusLast": {
+  "message": "Last synced $ARG$",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "statusNewer": {
+  "message": "Sync stopped: this extension is older than the library. Update it to keep syncing."
+ },
+ "statusCollision": {
+  "message": "Sync stopped: another device wrote where this browser writes."
+ },
+ "emptyPhotos": {
+  "message": "No photos yet."
+ },
+ "emptyAlbums": {
+  "message": "No albums yet."
+ },
+ "emptyAlbum": {
+  "message": "Nothing here."
+ },
+ "emptyPeople": {
+  "message": "No people yet. People you name on your phone appear here."
+ },
+ "emptyPlaces": {
+  "message": "No places yet. Photos with a location appear here."
+ },
+ "emptyBin": {
+  "message": "Bin is empty."
+ },
+ "emptySearch": {
+  "message": "Nothing matches “$ARG$”.",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "notFound": {
+  "message": "Not in this library."
+ },
+ "binHint": {
+  "message": "Photos here can be restored for 30 days. After that your phone deletes them for good, after checking every copy."
+ },
+ "viewerBinned": {
+  "message": "In Bin"
+ },
+ "viewerDownload": {
+  "message": "Download original"
+ },
+ "viewerHeic": {
+  "message": "Chrome can't show this original (HEIC). Download it to see full size."
+ },
+ "viewerLocation": {
+  "message": "Location"
+ },
+ "viewerTags": {
+  "message": "Tags"
+ },
+ "viewerNoDescription": {
+  "message": "No description"
+ },
+ "setupBucketHeading": {
+  "message": "BUCKET"
+ },
+ "setupBucket": {
+  "message": "Bucket name"
+ },
+ "setupKeyId": {
+  "message": "Access key ID"
+ },
+ "setupSecret": {
+  "message": "Secret access key"
+ },
+ "setupPrefix": {
+  "message": "Key prefix (optional), e.g. photos/"
+ },
+ "setupRegion": {
+  "message": "Region, e.g. ap-shanghai"
+ },
+ "setupPaste": {
+  "message": "Paste connection info"
+ },
+ "setupBackToFields": {
+  "message": "Back to fields"
+ },
+ "setupPasteHint": {
+  "message": "Shown unmasked so a bad paste is visible."
+ },
+ "setupScopeHint": {
+  "message": "Stored only in this Chrome profile, never synced to your Google account. Use a key limited to this one bucket."
+ },
+ "setupConnect": {
+  "message": "Connect"
+ },
+ "setupAsking": {
+  "message": "Asking Chrome for access to $ARG$…",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "setupDenied": {
+  "message": "Chrome access to the bucket was declined."
+ },
+ "setupDetecting": {
+  "message": "Detecting region…"
+ },
+ "setupNoSuchBucket": {
+  "message": "No bucket named $ARG$ answered.",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "setupChecking": {
+  "message": "Checking bucket access…"
+ },
+ "setupNoLibrary": {
+  "message": "No Photos Vault library in $ARG$ yet.",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "setupDrafts": {
+  "message": "Recent attempts"
+ },
+ "setupFill": {
+  "message": "Fill"
+ },
+ "waitingTitle": {
+  "message": "Waiting for your phone"
+ },
+ "waitingBody": {
+  "message": "Open Photos Vault on your iPhone and turn on Settings › Library Sync. Your library appears here as soon as the phone has published it."
+ },
+ "waitingPolling": {
+  "message": "Checking every 10 s."
+ },
+ "waitingChange": {
+  "message": "Change connection"
+ }
 }

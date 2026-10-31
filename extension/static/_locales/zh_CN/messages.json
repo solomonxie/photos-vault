@@ -1,4 +1,221 @@
 {
-  "name": { "message": "Photos Vault" },
-  "description": { "message": "你的照片库，来自你自己的存储桶。" }
+ "name": {
+  "message": "Photos Vault"
+ },
+ "description": {
+  "message": "你的照片库，来自你自己的存储桶。"
+ },
+ "loading": {
+  "message": "正在加载图库…"
+ },
+ "navPhotos": {
+  "message": "照片"
+ },
+ "navAlbums": {
+  "message": "相册"
+ },
+ "navPeople": {
+  "message": "人物"
+ },
+ "navPlaces": {
+  "message": "地点"
+ },
+ "navBin": {
+  "message": "回收站"
+ },
+ "navConnection": {
+  "message": "连接"
+ },
+ "today": {
+  "message": "今天"
+ },
+ "yesterday": {
+  "message": "昨天"
+ },
+ "justNow": {
+  "message": "刚刚"
+ },
+ "photosCount": {
+  "message": "$ARG$ 张照片",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "searchPlaceholder": {
+  "message": "搜索描述、人物、地点"
+ },
+ "hit_place": {
+  "message": "地点"
+ },
+ "hit_person": {
+  "message": "人物"
+ },
+ "hit_album": {
+  "message": "相册"
+ },
+ "hit_caption": {
+  "message": "描述"
+ },
+ "statusSynced": {
+  "message": "已同步"
+ },
+ "statusSyncing": {
+  "message": "同步中…"
+ },
+ "statusOffline": {
+  "message": "离线"
+ },
+ "statusError": {
+  "message": "同步出错"
+ },
+ "statusLast": {
+  "message": "上次同步于 $ARG$",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "statusNewer": {
+  "message": "同步已停止：扩展版本比图库旧，请更新。"
+ },
+ "statusCollision": {
+  "message": "同步已停止：另一台设备写入了本浏览器的位置。"
+ },
+ "emptyPhotos": {
+  "message": "还没有照片。"
+ },
+ "emptyAlbums": {
+  "message": "还没有相册。"
+ },
+ "emptyAlbum": {
+  "message": "这里什么也没有。"
+ },
+ "emptyPeople": {
+  "message": "还没有人物。你在手机上命名的人物会显示在这里。"
+ },
+ "emptyPlaces": {
+  "message": "还没有地点。带位置的照片会显示在这里。"
+ },
+ "emptyBin": {
+  "message": "回收站是空的。"
+ },
+ "emptySearch": {
+  "message": "没有与“$ARG$”匹配的内容。",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "notFound": {
+  "message": "不在这个图库中。"
+ },
+ "binHint": {
+  "message": "这里的照片 30 天内可以恢复，之后手机会在核对每份副本后永久删除。"
+ },
+ "viewerBinned": {
+  "message": "在回收站中"
+ },
+ "viewerDownload": {
+  "message": "下载原图"
+ },
+ "viewerHeic": {
+  "message": "Chrome 无法显示此原图（HEIC），下载后可查看原尺寸。"
+ },
+ "viewerLocation": {
+  "message": "位置"
+ },
+ "viewerTags": {
+  "message": "标签"
+ },
+ "viewerNoDescription": {
+  "message": "无描述"
+ },
+ "setupBucketHeading": {
+  "message": "存储桶"
+ },
+ "setupBucket": {
+  "message": "存储桶名称"
+ },
+ "setupKeyId": {
+  "message": "访问密钥 ID"
+ },
+ "setupSecret": {
+  "message": "访问密钥"
+ },
+ "setupPrefix": {
+  "message": "键前缀（可选），例如 photos/"
+ },
+ "setupRegion": {
+  "message": "区域，例如 ap-shanghai"
+ },
+ "setupPaste": {
+  "message": "粘贴连接信息"
+ },
+ "setupBackToFields": {
+  "message": "返回字段"
+ },
+ "setupPasteHint": {
+  "message": "不加遮挡显示，便于发现粘贴错误。"
+ },
+ "setupScopeHint": {
+  "message": "只保存在这个 Chrome 配置文件中，不会同步到你的 Google 账号。请使用仅限此存储桶的密钥。"
+ },
+ "setupConnect": {
+  "message": "连接"
+ },
+ "setupAsking": {
+  "message": "正在向 Chrome 请求访问 $ARG$…",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "setupDenied": {
+  "message": "Chrome 访问存储桶的请求被拒绝。"
+ },
+ "setupDetecting": {
+  "message": "正在检测区域…"
+ },
+ "setupNoSuchBucket": {
+  "message": "没有名为 $ARG$ 的存储桶响应。",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "setupChecking": {
+  "message": "正在检查存储桶访问…"
+ },
+ "setupNoLibrary": {
+  "message": "$ARG$ 中还没有 Photos Vault 图库。",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "setupDrafts": {
+  "message": "最近的尝试"
+ },
+ "setupFill": {
+  "message": "填入"
+ },
+ "waitingTitle": {
+  "message": "正在等待你的手机"
+ },
+ "waitingBody": {
+  "message": "在 iPhone 上打开 Photos Vault，开启 设置 › 图库同步。手机发布图库后，这里会立即显示。"
+ },
+ "waitingPolling": {
+  "message": "每 10 秒检查一次。"
+ },
+ "waitingChange": {
+  "message": "更改连接"
+ }
 }

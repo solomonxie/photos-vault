@@ -35,14 +35,21 @@ Person page: name ✎, bio card, then the grid. Face detection stays on the
 phone; the browser only adds and removes people on photos.
 
 ## Places
+Every place, the whole tree at once, nothing to drill into. Country and
+city are automatic (the photos' location names); pins are made by hand on
+the phone and sit under their city. No areas: a pin's description says
+what an area would have.
 ```
 ║ Places                                                                   ║
-║ Portugal                                                     (203)  ›    ║
-║   Lisbon                                                     (142)  ›    ║
-║   Cascais                                                     (61)  ›    ║
-║ Japan                                                        (1,402) ›   ║
+║ Portugal                                                     203         ║
+║   Lisbon                                                     142         ║
+║     📍 Alfama                                                 18         ║ ← pin (hand-made)
+║        Old town, the hill under the castle                               ║ ← its description
+║     📍 Time Out Market                                        12         ║
+║   Cascais                                                     61         ║
+║ Japan                                                      1,402         ║
 ```
-A list, the same tree the phone builds. There's no map in v1.
+Any row → the day grid of its photos, titled with its name.
 
 ## Bin
 ```

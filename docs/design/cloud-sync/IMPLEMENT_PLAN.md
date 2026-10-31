@@ -32,17 +32,18 @@ checkpoint, the extension has nothing to show.
 - [x] T3.4 Checkpoint cadence: weekly per phone (thinning old checkpoints still open) — see `lib/sync/cloud_sync.dart` — depends: T3.1
 - [ ] T3.5 Settings › Library Sync group (done), conflict card in the detail panel (done); Library nav badge and "Binned on another device" in the Bin still open — see `docs/design/cloud-sync/uiux/sync.md` — depends: T3.2
 - [ ] T3.6 Thumbnails for HEIC `web:` assets: render on the phone, PUT to `thumbnails/`, op `set thumbnail_key` — see `lib/photos/image_pipeline.dart` — depends: T6.3
+- [ ] T3.7 Hand-made pins: capture `travel.db` pins (areas sent as pins) with a pin description and its entries' photo links as `place` entities; the extension files them under their city — see `lib/photos/travel_store.dart`, `extension/src/model.ts` — depends: T3.2
 
 ## Phase 4: Extension shell and browsing
 This needs the TS engine and a published checkpoint. It's read-only first, so
 a wrong sync can't hurt anything yet.
 
-- [ ] T4.1 Scaffold `extension/`: MV3 manifest, esbuild, TS strict, `_locales/en` + `zh_CN`, `npm run build` → `extension/dist/`, local `node_modules` only — see `extension/README.md` — depends: none
-- [ ] T4.2 Setup page + paste mode + drafts + optional host permission + access check + no-library check + waiting-for-phone — see `uiux/setup.md` — depends: T2.6, T4.1
-- [ ] T4.3 Load: checkpoint + log into IndexedDB with progress; pull every 30 s while visible — see `extension/src/sync/` — depends: T2.7, T4.2
-- [ ] T4.4 Library grid: virtualized day grid, thumbnail cache, scrubber, selection — see `uiux/library.md` — depends: T4.3
-- [ ] T4.5 Viewer overlay + info panel (read-only first) — see `uiux/viewer.md` — depends: T4.4
-- [ ] T4.6 Albums / People / Places / search index + results — see `uiux/collections.md`, `uiux/library.md → Search` — depends: T4.4
+- [x] T4.1 Scaffold `extension/`: MV3 manifest, esbuild, TS strict, `_locales/en` + `zh_CN`, `npm run build` → `extension/dist/`, local `node_modules` only — see `extension/README.md` — depends: none
+- [x] T4.2 Setup page + paste mode + drafts + optional host permission + access check + no-library check + waiting-for-phone — see `uiux/setup.md` — depends: T2.6, T4.1
+- [x] T4.3 Load: checkpoint + log into IndexedDB with progress; pull every 30 s while visible — see `extension/src/sync/` — depends: T2.7, T4.2
+- [x] T4.4 Library grid: virtualized day grid, thumbnail cache, scrubber, selection — see `uiux/library.md` — depends: T4.3
+- [x] T4.5 Viewer overlay + info panel (read-only first) — see `uiux/viewer.md` — depends: T4.4
+- [x] T4.6 Albums / People / Places / search index + results — see `uiux/collections.md`, `uiux/library.md → Search` — depends: T4.4
 
 ## Phase 5: Editing from the browser
 Writes reach the bucket only after the phone has proved it applies them
