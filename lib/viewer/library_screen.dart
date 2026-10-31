@@ -20,6 +20,7 @@ import '../demo/demo_mode.dart';
 import '../photos/conversation_store.dart';
 import '../photos/import_log_backfill.dart';
 import '../photos/travel_store.dart';
+import '../sync/sync_store.dart';
 import '../photos/words_store.dart';
 import '../photos/place_search.dart';
 import '../photos/derived_asset.dart';
@@ -303,6 +304,7 @@ class LibraryScreenState extends State<LibraryScreen>
     conversationStore: ConversationStore(),
     wordsStore: WordsStore(),
     travelStore: _travelStore,
+    syncStore: SyncStore(),
   );
 
   late final PauseBackup _pauseBackup = PauseBackup(

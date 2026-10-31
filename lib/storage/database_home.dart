@@ -19,6 +19,7 @@ class DatabaseHome {
     'conversations.db',
     'words.db',
     'travel.db',
+    'sync.db',
   ];
 
   static const _sidecars = ['', '-wal', '-shm', '-journal'];

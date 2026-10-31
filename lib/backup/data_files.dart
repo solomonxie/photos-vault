@@ -11,6 +11,7 @@ import '../photos/conversation_store.dart';
 import '../photos/chat_voice.dart';
 import '../photos/travel_store.dart';
 import '../photos/words_store.dart';
+import '../sync/sync_store.dart';
 
 /// Everything the app holds that isn't rows in `library.json`: the chat
 /// history, the writings and their pictures, the faces. Too big to rebuild
@@ -26,6 +27,7 @@ import '../photos/words_store.dart';
 /// | `words.db` | gzip of a `VACUUM INTO` copy |
 /// | `travel.db` | gzip of a `VACUUM INTO` copy |
 /// | `ai_analysis.db` | gzip of a copy without hidden photos' faces |
+/// | `sync.db` | gzip of a `VACUUM INTO` copy; restore re-queues its unsent edits |
 /// | `words/media/…` | each picture as it is |
 /// | `chats/voice/…` | each voice clip as it is |
 ///
@@ -123,6 +125,7 @@ class DataFiles {
     this.words,
     this.travel,
     this.analysis,
+    this.sync,
     Future<Directory> Function()? supportDirectory,
   }) : _supportDirectory = supportDirectory ?? getApplicationSupportDirectory;
 
@@ -131,6 +134,9 @@ class DataFiles {
   final TravelStore? travel;
   final AiAnalysisStore? analysis;
 
+  /// Cloud sync's edits not yet in the bucket. See `lib/sync/sync_store.dart`.
+  final SyncStore? sync;
+
   /// Where `words/media` and `chats/voice` live. Overridable so a test never asks iOS.
   final Future<Directory> Function() _supportDirectory;
 
@@ -138,6 +144,7 @@ class DataFiles {
   static const wordsName = 'words.db';
   static const travelName = TravelStore.fileName;
   static const analysisName = 'ai_analysis.db';
+  static const syncName = SyncStore.fileName;
   static const mediaFolder = 'words/media';
   static const voiceFolder = ChatVoice.folderName;
 
@@ -150,6 +157,7 @@ class DataFiles {
       () => words?.dataMark(),
       () => travel?.dataMark(),
       () => analysis?.dataMark(),
+      () => sync?.dataMark(),
     ]) {
       try {
         mark += await read() ?? 0;
@@ -194,6 +202,7 @@ class DataFiles {
       if (analysis case final a?) {
         await db(analysisName, (dest) => a.copyTo(dest, hiddenIds));
       }
+      if (sync case final s?) await db(syncName, s.copyTo);
       final folders = [
         if (words != null) mediaFolder,
         if (conversations != null) voiceFolder,
@@ -284,6 +293,7 @@ class DataFiles {
       wordsName => words?.mergeFrom,
       travelName => travel?.mergeFrom,
       analysisName => analysis?.mergeFrom,
+      syncName => sync?.mergeFrom,
       _ => null,
     };
     if (merge == null) return false;

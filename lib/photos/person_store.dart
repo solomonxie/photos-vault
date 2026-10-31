@@ -8,6 +8,8 @@ import 'package:sqflite/sqflite.dart'
 import 'package:uuid/uuid.dart';
 
 import '../backup/change_log.dart';
+import '../sync/capture.dart';
+import '../sync/translate.dart';
 import '../backup/database_copy.dart';
 import '../storage/after_first_frame.dart';
 import '../vault/keys.dart' show AlbumKeys;
@@ -282,6 +284,22 @@ class PersonStore {
           table: _privateRowSql,
       },
     );
+    await installSyncCapture(db, const [
+      CaptureSpec(
+        _personTable,
+        '{row}.id',
+        personCaptureColumns,
+        private: _privateRowSql,
+      ),
+      CaptureSpec(
+        _memberTable,
+        "{row}.person_id || '/' || {row}.local_id",
+        ['added_at'],
+        private:
+            'EXISTS (SELECT 1 FROM $_personTable WHERE id = {row}.person_id '
+            "AND COALESCE(passcode_hash, '') != '')",
+      ),
+    ]);
     _db = db;
     // Zeroed (no `fast`): memberships of hidden photos are logged here.
     unawaited(
@@ -846,6 +864,9 @@ class PersonStore {
 
   /// How far this database's change log has got. See `change_log.dart`.
   Future<int> changeMark() async => changeLogMark(await _open());
+
+  /// For cloud sync's capture triggers (`lib/sync/capture.dart`).
+  Future<Database> syncDatabase() => _open();
 
   /// Equal to an earlier one only while nothing here was written: every
   /// table is logged, so the mark moves with any write, from any

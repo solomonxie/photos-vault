@@ -17,6 +17,7 @@ import '../photos/ai_analysis_store.dart';
 import '../photos/conversation_store.dart';
 import '../photos/person_store.dart';
 import '../photos/travel_store.dart';
+import '../sync/sync_store.dart';
 import '../photos/words_store.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record_store.dart';
@@ -85,6 +86,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     conversationStore: ConversationStore(),
     wordsStore: WordsStore(),
     travelStore: TravelStore(),
+    syncStore: SyncStore(),
   );
 
   late final ICloudBackup _icloudBackup =

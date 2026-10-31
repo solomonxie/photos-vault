@@ -1,3 +1,4 @@
+import 'package:sqflite/sqflite.dart' show Database;
 import 'package:photos_vault/storage/album.dart';
 import 'package:photos_vault/storage/album_store.dart';
 import 'package:photos_vault/storage/note.dart';
@@ -116,6 +117,10 @@ class FakeAlbumStore implements AlbumStore {
   /// snapshot".
   @override
   Future<int> changeMark() async => 0;
+
+  @override
+  Future<Database> syncDatabase() =>
+      throw UnsupportedError('fakes carry no capture triggers');
 
   /// Never equal: every reload re-reads, as before stamps.
   @override

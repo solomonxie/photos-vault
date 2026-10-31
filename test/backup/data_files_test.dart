@@ -20,6 +20,9 @@ import 'package:photos_vault/photos/words_store.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:photos_vault/settings/s3_listing.dart';
+import 'package:photos_vault/sync/op.dart';
+import 'package:photos_vault/sync/sync_store.dart';
+import 'package:photos_vault/sync/translate.dart';
 import 'package:photos_vault/upload/bucket_ops.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -355,6 +358,54 @@ void main() {
     final page = await chats.page('p9');
     expect(page.single.text, 'old');
     expect(page.single.thumb, isNull);
+  });
+
+  test("sync's unsent edits go up as a blob; a fresh phone queues them under its own id", () async {
+    final (chats, words, support) = await _phone(dir);
+    final sync = SyncStore(
+      databaseFactory: databaseFactoryFfi,
+      path: p.join(dir.path, 'sync.db'),
+    );
+    addTearDown(sync.close);
+    await sync.addChanges(const [
+      Change('album', 'L', OpKind.set, f: 'name', x: 'Lisbon'),
+    ]);
+    final before = await DataFiles(sync: sync).mark();
+    await sync.addChanges(const [
+      Change('asset', 'A', OpKind.set, f: 'is_favorite', x: 1),
+    ]);
+    expect(
+      await DataFiles(sync: sync).mark(),
+      isNot(before),
+      reason: 'a sync edit moves the daily gate',
+    );
+    final set = await DataFiles(
+      conversations: chats,
+      words: words,
+      sync: sync,
+      supportDirectory: () async => support,
+    ).collect();
+    addTearDown(set.dispose);
+    expect(set.entries.map((e) => e.name), contains('sync.db'));
+
+    final fresh = Directory(p.join(dir.path, 'fresh'))..createSync();
+    final sync2 = SyncStore(
+      databaseFactory: databaseFactoryFfi,
+      path: p.join(fresh.path, 'sync.db'),
+    );
+    addTearDown(sync2.close);
+    await DataFiles(sync: sync2, supportDirectory: () async => fresh).restore(
+      set.entries,
+      (sha, to) async {
+        await File(set.files[sha]!).copy(to);
+        return true;
+      },
+    );
+    expect(
+      [for (final (_, c) in await sync2.outbox()) c.f],
+      ['name', 'is_favorite'],
+    );
+    expect(await sync2.device(), isNot(await sync.device()));
   });
 
   test(

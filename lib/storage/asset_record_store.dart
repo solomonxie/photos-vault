@@ -12,6 +12,8 @@ import 'package:sqflite/sqflite.dart'
     show ConflictAlgorithm, Database, DatabaseFactory, OpenDatabaseOptions;
 
 import '../backup/change_log.dart';
+import '../sync/capture.dart';
+import '../sync/translate.dart';
 import '../backup/database_copy.dart';
 import 'after_first_frame.dart';
 import 'container_path.dart';
@@ -371,6 +373,14 @@ class AssetRecordStore {
       quiet: const {_table: _quietColumns},
       silent: const {_table: _silentColumns},
     );
+    await installSyncCapture(db, const [
+      CaptureSpec(
+        _table,
+        '{row}.local_id',
+        assetCaptureColumns,
+        private: privateRowSql,
+      ),
+    ]);
     await _rehomeOnce(db);
     await _dropSquareThumbnails(db);
     await _undoRedate(db);
@@ -2365,6 +2375,29 @@ class AssetRecordStore {
 
   /// How far this database's change log has got. See `change_log.dart`.
   Future<int> changeMark() async => changeLogMark(await _open());
+
+  /// For cloud sync's capture triggers (`lib/sync/capture.dart`).
+  Future<Database> syncDatabase() => _open();
+
+  /// Of [ids], the ones behind a passcode.
+  Future<Set<String>> privateIds(Set<String> ids) async {
+    final db = await _open();
+    final out = <String>{};
+    final list = ids.toList();
+    for (var i = 0; i < list.length; i += 500) {
+      final part = list.sublist(i, (i + 500).clamp(0, list.length));
+      final rows = await db.query(
+        _table,
+        columns: ['local_id'],
+        where:
+            'local_id IN (${List.filled(part.length, '?').join(',')}) '
+            'AND ${privateRowSql.replaceAll('{row}.', '')}',
+        whereArgs: part,
+      );
+      out.addAll(rows.map((r) => r['local_id'] as String));
+    }
+    return out;
+  }
 
   /// The tail of this database's change log, for the copy in the backup.
   /// [decode] false: `before`/`after` as JSON text.

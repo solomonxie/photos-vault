@@ -1,5 +1,6 @@
 import 'dart:convert';
 
+import 'package:sqflite/sqflite.dart' show Database;
 import 'package:photos_vault/photos/known_names.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/photos/person_detail.dart';
@@ -674,6 +675,10 @@ class FakePersonStore implements PersonStore {
 
   @override
   Future<int> changeMark() async => 0;
+
+  @override
+  Future<Database> syncDatabase() =>
+      throw UnsupportedError('fakes carry no capture triggers');
 
   /// Never equal: every reload re-reads, as before stamps.
   @override

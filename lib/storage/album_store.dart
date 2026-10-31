@@ -8,6 +8,8 @@ import 'package:sqflite/sqflite.dart'
     show Database, DatabaseFactory, OpenDatabaseOptions;
 
 import '../backup/change_log.dart';
+import '../sync/capture.dart';
+import '../sync/translate.dart';
 import '../backup/database_copy.dart';
 import 'after_first_frame.dart';
 import 'album.dart';
@@ -110,6 +112,12 @@ class AlbumStore {
     // After the migrations, never inside them: a trigger has to describe
     // the schema the app just finished upgrading to.
     await installChangeLog(db, const [_albumTable, _memberTable, _noteTable]);
+    await installSyncCapture(db, const [
+      CaptureSpec(_albumTable, '{row}.id', albumCaptureColumns),
+      CaptureSpec(_memberTable, "{row}.album_id || '/' || {row}.local_id", [
+        'added_at',
+      ]),
+    ]);
     await db.execute(
       'CREATE INDEX IF NOT EXISTS album_asset_local ON $_memberTable (local_id)',
     );
@@ -157,6 +165,9 @@ class AlbumStore {
 
   /// How far this database's change log has got. See `change_log.dart`.
   Future<int> changeMark() async => changeLogMark(await _open());
+
+  /// For cloud sync's capture triggers (`lib/sync/capture.dart`).
+  Future<Database> syncDatabase() => _open();
 
   /// Equal to an earlier one only while nothing here was written: every
   /// table is logged, so the mark moves with any write, from any

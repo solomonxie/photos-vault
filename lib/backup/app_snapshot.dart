@@ -11,6 +11,7 @@ import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
 import '../photos/record_fixer.dart';
 import '../photos/travel_store.dart';
+import '../sync/sync_store.dart';
 import '../photos/words_store.dart';
 import '../storage/album_store.dart';
 import '../storage/note.dart';
@@ -177,6 +178,7 @@ class AppSnapshotIo {
     this.conversationStore,
     this.wordsStore,
     this.travelStore,
+    this.syncStore,
     this.supportDirectory,
   });
 
@@ -188,6 +190,9 @@ class AppSnapshotIo {
   /// The travel diary: places, entries, routes.
   final TravelStore? travelStore;
 
+  /// Cloud sync's unsent edits.
+  final SyncStore? syncStore;
+
   /// Where `words/media` is; overridable so a test never asks iOS.
   final Future<Directory> Function()? supportDirectory;
 
@@ -196,6 +201,7 @@ class AppSnapshotIo {
     words: wordsStore,
     travel: travelStore,
     analysis: aiAnalysisStore,
+    sync: syncStore,
     supportDirectory: supportDirectory,
   );
 
@@ -252,6 +258,7 @@ class AppSnapshotIo {
       if (withChats) ?conversationStore?.copyTo(at('conversations')),
       if (withChats) ?wordsStore?.copyTo(at('words')),
       ?travelStore?.copyTo(at('travel')),
+      ?syncStore?.copyTo(at('sync')),
     ];
     var written = 0;
     for (final copy in copies) {

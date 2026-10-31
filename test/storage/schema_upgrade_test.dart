@@ -215,7 +215,7 @@ void main() {
     final raw = await databaseFactoryFfi.openDatabase(path);
     for (final row in await raw.rawQuery(
       "SELECT name FROM sqlite_master WHERE type = 'trigger' "
-      "AND sql LIKE '%has_edit%'",
+      "AND (sql LIKE '%has_edit%' OR sql LIKE '%edited_key%')",
     )) {
       await raw.execute('DROP TRIGGER "${row['name']}"');
     }

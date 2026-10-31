@@ -1,3 +1,4 @@
+import 'package:sqflite/sqflite.dart' show Database;
 import 'package:path/path.dart' as p;
 
 import 'package:photos_vault/storage/asset_record.dart';
@@ -996,6 +997,16 @@ class FakeAssetRecordStore implements AssetRecordStore {
 
   @override
   Future<int> changeMark() async => mark;
+
+  @override
+  Future<Database> syncDatabase() =>
+      throw UnsupportedError('fakes carry no capture triggers');
+
+  @override
+  Future<Set<String>> privateIds(Set<String> ids) async => {
+    for (final id in ids)
+      if (_records[id]?.passcodeHash != null) id,
+  };
 
   /// `localId/kind` → `targetId` → `(key, hash)`.
   final uploads = <String, Map<String, ({String key, String? hash})>>{};
