@@ -49,9 +49,9 @@ a wrong sync can't hurt anything yet.
 Writes reach the bucket only after the phone has proved it applies them
 (Phase 3 vectors + an on-device check).
 
-- [ ] T5.1 Edits: description, favorite, tags, taken date, location, album/person membership, album create/rename/delete, person rename — see `uiux/viewer.md`, `uiux/collections.md` — depends: T4.5, T4.6, T3.2
-- [ ] T5.2 Bin / Restore + Bin page + undo toast — see `uiux/collections.md → Bin` — depends: T5.1
-- [ ] T5.3 Status chip + Sync panel + conflict card + resolve — see `uiux/sync.md`, `uiux/viewer.md` — depends: T5.1
+- [x] T5.1 Edits: description, favorite, tags, taken date, location, album/person membership, album create/rename/delete, person rename — see `uiux/viewer.md`, `uiux/collections.md` — depends: T4.5, T4.6, T3.2
+- [x] T5.2 Bin / Restore + Bin page + undo toast — see `uiux/collections.md → Bin` — depends: T5.1
+- [x] T5.3 Status chip + Sync panel + conflict card + resolve — see `uiux/sync.md`, `uiux/viewer.md` — depends: T5.1
 
 ## Phase 6: Upload from the computer
 Last, because it adds bytes on top of everything above.
@@ -65,7 +65,7 @@ Run before any release. Per the repo `CLAUDE.md`, this is the one test pass
 at the end.
 
 - [ ] T7.1 Multi-device simulation: 3 virtual devices, random edits, offline windows, crashes between "PUT done" and "recorded", clock skew; assert convergence and that no write is lost (in the final state or as a conflict) — see `test/sync/` — depends: T2.1, T2.4
-- [ ] T7.2 Same simulation in TS, plus Dart ↔ TS cross-run over a fake bucket directory — see `extension/test/` — depends: T2.5, T2.6, T7.1
+- [ ] T7.2 Same simulation in TS, plus Dart ↔ TS cross-run over a fake bucket directory (done so far: each side decodes and merges a segment the other wrote, `vectors/wire/`) — see `extension/test/` — depends: T2.5, T2.6, T7.1
 - [ ] T7.3 On device (iPhone 14 + SE on iOS 15): edit in Chrome → appears on both; edit the same caption on phone and Chrome offline → conflict card on both; kill the app mid-flush → nothing lost — depends: T5.3, T6.1
 - [ ] T7.4 Size check: the phone stays under the 25 MB budget; the extension `dist/` is under 300 KB — depends: T5.3
 - [ ] T7.5 Chrome Web Store packaging (unlisted) via the `chrome-extension` skill — depends: T7.3

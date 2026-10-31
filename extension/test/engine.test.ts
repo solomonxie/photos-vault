@@ -91,3 +91,41 @@ test('another writer at our key stops writing instead of overwriting', async () 
   expect(a.fatal).toBe('collision');
   expect(await a.waiting()).toBe(1);
 });
+
+test('a tag removed here only takes out the adds this browser saw', async () => {
+  const bucket = new FakeBucket();
+  await seed(bucket);
+  const a = await open(bucket);
+  const b = await open(bucket);
+  await a.pull();
+  await b.pull();
+  await a.edit([{ e: 'asset', id: 'X', o: 'madd', f: 'tags', x: 'beach' }]);
+  await a.flush();
+  await b.pull();
+  // b removes the tag it saw; a, not having seen that, adds it again.
+  await b.edit([{ e: 'asset', id: 'X', o: 'mrem', f: 'tags', x: 'beach' }]);
+  await a.edit([{ e: 'asset', id: 'X', o: 'madd', f: 'tags', x: 'beach' }]);
+  await b.flush();
+  await a.flush();
+  await a.pull();
+  await b.pull();
+  for (const e of [a, b]) expect(members(e.state.entities.get('asset/X')!, 'tags')).toEqual(['beach']);
+
+  await b.edit([{ e: 'asset', id: 'X', o: 'mrem', f: 'tags', x: 'beach' }]);
+  await b.flush();
+  await a.pull();
+  expect(members(a.state.entities.get('asset/X')!, 'tags')).toEqual([]);
+});
+
+test('bin, then restore: the last word wins everywhere', async () => {
+  const bucket = new FakeBucket();
+  await seed(bucket);
+  const a = await open(bucket);
+  const b = await open(bucket);
+  await a.pull();
+  await a.edit([{ e: 'asset', id: 'X', o: 'set', f: 'deleted_at', x: 1793414999000 }]);
+  await a.edit([{ e: 'asset', id: 'X', o: 'set', f: 'deleted_at', x: null }]);
+  await a.flush();
+  await b.pull();
+  expect(b.state.entities.get('asset/X')?.fields.get('deleted_at')?.x).toBeNull();
+});

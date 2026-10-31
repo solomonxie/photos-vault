@@ -217,5 +217,211 @@
  },
  "waitingChange": {
   "message": "Change connection"
+ },
+ "addPerson": {
+  "message": "Add person…"
+ },
+ "addToAlbum": {
+  "message": "Add to album…"
+ },
+ "addedToAlbum": {
+  "message": "Added $ARG$ to the album",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "albumDeleted": {
+  "message": "Album deleted. Its photos are still in your library."
+ },
+ "binnedOne": {
+  "message": "Moved to Bin"
+ },
+ "binnedMany": {
+  "message": "$ARG$ photos moved to Bin",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "cancel": {
+  "message": "Cancel"
+ },
+ "save": {
+  "message": "Save"
+ },
+ "undo": {
+  "message": "Undo"
+ },
+ "remove": {
+  "message": "Remove"
+ },
+ "rename": {
+  "message": "Rename"
+ },
+ "restore": {
+  "message": "Restore"
+ },
+ "delete": {
+  "message": "Delete"
+ },
+ "favorite": {
+  "message": "Favorite"
+ },
+ "changeConnection": {
+  "message": "Change"
+ },
+ "changeConnectionTitle": {
+  "message": "Change connection?"
+ },
+ "changeConnectionBody": {
+  "message": "$ARG$ edits haven't reached the bucket yet. They stay in this browser and go up when you connect to the same bucket again.",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "conflictAlsoNamed": {
+  "message": "Also named “$ARG$” elsewhere",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "conflictField_name": {
+  "message": "name"
+ },
+ "conflictField_description": {
+  "message": "description"
+ },
+ "conflictField_bio": {
+  "message": "bio"
+ },
+ "conflictDescription": {
+  "message": "Description edited in two places"
+ },
+ "conflictLocation": {
+  "message": "Location edited in two places"
+ },
+ "conflictShown": {
+  "message": "Shown now"
+ },
+ "conflictOther": {
+  "message": "The other edit"
+ },
+ "conflictKeep": {
+  "message": "Keep this"
+ },
+ "conflictUseOther": {
+  "message": "Use the other"
+ },
+ "conflictPhoto": {
+  "message": "Photo"
+ },
+ "deleteAlbum": {
+  "message": "Delete album"
+ },
+ "deleteAlbumTitle": {
+  "message": "Delete “$ARG$”?",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "deleteAlbumBody": {
+  "message": "The photos stay in your library. You can undo right after."
+ },
+ "findOrCreate": {
+  "message": "Find or create…"
+ },
+ "newAlbum": {
+  "message": "New album"
+ },
+ "newAlbumNamed": {
+  "message": "New album “$ARG$”",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "newPersonNamed": {
+  "message": "New person “$ARG$”",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "newTagNamed": {
+  "message": "New tag “$ARG$”",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "panelConflicts": {
+  "message": "EDITED IN TWO PLACES ($ARG$)",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "panelWaiting": {
+  "message": "$ARG$ waiting to upload",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "selectedCount": {
+  "message": "$ARG$ selected",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "statusConflicts": {
+  "message": "$ARG$ conflicts",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "statusWaiting": {
+  "message": "$ARG$ waiting",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "statusNever": {
+  "message": "Not synced yet"
+ },
+ "syncNow": {
+  "message": "Sync now"
+ },
+ "viewerAddDescription": {
+  "message": "Add a description…"
+ },
+ "viewerTaken": {
+  "message": "Date taken"
+ },
+ "removeFromAlbum": {
+  "message": "Remove from album"
+ },
+ "removeFromPerson": {
+  "message": "Remove from person"
  }
 }

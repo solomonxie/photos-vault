@@ -217,5 +217,211 @@
  },
  "waitingChange": {
   "message": "更改连接"
+ },
+ "addPerson": {
+  "message": "添加人物…"
+ },
+ "addToAlbum": {
+  "message": "添加到相册…"
+ },
+ "addedToAlbum": {
+  "message": "已将 $ARG$ 张添加到相册",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "albumDeleted": {
+  "message": "相册已删除，照片仍在图库中。"
+ },
+ "binnedOne": {
+  "message": "已移到回收站"
+ },
+ "binnedMany": {
+  "message": "$ARG$ 张照片已移到回收站",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "cancel": {
+  "message": "取消"
+ },
+ "save": {
+  "message": "保存"
+ },
+ "undo": {
+  "message": "撤销"
+ },
+ "remove": {
+  "message": "移除"
+ },
+ "rename": {
+  "message": "重命名"
+ },
+ "restore": {
+  "message": "恢复"
+ },
+ "delete": {
+  "message": "删除"
+ },
+ "favorite": {
+  "message": "收藏"
+ },
+ "changeConnection": {
+  "message": "更改"
+ },
+ "changeConnectionTitle": {
+  "message": "更改连接？"
+ },
+ "changeConnectionBody": {
+  "message": "有 $ARG$ 处修改尚未上传到存储桶。它们会保留在这个浏览器中，重新连接同一个存储桶后上传。",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "conflictAlsoNamed": {
+  "message": "在别处也被命名为“$ARG$”",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "conflictField_name": {
+  "message": "名称"
+ },
+ "conflictField_description": {
+  "message": "描述"
+ },
+ "conflictField_bio": {
+  "message": "简介"
+ },
+ "conflictDescription": {
+  "message": "描述在两处被修改"
+ },
+ "conflictLocation": {
+  "message": "位置在两处被修改"
+ },
+ "conflictShown": {
+  "message": "当前显示"
+ },
+ "conflictOther": {
+  "message": "另一处修改"
+ },
+ "conflictKeep": {
+  "message": "保留这个"
+ },
+ "conflictUseOther": {
+  "message": "用另一个"
+ },
+ "conflictPhoto": {
+  "message": "照片"
+ },
+ "deleteAlbum": {
+  "message": "删除相册"
+ },
+ "deleteAlbumTitle": {
+  "message": "删除“$ARG$”？",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "deleteAlbumBody": {
+  "message": "照片仍保留在图库中，删除后可立即撤销。"
+ },
+ "findOrCreate": {
+  "message": "查找或新建…"
+ },
+ "newAlbum": {
+  "message": "新建相册"
+ },
+ "newAlbumNamed": {
+  "message": "新建相册“$ARG$”",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "newPersonNamed": {
+  "message": "新建人物“$ARG$”",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "newTagNamed": {
+  "message": "新建标签“$ARG$”",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "panelConflicts": {
+  "message": "两处都有修改（$ARG$）",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "panelWaiting": {
+  "message": "$ARG$ 处等待上传",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "selectedCount": {
+  "message": "已选 $ARG$ 张",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "statusConflicts": {
+  "message": "$ARG$ 处冲突",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "statusWaiting": {
+  "message": "$ARG$ 处等待",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "statusNever": {
+  "message": "尚未同步"
+ },
+ "syncNow": {
+  "message": "立即同步"
+ },
+ "viewerAddDescription": {
+  "message": "添加描述…"
+ },
+ "viewerTaken": {
+  "message": "拍摄时间"
+ },
+ "removeFromAlbum": {
+  "message": "从相册移除"
+ },
+ "removeFromPerson": {
+  "message": "从人物移除"
  }
 }

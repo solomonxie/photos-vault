@@ -14,6 +14,12 @@ interface Row {
   photos?: Photo[];
 }
 
+export interface Selection {
+  ids: Set<string>;
+  /// After any change, for the bar above the grid.
+  changed: () => void;
+}
+
 /// The day grid every page uses. Only rows within a screen of the viewport
 /// exist in the DOM; a library of tens of thousands is a few hundred nodes.
 export function dayGrid(
@@ -21,7 +27,8 @@ export function dayGrid(
   photos: Photo[],
   scroller: HTMLElement,
   onOpen: (photo: Photo, list: Photo[]) => void,
-): { el: HTMLElement; dispose: () => void } {
+  selection?: Selection,
+): { el: HTMLElement; dispose: () => void; refresh: () => void } {
   const el = h('div', { class: 'grid' });
   const days = groupByDay(photos);
   let rows: Row[] = [];
@@ -48,24 +55,66 @@ export function dayGrid(
     paint();
   };
 
+  const order = new Map(photos.map((p, i) => [p.id, i]));
+  let anchor: number | null = null;
+
+  const toggle = (p: Photo, range: boolean) => {
+    if (!selection) return;
+    const i = order.get(p.id)!;
+    if (range && anchor !== null) {
+      const [a, b] = anchor < i ? [anchor, i] : [i, anchor];
+      for (let k = a; k <= b; k++) selection.ids.add(photos[k]!.id);
+    } else if (selection.ids.has(p.id)) {
+      selection.ids.delete(p.id);
+    } else {
+      selection.ids.add(p.id);
+    }
+    anchor = i;
+    refresh();
+    selection.changed();
+  };
+
+  /// Repaints the checkmarks on the tiles that exist, nothing else.
+  const refresh = () => {
+    for (const tile of el.querySelectorAll<HTMLElement>('.tile')) {
+      tile.classList.toggle('picked', !!selection?.ids.has(tile.dataset.id!));
+    }
+    el.classList.toggle('selecting', (selection?.ids.size ?? 0) > 0);
+  };
+
   const tileFor = (p: Photo, size: number) => {
     const img = h('img', { alt: '', draggable: 'false', decoding: 'async' });
     const key = p.thumbKey ?? p.originalKey;
     if (key) void thumbUrl(bucket, key).then((u) => u && (img.src = u));
-    return h(
+    const tile = h(
       'button',
       {
-        class: 'tile',
+        class: `tile${selection?.ids.has(p.id) ? ' picked' : ''}`,
         style: `width:${size}px;height:${size}px`,
         title: p.description || '',
-        onclick: () => onOpen(p, photos),
+        'data-id': p.id,
+        onclick: (e: Event) => {
+          const ev = e as MouseEvent;
+          if (selection && (selection.ids.size > 0 || ev.shiftKey || ev.metaKey)) toggle(p, ev.shiftKey);
+          else onOpen(p, photos);
+        },
       },
+      selection
+        ? h('span', {
+            class: 'pick-dot',
+            onclick: (e: Event) => {
+              e.stopPropagation();
+              toggle(p, (e as MouseEvent).shiftKey);
+            },
+          })
+        : null,
       img,
       p.isVideo ? h('span', { class: 'badge video' }, '▶') : null,
       p.isLive ? h('span', { class: 'badge' }, 'LIVE') : null,
       p.favorite ? h('span', { class: 'badge fav' }, '♥') : null,
       p.thumbKey ? null : h('span', { class: 'badge wait' }, '⌛'),
     );
+    return tile;
   };
 
   const paint = () => {
@@ -116,6 +165,7 @@ export function dayGrid(
   queueMicrotask(layout);
   return {
     el,
+    refresh,
     dispose: () => {
       scroller.removeEventListener('scroll', onScroll);
       resize.disconnect();

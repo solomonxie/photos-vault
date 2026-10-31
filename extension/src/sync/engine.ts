@@ -3,7 +3,7 @@ import { getAll, openDb, request, tx } from '../store/idb';
 import { checkpointHeader, decodeCheckpoint, decodeCheckpointLines, entityLine } from './checkpoint';
 import { type Hlc, compare, format, parse, tick, zero } from './hlc';
 import { SyncState } from './merge';
-import type { Op, VersionVector, WireOp } from './op';
+import { type Op, type VersionVector, type WireOp, toWire } from './op';
 import { NewerProtocol, decodeSegment, encodeSegment, segmentKey, segmentMaxOps, seqOf } from './segment';
 
 /// What the engine needs from a bucket; `Bucket` has it, tests fake it.
@@ -122,15 +122,23 @@ export class Engine {
       if (!this.hasCheckpoint) throw new Error('no library checkpoint yet');
       if ((await this.outboxSize()) + changes.length > segmentMaxOps) await this.sealLocked();
       const vv = this.vvOthers();
-      const ops: Op[] = changes.map((c) => {
+      const ops: Op[] = [];
+      for (const c of changes) {
         this.hlc = tick(compare(this.hlc, this.state.seen) >= 0 ? this.hlc : this.state.seen, this.bucket.now());
-        return { ...c, h: format(this.hlc), d: this.device, seq: this.nextSeq, vv };
-      });
-      for (const op of ops) this.state.apply(op);
+        // A remove takes out exactly the adds this browser has seen; one made
+        // elsewhere meanwhile survives it.
+        const ts =
+          c.o === 'mrem'
+            ? [...(this.state.entities.get(`${c.e}/${c.id}`)?.sets.get(c.f!)?.get(c.x as string)?.a ?? [])]
+            : c.ts;
+        const op: Op = { ...c, ts, h: format(this.hlc), d: this.device, seq: this.nextSeq, vv };
+        this.state.apply(op);
+        ops.push(op);
+      }
       try {
         await tx(this.db, ['outbox', 'entities', 'meta'], (t) => {
           const outbox = t.objectStore('outbox');
-          for (const { d: _d, seq: _s, vv: _v, ...wire } of ops) outbox.add(wire);
+          for (const { d: _d, seq: _s, vv: _v, ...wire } of ops) outbox.add(toWire({ ...wire, d: '', seq: 0, vv: {} }));
           this.persist(t);
         });
       } catch (e) {

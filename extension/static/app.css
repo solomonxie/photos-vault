@@ -119,3 +119,46 @@ nav .link { text-align: left; color: var(--muted); }
 .waiting { text-align: center; max-width: 420px; }
 .spinner { width: 28px; height: 28px; margin: 0 auto 12px; border: 3px solid var(--card); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.9s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* editing */
+.title-row { display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+.title-row h1 { margin: 0; font-size: 26px; }
+.link.danger, .primary.danger { color: var(--danger); }
+.primary.danger { background: var(--danger); color: #fff; }
+.plain { padding: 0; text-align: left; }
+.chip { display: inline-flex; align-items: center; gap: 4px; }
+.chip-x { color: var(--muted); font-size: 10px; padding: 0 0 0 2px; }
+.chip-x:hover { color: var(--text); }
+.chip.add { color: var(--accent); }
+.describe { width: 100%; background: none; border: 0; color: var(--text); font: inherit; resize: vertical; outline: none; }
+.info .when { text-align: left; padding: 0; }
+.viewer-actions { display: flex; gap: 4px; align-items: center; }
+.viewer .icon.fav { color: #ff375f; }
+.conflict { background: #3a2a00; border-radius: 10px; padding: 10px 14px; display: flex; flex-direction: column; gap: 2px; }
+.conflict-title { color: var(--warn); margin-bottom: 4px; }
+.conflict .actions, dialog .actions { display: flex; justify-content: flex-end; gap: 8px; margin-top: 8px; }
+.conflict-inline { color: var(--warn); font-size: 13px; }
+
+/* selection */
+.selection-bar { position: sticky; top: 0; z-index: 3; display: flex; align-items: center; gap: 6px; background: var(--panel); border-radius: 10px; padding: 6px 10px; margin: 6px 0; }
+.selection-bar .count { font-weight: 600; margin-right: 8px; }
+.selection-bar .spacer { flex: 1; }
+.pick-dot { position: absolute; top: 6px; left: 6px; width: 20px; height: 20px; border-radius: 50%; border: 2px solid #fff; background: rgba(0,0,0,0.25); opacity: 0; z-index: 1; }
+.tile:hover .pick-dot, .grid.selecting .pick-dot { opacity: 1; }
+.tile.picked .pick-dot { background: var(--accent); border-color: var(--accent); opacity: 1; }
+.tile.picked .pick-dot::after { content: '✓'; color: #fff; font-size: 12px; position: absolute; inset: 0; display: grid; place-items: center; }
+.tile.picked img { transform: scale(0.88); border-radius: 4px; }
+.tile img { transition: transform 0.12s; }
+
+/* dialogs, toast, sync panel */
+dialog.picker { background: var(--panel); color: var(--text); border: 1px solid var(--line); border-radius: 12px; width: 380px; padding: 16px; }
+dialog::backdrop { background: rgba(0,0,0,0.55); }
+.picker-title { font-weight: 600; margin-bottom: 10px; }
+.pick-list { display: flex; flex-direction: column; max-height: 320px; overflow-y: auto; margin-top: 8px; }
+.pick { text-align: left; padding: 8px 10px; border-radius: 6px; }
+.pick:hover { background: var(--card); }
+.pick.create { color: var(--accent); }
+.toast { position: fixed; bottom: 24px; left: 50%; transform: translateX(-50%); background: var(--card); border-radius: 10px; padding: 10px 16px; display: flex; gap: 14px; align-items: center; z-index: 20; box-shadow: 0 4px 20px rgba(0,0,0,0.5); }
+.sync-panel { position: fixed; top: 52px; right: 16px; width: 320px; background: var(--panel); border: 1px solid var(--line); border-radius: 12px; padding: 14px; z-index: 15; display: flex; flex-direction: column; gap: 6px; }
+.sync-panel .error { color: var(--warn); font-size: 12px; }
+.panel-row { display: flex; justify-content: space-between; padding: 6px 0; text-align: left; border-bottom: 1px solid var(--line); }
