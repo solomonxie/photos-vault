@@ -11,10 +11,11 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'native_map.dart';
 import 'place_screen.dart';
+import 'place_tree.dart';
 
-/// Footprints → Places (`docs/design/travel-diary.md`): the top of the
-/// tree (countries), or every place as a pin on a map. The library's photo
-/// groups by location are one row away.
+/// Footprints → Places (`docs/design/travel-diary.md`): every place at once,
+/// country → city from the photos' own locations, hand-made pins under
+/// their city; or every place as a pin on a map.
 class PlacesScreen extends StatefulWidget {
   const PlacesScreen({
     super.key,
@@ -42,7 +43,7 @@ class PlacesScreen extends StatefulWidget {
 class _PlacesScreenState extends State<PlacesScreen> {
   bool _loaded = false;
   bool _map = false;
-  List<Place> _top = const [];
+  List<PlaceNode> _tree = const [];
   List<MapPinData> _pins = const [];
   PlaceTally _tally = const PlaceTally({}, {});
 
@@ -59,7 +60,7 @@ class _PlacesScreenState extends State<PlacesScreen> {
     final tree = placeTree(places);
     setState(() {
       _loaded = true;
-      _top = tree[null] ?? const [];
+      _tree = buildPlaceTree(widget.placeGroups, places);
       _tally = PlaceTally.of(tree, counts);
       _pins = [
         for (final p in places)
@@ -107,14 +108,45 @@ class _PlacesScreenState extends State<PlacesScreen> {
     await _open(place.id);
   }
 
-  void _openPhotoPlaces() => Navigator.of(context).push(
-    CupertinoPageRoute(
-      builder: (_) => PhotoPlacesScreen(
-        groups: widget.placeGroups,
-        onOpenGroup: widget.onOpenGroup,
+  Widget _row(AppLocalizations l10n, PlaceNode node, int depth) {
+    final saved = node.place;
+    final pin = node.level == PlaceLevel.pin ? saved : null;
+    final notes = saved == null ? 0 : _tally.impressions[saved.id] ?? 0;
+    final sub = pin == null
+        ? null
+        : [
+            if (pin.category.isNotEmpty) pin.category,
+            if (pin.address.isNotEmpty) pin.address,
+          ].join(' · ');
+    return CupertinoListTile(
+      key: ValueKey('place-${node.level.name}-${pin?.id ?? node.name}'),
+      padding: EdgeInsetsDirectional.only(start: 20.0 + depth * 22, end: 14),
+      leading: Icon(
+        switch (node.level) {
+          PlaceLevel.country => CupertinoIcons.flag_fill,
+          PlaceLevel.city => CupertinoIcons.building_2_fill,
+          PlaceLevel.pin => CupertinoIcons.map_pin,
+        },
+        color: node.level == PlaceLevel.pin
+            ? CupertinoColors.systemRed
+            : CupertinoColors.systemTeal,
       ),
-    ),
-  );
+      title: Text(
+        node.name,
+        style: node.level == PlaceLevel.country
+            ? const TextStyle(fontWeight: FontWeight.w600)
+            : null,
+      ),
+      subtitle: sub == null || sub.isEmpty ? null : Text(sub),
+      additionalInfo: Text(
+        pin == null ? '${node.records.length}' : (notes > 0 ? '$notes' : ''),
+      ),
+      trailing: const CupertinoListTileChevron(),
+      onTap: saved != null
+          ? () => _open(saved.id)
+          : () => widget.onOpenGroup?.call(node.name, node.records),
+    );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -151,23 +183,7 @@ class _PlacesScreenState extends State<PlacesScreen> {
             : ListView(
                 padding: const EdgeInsets.only(bottom: 32),
                 children: [
-                  if (widget.placeGroups.isNotEmpty)
-                    CupertinoListSection.insetGrouped(
-                      children: [
-                        CupertinoListTile(
-                          key: const ValueKey('placesPhotoGroups'),
-                          leading: const Icon(
-                            CupertinoIcons.map_pin_ellipse,
-                            color: CupertinoColors.systemTeal,
-                          ),
-                          title: Text(l10n.placesPhotosByLocation),
-                          additionalInfo: Text('${widget.placeGroups.length}'),
-                          trailing: const CupertinoListTileChevron(),
-                          onTap: _openPhotoPlaces,
-                        ),
-                      ],
-                    ),
-                  if (_top.isEmpty)
+                  if (_tree.isEmpty)
                     Padding(
                       padding: const EdgeInsets.all(24),
                       child: Text(
@@ -182,8 +198,10 @@ class _PlacesScreenState extends State<PlacesScreen> {
                   else
                     CupertinoListSection.insetGrouped(
                       children: [
-                        for (final p in _top)
-                          placeTile(l10n, p, _tally, onTap: () => _open(p.id)),
+                        for (final (node, depth) in [
+                          for (final top in _tree) ...top.walk(),
+                        ])
+                          _row(l10n, node, depth),
                       ],
                     ),
                 ],
@@ -269,56 +287,6 @@ Widget placeTile(
     trailing: const CupertinoListTileChevron(),
     onTap: onTap,
   );
-}
-
-/// The library's photos grouped by the location name they were filed
-/// under: what Places was before the travel diary.
-class PhotoPlacesScreen extends StatelessWidget {
-  const PhotoPlacesScreen({super.key, required this.groups, this.onOpenGroup});
-
-  final Map<String, List<AssetRecord>> groups;
-  final void Function(String title, List<AssetRecord> records)? onOpenGroup;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(
-        middle: Text(l10n.placesPhotosByLocation),
-      ),
-      child: SafeArea(
-        child: groups.isEmpty
-            ? Center(
-                child: Text(
-                  l10n.collectionsPlacesEmpty,
-                  textAlign: TextAlign.center,
-                  style: const TextStyle(color: CupertinoColors.systemGrey),
-                ),
-              )
-            : ListView(
-                padding: const EdgeInsets.only(bottom: 32),
-                children: [
-                  CupertinoListSection.insetGrouped(
-                    children: [
-                      for (final g in groups.entries)
-                        CupertinoListTile(
-                          key: ValueKey('travelPhotos-${g.key}'),
-                          leading: const Icon(
-                            CupertinoIcons.map_pin_ellipse,
-                            color: CupertinoColors.systemTeal,
-                          ),
-                          title: Text(g.key),
-                          additionalInfo: Text('${g.value.length}'),
-                          trailing: const CupertinoListTileChevron(),
-                          onTap: () => onOpenGroup?.call(g.key, g.value),
-                        ),
-                    ],
-                  ),
-                ],
-              ),
-      ),
-    );
-  }
 }
 
 /// Finds a place by name with MapKit and saves it, or returns the one

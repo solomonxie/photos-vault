@@ -99,7 +99,11 @@ void main() {
     expect(find.byType(NativeMap), findsNothing);
     expect(find.text('Japan'), findsOne);
     expect(find.text('Portugal'), findsOne);
-    expect(find.text('Kyoto'), findsNothing);
+    // The whole tree at once; an area shows as a pin under its city.
+    expect(find.text('Kyoto'), findsOne);
+    expect(find.text('Lisbon'), findsOne);
+    expect(find.byKey(ValueKey('place-pin-${gion.id}')), findsOne);
+    expect(find.byKey(ValueKey('place-pin-${cafe.id}')), findsOne);
     await tester.tap(find.byKey(const ValueKey('placesMapToggle')));
     await tester.pumpAndSettle();
     expect(find.text('Japan'), findsNothing);
@@ -362,27 +366,65 @@ void main() {
     expect(store.placesById[loose.id]!.parentId, isNull);
   });
 
-  testWidgets('photos by location are a row away', (tester) async {
-    final opened = <String>[];
-    await tester.pumpWidget(
-      _wrap(
-        PlacesScreen(
-          travelStore: FakeTravelStore(),
-          placeSearch: _search(),
-          placeGroups: {
-            'Kyoto, Japan': [_photo('a'), _photo('b')],
-          },
-          onOpenGroup: (title, _) => opened.add(title),
+  testWidgets(
+    'every place at once: country and city from the photos, pins under their city',
+    (tester) async {
+      final store = FakeTravelStore();
+      final kyoto = await store.findOrCreateCity(
+        name: 'Kyoto',
+        country: 'Japan',
+        lat: 35,
+        lng: 135.7,
+      );
+      final cafe = await store.createPlace(
+        name: 'Kagizen',
+        kind: PlaceKind.point,
+        lat: 35,
+        lng: 135.77,
+        parentId: kyoto.id,
+        country: 'Japan',
+      );
+      final opened = <(String, int)>[];
+      await tester.pumpWidget(
+        _wrap(
+          PlacesScreen(
+            travelStore: store,
+            placeSearch: _search(),
+            placeGroups: {
+              'Kyoto, Japan': [_photo('a'), _photo('b')],
+              'Osaka, Japan': [_photo('c')],
+              'Lisbon, Portugal': [_photo('d')],
+            },
+            onOpenGroup: (title, records) =>
+                opened.add((title, records.length)),
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('placesPhotoGroups')));
-    await tester.pumpAndSettle();
-    expect(find.byType(PhotoPlacesScreen), findsOne);
-    await tester.tap(find.text('Kyoto, Japan'));
-    expect(opened, ['Kyoto, Japan']);
-  });
+      );
+      await tester.pumpAndSettle();
+      expect(find.byKey(const ValueKey('travelPlacesEmpty')), findsNothing);
+      final rows = tester
+          .widgetList<CupertinoListTile>(find.byType(CupertinoListTile))
+          .map((t) => (t.key as ValueKey<String>).value)
+          .toList();
+      expect(rows, [
+        'place-country-Japan',
+        'place-city-Kyoto',
+        'place-pin-${cafe.id}',
+        'place-city-Osaka',
+        'place-country-Portugal',
+        'place-city-Lisbon',
+      ]);
+
+      // Known only from photos: its photos. Saved in Footprints: its page.
+      await tester.tap(find.byKey(const ValueKey('place-country-Portugal')));
+      await tester.tap(find.byKey(const ValueKey('place-city-Osaka')));
+      expect(opened, [('Portugal', 1), ('Osaka', 1)]);
+
+      await tester.tap(find.byKey(ValueKey('place-pin-${cafe.id}')));
+      await tester.pumpAndSettle();
+      expect(find.byType(PlaceScreen), findsOne);
+    },
+  );
 
   testWidgets('Impressions lists every one, newest first, with its place', (
     tester,
