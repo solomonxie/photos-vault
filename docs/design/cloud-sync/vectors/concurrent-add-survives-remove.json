@@ -1,0 +1,87 @@
+{
+ "name": "concurrent-add-survives-remove",
+ "segments": [
+  {
+   "d": "a",
+   "seq": 1,
+   "vv": {},
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414026000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "add",
+     "x": {}
+    },
+    {
+     "h": "1793414026001-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "madd",
+     "f": "tags",
+     "x": "beach"
+    }
+   ]
+  },
+  {
+   "d": "b",
+   "seq": 1,
+   "vv": {
+    "a": 1
+   },
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414027000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "mrem",
+     "f": "tags",
+     "x": "beach",
+     "ts": [
+      "1793414026001-0000@a"
+     ]
+    }
+   ]
+  },
+  {
+   "d": "a",
+   "seq": 2,
+   "vv": {},
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414028000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "madd",
+     "f": "tags",
+     "x": "beach"
+    },
+    {
+     "h": "1793414028001-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "madd",
+     "f": "tags",
+     "x": "family"
+    }
+   ]
+  }
+ ],
+ "expect": {
+  "entities": {
+   "asset/X": {
+    "fields": {},
+    "sets": {
+     "tags": [
+      "beach",
+      "family"
+     ]
+    }
+   }
+  },
+  "conflicts": []
+ }
+}

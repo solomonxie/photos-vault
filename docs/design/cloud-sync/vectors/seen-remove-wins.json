@@ -1,0 +1,74 @@
+{
+ "name": "seen-remove-wins",
+ "segments": [
+  {
+   "d": "a",
+   "seq": 1,
+   "vv": {},
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414026000-0000",
+     "e": "album",
+     "id": "L",
+     "o": "add",
+     "x": {
+      "name": "Kids"
+     }
+    },
+    {
+     "h": "1793414026001-0000",
+     "e": "album",
+     "id": "L",
+     "o": "madd",
+     "f": "members",
+     "x": "P1"
+    },
+    {
+     "h": "1793414026002-0000",
+     "e": "album",
+     "id": "L",
+     "o": "madd",
+     "f": "members",
+     "x": "P2"
+    }
+   ]
+  },
+  {
+   "d": "b",
+   "seq": 1,
+   "vv": {
+    "a": 1
+   },
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414027000-0000",
+     "e": "album",
+     "id": "L",
+     "o": "mrem",
+     "f": "members",
+     "x": "P1",
+     "ts": [
+      "1793414026001-0000@a"
+     ]
+    }
+   ]
+  }
+ ],
+ "expect": {
+  "entities": {
+   "album/L": {
+    "fields": {
+     "name": "Kids"
+    },
+    "sets": {
+     "members": [
+      "P2"
+     ]
+    }
+   }
+  },
+  "conflicts": []
+ }
+}

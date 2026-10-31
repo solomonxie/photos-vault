@@ -1,0 +1,85 @@
+{
+ "name": "ops-before-add",
+ "segments": [
+  {
+   "d": "b",
+   "seq": 1,
+   "vv": {},
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414027000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "set",
+     "f": "description",
+     "x": "early"
+    },
+    {
+     "h": "1793414027001-0000",
+     "e": "person",
+     "id": "P",
+     "o": "madd",
+     "f": "members",
+     "x": "X"
+    },
+    {
+     "h": "1793414027002-0000",
+     "e": "asset",
+     "id": "Y",
+     "o": "set",
+     "f": "is_favorite",
+     "x": 1
+    }
+   ]
+  },
+  {
+   "d": "a",
+   "seq": 1,
+   "vv": {},
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414026000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "add",
+     "x": {
+      "is_video": 0
+     }
+    },
+    {
+     "h": "1793414026001-0000",
+     "e": "person",
+     "id": "P",
+     "o": "add",
+     "x": {
+      "name": "Mum"
+     }
+    }
+   ]
+  }
+ ],
+ "expect": {
+  "entities": {
+   "asset/X": {
+    "fields": {
+     "description": "early",
+     "is_video": 0
+    },
+    "sets": {}
+   },
+   "person/P": {
+    "fields": {
+     "name": "Mum"
+    },
+    "sets": {
+     "members": [
+      "X"
+     ]
+    }
+   }
+  },
+  "conflicts": []
+ }
+}

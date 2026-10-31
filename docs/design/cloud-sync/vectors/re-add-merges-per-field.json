@@ -1,0 +1,73 @@
+{
+ "name": "re-add-merges-per-field",
+ "segments": [
+  {
+   "d": "a",
+   "seq": 1,
+   "vv": {},
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414026000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "add",
+     "x": {
+      "is_favorite": 0,
+      "width": 4032
+     }
+    }
+   ]
+  },
+  {
+   "d": "b",
+   "seq": 1,
+   "vv": {
+    "a": 1
+   },
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414027000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "set",
+     "f": "is_favorite",
+     "x": 1
+    }
+   ]
+  },
+  {
+   "d": "a",
+   "seq": 2,
+   "vv": {},
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414026500-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "add",
+     "x": {
+      "is_favorite": 0,
+      "width": 4032,
+      "height": 3024
+     }
+    }
+   ]
+  }
+ ],
+ "expect": {
+  "entities": {
+   "asset/X": {
+    "fields": {
+     "is_favorite": 1,
+     "width": 4032,
+     "height": 3024
+    },
+    "sets": {}
+   }
+  },
+  "conflicts": []
+ }
+}

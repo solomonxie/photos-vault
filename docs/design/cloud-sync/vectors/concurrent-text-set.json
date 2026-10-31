@@ -1,0 +1,77 @@
+{
+ "name": "concurrent-text-set",
+ "segments": [
+  {
+   "d": "a",
+   "seq": 1,
+   "vv": {},
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414026000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "add",
+     "x": {
+      "description": "orig",
+      "is_favorite": 0
+     }
+    }
+   ]
+  },
+  {
+   "d": "b",
+   "seq": 1,
+   "vv": {
+    "a": 1
+   },
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414027000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "set",
+     "f": "description",
+     "x": "from b"
+    }
+   ]
+  },
+  {
+   "d": "a",
+   "seq": 2,
+   "vv": {},
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414028000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "set",
+     "f": "description",
+     "x": "from a"
+    }
+   ]
+  }
+ ],
+ "expect": {
+  "entities": {
+   "asset/X": {
+    "fields": {
+     "description": "from a",
+     "is_favorite": 0
+    },
+    "sets": {}
+   }
+  },
+  "conflicts": [
+   {
+    "e": "asset",
+    "id": "X",
+    "f": "description",
+    "x": "from b",
+    "d": "b"
+   }
+  ]
+ }
+}

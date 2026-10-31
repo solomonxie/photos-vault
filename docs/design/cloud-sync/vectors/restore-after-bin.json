@@ -1,0 +1,69 @@
+{
+ "name": "restore-after-bin",
+ "segments": [
+  {
+   "d": "a",
+   "seq": 1,
+   "vv": {},
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414026000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "add",
+     "x": {
+      "deleted_at": null
+     }
+    }
+   ]
+  },
+  {
+   "d": "b",
+   "seq": 1,
+   "vv": {
+    "a": 1
+   },
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414027000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "set",
+     "f": "deleted_at",
+     "x": 1793414027000
+    }
+   ]
+  },
+  {
+   "d": "a",
+   "seq": 2,
+   "vv": {
+    "b": 1
+   },
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414028000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "set",
+     "f": "deleted_at",
+     "x": null
+    }
+   ]
+  }
+ ],
+ "expect": {
+  "entities": {
+   "asset/X": {
+    "fields": {
+     "deleted_at": null
+    },
+    "sets": {}
+   }
+  },
+  "conflicts": []
+ }
+}

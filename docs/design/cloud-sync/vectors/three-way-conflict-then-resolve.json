@@ -1,0 +1,104 @@
+{
+ "name": "three-way-conflict-then-resolve",
+ "segments": [
+  {
+   "d": "a",
+   "seq": 1,
+   "vv": {},
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414026000-0000",
+     "e": "album",
+     "id": "L",
+     "o": "add",
+     "x": {
+      "name": "Trip"
+     }
+    }
+   ]
+  },
+  {
+   "d": "b",
+   "seq": 1,
+   "vv": {
+    "a": 1
+   },
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414027000-0000",
+     "e": "album",
+     "id": "L",
+     "o": "set",
+     "f": "name",
+     "x": "Lisbon"
+    }
+   ]
+  },
+  {
+   "d": "c",
+   "seq": 1,
+   "vv": {
+    "a": 1
+   },
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414027500-0000",
+     "e": "album",
+     "id": "L",
+     "o": "set",
+     "f": "name",
+     "x": "Portugal"
+    }
+   ]
+  },
+  {
+   "d": "a",
+   "seq": 2,
+   "vv": {},
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414028000-0000",
+     "e": "album",
+     "id": "L",
+     "o": "set",
+     "f": "name",
+     "x": "Trip 2026"
+    }
+   ]
+  },
+  {
+   "d": "a",
+   "seq": 3,
+   "vv": {
+    "b": 1,
+    "c": 1
+   },
+   "lastModified": 1793414125000,
+   "ops": [
+    {
+     "h": "1793414029000-0000",
+     "e": "album",
+     "id": "L",
+     "o": "set",
+     "f": "name",
+     "x": "Lisbon 2026"
+    }
+   ]
+  }
+ ],
+ "expect": {
+  "entities": {
+   "album/L": {
+    "fields": {
+     "name": "Lisbon 2026"
+    },
+    "sets": {}
+   }
+  },
+  "conflicts": []
+ }
+}

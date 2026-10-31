@@ -19,9 +19,9 @@ Photo apps like Google Photos/iCloud lock the user's photos into a vendor's stor
 ## Non-goals (v1)
 - **Android build/test/release — backlog, not abandoned.** The Flutter codebase already runs on Android (scaffold builds for both), but Android-specific verification, permission-flow testing, and Play Store release are deferred until iOS is solid.
 - **Consumer cloud-app destinations (iCloud Drive, Google Drive, Dropbox, etc.).** The whole point of this app is storage the user owns and controls; anything backed by another vendor's app-managed cloud already has an official app that does that job perfectly well. (Other *object storage* vendors are a different case: same user-owned-bucket model as S3. Tencent COS and Alibaba Cloud OSS are built; Google Cloud Storage, Azure Blob and Backblaze B2 aren't, and the Add Backup vendor hint names them as coming.)
-- Multi-device sync / shared library.
+- ~~Multi-device sync~~ — now planned: the bucket becomes the source of truth, see `cloud-sync/DESIGN.md`. A library shared between people stays out.
 - Managing S3 Lifecycle Rules from inside the app (user configures these directly in AWS).
-- Web/desktop platforms (mobile only).
+- ~~Web/desktop platforms~~ — a Chrome extension (`extension/`) is planned, see `cloud-sync/DESIGN.md`. No Flutter web/desktop build.
 - Multi-resolution video transcoding (poster-frame thumbnail + original only, in v1). Until a video *does* get a poster frame (T2.3), videos have no thumbnail to fall back on, so "Remove from Device" isn't offered for them.
 - STS/Cognito temporary credentials — static IAM user keys only (single-user personal app, no backend to broker tokens).
 - ~~True OS background scheduling~~ — now a `BGProcessingTask` (`ios/Runner/BackgroundSync.swift`, `lib/upload/background_sync.dart`): iOS grants it when it likes, usually overnight on power and Wi-Fi. Backup is always automatic; a full pass also runs on foreground, 15 min after the last (`autoSyncFrequency`). Uploads already in flight survive backgrounding through `background_downloader`'s native transfer, separately.

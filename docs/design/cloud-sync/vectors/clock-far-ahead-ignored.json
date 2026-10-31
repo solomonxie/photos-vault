@@ -1,0 +1,67 @@
+{
+ "name": "clock-far-ahead-ignored",
+ "segments": [
+  {
+   "d": "a",
+   "seq": 1,
+   "vv": {},
+   "lastModified": 1793414026500,
+   "ops": [
+    {
+     "h": "1793414026000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "add",
+     "x": {
+      "description": "orig"
+     }
+    }
+   ]
+  },
+  {
+   "d": "a",
+   "seq": 2,
+   "vv": {},
+   "lastModified": 1793414026500,
+   "ops": [
+    {
+     "h": "1793417626501-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "set",
+     "f": "description",
+     "x": "from the future"
+    }
+   ]
+  },
+  {
+   "d": "b",
+   "seq": 1,
+   "vv": {
+    "a": 2
+   },
+   "lastModified": 1793414028000,
+   "ops": [
+    {
+     "h": "1793414028000-0000",
+     "e": "asset",
+     "id": "X",
+     "o": "set",
+     "f": "description",
+     "x": "now"
+    }
+   ]
+  }
+ ],
+ "expect": {
+  "entities": {
+   "asset/X": {
+    "fields": {
+     "description": "now"
+    },
+    "sets": {}
+   }
+  },
+  "conflicts": []
+ }
+}
