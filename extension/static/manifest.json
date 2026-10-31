@@ -1,0 +1,16 @@
+{
+  "manifest_version": 3,
+  "name": "__MSG_name__",
+  "description": "__MSG_description__",
+  "version": "0.1.0",
+  "default_locale": "en",
+  "minimum_chrome_version": "120",
+  "action": {},
+  "background": { "service_worker": "background.js", "type": "module" },
+  "permissions": ["storage", "unlimitedStorage"],
+  "optional_host_permissions": [
+    "https://*.amazonaws.com/*",
+    "https://*.myqcloud.com/*",
+    "https://*.aliyuncs.com/*"
+  ]
+}
