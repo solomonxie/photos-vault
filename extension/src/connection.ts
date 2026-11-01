@@ -1,4 +1,4 @@
-import type { Connection, Provider } from './bucket/client';
+import { type Connection, type Provider, bucketHost } from './bucket/client';
 
 // The bucket connection, in chrome.storage.local only: `.sync` would carry
 // the secret to every machine signed in to the same Google account.
@@ -18,8 +18,13 @@ export const normalizePrefix = (p: string) => {
   return t === '' || t.endsWith('/') ? t : `${t}/`;
 };
 
-export const originFor = (p: Provider) =>
-  ({ s3: 'https://*.amazonaws.com/*', cos: 'https://*.myqcloud.com/*', oss: 'https://*.aliyuncs.com/*' })[p];
+/// Host access for this one bucket, not the provider's whole domain: what
+/// Chrome's prompt names. S3 also needs its global host, which says where
+/// a bucket lives; without a region yet, that is all that can be asked.
+export const originsFor = (c: Pick<Connection, 'provider' | 'bucket' | 'region'>) => {
+  const own = c.region ? [`https://${bucketHost(c)}/*`] : [];
+  return c.provider === 's3' ? [`https://${c.bucket}.s3.amazonaws.com/*`, ...own] : own;
+};
 
 // Drafts: every attempt, keyed by bucket + prefix + key id, so a failed
 // Connect never means retyping a secret. Dropped once one succeeds.

@@ -521,5 +521,13 @@
  },
  "placePin": {
   "message": "Pin"
+ },
+ "setupRegionFound": {
+  "message": "Your bucket is in $ARG$. Click Connect once more to allow it.",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
  }
 }

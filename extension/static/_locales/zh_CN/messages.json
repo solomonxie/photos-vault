@@ -521,5 +521,13 @@
  },
  "placePin": {
   "message": "图钉"
+ },
+ "setupRegionFound": {
+  "message": "你的存储桶在 $ARG$。再点一次“连接”以允许访问。",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
  }
 }

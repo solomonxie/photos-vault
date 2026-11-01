@@ -5,7 +5,7 @@ import {
   keepDraft,
   loadDrafts,
   normalizePrefix,
-  originFor,
+  originsFor,
   parsePaste,
   saveConnection,
 } from '../connection';
@@ -139,18 +139,18 @@ export function setupView(initial: Partial<Connection>, onConnected: (c: Connect
 
   form.addEventListener('submit', (ev) => {
     ev.preventDefault();
+    const c: Connection = {
+      provider,
+      bucket: bucket.value.trim(),
+      accessKeyId: keyId.value.trim(),
+      secretAccessKey: secret.value.trim(),
+      prefix: normalizePrefix(prefix.value),
+      region: region.value.trim().toLowerCase(),
+    };
     // Asked first, inside the click: Chrome grants host access only to a gesture.
-    const asked = chrome.permissions.request({ origins: [originFor(provider)] });
+    const asked = chrome.permissions.request({ origins: originsFor(c) });
     void (async () => {
       connect.disabled = true;
-      const c: Connection = {
-        provider,
-        bucket: bucket.value.trim(),
-        accessKeyId: keyId.value.trim(),
-        secretAccessKey: secret.value.trim(),
-        prefix: normalizePrefix(prefix.value),
-        region: region.value.trim().toLowerCase(),
-      };
       try {
         say(t('setupAsking', c.bucket));
         if (!(await asked)) {
@@ -166,6 +166,12 @@ export function setupView(initial: Partial<Connection>, onConnected: (c: Connect
             return;
           }
           c.region = found;
+          region.value = found;
+          // Its own host, not known when the click asked: one more click.
+          if (!(await chrome.permissions.contains({ origins: originsFor(c) }))) {
+            say(t('setupRegionFound', found));
+            return;
+          }
         }
         say(t('setupChecking'));
         const b = new Bucket(c);

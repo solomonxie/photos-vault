@@ -1,6 +1,6 @@
 import { expect, test } from 'vitest';
 import { SearchIndex, buildLibrary, groupByDay } from '../src/model';
-import { parsePaste } from '../src/connection';
+import { parsePaste, originsFor } from '../src/connection';
 import { SyncState } from '../src/sync/merge';
 import type { WireOp } from '../src/sync/op';
 
@@ -68,4 +68,15 @@ test('a pasted note fills the fields, a base64 secret intact', () => {
   expect(
     parsePaste('export AWS_ACCESS_KEY_ID="AKIA123"\nsecret_access_key: ab/c+d==\nBucket = my-photos,\nprefix: vault/\nfoo: bar\nregion:'),
   ).toEqual({ accessKeyId: 'AKIA123', secretAccessKey: 'ab/c+d==', bucket: 'my-photos', prefix: 'vault/' });
+});
+
+test('host access asks for this one bucket, not the whole provider', () => {
+  expect(originsFor({ provider: 's3', bucket: 'my-vault', region: 'ca-central-1' })).toEqual([
+    'https://my-vault.s3.amazonaws.com/*',
+    'https://my-vault.s3.ca-central-1.amazonaws.com/*',
+  ]);
+  expect(originsFor({ provider: 's3', bucket: 'my-vault', region: '' })).toEqual(['https://my-vault.s3.amazonaws.com/*']);
+  expect(originsFor({ provider: 'cos', bucket: 'b-1250000000', region: 'ap-hongkong' })).toEqual([
+    'https://b-1250000000.cos.ap-hongkong.myqcloud.com/*',
+  ]);
 });
