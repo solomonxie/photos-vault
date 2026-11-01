@@ -6,6 +6,15 @@ import '../storage/asset_record_store.dart';
 import '../vault/bucket.dart';
 import 'bucket_ops.dart';
 
+/// Keys a [DeferredDeletes] queue holds back: each leaves only once its
+/// photo's other copy is in the bucket, and is never anything else's to
+/// delete before then.
+Future<Set<String>> waitingDeletes(AssetRecordStore store) async => {
+  for (final queue in const ['held', 'deferred'])
+    for (final row in await store.queuedDeletes(queue))
+      row['object_key'] as String,
+};
+
 /// Objects that must leave the bucket, kept until they actually have.
 ///
 /// Hiding a photo that was already backed up has to undo that backup, and

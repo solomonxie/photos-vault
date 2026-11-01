@@ -821,6 +821,37 @@ void main() {
   );
 
   test(
+    'a hidden photo\'s plain copy waiting for its carrier is never a duplicate',
+    () async {
+      const first = 'photos-vault/originals/20080806111912_ab5873.heif';
+      const second = 'photos-vault/originals/20080806111912_282e05.heif';
+      bucket.objects[first] = video;
+      bucket.objects[second] = Uint8List.fromList(video);
+      await relist();
+      await DeferredDeletes.untilCarrier(store: store).add('manual:b', [
+        const PendingDelete(objectKey: second, targetId: 't1'),
+      ]);
+      final f = fixer();
+
+      final flagged = await BucketFlags(store: store)
+          .detect(inspect: f.inspect, etag: f.etagOf);
+      expect(flagged.where((o) => o.kind == FlagKind.duplicate), isEmpty);
+
+      final forced = await f.removeOldCopy(
+        FlaggedObject(
+          object: (await store.listBucketObjects()).singleWhere(
+            (o) => o.key == second,
+          ),
+          kind: FlagKind.duplicate,
+          likelyDuplicateOf: first,
+        ),
+      );
+      expect(forced.ok, isFalse);
+      expect(bucket.objects.containsKey(second), isTrue);
+    },
+  );
+
+  test(
     'optimizing in the bucket swaps the copy there and keeps the hash',
     () async {
       const oldKey = 'photos-vault/originals/20260101120000_abc.jpg';

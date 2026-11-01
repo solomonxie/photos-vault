@@ -153,8 +153,11 @@ class BucketFlags {
     final referenced = await store.referencedKeys();
     final ignored = await IgnoredBucketKeys(store).read();
     // Already on their way out; offering a fix for them races the delete.
+    // So are a hidden photo's plain copies waiting for its carrier: until
+    // that lands they are its only copy in the bucket.
     final leaving = {
       for (final d in await PendingDeletes(store: store).pending()) d.objectKey,
+      ...await waitingDeletes(store),
     };
     final present = {for (final o in objects) '${o.targetId}|${o.key}'};
     final live = {
@@ -1393,6 +1396,9 @@ class BucketFixer {
     final target = await _target(f.object.targetId);
     if (current == null || target == null) {
       return const FixResult(FixOutcome.failed);
+    }
+    if ((await waitingDeletes(store)).contains(f.object.key)) {
+      return const FixResult(FixOutcome.failed, detail: 'hidden photo');
     }
     final exact = f.kind == FlagKind.duplicate || f.isVideo;
     final outcome = await _delete(
