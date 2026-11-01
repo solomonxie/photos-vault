@@ -79,9 +79,11 @@ export class Bucket {
     return bucketHost(this.c);
   }
 
-  /// Bucket-relative key → full key under the connection's prefix.
+  /// Bucket-relative key → full key under the connection's prefix. A key
+  /// already under it is left alone: records carry full keys, as the
+  /// phone stores them.
   full(key: string) {
-    return this.c.prefix + key;
+    return key.startsWith(this.c.prefix) ? key : this.c.prefix + key;
   }
 
   now() {

@@ -176,8 +176,8 @@ export class Uploader {
           o: 'add',
           x: {
             created_at: takenAt,
-            original_key: originalKey,
-            thumbnail_key: thumb ? thumbKey : null,
+            original_key: this.bucket.full(originalKey),
+            thumbnail_key: thumb ? this.bucket.full(thumbKey) : null,
             content_hash: hash ?? id,
             original_hash: hash,
             is_video: video ? 1 : 0,

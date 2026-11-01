@@ -84,6 +84,17 @@ export function dropZone(onFiles: (files: File[]) => void) {
     depth = Math.max(0, depth - 1);
     if (depth === 0) veil.hidden = true;
   });
+  // A drag that ends outside the window, or never reaches drop, leaves
+  // no dragleave to match: the first ordinary move or leaving the window
+  // puts the veil away.
+  const reset = () => {
+    depth = 0;
+    veil.hidden = true;
+  };
+  window.addEventListener('mousemove', reset);
+  window.addEventListener('blur', reset);
+  window.addEventListener('dragend', reset);
+  window.addEventListener('dragleave', (e) => e.relatedTarget === null && reset());
   window.addEventListener('dragover', (e) => hasFiles(e) && e.preventDefault());
   window.addEventListener('drop', (e) => {
     if (!hasFiles(e)) return;
