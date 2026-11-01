@@ -2896,6 +2896,35 @@ class AssetRecordStore {
     return out;
   }
 
+  /// The record each of [keys] is the original of, in any bucket, keyed by
+  /// object key. Keys no record holds are absent.
+  Future<Map<String, AssetRecord>> ownersOfOriginals(
+    Iterable<String> keys,
+  ) async {
+    final wanted = keys.toSet().toList();
+    final idOf = <String, String>{};
+    if (wanted.isEmpty) return {};
+    final db = await _open();
+    for (var i = 0; i < wanted.length; i += 450) {
+      final chunk = wanted.skip(i).take(450).toList();
+      final marks = List.filled(chunk.length, '?').join(',');
+      final rows = await db.rawQuery(
+        'SELECT destination_key AS k, local_id FROM $_derivativeTargetTable '
+        "WHERE kind = 'original' AND destination_key IN ($marks) "
+        'UNION ALL SELECT original_key AS k, local_id FROM $_table '
+        'WHERE original_key IN ($marks)',
+        [...chunk, ...chunk],
+      );
+      for (final row in rows) {
+        idOf[row['k'] as String] ??= row['local_id'] as String;
+      }
+    }
+    final records = await getByLocalIds(idOf.values);
+    return {
+      for (final MapEntry(:key, :value) in idOf.entries) key: ?records[value],
+    };
+  }
+
   /// [getByLibraryId] for a page of assets in one query, keyed by library
   /// id.
   Future<Map<String, AssetRecord>> getByLibraryIds(

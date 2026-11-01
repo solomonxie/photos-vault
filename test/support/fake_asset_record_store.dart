@@ -798,6 +798,26 @@ class FakeAssetRecordStore implements AssetRecordStore {
   ) async => {for (final id in localIds) id: ?_records[id]};
 
   @override
+  Future<Map<String, AssetRecord>> ownersOfOriginals(
+    Iterable<String> keys,
+  ) async {
+    final wanted = keys.toSet();
+    final out = <String, AssetRecord>{};
+    for (final MapEntry(key: slot, value: held) in uploads.entries) {
+      if (!slot.endsWith('/${DerivativeKind.original.name}')) continue;
+      final r = _records[slot.substring(0, slot.lastIndexOf('/'))];
+      for (final v in held.values) {
+        if (r != null && wanted.contains(v.key)) out[v.key] ??= r;
+      }
+    }
+    for (final r in _records.values) {
+      final key = r.stateOf(DerivativeKind.original).destinationKey;
+      if (key != null && wanted.contains(key)) out[key] ??= r;
+    }
+    return out;
+  }
+
+  @override
   Future<Map<String, AssetRecord>> getByLibraryIds(
     Iterable<String> libraryIds,
   ) async => {for (final id in libraryIds) id: ?await getByLibraryId(id)};

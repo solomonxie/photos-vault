@@ -64,6 +64,39 @@ void main() {
         }
       });
 
+      test('ownersOfOriginals finds the record by any bucket\'s key', () async {
+        await store.recordUpload(
+          localId: 'photo:A',
+          kind: DerivativeKind.original,
+          targetId: 't1',
+          destinationKey: 'originals/a.jpg',
+        );
+        await store.updateDerivative(
+          'photo:B',
+          DerivativeKind.original,
+          const DerivativeState(
+            status: UploadStatus.uploaded,
+            destinationKey: 'originals/b.heic',
+          ),
+        );
+        await store.recordUpload(
+          localId: 'photo:B',
+          kind: DerivativeKind.thumbnail,
+          targetId: 't1',
+          destinationKey: 'thumbnails/b.jpg',
+        );
+        final owners = await store.ownersOfOriginals([
+          'originals/a.jpg',
+          'originals/b.heic',
+          'thumbnails/b.jpg',
+          'originals/none.jpg',
+        ]);
+        expect(owners.map((k, r) => MapEntry(k, r.localId)), {
+          'originals/a.jpg': 'photo:A',
+          'originals/b.heic': 'photo:B',
+        });
+      });
+
       test('targetsHolding filters by kind and by source hash', () async {
         await store.recordUpload(
           localId: 'photo:A',

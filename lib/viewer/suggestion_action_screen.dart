@@ -5,6 +5,7 @@ import '../l10n/app_localizations.dart';
 import '../photos/fix_queue.dart';
 import '../photos/storage_advice.dart' show formatBytes;
 import '../settings/settings_section.dart';
+import '../storage/asset_record.dart';
 import 'asset_grid.dart';
 import 'suggestion_copy.dart';
 
@@ -42,10 +43,32 @@ class _SuggestionActionScreenState extends State<SuggestionActionScreen> {
       if (!_queue.isResolved(f)) f,
   ];
 
+  /// A bucket copy's kept twin, keyed by flag id: its picture stands in
+  /// for the copy, which no record names. Never a hidden photo's.
+  Map<String, AssetRecord> _kept = const {};
+
   @override
   void initState() {
     super.initState();
     _queue.addListener(_onQueue);
+    _loadKept();
+  }
+
+  Future<void> _loadKept() async {
+    final keptOf = {
+      for (final f in widget.flags) f.id: ?f.bucket?.likelyDuplicateOf,
+    };
+    if (keptOf.isEmpty) return;
+    final owners = await _queue.store.ownersOfOriginals(keptOf.values);
+    if (!mounted) return;
+    setState(
+      () => _kept = {
+        for (final MapEntry(:key, :value) in keptOf.entries)
+          if (owners[value] case final r?
+              when !r.isHidden && r.passcodeHash == null)
+            key: r,
+      },
+    );
   }
 
   @override
@@ -262,7 +285,7 @@ class _SuggestionActionScreenState extends State<SuggestionActionScreen> {
 
   Widget _row(AppLocalizations l10n, Flag flag) {
     final job = _queue.jobs[flag.id];
-    final record = flag.record;
+    final record = flag.record ?? _kept[flag.id];
     final selected = _selected.contains(flag.id);
     final note = failureNote(l10n, job);
     final reason = flagReason(l10n, flag);
