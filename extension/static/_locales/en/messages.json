@@ -487,5 +487,39 @@
     "content": "$2"
    }
   }
+ },
+ "placesMore": {
+  "message": "$ARG$ more cities",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "placesFewer": {
+  "message": "Show fewer"
+ },
+ "placePins": {
+  "message": "Pins"
+ },
+ "placeNoPins": {
+  "message": "No pins here yet. Add them on the phone."
+ },
+ "placePhotos": {
+  "message": "Photos · $ARG$",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "placeCountry": {
+  "message": "Country"
+ },
+ "placeCity": {
+  "message": "City"
+ },
+ "placePin": {
+  "message": "Pin"
  }
 }

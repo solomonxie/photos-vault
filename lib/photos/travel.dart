@@ -41,6 +41,7 @@ class Place {
     this.country = '',
     this.address = '',
     this.category = '',
+    this.description = '',
     required this.createdAt,
   });
 
@@ -60,6 +61,9 @@ class Place {
 
   /// MapKit's category for a business ("restaurant", "museum").
   final String category;
+
+  /// What the user wrote about it: what the area is, why it matters.
+  final String description;
   final DateTime createdAt;
 
   bool get isCity => kind == PlaceKind.city;
@@ -74,6 +78,7 @@ class Place {
     String? country,
     String? address,
     String? category,
+    String? description,
   }) => Place(
     id: id,
     name: name ?? this.name,
@@ -84,6 +89,7 @@ class Place {
     country: country ?? this.country,
     address: address ?? this.address,
     category: category ?? this.category,
+    description: description ?? this.description,
     createdAt: createdAt,
   );
 }

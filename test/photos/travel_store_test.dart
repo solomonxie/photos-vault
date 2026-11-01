@@ -27,6 +27,45 @@ void main() {
   Future<Place> city(String name) =>
       store.findOrCreateCity(name: name, country: 'Japan', lat: 35, lng: 135);
 
+  test('a description is kept, and a version-2 database gains one', () async {
+    final kyoto = await city('Kyoto');
+    await store.updatePlace(kyoto.copyWith(description: 'East of the river'));
+    expect(
+      (await store.places()).firstWhere((p) => p.id == kyoto.id).description,
+      'East of the river',
+    );
+    await store.close();
+
+    final old = p.join(dir.path, 'v2.db');
+    final db = await databaseFactoryFfi.openDatabase(old);
+    await db.execute(
+      'CREATE TABLE place (id TEXT PRIMARY KEY, name TEXT NOT NULL, '
+      'kind TEXT NOT NULL, lat REAL NOT NULL, lng REAL NOT NULL, '
+      "parent_id TEXT, country TEXT NOT NULL DEFAULT '', "
+      "address TEXT NOT NULL DEFAULT '', category TEXT NOT NULL DEFAULT '', "
+      'created_at INTEGER NOT NULL)',
+    );
+    await db.insert('place', {
+      'id': 'x',
+      'name': 'Japan',
+      'kind': 'country',
+      'lat': 35,
+      'lng': 135,
+      'created_at': 0,
+    });
+    await db.execute(
+      'CREATE TABLE rev (id INTEGER PRIMARY KEY, n INTEGER NOT NULL)',
+    );
+    await db.insert('rev', {'id': 1, 'n': 0});
+    await db.setVersion(2);
+    await db.close();
+    store = TravelStore(databaseFactory: databaseFactoryFfi, path: old);
+    final upgraded = (await store.places()).single;
+    expect(upgraded.description, '');
+    await store.updatePlace(upgraded.copyWith(description: 'Home'));
+    expect((await store.places()).single.description, 'Home');
+  });
+
   test('a city is found again by name; points sit inside it', () async {
     final kyoto = await city('Kyoto');
     expect((await city('kyoto')).id, kyoto.id);

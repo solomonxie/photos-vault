@@ -254,17 +254,51 @@ function cards(items: { href: string; cover: string | null | undefined; name: st
   );
 }
 
-function placeRows(list: Place[], depth: number, path: string[]): Node[] {
-  return list.flatMap((pl) => {
+const shownCities = 5;
+/// Countries showing all their cities, and place pages with photos open.
+const unfolded = new Set<string>();
+const placePhotosOpen = new Set<string>();
+
+const placeHref = (path: string[]) => `#/place/${path.map(encodeURIComponent).join('/')}`;
+
+function placeRow(pl: Place, here: string[], indent: number): Node[] {
+  const row = h(
+    'a',
+    { class: `place-row ${pl.level}`, style: `padding-left:${16 + indent * 22}px`, href: placeHref(here) },
+    h('span', { class: 'place-name' }, pl.level === 'pin' ? `📍 ${pl.name}` : pl.name),
+    h('span', { class: 'muted' }, count(pl.photos.length)),
+  );
+  const note = pl.description ? h('div', { class: 'place-note muted', style: `padding-left:${40 + indent * 22}px` }, pl.description) : null;
+  return note ? [row, note] : [row];
+}
+
+/// [list] and everything under it; a country's cities fold past [shownCities].
+function placeRows(list: Place[], indent: number, path: string[]): Node[] {
+  return list.flatMap((pl): Node[] => {
     const here = [...path, pl.name];
-    const row = h(
-      'a',
-      { class: `place-row ${pl.level}`, style: `padding-left:${16 + depth * 22}px`, href: `#/place/${here.map(encodeURIComponent).join('/')}` },
-      h('span', { class: 'place-name' }, pl.level === 'pin' ? `📍 ${pl.name}` : pl.name),
-      h('span', { class: 'muted' }, count(pl.photos.length)),
-    );
-    const note = pl.description ? h('div', { class: 'place-note muted', style: `padding-left:${40 + depth * 22}px` }, pl.description) : null;
-    return [row, ...(note ? [note] : []), ...placeRows(pl.children, depth + 1, here)];
+    if (pl.level !== 'country') return [...placeRow(pl, here, indent), ...placeRows(pl.children, indent + 1, here)];
+    const cities = pl.children.filter((c) => c.level === 'city');
+    const pins = pl.children.filter((c) => c.level !== 'city');
+    const open = unfolded.has(pl.name);
+    const shown = open ? cities : cities.slice(0, shownCities);
+    const fold: Node[] =
+      cities.length > shownCities
+        ? [
+            h(
+              'button',
+              {
+                class: 'place-fold link',
+                style: `padding-left:${16 + (indent + 1) * 22}px`,
+                onclick: () => {
+                  if (!unfolded.delete(pl.name)) unfolded.add(pl.name);
+                  route(true);
+                },
+              },
+              open ? `${t('placesFewer')} ⌃` : `${t('placesMore', count(cities.length - shown.length))} ⌄`,
+            ),
+          ]
+        : [];
+    return [...placeRow(pl, here, indent), ...placeRows(shown, indent + 1, here), ...fold, ...placeRows(pins, indent + 1, here)];
   });
 }
 
@@ -277,6 +311,39 @@ function findPlace(path: string[]): Place | undefined {
     list = found.children;
   }
   return found;
+}
+
+/// A place, any level: where it is, what was written about it, what's
+/// inside it, and its photos folded until asked for.
+function placePage(pl: Place, path: string[], hash: string) {
+  const level = { country: t('placeCountry'), city: t('placeCity'), pin: t('placePin') }[pl.level];
+  const trail = h(
+    'div',
+    { class: 'place-trail muted' },
+    h('a', { href: '#/places' }, t('navPlaces')),
+    ...path.slice(0, -1).flatMap((name, i) => [' › ', h('a', { href: placeHref(path.slice(0, i + 1)) }, name)]),
+  );
+  const inside = pl.children.length
+    ? h('div', { class: 'places' }, ...placeRows(pl.children, 0, path))
+    : h('div', { class: 'muted place-empty' }, t('placeNoPins'));
+  const open = placePhotosOpen.has(hash);
+  const toggle = h(
+    'button',
+    {
+      class: 'place-fold link',
+      onclick: () => {
+        if (!placePhotosOpen.delete(hash)) placePhotosOpen.add(hash);
+        route(true);
+      },
+    },
+    `${t('placePhotos', count(pl.photos.length))} ${open ? '⌃' : '⌄'}`,
+  );
+  const head: Node[] = [trail];
+  if (pl.description) head.push(h('p', { class: 'place-description' }, pl.description));
+  head.push(h('h2', { class: 'place-section' }, t('placePins')), inside);
+  if (pl.photos.length) head.push(toggle);
+  if (open) return gridPage(pl.name, level, photosOf(pl.photos), t('emptyAlbum'), head);
+  page(pl.name, level, ...head);
 }
 
 /// A page title that edits in place: ✎ asks, and an open conflict on it says so.
@@ -371,7 +438,7 @@ function route(redraw = false) {
     case 'place': {
       const pl = findPlace(arg);
       if (!pl) return page(t('navPlaces'), '', h('div', { class: 'empty' }, t('notFound')));
-      return gridPage(pl.name, [t('photosCount', count(pl.photos.length)), pl.description ?? ''].filter(Boolean).join(' · '), photosOf(pl.photos), t('emptyAlbum'));
+      return placePage(pl, arg, hash);
     }
     case 'bin':
       return gridPage(t('navBin'), t('binHint'), lib.bin, t('emptyBin'));

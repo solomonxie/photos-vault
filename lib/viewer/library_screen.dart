@@ -1790,15 +1790,6 @@ class LibraryScreenState extends State<LibraryScreen>
     _deletedCount = index.deletedCount;
   }
 
-  void _openGroup(String title, List<AssetRecord> records) => _push(
-    AssetGroupScreen(
-      title: title,
-      records: records,
-      assetRecordStore: assetRecordStore,
-      travelStore: _travelStore,
-    ),
-  );
-
   /// Footprints' row counts: read on first build and after each visit.
   final _footprints =
       ValueNotifier<({int places, int plans, int impressions})?>(null);
@@ -1824,7 +1815,6 @@ class LibraryScreenState extends State<LibraryScreen>
       assetRecordStore: assetRecordStore,
       personStore: _personStore,
       placeGroups: _places,
-      onOpenGroup: _openGroup,
     ),
   );
 

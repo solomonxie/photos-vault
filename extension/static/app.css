@@ -76,6 +76,11 @@ nav .link { text-align: left; color: var(--muted); }
 .place-row:hover { background: var(--panel); }
 .place-row.country { font-weight: 600; }
 .place-note { font-size: 12px; margin-top: -4px; padding-bottom: 8px; border-bottom: 1px solid var(--line); }
+.place-fold { display: block; width: 100%; text-align: left; padding-top: 9px; padding-bottom: 9px; border-bottom: 1px solid var(--line); }
+.place-trail { padding: 0 16px 6px; }
+.place-description { padding: 0 16px; white-space: pre-wrap; }
+.place-section { font-size: 15px; padding: 14px 16px 4px; margin: 0; }
+.place-empty { padding: 8px 16px; }
 
 /* viewer */
 .viewer { position: fixed; inset: 0; background: #000; z-index: 10; display: grid; grid-template: 48px 1fr / 56px 1fr 56px 340px; outline: none; }

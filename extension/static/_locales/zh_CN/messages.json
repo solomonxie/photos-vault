@@ -487,5 +487,39 @@
     "content": "$2"
    }
   }
+ },
+ "placesMore": {
+  "message": "另外 $ARG$ 个城市",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "placesFewer": {
+  "message": "收起"
+ },
+ "placePins": {
+  "message": "图钉"
+ },
+ "placeNoPins": {
+  "message": "这里还没有图钉。在手机上添加。"
+ },
+ "placePhotos": {
+  "message": "照片 · $ARG$",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "placeCountry": {
+  "message": "国家"
+ },
+ "placeCity": {
+  "message": "城市"
+ },
+ "placePin": {
+  "message": "图钉"
  }
 }

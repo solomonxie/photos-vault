@@ -60,7 +60,7 @@ class TravelStore {
     return _db = await _factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 2,
+        version: 3,
         onCreate: _create,
         onUpgrade: _upgrade,
       ),
@@ -80,6 +80,7 @@ class TravelStore {
           country TEXT NOT NULL DEFAULT '',
           address TEXT NOT NULL DEFAULT '',
           category TEXT NOT NULL DEFAULT '',
+          description TEXT NOT NULL DEFAULT '',
           created_at INTEGER NOT NULL
         )
       ''')
@@ -148,7 +149,7 @@ class TravelStore {
   }
 
   /// 2: places became a tree under countries; pins gained an address and
-  /// a category.
+  /// a category. 3: a description.
   static Future<void> _upgrade(Database db, int from, int to) async {
     if (from < 2) {
       await db.execute(
@@ -157,6 +158,14 @@ class TravelStore {
       await db.execute(
         "ALTER TABLE place ADD COLUMN category TEXT NOT NULL DEFAULT ''",
       );
+    }
+    // Before filing: that writes whole rows, description and all.
+    if (from < 3) {
+      await db.execute(
+        "ALTER TABLE place ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+      );
+    }
+    if (from < 2) {
       await db.transaction((txn) async {
         await _fileUnderCountries(txn);
         await txn.rawUpdate('UPDATE rev SET n = n + 1 WHERE id = 1');
@@ -894,6 +903,7 @@ class TravelStore {
     'country': p.country,
     'address': p.address,
     'category': p.category,
+    'description': p.description,
     'created_at': p.createdAt.millisecondsSinceEpoch,
   };
 
@@ -907,6 +917,7 @@ class TravelStore {
     country: r['country'] as String? ?? '',
     address: r['address'] as String? ?? '',
     category: r['category'] as String? ?? '',
+    description: r['description'] as String? ?? '',
     createdAt: _time(r['created_at'])!,
   );
 

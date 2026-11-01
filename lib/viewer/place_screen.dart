@@ -1,3 +1,5 @@
+import 'dart:math' as math;
+
 import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
@@ -7,6 +9,7 @@ import '../photos/travel.dart';
 import '../photos/travel_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import 'asset_grid.dart';
 import 'asset_group_screen.dart';
 import 'native_map.dart';
 import 'places_screen.dart';
@@ -36,9 +39,37 @@ List<AssetRecord> photosNamedFor(
   ];
 }
 
-/// One place at any level: where it is (the places it's in), its map, the
-/// impressions written at it or anywhere inside it, photos, the places
-/// inside it and the travel plans through it.
+/// Photos taken within [place]'s reach of it: a pin's own spot, so its page
+/// shows a narrower set than its city's.
+List<AssetRecord> photosNear(
+  Place place,
+  Map<String, List<AssetRecord>> groups,
+) {
+  final reach = place.kind == PlaceKind.area ? 1500.0 : 300.0;
+  final cosLat = math.cos(place.lat * math.pi / 180);
+  const metresPerDegree = 111320.0;
+  final seen = <String>{};
+  return [
+    for (final list in groups.values)
+      for (final r in list)
+        if ((r.latitude, r.longitude) case (final la?, final lo?)
+            when (la - place.lat).abs() * metresPerDegree < reach &&
+                math.sqrt(
+                      math.pow((la - place.lat) * metresPerDegree, 2) +
+                          math.pow(
+                            (lo - place.lng) * metresPerDegree * cosLat,
+                            2,
+                          ),
+                    ) <
+                    reach &&
+                seen.add(r.localId))
+          r,
+  ];
+}
+
+/// One place at any level, pin or country alike: its description, the pins
+/// inside it, the impressions written at it or anywhere inside it, the
+/// travel plans through it, and its photos, folded, at the bottom.
 class PlaceScreen extends StatefulWidget {
   const PlaceScreen({
     super.key,
@@ -74,8 +105,12 @@ class _PlaceScreenState extends State<PlaceScreen> {
   Map<String, int> _photosOf = const {};
   List<TravelRoute> _routes = const [];
   List<MapPinData> _pins = const [];
-  List<AssetRecord> _named = const [];
-  Set<String> _linkedPhotos = const {};
+
+  /// Linked to its impressions, then taken there; newest first.
+  List<AssetRecord> _photos = const [];
+  bool _photosOpen = false;
+
+  static const _photoPreview = 12;
 
   @override
   void initState() {
@@ -107,6 +142,27 @@ class _PlaceScreenState extends State<PlaceScreen> {
       path.insert(0, up);
     }
     final inside = tree[place.id] ?? const <Place>[];
+    final linkedIds = {
+      for (final list in links.values)
+        for (final l in list)
+          if (l.target == LinkTarget.asset) l.id,
+    };
+    final linked = linkedIds.isEmpty
+        ? const <AssetRecord>[]
+        : await widget.assetRecordStore?.listOf(linkedIds) ??
+              const <AssetRecord>[];
+    final seenPhotos = {for (final r in linked) r.localId};
+    final here = switch (place.kind) {
+      PlaceKind.country ||
+      PlaceKind.city => photosNamedFor(place, widget.placeGroups),
+      PlaceKind.area ||
+      PlaceKind.point => photosNear(place, widget.placeGroups),
+    };
+    final photos = [
+      ...linked,
+      for (final r in here)
+        if (seenPhotos.add(r.localId)) r,
+    ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
     if (!mounted) return;
     setState(() {
       _place = place;
@@ -117,15 +173,10 @@ class _PlaceScreenState extends State<PlaceScreen> {
       _tally = PlaceTally.of(tree, counts);
       _entries = entries;
       _routes = routes;
-      _named = photosNamedFor(place, widget.placeGroups);
+      _photos = photos;
       _photosOf = {
         for (final MapEntry(:key, :value) in links.entries)
           key: value.where((l) => l.target == LinkTarget.asset).length,
-      };
-      _linkedPhotos = {
-        for (final list in links.values)
-          for (final l in list)
-            if (l.target == LinkTarget.asset) l.id,
       };
       _pins = [
         if (!place.isCountry || inside.isEmpty)
@@ -213,24 +264,56 @@ class _PlaceScreenState extends State<PlaceScreen> {
     final store = widget.assetRecordStore;
     final place = _place;
     if (store == null || place == null) return;
-    final linked = await store.listOf(_linkedPhotos);
-    final seen = {for (final r in linked) r.localId};
-    final records = [
-      ...linked,
-      for (final r in _named)
-        if (!seen.contains(r.localId)) r,
-    ];
-    if (!mounted) return;
     await Navigator.of(context).push(
       CupertinoPageRoute(
         builder: (_) => AssetGroupScreen(
           title: place.name,
-          records: records,
+          records: _photos,
           assetRecordStore: store,
           travelStore: widget.travelStore,
         ),
       ),
     );
+  }
+
+  Future<void> _editDescription() async {
+    final place = _place;
+    if (place == null) return;
+    final l10n = AppLocalizations.of(context)!;
+    final text = TextEditingController(text: place.description);
+    final ok = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (dialog) => CupertinoAlertDialog(
+        title: Text(l10n.placeDescriptionTitle),
+        content: Padding(
+          padding: const EdgeInsets.only(top: 8),
+          child: CupertinoTextField(
+            key: const ValueKey('placeDescriptionField'),
+            controller: text,
+            autofocus: true,
+            minLines: 3,
+            maxLines: 8,
+          ),
+        ),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(dialog).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            key: const ValueKey('placeDescriptionSave'),
+            isDefaultAction: true,
+            onPressed: () => Navigator.of(dialog).pop(true),
+            child: Text(l10n.travelEntrySave),
+          ),
+        ],
+      ),
+    );
+    final typed = text.text.trim();
+    text.dispose();
+    if (ok != true || typed == place.description) return;
+    await widget.travelStore.updatePlace(place.copyWith(description: typed));
+    await _load();
   }
 
   Future<void> _addInside() async {
@@ -441,8 +524,18 @@ class _PlaceScreenState extends State<PlaceScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final place = _place;
-    final photos = _linkedPhotos.length + _named.length;
     const grey = TextStyle(color: CupertinoColors.systemGrey);
+    const blue = TextStyle(color: CupertinoColors.activeBlue);
+    Widget addRow(Key key, String label, VoidCallback onTap) =>
+        CupertinoListTile(
+          key: key,
+          leading: const Icon(
+            CupertinoIcons.add_circled,
+            color: CupertinoColors.activeBlue,
+          ),
+          title: Text(label, style: blue),
+          onTap: onTap,
+        );
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(place?.name ?? ''),
@@ -460,7 +553,7 @@ class _PlaceScreenState extends State<PlaceScreen> {
                 padding: const EdgeInsets.only(bottom: 32),
                 children: [
                   SizedBox(
-                    height: 200,
+                    height: 180,
                     child: NativeMap(
                       pins: _pins,
                       onPinTap: _openPlace,
@@ -481,12 +574,7 @@ class _PlaceScreenState extends State<PlaceScreen> {
                                 GestureDetector(
                                   key: ValueKey('placePath-${p.id}'),
                                   onTap: () => _openPlace(p.id),
-                                  child: Text(
-                                    p.name,
-                                    style: const TextStyle(
-                                      color: CupertinoColors.activeBlue,
-                                    ),
-                                  ),
+                                  child: Text(p.name, style: blue),
                                 ),
                               ],
                             ],
@@ -506,56 +594,23 @@ class _PlaceScreenState extends State<PlaceScreen> {
                           ].join(' · '),
                           style: grey,
                         ),
-                      ],
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    child: CupertinoButton.tinted(
-                      key: const ValueKey('placeAddImpression'),
-                      padding: const EdgeInsets.symmetric(vertical: 10),
-                      onPressed: _write,
-                      child: Text(l10n.placeAddImpression),
-                    ),
-                  ),
-                  if (_entries.isEmpty)
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                      child: Text(l10n.placeNoEntries, style: grey),
-                    )
-                  else
-                    CupertinoListSection.insetGrouped(
-                      header: Text(l10n.placeImpressions),
-                      children: [
-                        for (final e in _entries)
-                          impressionTile(
-                            l10n,
-                            e,
-                            at: e.placeId == place.id
-                                ? null
-                                : _byId[e.placeId]?.name,
-                            photos: _photosOf[e.id] ?? 0,
-                            onTap: () => _read(e),
+                        const SizedBox(height: 10),
+                        GestureDetector(
+                          key: const ValueKey('placeDescription'),
+                          behavior: HitTestBehavior.opaque,
+                          onTap: _editDescription,
+                          child: Text(
+                            place.description.isEmpty
+                                ? l10n.placeDescriptionAdd
+                                : place.description,
+                            style: place.description.isEmpty ? blue : null,
                           ),
-                      ],
-                    ),
-                  if (photos > 0 && widget.assetRecordStore != null)
-                    CupertinoListSection.insetGrouped(
-                      children: [
-                        CupertinoListTile(
-                          key: const ValueKey('placePhotos'),
-                          leading: const Icon(
-                            CupertinoIcons.photo_on_rectangle,
-                          ),
-                          title: Text(l10n.placePhotosHere),
-                          additionalInfo: Text('$photos'),
-                          trailing: const CupertinoListTileChevron(),
-                          onTap: _openPhotos,
                         ),
                       ],
                     ),
+                  ),
                   CupertinoListSection.insetGrouped(
-                    header: Text(l10n.placePoints(place.name)),
+                    header: Text(l10n.placePins),
                     children: [
                       for (final p in _inside)
                         placeTile(
@@ -564,19 +619,30 @@ class _PlaceScreenState extends State<PlaceScreen> {
                           _tally,
                           onTap: () => _openPlace(p.id),
                         ),
-                      CupertinoListTile(
-                        key: const ValueKey('placeAddPoint'),
-                        leading: const Icon(
-                          CupertinoIcons.add_circled,
-                          color: CupertinoColors.activeBlue,
+                      addRow(
+                        const ValueKey('placeAddPoint'),
+                        l10n.placeAddPoint,
+                        _addInside,
+                      ),
+                    ],
+                  ),
+                  CupertinoListSection.insetGrouped(
+                    header: Text(l10n.placeImpressions),
+                    children: [
+                      for (final e in _entries)
+                        impressionTile(
+                          l10n,
+                          e,
+                          at: e.placeId == place.id
+                              ? null
+                              : _byId[e.placeId]?.name,
+                          photos: _photosOf[e.id] ?? 0,
+                          onTap: () => _read(e),
                         ),
-                        title: Text(
-                          l10n.placeAddPoint,
-                          style: const TextStyle(
-                            color: CupertinoColors.activeBlue,
-                          ),
-                        ),
-                        onTap: _addInside,
+                      addRow(
+                        const ValueKey('placeAddImpression'),
+                        l10n.placeAddImpression,
+                        _write,
                       ),
                     ],
                   ),
@@ -597,10 +663,68 @@ class _PlaceScreenState extends State<PlaceScreen> {
                           ),
                       ],
                     ),
+                  if (_photos.isNotEmpty && widget.assetRecordStore != null)
+                    ..._photoSection(l10n),
                 ],
               ),
             ),
     );
+  }
+
+  /// Folded to one row until tapped; open, a few rows and See All.
+  List<Widget> _photoSection(AppLocalizations l10n) {
+    final preview = _photos.take(_photoPreview).toList();
+    return [
+      CupertinoListSection.insetGrouped(
+        children: [
+          CupertinoListTile(
+            key: const ValueKey('placePhotos'),
+            leading: const Icon(CupertinoIcons.photo_on_rectangle),
+            title: Text(l10n.placePhotosHere),
+            additionalInfo: Text('${_photos.length}'),
+            trailing: Icon(
+              _photosOpen
+                  ? CupertinoIcons.chevron_up
+                  : CupertinoIcons.chevron_down,
+              size: 16,
+              color: CupertinoColors.systemGrey,
+            ),
+            onTap: () => setState(() => _photosOpen = !_photosOpen),
+          ),
+        ],
+      ),
+      if (_photosOpen) ...[
+        Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 16),
+          child: GridView.count(
+            key: const ValueKey('placePhotoGrid'),
+            crossAxisCount: 4,
+            mainAxisSpacing: 2,
+            crossAxisSpacing: 2,
+            shrinkWrap: true,
+            physics: const NeverScrollableScrollPhysics(),
+            children: [
+              for (final r in preview)
+                GestureDetector(
+                  onTap: _openPhotos,
+                  child: assetImage(
+                    r,
+                    thumbnailSize: 200,
+                    placeholder: () =>
+                        const ColoredBox(color: CupertinoColors.systemGrey5),
+                  ),
+                ),
+            ],
+          ),
+        ),
+        if (_photos.length > preview.length)
+          CupertinoButton(
+            key: const ValueKey('placePhotosSeeAll'),
+            onPressed: _openPhotos,
+            child: Text(l10n.placePhotosSeeAll(_photos.length)),
+          ),
+      ],
+    ];
   }
 }
 

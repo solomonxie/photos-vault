@@ -15,7 +15,8 @@ import 'place_tree.dart';
 
 /// Footprints → Places (`docs/design/travel-diary.md`): every place at once,
 /// country → city from the photos' own locations, hand-made pins under
-/// their city; or every place as a pin on a map.
+/// their city; or every place as a pin on a map. Past [shownCities] a
+/// country's cities fold. Every row opens its place page.
 class PlacesScreen extends StatefulWidget {
   const PlacesScreen({
     super.key,
@@ -24,8 +25,9 @@ class PlacesScreen extends StatefulWidget {
     this.assetRecordStore,
     this.personStore,
     this.placeGroups = const {},
-    this.onOpenGroup,
   });
+
+  static const shownCities = 5;
 
   final TravelStore travelStore;
   final PlaceSearch placeSearch;
@@ -34,7 +36,6 @@ class PlacesScreen extends StatefulWidget {
 
   /// Photos by place name, as the library already grouped them.
   final Map<String, List<AssetRecord>> placeGroups;
-  final void Function(String title, List<AssetRecord> records)? onOpenGroup;
 
   @override
   State<PlacesScreen> createState() => _PlacesScreenState();
@@ -46,6 +47,9 @@ class _PlacesScreenState extends State<PlacesScreen> {
   List<PlaceNode> _tree = const [];
   List<MapPinData> _pins = const [];
   PlaceTally _tally = const PlaceTally({}, {});
+
+  /// Countries showing all their cities, by name.
+  final Set<String> _unfolded = {};
 
   @override
   void initState() {
@@ -86,6 +90,32 @@ class _PlacesScreenState extends State<PlacesScreen> {
     await _load();
   }
 
+  /// A country or city from the photos alone is saved on first open, at
+  /// the middle of its photos, so it has a page to hold notes and pins.
+  Future<void> _openNode(PlaceNode node, PlaceNode? country) async {
+    if (node.place case final saved?) return _open(saved.id);
+    var lat = 0.0, lng = 0.0, n = 0;
+    for (final r in node.records) {
+      final (la, lo) = (r.latitude, r.longitude);
+      if (la == null || lo == null) continue;
+      lat += la;
+      lng += lo;
+      n++;
+    }
+    if (n > 0) (lat, lng) = (lat / n, lng / n);
+    final store = widget.travelStore;
+    final place = node.level == PlaceLevel.country
+        ? await store.findOrCreateCountry(node.name, lat: lat, lng: lng)
+        : await store.findOrCreateCity(
+            name: node.name,
+            country: country?.name ?? '',
+            lat: lat,
+            lng: lng,
+          );
+    if (place == null || !mounted) return;
+    await _open(place.id);
+  }
+
   Future<void> _add() async {
     final place = await showAddPlaceSheet(
       context: context,
@@ -108,7 +138,53 @@ class _PlacesScreenState extends State<PlacesScreen> {
     await _open(place.id);
   }
 
-  Widget _row(AppLocalizations l10n, PlaceNode node, int depth) {
+  /// The rows under [country]: its first [PlacesScreen.shownCities]
+  /// cities (with their pins), the fold, then pins filed on it directly.
+  List<Widget> _countryRows(AppLocalizations l10n, PlaceNode country) {
+    final cities = [
+      for (final c in country.children)
+        if (c.level == PlaceLevel.city) c,
+    ];
+    final open = _unfolded.contains(country.name);
+    final shown = open
+        ? cities
+        : cities.take(PlacesScreen.shownCities).toList();
+    final hiddenCount = cities.length - shown.length;
+    return [
+      _row(l10n, country, 0, country),
+      for (final city in shown)
+        for (final (node, depth) in city.walk(1))
+          _row(l10n, node, depth, country),
+      if (cities.length > PlacesScreen.shownCities)
+        CupertinoListTile(
+          key: ValueKey('place-fold-${country.name}'),
+          padding: const EdgeInsetsDirectional.only(start: 42, end: 14),
+          title: Text(
+            open ? l10n.placesShowFewer : l10n.placesShowMore(hiddenCount),
+            style: const TextStyle(color: CupertinoColors.activeBlue),
+          ),
+          trailing: Icon(
+            open ? CupertinoIcons.chevron_up : CupertinoIcons.chevron_down,
+            size: 16,
+            color: CupertinoColors.activeBlue,
+          ),
+          onTap: () => setState(() {
+            if (!_unfolded.remove(country.name)) _unfolded.add(country.name);
+          }),
+        ),
+      for (final pin in country.children)
+        if (pin.level == PlaceLevel.pin)
+          for (final (node, depth) in pin.walk(1))
+            _row(l10n, node, depth, country),
+    ];
+  }
+
+  Widget _row(
+    AppLocalizations l10n,
+    PlaceNode node,
+    int depth,
+    PlaceNode country,
+  ) {
     final saved = node.place;
     final pin = node.level == PlaceLevel.pin ? saved : null;
     final notes = saved == null ? 0 : _tally.impressions[saved.id] ?? 0;
@@ -142,9 +218,7 @@ class _PlacesScreenState extends State<PlacesScreen> {
         pin == null ? '${node.records.length}' : (notes > 0 ? '$notes' : ''),
       ),
       trailing: const CupertinoListTileChevron(),
-      onTap: saved != null
-          ? () => _open(saved.id)
-          : () => widget.onOpenGroup?.call(node.name, node.records),
+      onTap: () => _openNode(node, country),
     );
   }
 
@@ -198,10 +272,8 @@ class _PlacesScreenState extends State<PlacesScreen> {
                   else
                     CupertinoListSection.insetGrouped(
                       children: [
-                        for (final (node, depth) in [
-                          for (final top in _tree) ...top.walk(),
-                        ])
-                          _row(l10n, node, depth),
+                        for (final country in _tree)
+                          ..._countryRows(l10n, country),
                       ],
                     ),
                 ],
@@ -514,15 +586,16 @@ class _AddPlaceSheetState extends State<_AddPlaceSheet> {
     if (mounted) Navigator.of(context).pop(place);
   }
 
-  /// The typed name as an area of [_AddPlaceSheet.under], at its spot: a
-  /// neighbourhood or a campus MapKit doesn't know by that name.
+  /// The typed name as a pin in [_AddPlaceSheet.under], at its spot: a
+  /// neighbourhood or a campus MapKit doesn't know by that name; its
+  /// description says how far it reaches.
   Future<void> _addArea(Place under) async {
     final name = _query.text.trim();
     if (name.isEmpty) return;
     setState(() => _saving = true);
     final place = await widget.travelStore.createPlace(
       name: name,
-      kind: PlaceKind.area,
+      kind: PlaceKind.point,
       lat: under.lat,
       lng: under.lng,
       parentId: under.id,
