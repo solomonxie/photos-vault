@@ -41,6 +41,7 @@ class NativeMap extends StatefulWidget {
     this.controller,
     this.onPinTap,
     this.onLongPress,
+    this.region,
   });
 
   final List<MapPinData> pins;
@@ -54,6 +55,10 @@ class NativeMap extends StatefulWidget {
   final NativeMapController? controller;
   final ValueChanged<String>? onPinTap;
   final void Function(double lat, double lng)? onLongPress;
+
+  /// Where to look while there are no [pins]: a centre and a span in
+  /// degrees, so a city with nothing pinned shows the city, not a street.
+  final ({double lat, double lng, double span})? region;
 
   /// Whether MapKit is there to draw it. Overridable for tests.
   @visibleForTesting
@@ -121,7 +126,16 @@ class _NativeMapState extends State<NativeMap> {
         for (final p in widget.pins) p.toMap(),
       ]);
       await channel.invokeMethod<void>('setPolyline', widget.line?.toMap());
-      if (fit) await channel.invokeMethod<void>('fitAll', animated);
+      final region = widget.region;
+      if (widget.pins.isEmpty && widget.line == null && region != null) {
+        await channel.invokeMethod<void>('focus', {
+          'lat': region.lat,
+          'lng': region.lng,
+          'span': region.span,
+        });
+      } else if (fit) {
+        await channel.invokeMethod<void>('fitAll', animated);
+      }
     } on MissingPluginException {
       // Torn down while sending.
     }

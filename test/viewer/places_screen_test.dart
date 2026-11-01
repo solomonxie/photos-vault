@@ -119,7 +119,7 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Matcha warabi'), findsOne);
     expect(find.textContaining('at Kagizen'), findsOne);
-    expect(find.text('Pins'), findsOne);
+    expect(find.text('Places'), findsOne);
 
     await tester.tap(find.text('Kyoto'));
     await tester.pumpAndSettle();
@@ -556,6 +556,9 @@ void main() {
     await tester.tap(find.byKey(ValueKey('travelPlace-${pin.id}')));
     await tester.pumpAndSettle();
     expect(find.text('Gion'), findsWidgets);
+    // A pin holds no pins of its own.
+    expect(find.byKey(const ValueKey('placeAddPoint')), findsNothing);
+    expect(find.byKey(const ValueKey('placeAddImpression')), findsOne);
   });
 
   testWidgets('Impressions lists every one, newest first, with its place', (

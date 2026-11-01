@@ -179,7 +179,7 @@ class _PlaceScreenState extends State<PlaceScreen> {
           key: value.where((l) => l.target == LinkTarget.asset).length,
       };
       _pins = [
-        if (!place.isCountry || inside.isEmpty)
+        if (_isPin(place))
           MapPinData(
             id: place.id,
             lat: place.lat,
@@ -520,12 +520,27 @@ class _PlaceScreenState extends State<PlaceScreen> {
     );
   }
 
+  static bool _isPin(Place p) =>
+      p.kind == PlaceKind.point || p.kind == PlaceKind.area;
+
+  /// What the map shows with nothing pinned: the whole country or city.
+  static ({double lat, double lng, double span}) _regionOf(Place p) => (
+    lat: p.lat,
+    lng: p.lng,
+    span: switch (p.kind) {
+      PlaceKind.country => 14,
+      PlaceKind.city => 0.25,
+      PlaceKind.area => 0.03,
+      PlaceKind.point => 0.01,
+    },
+  );
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final place = _place;
-    const grey = TextStyle(color: CupertinoColors.systemGrey);
-    const blue = TextStyle(color: CupertinoColors.activeBlue);
+    const grey = TextStyle(color: CupertinoColors.systemGrey, fontSize: 15);
+    const blue = TextStyle(color: CupertinoColors.activeBlue, fontSize: 15);
     Widget addRow(Key key, String label, VoidCallback onTap) =>
         CupertinoListTile(
           key: key,
@@ -533,10 +548,14 @@ class _PlaceScreenState extends State<PlaceScreen> {
             CupertinoIcons.add_circled,
             color: CupertinoColors.activeBlue,
           ),
-          title: Text(label, style: blue),
+          title: Text(
+            label,
+            style: const TextStyle(color: CupertinoColors.activeBlue),
+          ),
           onTap: onTap,
         );
     return CupertinoPageScaffold(
+      backgroundColor: CupertinoColors.systemGroupedBackground,
       navigationBar: CupertinoNavigationBar(
         middle: Text(place?.name ?? ''),
         trailing: CupertinoButton(
@@ -552,16 +571,23 @@ class _PlaceScreenState extends State<PlaceScreen> {
               child: ListView(
                 padding: const EdgeInsets.only(bottom: 32),
                 children: [
-                  SizedBox(
-                    height: 180,
-                    child: NativeMap(
-                      pins: _pins,
-                      onPinTap: _openPlace,
-                      onLongPress: _dropPin,
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    child: ClipRRect(
+                      borderRadius: BorderRadius.circular(12),
+                      child: SizedBox(
+                        height: 170,
+                        child: NativeMap(
+                          pins: _pins,
+                          region: _regionOf(place),
+                          onPinTap: _openPlace,
+                          onLongPress: _isPin(place) ? null : _dropPin,
+                        ),
+                      ),
                     ),
                   ),
                   Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
                     child: Column(
                       crossAxisAlignment: CrossAxisAlignment.start,
                       children: [
@@ -579,13 +605,15 @@ class _PlaceScreenState extends State<PlaceScreen> {
                               ],
                             ],
                           ),
+                        const SizedBox(height: 2),
                         Text(
                           place.name,
                           style: const TextStyle(
-                            fontSize: 26,
+                            fontSize: 28,
                             fontWeight: FontWeight.w700,
                           ),
                         ),
+                        const SizedBox(height: 2),
                         Text(
                           [
                             placeKindLabel(l10n, place.kind),
@@ -594,38 +622,70 @@ class _PlaceScreenState extends State<PlaceScreen> {
                           ].join(' · '),
                           style: grey,
                         ),
-                        const SizedBox(height: 10),
-                        GestureDetector(
-                          key: const ValueKey('placeDescription'),
-                          behavior: HitTestBehavior.opaque,
-                          onTap: _editDescription,
-                          child: Text(
-                            place.description.isEmpty
-                                ? l10n.placeDescriptionAdd
-                                : place.description,
-                            style: place.description.isEmpty ? blue : null,
-                          ),
-                        ),
                       ],
                     ),
                   ),
                   CupertinoListSection.insetGrouped(
-                    header: Text(l10n.placePins),
                     children: [
-                      for (final p in _inside)
-                        placeTile(
-                          l10n,
-                          p,
-                          _tally,
-                          onTap: () => _openPlace(p.id),
-                        ),
-                      addRow(
-                        const ValueKey('placeAddPoint'),
-                        l10n.placeAddPoint,
-                        _addInside,
-                      ),
+                      place.description.isEmpty
+                          ? CupertinoListTile(
+                              key: const ValueKey('placeDescription'),
+                              leading: const Icon(
+                                CupertinoIcons.text_alignleft,
+                                color: CupertinoColors.systemGrey,
+                              ),
+                              title: Text(
+                                l10n.placeDescriptionAdd,
+                                style: const TextStyle(
+                                  color: CupertinoColors.systemGrey,
+                                ),
+                              ),
+                              onTap: _editDescription,
+                            )
+                          : GestureDetector(
+                              key: const ValueKey('placeDescription'),
+                              behavior: HitTestBehavior.opaque,
+                              onTap: _editDescription,
+                              child: Padding(
+                                padding: const EdgeInsets.fromLTRB(
+                                  20,
+                                  12,
+                                  20,
+                                  12,
+                                ),
+                                child: Text(
+                                  place.description,
+                                  style: const TextStyle(height: 1.35),
+                                ),
+                              ),
+                            ),
                     ],
                   ),
+                  // A pin holds no pins; an area from before pins replaced
+                  // areas still lists what was filed in it.
+                  if (!_isPin(place) || _inside.isNotEmpty)
+                    CupertinoListSection.insetGrouped(
+                      header: Text(
+                        place.isCountry
+                            ? l10n.footprintsPlaces
+                            : l10n.placePins,
+                      ),
+                      children: [
+                        for (final p in _inside)
+                          placeTile(
+                            l10n,
+                            p,
+                            _tally,
+                            onTap: () => _openPlace(p.id),
+                          ),
+                        if (!_isPin(place))
+                          addRow(
+                            const ValueKey('placeAddPoint'),
+                            l10n.placeAddPoint,
+                            _addInside,
+                          ),
+                      ],
+                    ),
                   CupertinoListSection.insetGrouped(
                     header: Text(l10n.placeImpressions),
                     children: [
