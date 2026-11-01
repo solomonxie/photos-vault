@@ -14,9 +14,12 @@ import '../photos/person_store.dart';
 import '../photos/profile_transfer.dart';
 import '../settings/settings_section.dart';
 import '../storage/asset_record_store.dart';
+import '../vault/keys.dart';
 import '../vault/passcode_tags.dart';
+import '../vault/people_album_keys.dart';
 import 'import_name_choice.dart';
 import 'private_album_gate.dart';
+import 'private_album_screen.dart' show PrivateAlbumScreen;
 
 /// Developer Options → Import People Zip, in two steps: which profiles to add or
 /// update, then which photos to load for people already in People — hide
@@ -287,6 +290,18 @@ class _PeopleZipScreenState extends State<PeopleZipScreen> {
           if (mounted) setState(() => _progress = (done, total));
         },
       );
+      if (code != null) {
+        // Their folders' keys on hand, so the photos just hidden back up
+        // without each person's folder being opened.
+        unawaited(
+          keepPeopleAlbums(
+            records: widget.assetRecordStore,
+            people: widget.personStore,
+            keys: VaultKeys(),
+            digits: code,
+          ).then((_) => PrivateAlbumScreen.hiddenBackup?.run()),
+        );
+      }
     } catch (error) {
       if (mounted) {
         setState(() {

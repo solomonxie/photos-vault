@@ -1301,6 +1301,15 @@ class PersonStore {
   Future<List<String>> formerNames(String personId) async =>
       (await allFormerNames())[personId] ?? const [];
 
+  /// Every id merged into someone.
+  Future<Set<String>> allAliasIds() async {
+    final db = await _open();
+    return {
+      for (final r in await db.query(_aliasTable, columns: ['alias_id']))
+        r['alias_id'] as String,
+    };
+  }
+
   /// The ids merged into [personId], oldest first.
   Future<List<String>> aliasesOf(String personId) async {
     final db = await _open();

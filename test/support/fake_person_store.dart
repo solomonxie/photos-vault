@@ -413,6 +413,11 @@ class FakePersonStore implements PersonStore {
   final Map<String, List<String>> _aliases = {};
 
   @override
+  Future<Set<String>> allAliasIds() async => {
+    for (final list in _aliases.values) ...list,
+  };
+
+  @override
   Future<List<String>> aliasesOf(String personId) async => [
     ...?_aliases[personId],
   ];

@@ -13,6 +13,7 @@ import '../photos/alias_folders.dart';
 import '../photos/asset_removal.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../vault/people_album_keys.dart';
 import 'asset_grid.dart';
 import 'asset_grid_view.dart';
 import 'asset_picker_screen.dart';
@@ -381,6 +382,14 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     assetRecordStore: widget.assetRecordStore,
     codeFor: (digits) => personAlbumCode(_person.id, digits),
     beforeOpen: (digits, keys) async {
+      unawaited(
+        keepPeopleAlbums(
+          records: widget.assetRecordStore,
+          people: widget.personStore,
+          keys: keys,
+          digits: digits,
+        ).then((_) => PrivateAlbumScreen.hiddenBackup?.run()),
+      );
       final aliases = await widget.personStore.aliasesOf(_person.id);
       if (aliases.isEmpty) return const [];
       try {
