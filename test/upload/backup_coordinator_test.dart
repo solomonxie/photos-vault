@@ -617,6 +617,49 @@ void main() {
     );
   });
 
+  test(
+    'a thumbnail held as HEIF goes up again as JPEG; the HEIF leaves',
+    () async {
+      final recordStore = newRecordStore();
+      await recordStore.upsert(
+        localId: 'manual:t',
+        contentHash: 't',
+        platform: 'ios',
+      );
+      final uploader = _FakeS3Uploader(true);
+      final targets = await oneTarget(format: BackupFormat.optimized);
+      final coordinator = BackupCoordinator(
+        targetsStore: targets,
+        recordStore: recordStore,
+        s3Uploader: uploader,
+        hashFile: (path) async => path,
+      );
+      final target = (await targets.loadAll()).single.id;
+      final base = await _base(recordStore, 'manual:t');
+      await recordStore.recordUpload(
+        localId: 'manual:t',
+        kind: DerivativeKind.thumbnail,
+        targetId: target,
+        destinationKey: 'thumbnails/$base.heif',
+        sourceHash: '/tmp/t.jpg',
+      );
+
+      await coordinator.backUpDerivative(
+        record: (await recordStore.getByLocalId('manual:t'))!,
+        kind: DerivativeKind.thumbnail,
+        filePath: '/tmp/t.jpg',
+      );
+
+      expect(uploader.keys, ['thumbnails/$base.jpg']);
+      expect(
+        await recordStore.targetsHolding('manual:t', DerivativeKind.thumbnail),
+        {target: 'thumbnails/$base.jpg'},
+      );
+      final queued = await PendingDeletes(store: recordStore).pending();
+      expect(queued.map((d) => d.objectKey), ['thumbnails/$base.heif']);
+    },
+  );
+
   group('a re-upload under a new extension', () {
     Future<(AssetRecordStore, BackupCoordinator)> uploadedAsJpeg() async {
       final recordStore = newRecordStore();

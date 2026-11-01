@@ -166,6 +166,9 @@ class BackupCoordinator {
     // identifier, the still-image-time marker — doesn't survive a trip
     // through an image encoder. See `docs/design/uiux/detail.md`.
     if (kind == DerivativeKind.livePhoto) return filePath;
+    // Thumbnails and mediums are for drawing, in a browser too, which
+    // reads JPEG and not HEIF; they are small enough not to matter.
+    if (_drawnOnly(kind)) return filePath;
     if (format != BackupFormat.optimized ||
         record.isVideo ||
         record.isLivePhoto) {
@@ -288,6 +291,9 @@ class BackupCoordinator {
   /// Sent from a copy Optimize shrank on this iPhone: whatever the bucket
   /// already holds is the full-quality original (or edit), and never
   /// retired for it.
+  static bool _drawnOnly(DerivativeKind kind) =>
+      kind == DerivativeKind.thumbnail || kind == DerivativeKind.medium;
+
   static bool _keepsOld(AssetRecord record, DerivativeKind kind) =>
       record.localOptimized &&
       (kind == DerivativeKind.original || kind == DerivativeKind.edited);
@@ -454,6 +460,14 @@ class BackupCoordinator {
           derivativeDir: derivativeDir,
           fileName: fileName,
         );
+        // A thumbnail held in another format (HEIF, from before they stayed
+        // JPEG) is not this file: sent again under its own name.
+        final had = held[target.id];
+        if (_drawnOnly(kind) &&
+            had != null &&
+            p.extension(had).toLowerCase() != p.extension(key).toLowerCase()) {
+          held.remove(target.id);
+        }
         final (:kept, :skip) = legacy || held.containsKey(target.id)
             ? (kept: null, skip: false)
             : await _keptOriginal(record, kind, target, before[target.id], key);

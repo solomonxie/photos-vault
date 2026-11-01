@@ -103,15 +103,20 @@ class SyncEngine {
   }).toList();
 
   /// Backed-up photos whose thumbnail never went up — the small ones the
-  /// upload used to skip. Hidden ones draw from the vault cache instead.
+  /// upload used to skip — or went up as HEIF, which a browser can't draw.
+  /// Hidden ones draw from the vault cache instead.
   List<AssetRecord> get thumbnailsOwed => records()
       .where(
         (r) =>
-            r.isVisibleInLibrary &&
+            r.passcodeHash == null &&
             r.isFullyBackedUp &&
-            r.stateOf(DerivativeKind.thumbnail).status !=
-                UploadStatus.uploaded &&
-            !thumbnailUnavailable.contains(r.localId),
+            !thumbnailUnavailable.contains(r.localId) &&
+            switch (r.stateOf(DerivativeKind.thumbnail)) {
+              final t when t.status != UploadStatus.uploaded =>
+                r.isVisibleInLibrary,
+              final t =>
+                t.destinationKey?.toLowerCase().endsWith('.heif') ?? false,
+            },
       )
       .toList();
 
