@@ -95,7 +95,7 @@ void main() {
     await store.saveEntry(
       store
           .newEntry(placeId: cafe.id, kind: EntryKind.impression)
-          .copyWith(title: 'Matcha warabi'),
+          .copyWith(text: 'Matcha warabi'),
     );
     await tester.pumpWidget(
       _wrap(PlacesScreen(travelStore: store, placeSearch: _search())),
@@ -584,7 +584,7 @@ void main() {
       await store.saveEntry(
         store
             .newEntry(placeId: place.id, kind: EntryKind.impression)
-            .copyWith(title: title, at: () => DateTime(2025, 4, day)),
+            .copyWith(text: title, at: () => DateTime(2025, 4, day)),
       );
     }
     await tester.pumpWidget(
@@ -698,88 +698,54 @@ void main() {
       ),
     );
 
-    testWidgets('an impression is written, read, and linked to a person', (
-      tester,
-    ) async {
-      _tall(tester);
-      final people = FakePersonStore();
-      final mia = await people.create(name: 'Mia');
-      await tester.pumpWidget(page(people: people));
-      await tester.pumpAndSettle();
-      expect(find.byKey(const ValueKey('placeEntry-')), findsNothing);
-      expect(find.byKey(const ValueKey('placePhotos')), findsOne);
+    testWidgets(
+      'an impression is one box of text, at the place it was written from',
+      (tester) async {
+        _tall(tester);
+        await tester.pumpWidget(page());
+        await tester.pumpAndSettle();
+        expect(find.byKey(const ValueKey('placeEntry-')), findsNothing);
+        expect(find.byKey(const ValueKey('placePhotos')), findsOne);
 
-      await tester.tap(find.byKey(const ValueKey('placeAddImpression')));
-      await tester.pumpAndSettle();
-      // One box to write in; the rest folded until asked for.
-      expect(find.byKey(const ValueKey('travelEntryText')), findsOne);
-      expect(find.byKey(const ValueKey('travelEntryTitle')), findsNothing);
-      await tester.tap(find.byKey(const ValueKey('travelEntryMore')));
-      await tester.pumpAndSettle();
-      await tester.enterText(
-        find.byKey(const ValueKey('travelEntryTitle')),
-        'First day',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('travelEntryText')),
-        '# Temples\nWalked **all** day.',
-      );
-      await tester.tap(find.byKey(const ValueKey('travelEntryAddPerson')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.text('Mia').last);
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('travelEntrySave')));
-      await tester.pumpAndSettle();
+        await tester.tap(find.byKey(const ValueKey('placeAddImpression')));
+        await tester.pumpAndSettle();
+        // Nothing to fill in but the text; where and when are shown.
+        expect(find.byKey(const ValueKey('travelEntryText')), findsOne);
+        expect(find.byKey(const ValueKey('travelEntryMore')), findsNothing);
+        expect(
+          find.descendant(
+            of: find.byKey(const ValueKey('travelEntryDate')),
+            matching: find.text('Kyoto'),
+          ),
+          findsOne,
+        );
+        await tester.enterText(
+          find.byKey(const ValueKey('travelEntryText')),
+          '# Temples\nWalked **all** day.',
+        );
+        await tester.tap(find.byKey(const ValueKey('travelEntrySave')));
+        await tester.pumpAndSettle();
 
-      final entry = store.entriesById.values.single;
-      expect(entry.kind, EntryKind.impression);
-      expect(entry.title, 'First day');
-      expect(store.links[(LinkOwner.entry, entry.id)], [
-        TravelLink(LinkTarget.person, mia.id),
-      ]);
-      expect(find.text('Impressions'), findsOne);
+        final entry = store.entriesById.values.single;
+        expect(
+          (entry.kind, entry.placeId, entry.title, entry.rating),
+          (EntryKind.impression, kyoto.id, '', null),
+        );
+        expect(store.links[(LinkOwner.entry, entry.id)] ?? const [], isEmpty);
 
-      await tester.tap(find.text('First day'));
-      await tester.pumpAndSettle();
-      expect(find.byType(TravelEntryScreen), findsOne);
-      expect(find.text('Temples'), findsOne);
-      expect(find.text('Mia'), findsOne);
-    });
-
-    testWidgets('impressions, any number, rated and tagged', (tester) async {
-      _tall(tester);
-      await tester.pumpWidget(page());
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('placeAddImpression')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('travelEntryMore')));
-      await tester.pumpAndSettle();
-      await tester.tap(find.byKey(const ValueKey('travelEntryStar4')));
-      await tester.enterText(
-        find.byKey(const ValueKey('travelEntryTags')),
-        'quiet, go back',
-      );
-      await tester.enterText(
-        find.byKey(const ValueKey('travelEntryText')),
-        'Calm in the rain.',
-      );
-      await tester.tap(find.byKey(const ValueKey('travelEntrySave')));
-      await tester.pumpAndSettle();
-
-      final entry = store.entriesById.values.single;
-      expect(entry.kind, EntryKind.impression);
-      expect(entry.rating, 4);
-      expect(entry.tags, ['quiet', 'go back']);
-      expect(find.text('Impressions'), findsOne);
-      expect(find.textContaining('★★★★☆'), findsOne);
-    });
+        await tester.tap(find.textContaining('Walked'));
+        await tester.pumpAndSettle();
+        expect(find.byType(TravelEntryScreen), findsOne);
+        expect(find.text('Temples'), findsOne);
+      },
+    );
 
     testWidgets('an entry is deleted from its editor', (tester) async {
       _tall(tester);
       final saved = await store.saveEntry(
         store
             .newEntry(placeId: kyoto.id, kind: EntryKind.diary)
-            .copyWith(title: 'Gone soon'),
+            .copyWith(text: 'Gone soon'),
       );
       await tester.pumpWidget(page());
       await tester.pumpAndSettle();

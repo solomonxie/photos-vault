@@ -184,6 +184,3 @@ dialog::backdrop { background: rgba(0,0,0,0.55); }
 .impression h3 { margin: 0 0 4px; font-size: 15px; }
 .impression-text { white-space: pre-wrap; margin: 8px 0 0; line-height: 1.45; }
 .plan-stops { margin-top: 6px; }
-.photo-strip { display: flex; gap: 4px; overflow-x: auto; margin-top: 10px; }
-.strip-photo { flex: none; width: 72px; height: 72px; padding: 0; border: 0; border-radius: 6px; overflow: hidden; background: var(--line); cursor: pointer; }
-.strip-photo img { width: 100%; height: 100%; object-fit: cover; }

@@ -315,8 +315,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           travelStore: _travelStore,
           entry: e,
           placeName: _travelPlaces[e.placeId]?.name ?? '',
-          assetRecordStore: widget.assetRecordStore,
-          personStore: widget.personStore,
         ),
       ),
     );

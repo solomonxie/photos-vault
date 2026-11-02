@@ -40,8 +40,7 @@ test('places: country and city from the photos; the phone\'s places filed by par
       { e: 'place', id: 'pt', o: 'add', x: { name: 'portugal', kind: 'country', lat: 39, lng: -8 } },
       { e: 'place', id: 'lx', o: 'add', x: { name: 'Lisbon', kind: 'city', parent_id: 'pt', lat: 38.7, lng: -9.1, description: 'Hills' } },
       { e: 'place', id: 'pin1', o: 'add', x: { name: 'Alfama', kind: 'point', parent_id: 'lx', description: 'Old town', lat: 38.71, lng: -9.13 } },
-      { e: 'entry', id: 'i1', o: 'add', x: { place_id: 'pin1', title: 'Fado night', text: 'Loud', rating: 4, at: day(1) } },
-      { e: 'entry', id: 'i1', o: 'madd', f: 'photos', x: 'B' },
+      { e: 'entry', id: 'i1', o: 'add', x: { place_id: 'pin1', text: 'Loud', at: day(1) } },
       { e: 'route', id: 'r1', o: 'add', x: { title: 'Portugal trip', starts: day(1), stops: '[{"place":"lx","arrived":null,"note":""},{"place":"pin1"}]' } },
     ]),
   );
@@ -51,7 +50,7 @@ test('places: country and city from the photos; the phone\'s places filed by par
   expect([lisbon.level, lisbon.name, lisbon.photos.length, lisbon.description]).toEqual(['city', 'Lisbon', 2, 'Hills']);
   expect(lisbon.children.map((c) => [c.level, c.name, c.description, c.photos])).toEqual([['pin', 'Alfama', 'Old town', ['A']]]);
   expect([...placeIds(lisbon)].sort()).toEqual(['lx', 'pin1']);
-  expect(lib.impressions.map((i) => [i.title, i.rating, i.photos])).toEqual([['Fado night', 4, ['B']]]);
+  expect(lib.impressions.map((i) => [i.placeId, i.text])).toEqual([['pin1', 'Loud']]);
   expect(lib.plans.map((r) => [r.title, r.stops.map((s) => s.placeId)])).toEqual([['Portugal trip', ['lx', 'pin1']]]);
 });
 

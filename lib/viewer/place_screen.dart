@@ -172,7 +172,6 @@ class _PlaceScreenState extends State<PlaceScreen> {
   Map<String?, List<Place>> _tree = const {};
   PlaceTally _tally = const PlaceTally({}, {});
   List<TravelEntry> _entries = const [];
-  Map<String, int> _photosOf = const {};
   List<TravelRoute> _routes = const [];
   List<MapPinData> _pins = const [];
 
@@ -184,7 +183,6 @@ class _PlaceScreenState extends State<PlaceScreen> {
 
   /// A favourite if there is one, else the newest.
   AssetRecord? _cover;
-  ({double average, int count})? _rating;
   final _undo = UndoToast();
 
   static const _shownVisits = 4;
@@ -248,18 +246,11 @@ class _PlaceScreenState extends State<PlaceScreen> {
       for (final r in here)
         if (seenPhotos.add(r.localId)) r,
     ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
-    final rated = [for (final e in entries) ?e.rating];
     if (!mounted) return;
     setState(() {
       _visits = visitsOf(photos);
       _cover =
           photos.where((r) => r.isFavorite).firstOrNull ?? photos.firstOrNull;
-      _rating = rated.isEmpty
-          ? null
-          : (
-              average: rated.reduce((a, b) => a + b) / rated.length,
-              count: rated.length,
-            );
       _place = place;
       _path = path;
       _inside = inside;
@@ -269,10 +260,6 @@ class _PlaceScreenState extends State<PlaceScreen> {
       _entries = entries;
       _routes = routes;
       _photos = photos;
-      _photosOf = {
-        for (final MapEntry(:key, :value) in links.entries)
-          key: value.where((l) => l.target == LinkTarget.asset).length,
-      };
       _pins = [
         if (_isPin(place))
           MapPinData(
@@ -300,8 +287,6 @@ class _PlaceScreenState extends State<PlaceScreen> {
           ),
           placeName: place.name,
           isNew: true,
-          assetRecordStore: widget.assetRecordStore,
-          personStore: widget.personStore,
         ),
       ),
     );
@@ -315,8 +300,6 @@ class _PlaceScreenState extends State<PlaceScreen> {
           travelStore: widget.travelStore,
           entryId: e.id,
           placeName: _byId[e.placeId]?.name ?? _place?.name ?? '',
-          assetRecordStore: widget.assetRecordStore,
-          personStore: widget.personStore,
         ),
       ),
     );
@@ -852,16 +835,6 @@ class _PlaceScreenState extends State<PlaceScreen> {
                                 ),
                               ),
                             ),
-                            if (_rating case final r?)
-                              Text(
-                                '★ ${r.average.toStringAsFixed(1)} (${r.count})',
-                                key: const ValueKey('placeRating'),
-                                style: const TextStyle(
-                                  color: CupertinoColors.systemOrange,
-                                  fontSize: 17,
-                                  fontWeight: FontWeight.w600,
-                                ),
-                              ),
                           ],
                         ),
                         const SizedBox(height: 2),
@@ -996,7 +969,6 @@ class _PlaceScreenState extends State<PlaceScreen> {
                             at: e.placeId == place.id
                                 ? null
                                 : _byId[e.placeId]?.name,
-                            photos: _photosOf[e.id] ?? 0,
                             onTap: () => _read(e),
                           ),
                         ),
@@ -1090,40 +1062,23 @@ class _PlaceScreenState extends State<PlaceScreen> {
 }
 
 /// An impression in a list: its title (or first line), the day, rating,
-/// where inside the page's place it was written ([at]) and its photos.
+/// and where inside the page's place it was written ([at]).
 Widget impressionTile(
   AppLocalizations l10n,
   TravelEntry e, {
   String? at,
-  int photos = 0,
-  AssetRecord? cover,
   required VoidCallback onTap,
 }) {
-  final excerpt = e.text.trim().split('\n').first;
+  final text = e.text.trim().replaceAll(RegExp(r'\s*\n\s*'), ' ');
   final line = [
     if (at != null) l10n.impressionAt(at),
     if (travelEntryLine(e) case final l when l.isNotEmpty) l,
-    if (photos > 0) l10n.travelEntryPhotosCount(photos),
   ].join(' · ');
   return CupertinoListTile(
     key: ValueKey('placeEntry-${e.id}'),
-    leadingSize: cover == null ? 28 : 44,
-    leading: cover == null
-        ? null
-        : ClipRRect(
-            borderRadius: BorderRadius.circular(6),
-            child: assetImage(
-              cover,
-              thumbnailSize: 120,
-              placeholder: () =>
-                  const ColoredBox(color: CupertinoColors.systemGrey5),
-            ),
-          ),
     title: Text(
-      e.title.isNotEmpty
-          ? e.title
-          : (excerpt.isNotEmpty ? excerpt : l10n.travelEntryUntitled),
-      maxLines: 1,
+      text.isNotEmpty ? text : l10n.travelEntryUntitled,
+      maxLines: 2,
       overflow: TextOverflow.ellipsis,
     ),
     subtitle: line.isEmpty

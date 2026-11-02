@@ -64,13 +64,8 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(row);
     await tester.pumpAndSettle();
-    if (find.byKey(const ValueKey('travelEntryTitle')).evaluate().isEmpty) {
-      await tester.tap(find.byKey(const ValueKey('travelEntryMore')));
-      await tester.pumpAndSettle();
-    }
-
     await tester.enterText(
-      find.byKey(const ValueKey('travelEntryTitle')),
+      find.byKey(const ValueKey('travelEntryText')),
       'Golden afternoon',
     );
     await tester.tap(find.byKey(const ValueKey('travelEntrySave')));
@@ -81,9 +76,8 @@ void main() {
     final entry = travel.entriesById.values.single;
     expect(entry.placeId, city.id);
     expect(entry.at, DateTime(2024, 5, 4));
-    expect(travel.links[(LinkOwner.entry, entry.id)], [
-      const TravelLink(LinkTarget.asset, 'a'),
-    ]);
+    expect(entry.text, 'Golden afternoon');
+    expect(travel.links[(LinkOwner.entry, entry.id)] ?? const [], isEmpty);
     expect(find.text('Impressions of Kyoto (1)'), findsOne);
 
     await tester.ensureVisible(row);

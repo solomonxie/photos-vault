@@ -42,10 +42,6 @@ class _ImpressionsScreenState extends State<ImpressionsScreen> {
   bool _loaded = false;
   List<TravelEntry> _entries = const [];
   Map<String, String> _paths = const {};
-  Map<String, int> _photosOf = const {};
-
-  /// Each entry's first linked photo, for its row.
-  Map<String, AssetRecord> _covers = const {};
   final _search = TextEditingController();
   final _undo = UndoToast();
 
@@ -66,18 +62,6 @@ class _ImpressionsScreenState extends State<ImpressionsScreen> {
     final store = widget.travelStore;
     final entries = await store.entries(limit: 1000);
     final places = await store.places();
-    final links = await store.linksFor(LinkOwner.entry, [
-      for (final e in entries) e.id,
-    ]);
-    final firsts = <String, String>{
-      for (final MapEntry(:key, :value) in links.entries)
-        if (value.where((l) => l.target == LinkTarget.asset).firstOrNull
-            case final l?)
-          key: l.id,
-    };
-    final records =
-        await widget.assetRecordStore?.listOf(firsts.values) ??
-        const <AssetRecord>[];
     if (!mounted) return;
     final byId = {for (final p in places) p.id: p};
     // "Gion, Kyoto": the place and the one it's in.
@@ -88,19 +72,10 @@ class _ImpressionsScreenState extends State<ImpressionsScreen> {
       return up == null || up.isCountry ? p.name : '${p.name}, ${up.name}';
     }
 
-    final recordById = {for (final r in records) r.localId: r};
     setState(() {
       _loaded = true;
       _entries = entries;
       _paths = {for (final e in entries) e.placeId: path(e.placeId)};
-      _photosOf = {
-        for (final MapEntry(:key, :value) in links.entries)
-          key: value.where((l) => l.target == LinkTarget.asset).length,
-      };
-      _covers = {
-        for (final MapEntry(:key, :value) in firsts.entries)
-          key: ?recordById[value],
-      };
     });
   }
 
@@ -111,8 +86,6 @@ class _ImpressionsScreenState extends State<ImpressionsScreen> {
           travelStore: widget.travelStore,
           entryId: e.id,
           placeName: _paths[e.placeId] ?? '',
-          assetRecordStore: widget.assetRecordStore,
-          personStore: widget.personStore,
         ),
       ),
     );
@@ -136,8 +109,6 @@ class _ImpressionsScreenState extends State<ImpressionsScreen> {
           ),
           placeName: place.name,
           isNew: true,
-          assetRecordStore: widget.assetRecordStore,
-          personStore: widget.personStore,
         ),
       ),
     );
@@ -274,8 +245,6 @@ class _ImpressionsScreenState extends State<ImpressionsScreen> {
                               l10n,
                               e,
                               at: _paths[e.placeId],
-                              photos: _photosOf[e.id] ?? 0,
-                              cover: _covers[e.id],
                               onTap: () => _read(e),
                             ),
                           ),

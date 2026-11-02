@@ -2238,9 +2238,6 @@ class _InfoPanelState extends State<_InfoPanel> {
             ),
             placeName: city.name,
             isNew: true,
-            assetRecordStore: widget.assetRecordStore,
-            personStore: widget.personStore,
-            initialAssetIds: [record.localId],
           ),
         ),
       );

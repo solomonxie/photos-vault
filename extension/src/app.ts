@@ -359,31 +359,14 @@ function placePage(pl: Place, path: string[], hash: string) {
 const shortDate = (at: number) =>
   new Date(at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
 
-/// Thumbnails that open the viewer over just these photos.
-function photoStrip(ids: string[]) {
-  const list = ids.flatMap((id) => lib.photos.get(id) ?? []);
-  return h(
-    'div',
-    { class: 'photo-strip' },
-    ...list.map((p) => h('button', { class: 'strip-photo', onclick: () => openViewer(viewerContext(), p, list) }, cover(p.id))),
-  );
-}
-
 /// An impression in full: it's read here, not opened.
 function impressionCard(i: Impression, at: string) {
-  const meta = [
-    at ? t('impressionAt', at) : '',
-    i.at !== null ? shortDate(i.at) : '',
-    i.rating ? '★'.repeat(i.rating) : '',
-    i.tags.map((tag) => `#${tag}`).join(' '),
-  ].filter((x) => x.length > 0);
+  const meta = [at ? t('impressionAt', at) : '', i.at !== null ? shortDate(i.at) : ''].filter((x) => x.length > 0);
   return h(
     'article',
     { class: 'impression' },
-    i.title ? h('h3', {}, i.title) : null,
     meta.length ? h('div', { class: 'muted' }, meta.join(' · ')) : null,
     i.text ? h('p', { class: 'impression-text' }, i.text) : null,
-    i.photos.length ? photoStrip(i.photos) : null,
   );
 }
 

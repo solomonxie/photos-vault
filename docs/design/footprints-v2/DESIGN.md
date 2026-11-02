@@ -11,7 +11,6 @@ lists with no pictures, no search, no sense of when you were somewhere.
 ## Goals
 - Places, impressions and plans sync through the cloud log, both ways, to
   every phone; the extension shows them read-only.
-- A new impression offers the photos taken there that day.
 - A travel plan can be drafted from photos: one stop per place per day.
 - Visual, searchable screens (see `UIUX_DESIGN.md`).
 

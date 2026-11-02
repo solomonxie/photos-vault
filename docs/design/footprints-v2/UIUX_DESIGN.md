@@ -38,7 +38,7 @@ FOOTPRINTS
 ```
 ┌───────────────────────────────┐
 │ [cover photo]                 │
-│ Kyoto            ★ 4.5 (3)    │
+│ Kyoto                         │
 ├───────────────────────────────┤
 │ [map card]                    │
 │ Description…                  │
@@ -58,19 +58,23 @@ FOOTPRINTS
 ```
 [Search impressions]
 2019 ─────────────────────────
-[img] Kagizen Yoshifusa  ★★★★
-      Gion · Apr 3 · 2 photos
-      Warabimochi was cold and…
+Warabimochi was cold and the
+garden quiet…
+At Gion · Apr 3, 2017
 ```
-Reading view: photo strip on top, then text.
+Reading view: place, day, text.
 
-## New impression (9: suggestions)
+## Impression
+Text only, attached to one place or pin, with the day it's about. No
+title, rating, tags, people or photos (older ones keep theirs, unshown).
 
 ```
-SUGGESTED PHOTOS · Apr 3 at Gion
-[▢][▢][▢][▢] →        Add All
+New Impression                    Save
+📍 Gion                  Apr 3, 2017 ›
+┌───────────────────────────────┐
+│ What happened, what it was…   │
+└───────────────────────────────┘
 ```
-Tap toggles each; shown only for a dated impression at a place with matches.
 
 ## Travel plans (13, 3: draft)
 
@@ -85,8 +89,8 @@ Tap toggles each; shown only for a dated impression at a place with matches.
 - Delete → toast `Deleted · Undo` for 4 s, with haptic.
 
 ## Extension
-Place page: description · Pins · **Impressions** (card: title, ★, date,
-text, photo strip) · **Travel Plans** (title, dates, stops) · Photos.
+Place page: description · Pins · **Impressions** (card: place, date,
+text) · **Travel Plans** (title, dates, stops) · Photos.
 
 ## Deviations
 None.

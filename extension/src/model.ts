@@ -51,16 +51,12 @@ export interface Place {
   children: Place[];
 }
 
-/// An impression written on the phone, about one place.
+/// An impression written on the phone, about one place or pin.
 export interface Impression {
   id: string;
   placeId: string;
-  title: string;
   text: string;
-  rating: number | null;
   at: number | null;
-  tags: string[];
-  photos: string[];
 }
 
 export interface PlanStop {
@@ -280,16 +276,11 @@ export function buildLibrary(state: SyncState): Library {
         at: kind !== 'country' && kind !== 'city' && typeof lat === 'number' && typeof lng === 'number' ? { lat, lng } : undefined,
       });
     } else if (ent.e === 'entry') {
-      const rating = field(ent, 'rating');
       impressions.push({
         id: ent.id,
         placeId: str(field(ent, 'place_id')),
-        title: str(field(ent, 'title')),
         text: str(field(ent, 'text')),
-        rating: typeof rating === 'number' && rating > 0 ? rating : null,
         at: numOrNull(field(ent, 'at')),
-        tags: members(ent, 'tags'),
-        photos: live(members(ent, 'photos')),
       });
     } else if (ent.e === 'route') {
       plans.push({
