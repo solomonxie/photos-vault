@@ -98,7 +98,21 @@ reruns minutes.
 - People → Faces to Name: the imported groups, by size. Open a group →
   all faces ticked; untick wrong ones, view the photo; Name… (prefilled
   with `suggest`) links the ticked faces, the rest stay in the group. Not
-  This Group, Delete Group. Same name on two groups = merged.
+  This Group. Same name on two groups = merged.
+- Ignore (no delete): ticked faces, a whole group, or several groups from
+  Select on Faces to Name. Kept under Faces to Name → Ignored, Stop
+  Ignoring brings a group back. Re-import: an ignored face never moves;
+  a new group mostly of ignored faces joins their ignored group.
+  ```
+  Faces to Name              Select
+  (◎) Mia?                    47 ›
+  (◎) Unnamed                 12 ›
+  ⊘ Ignored                    3 ›
+
+  Mia?                       Ignore
+  [◎✓][◎✓][◎ ][◎✓]
+  [Not This Group]   [Name…]
+  ```
 - Face crops: 3 photo decodes at once, newest tile first, none mid-fling.
 
 ## Prerequisites
@@ -125,5 +139,6 @@ reruns minutes.
 - [x] T7 App: `faces.json` parser + matcher (key, box rule) + summary sheet.
 - [x] T8 App: commit path → confirmed faces.
 - [x] T10 v2: groups in the file, People → Faces to Name naming.
+- [x] T11 Ignore faces/groups, Ignored list, re-import keeps them ignored.
 - [ ] T9 Measure: phone suggestion precision before/after on held-out
       named faces.

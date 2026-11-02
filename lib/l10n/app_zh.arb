@@ -1022,8 +1022,6 @@
   "faceGroupsUndo": "撤销",
   "faceGroupsName": "命名…",
   "faceGroupsNotThis": "不属于此组",
-  "faceGroupsDelete": "删除分组",
-  "faceGroupsDeleteConfirm": "删除此分组？其中的人脸保留，不命名。",
   "faceGroupsPickTitle": "这是谁？",
   "faceGroupsNamed": "{count, plural, other{已将 {count} 张人脸命名为 {name}。}}",
   "faceImportNothing": "文件中没有与此处照片对应的人脸。",
@@ -1438,7 +1436,7 @@
   "devZipSpec": "文件：.zip\n\npeople.csv              可选；列同“导入人物资料”\nphotos/<姓名>/<文件>    每人一个文件夹\n\n• <姓名> 须与人物姓名一致（不区分大小写）。\n• 照片：jpg、jpeg、png、gif、bmp、webp、heic、heif。视频：mov、mp4。\n• 其他文件会被跳过并计数。",
   "devFacesTitle": "导入人脸文件",
   "devFacesSummary": "来自 Mac 人脸工具的已命名人脸和人脸分组。",
-  "devFacesHow": "• 由 Mac 上的 tools/faces 生成（对存储桶中的照片做人脸识别）。\n• 按存储桶中的文件名或原图的 SHA-256 找到照片。\n• 带 person 的人脸直接命名；人脸框会与手机找到的人脸匹配，匹配不上则新增。\n• 带 group 的人脸在“人物 → 待识别的人脸”中等待，确认后点“命名…”。\n• suggest 只是建议。已命名的人脸、已移出分组的人脸和已删除的分组都保持不变。\n• 跳过隐藏照片。写入前会先显示数量。",
+  "devFacesHow": "• 由 Mac 上的 tools/faces 生成（对存储桶中的照片做人脸识别）。\n• 按存储桶中的文件名或原图的 SHA-256 找到照片。\n• 带 person 的人脸直接命名；人脸框会与手机找到的人脸匹配，匹配不上则新增。\n• 带 group 的人脸在“人物 → 待识别的人脸”中等待，确认后点“命名…”。\n• suggest 只是建议。已命名或已移出分组的人脸保持不变；已忽略的人脸仍被忽略，主要由它们组成的新分组会并入其忽略分组。\n• 跳过隐藏照片。写入前会先显示数量。",
   "devFacesSpec": "文件：faces.json，UTF-8 JSON，版本 1 或 2。\n\n• photos[].key：存储桶键的文件名（不含扩展名）；或改用原图的 sha256（十六进制）。\n• box：[x, y, w, h]，0–1，从摆正后照片的左上角算起。\n• 每个人脸有 person 或 group，不能都有。group 仅限版本 2。\n• groups[]：id 必填；faces 为数量；suggest 可选。\n• 未知字段会被忽略；无法读取的人脸会被跳过并计数。",
   "devChatsTitle": "导入聊天记录",
   "devChatsSummary": "QQ、微信、短信或 WhatsApp 导出的消息，归到人物上。",
@@ -1668,5 +1666,14 @@
   "impressionsSearch": "搜索印象",
   "impressionsNoMatch": "没有匹配的印象。",
   "impressionsUndated": "无日期",
-  "impressionsWriteFirst": "写一条印象"
+  "impressionsWriteFirst": "写一条印象",
+  "faceGroupsIgnore": "忽略",
+  "faceGroupsIgnoredNote": "已忽略 {count} 张人脸。",
+  "faceGroupsIgnoreCount": "忽略 {count} 个分组",
+  "faceGroupsUnignore": "取消忽略",
+  "faceGroupsUnignoreCount": "取消忽略 {count} 个分组",
+  "faceGroupsIgnoredTitle": "已忽略",
+  "faceGroupsIgnoredHint": "保留但不再询问。之后导入的相同人脸会回到这里。",
+  "faceGroupsIgnoredEmpty": "没有已忽略的人脸。",
+  "faceGroupsAllNamed": "没有待命名的人脸。"
 }

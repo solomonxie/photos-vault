@@ -228,9 +228,7 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
       final had = _members[key];
       bool dead(String id) => _groups[id]?.dismissed ?? false;
       if (had == null ||
-          (had.group != g.groupId &&
-              (had.removed || dead(had.group)) &&
-              !dead(g.groupId))) {
+          (had.group != g.groupId && had.removed && !dead(g.groupId))) {
         _members[key] = (
           localId: g.localId,
           face: g.face,
@@ -264,10 +262,12 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   }
 
   @override
-  Future<List<StoredFaceGroup>> faceGroups() async {
+  Future<List<StoredFaceGroup>> faceGroups({bool ignored = false}) async {
     final faces = <String, List<({String localId, FaceRect face})>>{};
     for (final m in _members.values) {
-      if (m.removed || (_groups[m.group]?.dismissed ?? true)) continue;
+      if (m.removed || (_groups[m.group]?.dismissed ?? !ignored) != ignored) {
+        continue;
+      }
       if (_descriptors.any(
         (d) => d.localId == m.localId && d.face == m.face && d.personId != null,
       )) {
@@ -331,9 +331,28 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
   }
 
   @override
-  Future<void> dismissGroup(String id) async {
+  Future<void> ignoreGroup(String id, {bool ignored = true}) async {
     final g = _groups[id];
-    if (g != null) _groups[id] = (suggest: g.suggest, dismissed: true);
+    if (g != null) _groups[id] = (suggest: g.suggest, dismissed: ignored);
+  }
+
+  @override
+  Future<void> ignoreFaces(
+    StoredFaceGroup group,
+    Iterable<({String localId, FaceRect face})> faces,
+  ) async {
+    final id = '${group.id}-i';
+    _groups[id] = (suggest: group.suggest, dismissed: true);
+    for (final f in faces) {
+      final key = faceKey(f.localId, f.face);
+      if (_members[key] == null) continue;
+      _members[key] = (
+        localId: f.localId,
+        face: f.face,
+        group: id,
+        removed: false,
+      );
+    }
   }
 
   @override

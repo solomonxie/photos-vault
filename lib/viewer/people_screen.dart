@@ -23,7 +23,7 @@ import '../storage/asset_record_store.dart';
 import 'person_avatar.dart';
 import 'profile_chip.dart';
 import 'person_page_screen.dart';
-import 'imported_group_screen.dart';
+import 'face_groups_screen.dart';
 import 'search_picker_sheet.dart';
 import 'person_profile_screen.dart';
 import 'suggestion_action_screen.dart';
@@ -190,102 +190,26 @@ class _PeopleScreenState extends State<PeopleScreen> {
   /// import — not with every reload, which no edit here changes.
   Map<String, int> _chats = const {};
 
-  /// Imported face groups still waiting for a name, biggest first, and
-  /// the records their faces draw from. Listed first in Faces to Name.
+  /// Imported face groups still waiting for a name, and how many are
+  /// ignored: the Faces to Name row shows while either has any.
   List<StoredFaceGroup> _imported = const [];
-  Map<String, AssetRecord> _importedRecords = const {};
+  int _ignoredGroups = 0;
 
   Future<void> _loadFaceGroups() async {
     final analysis = widget.aiAnalysisStore;
     if (analysis == null) return;
     try {
       final found = await loadFaceGroups(analysis, widget.assetRecordStore);
+      final ignored = await analysis.faceGroups(ignored: true);
       if (!mounted) return;
       setState(() {
         _imported = found.groups;
-        _importedRecords = found.records;
+        _ignoredGroups = ignored.length;
       });
-      _pageTick.value++;
     } catch (_) {
       // No analysis database: nothing was imported.
     }
   }
-
-  Future<void> _openImported(StoredFaceGroup group) async {
-    var left = group.faces;
-    await Navigator.of(context).push(
-      CupertinoPageRoute<void>(
-        builder: (_) => ImportedGroupScreen(
-          group: group,
-          records: _importedRecords,
-          analysisStore: widget.aiAnalysisStore!,
-          assetRecordStore: widget.assetRecordStore,
-          personStore: widget.personStore,
-          onOpenAsset: widget.onOpenAsset,
-          onLeft: (faces) => left = faces,
-        ),
-      ),
-    );
-    if (!mounted) return;
-    // At once from what the page reports; the full read follows.
-    if (!identical(left, group.faces)) {
-      setState(() {
-        _imported = [
-          for (final g in _imported)
-            if (g.id != group.id)
-              g
-            else if (left.isNotEmpty)
-              StoredFaceGroup(id: g.id, suggest: g.suggest, faces: left),
-        ];
-      });
-      _pageTick.value++;
-    }
-    await _loadFaceGroups();
-    await _reload();
-  }
-
-  Widget _importedRow(AppLocalizations l10n, StoredFaceGroup group) =>
-      CupertinoListTile(
-        key: ValueKey('people-imported-${group.id}'),
-        leadingSize: _faceSize + 4,
-        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
-        leading: Container(
-          decoration: BoxDecoration(
-            shape: BoxShape.circle,
-            border: Border.all(color: CupertinoColors.systemGrey, width: 1.5),
-          ),
-          padding: const EdgeInsets.all(2),
-          child: PersonAvatar(
-            assetRecordStore: widget.assetRecordStore,
-            localId: group.faces.first.localId,
-            face: group.faces.first.face,
-            records: _importedRecords,
-            size: _faceSize,
-          ),
-        ),
-        title: Text(
-          group.suggest == null
-              ? l10n.peopleUnnamedFace
-              : l10n.peopleSuggestedFace(group.suggest!),
-          style: const TextStyle(color: CupertinoColors.systemGrey),
-        ),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '${group.faces.length}',
-              style: const TextStyle(color: CupertinoColors.systemGrey),
-            ),
-            const SizedBox(width: 4),
-            const Icon(
-              CupertinoIcons.chevron_forward,
-              size: 18,
-              color: CupertinoColors.systemGrey2,
-            ),
-          ],
-        ),
-        onTap: () => _openImported(group),
-      );
 
   Future<void> _loadChats() async {
     try {
@@ -1385,26 +1309,20 @@ class _PeopleScreenState extends State<PeopleScreen> {
   }
 
   /// The faces get their own page; here they are one row, above the list.
-  void _openFaces() {
-    final l10n = AppLocalizations.of(context)!;
-    Navigator.of(context).push(
+  Future<void> _openFaces() async {
+    await Navigator.of(context).push(
       CupertinoPageRoute<void>(
-        builder: (_) => CupertinoPageScaffold(
-          navigationBar: CupertinoNavigationBar(
-            middle: Text(l10n.peopleUnnamedHeading),
-          ),
-          child: SafeArea(
-            child: ValueListenableBuilder<int>(
-              valueListenable: _pageTick,
-              builder: (_, _, _) => ListView(
-                key: const ValueKey('people-faces-page'),
-                children: [..._unnamedFaceRows(l10n)],
-              ),
-            ),
-          ),
+        builder: (_) => FaceGroupsScreen(
+          analysisStore: widget.aiAnalysisStore!,
+          assetRecordStore: widget.assetRecordStore,
+          personStore: widget.personStore,
+          onOpenAsset: widget.onOpenAsset,
         ),
       ),
     );
+    if (!mounted) return;
+    await _loadFaceGroups();
+    await _reload();
   }
 
   Widget _facesRow(AppLocalizations l10n) => CupertinoListTile(
@@ -1431,30 +1349,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
     ),
     onTap: _openFaces,
   );
-
-  List<Widget> _unnamedFaceRows(AppLocalizations l10n) => [
-    Padding(
-      padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              l10n.peopleUnnamedHeading,
-              style: const TextStyle(fontSize: 13, fontWeight: FontWeight.w600),
-            ),
-          ),
-          Text(
-            '${_imported.length}',
-            style: const TextStyle(
-              fontSize: 13,
-              color: CupertinoColors.systemGrey,
-            ),
-          ),
-        ],
-      ),
-    ),
-    for (final group in _imported) _importedRow(l10n, group),
-  ];
 
   /// Straight to the profile with the keyboard in the name field, rather
   /// than a dialog asking for a name and then a page asking for everything
@@ -1873,7 +1767,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
           ),
           onTap: _openUngrouped,
         ),
-      if (_imported.isNotEmpty && query.isEmpty) _facesRow(l10n),
+      if ((_imported.isNotEmpty || _ignoredGroups > 0) && query.isEmpty)
+        _facesRow(l10n),
       if (_people.isNotEmpty) _sectionHeading(l10n.peopleSectionNamed),
       if (!_loaded)
         const Padding(

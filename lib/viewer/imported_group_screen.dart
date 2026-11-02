@@ -16,7 +16,8 @@ typedef _Face = ({String localId, FaceRect face});
 
 /// One imported group's faces (see
 /// `docs/design/face-recognition/MAC-PIPELINE.md`), all ticked: tap leaves one out, touch and hold opens
-/// its photo. Name the ticked ones, or take them out of the group.
+/// its photo. Name the ticked ones, take them out of the group, or ignore
+/// them. With [ignored], an ignored group: its faces, and Stop Ignoring.
 class ImportedGroupScreen extends StatefulWidget {
   const ImportedGroupScreen({
     super.key,
@@ -27,7 +28,10 @@ class ImportedGroupScreen extends StatefulWidget {
     required this.personStore,
     this.onOpenAsset,
     this.onLeft,
+    this.ignored = false,
   });
+
+  final bool ignored;
 
   final StoredFaceGroup group;
 
@@ -158,28 +162,31 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
     }
   }
 
-  Future<void> _delete() async {
+  /// Ticked faces stop being asked about; all of them ignores the group.
+  Future<void> _ignore() async {
+    final ticked = _ticked;
+    if (_busy || ticked.isEmpty) return;
     final l10n = AppLocalizations.of(context)!;
-    final yes = await showCupertinoModalPopup<bool>(
-      context: context,
-      builder: (sheet) => CupertinoActionSheet(
-        message: Text(l10n.faceGroupsDeleteConfirm),
-        actions: [
-          CupertinoActionSheetAction(
-            key: const ValueKey('faceGroupDeleteConfirm'),
-            isDestructiveAction: true,
-            onPressed: () => Navigator.of(sheet).pop(true),
-            child: Text(l10n.faceGroupsDelete),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(sheet).pop(false),
-          child: Text(l10n.actionCancel),
-        ),
-      ),
-    );
-    if (yes != true || !mounted) return;
-    await widget.analysisStore.dismissGroup(widget.group.id);
+    setState(() {
+      _busy = true;
+      _undo = null;
+    });
+    try {
+      if (ticked.length == _faces.length) {
+        await widget.analysisStore.ignoreGroup(widget.group.id);
+      } else {
+        await widget.analysisStore.ignoreFaces(widget.group, ticked);
+      }
+      if (mounted) _keepUnticked(l10n.faceGroupsIgnoredNote(ticked.length));
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Future<void> _unignore() async {
+    if (_busy) return;
+    setState(() => _busy = true);
+    await widget.analysisStore.ignoreGroup(widget.group.id, ignored: false);
     widget.onLeft?.call(const []);
     if (mounted) Navigator.of(context).pop();
   }
@@ -249,57 +256,60 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
       navigationBar: CupertinoNavigationBar(
         backgroundColor: settingsPageBackground,
         middle: Text(widget.group.suggest ?? l10n.faceGroupsUnnamed),
-        trailing: CupertinoButton(
-          key: const ValueKey('faceGroupDelete'),
-          padding: EdgeInsets.zero,
-          onPressed: _busy ? null : _delete,
-          child: const Icon(CupertinoIcons.trash),
-        ),
+        trailing: widget.ignored
+            ? null
+            : CupertinoButton(
+                key: const ValueKey('faceGroupIgnore'),
+                padding: EdgeInsets.zero,
+                onPressed: _busy || ticked == 0 ? null : _ignore,
+                child: Text(l10n.faceGroupsIgnore),
+              ),
       ),
       child: SafeArea(
         child: Column(
           children: [
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: Text(
-                      _note ?? l10n.faceGroupsSelected(ticked, _faces.length),
-                      style: settingsHintStyle,
+            if (!widget.ignored)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _note ?? l10n.faceGroupsSelected(ticked, _faces.length),
+                        style: settingsHintStyle,
+                      ),
                     ),
-                  ),
-                  if (_undo != null)
+                    if (_undo != null)
+                      CupertinoButton(
+                        key: const ValueKey('faceGroupUndo'),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        minimumSize: Size.zero,
+                        onPressed: _busy ? null : _takeBack,
+                        child: Text(
+                          l10n.faceGroupsUndo,
+                          style: const TextStyle(
+                            fontSize: 13,
+                            color: settingsAccent,
+                          ),
+                        ),
+                      ),
                     CupertinoButton(
-                      key: const ValueKey('faceGroupUndo'),
                       padding: const EdgeInsets.symmetric(horizontal: 8),
                       minimumSize: Size.zero,
-                      onPressed: _busy ? null : _takeBack,
+                      onPressed: _toggleAll,
                       child: Text(
-                        l10n.faceGroupsUndo,
+                        _off.isEmpty
+                            ? l10n.faceGroupsSelectNone
+                            : l10n.faceGroupsSelectAll,
                         style: const TextStyle(
                           fontSize: 13,
                           color: settingsAccent,
                         ),
                       ),
                     ),
-                  CupertinoButton(
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: Size.zero,
-                    onPressed: _toggleAll,
-                    child: Text(
-                      _off.isEmpty
-                          ? l10n.faceGroupsSelectNone
-                          : l10n.faceGroupsSelectAll,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: settingsAccent,
-                      ),
-                    ),
-                  ),
-                ],
+                  ],
+                ),
               ),
-            ),
             Expanded(
               child: GridView.builder(
                 padding: const EdgeInsets.all(8),
@@ -314,10 +324,13 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
                   return _FaceTile(
                     key: ValueKey('${f.localId}|${f.face.encode()}'),
                     face: f,
-                    on: !_off.contains(i),
+                    on: widget.ignored || !_off.contains(i),
+                    tick: !widget.ignored,
                     records: widget.records,
                     assetRecordStore: widget.assetRecordStore,
-                    onTap: () => _toggle(i),
+                    onTap: widget.ignored
+                        ? () => widget.onOpenAsset?.call(f.localId)
+                        : () => _toggle(i),
                     onLongPress: widget.onOpenAsset == null
                         ? null
                         : () => widget.onOpenAsset!(f.localId),
@@ -325,29 +338,42 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
                 },
               ),
             ),
-            Padding(
-              padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-              child: Row(
-                children: [
-                  Expanded(
-                    child: CupertinoButton(
-                      key: const ValueKey('faceGroupNotThis'),
-                      color: settingsControlFill,
-                      onPressed: _busy || ticked == 0 ? null : _notThisGroup,
-                      child: Text(l10n.faceGroupsNotThis),
-                    ),
+            if (widget.ignored)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: CupertinoButton.filled(
+                    key: const ValueKey('faceGroupUnignore'),
+                    onPressed: _busy ? null : _unignore,
+                    child: Text(l10n.faceGroupsUnignore),
                   ),
-                  const SizedBox(width: 12),
-                  Expanded(
-                    child: CupertinoButton.filled(
-                      key: const ValueKey('faceGroupName'),
-                      onPressed: _busy || ticked == 0 ? null : _name,
-                      child: Text(l10n.faceGroupsName),
+                ),
+              )
+            else
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: CupertinoButton(
+                        key: const ValueKey('faceGroupNotThis'),
+                        color: settingsControlFill,
+                        onPressed: _busy || ticked == 0 ? null : _notThisGroup,
+                        child: Text(l10n.faceGroupsNotThis),
+                      ),
                     ),
-                  ),
-                ],
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: CupertinoButton.filled(
+                        key: const ValueKey('faceGroupName'),
+                        onPressed: _busy || ticked == 0 ? null : _name,
+                        child: Text(l10n.faceGroupsName),
+                      ),
+                    ),
+                  ],
+                ),
               ),
-            ),
           ],
         ),
       ),
@@ -360,6 +386,7 @@ class _FaceTile extends StatelessWidget {
     super.key,
     required this.face,
     required this.on,
+    this.tick = true,
     required this.records,
     required this.assetRecordStore,
     required this.onTap,
@@ -368,6 +395,7 @@ class _FaceTile extends StatelessWidget {
 
   final _Face face;
   final bool on;
+  final bool tick;
   final Map<String, AssetRecord> records;
   final AssetRecordStore assetRecordStore;
   final VoidCallback onTap;
@@ -390,15 +418,18 @@ class _FaceTile extends StatelessWidget {
               size: box.maxWidth,
             ),
           ),
-          Positioned(
-            right: 2,
-            bottom: 2,
-            child: Icon(
-              on ? CupertinoIcons.checkmark_circle_fill : CupertinoIcons.circle,
-              size: 22,
-              color: on ? settingsAccent : CupertinoColors.systemGrey,
+          if (tick)
+            Positioned(
+              right: 2,
+              bottom: 2,
+              child: Icon(
+                on
+                    ? CupertinoIcons.checkmark_circle_fill
+                    : CupertinoIcons.circle,
+                size: 22,
+                color: on ? settingsAccent : CupertinoColors.systemGrey,
+              ),
             ),
-          ),
         ],
       ),
     ),

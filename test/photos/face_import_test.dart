@@ -393,20 +393,67 @@ void main() {
         expect(await store.facesFor('p'), [vision]);
 
         await store.ungroupFaces([(localId: 'q', face: vision)]);
-        await store.dismissGroup('g2');
+        await store.ignoreGroup('g2');
         await put(store, file, groups: {'g1': 'Ava'});
         groups = await store.faceGroups();
         expect(groups.single.id, 'g1');
         expect(groups.single.faces.single.localId, 'p');
 
-        // A newer run takes faces out of a deleted group, or one they were
-        // taken out of.
+        // A newer run takes a face out of a group it was taken out of; an
+        // ignored face stays, and a new group of it joins its ignored one.
         await put(store, [
           (localId: 'q', face: vision, groupId: 'g3'),
-          (localId: 'r', face: vision, groupId: 'g3'),
+          (localId: 'r', face: vision, groupId: 'g4'),
         ]);
-        final g3 = (await store.faceGroups()).singleWhere((g) => g.id == 'g3');
-        expect(g3.faces.map((f) => f.localId).toSet(), {'q', 'r'});
+        groups = await store.faceGroups();
+        expect(groups.map((g) => g.id).toSet(), {'g1', 'g3'});
+        expect(
+          groups.singleWhere((g) => g.id == 'g3').faces.single.localId,
+          'q',
+        );
+        final ignored = await store.faceGroups(ignored: true);
+        expect(ignored.single.id, 'g2');
+        expect(ignored.single.faces.single.localId, 'r');
+      });
+
+      test('ignoring some faces keeps them, and a later run too', () async {
+        final store = newStore();
+        await put(
+          store,
+          [
+            for (final id in ['a', 'b', 'c', 'd'])
+              (localId: id, face: vision, groupId: 'g1'),
+          ],
+          groups: {'g1': 'Ava'},
+        );
+        final g1 = (await store.faceGroups()).single;
+        await store.ignoreFaces(g1, [
+          (localId: 'c', face: vision),
+          (localId: 'd', face: vision),
+        ]);
+        expect((await store.faceGroups()).single.faces.length, 2);
+        final away = (await store.faceGroups(ignored: true)).single;
+        expect(away.suggest, 'Ava');
+        expect(away.faces.map((f) => f.localId).toSet(), {'c', 'd'});
+
+        // Re-clustered under new IDs: the ignored pair stays together and
+        // ignored, a new face with them joins them.
+        await put(store, [
+          (localId: 'c', face: vision, groupId: 'n1'),
+          (localId: 'd', face: vision, groupId: 'n1'),
+          (localId: 'e', face: vision, groupId: 'n1'),
+        ]);
+        expect((await store.faceGroups()).single.id, 'g1');
+        expect(
+          (await store.faceGroups(ignored: true)).single.faces
+              .map((f) => f.localId)
+              .toSet(),
+          {'c', 'd', 'e'},
+        );
+
+        await store.ignoreGroup(away.id, ignored: false);
+        expect((await store.faceGroups()).length, 2);
+        expect(await store.faceGroups(ignored: true), isEmpty);
       });
 
       test('a named face is never grouped', () async {

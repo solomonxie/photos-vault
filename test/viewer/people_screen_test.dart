@@ -1010,4 +1010,64 @@ void main() {
     expect(find.byKey(const ValueKey('people-imported-g1')), findsOneWidget);
     expect(find.text('Mia?'), findsOneWidget);
   });
+
+  testWidgets('faces ignored in a group, and groups ignored by Select, wait '
+      'under Ignored', (tester) async {
+    final records = await _withPhotos(['p1', 'p2', 'p3']);
+    final analyses = FakeAiAnalysisStore();
+    await analyses.importNamedFaces(
+      const [],
+      grouped: [
+        (localId: 'p1', face: _face, groupId: 'g1'),
+        (localId: 'p2', face: _face, groupId: 'g1'),
+        (localId: 'p3', face: _face, groupId: 'g2'),
+      ],
+      groups: const {'g1': 'Mia'},
+    );
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: FakePersonStore(),
+          assetRecordStore: records,
+          aiAnalysisStore: analyses,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _openFaces(tester);
+
+    await tester.tap(find.byKey(const ValueKey('people-imported-g1')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(ValueKey('p1|${_face.encode()}')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('faceGroupIgnore')));
+    await tester.pumpAndSettle();
+    expect(find.text('1 face ignored.'), findsOneWidget);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('faceGroupsSelect')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('people-imported-g2')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('faceGroupsApply')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('people-imported-g2')), findsNothing);
+    expect(find.byKey(const ValueKey('people-imported-g1')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('faceGroupsIgnored')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('people-imported-g2')), findsOneWidget);
+    expect(find.byKey(const ValueKey('people-imported-g1-i')), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('people-imported-g2')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('faceGroupUnignore')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('people-imported-g2')), findsNothing);
+    expect((await analyses.faceGroups()).map((g) => g.id).toSet(), {
+      'g1',
+      'g2',
+    });
+  });
 }

@@ -480,8 +480,12 @@ List<StoredFaceGroup> shownFaceGroups(
 /// The groups waiting for a name, and the records their faces are drawn
 /// from: three reads, whatever the number of groups.
 Future<({List<StoredFaceGroup> groups, Map<String, AssetRecord> records})>
-loadFaceGroups(AiAnalysisStore analysis, AssetRecordStore records) async {
-  final groups = await analysis.faceGroups();
+loadFaceGroups(
+  AiAnalysisStore analysis,
+  AssetRecordStore records, {
+  bool ignored = false,
+}) async {
+  final groups = await analysis.faceGroups(ignored: ignored);
   if (groups.isEmpty) return (groups: groups, records: <String, AssetRecord>{});
   final shown = await records.getVisibleByLocalIds({
     for (final g in groups)

@@ -475,6 +475,17 @@ class AiAnalysisStore {
         described[key] = l.personId;
         linked.add(l);
       }
+      final into = await _ignoredHomes(txn, grouped);
+      if (into.isNotEmpty) {
+        grouped = [
+          for (final g in grouped)
+            (
+              localId: g.localId,
+              face: g.face,
+              groupId: into[g.groupId] ?? g.groupId,
+            ),
+        ];
+      }
       for (final id in {for (final g in grouped) g.groupId}) {
         batch.insert(_groupTable, {
           'id': id,
@@ -487,15 +498,14 @@ class AiAnalysisStore {
         if (legacy.contains(g.localId)) continue;
         if (described[faceKey(g.localId, g.face)] != null) continue;
         // The same file again changes nothing. A newer run moves a face
-        // only out of a deleted group, or one it was taken out of.
+        // only out of a group it was taken out of; an ignored one stays.
         batch.rawInsert(
           'INSERT INTO $_memberTable (local_id, face, group_id, removed) '
           'VALUES (?, ?, ?, 0) '
           'ON CONFLICT (local_id, face) DO UPDATE SET '
           'group_id = excluded.group_id, removed = 0 '
           'WHERE excluded.group_id <> $_memberTable.group_id '
-          'AND ($_memberTable.removed = 1 OR $_memberTable.group_id IN '
-          '(SELECT id FROM $_groupTable WHERE dismissed = 1)) '
+          'AND $_memberTable.removed = 1 '
           'AND excluded.group_id NOT IN '
           '(SELECT id FROM $_groupTable WHERE dismissed = 1)',
           [g.localId, g.face.encode(), g.groupId],
@@ -522,16 +532,78 @@ class AiAnalysisStore {
     return result;
   }
 
-  /// Every live group with unnamed faces still in it. Hidden photos'
-  /// faces are already gone ([forgetFacesOf]); the caller still filters
-  /// by what may be shown.
-  Future<List<StoredFaceGroup>> faceGroups() async {
+  /// A new group in [grouped] made mostly of faces already in an ignored
+  /// group goes into that one: the same faces stay ignored, whatever ID a
+  /// later run gave them. New group ID → ignored group ID.
+  static Future<Map<String, String>> _ignoredHomes(
+    sqflite.DatabaseExecutor txn,
+    List<GroupedFace> grouped,
+  ) async {
+    final incoming = {for (final g in grouped) g.groupId}.toList();
+    final known = <String>{};
+    for (var i = 0; i < incoming.length; i += 900) {
+      final chunk = incoming.skip(i).take(900).toList();
+      for (final row in await txn.query(
+        _groupTable,
+        columns: ['id'],
+        where: 'id IN (${List.filled(chunk.length, '?').join(',')})',
+        whereArgs: chunk,
+      )) {
+        known.add(row['id'] as String);
+      }
+    }
+    final fresh = [
+      for (final g in grouped)
+        if (!known.contains(g.groupId)) g,
+    ];
+    if (fresh.isEmpty) return const {};
+    final ignored = <String, String>{};
+    final ids = {for (final g in fresh) g.localId}.toList();
+    for (var i = 0; i < ids.length; i += 900) {
+      final chunk = ids.skip(i).take(900).toList();
+      for (final row in await txn.rawQuery(
+        'SELECT m.local_id, m.face, m.group_id FROM $_memberTable m '
+        'JOIN $_groupTable g ON g.id = m.group_id '
+        'WHERE g.dismissed = 1 AND m.local_id IN '
+        '(${List.filled(chunk.length, '?').join(',')})',
+        chunk,
+      )) {
+        ignored['${row['local_id']}|${row['face']}'] =
+            row['group_id'] as String;
+      }
+    }
+    final votes = <String, Map<String, int>>{};
+    final size = <String, int>{};
+    for (final g in fresh) {
+      size[g.groupId] = (size[g.groupId] ?? 0) + 1;
+      final home = ignored[faceKey(g.localId, g.face)];
+      if (home == null) continue;
+      final n = votes[g.groupId] ??= {};
+      n[home] = (n[home] ?? 0) + 1;
+    }
+    return {
+      for (final MapEntry(key: id, value: n) in votes.entries)
+        if (n.entries.reduce((a, b) => a.value >= b.value ? a : b)
+            case final best when best.value * 2 >= size[id]!)
+          id: best.key,
+    };
+  }
+
+  /// Every live group with unnamed faces still in it, or with [ignored]
+  /// every ignored one. Hidden photos' faces are already gone
+  /// ([forgetFacesOf]); the caller still filters by what may be shown.
+  Future<List<StoredFaceGroup>> faceGroups({bool ignored = false}) async {
     final db = await _open();
-    final groups = await db.query(_groupTable, where: 'dismissed = 0');
+    final flag = ignored ? 1 : 0;
+    final groups = await db.query(
+      _groupTable,
+      where: 'dismissed = ?',
+      whereArgs: [flag],
+    );
     final rows = await db.rawQuery(
       'SELECT m.group_id, m.local_id, m.face FROM $_memberTable m '
       'JOIN $_groupTable g ON g.id = m.group_id '
-      'WHERE g.dismissed = 0 AND m.removed = 0 AND NOT EXISTS ('
+      'WHERE g.dismissed = $flag AND m.removed = 0 AND NOT EXISTS ('
       'SELECT 1 FROM $_descriptorTable d WHERE d.local_id = m.local_id '
       'AND d.face = m.face AND d.person_id IS NOT NULL)',
     );
@@ -633,16 +705,46 @@ class AiAnalysisStore {
     _writes++;
   }
 
-  /// Deletes a group. Kept as a marker, so importing the same file again
-  /// doesn't bring it back.
-  Future<void> dismissGroup(String id) async {
+  /// Ignores a group: it leaves Faces to Name with its faces kept, so a
+  /// later import puts the same faces back in it, still ignored.
+  Future<void> ignoreGroup(String id, {bool ignored = true}) async {
     final db = await _open();
     await db.update(
       _groupTable,
-      {'dismissed': 1},
+      {'dismissed': ignored ? 1 : 0},
       where: 'id = ?',
       whereArgs: [id],
     );
+    _writes++;
+  }
+
+  /// Ignores some of [group]'s faces: they move to an ignored group of
+  /// their own, the rest stay to be named.
+  Future<void> ignoreFaces(
+    StoredFaceGroup group,
+    Iterable<({String localId, FaceRect face})> faces,
+  ) async {
+    final db = await _open();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final id = '${group.id}-i$now';
+    await db.transaction((txn) async {
+      final batch = txn.batch()
+        ..insert(_groupTable, {
+          'id': id,
+          'suggest': group.suggest,
+          'created_at': now,
+          'dismissed': 1,
+        });
+      for (final f in faces) {
+        batch.update(
+          _memberTable,
+          {'group_id': id, 'removed': 0},
+          where: 'local_id = ? AND face = ?',
+          whereArgs: [f.localId, f.face.encode()],
+        );
+      }
+      await batch.commit(noResult: true);
+    });
     _writes++;
   }
 
