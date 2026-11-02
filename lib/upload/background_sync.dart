@@ -14,6 +14,7 @@ import '../settings/backup_targets_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../vault/carrier_upload.dart';
+import '../vault/hidden_backup.dart';
 import '../vault/hidden_transition.dart';
 import '../vault/keys.dart';
 import '../vault/store.dart';
@@ -162,6 +163,9 @@ class BackgroundSync {
       ),
     );
     final thumbnails = ThumbnailCache(store: recordStore);
+    // Folder keys kept on this phone: hidden photos go up from here too.
+    final vaultKeys = VaultKeys();
+    await _try<void>(vaultKeys.restoreRing, null);
     var records = const <AssetRecord>[];
     Future<void> reload() async => records = [
       for (final r in await recordStore.listAll())
@@ -178,7 +182,7 @@ class BackgroundSync {
           posterFrame: thumbnails.libraryThumbnail,
           videoDuration: library.durationOf,
         ),
-        vaultKeys: VaultKeys(),
+        vaultKeys: vaultKeys,
         vaultStore: VaultStore(),
       ),
       thumbnailCache: thumbnails,
@@ -200,6 +204,14 @@ class BackgroundSync {
 
     _stopQueue = () => engine.syncQueue.paused.value = true;
     await reload();
+    final hiddenOwed = await _try<bool>(() async {
+      for (final hash in vaultKeys.unlockedHashes) {
+        for (final r in await recordStore.forPasscodeHash(hash)) {
+          if (!r.isDeleted && !r.isFullyBackedUp) return true;
+        }
+      }
+      return false;
+    }, false);
     final reason = backgroundSkipReason(
       demo: DemoFlag.active,
       frequency: autoSyncFrequency,
@@ -209,7 +221,8 @@ class BackgroundSync {
       hasWork:
           engine.pendingAndFailed.isNotEmpty ||
           engine.thumbnailsOwed.isNotEmpty ||
-          await engine.pendingDeletes.count() > 0,
+          await engine.pendingDeletes.count() > 0 ||
+          hiddenOwed,
       now: started,
     );
     if (reason != null) return false;
@@ -226,6 +239,15 @@ class BackgroundSync {
     });
     try {
       await _pass(engine, recordStore, targets, library, thumbnails, reload);
+      if (!_cancelled && hiddenOwed) {
+        await HiddenBackup(
+          records: recordStore,
+          backUp: engine.backUpHidden,
+          albums: () => vaultKeys.unlockedHashes,
+          ready: engine.hasBackupTarget,
+          stopped: () => _cancelled,
+        ).run();
+      }
     } finally {
       watch.cancel();
     }

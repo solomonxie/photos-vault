@@ -12,7 +12,16 @@ class HiddenBackup {
     required this.backUp,
     required this.albums,
     required this.ready,
+    this.concurrency = 3,
+    this.stopped,
   });
+
+  /// Photos built and sent at once: each is a carrier to encrypt and an
+  /// upload, so one at a time left 18,000 for weeks.
+  final int concurrency;
+
+  /// Checked between photos: a background run ends when its time is up.
+  final bool Function()? stopped;
 
   final AssetRecordStore records;
   final Future<void> Function(AssetRecord record) backUp;
@@ -49,9 +58,15 @@ class HiddenBackup {
         _again = false;
         if (!await ready()) return;
         final failed = <String, String>{};
-        for (final hash in albums().toList()) {
-          for (final record in await records.forPasscodeHash(hash)) {
-            if (record.isDeleted || record.isFullyBackedUp) continue;
+        final owed = [
+          for (final hash in albums().toList())
+            for (final record in await records.forPasscodeHash(hash))
+              if (!record.isDeleted && !record.isFullyBackedUp) record,
+        ];
+        var next = 0;
+        Future<void> worker() async {
+          while (next < owed.length && !(stopped?.call() ?? false)) {
+            final record = owed[next++];
             uploading.value = record.localId;
             try {
               await backUp(record);
@@ -61,7 +76,10 @@ class HiddenBackup {
             changed.value++;
           }
         }
+
+        await Future.wait([for (var i = 0; i < concurrency; i++) worker()]);
         problems.value = failed;
+        if (stopped?.call() ?? false) return;
       } while (_again);
     } finally {
       uploading.value = null;
