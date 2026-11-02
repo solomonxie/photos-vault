@@ -22,11 +22,29 @@ enum MapChannel {
         PlaceSearch.search(call.arguments as? [String: Any] ?? [:], result)
       case "snapshot":
         MapSnapshots.snapshot(call.arguments as? [String: Any] ?? [:], result)
+      case "regions":
+        result(regionCodes())
       default:
         result(FlutterMethodNotImplemented)
       }
     }
   }
+}
+
+/// Country names as the geocoder writes them, in this phone's language,
+/// English and Chinese, lowercased → ISO region code, for flags.
+private func regionCodes() -> [String: String] {
+  let locales = [Locale.current, Locale(identifier: "en"), Locale(identifier: "zh-Hans"),
+                 Locale(identifier: "zh-Hant")]
+  var out: [String: String] = [:]
+  for code in Locale.isoRegionCodes {
+    for locale in locales {
+      if let name = locale.localizedString(forRegionCode: code) {
+        out[name.lowercased()] = code
+      }
+    }
+  }
+  return out
 }
 
 // MARK: - Shared drawing

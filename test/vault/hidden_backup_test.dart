@@ -74,7 +74,7 @@ void main() {
       ).run();
       expect(most, 3);
       // Those already going finish; none starts after the stop.
-    expect(done, lessThan(6));
+      expect(done, lessThan(6));
     },
   );
 

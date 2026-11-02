@@ -3,6 +3,8 @@ import 'dart:io';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:photos_vault/photos/person_store.dart';
+import 'package:photos_vault/photos/travel.dart';
+import 'package:photos_vault/photos/travel_store.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:photos_vault/storage/album.dart';
@@ -34,6 +36,10 @@ class _Phone {
         databaseFactory: databaseFactoryFfi,
         path: p.join(dir.path, '$name-people.db'),
       ),
+      travel = TravelStore(
+        databaseFactory: databaseFactoryFfi,
+        path: p.join(dir.path, '$name-travel.db'),
+      ),
       store = SyncStore(
         databaseFactory: databaseFactoryFfi,
         path: p.join(dir.path, '$name-sync.db'),
@@ -42,6 +48,7 @@ class _Phone {
       assets: assets,
       albums: albums,
       people: people,
+      travel: travel,
       targets: targets,
       store: store,
       bucketFor: (_) => bucket,
@@ -51,9 +58,10 @@ class _Phone {
   final AssetRecordStore assets;
   final AlbumStore albums;
   final PersonStore people;
+  final TravelStore travel;
   final SyncStore store;
   final BackupTargetsStore targets;
-  late final CloudSync sync;
+  late CloudSync sync;
 
   Future<void> photo(String id, {String description = ''}) async {
     await assets.upsert(localId: id, contentHash: id, platform: 'ios');
@@ -77,6 +85,7 @@ class _Phone {
     await assets.close();
     await albums.close();
     await people.close();
+    await travel.close();
     await store.close();
   }
 }
@@ -329,5 +338,145 @@ void main() {
       isNotNull,
       reason: "the phone's own are never removed",
     );
+  });
+
+  group('travel', () {
+    Future<(Place, Place, TravelEntry, TravelRoute)> trip(_Phone a) async {
+      final kyoto = await a.travel.findOrCreateCity(
+        name: 'Kyoto',
+        country: 'Japan',
+        lat: 35.0,
+        lng: 135.7,
+      );
+      final gion = await a.travel.createPlace(
+        name: 'Gion',
+        kind: PlaceKind.point,
+        lat: 35.003,
+        lng: 135.775,
+        parentId: kyoto.id,
+      );
+      final entry = await a.travel.saveEntry(
+        a.travel
+            .newEntry(
+              placeId: gion.id,
+              kind: EntryKind.impression,
+              at: DateTime(2017, 4, 3),
+            )
+            .copyWith(
+              title: 'Lanterns',
+              text: 'Quiet at dusk',
+              rating: () => 4,
+              tags: ['night', 'walk'],
+            ),
+      );
+      await a.travel.setLinks(LinkOwner.entry, entry.id, const [
+        TravelLink(LinkTarget.asset, 'A1'),
+      ]);
+      final route = await a.travel.createRoute(title: 'Kansai');
+      await a.travel.setStops(route.id, [
+        RouteStop(placeId: kyoto.id, arrived: DateTime(2017, 4, 2)),
+        RouteStop(placeId: gion.id, note: 'Dinner'),
+      ]);
+      return (kyoto, gion, entry, route);
+    }
+
+    test('places, impressions and plans reach the second phone, and edits come back', () async {
+      final a = await phone('a');
+      await a.photo('A1');
+      final (kyoto, gion, entry, route) = await trip(a);
+      await a.sync.enable(home);
+      expect(a.sync.status.value.error, isNull);
+
+      final b = await phone('b');
+      await b.sync.enable(home);
+      expect(b.sync.status.value.error, isNull);
+      final places = {for (final p in await b.travel.places()) p.id: p};
+      expect(places[gion.id]?.parentId, kyoto.id);
+      expect(places[kyoto.id]?.parentId, isNotNull, reason: 'under Japan');
+      final got = (await b.travel.entry(entry.id))!;
+      expect(
+        (got.title, got.text, got.rating),
+        ('Lanterns', 'Quiet at dusk', 4),
+      );
+      expect(got.tags, ['night', 'walk']);
+      expect(
+        (await b.travel.linksFor(LinkOwner.entry, [entry.id]))[entry.id],
+        const [TravelLink(LinkTarget.asset, 'A1')],
+      );
+      final detail = (await b.travel.routeDetail(route.id))!;
+      expect(
+        [for (final s in detail.stops) (s.placeId, s.note)],
+        [(kyoto.id, ''), (gion.id, 'Dinner')],
+      );
+      expect(detail.stops.first.arrived, DateTime(2017, 4, 2));
+
+      await b.travel.saveEntry(
+        got.copyWith(text: 'Quiet at dusk, loud at ten', tags: ['night']),
+      );
+      await b.travel.deleteRoute(route.id);
+      await b.sync.round();
+      await a.sync.round();
+      final back = (await a.travel.entry(entry.id))!;
+      expect(back.text, 'Quiet at dusk, loud at ten');
+      expect(back.tags, ['night']);
+      expect(await a.travel.routeDetail(route.id), isNull);
+    });
+
+    test(
+      'a phone that synced before travel did sends its travel once',
+      () async {
+        final a = await phone('a');
+        final (_, gion, _, _) = await trip(a);
+        a.sync = CloudSync(
+          assets: a.assets,
+          albums: a.albums,
+          people: a.people,
+          targets: targets,
+          store: a.store,
+          bucketFor: (_) => bucket,
+        );
+        await a.sync.enable(home);
+        a.sync = CloudSync(
+          assets: a.assets,
+          albums: a.albums,
+          people: a.people,
+          travel: a.travel,
+          targets: targets,
+          store: a.store,
+          bucketFor: (_) => bucket,
+        );
+        await a.sync.round();
+        expect(await a.store.meta('travel_joined'), 'true');
+
+        final b = await phone('b');
+        await b.sync.enable(home);
+        expect((await b.travel.place(gion.id))?.name, 'Gion');
+      },
+    );
+
+    test('a link to a hidden photo never leaves the phone', () async {
+      final a = await phone('a');
+      await a.photo('A1');
+      await a.photo('H1');
+      await a.assets.setPasscodeHash('H1', 'hash');
+      final (_, _, entry, _) = await trip(a);
+      await a.travel.setLinks(LinkOwner.entry, entry.id, const [
+        TravelLink(LinkTarget.asset, 'A1'),
+        TravelLink(LinkTarget.asset, 'H1'),
+      ]);
+      await a.sync.enable(home);
+      final b = await phone('b');
+      await b.sync.enable(home);
+      expect(
+        (await b.travel.linksFor(LinkOwner.entry, [entry.id]))[entry.id],
+        const [TravelLink(LinkTarget.asset, 'A1')],
+      );
+      await a.sync.round();
+      expect(
+        (await a.travel.linksFor(LinkOwner.entry, [entry.id]))[entry.id],
+        hasLength(2),
+        reason: 'the cloud not naming it is no reason to drop it here',
+      );
+    });
   });
 }

@@ -529,5 +529,22 @@
     "content": "$1"
    }
   }
+ },
+ "placeImpressions": {
+  "message": "Impressions"
+ },
+ "placePlans": {
+  "message": "Travel Plans"
+ },
+ "planUntitled": {
+  "message": "Untitled Plan"
+ },
+ "impressionAt": {
+  "message": "At $ARG$",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
  }
 }

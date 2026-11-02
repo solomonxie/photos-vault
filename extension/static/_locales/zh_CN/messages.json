@@ -529,5 +529,22 @@
     "content": "$1"
    }
   }
+ },
+ "placeImpressions": {
+  "message": "印象"
+ },
+ "placePlans": {
+  "message": "旅行计划"
+ },
+ "planUntitled": {
+  "message": "未命名计划"
+ },
+ "impressionAt": {
+  "message": "在 $ARG$",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
  }
 }

@@ -49,6 +49,13 @@ AssetRecord _photo(String id, {String? location}) => AssetRecord(
   location: location,
 );
 
+/// Room for a place page's cover, map and visits above its lists.
+void _tall(WidgetTester tester) {
+  tester.view.physicalSize = const Size(800, 2400);
+  tester.view.devicePixelRatio = 1;
+  addTearDown(tester.view.reset);
+}
+
 void main() {
   TestWidgetsFlutterBinding.ensureInitialized();
 
@@ -95,8 +102,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // A list first; the map is a tap away, every place a pin.
-    expect(find.byType(NativeMap), findsNothing);
+    // The map under a list, every place a pin.
     expect(find.text('Japan'), findsOne);
     expect(find.text('Portugal'), findsOne);
     // The whole tree at once; an area shows as a pin under its city.
@@ -104,15 +110,10 @@ void main() {
     expect(find.text('Lisbon'), findsOne);
     expect(find.byKey(ValueKey('place-pin-${gion.id}')), findsOne);
     expect(find.byKey(ValueKey('place-pin-${cafe.id}')), findsOne);
-    await tester.tap(find.byKey(const ValueKey('placesMapToggle')));
-    await tester.pumpAndSettle();
-    expect(find.text('Japan'), findsNothing);
     expect(
       tester.widget<NativeMap>(find.byType(NativeMap)).pins.map((p) => p.title),
       containsAll(['Kyoto', 'Gion', 'Kagizen', 'Lisbon']),
     );
-    await tester.tap(find.byKey(const ValueKey('placesMapToggle')));
-    await tester.pumpAndSettle();
 
     // A note on a pin is the country's too, and says where it was.
     await tester.tap(find.text('Japan'));
@@ -302,8 +303,6 @@ void main() {
     await tester.pumpWidget(
       _wrap(PlacesScreen(travelStore: store, placeSearch: _search())),
     );
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('placesMapToggle')));
     await tester.pumpAndSettle();
     tester.widget<NativeMap>(find.byType(NativeMap)).onLongPress!(35.01, 135.7);
     await tester.pumpAndSettle();
@@ -702,6 +701,7 @@ void main() {
     testWidgets('an impression is written, read, and linked to a person', (
       tester,
     ) async {
+      _tall(tester);
       final people = FakePersonStore();
       final mia = await people.create(name: 'Mia');
       await tester.pumpWidget(page(people: people));
@@ -747,6 +747,7 @@ void main() {
     });
 
     testWidgets('impressions, any number, rated and tagged', (tester) async {
+      _tall(tester);
       await tester.pumpWidget(page());
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('placeAddImpression')));
@@ -774,6 +775,7 @@ void main() {
     });
 
     testWidgets('an entry is deleted from its editor', (tester) async {
+      _tall(tester);
       final saved = await store.saveEntry(
         store
             .newEntry(placeId: kyoto.id, kind: EntryKind.diary)
@@ -801,6 +803,7 @@ void main() {
     testWidgets('a place in use is not deleted; an empty one is', (
       tester,
     ) async {
+      _tall(tester);
       await store.saveEntry(
         store.newEntry(placeId: kyoto.id, kind: EntryKind.diary),
       );
@@ -815,6 +818,7 @@ void main() {
     });
 
     testWidgets('renamed from its menu', (tester) async {
+      _tall(tester);
       await tester.pumpWidget(page());
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('placeMore')));

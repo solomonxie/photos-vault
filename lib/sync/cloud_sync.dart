@@ -3,6 +3,7 @@ import 'dart:async';
 import 'package:flutter/foundation.dart';
 
 import '../photos/person_store.dart';
+import '../photos/travel_store.dart';
 import '../settings/backup_targets_store.dart';
 import '../settings/s3_backup_target.dart';
 import '../storage/album_store.dart';
@@ -83,6 +84,7 @@ class CloudSync {
     required this.assets,
     required this.albums,
     required this.people,
+    this.travel,
     BackupTargetsStore? targets,
     SyncStore? store,
     LogBucket Function(S3BackupTarget target)? bucketFor,
@@ -93,6 +95,9 @@ class CloudSync {
   final AssetRecordStore assets;
   final AlbumStore albums;
   final PersonStore people;
+
+  /// Places, impressions and plans; null leaves them out of sync.
+  final TravelStore? travel;
   final BackupTargetsStore targets;
   final SyncStore store;
   final LogBucket Function(S3BackupTarget) _bucketFor;
@@ -112,6 +117,7 @@ class CloudSync {
     assets.syncDatabase,
     albums.syncDatabase,
     people.syncDatabase,
+    ?travel?.syncDatabase,
   ];
 
   Future<Applier> _applier() async => Applier(
@@ -119,6 +125,7 @@ class CloudSync {
     assets: assets.syncDatabase,
     albums: albums.syncDatabase,
     people: people.syncDatabase,
+    travel: travel?.syncDatabase,
     homeTargetId: await store.meta('home_target'),
   );
 
@@ -227,6 +234,7 @@ class CloudSync {
       skip: cloudKeys,
       progress: (n) => status.value = status.value.copyWith(progress: () => n),
     );
+    await _queueTravel(skip: cloudKeys);
     if (hasCloud) await _apply(cloudKeys);
     await sync.flush();
     await sync.publishCheckpoint();
@@ -234,6 +242,36 @@ class CloudSync {
       'last_checkpoint_at',
       DateTime.now().millisecondsSinceEpoch,
     );
+  }
+
+  /// Travel joined the log after the photos did: a phone that synced
+  /// before sends its travel once, keeping the cloud's values for anything
+  /// another phone already sent.
+  Future<void> _queueTravel({Set<String>? skip}) async {
+    final travel = this.travel;
+    if (travel == null || await store.meta('travel_joined') == 'true') return;
+    final db = await travel.syncDatabase();
+    await setCapture(db, enabled: true);
+    final known = skip ?? <String>{};
+    if (skip == null) {
+      await for (final page in store.keyPages()) {
+        known.addAll(
+          page.where(
+            (k) =>
+                k.startsWith('place/') ||
+                k.startsWith('entry/') ||
+                k.startsWith('route/'),
+          ),
+        );
+      }
+    }
+    await queueTravel(
+      store: store,
+      travel: db,
+      private: assets.privateIds,
+      skip: known,
+    );
+    await store.setMeta('travel_joined', true);
   }
 
   /// The open conflicts on one entity: values that lost to a concurrent edit.
@@ -281,6 +319,7 @@ class CloudSync {
         applied.created += part.created;
         applied.albums += part.albums;
         applied.people += part.people;
+        applied.travel += part.travel;
         applied.deferred.addAll(part.deferred);
       }
     }
@@ -316,6 +355,7 @@ class CloudSync {
       final keys = await sync.pull();
       _lastPull = DateTime.now();
       await _apply(keys);
+      await _queueTravel();
       await sync.flush();
       final lastCheckpoint = int.tryParse(
         await store.meta('last_checkpoint_at') ?? '',

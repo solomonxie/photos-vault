@@ -5,6 +5,7 @@ import 'package:sqflite/sqflite.dart';
 import 'capture.dart';
 import 'merge.dart';
 import 'sync_store.dart';
+import 'translate.dart';
 
 /// What [Applier.apply] did, for the screens to reload.
 class Applied {
@@ -15,12 +16,13 @@ class Applied {
   int created = 0;
   int albums = 0;
   int people = 0;
+  int travel = 0;
 
   /// Keys left for the next round: a database had local edits not yet
   /// collected, and applying over them could have undone one.
   final deferred = <String>{};
 
-  bool get any => assets + created + albums + people > 0;
+  bool get any => assets + created + albums + people + travel > 0;
 }
 
 /// Pulled, merged state → this phone's own rows. Raw SQL inside
@@ -42,6 +44,7 @@ class Applier {
     required this.assets,
     required this.albums,
     required this.people,
+    this.travel,
     this.homeTargetId,
   });
 
@@ -56,6 +59,9 @@ class Applier {
   final Future<Database> Function() assets;
   final Future<Database> Function() albums;
   final Future<Database> Function() people;
+
+  /// `travel.db`: places, entries and routes.
+  final Future<Database> Function()? travel;
 
   static const _chunk = 500;
 
@@ -110,6 +116,22 @@ class Applier {
         out.deferred.addAll(personEnts.map((e) => 'person/${e.id}'));
       } else {
         out.people = n;
+      }
+    }
+    final travelEnts = [...of('place'), ...of('entry'), ...of('route')];
+    final travelDb = travel;
+    if (travelEnts.isNotEmpty && travelDb != null) {
+      final linked = await _presentPublic(await assets(), {
+        for (final e in travelEnts) ...e.members('photos'),
+      });
+      final n = await _guarded(
+        await travelDb(),
+        (txn) => _travel(txn, travelEnts, linked),
+      );
+      if (n == null) {
+        out.deferred.addAll(travelEnts.map((e) => '${e.e}/${e.id}'));
+      } else {
+        out.travel = n;
       }
     }
     return out;
@@ -485,5 +507,248 @@ class Applier {
       );
     }
     return changed;
+  }
+
+  /// Places first (entries and stops name them), then entries, then routes.
+  /// A place deleted elsewhere stays while something here still uses it.
+  Future<int> _travel(
+    DatabaseExecutor txn,
+    List<EntityState> ents,
+    Set<String> present,
+  ) async {
+    var changed = 0;
+    final now = DateTime.now().millisecondsSinceEpoch;
+    Object? x(EntityState ent, String f, Object? fallback) =>
+        ent.fields[f]?.x ?? fallback;
+    bool gone(EntityState ent) => ent.fields['deleted_at']?.x != null;
+    Map<String, Object?> values(EntityState ent, Map<String, Object?> blank) =>
+        {
+          for (final MapEntry(:key, :value) in blank.entries)
+            if (ent.fields.containsKey(key)) key: x(ent, key, value),
+        };
+
+    for (final ent in ents.where((e) => e.e == 'place')) {
+      if (gone(ent)) {
+        final used = await txn.rawQuery(
+          'SELECT EXISTS (SELECT 1 FROM entry WHERE place_id = ?1) '
+          'OR EXISTS (SELECT 1 FROM stop WHERE place_id = ?1) '
+          'OR EXISTS (SELECT 1 FROM place WHERE parent_id = ?1) AS used',
+          [ent.id],
+        );
+        if (used.first['used'] != 1) {
+          changed += await txn.delete(
+            'place',
+            where: 'id = ?',
+            whereArgs: [ent.id],
+          );
+        }
+        continue;
+      }
+      final blank = <String, Object?>{
+        'name': '',
+        'kind': 'point',
+        'lat': 0.0,
+        'lng': 0.0,
+        'parent_id': null,
+        'country': '',
+        'address': '',
+        'category': '',
+        'description': '',
+        'created_at': now,
+      };
+      changed += await _upsert(txn, 'place', ent.id, blank, values(ent, blank));
+    }
+
+    for (final ent in ents.where((e) => e.e == 'entry')) {
+      if (gone(ent)) {
+        changed += await txn.delete(
+          'entry',
+          where: 'id = ?',
+          whereArgs: [ent.id],
+        );
+        changed += await txn.delete(
+          'link',
+          where: "owner_kind = 'entry' AND owner_id = ?",
+          whereArgs: [ent.id],
+        );
+        continue;
+      }
+      final blank = <String, Object?>{
+        'place_id': '',
+        'kind': 'impression',
+        'at': null,
+        'title': '',
+        'text': '',
+        'rating': null,
+        'created_at': now,
+      };
+      final v = values(ent, blank);
+      final local = await txn.query(
+        'entry',
+        columns: ['tags'],
+        where: 'id = ?',
+        whereArgs: [ent.id],
+      );
+      final tags = _mergeTags(
+        local.isEmpty ? '[]' : local.first['tags'] as String?,
+        ent.members('tags'),
+      );
+      if (tags != null) v['tags'] = tags;
+      v['updated_at'] = now;
+      changed += await _upsert(txn, 'entry', ent.id, {
+        ...blank,
+        'tags': '[]',
+        'updated_at': now,
+      }, v);
+      changed += await _links(txn, ent, present);
+    }
+
+    for (final ent in ents.where((e) => e.e == 'route')) {
+      if (gone(ent)) {
+        changed += await txn.delete(
+          'route',
+          where: 'id = ?',
+          whereArgs: [ent.id],
+        );
+        for (final t in const ['stop', 'leg']) {
+          await txn.delete(t, where: 'route_id = ?', whereArgs: [ent.id]);
+        }
+        await txn.delete(
+          'link',
+          where: "owner_kind = 'route' AND owner_id = ?",
+          whereArgs: [ent.id],
+        );
+        continue;
+      }
+      final blank = <String, Object?>{
+        'title': '',
+        'note': '',
+        'starts': null,
+        'ends': null,
+        'created_at': now,
+      };
+      changed += await _upsert(txn, 'route', ent.id, blank, values(ent, blank));
+      if (ent.fields['stops']?.x case final String stops) {
+        changed += await _stops(txn, ent.id, stops);
+      }
+      changed += await _links(txn, ent, present);
+    }
+    if (changed > 0) {
+      await txn.rawUpdate('UPDATE rev SET n = n + 1 WHERE id = 1');
+    }
+    return changed;
+  }
+
+  /// Inserted with [blank] when missing, then [values] written over it.
+  static Future<int> _upsert(
+    DatabaseExecutor txn,
+    String table,
+    String id,
+    Map<String, Object?> blank,
+    Map<String, Object?> values,
+  ) async {
+    final inserted = await txn.insert(table, {
+      'id': id,
+      ...blank,
+      ...values,
+    }, conflictAlgorithm: ConflictAlgorithm.ignore);
+    if (inserted > 0) return 1;
+    return _update(txn, table, 'id = ?', [id], values);
+  }
+
+  /// A route's stops and legs, rewritten only when the list differs.
+  static Future<int> _stops(
+    DatabaseExecutor txn,
+    String routeId,
+    String json,
+  ) async {
+    final List<Map<String, Object?>> want;
+    try {
+      want = [
+        for (final s in jsonDecode(json) as List)
+          (s as Map).cast<String, Object?>(),
+      ];
+    } catch (_) {
+      return 0;
+    }
+    final now = await txn.rawQuery('SELECT ${routeStopsSql('?')} AS stops', [
+      routeId,
+    ]);
+    final have = now.first['stops'];
+    if (have is String && _sameJson(have, want)) return 0;
+    await txn.delete('stop', where: 'route_id = ?', whereArgs: [routeId]);
+    await txn.delete('leg', where: 'route_id = ?', whereArgs: [routeId]);
+    for (final (i, s) in want.indexed) {
+      final place = s['place'];
+      if (place is! String) continue;
+      await txn.insert('stop', {
+        'route_id': routeId,
+        'position': i,
+        'place_id': place,
+        'arrived': s['arrived'],
+        'note': s['note'] ?? '',
+      });
+      if (i + 1 < want.length && s['mode'] is String) {
+        await txn.insert('leg', {
+          'route_id': routeId,
+          'position': i,
+          'mode': s['mode'],
+          'note': s['leg'] ?? '',
+          'from_place': place,
+          'to_place': want[i + 1]['place'] ?? '',
+          'needs_review': s['review'] ?? 0,
+        });
+      }
+    }
+    return 1;
+  }
+
+  static bool _sameJson(String raw, List<Map<String, Object?>> want) {
+    try {
+      return jsonEncode(jsonDecode(raw)) == jsonEncode(want);
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// An entry's or route's photos and people. A photo link is removed only
+  /// for one the cloud could have listed ([present]), as album members.
+  static Future<int> _links(
+    DatabaseExecutor txn,
+    EntityState ent,
+    Set<String> present,
+  ) async {
+    var n = 0;
+    for (final MapEntry(key: target, value: set) in linkSets.entries) {
+      final cloud = ent.members(set).toSet();
+      final want = target == 'asset' ? cloud.intersection(present) : cloud;
+      final have = {
+        for (final r in await txn.query(
+          'link',
+          columns: ['target_id'],
+          where: 'owner_kind = ? AND owner_id = ? AND target_kind = ?',
+          whereArgs: [ent.e, ent.id, target],
+        ))
+          r['target_id'] as String,
+      };
+      for (final id in want.difference(have)) {
+        await txn.insert('link', {
+          'owner_kind': ent.e,
+          'owner_id': ent.id,
+          'target_kind': target,
+          'target_id': id,
+        }, conflictAlgorithm: ConflictAlgorithm.ignore);
+        n++;
+      }
+      for (final id in have.difference(want)) {
+        if (target == 'asset' && !present.contains(id)) continue;
+        n += await txn.delete(
+          'link',
+          where: 'owner_kind = ? AND owner_id = ? AND target_kind = ? AND target_id = ?',
+          whereArgs: [ent.e, ent.id, target, id],
+        );
+      }
+    }
+    return n;
   }
 }

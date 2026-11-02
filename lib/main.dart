@@ -9,6 +9,7 @@ import 'package:flutter/scheduler.dart';
 import 'app.dart';
 import 'demo/demo_mode.dart';
 import 'photos/person_store.dart';
+import 'photos/travel_store.dart';
 import 'storage/album_store.dart';
 import 'storage/asset_record_store.dart';
 import 'storage/database_home.dart';
@@ -82,6 +83,7 @@ Future<void> backgroundSync() async {
         assets: AssetRecordStore(),
         albums: AlbumStore(),
         people: PersonStore(),
+        travel: TravelStore(),
       ).round();
     }
   } catch (_) {

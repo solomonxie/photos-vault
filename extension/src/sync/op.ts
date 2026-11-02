@@ -32,6 +32,9 @@ export const textFields: Record<string, ReadonlySet<string>> = {
   asset: new Set(['description', 'location']),
   album: new Set(['name', 'description']),
   person: new Set(['name', 'bio']),
+  place: new Set(['name', 'description']),
+  entry: new Set(['title', 'text']),
+  route: new Set(['title', 'note', 'stops']),
 };
 
 export const toWire = (op: Op): WireOp => {

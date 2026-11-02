@@ -72,4 +72,7 @@ const textFields = {
   'asset': {'description', 'location'},
   'album': {'name', 'description'},
   'person': {'name', 'bio'},
+  'place': {'name', 'description'},
+  'entry': {'title', 'text'},
+  'route': {'title', 'note', 'stops'},
 };

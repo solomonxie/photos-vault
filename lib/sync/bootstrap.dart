@@ -103,3 +103,70 @@ Future<int> queueLibrary({
   );
   return queued;
 }
+
+/// `travel.db` as ops: every place, entry and route, each route's stops,
+/// and links — a photo link only to one [private] doesn't name, as at
+/// collect.
+/// Run on a phone's first sync, and once on a phone that joined before
+/// travel was synced. Entities in [skip] keep the cloud's values.
+Future<int> queueTravel({
+  required SyncStore store,
+  required Database travel,
+  required Future<Set<String>> Function(Set<String> ids) private,
+  Set<String> skip = const {},
+}) async {
+  final now = DateTime.now().millisecondsSinceEpoch;
+  final changes = <Change>[];
+  Future<void> rows(
+    String e,
+    String table,
+    List<String> columns,
+    List<Change> Function(Map<String, Object?> row) toChanges,
+  ) async {
+    for (final r in await travel.rawQuery(
+      'SELECT id AS k, ${columns.join(', ')} FROM $table',
+    )) {
+      if (!skip.contains('$e/${r['k']}')) changes.addAll(toChanges(r));
+    }
+  }
+
+  await rows('place', 'place', [
+    ...placeFields,
+  ], (r) => translate('place', r['k'] as String, 'insert', null, r, now));
+  await rows(
+    'entry',
+    'entry',
+    entryCaptureColumns,
+    (r) => translate('entry', r['k'] as String, 'insert', null, r, now),
+  );
+  await rows(
+    'route',
+    'route',
+    [...routeFields, '${routeStopsSql('route.id')} AS stops'],
+    (r) => [
+      ...translate('route', r['k'] as String, 'insert', null, r, now),
+      ...translate('stop', r['k'] as String, 'insert', null, r, now),
+    ],
+  );
+  final links = await travel.rawQuery(
+    "SELECT ${linkKeySql.replaceAll('{row}', 'link')} AS k, owner_kind, "
+    'owner_id, target_kind, target_id FROM link',
+  );
+  final hidden = await private({
+    for (final l in links)
+      if (l['target_kind'] == 'asset') l['target_id'] as String,
+  });
+  for (final l in links) {
+    if (skip.contains('${l['owner_kind']}/${l['owner_id']}')) continue;
+    if (l['target_kind'] == 'asset' && hidden.contains(l['target_id'])) {
+      continue;
+    }
+    changes.addAll(translate('link', l['k'] as String, 'insert', null, l, now));
+  }
+  for (var i = 0; i < changes.length; i += 1000) {
+    await store.addChanges(
+      changes.sublist(i, (i + 1000).clamp(0, changes.length)),
+    );
+  }
+  return changes.length;
+}

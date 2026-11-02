@@ -1,6 +1,6 @@
 import { Bucket, type Connection } from './bucket/client';
 import { forgetConnection, loadConnection } from './connection';
-import { type Library, type Photo, type Place, SearchIndex, buildLibrary } from './model';
+import { type Impression, type Library, type Photo, type Place, type Plan, SearchIndex, buildLibrary, placeIds } from './model';
 import { Engine } from './sync/engine';
 import type { Conflict } from './sync/merge';
 import { clear, h } from './ui/dom';
@@ -338,12 +338,66 @@ function placePage(pl: Place, path: string[], hash: string) {
     },
     `${t('placePhotos', count(pl.photos.length))} ${open ? '⌃' : '⌄'}`,
   );
+  const ids = placeIds(pl);
+  const written = lib.impressions.filter((i) => ids.has(i.placeId));
+  const plans = lib.plans.filter((r) => r.stops.some((s) => ids.has(s.placeId)));
   const head: Node[] = [trail];
   if (pl.description) head.push(h('p', { class: 'place-description' }, pl.description));
   head.push(h('h2', { class: 'place-section' }, t('placePins')), inside);
+  if (written.length) {
+    head.push(
+      h('h2', { class: 'place-section' }, t('placeImpressions')),
+      ...written.map((i) => impressionCard(i, pl.ids.includes(i.placeId) ? '' : (lib.placeNames.get(i.placeId) ?? ''))),
+    );
+  }
+  if (plans.length) head.push(h('h2', { class: 'place-section' }, t('placePlans')), ...plans.map(planCard));
   if (pl.photos.length) head.push(toggle);
   if (open) return gridPage(pl.name, level, photosOf(pl.photos), t('emptyAlbum'), head);
   page(pl.name, level, ...head);
+}
+
+const shortDate = (at: number) =>
+  new Date(at).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' });
+
+/// Thumbnails that open the viewer over just these photos.
+function photoStrip(ids: string[]) {
+  const list = ids.flatMap((id) => lib.photos.get(id) ?? []);
+  return h(
+    'div',
+    { class: 'photo-strip' },
+    ...list.map((p) => h('button', { class: 'strip-photo', onclick: () => openViewer(viewerContext(), p, list) }, cover(p.id))),
+  );
+}
+
+/// An impression in full: it's read here, not opened.
+function impressionCard(i: Impression, at: string) {
+  const meta = [
+    at ? t('impressionAt', at) : '',
+    i.at !== null ? shortDate(i.at) : '',
+    i.rating ? '★'.repeat(i.rating) : '',
+    i.tags.map((tag) => `#${tag}`).join(' '),
+  ].filter((x) => x.length > 0);
+  return h(
+    'article',
+    { class: 'impression' },
+    i.title ? h('h3', {}, i.title) : null,
+    meta.length ? h('div', { class: 'muted' }, meta.join(' · ')) : null,
+    i.text ? h('p', { class: 'impression-text' }, i.text) : null,
+    i.photos.length ? photoStrip(i.photos) : null,
+  );
+}
+
+function planCard(r: Plan) {
+  const dates = [r.starts, r.ends].filter((x): x is number => x !== null).map(shortDate).join(' – ');
+  const stops = r.stops.map((s) => lib.placeNames.get(s.placeId) ?? '').filter((n) => n.length > 0);
+  return h(
+    'article',
+    { class: 'impression' },
+    h('h3', {}, r.title || t('planUntitled')),
+    dates ? h('div', { class: 'muted' }, dates) : null,
+    stops.length ? h('div', { class: 'plan-stops' }, stops.join(' → ')) : null,
+    r.note ? h('p', { class: 'impression-text' }, r.note) : null,
+  );
 }
 
 /// A page title that edits in place: ✎ asks, and an open conflict on it says so.

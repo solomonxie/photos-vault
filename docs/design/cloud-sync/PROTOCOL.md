@@ -62,7 +62,9 @@ Entities and fields (v1). Anything not listed never leaves the phone:
 | `asset` | `local_id` / `web:<uuid>` | `created_at` (taken), `latitude`, `longitude`, `is_favorite`, `is_archived`, `deleted_at`, `hidden`, `purged`, `original_key`, `thumbnail_key`, `medium_key`, `live_key`, `edited_key`; at `add`: `content_hash`, `is_video`, `is_live_photo`, `width`, `height` | `description`, `location` | `tags` |
 | `album` | UUID | `cover_local_id`, `deleted_at` | `name`, `description` | `members` (asset ids), `tags` |
 | `person` | UUID | `birth_date`, `gender`, `avatar_local_id`, `deleted_at`, `hidden` | `name`, `bio` | `members` (asset ids) |
-| `place` | UUID (travel.db) | `lat`, `lng`, `city`, `country` (names, resolved up its parents), `deleted_at` — pins only; an area is sent as a pin | `name`, `description` | `photos` (assets its diary entries link) |
+| `place` | UUID (travel.db) | `kind` (country · city · area · point), `lat`, `lng`, `parent_id`, `country`, `address`, `category`, `created_at`, `deleted_at` | `name`, `description` | — |
+| `entry` | UUID (travel.db) | `place_id`, `kind` (impression · diary), `at`, `rating`, `created_at`, `deleted_at` | `title`, `text` | `tags`, `photos`, `people` |
+| `route` | UUID (travel.db) | `starts`, `ends`, `created_at`, `deleted_at` | `title`, `note`, `stops` (JSON `[{place, arrived, note, mode, leg, review}]`, leg = to the next stop) | `photos`, `people` |
 
 **Private stays private.** A hidden, locked or passcode-gated row never
 emits an op. Hiding an asset that was already synced emits

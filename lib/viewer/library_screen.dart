@@ -711,10 +711,13 @@ class LibraryScreenState extends State<LibraryScreen>
           assets: assetRecordStore,
           albums: _albumStore,
           people: _personStore,
+          travel: _travelStore,
           targets: _backupTargetsStore,
         )
-        ..onApplied = (_) {
-          if (mounted) reload();
+        ..onApplied = (applied) {
+          if (!mounted) return;
+          reload();
+          if (applied.travel > 0) unawaited(_countFootprints());
         };
   Timer? _cloudTick;
 
@@ -1788,7 +1791,19 @@ class LibraryScreenState extends State<LibraryScreen>
     _recentlyAdded = index.recentlyAdded;
     _places = index.places;
     _deletedCount = index.deletedCount;
+    _pastDay = onThisDay(index.all, DateTime.now());
   }
+
+  /// Footprints' "On This Day": a binary search per year, once per reload.
+  PastDay? _pastDay;
+
+  void _openPastDay(PastDay past) => _push(
+    AssetGroupScreen(
+      title: '${past.place} · ${DateFormat.yMMMd().format(past.day)}',
+      records: past.photos,
+      assetRecordStore: assetRecordStore,
+    ),
+  );
 
   /// Footprints' row counts: read on first build and after each visit.
   final _footprints =
@@ -3523,6 +3538,13 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       ),
       SliverToBoxAdapter(
+        child: FootprintsHero(
+          placeSearch: _placeSearch,
+          placeGroups: _places,
+          onTap: _openPlaces,
+        ),
+      ),
+      SliverToBoxAdapter(
         child: ValueListenableBuilder(
           valueListenable: _footprints,
           builder: (context, counts, _) => CupertinoListSection.insetGrouped(
@@ -3559,9 +3581,23 @@ class LibraryScreenState extends State<LibraryScreen>
                   icon: CupertinoIcons.text_quote,
                   color: CupertinoColors.systemOrange,
                   title: l10n.footprintsImpressions,
+                  count: counts?.impressions,
                   onTap: _openImpressions,
                 ),
               ),
+              if (_pastDay case final past?)
+                KeyedSubtree(
+                  key: const ValueKey('footprintsOnThisDay'),
+                  child: _row(
+                    icon: CupertinoIcons.clock,
+                    color: CupertinoColors.systemPink,
+                    title: l10n.footprintsOnThisDay(
+                      past.place,
+                      '${past.day.year}',
+                    ),
+                    onTap: () => _openPastDay(past),
+                  ),
+                ),
             ],
           ),
         ),

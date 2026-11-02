@@ -13,6 +13,7 @@ import 'asset_grid.dart';
 import 'asset_group_screen.dart';
 import 'asset_picker_screen.dart';
 import 'person_picker_sheet.dart';
+import 'place_screen.dart' show photosAtOn;
 import 'words_markdown.dart';
 
 /// "4 May 2024 · ★★★★☆", the line under an entry's title.
@@ -144,6 +145,29 @@ class _TravelEntryScreenState extends State<TravelEntryScreen> {
               : ListView(
                   padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
                   children: [
+                    if (_photos.isNotEmpty) ...[
+                      // The photos it's about, first: what it looked like.
+                      SizedBox(
+                        key: const ValueKey('travelEntryPhotos'),
+                        height: 200,
+                        child: ListView.separated(
+                          scrollDirection: Axis.horizontal,
+                          itemCount: _photos.length,
+                          separatorBuilder: (_, _) => const SizedBox(width: 4),
+                          itemBuilder: (context, i) => ClipRRect(
+                            borderRadius: BorderRadius.circular(8),
+                            child: AssetTile(
+                              record: _photos[i],
+                              extent: _photos.length == 1
+                                  ? MediaQuery.sizeOf(context).width - 32
+                                  : 200,
+                              onTap: _openPhotos,
+                            ),
+                          ),
+                        ),
+                      ),
+                      const SizedBox(height: 16),
+                    ],
                     Text(
                       e.title.isEmpty ? l10n.travelEntryUntitled : e.title,
                       style: const TextStyle(
@@ -177,28 +201,6 @@ class _TravelEntryScreenState extends State<TravelEntryScreen> {
                       ),
                       const SizedBox(height: 6),
                       _Chips(labels: people),
-                    ],
-                    if (_photos.isNotEmpty) ...[
-                      const SizedBox(height: 12),
-                      // Part of the note: the photos it's about, in it.
-                      LayoutBuilder(
-                        key: const ValueKey('travelEntryPhotos'),
-                        builder: (context, box) {
-                          final side = (box.maxWidth - 8) / 3;
-                          return Wrap(
-                            spacing: 4,
-                            runSpacing: 4,
-                            children: [
-                              for (final r in _photos)
-                                AssetTile(
-                                  record: r,
-                                  extent: side,
-                                  onTap: _openPhotos,
-                                ),
-                            ],
-                          );
-                        },
-                      ),
                     ],
                   ],
                 ),
@@ -248,6 +250,10 @@ class _TravelEntryEditorState extends State<TravelEntryEditor> {
   Map<String, String> _names = const {};
   bool _saving = false;
 
+  /// Photos taken at this place on the entry's day, offered to link.
+  List<AssetRecord> _suggested = const [];
+  Place? _place;
+
   /// Everything but the text, folded until asked for; open when editing an
   /// entry that already has any of it.
   late bool _more =
@@ -266,6 +272,111 @@ class _TravelEntryEditorState extends State<TravelEntryEditor> {
       for (final id in widget.initialAssetIds) TravelLink(LinkTarget.asset, id),
     ];
     if (!widget.isNew) _loadLinks();
+    _suggest();
+  }
+
+  Future<void> _suggest() async {
+    final store = widget.assetRecordStore;
+    final day = _at;
+    if (store == null || day == null) {
+      if (_suggested.isNotEmpty) setState(() => _suggested = const []);
+      return;
+    }
+    final place = _place ??= await widget.travelStore.place(
+      widget.entry.placeId,
+    );
+    if (place == null) return;
+    final found = photosAtOn(place, await store.listAll(), day);
+    if (mounted) setState(() => _suggested = found);
+  }
+
+  void _toggleSuggested(AssetRecord r) => setState(() {
+    final link = TravelLink(LinkTarget.asset, r.localId);
+    _links = _links.contains(link)
+        ? [
+            for (final l in _links)
+              if (l != link) l,
+          ]
+        : [..._links, link];
+  });
+
+  void _addAllSuggested() => setState(() {
+    final have = _assetIds(_links);
+    _links = [
+      ..._links,
+      for (final r in _suggested)
+        if (!have.contains(r.localId)) TravelLink(LinkTarget.asset, r.localId),
+    ];
+  });
+
+  Widget _suggestions(AppLocalizations l10n) {
+    final linked = _assetIds(_links);
+    final day = DateFormat.MMMd().format(_at!);
+    return Column(
+      key: const ValueKey('travelEntrySuggested'),
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            Expanded(
+              child: Text(
+                l10n.travelEntrySuggested(day),
+                style: const TextStyle(
+                  color: CupertinoColors.systemGrey,
+                  fontSize: 13,
+                ),
+              ),
+            ),
+            if (_suggested.any((r) => !linked.contains(r.localId)))
+              CupertinoButton(
+                key: const ValueKey('travelEntrySuggestedAll'),
+                padding: EdgeInsets.zero,
+                minimumSize: const Size(0, 30),
+                onPressed: _addAllSuggested,
+                child: Text(
+                  l10n.travelEntrySuggestedAll,
+                  style: const TextStyle(fontSize: 15),
+                ),
+              ),
+          ],
+        ),
+        const SizedBox(height: 4),
+        SizedBox(
+          height: 76,
+          child: ListView.separated(
+            scrollDirection: Axis.horizontal,
+            itemCount: _suggested.length,
+            separatorBuilder: (_, _) => const SizedBox(width: 4),
+            itemBuilder: (context, i) {
+              final r = _suggested[i];
+              final on = linked.contains(r.localId);
+              return Stack(
+                key: ValueKey('travelEntrySuggested-${r.localId}'),
+                children: [
+                  AssetTile(
+                    record: r,
+                    extent: 76,
+                    onTap: () => _toggleSuggested(r),
+                  ),
+                  if (on)
+                    const Positioned(
+                      right: 4,
+                      bottom: 4,
+                      child: IgnorePointer(
+                        child: Icon(
+                          CupertinoIcons.check_mark_circled_solid,
+                          color: CupertinoColors.activeBlue,
+                          size: 22,
+                        ),
+                      ),
+                    ),
+                ],
+              );
+            },
+          ),
+        ),
+      ],
+    );
   }
 
   Future<void> _loadLinks() async {
@@ -374,6 +485,7 @@ class _TravelEntryEditorState extends State<TravelEntryEditor> {
           ? null
           : DateTime(result.year, result.month, result.day),
     );
+    await _suggest();
   }
 
   Future<void> _addPhotos() async {
@@ -472,6 +584,10 @@ class _TravelEntryEditorState extends State<TravelEntryEditor> {
                 borderRadius: BorderRadius.circular(12),
               ),
             ),
+            if (_suggested.isNotEmpty && _at != null) ...[
+              const SizedBox(height: 12),
+              _suggestions(l10n),
+            ],
             const SizedBox(height: 12),
             CupertinoListTile(
               key: const ValueKey('travelEntryMore'),

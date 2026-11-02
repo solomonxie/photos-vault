@@ -1,6 +1,9 @@
+import 'dart:async';
 import 'dart:math' as math;
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/services.dart' show HapticFeedback;
+import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/person_store.dart';
@@ -15,6 +18,7 @@ import 'native_map.dart';
 import 'places_screen.dart';
 import 'route_screen.dart';
 import 'travel_entry_editor.dart';
+import 'undo_toast.dart';
 
 /// Photos the library filed under [place]'s name: "Kyoto, Japan" or plain
 /// "Kyoto", as `PhotoLocationService` writes them; for a country, every
@@ -67,6 +71,72 @@ List<AssetRecord> photosNear(
   ];
 }
 
+/// Of [records] (oldest first, as `listAll` keeps them), the ones taken on
+/// [day] at [place], by the same rules as its page. A binary search to the
+/// day, then that day's few only.
+List<AssetRecord> photosAtOn(
+  Place place,
+  List<AssetRecord> records,
+  DateTime day,
+) {
+  final start = DateTime(day.year, day.month, day.day);
+  final end = start.add(const Duration(days: 1));
+  var lo = 0;
+  var hi = records.length;
+  while (lo < hi) {
+    final mid = (lo + hi) >> 1;
+    if (records[mid].createdAt.isBefore(start)) {
+      lo = mid + 1;
+    } else {
+      hi = mid;
+    }
+  }
+  final groups = <String, List<AssetRecord>>{};
+  for (var i = lo; i < records.length; i++) {
+    final r = records[i];
+    if (!r.createdAt.isBefore(end)) break;
+    if (r.passcodeHash != null || r.deletedAt != null) continue;
+    (groups[r.location ?? ''] ??= []).add(r);
+  }
+  return switch (place.kind) {
+    PlaceKind.point || PlaceKind.area => photosNear(place, groups),
+    _ => photosNamedFor(place, groups),
+  };
+}
+
+/// One stretch of days with photos at a place.
+typedef Visit = ({DateTime from, DateTime to, List<AssetRecord> photos});
+
+/// [photos] as visits, newest first: a gap of more than [gapDays] days
+/// between two photos starts a new one.
+List<Visit> visitsOf(List<AssetRecord> photos, {int gapDays = 2}) {
+  final sorted = [...photos]
+    ..sort((a, b) => a.createdAt.compareTo(b.createdAt));
+  final out = <Visit>[];
+  DateTime dayOf(DateTime t) => DateTime(t.year, t.month, t.day);
+  for (final r in sorted) {
+    final day = dayOf(r.createdAt);
+    if (out.isNotEmpty && day.difference(out.last.to).inDays <= gapDays) {
+      final last = out.removeLast();
+      out.add((from: last.from, to: day, photos: last.photos..add(r)));
+    } else {
+      out.add((from: day, to: day, photos: [r]));
+    }
+  }
+  return out.reversed.toList();
+}
+
+/// "Apr 3 – 5, 2017", "Apr 3, 2017", "Apr 30 – May 2, 2017".
+String visitLabel(Visit v) {
+  final day = DateFormat.yMMMd();
+  if (v.from == v.to) return day.format(v.from);
+  if (v.from.year != v.to.year) {
+    return '${day.format(v.from)} – ${day.format(v.to)}';
+  }
+  final md = DateFormat.MMMd();
+  return '${md.format(v.from)} – ${md.format(v.to)}, ${v.to.year}';
+}
+
 /// One place at any level, pin or country alike: its description, the pins
 /// inside it, the impressions written at it or anywhere inside it, the
 /// travel plans through it, and its photos, folded, at the bottom.
@@ -109,6 +179,21 @@ class _PlaceScreenState extends State<PlaceScreen> {
   /// Linked to its impressions, then taken there; newest first.
   List<AssetRecord> _photos = const [];
   bool _photosOpen = false;
+  List<Visit> _visits = const [];
+  bool _allVisits = false;
+
+  /// A favourite if there is one, else the newest.
+  AssetRecord? _cover;
+  ({double average, int count})? _rating;
+  final _undo = UndoToast();
+
+  static const _shownVisits = 4;
+
+  @override
+  void dispose() {
+    _undo.dispose();
+    super.dispose();
+  }
 
   static const _photoPreview = 12;
 
@@ -163,8 +248,18 @@ class _PlaceScreenState extends State<PlaceScreen> {
       for (final r in here)
         if (seenPhotos.add(r.localId)) r,
     ]..sort((a, b) => b.createdAt.compareTo(a.createdAt));
+    final rated = [for (final e in entries) ?e.rating];
     if (!mounted) return;
     setState(() {
+      _visits = visitsOf(photos);
+      _cover =
+          photos.where((r) => r.isFavorite).firstOrNull ?? photos.firstOrNull;
+      _rating = rated.isEmpty
+          ? null
+          : (
+              average: rated.reduce((a, b) => a + b) / rated.length,
+              count: rated.length,
+            );
       _place = place;
       _path = path;
       _inside = inside;
@@ -425,8 +520,8 @@ class _PlaceScreenState extends State<PlaceScreen> {
 
   /// Into another place, or to the top: anywhere but itself and what's
   /// inside it.
-  Future<void> _move() async {
-    final place = _place;
+  Future<void> _move([Place? which]) async {
+    final place = which ?? _place;
     if (place == null) return;
     final l10n = AppLocalizations.of(context)!;
     final mine = placeAndBelow(place.id, _tree);
@@ -520,6 +615,129 @@ class _PlaceScreenState extends State<PlaceScreen> {
     );
   }
 
+  Future<void> _openVisit(Visit v) async {
+    final store = widget.assetRecordStore;
+    final place = _place;
+    if (store == null || place == null) return;
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => AssetGroupScreen(
+          title: '${place.name} · ${visitLabel(v)}',
+          records: [...v.photos]
+            ..sort((a, b) => b.createdAt.compareTo(a.createdAt)),
+          assetRecordStore: store,
+          travelStore: widget.travelStore,
+        ),
+      ),
+    );
+  }
+
+  /// Gone at once, with five seconds to take it back.
+  Future<bool> _deleteEntry(TravelEntry e) async {
+    final l10n = AppLocalizations.of(context)!;
+    final store = widget.travelStore;
+    final links =
+        (await store.linksFor(LinkOwner.entry, [e.id]))[e.id] ??
+        const <TravelLink>[];
+    await store.deleteEntry(e.id);
+    unawaited(HapticFeedback.mediumImpact());
+    if (!mounted) return true;
+    _undo.show(context, l10n.footprintsDeleted, () async {
+      await store.saveEntry(e);
+      await store.setLinks(LinkOwner.entry, e.id, links);
+      await _load();
+    });
+    await _load();
+    return true;
+  }
+
+  /// A pin still in use stays, and says why.
+  Future<bool> _deletePin(Place p) async {
+    final l10n = AppLocalizations.of(context)!;
+    final store = widget.travelStore;
+    if (!await store.deletePlace(p.id)) {
+      if (!mounted) return false;
+      await showCupertinoDialog<void>(
+        context: context,
+        builder: (dialog) => CupertinoAlertDialog(
+          content: Text(l10n.placeDeleteInUse),
+          actions: [
+            CupertinoDialogAction(
+              onPressed: () => Navigator.of(dialog).pop(),
+              child: Text(l10n.travelEntryDone),
+            ),
+          ],
+        ),
+      );
+      return false;
+    }
+    unawaited(HapticFeedback.mediumImpact());
+    if (!mounted) return true;
+    _undo.show(context, l10n.footprintsDeleted, () async {
+      await store.restorePlace(p);
+      await _load();
+    });
+    await _load();
+    return true;
+  }
+
+  /// Swipe left: delete; right, when given: [onStart] (e.g. Move).
+  Widget _swipe({
+    required Key key,
+    required Widget child,
+    required Future<bool> Function() onDelete,
+    Future<void> Function()? onStart,
+    String? startLabel,
+  }) {
+    final l10n = AppLocalizations.of(context)!;
+    Widget back(Color color, String label, Alignment at) => ColoredBox(
+      color: color,
+      child: Align(
+        alignment: at,
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 20),
+          child: Text(
+            label,
+            style: const TextStyle(
+              color: CupertinoColors.white,
+              fontWeight: FontWeight.w600,
+            ),
+          ),
+        ),
+      ),
+    );
+    return Dismissible(
+      key: key,
+      direction: onStart == null
+          ? DismissDirection.endToStart
+          : DismissDirection.horizontal,
+      background: onStart == null
+          ? back(
+              CupertinoColors.destructiveRed,
+              l10n.placeDelete,
+              Alignment.centerRight,
+            )
+          : back(
+              CupertinoColors.activeBlue,
+              startLabel ?? '',
+              Alignment.centerLeft,
+            ),
+      secondaryBackground: back(
+        CupertinoColors.destructiveRed,
+        l10n.placeDelete,
+        Alignment.centerRight,
+      ),
+      confirmDismiss: (direction) async {
+        if (direction == DismissDirection.startToEnd) {
+          await onStart?.call();
+          return false;
+        }
+        return onDelete();
+      },
+      child: child,
+    );
+  }
+
   static bool _isPin(Place p) =>
       p.kind == PlaceKind.point || p.kind == PlaceKind.area;
 
@@ -571,12 +789,27 @@ class _PlaceScreenState extends State<PlaceScreen> {
               child: ListView(
                 padding: const EdgeInsets.only(bottom: 32),
                 children: [
+                  if (_cover case final cover?)
+                    GestureDetector(
+                      key: const ValueKey('placeCover'),
+                      onTap: _openPhotos,
+                      child: SizedBox(
+                        height: 220,
+                        child: assetImage(
+                          cover,
+                          thumbnailSize: 900,
+                          placeholder: () => const ColoredBox(
+                            color: CupertinoColors.systemGrey5,
+                          ),
+                        ),
+                      ),
+                    ),
                   Padding(
                     padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
                     child: ClipRRect(
                       borderRadius: BorderRadius.circular(12),
                       child: SizedBox(
-                        height: 170,
+                        height: _cover == null ? 170 : 130,
                         child: NativeMap(
                           pins: _pins,
                           region: _regionOf(place),
@@ -606,12 +839,30 @@ class _PlaceScreenState extends State<PlaceScreen> {
                             ],
                           ),
                         const SizedBox(height: 2),
-                        Text(
-                          place.name,
-                          style: const TextStyle(
-                            fontSize: 28,
-                            fontWeight: FontWeight.w700,
-                          ),
+                        Row(
+                          crossAxisAlignment: CrossAxisAlignment.baseline,
+                          textBaseline: TextBaseline.alphabetic,
+                          children: [
+                            Expanded(
+                              child: Text(
+                                place.name,
+                                style: const TextStyle(
+                                  fontSize: 28,
+                                  fontWeight: FontWeight.w700,
+                                ),
+                              ),
+                            ),
+                            if (_rating case final r?)
+                              Text(
+                                '★ ${r.average.toStringAsFixed(1)} (${r.count})',
+                                key: const ValueKey('placeRating'),
+                                style: const TextStyle(
+                                  color: CupertinoColors.systemOrange,
+                                  fontSize: 17,
+                                  fontWeight: FontWeight.w600,
+                                ),
+                              ),
+                          ],
                         ),
                         const SizedBox(height: 2),
                         Text(
@@ -661,6 +912,46 @@ class _PlaceScreenState extends State<PlaceScreen> {
                             ),
                     ],
                   ),
+                  if (_visits.isNotEmpty && widget.assetRecordStore != null)
+                    CupertinoListSection.insetGrouped(
+                      key: const ValueKey('placeVisits'),
+                      header: Text(l10n.placeVisits(_visits.length)),
+                      children: [
+                        for (final v
+                            in _allVisits
+                                ? _visits
+                                : _visits.take(_shownVisits))
+                          CupertinoListTile(
+                            key: ValueKey(
+                              'placeVisit-${v.from.millisecondsSinceEpoch}',
+                            ),
+                            leading: const Icon(
+                              CupertinoIcons.calendar,
+                              color: CupertinoColors.systemPink,
+                            ),
+                            title: Text(visitLabel(v)),
+                            additionalInfo: Text('${v.photos.length}'),
+                            trailing: const CupertinoListTileChevron(),
+                            onTap: () => _openVisit(v),
+                          ),
+                        if (_visits.length > _shownVisits)
+                          CupertinoListTile(
+                            key: const ValueKey('placeVisitsMore'),
+                            title: Text(
+                              _allVisits
+                                  ? l10n.placesShowFewer
+                                  : l10n.placesShowMore(
+                                      _visits.length - _shownVisits,
+                                    ),
+                              style: const TextStyle(
+                                color: CupertinoColors.activeBlue,
+                              ),
+                            ),
+                            onTap: () =>
+                                setState(() => _allVisits = !_allVisits),
+                          ),
+                      ],
+                    ),
                   // A pin holds no pins; an area from before pins replaced
                   // areas still lists what was filed in it.
                   if (!_isPin(place) || _inside.isNotEmpty)
@@ -672,11 +963,17 @@ class _PlaceScreenState extends State<PlaceScreen> {
                       ),
                       children: [
                         for (final p in _inside)
-                          placeTile(
-                            l10n,
-                            p,
-                            _tally,
-                            onTap: () => _openPlace(p.id),
+                          _swipe(
+                            key: ValueKey('placeSwipe-${p.id}'),
+                            onDelete: () => _deletePin(p),
+                            onStart: () => _move(p),
+                            startLabel: l10n.placeMove,
+                            child: placeTile(
+                              l10n,
+                              p,
+                              _tally,
+                              onTap: () => _openPlace(p.id),
+                            ),
                           ),
                         if (!_isPin(place))
                           addRow(
@@ -690,14 +987,18 @@ class _PlaceScreenState extends State<PlaceScreen> {
                     header: Text(l10n.placeImpressions),
                     children: [
                       for (final e in _entries)
-                        impressionTile(
-                          l10n,
-                          e,
-                          at: e.placeId == place.id
-                              ? null
-                              : _byId[e.placeId]?.name,
-                          photos: _photosOf[e.id] ?? 0,
-                          onTap: () => _read(e),
+                        _swipe(
+                          key: ValueKey('entrySwipe-${e.id}'),
+                          onDelete: () => _deleteEntry(e),
+                          child: impressionTile(
+                            l10n,
+                            e,
+                            at: e.placeId == place.id
+                                ? null
+                                : _byId[e.placeId]?.name,
+                            photos: _photosOf[e.id] ?? 0,
+                            onTap: () => _read(e),
+                          ),
                         ),
                       addRow(
                         const ValueKey('placeAddImpression'),
@@ -795,6 +1096,7 @@ Widget impressionTile(
   TravelEntry e, {
   String? at,
   int photos = 0,
+  AssetRecord? cover,
   required VoidCallback onTap,
 }) {
   final excerpt = e.text.trim().split('\n').first;
@@ -805,6 +1107,18 @@ Widget impressionTile(
   ].join(' · ');
   return CupertinoListTile(
     key: ValueKey('placeEntry-${e.id}'),
+    leadingSize: cover == null ? 28 : 44,
+    leading: cover == null
+        ? null
+        : ClipRRect(
+            borderRadius: BorderRadius.circular(6),
+            child: assetImage(
+              cover,
+              thumbnailSize: 120,
+              placeholder: () =>
+                  const ColoredBox(color: CupertinoColors.systemGrey5),
+            ),
+          ),
     title: Text(
       e.title.isNotEmpty
           ? e.title

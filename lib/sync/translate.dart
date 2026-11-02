@@ -60,6 +60,49 @@ const assetCaptureColumns = [
 const albumCaptureColumns = [...albumFields, 'tags', 'is_demo'];
 const personCaptureColumns = [...personFields, 'is_demo'];
 
+/// `travel.db` columns that are LWW fields of the same name.
+const placeFields = {
+  'name',
+  'kind',
+  'lat',
+  'lng',
+  'parent_id',
+  'country',
+  'address',
+  'category',
+  'description',
+  'created_at',
+};
+const entryFields = {
+  'place_id',
+  'kind',
+  'at',
+  'title',
+  'text',
+  'rating',
+  'created_at',
+};
+const routeFields = {'title', 'note', 'starts', 'ends', 'created_at'};
+const entryCaptureColumns = [...entryFields, 'tags'];
+
+/// A route's whole stop list as JSON, each stop with the leg to the next:
+/// `[{place, arrived, note, mode, leg, review}]`. SQL on the route id.
+String routeStopsSql(String routeId) =>
+    '(SELECT json_group_array(json(j)) FROM (SELECT json_object('
+    "'place', s.place_id, 'arrived', s.arrived, 'note', s.note, "
+    "'mode', l.mode, 'leg', l.note, 'review', l.needs_review) AS j "
+    'FROM stop s LEFT JOIN leg l '
+    'ON l.route_id = s.route_id AND l.position = s.position '
+    'WHERE s.route_id = $routeId ORDER BY s.position))';
+
+/// A `link` row's key: `<owner kind>/<owner id>/<target kind>/<target id>`.
+const linkKeySql =
+    "{row}.owner_kind || '/' || {row}.owner_id || '/' || "
+    "{row}.target_kind || '/' || {row}.target_id";
+
+/// Set names for link targets.
+const linkSets = {'asset': 'photos', 'person': 'people'};
+
 /// One captured write → the ops it means. [now] stamps purges and bins.
 ///
 /// - A photo enters the log once its original is in the bucket (`add`
@@ -93,6 +136,36 @@ List<Change> translate(
           Change(e, owner, OpKind.madd, f: 'members', x: asset),
         if (kind == 'delete')
           Change(e, owner, OpKind.mrem, f: 'members', x: asset),
+      ];
+    case 'place':
+      return _owner('place', key, kind, before, after, placeFields, now);
+    case 'entry':
+      return _owner('entry', key, kind, before, after, entryFields, now);
+    case 'route':
+      return _owner('route', key, kind, before, after, routeFields, now);
+    case 'stop':
+    case 'leg':
+      final stops = (after ?? before)?['stops'];
+      return [
+        Change(
+          'route',
+          key,
+          OpKind.set,
+          f: 'stops',
+          x: stops is String ? stops : jsonEncode(stops ?? const []),
+        ),
+      ];
+    case 'link':
+      final parts = key.split('/');
+      if (parts.length < 4) return const [];
+      final set = linkSets[parts[2]];
+      if (set == null) return const [];
+      final member = parts.sublist(3).join('/');
+      return [
+        if (kind == 'insert')
+          Change(parts[0], parts[1], OpKind.madd, f: set, x: member),
+        if (kind == 'delete')
+          Change(parts[0], parts[1], OpKind.mrem, f: set, x: member),
       ];
   }
   return const [];

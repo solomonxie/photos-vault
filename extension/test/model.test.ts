@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { SearchIndex, buildLibrary, groupByDay } from '../src/model';
+import { SearchIndex, buildLibrary, groupByDay, placeIds } from '../src/model';
 import { parsePaste, originsFor } from '../src/connection';
 import { SyncState } from '../src/sync/merge';
 import type { WireOp } from '../src/sync/op';
@@ -31,21 +31,28 @@ test('timeline, bin, hidden and purged; albums and people only over photos still
   expect(lib.people).toEqual([]);
 });
 
-test('places: country and city from the photos, hand-made pins under their city with descriptions', () => {
+test('places: country and city from the photos; the phone\'s places filed by parent, pins with their photos nearby', () => {
   const lib = buildLibrary(
     state([
-      { e: 'asset', id: 'A', o: 'add', x: { created_at: day(1), location: 'Lisbon, Portugal' } },
+      { e: 'asset', id: 'A', o: 'add', x: { created_at: day(1), location: 'Lisbon, Portugal', latitude: 38.7105, longitude: -9.1302 } },
       { e: 'asset', id: 'B', o: 'add', x: { created_at: day(2), location: 'Lisbon, Portugal' } },
       { e: 'asset', id: 'C', o: 'add', x: { created_at: day(3), location: 'Portugal' } },
-      { e: 'place', id: 'pin1', o: 'add', x: { name: 'Alfama', description: 'Old town', city: 'Lisbon', country: 'Portugal', lat: 38.71, lng: -9.13 } },
-      { e: 'place', id: 'pin1', o: 'madd', f: 'photos', x: 'A' },
+      { e: 'place', id: 'pt', o: 'add', x: { name: 'portugal', kind: 'country', lat: 39, lng: -8 } },
+      { e: 'place', id: 'lx', o: 'add', x: { name: 'Lisbon', kind: 'city', parent_id: 'pt', lat: 38.7, lng: -9.1, description: 'Hills' } },
+      { e: 'place', id: 'pin1', o: 'add', x: { name: 'Alfama', kind: 'point', parent_id: 'lx', description: 'Old town', lat: 38.71, lng: -9.13 } },
+      { e: 'entry', id: 'i1', o: 'add', x: { place_id: 'pin1', title: 'Fado night', text: 'Loud', rating: 4, at: day(1) } },
+      { e: 'entry', id: 'i1', o: 'madd', f: 'photos', x: 'B' },
+      { e: 'route', id: 'r1', o: 'add', x: { title: 'Portugal trip', starts: day(1), stops: '[{"place":"lx","arrived":null,"note":""},{"place":"pin1"}]' } },
     ]),
   );
   const pt = lib.places[0]!;
-  expect([pt.level, pt.name, pt.photos.length]).toEqual(['country', 'Portugal', 3]);
+  expect([pt.level, pt.name, pt.photos.length, pt.ids]).toEqual(['country', 'Portugal', 3, ['pt']]);
   const lisbon = pt.children[0]!;
-  expect([lisbon.level, lisbon.name, lisbon.photos.length]).toEqual(['city', 'Lisbon', 2]);
+  expect([lisbon.level, lisbon.name, lisbon.photos.length, lisbon.description]).toEqual(['city', 'Lisbon', 2, 'Hills']);
   expect(lisbon.children.map((c) => [c.level, c.name, c.description, c.photos])).toEqual([['pin', 'Alfama', 'Old town', ['A']]]);
+  expect([...placeIds(lisbon)].sort()).toEqual(['lx', 'pin1']);
+  expect(lib.impressions.map((i) => [i.title, i.rating, i.photos])).toEqual([['Fado night', 4, ['B']]]);
+  expect(lib.plans.map((r) => [r.title, r.stops.map((s) => s.placeId)])).toEqual([['Portugal trip', ['lx', 'pin1']]]);
 });
 
 test('days group by local date; search finds places, albums and captions', () => {

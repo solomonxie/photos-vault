@@ -1,5 +1,6 @@
 import 'package:photos_vault/photos/travel.dart';
 import 'package:photos_vault/photos/travel_store.dart';
+import 'package:sqflite/sqflite.dart' show Database;
 
 /// In-memory [TravelStore] for widget tests (sqflite can't run inside
 /// `testWidgets`' fake async).
@@ -27,6 +28,16 @@ class FakeTravelStore implements TravelStore {
 
   @override
   Future<int> dataMark() async => _rev;
+
+  @override
+  Future<Database> syncDatabase() =>
+      throw UnsupportedError('no sync in widget tests');
+
+  @override
+  Future<void> restorePlace(Place place) async {
+    placesById.putIfAbsent(place.id, () => place);
+    _rev++;
+  }
 
   @override
   Future<Place> createPlace({

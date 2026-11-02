@@ -8,6 +8,7 @@ import '../photos/place_search.dart';
 import '../photos/travel.dart';
 import '../photos/travel_store.dart';
 import '../storage/asset_record_store.dart';
+import 'route_draft_screen.dart';
 import 'route_editor_screen.dart';
 import 'route_screen.dart';
 
@@ -71,13 +72,30 @@ class _RouteListViewState extends State<RouteListView> {
     await _load();
   }
 
-  Future<void> _open(TravelRoute route) async {
+  Future<void> _draft() async {
+    final store = widget.assetRecordStore;
+    if (store == null) return;
+    final id = await Navigator.of(context).push<String>(
+      CupertinoPageRoute(
+        builder: (_) => RouteDraftScreen(
+          travelStore: widget.travelStore,
+          assetRecordStore: store,
+        ),
+      ),
+    );
+    if (id == null || !mounted) return _load();
+    await _openId(id);
+  }
+
+  Future<void> _open(TravelRoute route) => _openId(route.id);
+
+  Future<void> _openId(String id) async {
     await Navigator.of(context).push<void>(
       CupertinoPageRoute(
         builder: (_) => RouteScreen(
           travelStore: widget.travelStore,
           placeSearch: widget.placeSearch,
-          routeId: route.id,
+          routeId: id,
           assetRecordStore: widget.assetRecordStore,
           personStore: widget.personStore,
         ),
@@ -98,29 +116,57 @@ class _RouteListViewState extends State<RouteListView> {
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
-        Align(
-          alignment: Alignment.centerRight,
-          child: CupertinoButton(
-            key: const ValueKey('routeNew'),
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            onPressed: _new,
-            child: Row(
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                const Icon(CupertinoIcons.plus, size: 18),
-                const SizedBox(width: 4),
-                Text(l10n.routeNew),
-              ],
+        Wrap(
+          alignment: WrapAlignment.end,
+          children: [
+            if (widget.assetRecordStore != null)
+              CupertinoButton(
+                key: const ValueKey('routeDraft'),
+                padding: const EdgeInsets.symmetric(horizontal: 12),
+                onPressed: _draft,
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(CupertinoIcons.wand_stars, size: 18),
+                    const SizedBox(width: 4),
+                    Text(l10n.routeDraftTitle),
+                  ],
+                ),
+              ),
+            CupertinoButton(
+              key: const ValueKey('routeNew'),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              onPressed: _new,
+              child: Row(
+                mainAxisSize: MainAxisSize.min,
+                children: [
+                  const Icon(CupertinoIcons.plus, size: 18),
+                  const SizedBox(width: 4),
+                  Text(l10n.routeNew),
+                ],
+              ),
             ),
-          ),
+          ],
         ),
         if (_routes.isEmpty)
           Padding(
             padding: const EdgeInsets.fromLTRB(32, 24, 32, 24),
-            child: Text(
-              l10n.routesEmpty,
-              textAlign: TextAlign.center,
-              style: const TextStyle(color: CupertinoColors.systemGrey),
+            child: Column(
+              children: [
+                Text(
+                  l10n.routesEmpty,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: CupertinoColors.systemGrey),
+                ),
+                if (widget.assetRecordStore != null) ...[
+                  const SizedBox(height: 12),
+                  CupertinoButton.filled(
+                    key: const ValueKey('routesEmptyDraft'),
+                    onPressed: _draft,
+                    child: Text(l10n.routeDraftTitle),
+                  ),
+                ],
+              ],
             ),
           ),
         for (final r in _routes)

@@ -68,7 +68,10 @@ Future<int> mergeDatabase(Database live, String path) async {
     final theirs = {
       for (final r in await live.rawQuery(
         "SELECT name FROM src.sqlite_master WHERE type = 'table' "
-        "AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata'",
+        "AND name NOT LIKE 'sqlite_%' AND name != 'android_metadata' "
+        // A backup's unsent sync captures are stale: resent, they'd stamp
+        // old values as new edits.
+        "AND name NOT IN ('sync_outbox', 'sync_flag')",
       ))
         r['name'] as String,
     };

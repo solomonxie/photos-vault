@@ -95,16 +95,18 @@ class LogSync {
           for (final r in rows)
             ...translate(r.table, r.key, r.kind, r.before, r.after, now),
         ];
+        // Album and person members, and photos linked from travel.
+        bool photoSet(Change c) => c.f == 'members' || c.f == 'photos';
         final members = {
           for (final c in changes)
-            if (c.f == 'members') c.x as String,
+            if (photoSet(c)) c.x as String,
         };
         final hidden = members.isEmpty
             ? const <String>{}
             : await privateAssets(members);
         await store.addChanges([
           for (final c in changes)
-            if (c.f != 'members' || !hidden.contains(c.x)) c,
+            if (!photoSet(c) || !hidden.contains(c.x)) c,
         ]);
         await dropCaptured(db, rows.last.n);
         moved += changes.length;

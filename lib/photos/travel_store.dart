@@ -12,6 +12,8 @@ import 'package:sqflite/sqflite.dart'
 import 'package:uuid/uuid.dart';
 
 import '../backup/database_copy.dart';
+import '../sync/capture.dart';
+import '../sync/translate.dart';
 import 'travel.dart';
 
 /// `travel.db`: a tree of places, impressions (and older diary entries), routes with their
@@ -57,7 +59,7 @@ class TravelStore {
 
   Future<Database> _openOnce() async {
     final path = _path ?? p.join(await _factory.getDatabasesPath(), fileName);
-    return _db = await _factory.openDatabase(
+    final db = await _factory.openDatabase(
       path,
       options: OpenDatabaseOptions(
         version: 3,
@@ -65,7 +67,31 @@ class TravelStore {
         onUpgrade: _upgrade,
       ),
     );
+    await installSyncCapture(db, captureSpecs);
+    return _db = db;
   }
+
+  /// What cloud sync records: places, entries and routes by id; a stop or
+  /// leg as its route's whole list; a link by all four parts.
+  static final captureSpecs = [
+    CaptureSpec('place', '{row}.id', [...placeFields]),
+    CaptureSpec('entry', '{row}.id', entryCaptureColumns),
+    CaptureSpec('route', '{row}.id', [...routeFields]),
+    for (final (table, columns) in const [
+      ('stop', ['position', 'place_id', 'arrived', 'note']),
+      ('leg', ['position', 'mode', 'note', 'needs_review']),
+    ])
+      CaptureSpec(
+        table,
+        '{row}.route_id',
+        columns,
+        extra: {'stops': routeStopsSql('{row}.route_id')},
+      ),
+    CaptureSpec('link', linkKeySql, const ['target_id']),
+  ];
+
+  /// For cloud sync: capture switches and the applier's writes.
+  Future<Database> syncDatabase() => _open();
 
   static Future<void> _create(Database db, int version) async {
     final batch = db.batch()
@@ -264,6 +290,15 @@ class TravelStore {
     return place;
   }
 
+  /// [place] back under its own id: an undone delete.
+  Future<void> restorePlace(Place place) => _write(
+    (txn) => txn.insert(
+      'place',
+      _placeRow(place),
+      conflictAlgorithm: ConflictAlgorithm.ignore,
+    ),
+  );
+
   Future<void> updatePlace(Place place) => _write(
     (txn) => txn.update(
       'place',
@@ -424,11 +459,16 @@ class TravelStore {
       createdAt: entry.createdAt,
       updatedAt: DateTime.now(),
     );
+    // An upsert, not a replace: sync sees the fields that changed, not a
+    // fresh row trampling a concurrent edit elsewhere.
+    final row = _entryRow(stored);
     await _write(
-      (txn) => txn.insert(
-        'entry',
-        _entryRow(stored),
-        conflictAlgorithm: ConflictAlgorithm.replace,
+      (txn) => txn.rawInsert(
+        'INSERT INTO entry (${row.keys.join(', ')}) '
+        'VALUES (${List.filled(row.length, '?').join(', ')}) '
+        'ON CONFLICT (id) DO UPDATE SET '
+        '${row.keys.where((k) => k != 'id').map((k) => '$k = excluded.$k').join(', ')}',
+        row.values.toList(),
       ),
     );
     return stored;
@@ -784,9 +824,25 @@ class TravelStore {
     String ownerId,
     Iterable<TravelLink> links,
   ) => _write((txn) async {
-    await _dropLinks(txn, owner, ownerId);
+    // A diff: an unchanged link is not removed and added again.
+    final want = links.toSet();
+    final have = {
+      for (final r in await txn.query(
+        'link',
+        where: 'owner_kind = ? AND owner_id = ?',
+        whereArgs: [owner.name, ownerId],
+      ))
+        TravelLink(LinkTarget.of(r['target_kind']), r['target_id'] as String),
+    };
     final batch = txn.batch();
-    for (final l in links.toSet()) {
+    for (final l in have.difference(want)) {
+      batch.delete(
+        'link',
+        where: 'owner_kind = ? AND owner_id = ? AND target_kind = ? AND target_id = ?',
+        whereArgs: [owner.name, ownerId, l.target.name, l.id],
+      );
+    }
+    for (final l in want.difference(have)) {
       batch.insert('link', {
         'owner_kind': owner.name,
         'owner_id': ownerId,

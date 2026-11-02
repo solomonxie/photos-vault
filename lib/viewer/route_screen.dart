@@ -7,9 +7,12 @@ import '../photos/person_store.dart';
 import '../photos/place_search.dart';
 import '../photos/travel.dart';
 import '../photos/travel_store.dart';
+import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart' show assetImage;
+import 'asset_group_screen.dart';
 import 'native_map.dart';
+import 'place_screen.dart' show photosAtOn;
 import 'route_editor_screen.dart';
 
 String legModeLabel(AppLocalizations l10n, LegMode mode) => switch (mode) {
@@ -97,6 +100,9 @@ class _RouteScreenState extends State<RouteScreen> {
   Map<String, Person> _people = const {};
   bool _loaded = false;
 
+  /// By stop position: photos taken at it on the day it was reached.
+  Map<int, List<AssetRecord>> _stopPhotos = const {};
+
   @override
   void initState() {
     super.initState();
@@ -117,8 +123,22 @@ class _RouteScreenState extends State<RouteScreen> {
         widget.personStore != null) {
       people = {for (final p in await widget.personStore!.listAll()) p.id: p};
     }
+    final stopPhotos = <int, List<AssetRecord>>{};
+    final records = detail == null || detail.stops.isEmpty
+        ? null
+        : await widget.assetRecordStore?.listAll();
+    if (detail != null && records != null) {
+      for (final (i, stop) in detail.stops.indexed) {
+        final place = detail.places[stop.placeId];
+        final day = stop.arrived;
+        if (place == null || day == null) continue;
+        final found = photosAtOn(place, records, day);
+        if (found.isNotEmpty) stopPhotos[i] = found;
+      }
+    }
     if (!mounted) return;
     setState(() {
+      _stopPhotos = stopPhotos;
       _detail = detail;
       _links = links;
       _people = people;
@@ -145,6 +165,57 @@ class _RouteScreenState extends State<RouteScreen> {
     }
     await _load();
   }
+
+  /// Day 1 is the plan's start, else its first dated stop.
+  static int _dayNumber(RouteDetail detail, DateTime day) {
+    final first =
+        detail.route.starts ??
+        detail.stops.map((s) => s.arrived).whereType<DateTime>().first;
+    final start = DateTime(first.year, first.month, first.day);
+    return DateTime(day.year, day.month, day.day).difference(start).inDays + 1;
+  }
+
+  Widget _stopStrip(
+    int i,
+    List<AssetRecord> photos,
+    String title,
+    AssetRecordStore store,
+  ) => Padding(
+    key: ValueKey('routeStopPhotos-$i'),
+    padding: const EdgeInsets.only(left: 40, bottom: 6),
+    child: SizedBox(
+      height: 64,
+      child: ListView.separated(
+        scrollDirection: Axis.horizontal,
+        itemCount: photos.length,
+        separatorBuilder: (_, _) => const SizedBox(width: 3),
+        itemBuilder: (context, n) => GestureDetector(
+          onTap: () => Navigator.of(context).push(
+            CupertinoPageRoute(
+              builder: (_) => AssetGroupScreen(
+                title: title,
+                records: photos,
+                assetRecordStore: store,
+                travelStore: widget.travelStore,
+              ),
+            ),
+          ),
+          child: ClipRRect(
+            borderRadius: BorderRadius.circular(5),
+            child: SizedBox.square(
+              dimension: 64,
+              child: assetImage(
+                photos[n],
+                thumbnailSize: 160,
+                placeholder: () =>
+                    const ColoredBox(color: CupertinoColors.systemGrey5),
+              ),
+            ),
+          ),
+        ),
+      ),
+    ),
+  );
 
   void _focusStop(Place p) =>
       _map.focus(p.lat, p.lng, span: p.isCity ? 0.3 : 0.02);
@@ -272,9 +343,34 @@ class _RouteScreenState extends State<RouteScreen> {
               final next = i + 1 < detail.stops.length
                   ? detail.places[detail.stops[i + 1].placeId]
                   : null;
+              final day = stop.arrived;
+              final before = i == 0 ? null : detail.stops[i - 1].arrived;
+              final newDay =
+                  day != null &&
+                  (before == null ||
+                      before.year != day.year ||
+                      before.month != day.month ||
+                      before.day != day.day);
+              final strip = _stopPhotos[i];
               return Column(
                 crossAxisAlignment: CrossAxisAlignment.stretch,
                 children: [
+                  if (newDay)
+                    Padding(
+                      key: ValueKey('routeDay-$i'),
+                      padding: EdgeInsets.only(top: i == 0 ? 0 : 14, bottom: 6),
+                      child: Text(
+                        l10n.routeDay(
+                          _dayNumber(detail, day),
+                          DateFormat.MMMEd().format(day),
+                        ),
+                        style: const TextStyle(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w600,
+                          color: CupertinoColors.systemGrey,
+                        ),
+                      ),
+                    ),
                   _StopRow(
                     key: ValueKey('routeStop-$i'),
                     number: i + 1,
@@ -283,6 +379,13 @@ class _RouteScreenState extends State<RouteScreen> {
                     last: i == detail.stops.length - 1,
                     onTap: place == null ? null : () => _focusStop(place),
                   ),
+                  if (strip != null && widget.assetRecordStore != null)
+                    _stopStrip(
+                      i,
+                      strip,
+                      place?.name ?? '',
+                      widget.assetRecordStore!,
+                    ),
                   if (i < detail.legs.length)
                     _LegRow(
                       key: ValueKey('routeLeg-$i'),

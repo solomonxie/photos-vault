@@ -46,6 +46,20 @@ class PlaceSearch {
     }
   }
 
+  /// Country name (any case, this phone's language, English or Chinese) →
+  /// ISO region code; read once per run.
+  Future<Map<String, String>> regionCodes() => _regions ??= () async {
+    try {
+      final raw = await _channel.invokeMapMethod<String, String>('regions');
+      return raw ?? const <String, String>{};
+    } on MissingPluginException {
+      return const <String, String>{};
+    } on PlatformException {
+      return const <String, String>{};
+    }
+  }();
+  static Future<Map<String, String>>? _regions;
+
   /// A [width]×[height] point map with [pins] (and [line] through them),
   /// as a cached JPEG's path; null when it couldn't be drawn.
   Future<String?> snapshot({
@@ -205,4 +219,13 @@ class MapLineData {
   @override
   int get hashCode =>
       Object.hash(Object.hashAll(points), Object.hashAll(geodesic));
+}
+
+/// "JP" → 🇯🇵; empty for anything that isn't two letters.
+String flagOf(String? code) {
+  if (code == null || code.length != 2) return '';
+  final up = code.toUpperCase();
+  final a = up.codeUnitAt(0), b = up.codeUnitAt(1);
+  if (a < 65 || a > 90 || b < 65 || b > 90) return '';
+  return String.fromCharCodes([0x1F1E6 + a - 65, 0x1F1E6 + b - 65]);
 }

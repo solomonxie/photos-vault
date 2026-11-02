@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:photos_vault/photos/travel.dart';
 import 'package:photos_vault/photos/travel_store.dart';
+import 'package:photos_vault/sync/capture.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -369,4 +370,40 @@ void main() {
     expect(out.legs.every((l) => l.needsReview), isTrue);
     expect(out.orphanNotes, isEmpty);
   });
+
+  test(
+    'a backup merged in brings its rows, never its unsent sync captures',
+    () async {
+      await setCapture(await store.syncDatabase(), enabled: true);
+      await city('Kyoto');
+      final copy = p.join(dir.path, 'copy.db');
+      expect(await store.copyTo(copy), isTrue);
+      final fresh = TravelStore(
+        databaseFactory: databaseFactoryFfi,
+        path: p.join(dir.path, 'fresh.db'),
+      );
+      addTearDown(fresh.close);
+      expect(await fresh.mergeFrom(copy), greaterThan(0));
+      expect((await fresh.places()).map((p) => p.name), contains('Kyoto'));
+      expect(await readCaptured(await fresh.syncDatabase()), isEmpty);
+    },
+  );
+
+  test(
+    'an entry saved again is an update, so sync sees only what changed',
+    () async {
+      await setCapture(await store.syncDatabase(), enabled: true);
+      final kyoto = await city('Kyoto');
+      final e = await store.saveEntry(
+        store.newEntry(placeId: kyoto.id, kind: EntryKind.impression),
+      );
+      final db = await store.syncDatabase();
+      await dropCaptured(db, 1 << 30);
+      await store.saveEntry(e.copyWith(text: 'calm'));
+      expect(
+        [for (final r in await readCaptured(db)) (r.table, r.kind)],
+        [('entry', 'update')],
+      );
+    },
+  );
 }

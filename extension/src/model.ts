@@ -17,6 +17,8 @@ export interface Photo {
   editedKey: string | null;
   tags: string[];
   binnedAt: number | null;
+  lat: number | null;
+  lng: number | null;
 }
 
 export interface Album {
@@ -42,8 +44,39 @@ export interface Place {
   /// A pin's spot, and what its maker wrote about it.
   at?: { lat: number; lng: number };
   description?: string;
+  /// The phone's places this row stands for (a country or city made there
+  /// shares its row with the one named by photos).
+  ids: string[];
   photos: string[];
   children: Place[];
+}
+
+/// An impression written on the phone, about one place.
+export interface Impression {
+  id: string;
+  placeId: string;
+  title: string;
+  text: string;
+  rating: number | null;
+  at: number | null;
+  tags: string[];
+  photos: string[];
+}
+
+export interface PlanStop {
+  placeId: string;
+  arrived: number | null;
+  note: string;
+}
+
+/// A travel plan: its stops in order.
+export interface Plan {
+  id: string;
+  title: string;
+  note: string;
+  starts: number | null;
+  ends: number | null;
+  stops: PlanStop[];
 }
 
 export interface Day {
@@ -62,6 +95,10 @@ export interface Library {
   albums: Album[];
   people: Person[];
   places: Place[];
+  impressions: Impression[];
+  plans: Plan[];
+  /// Every synced place's name, by id.
+  placeNames: Map<string, string>;
   albumsOf: Map<string, string[]>;
   peopleOf: Map<string, string[]>;
 }
@@ -69,6 +106,7 @@ export interface Library {
 const str = (v: Scalar | undefined) => (typeof v === 'string' ? v : '');
 const num = (v: Scalar | undefined) => (typeof v === 'number' ? v : 0);
 const flag = (v: Scalar | undefined) => v === 1 || v === true;
+const numOrNull = (v: Scalar | undefined) => (typeof v === 'number' ? v : null);
 const key = (v: Scalar | undefined) => (typeof v === 'string' && v.length > 0 ? v : null);
 
 const field = (ent: EntityState, f: string) => ent.fields.get(f)?.x;
@@ -93,6 +131,8 @@ export function photoOf(ent: EntityState): Photo {
     editedKey: key(field(ent, 'edited_key')),
     tags: members(ent, 'tags'),
     binnedAt: typeof binned === 'number' ? binned : null,
+    lat: numOrNull(field(ent, 'latitude')),
+    lng: numOrNull(field(ent, 'longitude')),
   };
 }
 
@@ -107,25 +147,44 @@ const cityOf = (location: string): [string, string] | null => {
   return [country, parts.length > 1 ? parts[parts.length - 2]! : ''];
 };
 
-/// A hand-made pin from the phone's Footprints (`place` entities), filed
-/// under its city by name. An area made on the phone is shown as a pin too.
+/// A place made on the phone (`place` entities), at any level.
 export interface HandPlace {
   id: string;
   name: string;
+  kind: string;
+  parent: string | null;
   description: string;
-  country: string;
-  city: string;
   at?: { lat: number; lng: number };
-  photos: string[];
+}
+
+/// As the phone counts a pin's photos: taken within 300 m (1.5 km for an
+/// area) of it.
+export function photosNear(at: { lat: number; lng: number }, kind: string, photos: Photo[]): string[] {
+  const reach = kind === 'area' ? 1500 : 300;
+  const dLat = reach / 111_320;
+  const dLng = dLat / Math.max(0.01, Math.cos((at.lat * Math.PI) / 180));
+  const rad = Math.PI / 180;
+  const out: string[] = [];
+  for (const p of photos) {
+    if (p.lat === null || p.lng === null) continue;
+    if (Math.abs(p.lat - at.lat) > dLat || Math.abs(p.lng - at.lng) > dLng) continue;
+    const a =
+      Math.sin(((p.lat - at.lat) * rad) / 2) ** 2 +
+      Math.cos(at.lat * rad) * Math.cos(p.lat * rad) * Math.sin(((p.lng - at.lng) * rad) / 2) ** 2;
+    if (2 * 6_371_000 * Math.asin(Math.sqrt(a)) <= reach) out.push(p.id);
+  }
+  return out;
 }
 
 /// Every place, as one tree: country → city from the photos' own location
-/// names; pins under their city, made by hand.
+/// names, and the phone's places filed into it by their parents — its
+/// countries and cities join the rows of the same name, anything smaller
+/// is a pin under its nearest country or city (or the pin it's inside).
 export function buildPlaces(photos: Photo[], hand: HandPlace[] = []): Place[] {
   const countries: Place[] = [];
   const node = (list: Place[], level: PlaceLevel, name: string) => {
-    let n = list.find((c) => c.level === level && c.name === name);
-    if (!n) list.push((n = { level, name, photos: [], children: [] }));
+    let n = list.find((c) => c.level === level && c.name.toLowerCase() === name.toLowerCase());
+    if (!n) list.push((n = { level, name, ids: [], photos: [], children: [] }));
     return n;
   };
   for (const p of photos) {
@@ -135,18 +194,30 @@ export function buildPlaces(photos: Photo[], hand: HandPlace[] = []): Place[] {
     country.photos.push(p.id);
     if (at[1]) node(country.children, 'city', at[1]).photos.push(p.id);
   }
-  for (const hp of hand) {
-    const country = node(countries, 'country', hp.country);
-    const parent = hp.city ? node(country.children, 'city', hp.city) : country;
-    parent.children.push({
-      level: 'pin',
-      name: hp.name,
-      at: hp.at,
-      description: hp.description,
-      photos: hp.photos,
-      children: [],
-    });
-  }
+  const byId = new Map(hand.map((hp) => [hp.id, hp]));
+  const rows = new Map<string, Place>();
+  const rowOf = (hp: HandPlace, seen = new Set<string>()): Place | null => {
+    const known = rows.get(hp.id);
+    if (known) return known;
+    if (seen.has(hp.id)) return null;
+    seen.add(hp.id);
+    const up = hp.parent ? byId.get(hp.parent) : undefined;
+    const parent = up ? rowOf(up, seen) : null;
+    let row: Place;
+    if (hp.kind === 'country') {
+      row = node(countries, 'country', hp.name);
+    } else if (hp.kind === 'city' && parent?.level === 'country') {
+      row = node(parent.children, 'city', hp.name);
+    } else {
+      row = { level: 'pin', name: hp.name, at: hp.at, ids: [], photos: hp.at ? photosNear(hp.at, hp.kind, photos) : [], children: [] };
+      (parent ? parent.children : countries).push(row);
+    }
+    if (hp.description && !row.description) row.description = hp.description;
+    row.ids.push(hp.id);
+    rows.set(hp.id, row);
+    return row;
+  };
+  for (const hp of hand) rowOf(hp);
   const sort = (list: Place[]) => {
     list.sort((a, b) => b.photos.length - a.photos.length || a.name.localeCompare(b.name));
     for (const c of list) sort(c.children);
@@ -154,6 +225,32 @@ export function buildPlaces(photos: Photo[], hand: HandPlace[] = []): Place[] {
   sort(countries);
   return countries;
 }
+
+/// [pl]'s own ids and those of everything inside it.
+export function placeIds(pl: Place): Set<string> {
+  const out = new Set<string>();
+  const walk = (p: Place) => {
+    for (const id of p.ids) out.add(id);
+    for (const c of p.children) walk(c);
+  };
+  walk(pl);
+  return out;
+}
+
+const parseStops = (raw: Scalar | undefined): PlanStop[] => {
+  if (typeof raw !== 'string') return [];
+  try {
+    const list: unknown = JSON.parse(raw);
+    if (!Array.isArray(list)) return [];
+    return list.flatMap((s: Record<string, unknown>) =>
+      typeof s.place === 'string'
+        ? [{ placeId: s.place, arrived: typeof s.arrived === 'number' ? s.arrived : null, note: typeof s.note === 'string' ? s.note : '' }]
+        : [],
+    );
+  } catch {
+    return [];
+  }
+};
 
 export function buildLibrary(state: SyncState): Library {
   const photos = new Map<string, Photo>();
@@ -166,19 +263,42 @@ export function buildLibrary(state: SyncState): Library {
   const peopleOf = new Map<string, string[]>();
   const live = (ids: string[]) => ids.filter((id) => photos.has(id));
   const hand: HandPlace[] = [];
+  const impressions: Impression[] = [];
+  const plans: Plan[] = [];
   for (const ent of state.listed()) {
     if (gone(ent) || field(ent, 'deleted_at') != null) continue;
     if (ent.e === 'place') {
       const lat = field(ent, 'lat');
       const lng = field(ent, 'lng');
+      const kind = str(field(ent, 'kind'));
       hand.push({
         id: ent.id,
         name: str(field(ent, 'name')),
+        kind,
+        parent: key(field(ent, 'parent_id')),
         description: str(field(ent, 'description')),
-        country: str(field(ent, 'country')),
-        city: str(field(ent, 'city')),
-        at: typeof lat === 'number' && typeof lng === 'number' ? { lat, lng } : undefined,
-        photos: members(ent, 'photos').filter((id) => photos.has(id)),
+        at: kind !== 'country' && kind !== 'city' && typeof lat === 'number' && typeof lng === 'number' ? { lat, lng } : undefined,
+      });
+    } else if (ent.e === 'entry') {
+      const rating = field(ent, 'rating');
+      impressions.push({
+        id: ent.id,
+        placeId: str(field(ent, 'place_id')),
+        title: str(field(ent, 'title')),
+        text: str(field(ent, 'text')),
+        rating: typeof rating === 'number' && rating > 0 ? rating : null,
+        at: numOrNull(field(ent, 'at')),
+        tags: members(ent, 'tags'),
+        photos: live(members(ent, 'photos')),
+      });
+    } else if (ent.e === 'route') {
+      plans.push({
+        id: ent.id,
+        title: str(field(ent, 'title')),
+        note: str(field(ent, 'note')),
+        starts: numOrNull(field(ent, 'starts')),
+        ends: numOrNull(field(ent, 'ends')),
+        stops: parseStops(field(ent, 'stops')),
       });
     } else if (ent.e === 'album') {
       const ids = live(members(ent, 'members'));
@@ -213,6 +333,9 @@ export function buildLibrary(state: SyncState): Library {
     albums,
     people,
     places: buildPlaces(timeline, hand),
+    impressions: impressions.sort((a, b) => (b.at ?? 0) - (a.at ?? 0)),
+    plans: plans.sort((a, b) => (b.starts ?? 0) - (a.starts ?? 0)),
+    placeNames: new Map(hand.map((hp) => [hp.id, hp.name])),
     albumsOf,
     peopleOf,
   };

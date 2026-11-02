@@ -5,10 +5,20 @@ import 'package:sqflite/sqflite.dart' show Database, DatabaseExecutor;
 /// One table whose writes cloud sync picks up: [columns] are recorded before
 /// and after, [key] is the SQL naming the row (on `{row}`).
 class CaptureSpec {
-  const CaptureSpec(this.table, this.key, this.columns, {this.private});
+  const CaptureSpec(
+    this.table,
+    this.key,
+    this.columns, {
+    this.private,
+    this.extra = const {},
+  });
   final String table;
   final String key;
   final List<String> columns;
+
+  /// Recorded values worked out in SQL on `{row}` at write time, e.g. a
+  /// route's whole stop list when one stop changes.
+  final Map<String, String> extra;
 
   /// SQL on `{row}` for a row behind a passcode. A write that is private
   /// before and after records nothing; a row turning private or back is
@@ -79,10 +89,11 @@ Future<void> installSyncCapture(
     final columns = await txn.rawQuery('PRAGMA table_info(${spec.table})');
     final have = {for (final c in columns) c['name'] as String};
     final cols = spec.columns.where(have.contains).toList();
+    if (cols.isEmpty) continue;
     final priv = spec.private;
     String isPrivate(String row) => '(${priv!.replaceAll('{row}', row)})';
     String json(String row) =>
-        'json_object(${[for (final c in cols) "'$c', $row.$c", if (priv != null) "'_private', ${isPrivate(row)}"].join(', ')})';
+        'json_object(${[for (final c in cols) "'$c', $row.$c", for (final MapEntry(:key, :value) in spec.extra.entries) "'$key', ${value.replaceAll('{row}', row)}", if (priv != null) "'_private', ${isPrivate(row)}"].join(', ')})';
     final changed = cols.map((c) => 'OLD.$c IS NOT NEW.$c').join(' OR ');
     final flipped = priv == null
         ? ''
