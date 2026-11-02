@@ -246,8 +246,16 @@ class _TravelEntryEditorState extends State<TravelEntryEditor> {
   late int? _rating = widget.entry.rating;
   List<TravelLink> _links = const [];
   Map<String, String> _names = const {};
-  bool _preview = false;
   bool _saving = false;
+
+  /// Everything but the text, folded until asked for; open when editing an
+  /// entry that already has any of it.
+  late bool _more =
+      !widget.isNew &&
+          (widget.entry.title.isNotEmpty ||
+              widget.entry.tags.isNotEmpty ||
+              widget.entry.rating != null) ||
+      widget.initialAssetIds.isNotEmpty;
 
   bool get _impression => widget.entry.kind == EntryKind.impression;
 
@@ -449,138 +457,38 @@ class _TravelEntryEditorState extends State<TravelEntryEditor> {
           padding: const EdgeInsets.fromLTRB(16, 12, 16, 32),
           children: [
             CupertinoTextField(
-              key: const ValueKey('travelEntryTitle'),
-              controller: _title,
-              placeholder: l10n.travelEntryTitlePlaceholder,
-              style: const TextStyle(fontSize: 20, fontWeight: FontWeight.w600),
+              key: const ValueKey('travelEntryText'),
+              controller: _text,
+              autofocus: widget.isNew,
+              placeholder: l10n.travelEntryTextPlaceholder,
+              minLines: 10,
+              maxLines: null,
+              keyboardType: TextInputType.multiline,
+              padding: const EdgeInsets.all(14),
+              style: const TextStyle(fontSize: 17, height: 1.4),
+              decoration: BoxDecoration(
+                color: CupertinoColors.secondarySystemGroupedBackground
+                    .resolveFrom(context),
+                borderRadius: BorderRadius.circular(12),
+              ),
             ),
-            const SizedBox(height: 8),
-            CupertinoListTile(
-              key: const ValueKey('travelEntryDate'),
-              padding: EdgeInsets.zero,
-              title: Text(l10n.travelEntryDate),
-              additionalInfo: Text(
-                _at == null
-                    ? l10n.travelEntryNoDate
-                    : DateFormat.yMMMd().format(_at!),
-              ),
-              trailing: const CupertinoListTileChevron(),
-              onTap: _pickDate,
-            ),
-            if (_impression) ...[
-              Row(
-                children: [
-                  Text(l10n.travelEntryRating),
-                  const Spacer(),
-                  for (var star = 1; star <= 5; star++)
-                    CupertinoButton(
-                      key: ValueKey('travelEntryStar$star'),
-                      padding: const EdgeInsets.symmetric(horizontal: 2),
-                      minimumSize: const Size(36, 36),
-                      onPressed: () => setState(
-                        () => _rating = _rating == star ? null : star,
-                      ),
-                      child: Icon(
-                        (_rating ?? 0) >= star
-                            ? CupertinoIcons.star_fill
-                            : CupertinoIcons.star,
-                        color: CupertinoColors.systemYellow,
-                      ),
-                    ),
-                ],
-              ),
-              const SizedBox(height: 8),
-              CupertinoTextField(
-                key: const ValueKey('travelEntryTags'),
-                controller: _tags,
-                placeholder: l10n.travelEntryTagsPlaceholder,
-                prefix: Padding(
-                  padding: const EdgeInsets.only(left: 8),
-                  child: Text(l10n.travelEntryTags, style: grey),
-                ),
-              ),
-            ],
             const SizedBox(height: 12),
-            CupertinoSlidingSegmentedControl<bool>(
-              groupValue: _preview,
-              children: {
-                false: Text(l10n.travelEntryWrite),
-                true: Text(l10n.travelEntryPreview),
-              },
-              onValueChanged: (v) => setState(() => _preview = v ?? false),
+            CupertinoListTile(
+              key: const ValueKey('travelEntryMore'),
+              padding: const EdgeInsets.symmetric(horizontal: 4),
+              title: Text(
+                l10n.travelEntryMore,
+                style: const TextStyle(color: CupertinoColors.activeBlue),
+              ),
+              subtitle: _more ? null : _summary(l10n, photos),
+              trailing: Icon(
+                _more ? CupertinoIcons.chevron_up : CupertinoIcons.chevron_down,
+                size: 16,
+                color: CupertinoColors.activeBlue,
+              ),
+              onTap: () => setState(() => _more = !_more),
             ),
-            const SizedBox(height: 8),
-            if (_preview)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                child: TravelMarkdown(text: _text.text),
-              )
-            else
-              CupertinoTextField(
-                key: const ValueKey('travelEntryText'),
-                controller: _text,
-                placeholder: l10n.travelEntryTextPlaceholder,
-                minLines: 8,
-                maxLines: null,
-                keyboardType: TextInputType.multiline,
-              ),
-            const SizedBox(height: 16),
-            if (widget.personStore != null) ...[
-              Text(l10n.travelEntryPeople, style: grey),
-              const SizedBox(height: 6),
-              Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [
-                  for (final l in _links)
-                    if (l.target == LinkTarget.person)
-                      _RemovableChip(
-                        label: _names[l.id] ?? '?',
-                        onRemove: () => setState(
-                          () => _links = [
-                            for (final x in _links)
-                              if (x != l) x,
-                          ],
-                        ),
-                      ),
-                  CupertinoButton(
-                    key: const ValueKey('travelEntryAddPerson'),
-                    padding: const EdgeInsets.symmetric(horizontal: 8),
-                    minimumSize: const Size(0, 30),
-                    onPressed: _addPerson,
-                    child: Text(l10n.travelEntryAddPerson),
-                  ),
-                ],
-              ),
-            ],
-            if (widget.assetRecordStore != null || photos > 0) ...[
-              const SizedBox(height: 8),
-              CupertinoListTile(
-                key: const ValueKey('travelEntryPhotosRow'),
-                padding: EdgeInsets.zero,
-                leading: const Icon(CupertinoIcons.photo_on_rectangle),
-                title: Text(l10n.travelEntryPhotosCount(photos)),
-                trailing: Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (photos > 0)
-                      CupertinoButton(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        minimumSize: const Size(0, 30),
-                        onPressed: _clearPhotos,
-                        child: Text(l10n.travelEntryClearPhotos),
-                      ),
-                    if (widget.assetRecordStore != null)
-                      CupertinoButton(
-                        padding: const EdgeInsets.symmetric(horizontal: 8),
-                        minimumSize: const Size(0, 30),
-                        onPressed: _addPhotos,
-                        child: const Icon(CupertinoIcons.add),
-                      ),
-                  ],
-                ),
-              ),
-            ],
+            if (_more) ..._details(l10n, photos, grey),
             if (!widget.isNew) ...[
               const SizedBox(height: 24),
               CupertinoButton(
@@ -597,6 +505,131 @@ class _TravelEntryEditorState extends State<TravelEntryEditor> {
       ),
     );
   }
+
+  /// What the fold holds, in one grey line, so nothing filled is hidden.
+  Widget? _summary(AppLocalizations l10n, int photos) {
+    final people = _links.where((l) => l.target == LinkTarget.person).length;
+    final parts = [
+      if (_title.text.trim().isNotEmpty) _title.text.trim(),
+      if (_at != null) DateFormat.yMMMd().format(_at!),
+      if (_rating != null) '★' * _rating!,
+      if (_tags.text.trim().isNotEmpty) _tags.text.trim(),
+      if (people > 0) l10n.travelEntryPeopleCount(people),
+      if (photos > 0) l10n.travelEntryPhotosCount(photos),
+    ];
+    return parts.isEmpty
+        ? null
+        : Text(parts.join(' · '), maxLines: 1, overflow: TextOverflow.ellipsis);
+  }
+
+  List<Widget> _details(AppLocalizations l10n, int photos, TextStyle grey) => [
+    const SizedBox(height: 4),
+    CupertinoTextField(
+      key: const ValueKey('travelEntryTitle'),
+      controller: _title,
+      placeholder: l10n.travelEntryTitlePlaceholder,
+    ),
+    const SizedBox(height: 4),
+    CupertinoListTile(
+      key: const ValueKey('travelEntryDate'),
+      padding: EdgeInsets.zero,
+      title: Text(l10n.travelEntryDate),
+      additionalInfo: Text(
+        _at == null ? l10n.travelEntryNoDate : DateFormat.yMMMd().format(_at!),
+      ),
+      trailing: const CupertinoListTileChevron(),
+      onTap: _pickDate,
+    ),
+    if (_impression) ...[
+      Row(
+        children: [
+          Text(l10n.travelEntryRating),
+          const Spacer(),
+          for (var star = 1; star <= 5; star++)
+            CupertinoButton(
+              key: ValueKey('travelEntryStar$star'),
+              padding: const EdgeInsets.symmetric(horizontal: 2),
+              minimumSize: const Size(36, 36),
+              onPressed: () =>
+                  setState(() => _rating = _rating == star ? null : star),
+              child: Icon(
+                (_rating ?? 0) >= star
+                    ? CupertinoIcons.star_fill
+                    : CupertinoIcons.star,
+                color: CupertinoColors.systemYellow,
+              ),
+            ),
+        ],
+      ),
+      const SizedBox(height: 8),
+      CupertinoTextField(
+        key: const ValueKey('travelEntryTags'),
+        controller: _tags,
+        placeholder: l10n.travelEntryTagsPlaceholder,
+        prefix: Padding(
+          padding: const EdgeInsets.only(left: 8),
+          child: Text(l10n.travelEntryTags, style: grey),
+        ),
+      ),
+    ],
+    if (widget.personStore != null) ...[
+      const SizedBox(height: 16),
+      Text(l10n.travelEntryPeople, style: grey),
+      const SizedBox(height: 6),
+      Wrap(
+        spacing: 6,
+        runSpacing: 6,
+        children: [
+          for (final l in _links)
+            if (l.target == LinkTarget.person)
+              _RemovableChip(
+                label: _names[l.id] ?? '?',
+                onRemove: () => setState(
+                  () => _links = [
+                    for (final x in _links)
+                      if (x != l) x,
+                  ],
+                ),
+              ),
+          CupertinoButton(
+            key: const ValueKey('travelEntryAddPerson'),
+            padding: const EdgeInsets.symmetric(horizontal: 8),
+            minimumSize: const Size(0, 30),
+            onPressed: _addPerson,
+            child: Text(l10n.travelEntryAddPerson),
+          ),
+        ],
+      ),
+    ],
+    if (widget.assetRecordStore != null || photos > 0) ...[
+      const SizedBox(height: 8),
+      CupertinoListTile(
+        key: const ValueKey('travelEntryPhotosRow'),
+        padding: EdgeInsets.zero,
+        leading: const Icon(CupertinoIcons.photo_on_rectangle),
+        title: Text(l10n.travelEntryPhotosCount(photos)),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            if (photos > 0)
+              CupertinoButton(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 30),
+                onPressed: _clearPhotos,
+                child: Text(l10n.travelEntryClearPhotos),
+              ),
+            if (widget.assetRecordStore != null)
+              CupertinoButton(
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                minimumSize: const Size(0, 30),
+                onPressed: _addPhotos,
+                child: const Icon(CupertinoIcons.add),
+              ),
+          ],
+        ),
+      ),
+    ],
+  ];
 }
 
 Set<String> _assetIds(List<TravelLink> links) => {

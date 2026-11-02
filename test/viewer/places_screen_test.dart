@@ -711,6 +711,11 @@ void main() {
 
       await tester.tap(find.byKey(const ValueKey('placeAddImpression')));
       await tester.pumpAndSettle();
+      // One box to write in; the rest folded until asked for.
+      expect(find.byKey(const ValueKey('travelEntryText')), findsOne);
+      expect(find.byKey(const ValueKey('travelEntryTitle')), findsNothing);
+      await tester.tap(find.byKey(const ValueKey('travelEntryMore')));
+      await tester.pumpAndSettle();
       await tester.enterText(
         find.byKey(const ValueKey('travelEntryTitle')),
         'First day',
@@ -745,6 +750,8 @@ void main() {
       await tester.pumpWidget(page());
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('placeAddImpression')));
+      await tester.pumpAndSettle();
+      await tester.tap(find.byKey(const ValueKey('travelEntryMore')));
       await tester.pumpAndSettle();
       await tester.tap(find.byKey(const ValueKey('travelEntryStar4')));
       await tester.enterText(

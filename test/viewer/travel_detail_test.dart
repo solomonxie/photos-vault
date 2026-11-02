@@ -64,6 +64,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(row);
     await tester.pumpAndSettle();
+    if (find.byKey(const ValueKey('travelEntryTitle')).evaluate().isEmpty) {
+      await tester.tap(find.byKey(const ValueKey('travelEntryMore')));
+      await tester.pumpAndSettle();
+    }
 
     await tester.enterText(
       find.byKey(const ValueKey('travelEntryTitle')),
