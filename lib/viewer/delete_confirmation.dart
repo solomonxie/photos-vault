@@ -2,6 +2,7 @@ import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/asset_removal.dart';
+import '../photos/photo_library_service.dart';
 import '../storage/asset_record.dart';
 
 /// What the user picked from [chooseDelete].
@@ -277,4 +278,79 @@ Future<DeleteOutcome> deleteAsset(
           ? DeleteOutcome.deleted
           : DeleteOutcome.none;
   }
+}
+
+/// What [binSelection] did. [deleted] went to Recently Deleted; [kept] were
+/// declined at the Photos prompt; [capped] means more than one batch was
+/// picked and the rest are still to do; [allLocked] that nothing could go.
+typedef BinResult = ({
+  Set<String> deleted,
+  int kept,
+  bool capped,
+  bool allLocked,
+});
+
+/// Into Recently Deleted, as the library's batch delete does: one sheet,
+/// one Photos prompt for the lot. Locked photos are left alone. Null when
+/// the sheet was backed out of.
+Future<BinResult?> binSelection(
+  BuildContext context,
+  List<AssetRecord> selected, {
+  required PhotoLibraryService library,
+  required AssetRemoval removal,
+}) async {
+  final unlocked = selected.where((r) => !r.isLocked).toList();
+  if (unlocked.isEmpty) {
+    return (
+      deleted: const <String>{},
+      kept: 0,
+      capped: false,
+      allLocked: selected.isNotEmpty,
+    );
+  }
+  const limit = PhotoLibraryService.deleteBatchLimit;
+  final batch = unlocked.take(limit).toList();
+  final choice = await chooseBatchDelete(
+    context,
+    count: batch.length,
+    removable: 0,
+    cloudOnly: batch.where((r) => r.localDeleted).length,
+  );
+  if (choice != DeleteChoice.everywhere) return null;
+  final fromLibrary = [
+    for (final r in batch)
+      if (r.sourceType == AssetSourceType.photoManager &&
+          !r.localDeleted &&
+          r.libraryId != null)
+        r,
+  ];
+  Set<String> gone;
+  try {
+    gone = fromLibrary.isEmpty
+        ? const {}
+        : await library.deleteManyFromLibrary(
+            fromLibrary,
+            missingCountsAsDeleted: true,
+          );
+  } catch (_) {
+    // No plugin, or already out of Photos: nothing there to delete.
+    gone = {for (final r in fromLibrary) r.localId};
+  }
+  final needsLibrary = {for (final r in fromLibrary) r.localId};
+  final deleted = <String>{};
+  var kept = 0;
+  for (final r in batch) {
+    if (needsLibrary.contains(r.localId) && !gone.contains(r.localId)) {
+      kept++;
+      continue;
+    }
+    await removal.binOrPurge(r);
+    deleted.add(r.localId);
+  }
+  return (
+    deleted: deleted,
+    kept: kept,
+    capped: unlocked.length > limit,
+    allLocked: false,
+  );
 }

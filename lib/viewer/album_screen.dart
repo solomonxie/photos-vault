@@ -160,59 +160,27 @@ class _AlbumScreenState extends State<AlbumScreen> {
       widget.photoLibraryService ??
       PhotoLibraryService(store: widget.assetRecordStore);
 
-  /// Into Recently Deleted, as the library's batch delete does: one sheet,
-  /// one Photos prompt for the lot. Locked photos are left alone; freeing
-  /// space instead is the library's (it needs the backup check).
+  /// Into Recently Deleted ([binSelection]); freeing space instead is the
+  /// library's (it needs the backup check).
   Future<void> _deleteSelected() async {
     final l10n = AppLocalizations.of(context)!;
     final selected = _selectedRecords;
-    final unlocked = selected.where((r) => !r.isLocked).toList();
-    if (unlocked.isEmpty) {
-      if (selected.isNotEmpty) _showResult(l10n.lockBlockedDelete);
-      return;
-    }
-    const limit = PhotoLibraryService.deleteBatchLimit;
-    final capped = unlocked.length > limit;
-    final batch = unlocked.take(limit).toList();
-    final choice = await chooseBatchDelete(
+    final result = await binSelection(
       context,
-      count: batch.length,
-      removable: 0,
-      cloudOnly: batch.where((r) => r.localDeleted).length,
+      selected,
+      library: _library,
+      removal: _removal,
     );
-    if (choice != DeleteChoice.everywhere) return;
-    final fromLibrary = [
-      for (final r in batch)
-        if (r.sourceType == AssetSourceType.photoManager &&
-            !r.localDeleted &&
-            r.libraryId != null)
-          r,
-    ];
-    Set<String> gone;
-    try {
-      gone = fromLibrary.isEmpty
-          ? const {}
-          : await _library.deleteManyFromLibrary(
-              fromLibrary,
-              missingCountsAsDeleted: true,
-            );
-    } catch (_) {
-      // No plugin, or already out of Photos: nothing there to delete.
-      gone = {for (final r in fromLibrary) r.localId};
-    }
-    final needsLibrary = {for (final r in fromLibrary) r.localId};
-    var kept = 0;
-    for (final r in batch) {
-      // Declined at the Photos prompt: left as it is.
-      if (needsLibrary.contains(r.localId) && !gone.contains(r.localId)) {
-        kept++;
-        continue;
-      }
-      await _removal.binOrPurge(r);
-    }
-    if (!mounted) return;
+    if (result == null || !mounted) return;
+    if (result.allLocked) return _showResult(l10n.lockBlockedDelete);
     // The overflow stays selected for a second round, as in the library.
-    final left = {for (final r in unlocked.skip(batch.length)) r.localId};
+    final left = {
+      for (final r
+          in selected
+              .where((r) => !r.isLocked)
+              .skip(PhotoLibraryService.deleteBatchLimit))
+        r.localId,
+    };
     if (left.isEmpty) {
       _endSelecting();
     } else {
@@ -220,10 +188,12 @@ class _AlbumScreenState extends State<AlbumScreen> {
     }
     await _reload();
     if (!mounted) return;
-    if (kept > 0) {
-      _showResult(l10n.libraryDeleteKeptByPhotos(kept));
-    } else if (capped) {
-      _showResult(l10n.libraryDeleteBatchCapped(limit));
+    if (result.kept > 0) {
+      _showResult(l10n.libraryDeleteKeptByPhotos(result.kept));
+    } else if (result.capped) {
+      _showResult(
+        l10n.libraryDeleteBatchCapped(PhotoLibraryService.deleteBatchLimit),
+      );
     }
   }
 

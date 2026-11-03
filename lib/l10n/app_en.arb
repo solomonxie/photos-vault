@@ -2336,5 +2336,7 @@
   "faceGroupsAllNamed": "No faces waiting for a name.",
   "cloudWaitingUpload": "Waiting to Upload",
   "faceGroupsSmall": "Fewer than {count} Photos",
-  "@faceGroupsSmall": {"placeholders": {"count": {"type": "int"}}}
+  "@faceGroupsSmall": {"placeholders": {"count": {"type": "int"}}},
+  "faceGroupsViewFaces": "Faces",
+  "faceGroupsViewPhotos": "Photos"
 }

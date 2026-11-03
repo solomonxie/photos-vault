@@ -2,13 +2,17 @@ import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
+import '../photos/asset_removal.dart';
 import '../photos/face_analyzer.dart';
 import '../photos/face_import.dart';
 import '../photos/person.dart' show FaceRect;
 import '../photos/person_store.dart';
+import '../photos/photo_library_service.dart';
 import '../settings/settings_section.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import 'asset_grid.dart';
+import 'delete_confirmation.dart';
 import 'person_avatar.dart';
 import 'person_picker_sheet.dart';
 
@@ -16,8 +20,9 @@ typedef _Face = ({String localId, FaceRect face});
 
 /// One imported group's faces (see
 /// `docs/design/face-recognition/MAC-PIPELINE.md`), all ticked: tap leaves one out, touch and hold opens
-/// its photo. Name the ticked ones, take them out of the group, or ignore
-/// them. With [ignored], an ignored group: its faces, and Stop Ignoring.
+/// its photo. Name the ticked ones, take them out of the group, ignore
+/// them, or delete their photos. Faces or whole photos, one selection.
+/// With [ignored], an ignored group: its faces, and Stop Ignoring.
 class ImportedGroupScreen extends StatefulWidget {
   const ImportedGroupScreen({
     super.key,
@@ -29,7 +34,10 @@ class ImportedGroupScreen extends StatefulWidget {
     this.onOpenAsset,
     this.onLeft,
     this.ignored = false,
+    this.photoLibraryService,
   });
+
+  final PhotoLibraryService? photoLibraryService;
 
   final bool ignored;
 
@@ -57,6 +65,84 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
   final _off = <int>{};
   bool _busy = false;
   String? _note;
+
+  /// Whole photos instead of face crops; the ticks are the same.
+  bool _asPhotos = false;
+
+  late final _library =
+      widget.photoLibraryService ??
+      PhotoLibraryService(store: widget.assetRecordStore);
+  late final _removal = AssetRemoval(store: widget.assetRecordStore);
+
+  /// The ticked faces' photos to Recently Deleted; they leave this page.
+  Future<void> _deletePhotos() async {
+    final ticked = _ticked;
+    if (_busy || ticked.isEmpty) return;
+    final l10n = AppLocalizations.of(context)!;
+    final records = [
+      for (final id in {for (final f in ticked) f.localId}) ?widget.records[id],
+    ];
+    setState(() {
+      _busy = true;
+      _undo = null;
+    });
+    try {
+      final result = await binSelection(
+        context,
+        records,
+        library: _library,
+        removal: _removal,
+      );
+      if (result == null || !mounted) return;
+      if (result.allLocked) {
+        setState(() => _note = l10n.lockBlockedDelete);
+        return;
+      }
+      final off = {for (final i in _off) _faces[i]};
+      final rest = [
+        for (final f in _faces)
+          if (!result.deleted.contains(f.localId)) f,
+      ];
+      widget.onLeft?.call(rest);
+      if (rest.isEmpty) {
+        Navigator.of(context).pop();
+        return;
+      }
+      setState(() {
+        _faces = rest;
+        _off
+          ..clear()
+          ..addAll([
+            for (final (i, f) in rest.indexed)
+              if (off.contains(f)) i,
+          ]);
+        _note = result.kept > 0
+            ? l10n.libraryDeleteKeptByPhotos(result.kept)
+            : null;
+      });
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+  }
+
+  Widget _photoTile(int i, double extent) {
+    final f = _faces[i];
+    final record = widget.records[f.localId];
+    if (record == null) return const SizedBox.shrink();
+    return AssetTile(
+      key: ValueKey('photo|${f.localId}|${f.face.encode()}'),
+      record: record,
+      extent: extent,
+      cornerColor: settingsPageBackground,
+      selected: widget.ignored ? null : !_off.contains(i),
+      onTap: widget.ignored
+          ? () => widget.onOpenAsset?.call(f.localId)
+          : () => _toggle(i),
+      onLongPress: widget.onOpenAsset == null
+          ? null
+          : () => widget.onOpenAsset!(f.localId),
+    );
+  }
 
   /// The last naming, until the next action: Undo takes it back.
   ({String personId, List<_Face> faces})? _undo;
@@ -268,6 +354,21 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
       child: SafeArea(
         child: Column(
           children: [
+            Padding(
+              padding: const EdgeInsets.fromLTRB(16, 8, 16, 4),
+              child: SizedBox(
+                width: double.infinity,
+                child: CupertinoSlidingSegmentedControl<bool>(
+                  key: const ValueKey('faceGroupView'),
+                  groupValue: _asPhotos,
+                  onValueChanged: (v) => setState(() => _asPhotos = v ?? false),
+                  children: {
+                    false: Text(l10n.faceGroupsViewFaces),
+                    true: Text(l10n.faceGroupsViewPhotos),
+                  },
+                ),
+              ),
+            ),
             if (!widget.ignored)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
@@ -310,34 +411,54 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
                   ],
                 ),
               ),
-            Expanded(
-              child: GridView.builder(
-                padding: const EdgeInsets.all(8),
-                gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                  maxCrossAxisExtent: 88,
-                  mainAxisSpacing: 8,
-                  crossAxisSpacing: 8,
+            if (_asPhotos)
+              Expanded(
+                child: LayoutBuilder(
+                  builder: (context, box) {
+                    final across = (box.maxWidth / 120).ceil().clamp(3, 8);
+                    final extent = (box.maxWidth - (across - 1) * 2) / across;
+                    return GridView.builder(
+                      key: const ValueKey('faceGroupPhotos'),
+                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                        crossAxisCount: across,
+                        mainAxisSpacing: 2,
+                        crossAxisSpacing: 2,
+                      ),
+                      itemCount: _faces.length,
+                      itemBuilder: (context, i) => _photoTile(i, extent),
+                    );
+                  },
                 ),
-                itemCount: _faces.length,
-                itemBuilder: (context, i) {
-                  final f = _faces[i];
-                  return _FaceTile(
-                    key: ValueKey('${f.localId}|${f.face.encode()}'),
-                    face: f,
-                    on: widget.ignored || !_off.contains(i),
-                    tick: !widget.ignored,
-                    records: widget.records,
-                    assetRecordStore: widget.assetRecordStore,
-                    onTap: widget.ignored
-                        ? () => widget.onOpenAsset?.call(f.localId)
-                        : () => _toggle(i),
-                    onLongPress: widget.onOpenAsset == null
-                        ? null
-                        : () => widget.onOpenAsset!(f.localId),
-                  );
-                },
+              )
+            else
+              Expanded(
+                child: GridView.builder(
+                  padding: const EdgeInsets.all(8),
+                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
+                    maxCrossAxisExtent: 88,
+                    mainAxisSpacing: 8,
+                    crossAxisSpacing: 8,
+                  ),
+                  itemCount: _faces.length,
+                  itemBuilder: (context, i) {
+                    final f = _faces[i];
+                    return _FaceTile(
+                      key: ValueKey('${f.localId}|${f.face.encode()}'),
+                      face: f,
+                      on: widget.ignored || !_off.contains(i),
+                      tick: !widget.ignored,
+                      records: widget.records,
+                      assetRecordStore: widget.assetRecordStore,
+                      onTap: widget.ignored
+                          ? () => widget.onOpenAsset?.call(f.localId)
+                          : () => _toggle(i),
+                      onLongPress: widget.onOpenAsset == null
+                          ? null
+                          : () => widget.onOpenAsset!(f.localId),
+                    );
+                  },
+                ),
               ),
-            ),
             if (widget.ignored)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
@@ -355,12 +476,26 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: Row(
                   children: [
+                    CupertinoButton(
+                      key: const ValueKey('faceGroupDeletePhotos'),
+                      padding: const EdgeInsets.symmetric(horizontal: 12),
+                      color: settingsControlFill,
+                      onPressed: _busy || ticked == 0 ? null : _deletePhotos,
+                      child: const Icon(
+                        CupertinoIcons.trash,
+                        color: CupertinoColors.systemRed,
+                      ),
+                    ),
+                    const SizedBox(width: 12),
                     Expanded(
                       child: CupertinoButton(
                         key: const ValueKey('faceGroupNotThis'),
                         color: settingsControlFill,
                         onPressed: _busy || ticked == 0 ? null : _notThisGroup,
-                        child: Text(l10n.faceGroupsNotThis),
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(l10n.faceGroupsNotThis, maxLines: 1),
+                        ),
                       ),
                     ),
                     const SizedBox(width: 12),

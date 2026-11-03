@@ -1671,5 +1671,7 @@
   "faceGroupsIgnoredEmpty": "没有已忽略的人脸。",
   "faceGroupsAllNamed": "没有待命名的人脸。",
   "cloudWaitingUpload": "等待上传",
-  "faceGroupsSmall": "少于 {count} 张照片"
+  "faceGroupsSmall": "少于 {count} 张照片",
+  "faceGroupsViewFaces": "人脸",
+  "faceGroupsViewPhotos": "照片"
 }

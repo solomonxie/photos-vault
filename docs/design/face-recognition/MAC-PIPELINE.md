@@ -110,8 +110,9 @@ reruns minutes.
   ⊘ Ignored                    3 ›
 
   Mia?                       Ignore
+  [ Faces | Photos ]          ← same ticks, crops or whole photos
   [◎✓][◎✓][◎ ][◎✓]
-  [Not This Group]   [Name…]
+  [🗑] [Not This Group] [Name…]   🗑 = ticked photos to Recently Deleted
   ```
 - Face crops: 3 photo decodes at once, newest tile first, none mid-fling.
 

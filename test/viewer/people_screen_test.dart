@@ -1,4 +1,5 @@
 import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/viewer/people_screen.dart';
 import 'package:photos_vault/viewer/person_profile_screen.dart';
 import 'package:photos_vault/viewer/person_page_screen.dart';
@@ -1018,6 +1019,65 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('people-imported-g1')), findsOneWidget);
     expect(find.text('Mia?'), findsOneWidget);
+  });
+
+  testWidgets('a group as whole photos: the ticked ones are deleted, the '
+      'unticked stay in the group', (tester) async {
+    final records = await _withPhotos(['a', 'b', 'c', 'd']);
+    // Backed up, so a delete is Recently Deleted rather than for good.
+    for (final id in ['a', 'b', 'c', 'd']) {
+      await records.updateDerivative(
+        id,
+        DerivativeKind.original,
+        DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'originals/$id.jpg',
+        ),
+      );
+    }
+    final analyses = FakeAiAnalysisStore();
+    await analyses.importNamedFaces(
+      const [],
+      grouped: [
+        for (final id in ['a', 'b', 'c', 'd'])
+          (localId: id, face: _face, groupId: 'big'),
+      ],
+    );
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: FakePersonStore(),
+          assetRecordStore: records,
+          aiAnalysisStore: analyses,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _openFaces(tester);
+    await tester.tap(find.byKey(const ValueKey('people-imported-big')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(
+      find.descendant(
+        of: find.byKey(const ValueKey('faceGroupView')),
+        matching: find.text('Photos'),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('faceGroupPhotos')), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey('photo|a|${_face.encode()}')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('faceGroupDeletePhotos')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Delete 3 Photos'));
+    await tester.pumpAndSettle();
+
+    for (final id in ['b', 'c', 'd']) {
+      expect((await records.getByLocalId(id))!.isDeleted, isTrue, reason: id);
+    }
+    expect((await records.getByLocalId('a'))!.isDeleted, isFalse);
+    expect(find.byKey(ValueKey('photo|a|${_face.encode()}')), findsOneWidget);
+    expect(find.byKey(ValueKey('photo|b|${_face.encode()}')), findsNothing);
   });
 
   testWidgets('faces ignored in a group, and groups ignored by Select, wait '
