@@ -976,7 +976,7 @@
     }
   },
   "peopleProfileCsvRow": "导入与导出档案",
-  "eventsLastSeen": "最近一次",
+  "eventsLastSeen": "最近更新",
   "peopleSortMenu": "排序…",
   "peopleSortTitle": "人物排序",
   "peopleSortPhotos": "照片",
@@ -1340,7 +1340,7 @@
   "personNamePartsUse": "按名字填写",
   "peopleBatchEdit": "编辑",
   "peopleBatchSetFirstMet": "设置初次见面…",
-  "peopleBatchSetLastSeen": "设置最后见到…",
+  "peopleBatchSetLastSeen": "设置最近更新…",
   "peopleBatchAddToGroup": "加入分组…",
   "peopleBatchLeaveGroup": "移出分组…",
   "peopleUndoGroupAdded": "已加入“{group}”",

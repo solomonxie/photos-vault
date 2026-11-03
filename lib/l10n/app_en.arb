@@ -1377,7 +1377,7 @@
     }
   },
   "peopleProfileCsvRow": "Import & export profiles",
-  "eventsLastSeen": "Last seen",
+  "eventsLastSeen": "Last update",
   "peopleSortMenu": "Sort…",
   "peopleSortTitle": "Sort People",
   "peopleSortPhotos": "Photos",
@@ -1932,7 +1932,7 @@
   "personNamePartsUse": "Fill in from the name",
   "peopleBatchEdit": "Edit",
   "peopleBatchSetFirstMet": "Set First Met…",
-  "peopleBatchSetLastSeen": "Set Last Seen…",
+  "peopleBatchSetLastSeen": "Set Last Update…",
   "peopleBatchAddToGroup": "Add to Group…",
   "peopleBatchLeaveGroup": "Remove from Group…",
   "peopleUndoGroupAdded": "Added to {group}",
