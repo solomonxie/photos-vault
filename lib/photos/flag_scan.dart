@@ -148,7 +148,13 @@ class FlagScan extends ChangeNotifier {
   /// something it was worked out from has moved.
   Future<void> open() async {
     await queue.loadKept();
-    if (!_loaded) await _load();
+    // Held over from an earlier visit: photos hidden or binned since then
+    // come off before anything is drawn.
+    if (!_loaded) {
+      await _load();
+    } else {
+      _publish(await store.listAll());
+    }
     try {
       await BucketIndexer(
         targetsStore: targetsStore,

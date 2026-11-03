@@ -100,6 +100,42 @@ void main() {
     expect(opened.extension, 'jpg');
   });
 
+  test('the native decoy is used, wearing the decoy\'s date', () async {
+    final original = _jpeg(800, 600);
+    final source = File('${temp.path}/original.jpg')
+      ..writeAsBytesSync(original);
+    final asked = <(int, int)>[];
+    final keys = _keys();
+    final carrier =
+        await CarrierBuilder(
+          temporaryDirectory: () async => temp,
+          nativeUpscale: (thumb, w, h) async {
+            asked.add((w, h));
+            return _jpeg(w, h);
+          },
+        ).build(
+          record: _hidden(),
+          filePath: source.path,
+          keys: keys,
+          candidates: [_candidate('near', original.length)],
+        );
+
+    expect(asked, [(1280, 960)]);
+    final bytes = await carrier!.readAsBytes();
+    expect(img.decodeJpg(bytes)!.width, 1280);
+    final exif = parseJpeg(bytes)!.segments
+        .singleWhere((s) => s.marker == 0xE1);
+    expect(String.fromCharCodes(exif.data), contains('2025:06:07 08:09:10'));
+    expect(
+      openCarrier(
+        cipher: PlatformCipher(),
+        keys: keys.carrier,
+        payload: payloadOf(bytes)!,
+      )!.original,
+      equals(original),
+    );
+  });
+
   test('a grid tile comes out of the first 64 KB', () async {
     final original = _jpeg(800, 600);
     final source = File('${temp.path}/original.jpg')

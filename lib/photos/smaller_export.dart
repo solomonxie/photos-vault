@@ -39,6 +39,26 @@ Future<Uint8List?> encodeNatively(
   }
 }
 
+/// [thumbnail] drawn at [width]×[height] by ImageIO, a JPEG with no
+/// metadata. Null when the platform refuses or has no channel (tests).
+Future<Uint8List?> upscaleNatively(
+  Uint8List thumbnail, {
+  required int width,
+  required int height,
+  required int quality,
+}) async {
+  try {
+    return await _encodeChannel.invokeMethod<Uint8List>('upscale', {
+      'bytes': thumbnail,
+      'width': width,
+      'height': height,
+      'quality': quality / 100,
+    });
+  } catch (_) {
+    return null;
+  }
+}
+
 /// [input] re-encoded by ImageIO into [output], file to file — a full-size
 /// photo never crosses the channel. True only when [output] was written,
 /// which by default means it came out smaller.

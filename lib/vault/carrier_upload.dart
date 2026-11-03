@@ -30,9 +30,12 @@ class CarrierBuilder {
     Future<Uint8List?> Function(AssetRecord record)? posterFrame,
     Future<Duration?> Function(AssetRecord record)? videoDuration,
     Future<Uint8List?> Function(Uint8List bytes)? nativeThumbnail,
+    Future<Uint8List?> Function(Uint8List thumbnail, int width, int height)?
+    nativeUpscale,
     Random? random,
   }) : _cipher = cipher ?? PlatformCipher(),
        _nativeThumbnail = nativeThumbnail ?? _iosThumbnail,
+       _nativeUpscale = nativeUpscale ?? _iosUpscale,
        _stillVideo = stillVideo ?? const StillVideo(),
        _temporaryDirectory =
            temporaryDirectory ??
@@ -47,12 +50,19 @@ class CarrierBuilder {
   final Future<Uint8List?> Function(AssetRecord record) _posterFrame;
   final Future<Duration?> Function(AssetRecord record) _videoDuration;
   final Future<Uint8List?> Function(Uint8List bytes) _nativeThumbnail;
+  final Future<Uint8List?> Function(Uint8List thumbnail, int width, int height)
+  _nativeUpscale;
   final Random _random;
 
   /// HEIC, which the pure-Dart decoder has never read — and most hidden
   /// photos are HEIC. Bytes in, bytes out: nothing written to disk.
   static Future<Uint8List?> _iosThumbnail(Uint8List bytes) =>
       encodeNatively(bytes, format: 'jpeg', maxEdge: thumbnailMaxEdge);
+
+  /// The decoy by ImageIO: what the pure-Dart encode took seconds for, and
+  /// the same cost whatever the hidden photo weighs.
+  static Future<Uint8List?> _iosUpscale(Uint8List thumb, int w, int h) =>
+      upscaleNatively(thumb, width: w, height: h, quality: decoyQuality);
 
   /// How many decoys each picture has already worn. Kept in memory only —
   /// a table of which object wears which face would be a list of exactly
@@ -150,13 +160,20 @@ class CarrierBuilder {
     required String baseName,
   }) async {
     final source = candidate.source;
+    final native = await _nativeUpscale(
+      decoyThumbnail,
+      source.width,
+      source.height,
+    );
     final decoy = await Isolate.run(
-      () => buildDecoyJpeg(
-        thumbnail: decoyThumbnail,
-        width: source.width,
-        height: source.height,
-        takenAt: source.takenAt,
-      ),
+      () => native != null
+          ? stampDecoyJpeg(native, source.takenAt)
+          : buildDecoyJpeg(
+              thumbnail: decoyThumbnail,
+              width: source.width,
+              height: source.height,
+              takenAt: source.takenAt,
+            ),
     );
     if (decoy == null) return null;
     final cipher = _cipher;

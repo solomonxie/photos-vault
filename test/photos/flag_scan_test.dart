@@ -348,6 +348,21 @@ void main() {
     expect(relaunched.result.flags.map(idOf), isNot(contains('plain')));
   });
 
+  test('hidden while the app runs: the next visit drops it before any '
+      'scan', () async {
+    await big('plain');
+    await listed({'photos-vault/originals/plain.heic': 10});
+    final scan = scanOver(queue());
+    await scan.open();
+    await scan.run();
+    String? idOf(Flag f) => f.record?.localId;
+    expect(scan.result.flags.map(idOf), contains('plain'));
+
+    await store.setPasscodeHash('plain', 'tag');
+    await scan.open();
+    expect(scan.result.flags.map(idOf), isNot(contains('plain')));
+  });
+
   group('storage: the fix leaves nothing for the detector', () {
     test('Optimize: an optimized photo is not offered again', () async {
       await big('a');

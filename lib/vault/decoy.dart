@@ -125,15 +125,19 @@ Uint8List exifApp1(DateTime when) {
       .toBytes();
 }
 
+/// The decoy's JPEG quality, native or not.
+const decoyQuality = 50;
+
 /// [thumbnail] blown up to [width] x [height] and encoded as a JPEG wearing
 /// [takenAt]. Pure Dart with no Flutter dependency, so it runs on
-/// `Isolate.run` — a 12 MP resize is far too heavy for the UI isolate.
+/// `Isolate.run` — a 12 MP resize is far too heavy for the UI isolate. The
+/// fallback for when ImageIO's `upscale` isn't there (tests).
 Uint8List? buildDecoyJpeg({
   required Uint8List thumbnail,
   required int width,
   required int height,
   required DateTime takenAt,
-  int quality = 50,
+  int quality = decoyQuality,
 }) {
   final decoded = decodePhoto(thumbnail);
   if (decoded == null || width <= 0 || height <= 0) return null;
@@ -143,7 +147,14 @@ Uint8List? buildDecoyJpeg({
     height: height,
     interpolation: img.Interpolation.linear,
   );
-  final encoded = Uint8List.fromList(img.encodeJpg(resized, quality: quality));
+  return stampDecoyJpeg(
+    Uint8List.fromList(img.encodeJpg(resized, quality: quality)),
+    takenAt,
+  );
+}
+
+/// [encoded] with its EXIF replaced by one carrying only [takenAt].
+Uint8List stampDecoyJpeg(Uint8List encoded, DateTime takenAt) {
   final parts = parseJpeg(encoded);
   if (parts == null) return encoded;
   return writeJpegSegments(

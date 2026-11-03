@@ -36,6 +36,10 @@ class ImageEncodeChannel {
         remoteThumbnail(call, result)
         return
       }
+      if call.method == "upscale" {
+        upscale(call, result)
+        return
+      }
       guard call.method == "encode",
             let args = call.arguments as? [String: Any],
             let data = args["bytes"] as? FlutterStandardTypedData,
@@ -90,6 +94,55 @@ class ImageEncodeChannel {
         wrote = FileManager.default.createFile(atPath: output, contents: out)
       }
       DispatchQueue.main.async { result(wrote) }
+    }
+  }
+
+  /// [bytes] (a small JPEG) drawn at [width]×[height] and written as a
+  /// JPEG with no metadata: a carrier's decoy, by the hardware encoder
+  /// instead of pure Dart, where a 12 MP encode took seconds.
+  private static func upscale(
+    _ call: FlutterMethodCall,
+    _ result: @escaping FlutterResult
+  ) {
+    guard let args = call.arguments as? [String: Any],
+          let data = args["bytes"] as? FlutterStandardTypedData,
+          let width = args["width"] as? Int,
+          let height = args["height"] as? Int,
+          width > 0, height > 0
+    else {
+      result(nil)
+      return
+    }
+    let quality = args["quality"] as? Double ?? 0.5
+    DispatchQueue.global(qos: .utility).async {
+      var out: Data?
+      if let source = CGImageSourceCreateWithData(data.data as CFData, nil),
+         let image = CGImageSourceCreateImageAtIndex(source, 0, nil),
+         let context = CGContext(
+           data: nil,
+           width: width,
+           height: height,
+           bitsPerComponent: 8,
+           bytesPerRow: 0,
+           space: CGColorSpace(name: CGColorSpace.sRGB)!,
+           bitmapInfo: CGImageAlphaInfo.noneSkipLast.rawValue
+         ) {
+        context.interpolationQuality = .medium
+        context.draw(image, in: CGRect(x: 0, y: 0, width: width, height: height))
+        let encoded = NSMutableData()
+        if let big = context.makeImage(),
+           let dest = CGImageDestinationCreateWithData(
+             encoded as CFMutableData, UTType.jpeg.identifier as CFString, 1, nil
+           ) {
+          CGImageDestinationAddImage(dest, big, [
+            kCGImageDestinationLossyCompressionQuality: quality,
+          ] as CFDictionary)
+          if CGImageDestinationFinalize(dest) { out = encoded as Data }
+        }
+      }
+      DispatchQueue.main.async {
+        result(out.map { FlutterStandardTypedData(bytes: $0) })
+      }
     }
   }
 
