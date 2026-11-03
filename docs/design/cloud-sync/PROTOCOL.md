@@ -61,7 +61,7 @@ Entities and fields (v1). Anything not listed never leaves the phone:
 |---|---|---|---|---|
 | `asset` | `local_id` / `web:<uuid>` | `created_at` (taken), `latitude`, `longitude`, `is_favorite`, `is_archived`, `deleted_at`, `hidden`, `purged`, `original_key`, `thumbnail_key`, `medium_key`, `live_key`, `edited_key`; at `add`: `content_hash`, `is_video`, `is_live_photo`, `width`, `height` | `description`, `location` | `tags` |
 | `album` | UUID | `cover_local_id`, `deleted_at` | `name`, `description` | `members` (asset ids), `tags` |
-| `person` | UUID | `birth_date`, `gender`, `avatar_local_id`, `deleted_at`, `hidden` | `name`, `bio` | `members` (asset ids) |
+| `person` | UUID | `birth_date`, `gender`, `avatar_local_id`, `avatar_face`, `first_name`, `middle_name`, `last_name`, `custom_fields`, `details` (open `person_detail` payload), `profile`, `deleted_at`, `hidden` | `name`, `bio` | `members` (asset ids), `events`, `places`, `known_as`, `aliases`, `groups`, `relations` (one JSON member per open row) |
 | `place` | UUID (travel.db) | `kind` (country · city · area · point), `lat`, `lng`, `parent_id`, `country`, `address`, `category`, `created_at`, `deleted_at` | `name`, `description` | — |
 | `entry` | UUID (travel.db) | `place_id`, `kind` (impression · diary), `at`, `rating`, `created_at`, `deleted_at` | `title`, `text` | `tags`, `photos`, `people` |
 | `route` | UUID (travel.db) | `starts`, `ends`, `created_at`, `deleted_at` | `title`, `note`, `stops` (JSON `[{place, arrived, note, mode, leg, review}]`, leg = to the next stop) | `photos`, `people` |
@@ -161,3 +161,17 @@ apply in one local transaction, then advance vv; a crash mid-apply → reapply (
 - `fields` lists every field with an op, including nulls.
 - `sets` lists members sorted.
 - `conflicts` is sorted by `(e, id, f, stamp)`.
+
+## Person profiles (Nov 2026)
+- Open rows of `person_event`, `person_location`, `person_known_as`,
+  `person_alias`, `person_group`, `person_relationship` ride as OR-set
+  members on their person: the row's columns as JSON, so an edit is
+  `mrem` old + `madd` new. Sealed rows and private/demo people never leave.
+- `profile: 1` marks a person whose rows are in the log. Without it the
+  applier leaves that person's rows alone: empty means "never sent".
+- A phone that synced before sends its rows once (`profiles_joined`),
+  sealed before any apply: fields the cloud has are not sent, members are
+  added, never removed — both phones' rows survive.
+- Known gap: a person made open again after being private doesn't resend
+  their rows.
+

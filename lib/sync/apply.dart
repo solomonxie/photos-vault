@@ -483,15 +483,15 @@ class Applier {
         changed++;
       }
       final values = <String, Object?>{
-        for (final c in const [
-          'name',
-          'bio',
-          'birth_date',
-          'gender',
-          'avatar_local_id',
-        ])
+        for (final c in personFields)
           if (f.containsKey(c))
-            c: f[c]!.x ?? (c == 'name' || c == 'bio' ? '' : null),
+            c:
+                f[c]!.x ??
+                (_blankText.contains(c)
+                    ? ''
+                    : c == 'custom_fields'
+                    ? '[]'
+                    : null),
       };
       if (values.isNotEmpty) {
         values['updated_at'] = now;
@@ -506,7 +506,127 @@ class Applier {
         present,
       );
     }
+    // After every person is in: a relationship names another one.
+    for (final ent in ents) {
+      if (ent.fields[profileMarker]?.x != 1) continue;
+      final open = await txn.query(
+        'person',
+        columns: ['id'],
+        where: "id = ? AND COALESCE(passcode_hash, '') = ''",
+        whereArgs: [ent.id],
+      );
+      if (open.isEmpty) continue;
+      changed += await _profile(txn, ent, now);
+    }
     return changed;
+  }
+
+  static const _blankText = {
+    'name',
+    'bio',
+    'first_name',
+    'middle_name',
+    'last_name',
+  };
+
+  /// What identifies one profile row of a person, per table.
+  static const _profileKeys = {
+    'person_event': ['id'],
+    'person_location': ['id'],
+    'person_known_as': ['person_id', 'kind', 'key'],
+    'person_alias': ['alias_id'],
+    'person_group': ['person_id', 'group_id', 'passcode_hash'],
+    'person_relationship': ['person_id', 'related_person_id', 'passcode_hash'],
+  };
+
+  /// A person's open details and profile rows made what the cloud holds.
+  /// Rows behind a passcode are never read or touched.
+  static Future<int> _profile(
+    DatabaseExecutor txn,
+    EntityState ent,
+    int now,
+  ) async {
+    var n = 0;
+    final f = ent.fields;
+    if (f.containsKey('details')) {
+      final payload = f['details']!.x;
+      if (payload is String) {
+        final had = await txn.query(
+          'person_detail',
+          columns: ['payload'],
+          where: "person_id = ? AND passcode_hash = ''",
+          whereArgs: [ent.id],
+        );
+        if (had.isEmpty || had.first['payload'] != payload) {
+          await txn.insert('person_detail', {
+            'person_id': ent.id,
+            'passcode_hash': '',
+            'payload': payload,
+            'sealed': 0,
+            'updated_at': now,
+          }, conflictAlgorithm: ConflictAlgorithm.replace);
+          n++;
+        }
+      } else {
+        n += await txn.delete(
+          'person_detail',
+          where: "person_id = ? AND passcode_hash = '' AND sealed = 0",
+          whereArgs: [ent.id],
+        );
+      }
+    }
+    for (final MapEntry(key: table, value: (set, cols))
+        in profileSets.entries) {
+      final keys = _profileKeys[table]!;
+      final info = await txn.rawQuery('PRAGMA table_info($table)');
+      final sealed = info.any((c) => c['name'] == 'passcode_hash');
+      final local = {
+        for (final r in await txn.query(
+          table,
+          where: "person_id = ?${sealed ? " AND passcode_hash = ''" : ''}",
+          whereArgs: [ent.id],
+        ))
+          profileMember(table, r): r,
+      };
+      final want = ent.members(set).toSet();
+      for (final MapEntry(key: m, value: row) in local.entries) {
+        if (want.contains(m)) continue;
+        n += await txn.delete(
+          table,
+          where: keys.map((k) => '$k = ?').join(' AND '),
+          whereArgs: [for (final k in keys) row[k]],
+        );
+      }
+      for (final m in want.difference(local.keys.toSet())) {
+        final Map<String, Object?> values;
+        if (cols.length == 1) {
+          values = {cols.single: m};
+        } else {
+          try {
+            values = (jsonDecode(m) as Map).cast<String, Object?>();
+          } catch (_) {
+            continue;
+          }
+        }
+        if (table == 'person_relationship') {
+          final other = await txn.query(
+            'person',
+            columns: ['id'],
+            where: 'id = ?',
+            whereArgs: [values['related_person_id']],
+          );
+          if (other.isEmpty) continue;
+        }
+        await txn.insert(table, {
+          'person_id': ent.id,
+          for (final c in cols) c: values[c],
+          if (sealed) 'passcode_hash': '',
+          if (sealed) 'payload': '',
+        }, conflictAlgorithm: ConflictAlgorithm.replace);
+        n++;
+      }
+    }
+    return n;
   }
 
   /// Places first (entries and stops name them), then entries, then routes.

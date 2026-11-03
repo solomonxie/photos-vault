@@ -235,6 +235,14 @@ class CloudSync {
       progress: (n) => status.value = status.value.copyWith(progress: () => n),
     );
     await _queueTravel(skip: cloudKeys);
+    // People the cloud had were skipped above: their rows still join.
+    await _queueProfiles(
+      sync,
+      only: {
+        for (final k in cloudKeys)
+          if (k.startsWith('person/')) k.substring(7),
+      },
+    );
     if (hasCloud) await _apply(cloudKeys);
     await sync.flush();
     await sync.publishCheckpoint();
@@ -242,6 +250,36 @@ class CloudSync {
       'last_checkpoint_at',
       DateTime.now().millisecondsSinceEpoch,
     );
+  }
+
+  /// Profiles (events, places, groups, details…) joined the log after
+  /// people did: a phone that synced before sends its rows once, merged
+  /// with what another phone sent, and sealed before anything is applied,
+  /// so the cloud's set never removes a row this phone hadn't sent yet.
+  /// [only]: just these people (a first sync, which queued the rest).
+  Future<void> _queueProfiles(LogSync sync, {Set<String>? only}) async {
+    if (await store.meta('profiles_joined') == 'true') return;
+    final db = await people.syncDatabase();
+    final keys = <String>[];
+    await for (final page in store.keyPages()) {
+      keys.addAll(page.where((k) => k.startsWith('person/')));
+    }
+    final cloud = SyncState();
+    await store.loadInto(cloud, keys);
+    final ids = {for (final k in keys) k.substring(7)};
+    await queueProfiles(
+      store: store,
+      people: db,
+      skip: only == null
+          ? const {}
+          : {
+              for (final r in await db.query('person', columns: ['id']))
+                if (!only.contains(r['id'])) r['id'] as String,
+            },
+      cloud: (id) => ids.contains(id) ? cloud.entities['person/$id'] : null,
+    );
+    await sync.seal();
+    await store.setMeta('profiles_joined', true);
   }
 
   /// Travel joined the log after the photos did: a phone that synced
@@ -352,6 +390,7 @@ class CloudSync {
     status.value = status.value.copyWith(busy: true);
     try {
       await sync.flush();
+      await _queueProfiles(sync);
       final keys = await sync.pull();
       _lastPull = DateTime.now();
       await _apply(keys);

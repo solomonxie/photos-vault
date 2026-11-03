@@ -1,5 +1,8 @@
 import 'package:sqflite/sqflite.dart';
 
+import 'merge.dart';
+import 'op.dart';
+
 import 'sync_store.dart';
 import 'translate.dart';
 
@@ -101,7 +104,98 @@ Future<int> queueLibrary({
         ? translate('person_asset', r['k'] as String, 'insert', null, r, now)
         : const [],
   );
+  queued += await queueProfiles(
+    store: store,
+    people: people,
+    skip: {
+      for (final k in skip)
+        if (k.startsWith('person/')) k.substring(7),
+    },
+  );
   return queued;
+}
+
+/// Person fields that arrived with profile sync: a phone that synced
+/// before sends them once.
+const _profileFields = [
+  'avatar_face',
+  'first_name',
+  'middle_name',
+  'last_name',
+  'custom_fields',
+];
+
+/// Every open person's profile rows ([profileSets]) and details as ops.
+/// People in [skip] are left to the cloud.
+///
+/// With [cloud] (a phone that synced before profiles did), what the cloud
+/// already holds is kept: a field it has is not sent, a member it has is
+/// not added again, so this phone's rows join the other phone's instead
+/// of replacing them.
+Future<int> queueProfiles({
+  required SyncStore store,
+  required Database people,
+  Set<String> skip = const {},
+  EntityState? Function(String personId)? cloud,
+}) async {
+  final everyone = await people.rawQuery(
+    'SELECT id, ${_profileFields.join(', ')} FROM person '
+    "WHERE is_demo = 0 AND COALESCE(passcode_hash, '') = ''",
+  );
+  final shared = {for (final r in everyone) r['id'] as String};
+  final open = {
+    for (final r in everyone)
+      if (!skip.contains(r['id'])) r['id'] as String: r,
+  };
+  final changes = <Change>[];
+  bool has(String id, String f) => cloud?.call(id)?.fields[f] != null;
+  if (cloud != null) {
+    for (final MapEntry(key: id, value: row) in open.entries) {
+      if (cloud(id)?.exists != true) continue;
+      for (final f in _profileFields) {
+        if (!has(id, f) && row[f] != null && row[f] != '') {
+          changes.add(Change('person', id, OpKind.set, f: f, x: row[f]));
+        }
+      }
+      if (!has(id, profileMarker)) {
+        changes.add(Change('person', id, OpKind.set, f: profileMarker, x: 1));
+      }
+    }
+  }
+  for (final r in await people.rawQuery(
+    'SELECT person_id, payload FROM person_detail '
+    "WHERE passcode_hash = '' AND sealed = 0",
+  )) {
+    final id = r['person_id'] as String;
+    if (!open.containsKey(id) || has(id, 'details')) continue;
+    changes.add(
+      Change('person', id, OpKind.set, f: 'details', x: r['payload']),
+    );
+  }
+  for (final MapEntry(key: table, value: (set, cols)) in profileSets.entries) {
+    final columns = await people.rawQuery('PRAGMA table_info($table)');
+    final sealed = columns.any((c) => c['name'] == 'passcode_hash');
+    for (final r in await people.rawQuery(
+      'SELECT person_id, ${cols.join(', ')} FROM $table'
+      "${sealed ? " WHERE passcode_hash = ''" : ''}",
+    )) {
+      final id = r['person_id'] as String;
+      if (!open.containsKey(id)) continue;
+      if (table == 'person_relationship' &&
+          !shared.contains(r['related_person_id'])) {
+        continue;
+      }
+      final member = profileMember(table, r);
+      if (cloud?.call(id)?.members(set).contains(member) ?? false) continue;
+      changes.add(Change('person', id, OpKind.madd, f: set, x: member));
+    }
+  }
+  for (var i = 0; i < changes.length; i += 1000) {
+    await store.addChanges(
+      changes.sublist(i, (i + 1000).clamp(0, changes.length)),
+    );
+  }
+  return changes.length;
 }
 
 /// `travel.db` as ops: every place, entry and route, each route's stops,

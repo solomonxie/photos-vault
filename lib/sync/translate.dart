@@ -48,7 +48,45 @@ const assetAddOnly = {
 };
 
 const albumFields = {'name', 'description', 'cover_local_id'};
-const personFields = {'name', 'bio', 'birth_date', 'gender', 'avatar_local_id'};
+const personFields = {
+  'name',
+  'bio',
+  'birth_date',
+  'gender',
+  'avatar_local_id',
+  'avatar_face',
+  'first_name',
+  'middle_name',
+  'last_name',
+  'custom_fields',
+};
+
+/// Marks a person whose profile rows ([profileSets], `details`) are in the
+/// log. Until a phone has sent them, the applier leaves its rows alone: an
+/// empty set there means "never sent", not "all removed".
+const profileMarker = 'profile';
+
+/// A person's open profile rows, per table: the set they ride in and the
+/// columns that make one member. Rows behind a passcode never leave.
+const profileSets = {
+  'person_event': ('events', ['id', 'at', 'type', 'tags', 'notes']),
+  'person_location': ('places', ['id', 'kind', 'place', 'since']),
+  'person_known_as': ('known_as', ['kind', 'key', 'value', 'added_at']),
+  'person_alias': ('aliases', ['alias_id']),
+  'person_group': ('groups', ['group_id', 'name', 'kind']),
+  'person_relationship': (
+    'relations',
+    ['related_person_id', 'type', 'organization', 'created_at'],
+  ),
+};
+
+/// One profile row as its set member: the same JSON from the same row on
+/// every phone, so a removal names exactly what was added.
+String profileMember(String table, Map<String, Object?> row) {
+  final cols = profileSets[table]!.$2;
+  if (cols.length == 1) return '${row[cols.single]}';
+  return jsonEncode({for (final c in cols) c: row[c]});
+}
 
 /// Columns the capture triggers record, per table.
 const assetCaptureColumns = [
@@ -125,6 +163,29 @@ List<Change> translate(
       return _owner('album', key, kind, before, after, albumFields, now);
     case 'person':
       return _owner('person', key, kind, before, after, personFields, now);
+    case 'person_detail':
+      return [
+        Change(
+          'person',
+          key,
+          OpKind.set,
+          f: 'details',
+          x: kind == 'delete' || _private(after) ? null : after?['payload'],
+        ),
+      ];
+    case final t when profileSets.containsKey(t):
+      final set = profileSets[t]!.$1;
+      final was = before == null || _private(before)
+          ? null
+          : profileMember(t, before);
+      final now = after == null || _private(after)
+          ? null
+          : profileMember(t, after);
+      if (was == now) return const [];
+      return [
+        if (was != null) Change('person', key, OpKind.mrem, f: set, x: was),
+        if (now != null) Change('person', key, OpKind.madd, f: set, x: now),
+      ];
     case 'album_asset':
     case 'person_asset':
       final slash = key.indexOf('/');
@@ -272,6 +333,7 @@ List<Change> _owner(
           for (final f in fields) f: row[f],
           'deleted_at': null,
           if (_private(before)) 'hidden': false,
+          if (e == 'person' && kind == 'insert') profileMarker: 1,
         },
       ),
       for (final t in _tags(row)) Change(e, id, OpKind.madd, f: 'tags', x: t),

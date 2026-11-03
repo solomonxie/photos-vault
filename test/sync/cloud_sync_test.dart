@@ -2,6 +2,8 @@ import 'dart:io';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
+import 'package:photos_vault/photos/person.dart';
+import 'package:photos_vault/photos/person_detail.dart';
 import 'package:photos_vault/photos/person_store.dart';
 import 'package:photos_vault/photos/travel.dart';
 import 'package:photos_vault/photos/travel_store.dart';
@@ -338,6 +340,137 @@ void main() {
       isNotNull,
       reason: "the phone's own are never removed",
     );
+  });
+
+  group('profiles', () {
+    Future<Person> mia(_Phone ph) async {
+      final mia = await ph.people.create(name: 'Mia', id: 'mia');
+      final dan = await ph.people.create(name: 'Dan', id: 'dan');
+      await ph.people.update(
+        mia.copyWith(
+          firstName: 'Mia',
+          lastName: 'Rossi',
+          avatarFace: () => const FaceRect(0.1, 0.2, 0.3, 0.4),
+        ),
+      );
+      await ph.people.saveDetail(
+        mia.id,
+        const PersonDetail(traits: {'hair': 'red'}),
+        scope: PersonScope.open,
+      );
+      await ph.people.saveEvent(
+        PersonEvent(
+          id: 'ev1',
+          personId: mia.id,
+          type: PersonEventType.firstMet,
+          at: DateTime(2019, 6, 1),
+          notes: 'Lisbon',
+        ),
+        scope: PersonScope.open,
+      );
+      await ph.people.joinGroup(
+        mia.id,
+        const PersonGroup(id: 'g1', name: 'Uni', kind: GroupKind.school),
+        scope: PersonScope.open,
+      );
+      await ph.people.addRelationship(
+        mia.id,
+        dan.id,
+        RelationshipType.spouse,
+        scope: PersonScope.open,
+      );
+      return mia;
+    }
+
+    test('a profile reaches the second phone, and edits come back', () async {
+      final a = await phone('a');
+      final m = await mia(a);
+      await a.sync.enable(home);
+
+      final b = await phone('b');
+      await b.sync.enable(home);
+      final got = (await b.people.getById(m.id))!;
+      expect((got.firstName, got.lastName), ('Mia', 'Rossi'));
+      expect(got.avatarFace, const FaceRect(0.1, 0.2, 0.3, 0.4));
+      expect((await b.people.detailFor(m.id)).traits['hair'], 'red');
+      expect(
+        [for (final e in await b.people.eventsFor(m.id)) e.notes],
+        ['Lisbon'],
+      );
+      expect([for (final g in await b.people.groupsFor(m.id)) g.name], ['Uni']);
+      expect(
+        [
+          for (final r in await b.people.relationshipsFor(m.id))
+            r.relatedPersonId,
+        ],
+        ['dan'],
+      );
+
+      await b.people.removeEvent('ev1', scope: PersonScope.open);
+      await b.people.saveEvent(
+        PersonEvent(
+          id: 'ev2',
+          personId: m.id,
+          type: PersonEventType.trip,
+          at: DateTime(2020),
+          notes: 'Porto',
+        ),
+        scope: PersonScope.open,
+      );
+      await b.sync.round();
+      await a.sync.round();
+      expect(
+        [for (final e in await a.people.eventsFor(m.id)) e.notes],
+        ['Porto'],
+      );
+    });
+
+    test('a phone that synced before profiles did sends its rows once, '
+        'and nothing of its own is lost', () async {
+      final a = await phone('a');
+      final m = await mia(a);
+      await a.sync.enable(home);
+      final b = await phone('b');
+      await b.sync.enable(home);
+      // A row from before profiles were captured: never sent.
+      final db = await b.people.syncDatabase();
+      await setCapture(db, enabled: false);
+      await b.people.saveEvent(
+        PersonEvent(
+          id: 'evB',
+          personId: m.id,
+          type: PersonEventType.trip,
+          at: DateTime(2021),
+          notes: 'Only on B',
+        ),
+        scope: PersonScope.open,
+      );
+      await setCapture(db, enabled: true);
+      await b.store.setMeta('profiles_joined', false);
+
+      await b.sync.round();
+      await a.sync.round();
+      expect(await b.store.meta('profiles_joined'), 'true');
+      for (final ph in [a, b]) {
+        expect(
+          {for (final e in await ph.people.eventsFor(m.id)) e.notes},
+          {'Lisbon', 'Only on B'},
+        );
+      }
+    });
+
+    test('a profile behind a passcode never leaves the phone', () async {
+      final a = await phone('a');
+      final m = await mia(a);
+      await a.people.update(
+        (await a.people.getById(m.id))!.copyWith(passcodeHash: () => 'h'),
+      );
+      await a.sync.enable(home);
+      final b = await phone('b');
+      await b.sync.enable(home);
+      expect(await b.people.getById(m.id), isNull);
+      expect(await b.people.eventsFor(m.id), isEmpty);
+    });
   });
 
   group('travel', () {

@@ -291,12 +291,50 @@ class PersonStore {
         personCaptureColumns,
         private: _privateRowSql,
       ),
+      CaptureSpec(_memberTable, "{row}.person_id || '/' || {row}.local_id", [
+        'added_at',
+      ], private: _privateOwnerSql),
       CaptureSpec(
-        _memberTable,
-        "{row}.person_id || '/' || {row}.local_id",
-        ['added_at'],
+        _detailTable,
+        '{row}.person_id',
+        ['payload'],
         private:
-            'EXISTS (SELECT 1 FROM $_personTable WHERE id = {row}.person_id '
+            "{row}.passcode_hash != '' OR {row}.sealed = 1 OR $_privateOwnerSql",
+      ),
+      CaptureSpec(_eventTable, '{row}.person_id', [
+        'id',
+        'at',
+        'type',
+        'tags',
+        'notes',
+      ], private: "{row}.passcode_hash != '' OR $_privateOwnerSql"),
+      CaptureSpec(_locationTable, '{row}.person_id', [
+        'id',
+        'kind',
+        'place',
+        'since',
+      ], private: "{row}.passcode_hash != '' OR $_privateOwnerSql"),
+      CaptureSpec(_knownTable, '{row}.person_id', [
+        'kind',
+        'key',
+        'value',
+        'added_at',
+      ], private: _privateOwnerSql),
+      CaptureSpec(_aliasTable, '{row}.person_id', [
+        'alias_id',
+      ], private: _privateOwnerSql),
+      CaptureSpec(_groupTable, '{row}.person_id', [
+        'group_id',
+        'name',
+        'kind',
+      ], private: "{row}.passcode_hash != '' OR $_privateOwnerSql"),
+      CaptureSpec(
+        _relationshipTable,
+        '{row}.person_id',
+        ['related_person_id', 'type', 'organization', 'created_at'],
+        private:
+            "{row}.passcode_hash != '' OR $_privateOwnerSql OR EXISTS "
+            '(SELECT 1 FROM $_personTable WHERE id = {row}.related_person_id '
             "AND COALESCE(passcode_hash, '') != '')",
       ),
     ]);
@@ -318,6 +356,11 @@ class PersonStore {
 
   /// A row kept under a passcode, as the change log tests it.
   static const _privateRowSql = "COALESCE({row}.passcode_hash, '') != ''";
+
+  /// A row of a person behind a passcode, or a demo one: never sent.
+  static const _privateOwnerSql =
+      'EXISTS (SELECT 1 FROM $_personTable WHERE id = {row}.person_id '
+      "AND (COALESCE(passcode_hash, '') != '' OR is_demo = 1))";
 
   /// Every change to a person's open profile, kept for good: their own
   /// history to read back, unlike the backup change log, which keeps only
