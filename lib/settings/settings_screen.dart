@@ -135,6 +135,24 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   List<S3BackupTarget>? _targets;
   int _waiting = 0;
+
+  /// Waiting to Upload, counted again every few seconds while this page is
+  /// on top: one COUNT query, nothing while another page covers it.
+  late final Timer _waitingTimer = Timer.periodic(const Duration(seconds: 3), (
+    _,
+  ) {
+    if (ModalRoute.of(context)?.isCurrent ?? false) _countWaiting();
+  });
+
+  Future<void> _countWaiting() async {
+    try {
+      final n = await _assetRecordStore.waitingUploadCount();
+      if (mounted && n != _waiting) setState(() => _waiting = n);
+    } catch (_) {
+      // No library database: no number.
+    }
+  }
+
   BackupOrderStrategy _orderStrategy = BackupOrderStrategy.fileByFile;
   BackupFormat _format = BackupFormat.optimized;
 
@@ -145,11 +163,13 @@ class _SettingsScreenState extends State<SettingsScreen>
     _reloadICloud();
     _reloadBucketData();
     _loadTrash();
+    _waitingTimer;
     WidgetsBinding.instance.addObserver(this);
   }
 
   @override
   void dispose() {
+    _waitingTimer.cancel();
     WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
@@ -262,15 +282,9 @@ class _SettingsScreenState extends State<SettingsScreen>
     } catch (_) {
       // Same secure storage — the defaults are a working page.
     }
-    var waiting = 0;
-    try {
-      waiting = await _assetRecordStore.waitingUploadCount();
-    } catch (_) {
-      // No library database: no number.
-    }
+    await _countWaiting();
     if (!mounted) return;
     setState(() {
-      _waiting = waiting;
       _targets = targets;
       _orderStrategy = order;
       _format = format;
