@@ -657,6 +657,7 @@ void main() {
       FakeAssetRecordStore store,
       Future<void> Function(AssetRecord record) backUp,
     ) => HiddenBackup(
+      rest: Duration.zero,
       records: store,
       backUp: backUp,
       albums: () => [_hash],

@@ -20,6 +20,7 @@ void main() {
       }
       final tried = <String>[];
       final backup = HiddenBackup(
+        rest: Duration.zero,
         records: store,
         albums: () => ['open'],
         ready: () async => true,
@@ -59,6 +60,7 @@ void main() {
       var running = 0, most = 0, done = 0;
       var stop = false;
       await HiddenBackup(
+        rest: Duration.zero,
         records: store,
         albums: () => ['open'],
         ready: () async => true,
@@ -89,6 +91,7 @@ void main() {
     await store.setPasscodeHash('a', 'open');
     var tried = 0;
     await HiddenBackup(
+      rest: Duration.zero,
       records: store,
       albums: () => ['open'],
       ready: () async => false,

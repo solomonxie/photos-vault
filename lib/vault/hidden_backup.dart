@@ -12,13 +12,18 @@ class HiddenBackup {
     required this.backUp,
     required this.albums,
     required this.ready,
-    this.concurrency = 3,
+    this.concurrency = 1,
+    this.rest = const Duration(seconds: 2),
     this.stopped,
   });
 
-  /// Photos built and sent at once: each is a carrier to encrypt and an
-  /// upload, so one at a time left 18,000 for weeks.
+  /// Photos built and sent at once. One, with [rest] between: three at a
+  /// time ran the phone hot and drained the battery (Nov 2026).
   final int concurrency;
+
+  /// Idle time after each photo, so a long backlog is a trickle, not a
+  /// sustained load.
+  final Duration rest;
 
   /// Checked between photos: a background run ends when its time is up.
   final bool Function()? stopped;
@@ -74,6 +79,7 @@ class HiddenBackup {
               failed[record.localId] = '$e';
             }
             changed.value++;
+            if (rest > Duration.zero) await Future<void>.delayed(rest);
           }
         }
 
