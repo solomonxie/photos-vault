@@ -66,17 +66,19 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
   bool _busy = false;
   String? _note;
 
-  /// Whole photos instead of face crops; the ticks are the same.
+  /// Whole photos instead of face crops, with a select mode of its own:
+  /// nothing picked to start, for deleting a few or all.
   bool _asPhotos = false;
+  final _picked = <_Face>{};
 
   late final _library =
       widget.photoLibraryService ??
       PhotoLibraryService(store: widget.assetRecordStore);
   late final _removal = AssetRemoval(store: widget.assetRecordStore);
 
-  /// The ticked faces' photos to Recently Deleted; they leave this page.
-  Future<void> _deletePhotos() async {
-    final ticked = _ticked;
+  /// [faces]' photos to Recently Deleted; they leave this page.
+  Future<void> _deletePhotos(List<_Face> faces) async {
+    final ticked = faces;
     if (_busy || ticked.isEmpty) return;
     final l10n = AppLocalizations.of(context)!;
     final records = [
@@ -110,6 +112,7 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
       }
       setState(() {
         _faces = rest;
+        _picked.removeWhere((f) => result.deleted.contains(f.localId));
         _off
           ..clear()
           ..addAll([
@@ -134,10 +137,10 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
       record: record,
       extent: extent,
       cornerColor: settingsPageBackground,
-      selected: widget.ignored ? null : !_off.contains(i),
-      onTap: widget.ignored
-          ? () => widget.onOpenAsset?.call(f.localId)
-          : () => _toggle(i),
+      selected: _picked.contains(f),
+      onTap: () => setState(
+        () => _picked.contains(f) ? _picked.remove(f) : _picked.add(f),
+      ),
       onLongPress: widget.onOpenAsset == null
           ? null
           : () => widget.onOpenAsset!(f.localId),
@@ -361,7 +364,10 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
                 child: CupertinoSlidingSegmentedControl<bool>(
                   key: const ValueKey('faceGroupView'),
                   groupValue: _asPhotos,
-                  onValueChanged: (v) => setState(() => _asPhotos = v ?? false),
+                  onValueChanged: (v) => setState(() {
+                    _asPhotos = v ?? false;
+                    _picked.clear();
+                  }),
                   children: {
                     false: Text(l10n.faceGroupsViewFaces),
                     true: Text(l10n.faceGroupsViewPhotos),
@@ -369,7 +375,44 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
                 ),
               ),
             ),
-            if (!widget.ignored)
+            if (_asPhotos)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: Text(
+                        _picked.isEmpty
+                            ? l10n.faceGroupsPhotosHint
+                            : l10n.selectionTitle(_picked.length),
+                        style: settingsHintStyle,
+                      ),
+                    ),
+                    CupertinoButton(
+                      key: const ValueKey('faceGroupPhotosAll'),
+                      padding: const EdgeInsets.symmetric(horizontal: 8),
+                      minimumSize: Size.zero,
+                      onPressed: () => setState(() {
+                        if (_picked.length == _faces.length) {
+                          _picked.clear();
+                        } else {
+                          _picked.addAll(_faces);
+                        }
+                      }),
+                      child: Text(
+                        _picked.length == _faces.length
+                            ? l10n.selectionDeselectAll
+                            : l10n.selectionSelectAll,
+                        style: const TextStyle(
+                          fontSize: 13,
+                          color: settingsAccent,
+                        ),
+                      ),
+                    ),
+                  ],
+                ),
+              )
+            else if (!widget.ignored)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 8, 4),
                 child: Row(
@@ -459,7 +502,32 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
                   },
                 ),
               ),
-            if (widget.ignored)
+            if (_asPhotos)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                child: SizedBox(
+                  width: double.infinity,
+                  child: CupertinoButton(
+                    key: const ValueKey('faceGroupDeletePicked'),
+                    color: settingsControlFill,
+                    onPressed: _busy || _picked.isEmpty
+                        ? null
+                        : () => _deletePhotos([
+                            for (final f in _faces)
+                              if (_picked.contains(f)) f,
+                          ]),
+                    child: Text(
+                      _picked.isEmpty
+                          ? l10n.selectionDelete
+                          : l10n.selectionDeleteAction(
+                              {for (final f in _picked) f.localId}.length,
+                            ),
+                      style: const TextStyle(color: CupertinoColors.systemRed),
+                    ),
+                  ),
+                ),
+              )
+            else if (widget.ignored)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
                 child: SizedBox(
@@ -480,7 +548,9 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
                       key: const ValueKey('faceGroupDeletePhotos'),
                       padding: const EdgeInsets.symmetric(horizontal: 12),
                       color: settingsControlFill,
-                      onPressed: _busy || ticked == 0 ? null : _deletePhotos,
+                      onPressed: _busy || ticked == 0
+                          ? null
+                          : () => _deletePhotos(_ticked),
                       child: const Icon(
                         CupertinoIcons.trash,
                         color: CupertinoColors.systemRed,

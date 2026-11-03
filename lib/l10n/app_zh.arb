@@ -1673,5 +1673,6 @@
   "cloudWaitingUpload": "等待上传",
   "faceGroupsSmall": "少于 {count} 张照片",
   "faceGroupsViewFaces": "人脸",
-  "faceGroupsViewPhotos": "照片"
+  "faceGroupsViewPhotos": "照片",
+  "faceGroupsPhotosHint": "轻点照片以选择；按住可打开。"
 }

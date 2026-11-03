@@ -110,7 +110,7 @@ reruns minutes.
   ⊘ Ignored                    3 ›
 
   Mia?                       Ignore
-  [ Faces | Photos ]          ← same ticks, crops or whole photos
+  [ Faces | Photos ]   Photos: own select (none to start, Select All), Delete N Photos; also in Ignored
   [◎✓][◎✓][◎ ][◎✓]
   [🗑] [Not This Group] [Name…]   🗑 = ticked photos to Recently Deleted
   ```

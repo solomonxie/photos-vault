@@ -2338,5 +2338,6 @@
   "faceGroupsSmall": "Fewer than {count} Photos",
   "@faceGroupsSmall": {"placeholders": {"count": {"type": "int"}}},
   "faceGroupsViewFaces": "Faces",
-  "faceGroupsViewPhotos": "Photos"
+  "faceGroupsViewPhotos": "Photos",
+  "faceGroupsPhotosHint": "Tap photos to select them; hold to open one."
 }

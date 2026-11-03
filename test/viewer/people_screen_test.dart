@@ -1021,8 +1021,8 @@ void main() {
     expect(find.text('Mia?'), findsOneWidget);
   });
 
-  testWidgets('a group as whole photos: the ticked ones are deleted, the '
-      'unticked stay in the group', (tester) async {
+  testWidgets('an ignored group as whole photos: the picked ones are '
+      'deleted, the rest stay', (tester) async {
     final records = await _withPhotos(['a', 'b', 'c', 'd']);
     // Backed up, so a delete is Recently Deleted rather than for good.
     for (final id in ['a', 'b', 'c', 'd']) {
@@ -1054,6 +1054,13 @@ void main() {
     );
     await tester.pumpAndSettle();
     await _openFaces(tester);
+    // Ignored first: its photos are deleted from the Ignored list.
+    await analyses.ignoreGroup('big');
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    await _openFaces(tester);
+    await tester.tap(find.byKey(const ValueKey('faceGroupsIgnored')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('people-imported-big')));
     await tester.pumpAndSettle();
 
@@ -1065,11 +1072,20 @@ void main() {
     );
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('faceGroupPhotos')), findsOneWidget);
+    // Nothing picked to start; Select All, then leave one out.
+    expect(find.text('Delete'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('faceGroupPhotosAll')));
+    await tester.pump();
     await tester.tap(find.byKey(ValueKey('photo|a|${_face.encode()}')));
     await tester.pump();
-    await tester.tap(find.byKey(const ValueKey('faceGroupDeletePhotos')));
+    await tester.tap(find.byKey(const ValueKey('faceGroupDeletePicked')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Delete 3 Photos'));
+    await tester.tap(
+      find.descendant(
+        of: find.byType(CupertinoActionSheet),
+        matching: find.text('Delete 3 Photos'),
+      ),
+    );
     await tester.pumpAndSettle();
 
     for (final id in ['b', 'c', 'd']) {
