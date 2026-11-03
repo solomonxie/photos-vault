@@ -409,20 +409,15 @@ class TravelStore {
     );
   }
 
-  /// Places, travel plans and impressions, for the Footprints rows.
-  Future<({int places, int plans, int impressions})> counts() async {
+  /// Places and travel plans, for the Footprints rows.
+  Future<({int places, int plans})> counts() async {
     final db = await _open();
     final rows = await db.rawQuery(
       'SELECT (SELECT COUNT(*) FROM place) AS p, '
-      '(SELECT COUNT(*) FROM route) AS r, '
-      '(SELECT COUNT(*) FROM entry) AS e',
+      '(SELECT COUNT(*) FROM route) AS r',
     );
     final r = rows.first;
-    return (
-      places: r['p'] as int? ?? 0,
-      plans: r['r'] as int? ?? 0,
-      impressions: r['e'] as int? ?? 0,
-    );
+    return (places: r['p'] as int? ?? 0, plans: r['r'] as int? ?? 0);
   }
 
   /// Entries per place, by kind, in one query. Places without any are

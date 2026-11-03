@@ -6,7 +6,6 @@ import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/photos/place_search.dart';
 import 'package:photos_vault/photos/travel.dart';
 import 'package:photos_vault/storage/asset_record.dart';
-import 'package:photos_vault/viewer/footprints_screens.dart';
 import 'package:photos_vault/viewer/native_map.dart';
 import 'package:photos_vault/viewer/place_screen.dart';
 import 'package:photos_vault/viewer/travel_entry_editor.dart';
@@ -558,48 +557,6 @@ void main() {
     // A pin holds no pins of its own.
     expect(find.byKey(const ValueKey('placeAddPoint')), findsNothing);
     expect(find.byKey(const ValueKey('placeAddImpression')), findsOne);
-  });
-
-  testWidgets('Impressions lists every one, newest first, with its place', (
-    tester,
-  ) async {
-    final store = FakeTravelStore();
-    final kyoto = await store.findOrCreateCity(
-      name: 'Kyoto',
-      country: 'Japan',
-      lat: 35,
-      lng: 135.7,
-    );
-    final cafe = await store.createPlace(
-      name: 'Kagizen',
-      kind: PlaceKind.point,
-      lat: 35,
-      lng: 135.77,
-      parentId: kyoto.id,
-    );
-    for (final (place, title, day) in [
-      (kyoto, 'Rain on the river', 1),
-      (cafe, 'Matcha warabi', 2),
-    ]) {
-      await store.saveEntry(
-        store
-            .newEntry(placeId: place.id, kind: EntryKind.impression)
-            .copyWith(text: title, at: () => DateTime(2025, 4, day)),
-      );
-    }
-    await tester.pumpWidget(
-      _wrap(ImpressionsScreen(travelStore: store, placeSearch: _search())),
-    );
-    await tester.pumpAndSettle();
-    final newer = tester.getTopLeft(find.text('Matcha warabi')).dy;
-    final older = tester.getTopLeft(find.text('Rain on the river')).dy;
-    expect(newer, lessThan(older));
-    expect(find.textContaining('at Kagizen, Kyoto'), findsOne);
-    expect(find.textContaining('at Kyoto'), findsOne);
-
-    await tester.tap(find.text('Matcha warabi'));
-    await tester.pumpAndSettle();
-    expect(find.byType(TravelEntryScreen), findsOne);
   });
 
   test('places as a tree: a missing parent or a loop files at the top', () {

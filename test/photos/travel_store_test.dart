@@ -118,7 +118,7 @@ void main() {
     expect(under.map((e) => e.at!.day), [3, 2, 1]);
     expect(await store.entriesAtAny({cafe.id}), hasLength(2));
     expect((await store.place(cafe.id))!.category, 'Cafe');
-    expect(await store.counts(), (places: 4, plans: 0, impressions: 3));
+    expect(await store.counts(), (places: 4, plans: 0));
   });
 
   test('a version-1 database: its places filed under countries', () async {

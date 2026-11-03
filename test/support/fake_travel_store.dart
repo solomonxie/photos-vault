@@ -150,11 +150,8 @@ class FakeTravelStore implements TravelStore {
   }
 
   @override
-  Future<({int places, int plans, int impressions})> counts() async => (
-    places: placesById.length,
-    plans: routesById.length,
-    impressions: entriesById.length,
-  );
+  Future<({int places, int plans})> counts() async =>
+      (places: placesById.length, plans: routesById.length);
 
   @override
   Future<List<TravelEntry>> entriesAtAny(Set<String> placeIds) async => [

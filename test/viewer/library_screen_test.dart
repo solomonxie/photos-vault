@@ -1458,9 +1458,7 @@ void main() {
     expect(find.byType(TravelPlansScreen), findsOne);
     await tester.pageBack();
     await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('footprintsImpressions')));
-    await tester.pumpAndSettle();
-    expect(find.byType(ImpressionsScreen), findsOne);
+    expect(find.byKey(const ValueKey('footprintsImpressions')), findsNothing);
   });
 
   testWidgets('Albums always shows, with Videos in it and a way to make one', (

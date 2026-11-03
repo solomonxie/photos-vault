@@ -12,7 +12,6 @@ FOOTPRINTS
 └───────────────────────────────┘
 │ 📍 Places            63 › │
 │ ⤳ Travel Plans        4 › │
-│ ❝ Impressions        27 › │
 │ ⟲ On This Day: Kyoto, 2017 › │   ← only when a visit falls on today
 ```
 
@@ -54,14 +53,7 @@ FOOTPRINTS
 - Visit = a run of days with photos there, gaps > 2 days split it.
 
 ## Impressions (10, 11, 12)
-
-```
-[Search impressions]
-2019 ─────────────────────────
-Warabimochi was cold and the
-garden quiet…
-At Gion · Apr 3, 2017
-```
+No list of their own on Library: read on each place page.
 Reading view: place, day, text.
 
 ## Impression

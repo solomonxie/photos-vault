@@ -1806,8 +1806,7 @@ class LibraryScreenState extends State<LibraryScreen>
   );
 
   /// Footprints' row counts: read on first build and after each visit.
-  final _footprints =
-      ValueNotifier<({int places, int plans, int impressions})?>(null);
+  final _footprints = ValueNotifier<({int places, int plans})?>(null);
 
   Future<void> _countFootprints() async {
     try {
@@ -1835,15 +1834,6 @@ class LibraryScreenState extends State<LibraryScreen>
 
   void _openTravelPlans() => _openFootprint(
     TravelPlansScreen(
-      travelStore: _travelStore,
-      placeSearch: _placeSearch,
-      assetRecordStore: assetRecordStore,
-      personStore: _personStore,
-    ),
-  );
-
-  void _openImpressions() => _openFootprint(
-    ImpressionsScreen(
       travelStore: _travelStore,
       placeSearch: _placeSearch,
       assetRecordStore: assetRecordStore,
@@ -3573,16 +3563,6 @@ class LibraryScreenState extends State<LibraryScreen>
                   title: l10n.footprintsPlans,
                   count: counts?.plans,
                   onTap: _openTravelPlans,
-                ),
-              ),
-              KeyedSubtree(
-                key: const ValueKey('footprintsImpressions'),
-                child: _row(
-                  icon: CupertinoIcons.text_quote,
-                  color: CupertinoColors.systemOrange,
-                  title: l10n.footprintsImpressions,
-                  count: counts?.impressions,
-                  onTap: _openImpressions,
                 ),
               ),
               if (_pastDay case final past?)
