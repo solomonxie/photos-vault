@@ -987,11 +987,15 @@ void main() {
   });
 
   testWidgets('imported groups make up Faces to Name', (tester) async {
-    final records = await _withPhotos(['p1']);
+    final records = await _withPhotos(['p1', 'a', 'b', 'c', 'd']);
     final analyses = FakeAiAnalysisStore();
     await analyses.importNamedFaces(
       const [],
-      grouped: [(localId: 'p1', face: _face, groupId: 'g1')],
+      grouped: [
+        (localId: 'p1', face: _face, groupId: 'g1'),
+        for (final id in ['a', 'b', 'c', 'd'])
+          (localId: id, face: _face, groupId: 'big'),
+      ],
       groups: const {'g1': 'Mia'},
     );
 
@@ -1007,6 +1011,11 @@ void main() {
     await tester.pumpAndSettle();
     await _openFaces(tester);
 
+    // Four photos is listed; one waits behind the small-groups row.
+    expect(find.byKey(const ValueKey('people-imported-big')), findsOneWidget);
+    expect(find.byKey(const ValueKey('people-imported-g1')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('faceGroupsSmall')));
+    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('people-imported-g1')), findsOneWidget);
     expect(find.text('Mia?'), findsOneWidget);
   });
@@ -1035,6 +1044,8 @@ void main() {
     );
     await tester.pumpAndSettle();
     await _openFaces(tester);
+    await tester.tap(find.byKey(const ValueKey('faceGroupsSmall')));
+    await tester.pumpAndSettle();
 
     await tester.tap(find.byKey(const ValueKey('people-imported-g1')));
     await tester.pumpAndSettle();
@@ -1056,6 +1067,8 @@ void main() {
     expect(find.byKey(const ValueKey('people-imported-g1')), findsOneWidget);
 
     await tester.tap(find.byKey(const ValueKey('faceGroupsIgnored')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('faceGroupsSmall')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('people-imported-g2')), findsOneWidget);
     expect(find.byKey(const ValueKey('people-imported-g1-i')), findsOneWidget);

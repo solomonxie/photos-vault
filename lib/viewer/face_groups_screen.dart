@@ -42,6 +42,13 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
   bool _loaded = false;
   bool _selecting = false;
   bool _busy = false;
+
+  /// Groups on fewer photos than this wait behind one row, opened by a tap.
+  static const _foldUnder = 4;
+  bool _showSmall = false;
+
+  static int _photos(StoredFaceGroup g) =>
+      {for (final f in g.faces) f.localId}.length;
   final _picked = <String>{};
 
   @override
@@ -227,7 +234,41 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
                         ),
                       ),
                     ),
-                  for (final g in _groups) _row(l10n, g),
+                  for (final g in _groups)
+                    if (_photos(g) >= _foldUnder) _row(l10n, g),
+                  if (_groups.where((g) => _photos(g) < _foldUnder).toList()
+                      case final small when small.isNotEmpty) ...[
+                    CupertinoListTile(
+                      key: const ValueKey('faceGroupsSmall'),
+                      leading: const Icon(
+                        CupertinoIcons.square_stack,
+                        color: CupertinoColors.systemGrey,
+                      ),
+                      title: Text(l10n.faceGroupsSmall(_foldUnder)),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '${small.length}',
+                            style: const TextStyle(
+                              color: CupertinoColors.systemGrey,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          Icon(
+                            _showSmall
+                                ? CupertinoIcons.chevron_up
+                                : CupertinoIcons.chevron_down,
+                            size: 18,
+                            color: CupertinoColors.systemGrey2,
+                          ),
+                        ],
+                      ),
+                      onTap: () => setState(() => _showSmall = !_showSmall),
+                    ),
+                    if (_showSmall)
+                      for (final g in small) _row(l10n, g),
+                  ],
                   if (!widget.ignored && !_selecting && _ignoredCount > 0)
                     CupertinoListTile(
                       key: const ValueKey('faceGroupsIgnored'),
