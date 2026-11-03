@@ -1830,6 +1830,21 @@ class AssetRecordStore {
     ];
   }
 
+  /// Photos not yet wholly in the bucket, hidden ones included: one
+  /// number for the Cloud page, which never says which are which.
+  Future<int> waitingUploadCount() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      'SELECT COUNT(*) AS n FROM $_table WHERE deleted_at IS NULL '
+      'AND (passcode_hash IS NOT NULL OR is_hidden = 0) '
+      "AND (original_status <> 'uploaded' "
+      "OR (is_live_photo = 1 AND live_status <> 'uploaded') "
+      "OR (has_edit = 1 AND passcode_hash IS NULL "
+      "AND edited_status <> 'uploaded'))",
+    );
+    return rows.single['n'] as int;
+  }
+
   Future<int> pendingSwapCount() async {
     final db = await _open();
     final rows = await db.rawQuery(

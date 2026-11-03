@@ -57,8 +57,9 @@ on return to the app, and it carries on after the album closes. Keys of
 albums that hold something sit in the keychain (`vault_ring_v1`) so a
 relaunch resumes without the code; no new exposure, since the master key beside them already opens any
 album in 10,000 guesses. The gate never reads them.
-The queue, the Cloud page and the overnight run never touch hidden photos,
-so none of them can reveal that any exist.
+The queue and the overnight run never touch hidden photos, so neither can
+reveal that any exist. The Cloud page's Waiting to Upload number counts
+them inside one total, never on a line of their own (chosen Nov 2026).
 
 ```text
 hide ─▶ plain file + row (the photo) ── HiddenBackup ─▶ CarrierBuilder ─▶ bucket

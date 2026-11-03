@@ -134,6 +134,7 @@ class _SettingsScreenState extends State<SettingsScreen>
   bool _bucketDataBusy = false;
 
   List<S3BackupTarget>? _targets;
+  int _waiting = 0;
   BackupOrderStrategy _orderStrategy = BackupOrderStrategy.fileByFile;
   BackupFormat _format = BackupFormat.optimized;
 
@@ -261,8 +262,15 @@ class _SettingsScreenState extends State<SettingsScreen>
     } catch (_) {
       // Same secure storage — the defaults are a working page.
     }
+    var waiting = 0;
+    try {
+      waiting = await _assetRecordStore.waitingUploadCount();
+    } catch (_) {
+      // No library database: no number.
+    }
     if (!mounted) return;
     setState(() {
+      _waiting = waiting;
       _targets = targets;
       _orderStrategy = order;
       _format = format;
@@ -595,6 +603,12 @@ class _SettingsScreenState extends State<SettingsScreen>
               value: target.region,
               chevron: true,
               onTap: () => _browse(target),
+            ),
+          if (targets.isNotEmpty && _waiting > 0)
+            SettingsGroupRow(
+              key: const ValueKey('cloudWaitingUpload'),
+              title: l10n.cloudWaitingUpload,
+              value: NumberFormat.decimalPattern().format(_waiting),
             ),
           SettingsGroupRow(
             title: l10n.settingsAddButton,

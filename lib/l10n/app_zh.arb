@@ -1669,5 +1669,6 @@
   "faceGroupsIgnoredTitle": "已忽略",
   "faceGroupsIgnoredHint": "保留但不再询问。之后导入的相同人脸会回到这里。",
   "faceGroupsIgnoredEmpty": "没有已忽略的人脸。",
-  "faceGroupsAllNamed": "没有待命名的人脸。"
+  "faceGroupsAllNamed": "没有待命名的人脸。",
+  "cloudWaitingUpload": "等待上传"
 }

@@ -2333,5 +2333,6 @@
   "faceGroupsIgnoredTitle": "Ignored",
   "faceGroupsIgnoredHint": "Kept but not asked about. The same faces in a later import come back here.",
   "faceGroupsIgnoredEmpty": "No ignored faces.",
-  "faceGroupsAllNamed": "No faces waiting for a name."
+  "faceGroupsAllNamed": "No faces waiting for a name.",
+  "cloudWaitingUpload": "Waiting to Upload"
 }

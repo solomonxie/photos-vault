@@ -485,6 +485,16 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<int> pendingSwapCount() async => swaps.length;
 
   @override
+  Future<int> waitingUploadCount() async => _records.values
+      .where(
+        (r) =>
+            !r.isDeleted &&
+            (r.passcodeHash != null || !r.isHidden) &&
+            !r.isFullyBackedUp,
+      )
+      .length;
+
+  @override
   Future<void> markSwapsProved(Iterable<String> localIds) async {
     for (final id in localIds) {
       final s = swaps[id];

@@ -92,8 +92,9 @@ class SyncEngine {
   }
 
   /// Everything still owed an upload. Hidden photos never: they are backed
-  /// up from inside their open album ([backUpHidden]), so the queue and the
-  /// Cloud page never have to know they exist.
+  /// up from inside their open album ([backUpHidden]), so the queue never
+  /// has to know they exist. The Cloud page's one waiting number does
+  /// count them, folded in with the rest.
   List<AssetRecord> get pendingAndFailed => records().where((r) {
     if (!r.isVisibleInLibrary) return false;
     if (unresolvable.contains(r.localId)) return false;

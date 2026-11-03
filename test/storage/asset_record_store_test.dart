@@ -56,6 +56,27 @@ void main() {
     expect(found['photo:B']!.passcodeHash, 'h');
   });
 
+  test(
+    'waiting to upload: hidden ones too, never what is up or binned',
+    () async {
+      final store = newStore();
+      for (final id in ['up', 'open', 'hidden', 'binned']) {
+        await store.upsert(localId: id, contentHash: id, platform: 'ios');
+      }
+      await store.updateDerivative(
+        'up',
+        DerivativeKind.original,
+        const DerivativeState(
+          status: UploadStatus.uploaded,
+          destinationKey: 'originals/up.jpg',
+        ),
+      );
+      await store.setPasscodeHash('hidden', 'h');
+      await store.softDelete('binned');
+      expect(await store.waitingUploadCount(), 2);
+    },
+  );
+
   test('getByLibraryIds finds a page of assets in one call', () async {
     final store = newStore();
     await store.upsert(
