@@ -234,8 +234,33 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
                         ),
                       ),
                     ),
-                  for (final g in _groups)
-                    if (_photos(g) >= _foldUnder) _row(l10n, g),
+                  if (!widget.ignored && !_selecting && _ignoredCount > 0)
+                    CupertinoListTile(
+                      key: const ValueKey('faceGroupsIgnored'),
+                      leading: const Icon(
+                        CupertinoIcons.eye_slash,
+                        color: CupertinoColors.systemGrey,
+                      ),
+                      title: Text(l10n.faceGroupsIgnoredTitle),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '$_ignoredCount',
+                            style: const TextStyle(
+                              color: CupertinoColors.systemGrey,
+                            ),
+                          ),
+                          const SizedBox(width: 4),
+                          const Icon(
+                            CupertinoIcons.chevron_forward,
+                            size: 18,
+                            color: CupertinoColors.systemGrey2,
+                          ),
+                        ],
+                      ),
+                      onTap: _openIgnored,
+                    ),
                   if (_groups.where((g) => _photos(g) < _foldUnder).toList()
                       case final small when small.isNotEmpty) ...[
                     CupertinoListTile(
@@ -269,33 +294,8 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
                     if (_showSmall)
                       for (final g in small) _row(l10n, g),
                   ],
-                  if (!widget.ignored && !_selecting && _ignoredCount > 0)
-                    CupertinoListTile(
-                      key: const ValueKey('faceGroupsIgnored'),
-                      leading: const Icon(
-                        CupertinoIcons.eye_slash,
-                        color: CupertinoColors.systemGrey,
-                      ),
-                      title: Text(l10n.faceGroupsIgnoredTitle),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '$_ignoredCount',
-                            style: const TextStyle(
-                              color: CupertinoColors.systemGrey,
-                            ),
-                          ),
-                          const SizedBox(width: 4),
-                          const Icon(
-                            CupertinoIcons.chevron_forward,
-                            size: 18,
-                            color: CupertinoColors.systemGrey2,
-                          ),
-                        ],
-                      ),
-                      onTap: _openIgnored,
-                    ),
+                  for (final g in _groups)
+                    if (_photos(g) >= _foldUnder) _row(l10n, g),
                 ],
               ),
             ),
