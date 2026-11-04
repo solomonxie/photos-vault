@@ -252,6 +252,24 @@ class CloudSync {
     );
   }
 
+  /// Raised whenever the applier learns to write something new (an entity,
+  /// a field). An older build pulled those ops and dropped them on the
+  /// floor; they're in the merged state, and are applied once more here.
+  static const applierVersion = 2;
+
+  Future<void> _reapplyOnce() async {
+    final had = int.tryParse(await store.meta('applier_version') ?? '') ?? 0;
+    if (had >= applierVersion) return;
+    final keys = <String>{};
+    await for (final page in store.keyPages()) {
+      keys.addAll(page);
+    }
+    final applied = await _apply(keys);
+    if (applied.deferred.isEmpty) {
+      await store.setMeta('applier_version', applierVersion);
+    }
+  }
+
   /// Profiles (events, places, groups, details…) joined the log after
   /// people did: a phone that synced before sends its rows once, merged
   /// with what another phone sent, and sealed before anything is applied,
@@ -394,6 +412,7 @@ class CloudSync {
       final keys = await sync.pull();
       _lastPull = DateTime.now();
       await _apply(keys);
+      await _reapplyOnce();
       await _queueTravel();
       await sync.flush();
       final lastCheckpoint = int.tryParse(

@@ -587,6 +587,34 @@ void main() {
       },
     );
 
+    test('a phone that pulled plans on a build that couldn\'t write them '
+        'writes them once it can', () async {
+      final a = await phone('a');
+      final (_, gion, _, _) = await trip(a);
+      await a.sync.enable(home);
+      final b = await phone('b');
+      final travel = b.sync;
+      b.sync = CloudSync(
+        assets: b.assets,
+        albums: b.albums,
+        people: b.people,
+        targets: targets,
+        store: b.store,
+        bucketFor: (_) => bucket,
+      );
+      await b.sync.enable(home);
+      expect(await b.travel.place(gion.id), isNull);
+      await b.store.setMeta('applier_version', 1);
+
+      b.sync = travel;
+      await b.sync.round();
+      expect((await b.travel.place(gion.id))?.name, 'Gion');
+      expect(
+        await b.store.meta('applier_version'),
+        '${CloudSync.applierVersion}',
+      );
+    });
+
     test('a link to a hidden photo never leaves the phone', () async {
       final a = await phone('a');
       await a.photo('A1');
