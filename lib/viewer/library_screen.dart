@@ -79,6 +79,7 @@ import '../upload/library_restore.dart';
 import '../vault/hidden_repair.dart';
 import '../vault/hidden_transition.dart';
 import '../vault/hidden_backup.dart';
+import '../vault/mac_uploads.dart';
 import '../vault/bucket.dart';
 import '../vault/carrier_upload.dart';
 import '../vault/decoy.dart';
@@ -261,6 +262,11 @@ class LibraryScreenState extends State<LibraryScreen>
     backUp: _engine.backUpHidden,
     albums: () => _vaultKeys.unlockedHashes,
     ready: _engine.hasBackupTarget,
+    before: () => MacUploads(
+      records: assetRecordStore,
+      targets: _backupTargetsStore,
+      documents: getApplicationDocumentsDirectory,
+    ).adopt(),
   );
   late final CarrierBuilder _carriers = CarrierBuilder(
     posterFrame: (record) => _thumbnailCache.libraryThumbnail(record),

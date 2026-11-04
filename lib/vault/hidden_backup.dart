@@ -15,7 +15,12 @@ class HiddenBackup {
     this.concurrency = 1,
     this.rest = const Duration(seconds: 2),
     this.stopped,
+    this.before,
   });
+
+  /// Run at the start of each pass, e.g. taking on photos a Mac sent
+  /// ([MacUploads]), so they aren't counted as owed.
+  final Future<void> Function()? before;
 
   /// Photos built and sent at once. One, with [rest] between: three at a
   /// time ran the phone hot and drained the battery (Nov 2026).
@@ -62,6 +67,11 @@ class HiddenBackup {
       do {
         _again = false;
         if (!await ready()) return;
+        try {
+          await before?.call();
+        } catch (_) {
+          // Tried again next pass.
+        }
         final failed = <String, String>{};
         final owed = [
           for (final hash in albums().toList())
