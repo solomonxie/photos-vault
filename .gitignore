@@ -58,3 +58,6 @@ ios/Flutter/Store.xcconfig
 
 # Bucket credentials for scripts/import-to-bucket.sh
 .env.bucket
+
+# Hidden-album passphrase(s) and code for the Mac uploader; never committed
+.env.vault
