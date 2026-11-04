@@ -1679,5 +1679,8 @@
   "routeStopsHint": "向左轻扫可删除停靠点；拖动 ≡ 可重新排序。",
   "routeLegHowTo": "如何前往{place}",
   "routeLegModeTo": "{mode}前往{place}",
-  "routeLegClear": "清除"
+  "routeLegClear": "清除",
+  "selectionMoveToPerson": "移到某人的页面…",
+  "selectionMovedToPerson": "已将 {count} 张照片移到{name}的页面，不再出现在你的图库中。",
+  "personOnlyHere": "仅此处"
 }

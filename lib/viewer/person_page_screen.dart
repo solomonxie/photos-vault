@@ -197,6 +197,23 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     await _reload();
   }
 
+  /// The other way: off the main library, kept on this page only.
+  Future<void> _onlyHereSelected() async {
+    final ids = [
+      for (final r in _selectedRecords)
+        if (r.inLibraryViews) r.localId,
+    ];
+    if (ids.isNotEmpty) {
+      await widget.assetRecordStore.setArchived(ids, true);
+      await widget.assetRecordStore.setPeopleOnly(ids, true);
+    }
+    _endSelecting();
+    await _reload();
+  }
+
+  /// Any picked one still in the main library: the bar offers Only Here.
+  bool get _pickedInLibrary => _selectedRecords.any((r) => r.inLibraryViews);
+
   /// For good, not to Recently Deleted: from this phone, Photos and every
   /// bucket, after one confirmation.
   Future<void> _deleteSelected() async {
@@ -504,7 +521,10 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                     onHide: _hideSelected,
                     onRemove: _removeSelected,
                     onFavorite: _favoriteSelected,
-                    onToLibrary: _toLibrarySelected,
+                    onToLibrary: _pickedInLibrary
+                        ? _onlyHereSelected
+                        : _toLibrarySelected,
+                    onlyHere: _pickedInLibrary,
                     onMove: _moveSelected,
                     onDelete: _deleteSelected,
                   ),
@@ -716,7 +736,11 @@ class _PersonSelectionBar extends StatelessWidget {
     required this.onToLibrary,
     required this.onMove,
     required this.onDelete,
+    this.onlyHere = false,
   });
+
+  /// [onToLibrary] takes them off the library instead.
+  final bool onlyHere;
 
   final VoidCallback onDelete;
 
@@ -803,12 +827,19 @@ class _PersonSelectionBar extends StatelessWidget {
                 onFavorite,
                 const ValueKey('personFavoriteSelected'),
               ),
-              action(
-                CupertinoIcons.photo_on_rectangle,
-                l10n.personToLibrary,
-                onToLibrary,
-                const ValueKey('personToLibrarySelected'),
-              ),
+              onlyHere
+                  ? action(
+                      CupertinoIcons.person_crop_square,
+                      l10n.personOnlyHere,
+                      onToLibrary,
+                      const ValueKey('personOnlyHereSelected'),
+                    )
+                  : action(
+                      CupertinoIcons.photo_on_rectangle,
+                      l10n.personToLibrary,
+                      onToLibrary,
+                      const ValueKey('personToLibrarySelected'),
+                    ),
               action(
                 CupertinoIcons.arrow_right_arrow_left,
                 l10n.personMoveTo,

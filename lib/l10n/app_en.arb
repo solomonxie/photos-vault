@@ -2348,5 +2348,9 @@
   "@routeLegHowTo": {"placeholders": {"place": {"type": "String"}}},
   "routeLegModeTo": "{mode} to {place}",
   "@routeLegModeTo": {"placeholders": {"mode": {"type": "String"}, "place": {"type": "String"}}},
-  "routeLegClear": "Clear"
+  "routeLegClear": "Clear",
+  "selectionMoveToPerson": "Move to a Person's Page…",
+  "selectionMovedToPerson": "{count, plural, one{1 photo moved to {name}'s page. It's no longer in your library.} other{{count} photos moved to {name}'s page. They're no longer in your library.}}",
+  "@selectionMovedToPerson": {"placeholders": {"count": {"type": "int"}, "name": {"type": "String"}}},
+  "personOnlyHere": "Only Here"
 }

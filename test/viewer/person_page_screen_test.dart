@@ -211,6 +211,45 @@ void main() {
     expect(await assetStore.getByLocalId('manual:c'), isNotNull);
   });
 
+  testWidgets('Only Here takes picked library photos off the library, onto '
+      'this page alone', (tester) async {
+    final assetStore = FakeAssetRecordStore();
+    final personStore = FakePersonStore();
+    for (final id in ['manual:a', 'manual:b']) {
+      await assetStore.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+    }
+    final person = await personStore.create(name: 'Mia');
+    await personStore.addAssets(person.id, ['manual:a', 'manual:b']);
+    await tester.pumpWidget(
+      _wrap(
+        PersonPageScreen(
+          person: person,
+          personStore: personStore,
+          assetRecordStore: assetStore,
+          aiAnalysisStore: FakeAiAnalysisStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _hold(tester, find.byKey(const ValueKey('manual:a')));
+    await tester.tap(find.text('Select').last);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('personToLibrarySelected')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('personOnlyHereSelected')));
+    await tester.pumpAndSettle();
+
+    final a = (await assetStore.getByLocalId('manual:a'))!;
+    expect((a.isArchived, a.peopleOnly, a.inLibraryViews), (true, true, false));
+    expect((await assetStore.getByLocalId('manual:b'))!.inLibraryViews, isTrue);
+    expect(await personStore.localIdsIn(person.id), contains('manual:a'));
+  });
+
   testWidgets('shows the empty state with nothing tagged', (tester) async {
     final personStore = FakePersonStore();
     final person = await personStore.create(name: 'Mia');

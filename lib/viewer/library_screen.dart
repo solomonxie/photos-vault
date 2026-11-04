@@ -117,6 +117,7 @@ import 'private_album_gate.dart';
 import 'private_album_screen.dart';
 import 'recently_deleted_screen.dart';
 import 'safety_screen.dart';
+import 'person_picker_sheet.dart';
 import 'search_picker_sheet.dart';
 import 'suggestions_screen.dart';
 import 'zoom_page_route.dart';
@@ -2344,6 +2345,36 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Future<void> _batchArchive() => _setArchived(_selectedRecords, true);
 
+  /// Onto one person and off the library: tagged to them, filed away, and
+  /// shown on their page only ([AssetRecord.peopleOnly]).
+  Future<void> _batchMoveToPerson() async {
+    final records = [
+      for (final r in _selectedRecords)
+        if (r.passcodeHash == null) r,
+    ];
+    if (records.isEmpty) return;
+    final l10n = AppLocalizations.of(context)!;
+    final candidates = await _personStore.listAll();
+    if (!mounted) return;
+    final person = await showPersonPickerSheet(
+      context: context,
+      candidates: candidates,
+      personStore: _personStore,
+      title: l10n.selectionMoveToPerson,
+      autofocus: false,
+    );
+    if (person == null || !mounted) return;
+    final ids = [for (final r in records) r.localId];
+    await _personStore.addAssets(person.id, ids);
+    await assetRecordStore.setArchived(ids, true);
+    await assetRecordStore.setPeopleOnly(ids, true);
+    if (!mounted) return;
+    setState(() => _selection = null);
+    await reload();
+    if (!mounted) return;
+    _showResult(l10n.selectionMovedToPerson(ids.length, person.name));
+  }
+
   /// Hiding takes the photo out of Photos as well — otherwise "hidden"
   /// would only mean hidden from this app, and the camera roll would still
   /// open on it. The copy into this app's own storage happens first, so
@@ -3333,6 +3364,7 @@ class LibraryScreenState extends State<LibraryScreen>
                         onArchive: _batchArchive,
                         onResize: _batchResize,
                         onAnalyzeFaces: _batchAnalyzeFaces,
+                        onMoveToPerson: _batchMoveToPerson,
                       ),
                     ),
                   ),
@@ -4269,8 +4301,10 @@ class _SelectionBar extends StatelessWidget {
     required this.onResize,
     required this.onAnalyzeFaces,
     required this.onDelete,
+    required this.onMoveToPerson,
   });
 
+  final VoidCallback onMoveToPerson;
   final int count;
   final VoidCallback onAddTag;
   final VoidCallback onAddToAlbum;
@@ -4376,6 +4410,14 @@ class _SelectionBar extends StatelessWidget {
               onArchive();
             },
             child: Text(l10n.archiveAction),
+          ),
+          CupertinoActionSheetAction(
+            key: const ValueKey('selectionMoveToPerson'),
+            onPressed: () {
+              Navigator.of(sheetContext).pop();
+              onMoveToPerson();
+            },
+            child: Text(l10n.selectionMoveToPerson),
           ),
           CupertinoActionSheetAction(
             onPressed: () {
