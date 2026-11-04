@@ -32,7 +32,7 @@ def client():
     return s3, env["BUCKET"], env["PREFIX"]
 
 
-def prep(pool=800):
+def prep(pool=100000):
     s3, bucket, prefix = client()
     s3.download_file(bucket, f"{prefix}/app-data/index.bin", os.path.join(WORK, "index.bin"))
     sizes = {}

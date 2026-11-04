@@ -43,18 +43,18 @@ class MacUploads {
     var adopted = 0;
     final orphans = <PendingDelete>[];
     final left = <String>[];
-    for (final line in await file.readAsLines()) {
-      if (line.trim().isEmpty) continue;
+    Future<void> one(String line) async {
+      if (line.trim().isEmpty) return;
       final Map<String, Object?> row;
       try {
         row = (jsonDecode(line) as Map).cast<String, Object?>();
       } catch (_) {
-        continue;
+        return;
       }
       final id = row['localId'], name = row['file'], hash = row['hash'];
-      if (id is! String || name is! String) continue;
+      if (id is! String || name is! String) return;
       final record = await records.getByLocalId(id);
-      if (record == null || record.passcodeHash == null) continue;
+      if (record == null || record.passcodeHash == null) return;
       final keys = {
         for (final t in all)
           t.id: derivativeKey(
@@ -79,12 +79,12 @@ class MacUploads {
             ),
           );
         }
-        continue;
+        return;
       }
       final heads = [for (final t in all) (t, await _ops.head(t, keys[t.id]!))];
       if (heads.any((h) => !h.$2.isPresent)) {
         left.add(line);
-        continue;
+        return;
       }
       for (final (t, _) in heads) {
         await records.recordUpload(
@@ -105,6 +105,13 @@ class MacUploads {
         ),
       );
       adopted++;
+    }
+
+    // Sixteen HEADs in flight: one at a time, 15k photos kept the app
+    // busy for an hour.
+    final lines = await file.readAsLines();
+    for (var i = 0; i < lines.length; i += 16) {
+      await Future.wait(lines.skip(i).take(16).map(one));
     }
     if (orphans.isNotEmpty) {
       await PendingDeletes(store: records).add(orphans);

@@ -5,6 +5,7 @@ import 'dart:typed_data';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/storage/asset_record.dart';
+import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/upload/signing.dart';
 import 'package:photos_vault/vault/mac_uploads.dart';
 
@@ -69,5 +70,23 @@ void main() {
     bucket.objects[key('c2.jpg')] = Uint8List(3);
     expect(await adopt.adopt(), 1);
     expect(file.existsSync(), isFalse);
+
+    // Sent by the phone meanwhile under its own name: the Mac's copy goes.
+    await records.updateDerivative(
+      'h1',
+      DerivativeKind.original,
+      DerivativeState(
+        status: UploadStatus.uploaded,
+        destinationKey: key('phone.jpg'),
+      ),
+    );
+    file.writeAsStringSync(
+      jsonEncode({'localId': 'h1', 'file': 'c1.jpg', 'hash': 'x1'}),
+    );
+    expect(await adopt.adopt(), 0);
+    expect(
+      (await PendingDeletes(store: records).pending()).map((d) => d.objectKey),
+      [key('c1.jpg')],
+    );
   });
 }
