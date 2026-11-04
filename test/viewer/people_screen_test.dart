@@ -111,7 +111,7 @@ void main() {
     double y(String name) => tester.getTopLeft(find.text(name)).dy;
     expect(y('Bo'), lessThan(y('Ana')));
     expect(y('Ana'), lessThan(y('Cy')));
-    expect(find.textContaining('seen'), findsNWidgets(2));
+    expect(find.textContaining('last update'), findsNWidgets(2));
   });
 
   testWidgets('lists existing people with their photo count', (tester) async {
