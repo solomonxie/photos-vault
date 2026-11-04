@@ -67,6 +67,9 @@ def prepare(row, tmp, when):
             run(["ffmpeg", "-v", "error", "-y", "-ss", "1", "-i", src, "-frames:v", "1",
                  "-vf", "scale='min(512,iw)':-2", "-q:v", "4", thumb])
         except RuntimeError:
+            pass
+        # Shorter than a second: no frame at 1 s, and no error either.
+        if not os.path.exists(thumb):
             run(["ffmpeg", "-v", "error", "-y", "-i", src, "-frames:v", "1",
                  "-vf", "scale='min(512,iw)':-2", "-q:v", "4", thumb])
     elif ext == "gif":
