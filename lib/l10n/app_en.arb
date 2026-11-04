@@ -2339,5 +2339,7 @@
   "@faceGroupsSmall": {"placeholders": {"count": {"type": "int"}}},
   "faceGroupsViewFaces": "Faces",
   "faceGroupsViewPhotos": "Photos",
-  "faceGroupsPhotosHint": "Tap photos to select them; hold to open one."
+  "faceGroupsPhotosHint": "Tap photos to select them; hold to open one.",
+  "personDeletePermanentlyBody": "{count, plural, one{Deletes this photo from this iPhone, Photos and every bucket. It doesn't go to Recently Deleted and can't be undone.} other{Deletes these {count} photos from this iPhone, Photos and every bucket. They don't go to Recently Deleted and can't be undone.}}",
+  "@personDeletePermanentlyBody": {"placeholders": {"count": {"type": "int"}}}
 }

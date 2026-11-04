@@ -157,6 +157,60 @@ void main() {
     expect(find.byKey(const ValueKey('personSelectionDone')), findsNothing);
   });
 
+  testWidgets('Delete in select mode removes the picked photos for good', (
+    tester,
+  ) async {
+    final assetStore = FakeAssetRecordStore();
+    final personStore = FakePersonStore();
+    for (final id in ['manual:a', 'manual:b', 'manual:c']) {
+      await assetStore.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/$id.jpg',
+      );
+    }
+    final person = await personStore.create(name: 'Mia');
+    await personStore.addAssets(person.id, [
+      'manual:a',
+      'manual:b',
+      'manual:c',
+    ]);
+    await tester.pumpWidget(
+      _wrap(
+        PersonPageScreen(
+          person: person,
+          personStore: personStore,
+          assetRecordStore: assetStore,
+          aiAnalysisStore: FakeAiAnalysisStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _hold(tester, find.byKey(const ValueKey('manual:a')));
+    await tester.tap(find.text('Select').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('manual:b')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('personDeleteSelected')));
+    await tester.pumpAndSettle();
+    expect(find.text('2 Selected'), findsOneWidget);
+    expect(find.byKey(const ValueKey('personDeleteConfirm')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('personDeleteConfirm')));
+    for (var i = 0; i < 5; i++) {
+      await tester.runAsync(
+        () => Future<void>.delayed(const Duration(milliseconds: 50)),
+      );
+      await tester.pump();
+    }
+    await tester.pumpAndSettle();
+
+    expect(await assetStore.getByLocalId('manual:a'), isNull);
+    expect(await assetStore.getByLocalId('manual:b'), isNull);
+    expect(await assetStore.getByLocalId('manual:c'), isNotNull);
+  });
+
   testWidgets('shows the empty state with nothing tagged', (tester) async {
     final personStore = FakePersonStore();
     final person = await personStore.create(name: 'Mia');

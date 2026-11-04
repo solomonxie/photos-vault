@@ -250,6 +250,45 @@ class AssetRemoval {
     return true;
   }
 
+  /// [records] for good, as [deletePermanently] does, with Photos asked
+  /// once for the lot. Locked and hidden ones are left alone, and so is
+  /// one Photos kept. Returns the ids that went.
+  Future<Set<String>> deleteManyPermanently(List<AssetRecord> records) async {
+    final open = [
+      for (final r in records)
+        if (!r.isLocked && r.passcodeHash == null) r,
+    ];
+    final fromLibrary = [
+      for (final r in open)
+        if (r.deletedAt == null &&
+            r.sourceType == AssetSourceType.photoManager &&
+            !r.localDeleted &&
+            PhotoLibraryService.libraryIdOf(r) != null)
+          r,
+    ];
+    Set<String> released;
+    try {
+      released = fromLibrary.isEmpty
+          ? const {}
+          : await library.deleteManyFromLibrary(
+              fromLibrary,
+              missingCountsAsDeleted: true,
+            );
+    } catch (_) {
+      released = const {};
+    }
+    final asked = {for (final r in fromLibrary) r.localId};
+    final targets = await _loadTargets();
+    final gone = <String>{};
+    for (final r in open) {
+      if (asked.contains(r.localId) && !released.contains(r.localId)) continue;
+      await _discard(r, targets, null);
+      gone.add(r.localId);
+    }
+    if (gone.isNotEmpty) unawaited(_drain());
+    return gone;
+  }
+
   /// Exactly [localIds] — the entries the user was shown — for good, and
   /// only those still in the bin. Returns how many went.
   Future<int> emptyBin(Iterable<String> localIds) async {

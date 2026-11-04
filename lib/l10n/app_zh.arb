@@ -1674,5 +1674,6 @@
   "faceGroupsSmall": "少于 {count} 张照片",
   "faceGroupsViewFaces": "人脸",
   "faceGroupsViewPhotos": "照片",
-  "faceGroupsPhotosHint": "轻点照片以选择；按住可打开。"
+  "faceGroupsPhotosHint": "轻点照片以选择；按住可打开。",
+  "personDeletePermanentlyBody": "将从此 iPhone、照片和所有存储桶中删除这 {count} 张照片。不会进入最近删除，且无法撤销。"
 }

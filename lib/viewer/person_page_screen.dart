@@ -197,6 +197,42 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     await _reload();
   }
 
+  /// For good, not to Recently Deleted: from this phone, Photos and every
+  /// bucket, after one confirmation.
+  Future<void> _deleteSelected() async {
+    final records = _selectedRecords;
+    if (records.isEmpty) return;
+    final l10n = AppLocalizations.of(context)!;
+    final yes = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (sheet) => CupertinoActionSheet(
+        title: Text(l10n.libraryDeletePermanentlyTitle),
+        message: Text(l10n.personDeletePermanentlyBody(records.length)),
+        actions: [
+          CupertinoActionSheetAction(
+            key: const ValueKey('personDeleteConfirm'),
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(sheet).pop(true),
+            child: Text(l10n.selectionDeleteAction(records.length)),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheet).pop(false),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (yes != true || !mounted) return;
+    final gone = await _removal.deleteManyPermanently(records);
+    if (!mounted) return;
+    _picked.value = {
+      for (final id in _picked.value)
+        if (!gone.contains(id)) id,
+    };
+    if (_picked.value.isEmpty) _endSelecting();
+    await _reload();
+  }
+
   Future<void> _favoriteSelected() async {
     final records = _selectedRecords;
     final value = !records.every((r) => r.isFavorite);
@@ -470,6 +506,7 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                     onFavorite: _favoriteSelected,
                     onToLibrary: _toLibrarySelected,
                     onMove: _moveSelected,
+                    onDelete: _deleteSelected,
                   ),
                 ),
               ),
@@ -678,7 +715,10 @@ class _PersonSelectionBar extends StatelessWidget {
     required this.onFavorite,
     required this.onToLibrary,
     required this.onMove,
+    required this.onDelete,
   });
+
+  final VoidCallback onDelete;
 
   final int count;
   final VoidCallback onHide;
@@ -774,6 +814,12 @@ class _PersonSelectionBar extends StatelessWidget {
                 l10n.personMoveTo,
                 onMove,
                 const ValueKey('personMoveSelected'),
+              ),
+              action(
+                CupertinoIcons.trash,
+                l10n.selectionDelete,
+                onDelete,
+                const ValueKey('personDeleteSelected'),
               ),
             ],
           ),
