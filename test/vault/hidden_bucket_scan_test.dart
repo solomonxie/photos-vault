@@ -173,6 +173,14 @@ void main() {
     ]);
     expect(await scan().find(other), isEmpty);
     expect((await bucket.readAlbum(keys)).entries, isEmpty);
+    // By name alone: the same two, nothing read.
+    expect(
+      (await scan().find(keys, read: false)).map((e) => e.objectKey).toSet(),
+      {
+        'originals/${hiddenBaseName(keys.carrier, a)}.jpg',
+        'originals/${hiddenBaseName(keys.carrier, b)}.jpg',
+      },
+    );
   });
 
   test('an ordinary protocol name is not mistaken for a carrier', () async {

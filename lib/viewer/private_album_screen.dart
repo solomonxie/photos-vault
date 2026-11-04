@@ -248,12 +248,32 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
         await widget.assetRecordStore.forPasscodeHash(widget.passcodeHash),
       );
       final vault = widget.vaultKeys;
-      return _found[tag] = await HiddenBucketScan(
+      final scan = HiddenBucketScan(
         store: widget.assetRecordStore,
         targetsStore: widget.targetsStore ?? BackupTargetsStore(),
         bucket: VaultBucket(),
         passphrases: vault?.entries ?? () async => const [],
-      ).find(keys, known: {...rows, for (final e in listed) e.objectKey});
+      );
+      final known = {...rows, for (final e in listed) e.objectKey};
+      // The names at once, so the grid fills; their real dates follow.
+      final quick = await scan.find(keys, known: known, read: false);
+      if (quick.isNotEmpty) {
+        unawaited(
+          scan.find(keys, known: known).then((read) {
+            _found[tag] = read;
+            if (!mounted) return;
+            final ids = {for (final e in quick) e.objectKey};
+            setState(() {
+              _cloudEntries = [
+                for (final e in _cloudEntries)
+                  if (!ids.contains(e.objectKey)) e,
+                ...read,
+              ];
+            });
+          }),
+        );
+      }
+      return _found[tag] = quick;
     } catch (_) {
       return const [];
     }
