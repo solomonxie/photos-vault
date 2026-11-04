@@ -2203,8 +2203,6 @@
   "routeModeOther": "Other",
   "routePhotos": "Photos",
   "routePeople": "People",
-  "routeAddPhotos": "Add Photos",
-  "routeChoosePeople": "Choose People",
   "routeDelete": "Delete Route",
   "routeDeleteConfirm": "Delete this route? Its places and their diaries stay.",
   "travelsHeader": "Travels",
@@ -2341,5 +2339,14 @@
   "faceGroupsViewPhotos": "Photos",
   "faceGroupsPhotosHint": "Tap photos to select them; hold to open one.",
   "personDeletePermanentlyBody": "{count, plural, one{Deletes this photo from this iPhone, Photos and every bucket. It doesn't go to Recently Deleted and can't be undone.} other{Deletes these {count} photos from this iPhone, Photos and every bucket. They don't go to Recently Deleted and can't be undone.}}",
-  "@personDeletePermanentlyBody": {"placeholders": {"count": {"type": "int"}}}
+  "@personDeletePermanentlyBody": {"placeholders": {"count": {"type": "int"}}},
+  "routeStopPhotos": "{count, plural, one{1 photo here} other{{count} photos here}}",
+  "@routeStopPhotos": {"placeholders": {"count": {"type": "int"}}},
+  "routeStopAddDate": "Add date",
+  "routeStopsHint": "Swipe a stop left to delete it; drag ≡ to reorder.",
+  "routeLegHowTo": "How you got to {place}",
+  "@routeLegHowTo": {"placeholders": {"place": {"type": "String"}}},
+  "routeLegModeTo": "{mode} to {place}",
+  "@routeLegModeTo": {"placeholders": {"mode": {"type": "String"}, "place": {"type": "String"}}},
+  "routeLegClear": "Clear"
 }

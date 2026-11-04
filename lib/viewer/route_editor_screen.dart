@@ -4,18 +4,13 @@ import 'package:flutter/cupertino.dart';
 import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
-import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/place_search.dart';
 import '../photos/travel.dart';
 import '../photos/travel_store.dart';
-import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
-import 'asset_grid.dart' show assetImage;
-import 'asset_picker_screen.dart';
 import 'native_map.dart';
 import 'route_screen.dart';
-import 'search_picker_sheet.dart';
 import '../photos/name_sound.dart';
 
 /// Edits a route in place: every change is written as it's made, so there
@@ -55,8 +50,6 @@ class _RouteEditorScreenState extends State<RouteEditorScreen> {
   List<TextEditingController> _legNotes = const [];
   final _pending = <String, Timer>{};
   final _writes = <Future<void>>[];
-  List<TravelLink> _links = const [];
-  Map<String, Person> _people = const {};
   bool _deleted = false;
 
   @override
@@ -79,25 +72,12 @@ class _RouteEditorScreenState extends State<RouteEditorScreen> {
   Future<void> _load({bool fields = false}) async {
     await Future.wait(_writes);
     final detail = await _store.routeDetail(widget.routeId);
-    final links =
-        (await _store.linksFor(LinkOwner.route, [
-          widget.routeId,
-        ]))[widget.routeId] ??
-        const <TravelLink>[];
-    var people = _people;
-    if (people.isEmpty &&
-        links.any((l) => l.target == LinkTarget.person) &&
-        widget.personStore != null) {
-      people = {for (final p in await widget.personStore!.listAll()) p.id: p};
-    }
     if (!mounted || detail == null) return;
     for (final c in [..._stopNotes, ..._legNotes]) {
       c.dispose();
     }
     setState(() {
       _detail = detail;
-      _links = links;
-      _people = people;
       if (fields) {
         _title.text = detail.route.title;
         _note.text = detail.route.note;
@@ -259,19 +239,32 @@ class _RouteEditorScreenState extends State<RouteEditorScreen> {
     final mode = await showCupertinoModalPopup<LegMode>(
       context: context,
       builder: (sheet) => CupertinoActionSheet(
+        title: Text(
+          l10n.routeLegHowTo(
+            _detail!.places[_detail!.stops[i + 1].placeId]?.name ?? '',
+          ),
+        ),
         actions: [
           for (final m in LegMode.values)
-            CupertinoActionSheetAction(
-              key: ValueKey('routeMode-${m.name}'),
-              onPressed: () => Navigator.of(sheet).pop(m),
-              child: Row(
-                mainAxisAlignment: MainAxisAlignment.center,
-                children: [
-                  Icon(legModeIcon(m), size: 20),
-                  const SizedBox(width: 8),
-                  Text(legModeLabel(l10n, m)),
-                ],
+            if (m != LegMode.other)
+              CupertinoActionSheetAction(
+                key: ValueKey('routeMode-${m.name}'),
+                onPressed: () => Navigator.of(sheet).pop(m),
+                child: Row(
+                  mainAxisAlignment: MainAxisAlignment.center,
+                  children: [
+                    Icon(legModeIcon(m), size: 20),
+                    const SizedBox(width: 8),
+                    Text(legModeLabel(l10n, m)),
+                  ],
+                ),
               ),
+          if (_detail!.legs[i].mode != LegMode.other)
+            CupertinoActionSheetAction(
+              key: const ValueKey('routeModeClear'),
+              isDestructiveAction: true,
+              onPressed: () => Navigator.of(sheet).pop(LegMode.other),
+              child: Text(l10n.routeLegClear),
             ),
         ],
         cancelButton: CupertinoActionSheetAction(
@@ -286,12 +279,6 @@ class _RouteEditorScreenState extends State<RouteEditorScreen> {
       note: _legNotes[i].text.trim(),
       needsReview: false,
     );
-    setState(() => _detail!.legs[i] = leg);
-    _track(_store.saveLeg(widget.routeId, i, leg));
-  }
-
-  void _clearReview(int i) {
-    final leg = _detail!.legs[i].copyWith(needsReview: false);
     setState(() => _detail!.legs[i] = leg);
     _track(_store.saveLeg(widget.routeId, i, leg));
   }
@@ -321,61 +308,6 @@ class _RouteEditorScreenState extends State<RouteEditorScreen> {
       ),
     );
     _track(_store.updateRoute(next));
-  }
-
-  Future<void> _saveLinks(List<TravelLink> links) async {
-    setState(() => _links = links);
-    _track(_store.setLinks(LinkOwner.route, widget.routeId, links));
-  }
-
-  Future<void> _addPhotos() async {
-    final store = widget.assetRecordStore;
-    if (store == null) return;
-    final l10n = AppLocalizations.of(context)!;
-    final picked = await Navigator.of(context).push<List<AssetRecord>>(
-      CupertinoPageRoute(
-        builder: (_) => AssetPickerScreen(
-          title: l10n.routeAddPhotos,
-          assetRecordStore: store,
-          excludeIds: {
-            for (final l in _links)
-              if (l.target == LinkTarget.asset) l.id,
-          },
-        ),
-      ),
-    );
-    if (picked == null || picked.isEmpty || !mounted) return;
-    await _saveLinks([
-      ..._links,
-      for (final r in picked) TravelLink(LinkTarget.asset, r.localId),
-    ]);
-  }
-
-  Future<void> _choosePeople() async {
-    final store = widget.personStore;
-    if (store == null) return;
-    final l10n = AppLocalizations.of(context)!;
-    final all = await store.listAll();
-    if (!mounted) return;
-    _people = {for (final p in all) p.id: p};
-    final linked = {
-      for (final l in _links)
-        if (l.target == LinkTarget.person) l.id,
-    };
-    final picked = await showSearchPickerSheetMulti<Person>(
-      context: context,
-      title: l10n.routeChoosePeople,
-      options: [
-        for (final p in all)
-          if (!linked.contains(p.id)) p,
-      ],
-      labelOf: (p) => p.name,
-    );
-    if (picked == null || picked.isEmpty || !mounted) return;
-    await _saveLinks([
-      ..._links,
-      for (final p in picked) TravelLink(LinkTarget.person, p.id),
-    ]);
   }
 
   Future<void> _delete() async {
@@ -419,6 +351,7 @@ class _RouteEditorScreenState extends State<RouteEditorScreen> {
         if (!didPop) _finish();
       },
       child: CupertinoPageScaffold(
+        backgroundColor: CupertinoColors.systemGroupedBackground,
         navigationBar: CupertinoNavigationBar(
           automaticallyImplyLeading: false,
           middle: Text(l10n.routeEditorTitle),
@@ -503,202 +436,112 @@ class _RouteEditorScreenState extends State<RouteEditorScreen> {
         ),
         SliverToBoxAdapter(
           child: Padding(
-            padding: const EdgeInsets.fromLTRB(20, 8, 8, 4),
-            child: Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    l10n.routeStopsHeader,
-                    style: const TextStyle(
-                      fontSize: 17,
-                      fontWeight: FontWeight.w600,
-                    ),
-                  ),
-                ),
-                CupertinoButton(
-                  key: const ValueKey('routeAddStop'),
-                  padding: const EdgeInsets.symmetric(horizontal: 12),
-                  onPressed: _addStop,
-                  child: Text(l10n.routeAddStop),
-                ),
-              ],
-            ),
-          ),
-        ),
-        if (detail.stops.isEmpty)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 20),
-              child: Text(
-                l10n.routeNoStops,
-                style: const TextStyle(color: CupertinoColors.systemGrey),
+            padding: const EdgeInsets.fromLTRB(36, 16, 20, 6),
+            child: Text(
+              l10n.routeStopsHeader.toUpperCase(),
+              style: const TextStyle(
+                fontSize: 13,
+                color: CupertinoColors.systemGrey,
               ),
             ),
           ),
+        ),
         SliverReorderableList(
           itemCount: detail.stops.length,
           onReorderItem: _reorder,
-          itemBuilder: (context, i) => _EditableStop(
+          itemBuilder: (context, i) => Dismissible(
             key: ValueKey('routeEditStop-$i-${detail.stops[i].placeId}'),
-            index: i,
-            stop: detail.stops[i],
-            place: detail.places[detail.stops[i].placeId],
-            note: _stopNotes[i],
-            onNoteChanged: () => _later('stop-$i', () => _writeStopNote(i)),
-            onArrived: () => _pickArrived(i),
-            onRemove: () => _removeStop(i),
-            leg: i < detail.legs.length ? detail.legs[i] : null,
-            legNote: i < _legNotes.length ? _legNotes[i] : null,
-            onLegNoteChanged: () => _later('leg-$i', () => _writeLegNote(i)),
-            onMode: () => _pickMode(i),
-            onReviewed: () => _clearReview(i),
-          ),
-        ),
-        ..._photosSection(l10n),
-        ..._peopleSection(l10n),
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 32, 16, 40),
-            child: CupertinoButton(
-              key: const ValueKey('routeDelete'),
-              onPressed: _delete,
+            direction: DismissDirection.endToStart,
+            background: Container(
+              margin: const EdgeInsets.symmetric(horizontal: 20),
+              color: CupertinoColors.destructiveRed,
+              alignment: Alignment.centerRight,
+              padding: const EdgeInsets.only(right: 20),
               child: Text(
-                l10n.routeDelete,
-                style: const TextStyle(color: CupertinoColors.destructiveRed),
+                l10n.actionDelete,
+                style: const TextStyle(color: CupertinoColors.white),
               ),
             ),
+            onDismissed: (_) => _removeStop(i),
+            child: _EditableStop(
+              key: ValueKey('routeStopRow-$i'),
+              index: i,
+              stop: detail.stops[i],
+              place: detail.places[detail.stops[i].placeId],
+              next: i + 1 < detail.stops.length
+                  ? detail.places[detail.stops[i + 1].placeId]
+                  : null,
+              note: _stopNotes[i],
+              onNoteChanged: () => _later('stop-$i', () => _writeStopNote(i)),
+              onArrived: () => _pickArrived(i),
+              leg: i < detail.legs.length ? detail.legs[i] : null,
+              legNote: i < _legNotes.length ? _legNotes[i] : null,
+              onLegNoteChanged: () => _later('leg-$i', () => _writeLegNote(i)),
+              onMode: () => _pickMode(i),
+            ),
+          ),
+        ),
+        SliverToBoxAdapter(
+          child: Container(
+            margin: const EdgeInsets.symmetric(horizontal: 20),
+            decoration: BoxDecoration(
+              color: CupertinoColors.secondarySystemGroupedBackground
+                  .resolveFrom(context),
+              borderRadius: BorderRadius.vertical(
+                top: detail.stops.isEmpty
+                    ? const Radius.circular(10)
+                    : Radius.zero,
+                bottom: const Radius.circular(10),
+              ),
+            ),
+            child: CupertinoListTile(
+              key: const ValueKey('routeAddStop'),
+              leading: const Icon(
+                CupertinoIcons.add_circled_solid,
+                color: CupertinoColors.activeBlue,
+              ),
+              title: Text(
+                l10n.routeAddStop,
+                style: const TextStyle(color: CupertinoColors.activeBlue),
+              ),
+              onTap: _addStop,
+            ),
+          ),
+        ),
+        if (detail.stops.length > 1)
+          SliverToBoxAdapter(
+            child: Padding(
+              padding: const EdgeInsets.fromLTRB(36, 6, 20, 0),
+              child: Text(
+                l10n.routeStopsHint,
+                style: const TextStyle(
+                  fontSize: 13,
+                  color: CupertinoColors.systemGrey,
+                ),
+              ),
+            ),
+          ),
+        SliverToBoxAdapter(
+          child: CupertinoListSection.insetGrouped(
+            margin: const EdgeInsets.fromLTRB(20, 28, 20, 40),
+            children: [
+              CupertinoListTile(
+                key: const ValueKey('routeDelete'),
+                title: Center(
+                  child: Text(
+                    l10n.routeDelete,
+                    style: const TextStyle(
+                      color: CupertinoColors.destructiveRed,
+                    ),
+                  ),
+                ),
+                onTap: _delete,
+              ),
+            ],
           ),
         ),
       ],
     );
-  }
-
-  Widget _sectionHeader(
-    String title,
-    String action,
-    Key key,
-    VoidCallback on,
-  ) => SliverToBoxAdapter(
-    child: Padding(
-      padding: const EdgeInsets.fromLTRB(20, 20, 8, 4),
-      child: Row(
-        children: [
-          Expanded(
-            child: Text(
-              title,
-              style: const TextStyle(fontSize: 17, fontWeight: FontWeight.w600),
-            ),
-          ),
-          CupertinoButton(
-            key: key,
-            padding: const EdgeInsets.symmetric(horizontal: 12),
-            onPressed: on,
-            child: Text(action),
-          ),
-        ],
-      ),
-    ),
-  );
-
-  List<Widget> _photosSection(AppLocalizations l10n) {
-    final store = widget.assetRecordStore;
-    if (store == null) return const [];
-    final records = store.visibleById;
-    final shown = [
-      for (final l in _links)
-        if (l.target == LinkTarget.asset) ?records[l.id],
-    ];
-    return [
-      _sectionHeader(
-        l10n.routePhotos,
-        l10n.routeAddPhotos,
-        const ValueKey('routeAddPhotos'),
-        _addPhotos,
-      ),
-      if (shown.isNotEmpty)
-        SliverToBoxAdapter(
-          child: SizedBox(
-            height: 84,
-            child: ListView.separated(
-              scrollDirection: Axis.horizontal,
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              itemCount: shown.length,
-              separatorBuilder: (_, _) => const SizedBox(width: 4),
-              itemBuilder: (context, i) => Stack(
-                children: [
-                  ClipRRect(
-                    borderRadius: BorderRadius.circular(6),
-                    child: SizedBox.square(
-                      dimension: 84,
-                      child: assetImage(
-                        shown[i],
-                        thumbnailSize: 200,
-                        placeholder: () => const ColoredBox(
-                          color: CupertinoColors.systemGrey5,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Positioned(
-                    top: 2,
-                    right: 2,
-                    child: GestureDetector(
-                      onTap: () => _saveLinks([
-                        for (final l in _links)
-                          if (l !=
-                              TravelLink(LinkTarget.asset, shown[i].localId))
-                            l,
-                      ]),
-                      child: const Icon(
-                        CupertinoIcons.xmark_circle_fill,
-                        size: 20,
-                        color: CupertinoColors.white,
-                      ),
-                    ),
-                  ),
-                ],
-              ),
-            ),
-          ),
-        ),
-    ];
-  }
-
-  List<Widget> _peopleSection(AppLocalizations l10n) {
-    if (widget.personStore == null) return const [];
-    final people = [
-      for (final l in _links)
-        if (l.target == LinkTarget.person && _people[l.id] != null)
-          _people[l.id]!,
-    ];
-    return [
-      _sectionHeader(
-        l10n.routePeople,
-        l10n.routeChoosePeople,
-        const ValueKey('routeChoosePeople'),
-        _choosePeople,
-      ),
-      if (people.isNotEmpty)
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 16),
-            child: Wrap(
-              spacing: 6,
-              runSpacing: 6,
-              children: [
-                for (final p in people)
-                  RouteChip(
-                    p.name,
-                    onDelete: () => _saveLinks([
-                      for (final l in _links)
-                        if (l != TravelLink(LinkTarget.person, p.id)) l,
-                    ]),
-                  ),
-              ],
-            ),
-          ),
-        ),
-    ];
   }
 }
 
@@ -785,49 +628,58 @@ Future<({DateTime? value})?> _pickDate(
   );
 }
 
+/// One stop in the card: number, name and day; a note; then how the trip
+/// went on to the next one. Swipe to delete, drag the handle to move.
 class _EditableStop extends StatelessWidget {
   const _EditableStop({
     super.key,
     required this.index,
     required this.stop,
     required this.place,
+    required this.next,
     required this.note,
     required this.onNoteChanged,
     required this.onArrived,
-    required this.onRemove,
     required this.leg,
     required this.legNote,
     required this.onLegNoteChanged,
     required this.onMode,
-    required this.onReviewed,
   });
 
   final int index;
   final RouteStop stop;
   final Place? place;
+  final Place? next;
   final TextEditingController note;
   final VoidCallback onNoteChanged;
   final VoidCallback onArrived;
-  final VoidCallback onRemove;
   final RouteLeg? leg;
   final TextEditingController? legNote;
   final VoidCallback onLegNoteChanged;
   final VoidCallback onMode;
-  final VoidCallback onReviewed;
 
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final leg = this.leg;
-    final grey = CupertinoColors.systemGrey;
-    return ColoredBox(
-      color: CupertinoColors.systemBackground.resolveFrom(context),
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 6, 8, 6),
-        child: Column(
-          crossAxisAlignment: CrossAxisAlignment.stretch,
-          children: [
-            Row(
+    const grey = CupertinoColors.systemGrey;
+    final unset = leg == null || leg.mode == LegMode.other;
+    return Container(
+      margin: const EdgeInsets.symmetric(horizontal: 20),
+      decoration: BoxDecoration(
+        color: CupertinoColors.secondarySystemGroupedBackground.resolveFrom(
+          context,
+        ),
+        borderRadius: index == 0
+            ? const BorderRadius.vertical(top: Radius.circular(10))
+            : null,
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(14, 10, 4, 2),
+            child: Row(
               children: [
                 Container(
                   width: 24,
@@ -845,40 +697,37 @@ class _EditableStop extends StatelessWidget {
                     ),
                   ),
                 ),
-                const SizedBox(width: 10),
+                const SizedBox(width: 12),
                 Expanded(
                   child: Text(
                     place?.name ?? '',
-                    style: const TextStyle(fontWeight: FontWeight.w600),
+                    style: const TextStyle(
+                      fontSize: 17,
+                      fontWeight: FontWeight.w600,
+                    ),
                   ),
                 ),
                 CupertinoButton(
                   key: ValueKey('routeArrived-$index'),
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
+                  padding: const EdgeInsets.symmetric(horizontal: 8),
                   minimumSize: const Size(32, 32),
                   onPressed: onArrived,
                   child: Text(
                     stop.arrived == null
-                        ? l10n.routeStopArrived
-                        : DateFormat.yMMMd().format(stop.arrived!),
-                    style: const TextStyle(fontSize: 13),
-                  ),
-                ),
-                CupertinoButton(
-                  key: ValueKey('routeRemoveStop-$index'),
-                  padding: const EdgeInsets.symmetric(horizontal: 6),
-                  minimumSize: const Size(32, 32),
-                  onPressed: onRemove,
-                  child: const Icon(
-                    CupertinoIcons.minus_circle_fill,
-                    size: 20,
-                    color: CupertinoColors.destructiveRed,
+                        ? l10n.routeStopAddDate
+                        : DateFormat.MMMd().format(stop.arrived!),
+                    style: TextStyle(
+                      fontSize: 15,
+                      color: stop.arrived == null
+                          ? CupertinoColors.activeBlue
+                          : CupertinoColors.label.resolveFrom(context),
+                    ),
                   ),
                 ),
                 ReorderableDragStartListener(
                   index: index,
-                  child: Padding(
-                    padding: const EdgeInsets.all(6),
+                  child: const Padding(
+                    padding: EdgeInsets.fromLTRB(4, 6, 10, 6),
                     child: Icon(
                       CupertinoIcons.line_horizontal_3,
                       size: 20,
@@ -888,81 +737,84 @@ class _EditableStop extends StatelessWidget {
                 ),
               ],
             ),
-            Padding(
-              padding: const EdgeInsets.only(left: 34, right: 8),
-              child: CupertinoTextField(
-                key: ValueKey('routeStopNote-$index'),
-                controller: note,
-                placeholder: l10n.routeStopNoteHint,
-                minLines: 1,
-                maxLines: 6,
-                onChanged: (_) => onNoteChanged(),
-              ),
+          ),
+          Padding(
+            padding: const EdgeInsets.fromLTRB(50, 0, 14, 4),
+            child: CupertinoTextField.borderless(
+              key: ValueKey('routeStopNote-$index'),
+              controller: note,
+              placeholder: l10n.routeStopNoteHint,
+              padding: const EdgeInsets.symmetric(vertical: 4),
+              style: const TextStyle(fontSize: 15),
+              minLines: 1,
+              maxLines: 6,
+              onChanged: (_) => onNoteChanged(),
             ),
-            if (leg != null && legNote != null)
-              Padding(
-                padding: const EdgeInsets.only(left: 34, right: 8, top: 10),
-                child: Column(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Row(
-                      children: [
-                        CupertinoButton(
-                          key: ValueKey('routeLegMode-$index'),
-                          padding: EdgeInsets.zero,
-                          minimumSize: const Size(32, 28),
-                          onPressed: onMode,
-                          child: Row(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              Icon(legModeIcon(leg.mode), size: 16),
-                              const SizedBox(width: 6),
-                              Text(
-                                legModeLabel(l10n, leg.mode),
-                                style: const TextStyle(fontSize: 14),
-                              ),
-                              const Icon(CupertinoIcons.chevron_down, size: 12),
-                            ],
-                          ),
-                        ),
-                        if (leg.needsReview) ...[
-                          const Spacer(),
-                          CupertinoButton(
-                            key: ValueKey('routeLegReviewed-$index'),
-                            padding: EdgeInsets.zero,
-                            minimumSize: const Size(28, 28),
-                            onPressed: onReviewed,
-                            child: const Icon(
-                              CupertinoIcons.exclamationmark_triangle_fill,
-                              size: 16,
-                              color: CupertinoColors.systemOrange,
-                            ),
-                          ),
-                        ],
-                      ],
-                    ),
-                    if (leg.needsReview)
+          ),
+          if (leg != null && next != null) ...[
+            Padding(
+              padding: const EdgeInsets.only(left: 50),
+              child: Align(
+                alignment: Alignment.centerLeft,
+                child: CupertinoButton(
+                  key: ValueKey('routeLegMode-$index'),
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  minimumSize: const Size(32, 28),
+                  onPressed: onMode,
+                  child: Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Icon(
+                        unset
+                            ? CupertinoIcons.arrow_down
+                            : legModeIcon(leg.mode),
+                        size: 15,
+                        color: unset ? grey : CupertinoColors.activeBlue,
+                      ),
+                      const SizedBox(width: 6),
                       Text(
-                        l10n.routeLegReview,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: CupertinoColors.systemOrange,
+                        unset
+                            ? l10n.routeLegHowTo(next!.name)
+                            : l10n.routeLegModeTo(
+                                legModeLabel(l10n, leg.mode),
+                                next!.name,
+                              ),
+                        style: TextStyle(
+                          fontSize: 14,
+                          color: unset ? grey : CupertinoColors.activeBlue,
                         ),
                       ),
-                    const SizedBox(height: 4),
-                    CupertinoTextField(
-                      key: ValueKey('routeLegNote-$index'),
-                      controller: legNote,
-                      placeholder: l10n.routeLegNoteHint,
-                      minLines: 1,
-                      maxLines: 6,
-                      onChanged: (_) => onLegNoteChanged(),
-                    ),
-                  ],
+                      const Icon(
+                        CupertinoIcons.chevron_forward,
+                        size: 12,
+                        color: grey,
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+            ),
+            if (!unset || legNote!.text.isNotEmpty)
+              Padding(
+                padding: const EdgeInsets.fromLTRB(50, 0, 14, 6),
+                child: CupertinoTextField.borderless(
+                  key: ValueKey('routeLegNote-$index'),
+                  controller: legNote,
+                  placeholder: l10n.routeLegNoteHint,
+                  padding: const EdgeInsets.symmetric(vertical: 4),
+                  style: const TextStyle(fontSize: 14),
+                  minLines: 1,
+                  maxLines: 4,
+                  onChanged: (_) => onLegNoteChanged(),
                 ),
               ),
           ],
-        ),
+          Container(
+            height: 0.5,
+            margin: const EdgeInsets.only(left: 50),
+            color: CupertinoColors.separator.resolveFrom(context),
+          ),
+        ],
       ),
     );
   }

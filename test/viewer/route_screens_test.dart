@@ -8,6 +8,7 @@ import 'package:photos_vault/viewer/profile_previews.dart';
 import 'package:photos_vault/viewer/route_list_view.dart';
 import 'package:photos_vault/viewer/route_screen.dart';
 
+import '../support/fake_asset_record_store.dart';
 import '../support/fake_travel_store.dart';
 
 Widget _wrap(Widget child) => CupertinoApp(
@@ -120,7 +121,48 @@ void main() {
     expect(find.byKey(const ValueKey('routeLegReview')), findsNothing);
   });
 
-  testWidgets('a reordered leg is flagged on the route page', (tester) async {
+  testWidgets('a stop\'s photos from its days there fold under it, a tap '
+      'opens them; a leg with nothing set isn\'t shown', (tester) async {
+    tall(tester);
+    final route = await japan();
+    await store.saveLeg(route.id, 0, const RouteLeg(mode: LegMode.other));
+    final records = FakeAssetRecordStore();
+    for (final (id, day) in [
+      ('in', DateTime(2025, 11, 3, 10)),
+      ('before', DateTime(2025, 10, 30, 10)),
+    ]) {
+      await records.upsert(
+        localId: id,
+        contentHash: id,
+        platform: 'ios',
+        createdAt: day,
+      );
+      await records.setLocation(id, 'Tokyo, Japan');
+    }
+    await tester.pumpWidget(
+      CupertinoApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: RouteScreen(
+          travelStore: store,
+          placeSearch: _search(),
+          routeId: route.id,
+          assetRecordStore: records,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.text('1 photo here'), findsOne);
+    expect(find.byKey(const ValueKey('routeStopPhotos-0')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('routeStopPhotosToggle-0')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('routeStopPhotos-0')), findsOne);
+    expect(find.byKey(const ValueKey('routeLeg-0')), findsNothing);
+  });
+
+  testWidgets('a reordered leg carries no warning on the route page', (
+    tester,
+  ) async {
     tall(tester);
     final route = await japan();
     final stops = store.stopsOf[route.id]!;
@@ -137,7 +179,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('routeLegReview')), findsOne);
+    expect(find.byKey(const ValueKey('routeLegReview')), findsNothing);
   });
 
   testWidgets('the editor adds a searched point inside its city, sets a leg '
@@ -196,7 +238,14 @@ void main() {
     expect(store.stopsOf[route.id]![2].note, 'Ten thousand gates');
     expect(store.legsOf[route.id]![1].note, 'Up the hill');
 
-    await tester.tap(find.byKey(const ValueKey('routeRemoveStop-0')));
+    await tester.fling(
+      find.descendant(
+        of: find.byKey(const ValueKey('routeStopRow-0')),
+        matching: find.text('Tokyo'),
+      ),
+      const Offset(-300, 0),
+      1500,
+    );
     await tester.pumpAndSettle();
     expect(
       [

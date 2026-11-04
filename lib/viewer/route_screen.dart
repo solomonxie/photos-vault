@@ -12,7 +12,7 @@ import '../storage/asset_record_store.dart';
 import 'asset_grid.dart' show assetImage;
 import 'asset_group_screen.dart';
 import 'native_map.dart';
-import 'place_screen.dart' show photosAtOn;
+import 'place_screen.dart' show photosAtBetween;
 import 'route_editor_screen.dart';
 
 String legModeLabel(AppLocalizations l10n, LegMode mode) => switch (mode) {
@@ -100,8 +100,11 @@ class _RouteScreenState extends State<RouteScreen> {
   Map<String, Person> _people = const {};
   bool _loaded = false;
 
-  /// By stop position: photos taken at it on the day it was reached.
+  /// By stop position: photos taken near it while there ([stopWindow]).
   Map<int, List<AssetRecord>> _stopPhotos = const {};
+
+  /// Stops whose photos are open.
+  final _open = <int>{};
 
   @override
   void initState() {
@@ -130,9 +133,9 @@ class _RouteScreenState extends State<RouteScreen> {
     if (detail != null && records != null) {
       for (final (i, stop) in detail.stops.indexed) {
         final place = detail.places[stop.placeId];
-        final day = stop.arrived;
-        if (place == null || day == null) continue;
-        final found = photosAtOn(place, records, day);
+        final window = stopWindow(detail, i);
+        if (place == null || window == null) continue;
+        final found = photosAtBetween(place, records, window.$1, window.$2);
         if (found.isNotEmpty) stopPhotos[i] = found;
       }
     }
@@ -216,6 +219,41 @@ class _RouteScreenState extends State<RouteScreen> {
       ),
     ),
   );
+
+  Widget _photosToggle(AppLocalizations l10n, int i, List<AssetRecord> photos) {
+    final open = _open.contains(i);
+    return GestureDetector(
+      key: ValueKey('routeStopPhotosToggle-$i'),
+      behavior: HitTestBehavior.opaque,
+      onTap: () => setState(() => open ? _open.remove(i) : _open.add(i)),
+      child: Padding(
+        padding: const EdgeInsets.only(left: 42, bottom: 8),
+        child: Row(
+          children: [
+            const Icon(
+              CupertinoIcons.photo_on_rectangle,
+              size: 15,
+              color: CupertinoColors.activeBlue,
+            ),
+            const SizedBox(width: 6),
+            Text(
+              l10n.routeStopPhotos(photos.length),
+              style: const TextStyle(
+                fontSize: 14,
+                color: CupertinoColors.activeBlue,
+              ),
+            ),
+            const SizedBox(width: 2),
+            Icon(
+              open ? CupertinoIcons.chevron_up : CupertinoIcons.chevron_down,
+              size: 13,
+              color: CupertinoColors.activeBlue,
+            ),
+          ],
+        ),
+      ),
+    );
+  }
 
   void _focusStop(Place p) =>
       _map.focus(p.lat, p.lng, span: p.isCity ? 0.3 : 0.02);
@@ -379,14 +417,20 @@ class _RouteScreenState extends State<RouteScreen> {
                     last: i == detail.stops.length - 1,
                     onTap: place == null ? null : () => _focusStop(place),
                   ),
-                  if (strip != null && widget.assetRecordStore != null)
-                    _stopStrip(
-                      i,
-                      strip,
-                      place?.name ?? '',
-                      widget.assetRecordStore!,
-                    ),
-                  if (i < detail.legs.length)
+                  if (strip != null && widget.assetRecordStore != null) ...[
+                    _photosToggle(l10n, i, strip),
+                    if (_open.contains(i))
+                      _stopStrip(
+                        i,
+                        strip,
+                        place?.name ?? '',
+                        widget.assetRecordStore!,
+                      ),
+                  ],
+                  // "Other" with nothing written says nothing: not shown.
+                  if (i < detail.legs.length &&
+                      (detail.legs[i].mode != LegMode.other ||
+                          detail.legs[i].note.isNotEmpty))
                     _LegRow(
                       key: ValueKey('routeLeg-$i'),
                       leg: detail.legs[i],
@@ -461,6 +505,32 @@ class _RouteScreenState extends State<RouteScreen> {
       ),
     );
   }
+}
+
+/// When stop [i] was being visited: from its arrival (else the plan's
+/// start) to the next dated stop's arrival, else the plan's end, else a
+/// week on. Null with neither a stop date nor a plan date to go on.
+(DateTime, DateTime)? stopWindow(RouteDetail detail, int i) {
+  DateTime day(DateTime t) => DateTime(t.year, t.month, t.day);
+  final stops = detail.stops;
+  final start = stops[i].arrived ?? detail.route.starts;
+  if (start == null) return null;
+  DateTime? next;
+  for (final s in stops.skip(i + 1)) {
+    if (s.arrived != null) {
+      next = s.arrived;
+      break;
+    }
+  }
+  final planEnd = detail.route.ends;
+  final end =
+      next ??
+      (planEnd == null
+          ? day(start).add(const Duration(days: 7))
+          : day(planEnd).add(const Duration(days: 1)));
+  return end.isAfter(start)
+      ? (start, end)
+      : (start, day(start).add(const Duration(days: 1)));
 }
 
 class RouteChip extends StatelessWidget {
@@ -637,15 +707,6 @@ class _LegRow extends StatelessWidget {
                             color: CupertinoColors.systemGrey,
                           ),
                         ),
-                        if (leg.needsReview) ...[
-                          const SizedBox(width: 6),
-                          const Icon(
-                            CupertinoIcons.exclamationmark_triangle_fill,
-                            key: ValueKey('routeLegReview'),
-                            size: 14,
-                            color: CupertinoColors.systemOrange,
-                          ),
-                        ],
                       ],
                     ),
                     if (leg.note.isNotEmpty) ...[
@@ -658,14 +719,6 @@ class _LegRow extends StatelessWidget {
                         ),
                       ),
                     ],
-                    if (leg.needsReview)
-                      Text(
-                        l10n.routeLegReview,
-                        style: const TextStyle(
-                          fontSize: 12,
-                          color: CupertinoColors.systemOrange,
-                        ),
-                      ),
                   ],
                 ),
               ),

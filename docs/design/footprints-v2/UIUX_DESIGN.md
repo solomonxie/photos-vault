@@ -70,10 +70,33 @@ New Impression                    Save
 
 ## Travel plans (13, 3: draft)
 
-- Route page: `Day 2 · Apr 4` divider before the first stop of each day;
-  each stop shows a photo strip from its arrival day.
+Route page: `Day 2 · Apr 4` divider before each day's first stop. Under a
+stop, its photos fold: taken near it from its arrival (else the plan's
+start) to the next dated stop (else the plan's end, else a week on).
+A leg shows only when its mode or note is set; no warnings here.
+```
+(1) Surrey
+    Canada
+    ▢ 12 photos here ⌄        ← tap: strip; tap a photo: the group
+    🚆 Train · Fuji on the right
+(2) Banff
+```
+
+Editor: no photos or people. Stops are one inset card.
+```
+STOPS
+┌──────────────────────────────────────┐
+│ (1) Surrey              Apr 3    ≡   │  date: tap; unset "Add date"
+│     Add a note                       │
+│     ↓ How you got to Banff ›         │  set: "🚆 Train to Banff ›"
+├──────────────────────────────────────┤
+│ + Add Stop                           │
+└──────────────────────────────────────┘
+Swipe a stop left to delete it; drag ≡ to reorder.
+[            Delete Route            ]
+```
+Mode sheet: every mode but Other, plus Clear when one is set.
 - Plans list `+` menu: New Plan · Draft from Photos.
-  Draft: pick a date range → preview of stops by day → Save.
 
 ## Throughout (15, 16)
 - Empty states: one line + one button (`Add a Place`, `Write an Impression`,

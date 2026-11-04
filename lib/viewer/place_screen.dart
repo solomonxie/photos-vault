@@ -80,7 +80,21 @@ List<AssetRecord> photosAtOn(
   DateTime day,
 ) {
   final start = DateTime(day.year, day.month, day.day);
-  final end = start.add(const Duration(days: 1));
+  return photosAtBetween(
+    place,
+    records,
+    start,
+    start.add(const Duration(days: 1)),
+  );
+}
+
+/// The same, taken from [start] up to (not including) [end].
+List<AssetRecord> photosAtBetween(
+  Place place,
+  List<AssetRecord> records,
+  DateTime start,
+  DateTime end,
+) {
   var lo = 0;
   var hi = records.length;
   while (lo < hi) {

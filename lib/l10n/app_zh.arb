@@ -1560,8 +1560,6 @@
   "routeModeOther": "其他",
   "routePhotos": "照片",
   "routePeople": "人物",
-  "routeAddPhotos": "添加照片",
-  "routeChoosePeople": "选择人物",
   "routeDelete": "删除路线",
   "routeDeleteConfirm": "删除这条路线？其中的地点和日记会保留。",
   "travelsHeader": "旅行",
@@ -1675,5 +1673,11 @@
   "faceGroupsViewFaces": "人脸",
   "faceGroupsViewPhotos": "照片",
   "faceGroupsPhotosHint": "轻点照片以选择；按住可打开。",
-  "personDeletePermanentlyBody": "将从此 iPhone、照片和所有存储桶中删除这 {count} 张照片。不会进入最近删除，且无法撤销。"
+  "personDeletePermanentlyBody": "将从此 iPhone、照片和所有存储桶中删除这 {count} 张照片。不会进入最近删除，且无法撤销。",
+  "routeStopPhotos": "此处 {count} 张照片",
+  "routeStopAddDate": "添加日期",
+  "routeStopsHint": "向左轻扫可删除停靠点；拖动 ≡ 可重新排序。",
+  "routeLegHowTo": "如何前往{place}",
+  "routeLegModeTo": "{mode}前往{place}",
+  "routeLegClear": "清除"
 }
