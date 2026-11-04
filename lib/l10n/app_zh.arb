@@ -984,7 +984,7 @@
   "peopleSortLastSeen": "最近",
   "peopleSortName": "姓名",
   "peopleMetOn": "认识于 {date}",
-  "peopleSeenOn": "最后见到 {date}",
+  "peopleSeenOn": "最近更新 {date}",
   "peopleZipTitle": "导入人物",
   "peopleZipOpening": "正在打开压缩包…",
   "peopleZipHint": "第 2 步：照片只会导入到已在人物中的人。取消勾选即跳过；点人物可挑选照片。隐藏的照片放进此人的隐藏文件夹，在其主页输入密码才能打开；不隐藏的照片进入归档和此人主页，不出现在图库里。",

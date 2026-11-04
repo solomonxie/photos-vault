@@ -1386,7 +1386,7 @@
   "peopleSortName": "Name",
   "peopleMetOn": "met {date}",
   "@peopleMetOn": {"placeholders": {"date": {"type": "String"}}},
-  "peopleSeenOn": "last seen {date}",
+  "peopleSeenOn": "last update {date}",
   "@peopleSeenOn": {"placeholders": {"date": {"type": "String"}}},
   "peopleZipTitle": "Import People",
   "peopleZipOpening": "Opening the zip…",
