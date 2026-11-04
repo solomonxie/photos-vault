@@ -154,6 +154,27 @@ void main() {
     expect((await bucket.readAlbum(keys)).entries, hasLength(1));
   });
 
+  test('another phone finds the album\'s carriers without the index, and '
+      'skips what it already holds', () async {
+    final a = record('photo:1');
+    final b = record('photo:2');
+    for (final r in [a, b]) {
+      remote.objects['photos-vault/originals/${hiddenBaseName(keys.carrier, r)}.jpg'] =
+          carrierFor(keys, r, DateTime(2024));
+    }
+    await list();
+
+    final found = await scan().find(
+      keys,
+      known: {'originals/${hiddenBaseName(keys.carrier, a)}.jpg'},
+    );
+    expect(found.map((e) => e.objectKey), [
+      'originals/${hiddenBaseName(keys.carrier, b)}.jpg',
+    ]);
+    expect(await scan().find(other), isEmpty);
+    expect((await bucket.readAlbum(keys)).entries, isEmpty);
+  });
+
   test('an ordinary protocol name is not mistaken for a carrier', () async {
     final r = record('photo:1');
     remote.objects['photos-vault/originals/${ordinaryBaseName(r)}.jpg'] =

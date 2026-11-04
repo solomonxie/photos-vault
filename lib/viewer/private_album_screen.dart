@@ -1,3 +1,4 @@
+import 'dart:convert';
 import 'dart:async';
 import 'dart:io';
 
@@ -189,7 +190,12 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       });
       unawaited(_reloadHoldings());
     }
-    final entries = await gallery.list();
+    final listed = await gallery.list();
+    if (!mounted) {
+      gallery.dispose();
+      return;
+    }
+    final entries = [...listed, ...await _foundInBucket(keys, listed)];
     if (!mounted) {
       gallery.dispose();
       return;
@@ -223,6 +229,34 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     // Filed while there was no bucket: offered up now one may exist.
     unawaited(gallery.sendUnsent(entries));
     unawaited(_bringBackFiled());
+  }
+
+  /// This album's carriers the bucket listing has but neither the index
+  /// nor a row here names: what another phone sent. Matched by name
+  /// against the album's key, each read once per app run.
+  static final _found = <String, List<IndexEntry>>{};
+
+  Future<List<IndexEntry>> _foundInBucket(
+    AlbumKeys keys,
+    List<IndexEntry> listed,
+  ) async {
+    final tag = base64Encode(keys.sectionTag);
+    final held = _found[tag];
+    if (held != null) return held;
+    try {
+      final rows = _keysOf(
+        await widget.assetRecordStore.forPasscodeHash(widget.passcodeHash),
+      );
+      final vault = widget.vaultKeys;
+      return _found[tag] = await HiddenBucketScan(
+        store: widget.assetRecordStore,
+        targetsStore: widget.targetsStore ?? BackupTargetsStore(),
+        bucket: VaultBucket(),
+        passphrases: vault?.entries ?? () async => const [],
+      ).find(keys, known: {...rows, for (final e in listed) e.objectKey});
+    } catch (_) {
+      return const [];
+    }
   }
 
   late final FiledPhotos _filed = FiledPhotos(records: widget.assetRecordStore);

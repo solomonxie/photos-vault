@@ -39,9 +39,28 @@ class HiddenBucketScan {
   /// How many carriers were added to [keys]' album.
   Future<int> run(AlbumKeys keys) async {
     final album = await bucket.readAlbum(keys);
-    final known = <String>{
-      for (final e in album.entries) ...siblingCarrierKeysOf(e.objectKey),
-    };
+    final entries = await find(
+      keys,
+      known: {for (final e in album.entries) e.objectKey},
+    );
+    if (entries.isEmpty) return 0;
+    final written = await bucket.writeAlbum(
+      keys: keys,
+      entries: [...album.entries, ...entries],
+      passphrases: await passphrases(),
+    );
+    return written ? entries.length : 0;
+  }
+
+  /// [keys]' carriers in the bucket listing that aren't [known] (object
+  /// keys, `originals/<name>`), as entries — read once each, and written
+  /// nowhere: an album opened on another phone shows its photos without
+  /// the index, which has room for 32 albums.
+  Future<List<IndexEntry>> find(
+    AlbumKeys keys, {
+    Set<String> known = const {},
+  }) async {
+    final skip = {for (final k in known) ...siblingCarrierKeysOf(k)};
     final macKey = keys.carrier.macKey;
     final targets = {for (final t in await targetsStore.loadAll()) t.id: t};
 
@@ -49,7 +68,7 @@ class HiddenBucketScan {
       for (final o in await store.listBucketObjects())
         if (o.directory == 'originals' &&
             nameBelongsTo(o.fileName, macKey) &&
-            !known.contains(vaultObjectKey('originals', o.fileName)))
+            !skip.contains(vaultObjectKey('originals', o.fileName)))
           o,
     ];
     final bases = {for (final o in mine) _stemOf(o.fileName)};
@@ -95,13 +114,7 @@ class HiddenBucketScan {
         ),
       );
     }
-    if (entries.isEmpty) return 0;
-    final written = await bucket.writeAlbum(
-      keys: keys,
-      entries: [...album.entries, ...entries],
-      passphrases: await passphrases(),
-    );
-    return written ? entries.length : 0;
+    return entries;
   }
 
   static String _stemOf(String fileName) => fileName.contains('.')
