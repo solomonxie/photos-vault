@@ -264,7 +264,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
     sortPeople(
       people,
       sort,
-      counts: taggedCounts,
+      // Sorted by what shows: hidden photos would give away they exist.
+      counts: counts,
       messages: messages,
       firstKnown: firstKnown,
       lastKnown: lastKnown,
@@ -320,7 +321,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     sortPeople(
       people,
       sort,
-      counts: _tagged,
+      counts: _counts,
       messages: _chats,
       firstKnown: _firstKnown,
       lastKnown: _lastKnown,

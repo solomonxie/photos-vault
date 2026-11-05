@@ -11,6 +11,7 @@ import '../photos/library_custody.dart';
 import '../storage/asset_record.dart';
 import '../settings/backup_targets_store.dart';
 import '../storage/asset_record_store.dart';
+import '../upload/pending_deletes.dart';
 import '../vault/album_index.dart';
 import '../vault/bucket.dart';
 import '../vault/cache.dart';
@@ -241,9 +242,22 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     List<IndexEntry> listed,
   ) async {
     final tag = base64Encode(keys.sectionTag);
-    final held = _found[tag];
-    if (held != null) return held;
     try {
+      // A copy queued for deletion (a second upload of a photo here) is on
+      // its way out, not a photo only the bucket has.
+      final doomed = _doomed = {
+        for (final t in await PendingDeletes(
+          store: widget.assetRecordStore,
+        ).pending())
+          ?_relativeKey(t.objectKey),
+      };
+      final held = _found[tag];
+      if (held != null) {
+        return [
+          for (final e in held)
+            if (!doomed.contains(e.objectKey)) e,
+        ];
+      }
       final rows = _keysOf(
         await widget.assetRecordStore.forPasscodeHash(widget.passcodeHash),
       );
@@ -254,7 +268,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
         bucket: VaultBucket(),
         passphrases: vault?.entries ?? () async => const [],
       );
-      final known = {...rows, for (final e in listed) e.objectKey};
+      final known = {...rows, ...doomed, for (final e in listed) e.objectKey};
       // The names at once, so the grid fills; their real dates follow.
       final quick = await scan.find(keys, known: known, read: false);
       if (quick.isNotEmpty) {
@@ -328,8 +342,11 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
 
   List<IndexEntry> get _entriesWithoutRows => [
     for (final e in _cloudEntries)
-      if (!_rowKeys.contains(e.objectKey)) e,
+      if (!_rowKeys.contains(e.objectKey) && !_doomed.contains(e.objectKey)) e,
   ];
+
+  /// Copies queued for deletion: never shown as photos only the bucket has.
+  Set<String> _doomed = const {};
 
   Set<String> _keysOf(List<AssetRecord> records) {
     final keys = widget.albumKeys;
@@ -1218,11 +1235,44 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     if (gallery == null || shown.isEmpty) {
       return const SliverToBoxAdapter(child: SizedBox.shrink());
     }
+    return SliverMainAxisGroup(
+      slivers: [
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
+            child: Row(
+              children: [
+                const Icon(
+                  CupertinoIcons.cloud,
+                  size: 16,
+                  color: CupertinoColors.systemGrey,
+                ),
+                const SizedBox(width: 6),
+                Expanded(
+                  child: Text(
+                    l10n.privateAlbumBucketOnly(shown.length),
+                    style: const TextStyle(
+                      fontSize: 13,
+                      color: CupertinoColors.systemGrey,
+                    ),
+                  ),
+                ),
+              ],
+            ),
+          ),
+        ),
+        _cloudGrid(gallery, shown),
+      ],
+    );
+  }
+
+  /// The same three across as the photos above it.
+  Widget _cloudGrid(VaultGallery gallery, List<IndexEntry> shown) {
     return SliverPadding(
       padding: const EdgeInsets.symmetric(horizontal: 1),
       sliver: SliverGrid(
         gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 4,
+          crossAxisCount: 3,
           mainAxisSpacing: 2,
           crossAxisSpacing: 2,
         ),
@@ -1718,7 +1768,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                   total: _records.length,
                   selectedCount: _selectedIds.length,
                   onSelectNext: () => setState(
-                    () => _selectedIds = selectNextBatch(
+                    () => _selectedIds = selectEverything(
                       _records.reversed.map((r) => r.localId),
                       _selectedIds,
                     ),
@@ -1730,7 +1780,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                   total: _cloudEntries.length,
                   selectedCount: _selectedCloudKeys.length,
                   onSelectNext: () => setState(
-                    () => _selectedCloudKeys = selectNextBatch(
+                    () => _selectedCloudKeys = selectEverything(
                       _cloudEntries.reversed.map((e) => e.objectKey),
                       _selectedCloudKeys,
                     ),

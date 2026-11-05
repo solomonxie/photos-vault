@@ -110,7 +110,6 @@ class _UngroupedPeopleScreenState extends State<UngroupedPeopleScreen> {
         backgroundColor: settingsPageBackground,
         middle: Text(l10n.ungroupedTitle),
         trailing: SelectAllButton(
-          unlimited: true,
           total: _left.length,
           selectedCount: _picked.length,
           onSelectNext: () =>

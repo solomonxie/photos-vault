@@ -1,10 +1,12 @@
 import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
+import 'package:flutter/rendering.dart';
 
 import '../photos/library_metadata.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/asset_removal.dart';
+import '../photos/photo_library_service.dart';
 import '../photos/travel_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
@@ -17,6 +19,8 @@ import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'photo_grid_layout.dart';
 import 'private_album_gate.dart';
+import 'select_all.dart';
+import 'select_sweep.dart';
 import 'zoom_page_route.dart';
 
 /// Grid screen for a fixed list of records — used to drill into one place,
@@ -62,6 +66,117 @@ class AssetGroupScreen extends StatefulWidget {
 
 class _AssetGroupScreenState extends State<AssetGroupScreen> {
   late List<AssetRecord> _records = widget.records;
+
+  // ------------------------------------------------------------- selection
+
+  bool _selecting = false;
+  final _picked = ValueNotifier<Set<String>>(const {});
+  final _sweep = SelectSweep<String>();
+
+  @override
+  void dispose() {
+    _picked.dispose();
+    super.dispose();
+  }
+
+  void _startSelecting(AssetRecord record) {
+    setState(() => _selecting = true);
+    _picked.value = {..._picked.value, record.localId};
+    _sweep.begin(record.localId, base: _picked.value);
+  }
+
+  void _endSelecting() => setState(() {
+    _selecting = false;
+    _picked.value = const {};
+  });
+
+  void _toggleSelected(AssetRecord record) {
+    final next = {..._picked.value};
+    if (!next.remove(record.localId)) next.add(record.localId);
+    _picked.value = next;
+  }
+
+  void _onSelectDragUpdate(Offset globalPosition) {
+    final view = View.maybeOf(context);
+    if (view == null) return;
+    final result = HitTestResult();
+    WidgetsBinding.instance.hitTestInView(result, globalPosition, view.viewId);
+    for (final entry in result.path) {
+      final target = entry.target;
+      if (target is RenderMetaData && target.metaData is AssetRecord) {
+        final next = _sweep.over(
+          (target.metaData as AssetRecord).localId,
+          _picked.value,
+          () => [for (final r in _records) r.localId],
+        );
+        if (next != null) _picked.value = next;
+        return;
+      }
+    }
+  }
+
+  List<AssetRecord> get _selectedRecords => [
+    for (final r in _records)
+      if (_picked.value.contains(r.localId)) r,
+  ];
+
+  void _drop(Set<String> ids) => setState(
+    () => _records = [
+      for (final r in _records)
+        if (!ids.contains(r.localId)) r,
+    ],
+  );
+
+  Future<void> _favoriteSelected() async {
+    final picked = _selectedRecords;
+    final value = !picked.every((r) => r.isFavorite);
+    for (final r in picked) {
+      await setFavoriteEverywhere(widget.assetRecordStore, r, value);
+    }
+    if (!mounted) return;
+    setState(
+      () => _records = [
+        for (final r in _records)
+          _picked.value.contains(r.localId) ? r.withFavorite(value) : r,
+      ],
+    );
+    _endSelecting();
+  }
+
+  /// Archive, or out of it in the Archive itself.
+  Future<void> _archiveSelected() async {
+    final ids = _picked.value;
+    await widget.assetRecordStore.setArchived(ids, !widget.archive);
+    if (!mounted) return;
+    _drop(ids);
+    _endSelecting();
+  }
+
+  Future<void> _hideSelected() async {
+    final picked = _selectedRecords;
+    final hidden = await hideIntoPrivateAlbum(
+      context,
+      assetRecordStore: widget.assetRecordStore,
+      records: picked,
+    );
+    if (!hidden || !mounted) return;
+    _drop({for (final r in picked) r.localId});
+    _endSelecting();
+  }
+
+  late final _library = PhotoLibraryService(store: widget.assetRecordStore);
+
+  Future<void> _deleteSelected() async {
+    final result = await binSelection(
+      context,
+      _selectedRecords,
+      library: _library,
+      removal: _removal,
+    );
+    if (result == null || !mounted) return;
+    _drop(result.deleted);
+    _endSelecting();
+  }
 
   Future<void> _toggleFavorite(AssetRecord record) async {
     final value = !record.isFavorite;
@@ -185,52 +300,197 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(middle: Text(widget.title)),
-      child: SafeArea(
-        child: AssetGridView(
-          records: _records,
-          dateOf: widget.dateOf,
-          onTap: _open,
-          trailingSlivers: [
-            if (widget.notes case final notes?)
-              SliverToBoxAdapter(child: AlbumNotes(book: notes)),
-          ],
-          actionsFor: (r) => [
-            TileAction(
-              icon: r.isFavorite
-                  ? CupertinoIcons.heart_slash
-                  : CupertinoIcons.heart,
-              label: r.isFavorite
-                  ? l10n.libraryUnfavorite
-                  : l10n.libraryFavorite,
-              onPressed: () => _toggleFavorite(r),
-            ),
-            if (widget.archive)
-              TileAction(
-                icon: CupertinoIcons.archivebox,
-                label: l10n.archiveUndoAction,
-                onPressed: () => _unarchive(r),
+      navigationBar: CupertinoNavigationBar(
+        middle: Text(widget.title),
+        leading: _selecting
+            ? ValueListenableBuilder(
+                valueListenable: _picked,
+                builder: (context, picked, _) => SelectAllButton(
+                  total: _records.length,
+                  selectedCount: picked.length,
+                  onSelectNext: () => _picked.value = selectEverything(
+                    _records.map((r) => r.localId),
+                    picked,
+                  ),
+                  onDeselectAll: () => _picked.value = const {},
+                ),
+              )
+            : null,
+        trailing: _selecting
+            ? SelectionDoneButton(
+                key: const ValueKey('groupSelectionDone'),
+                onPressed: _endSelecting,
+              )
+            : _records.isEmpty
+            ? null
+            : CupertinoButton(
+                key: const ValueKey('groupSelect'),
+                padding: EdgeInsets.zero,
+                onPressed: () => setState(() => _selecting = true),
+                child: Text(l10n.albumSelect),
               ),
-            ...coverActions(
-              l10n,
-              isCover: widget.coverFor != null && _cover == r.localId,
-              enabled: widget.coverFor != null,
-              onUse: () => _setCover(r.localId),
-              onDefault: () => _setCover(null),
-            ),
-            TileAction(
-              icon: CupertinoIcons.eye_slash,
-              label: l10n.libraryHide,
-              onPressed: () => _hide(r),
-            ),
-            TileAction(
-              icon: CupertinoIcons.delete,
-              label: l10n.libraryDeleteTooltip,
-              isDestructive: true,
-              onPressed: () => _delete(r),
-            ),
+      ),
+      child: SafeArea(
+        child: Stack(
+          children: [
+            Positioned.fill(child: _grid(l10n)),
+            if (_selecting)
+              Positioned(
+                left: 0,
+                right: 0,
+                bottom: 0,
+                child: ValueListenableBuilder(
+                  valueListenable: _picked,
+                  builder: (context, picked, _) => _GroupSelectionBar(
+                    count: picked.length,
+                    archive: widget.archive,
+                    onFavorite: _favoriteSelected,
+                    onArchive: _archiveSelected,
+                    onHide: _hideSelected,
+                    onDelete: _deleteSelected,
+                  ),
+                ),
+              ),
           ],
         ),
+      ),
+    );
+  }
+
+  Widget _grid(AppLocalizations l10n) => AssetGridView(
+    records: _records,
+    dateOf: widget.dateOf,
+    onTap: _selecting ? _toggleSelected : _open,
+    onLongPress: _startSelecting,
+    onSelectDragUpdate: _onSelectDragUpdate,
+    onSelectDragEnd: _sweep.end,
+    selection: _selecting ? _picked : null,
+    trailingSlivers: [
+      if (widget.notes case final notes?)
+        SliverToBoxAdapter(child: AlbumNotes(book: notes)),
+      if (_selecting) const SliverToBoxAdapter(child: SizedBox(height: 110)),
+    ],
+    actionsFor: (r) => [
+      TileAction(
+        icon: r.isFavorite ? CupertinoIcons.heart_slash : CupertinoIcons.heart,
+        label: r.isFavorite ? l10n.libraryUnfavorite : l10n.libraryFavorite,
+        onPressed: () => _toggleFavorite(r),
+      ),
+      if (widget.archive)
+        TileAction(
+          icon: CupertinoIcons.archivebox,
+          label: l10n.archiveUndoAction,
+          onPressed: () => _unarchive(r),
+        ),
+      ...coverActions(
+        l10n,
+        isCover: widget.coverFor != null && _cover == r.localId,
+        enabled: widget.coverFor != null,
+        onUse: () => _setCover(r.localId),
+        onDefault: () => _setCover(null),
+      ),
+      TileAction(
+        icon: CupertinoIcons.eye_slash,
+        label: l10n.libraryHide,
+        onPressed: () => _hide(r),
+      ),
+      TileAction(
+        icon: CupertinoIcons.delete,
+        label: l10n.libraryDeleteTooltip,
+        isDestructive: true,
+        onPressed: () => _delete(r),
+      ),
+    ],
+  );
+}
+
+class _GroupSelectionBar extends StatelessWidget {
+  const _GroupSelectionBar({
+    required this.count,
+    required this.archive,
+    required this.onFavorite,
+    required this.onArchive,
+    required this.onHide,
+    required this.onDelete,
+  });
+
+  final int count;
+  final bool archive;
+  final VoidCallback onFavorite;
+  final VoidCallback onArchive;
+  final VoidCallback onHide;
+  final VoidCallback onDelete;
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    Widget action(IconData icon, String label, VoidCallback on, String key) =>
+        Expanded(
+          child: CupertinoButton(
+            key: ValueKey(key),
+            padding: const EdgeInsets.symmetric(vertical: 8),
+            onPressed: count == 0 ? null : on,
+            child: Column(
+              mainAxisSize: MainAxisSize.min,
+              children: [
+                Icon(icon, size: 22),
+                const SizedBox(height: 2),
+                Text(label, style: const TextStyle(fontSize: 12)),
+              ],
+            ),
+          ),
+        );
+    return Container(
+      decoration: BoxDecoration(
+        color: CupertinoColors.systemBackground.resolveFrom(context),
+        border: Border(
+          top: BorderSide(
+            color: CupertinoColors.separator.resolveFrom(context),
+          ),
+        ),
+      ),
+      child: Column(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Padding(
+            padding: const EdgeInsets.fromLTRB(16, 8, 16, 0),
+            child: Align(
+              alignment: Alignment.centerLeft,
+              child: Text(
+                count == 0 ? l10n.selectionHint : l10n.selectionTitle(count),
+                style: const TextStyle(fontWeight: FontWeight.w600),
+              ),
+            ),
+          ),
+          Row(
+            children: [
+              action(
+                CupertinoIcons.heart,
+                l10n.libraryFavorite,
+                onFavorite,
+                'groupFavoriteSelected',
+              ),
+              action(
+                CupertinoIcons.archivebox,
+                archive ? l10n.archiveUndoAction : l10n.archiveAction,
+                onArchive,
+                'groupArchiveSelected',
+              ),
+              action(
+                CupertinoIcons.eye_slash,
+                l10n.libraryHide,
+                onHide,
+                'groupHideSelected',
+              ),
+              action(
+                CupertinoIcons.delete,
+                l10n.selectionDelete,
+                onDelete,
+                'groupDeleteSelected',
+              ),
+            ],
+          ),
+        ],
       ),
     );
   }

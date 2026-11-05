@@ -483,7 +483,6 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
             ? ValueListenableBuilder(
                 valueListenable: _picked,
                 builder: (context, picked, _) => SelectAllButton(
-                  unlimited: true,
                   total: _records.length,
                   selectedCount: picked.length,
                   onSelectNext: () =>

@@ -2971,9 +2971,17 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _push(Widget screen) async {
+    // Left resting on the newest photos: back there, whatever the page
+    // pushed changed under the grid meanwhile (photos moved onto a person,
+    // a sync's arrivals), rather than wherever the re-layout lands.
+    final atNewest = _gridKey.currentState?.isAtNewest ?? false;
     await Navigator.of(context)
         .push(CupertinoPageRoute(builder: (_) => screen));
     await reload();
+    if (!atNewest || !mounted) return;
+    WidgetsBinding.instance.addPostFrameCallback(
+      (_) => _gridKey.currentState?.jumpToNewest(),
+    );
   }
 
   Future<void> _openPrivateAlbums() async {
@@ -3329,7 +3337,7 @@ class LibraryScreenState extends State<LibraryScreen>
                         total: filtered.length,
                         selectedCount: picked.length,
                         onSelectNext: () => _select(
-                          selectNextBatch(
+                          selectEverything(
                             filtered.reversed.map((r) => r.localId),
                             picked,
                           ),

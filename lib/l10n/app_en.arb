@@ -2352,5 +2352,9 @@
   "selectionMoveToPerson": "Move to a Person's Page…",
   "selectionMovedToPerson": "{count, plural, one{1 photo moved to {name}'s page. It's no longer in your library.} other{{count} photos moved to {name}'s page. They're no longer in your library.}}",
   "@selectionMovedToPerson": {"placeholders": {"count": {"type": "int"}, "name": {"type": "String"}}},
-  "personOnlyHere": "Only Here"
+  "personOnlyHere": "Only Here",
+  "selectionSelectAllConfirm": "Select all {count}?",
+  "@selectionSelectAllConfirm": {"placeholders": {"count": {"type": "int"}}},
+  "privateAlbumBucketOnly": "{count, plural, one{Only in your bucket · 1 · tap to open} other{Only in your bucket · {count} · tap one to open}}",
+  "@privateAlbumBucketOnly": {"placeholders": {"count": {"type": "int"}}}
 }

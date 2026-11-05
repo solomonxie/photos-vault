@@ -1,24 +1,47 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/viewer/select_all.dart';
 
+Widget _wrap(Widget child) => CupertinoApp(
+  localizationsDelegates: AppLocalizations.localizationsDelegates,
+  supportedLocales: AppLocalizations.supportedLocales,
+  home: CupertinoPageScaffold(child: Center(child: child)),
+);
+
 void main() {
-  final ids = [for (var i = 0; i < 250; i++) i];
-
-  test('each tap adds the next 100, newest first', () {
-    final first = selectNextBatch(ids.reversed, <int>{});
-    expect(first.length, 100);
-    expect(first.contains(249), isTrue);
-    expect(first.contains(149), isFalse);
-
-    final second = selectNextBatch(ids.reversed, first);
-    expect(second.length, 200);
-    expect(second.contains(50), isTrue);
-
-    expect(selectNextBatch(ids.reversed, second).length, 250);
+  test('Select All takes everything, whatever was picked', () {
+    final ids = [for (var i = 0; i < 250; i++) i];
+    expect(selectEverything(ids, {249, 7}).length, 250);
   });
 
-  test('skips what is already chosen', () {
-    final picked = selectNextBatch(ids.reversed, {249, 248});
-    expect(picked.length, 102);
+  testWidgets('a hundred or fewer select at once; more ask first', (
+    tester,
+  ) async {
+    var selected = 0;
+    Future<void> show(int total) => tester.pumpWidget(
+      _wrap(
+        SelectAllButton(
+          total: total,
+          selectedCount: 0,
+          onSelectNext: () => selected++,
+          onDeselectAll: () {},
+        ),
+      ),
+    );
+
+    await show(100);
+    await tester.tap(find.byKey(const ValueKey('selectAllButton')));
+    await tester.pumpAndSettle();
+    expect(selected, 1);
+
+    await show(3000);
+    await tester.tap(find.byKey(const ValueKey('selectAllButton')));
+    await tester.pumpAndSettle();
+    expect(find.text('Select all 3000?'), findsOne);
+    expect(selected, 1);
+    await tester.tap(find.byKey(const ValueKey('selectAllConfirm')));
+    await tester.pumpAndSettle();
+    expect(selected, 2);
   });
 }

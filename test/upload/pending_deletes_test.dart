@@ -47,6 +47,29 @@ void main() {
     expect(await deletes.count(), 0);
   });
 
+  test('a long queue goes in chunks, each written down as it lands; a drain '
+      'cut short keeps what it did', () async {
+    PendingDeletes.drainRest = Duration.zero;
+    final store = FakeAssetRecordStore();
+    var stopAfter = 150;
+    final deletes = PendingDeletes(
+      store: store,
+      ops: ScriptedDeletes((target, key) async {
+        if (stopAfter-- <= 0) throw StateError('app closed');
+        return true;
+      }),
+    );
+    await deletes.add([
+      for (var i = 0; i < 250; i++)
+        PendingDelete(objectKey: 'originals/$i.jpg', targetId: 't1'),
+    ]);
+    await expectLater(deletes.drain([_target]), throwsStateError);
+    expect(await deletes.count(), 150, reason: 'the first chunk stayed done');
+
+    stopAfter = 1000;
+    expect(await deletes.drain([_target]), 0);
+  });
+
   test('a delete that fails is kept, and tried again', () async {
     final store = FakeAssetRecordStore();
     var succeed = false;

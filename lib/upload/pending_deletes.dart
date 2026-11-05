@@ -323,8 +323,8 @@ class PendingDeletes {
           (task: t, key: t.objectKey),
     ];
     final done = <PendingDelete>{};
-    final attempted = <String, int>{};
-    final succeeded = <String, int>{};
+    var attempted = <String, int>{};
+    var succeeded = <String, int>{};
     // Thousands wait at once after a big hide: read up front in two
     // queries, not five per task. Only a task about to be deleted is
     // checked again, live.
@@ -333,19 +333,20 @@ class PendingDeletes {
     final holding = await store.targetsHoldingAll(ids);
     bool wholeIn(String? id) =>
         id == null || (records[id]?.isFullyBackedUp ?? true);
-    for (final (:task, :key) in work) {
+    Future<void> one(({PendingDelete task, String key}) w) async {
+      final (:task, :key) = w;
       final target = byId[task.targetId];
-      if (target == null) continue; // Dormant, not dropped.
+      if (target == null) return; // Dormant, not dropped.
       if (_heldIn(holding[task.localId], task)) {
         done.add(task); // Someone's backup still: never this delete's.
-        continue;
+        return;
       }
-      if (task.untilWhole && !wholeIn(task.localId)) continue;
+      if (task.untilWhole && !wholeIn(task.localId)) return;
       if (await _heldNow(task)) {
         done.add(task);
-        continue;
+        return;
       }
-      if (task.untilWhole && !await _whole(task.localId)) continue;
+      if (task.untilWhole && !await _whole(task.localId)) return;
       final keep = task.keep;
       final outcome = await _ops.deleteGuarded(
         target,
@@ -371,12 +372,61 @@ class PendingDeletes {
           attempted[target.id] = (attempted[target.id] ?? 0) + 1;
       }
     }
+
+    // Two at a time with a rest between chunks, and what's done written
+    // down after each: tens of thousands queued at once never finished in
+    // one go, a drain cut short by the app closing kept nothing of what it
+    // had done, and running flat out ran the phone hot.
+    final committed = <PendingDelete>{};
+    var expand = wildcards.isNotEmpty;
+    var left = 0;
+    for (var i = 0; i < work.length; i += drainChunk) {
+      if (i > 0) await Future<void>.delayed(drainRest);
+      final chunk = work.skip(i).take(drainChunk).toList();
+      for (var j = 0; j < chunk.length; j += drainConcurrency) {
+        await Future.wait(chunk.skip(j).take(drainConcurrency).map(one));
+      }
+      left = await _commit(
+        {...done}..removeAll(committed),
+        expand ? wildcards : const [],
+        targets,
+        attempted,
+        succeeded,
+      );
+      committed.addAll(done);
+      expand = false;
+      attempted = {};
+      succeeded = {};
+    }
+    return left;
+  }
+
+  static const drainChunk = 100;
+  static const drainConcurrency = 2;
+
+  /// Between chunks: a long queue is a trickle, not a sustained load.
+  static Duration drainRest = const Duration(seconds: 2);
+
+  Future<int> _commit(
+    Set<PendingDelete> done,
+    List<PendingDelete> wildcards,
+    List<S3BackupTarget> targets,
+    Map<String, int> attempted,
+    Map<String, int> succeeded,
+  ) {
     // Re-read, under the lock: only what is still queued is touched, and a
     // task added meanwhile (a hide, another drain) stays.
     return _lock.run(() async {
       final expanded = {for (final t in wildcards) t};
       final gone = <PendingDelete>[];
       final added = <PendingDelete>[];
+      // Without bucket-less tasks to expand, what's done is unqueued by its
+      // own key: no read of a queue tens of thousands long per chunk.
+      if (expanded.isEmpty) {
+        await store.unqueueDeletes(_queue, [for (final t in done) t.rowKey()]);
+        await _countFails(attempted, succeeded);
+        return count();
+      }
       for (final t in await pending()) {
         if (expanded.contains(t)) {
           gone.add(t);
@@ -391,17 +441,24 @@ class PendingDeletes {
       }
       await store.queueDeletes(_queue, [for (final t in added) t.toRow()]);
       await store.unqueueDeletes(_queue, [for (final t in gone) t.rowKey()]);
-      final fails = await _fails();
-      for (final MapEntry(key: id, value: n) in attempted.entries) {
-        if ((succeeded[id] ?? 0) > 0) {
-          fails.remove(id);
-        } else if (n > 0) {
-          fails[id] = (fails[id] ?? 0) + 1;
-        }
-      }
-      await store.setAppState(_failsKey, jsonEncode(fails));
+      await _countFails(attempted, succeeded);
       return count();
     });
+  }
+
+  Future<void> _countFails(
+    Map<String, int> attempted,
+    Map<String, int> succeeded,
+  ) async {
+    final fails = await _fails();
+    for (final MapEntry(key: id, value: n) in attempted.entries) {
+      if ((succeeded[id] ?? 0) > 0) {
+        fails.remove(id);
+      } else if (n > 0) {
+        fails[id] = (fails[id] ?? 0) + 1;
+      }
+    }
+    await store.setAppState(_failsKey, jsonEncode(fails));
   }
 }
 

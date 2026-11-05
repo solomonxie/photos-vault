@@ -371,7 +371,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
                 builder: (context, picked, _) => SelectAllButton(
                   total: _records.length,
                   selectedCount: picked.length,
-                  onSelectNext: () => _picked.value = selectNextBatch(
+                  onSelectNext: () => _picked.value = selectEverything(
                     _records.reversed.map((r) => r.localId),
                     picked,
                   ),
