@@ -317,6 +317,26 @@ Future<BinResult?> binSelection(
     cloudOnly: batch.where((r) => r.localDeleted).length,
   );
   if (choice != DeleteChoice.everywhere) return null;
+  final (:deleted, :kept) = await binNow(
+    batch,
+    library: library,
+    removal: removal,
+  );
+  return (
+    deleted: deleted,
+    kept: kept,
+    capped: unlocked.length > limit,
+    allLocked: false,
+  );
+}
+
+/// [batch] into Recently Deleted with no sheet — already asked. One Photos
+/// prompt for the lot; [kept] is how many Photos held on to.
+Future<({Set<String> deleted, int kept})> binNow(
+  List<AssetRecord> batch, {
+  required PhotoLibraryService library,
+  required AssetRemoval removal,
+}) async {
   final fromLibrary = [
     for (final r in batch)
       if (r.sourceType == AssetSourceType.photoManager &&
@@ -347,10 +367,5 @@ Future<BinResult?> binSelection(
     await removal.binOrPurge(r);
     deleted.add(r.localId);
   }
-  return (
-    deleted: deleted,
-    kept: kept,
-    capped: unlocked.length > limit,
-    allLocked: false,
-  );
+  return (deleted: deleted, kept: kept);
 }

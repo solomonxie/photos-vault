@@ -115,6 +115,25 @@ void main() {
     expect((await albums.allMemberships())['a1'], ['photo:X']);
   }
 
+  test('an ignored person comes back ignored', () async {
+    final people = FakePersonStore();
+    final mia = await people.create(name: 'Mia');
+    await people.update(mia.copyWith(ignored: true));
+    final snapshot = await AppSnapshotIo(
+      assetRecordStore: store(),
+      albumStore: FakeAlbumStore(),
+      personStore: people,
+    ).export();
+
+    final fresh = FakePersonStore();
+    await AppSnapshotIo(
+      assetRecordStore: store(),
+      albumStore: FakeAlbumStore(),
+      personStore: fresh,
+    ).import(snapshot);
+    expect((await fresh.getById(mia.id))!.ignored, isTrue);
+  });
+
   test('same phone: a scan ahead of the restore is merged with', () async {
     final snapshot = await backup();
     final b = phone();

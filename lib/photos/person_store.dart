@@ -248,6 +248,11 @@ class PersonStore {
         );
       }
     }
+    if (!personColumns.contains('ignored')) {
+      await db.execute(
+        'ALTER TABLE $_personTable ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0',
+      );
+    }
     // Whether a photo is on someone because one of its faces was named
     // them: taking the name off the face takes it off them, and only then.
     if (!(await db.rawQuery('PRAGMA table_info($_memberTable)'))
@@ -1686,6 +1691,23 @@ class PersonStore {
 
   /// Every person's photos in one query, by person id — for callers that
   /// would otherwise ask [localIdsIn] once per person.
+  /// Photos that were on someone since deleted, as far back as the change
+  /// log remembers.
+  Future<Set<String>> photosOfDeletedPeople() async {
+    final db = await _open();
+    final rows = await db.rawQuery(
+      "SELECT DISTINCT json_extract(m.before, '\$.local_id') AS local_id "
+      'FROM change_log m '
+      "WHERE m.table_name = ? AND m.op = 'delete' "
+      "AND json_extract(m.before, '\$.person_id') IN ("
+      "SELECT row_key FROM change_log WHERE table_name = ? AND op = 'delete') "
+      "AND json_extract(m.before, '\$.person_id') NOT IN "
+      '(SELECT id FROM $_personTable)',
+      [_memberTable, _personTable],
+    );
+    return {for (final r in rows) ?r['local_id'] as String?};
+  }
+
   Future<Map<String, List<String>>> allMemberships() async {
     final db = await _open();
     final rows = await db.query(
@@ -2523,6 +2545,7 @@ class PersonStore {
     'first_name': person.firstName,
     'middle_name': person.middleName,
     'last_name': person.lastName,
+    'ignored': person.ignored ? 1 : 0,
     'created_at': person.createdAt.millisecondsSinceEpoch,
     'updated_at': person.updatedAt.millisecondsSinceEpoch,
   };
@@ -2551,6 +2574,7 @@ class PersonStore {
       firstName: row['first_name'] as String? ?? '',
       middleName: row['middle_name'] as String? ?? '',
       lastName: row['last_name'] as String? ?? '',
+      ignored: (row['ignored'] as int? ?? 0) != 0,
       createdAt: DateTime.fromMillisecondsSinceEpoch(row['created_at'] as int),
       updatedAt: DateTime.fromMillisecondsSinceEpoch(row['updated_at'] as int),
     );

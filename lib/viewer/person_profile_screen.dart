@@ -1,3 +1,5 @@
+import 'person_deletion.dart';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/rendering.dart' show RenderAbstractViewport;
 import 'package:intl/intl.dart';
@@ -1180,13 +1182,33 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
 
   Future<void> _confirmDeletePerson() async {
     final l10n = AppLocalizations.of(context)!;
-    // Their folder's code is `person:<id>:<digits>`, and the id goes with
-    // them: deleting now would strand those photos for good.
-    if (await personHasHiddenFolder(
-      widget.assetRecordStore,
-      _person.id,
-      aliases: await widget.personStore.aliasesOf(_person.id),
-    )) {
+    final deletion = PersonDeletion(
+      personStore: widget.personStore,
+      assetRecordStore: widget.assetRecordStore,
+    );
+    final plan = await deletion.plan({_person.id});
+    if (!mounted) return;
+    final confirmed = await showCupertinoDialog<bool>(
+      context: context,
+      builder: (context) => CupertinoAlertDialog(
+        title: Text(l10n.personProfileDeleteConfirmTitle),
+        content: Text(personDeletionBody(l10n, plan)),
+        actions: [
+          CupertinoDialogAction(
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.actionCancel),
+          ),
+          CupertinoDialogAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.actionDelete),
+          ),
+        ],
+      ),
+    );
+    if (confirmed != true || !mounted) return;
+    final gone = await deletion.run({_person.id}, plan);
+    if (!gone.contains(_person.id)) {
       if (!mounted) return;
       await showCupertinoDialog<void>(
         context: context,
@@ -1204,27 +1226,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       );
       return;
     }
-    if (!mounted) return;
-    final confirmed = await showCupertinoDialog<bool>(
-      context: context,
-      builder: (context) => CupertinoAlertDialog(
-        title: Text(l10n.personProfileDeleteConfirmTitle),
-        content: Text(l10n.personProfileDeleteConfirmBody),
-        actions: [
-          CupertinoDialogAction(
-            onPressed: () => Navigator.of(context).pop(false),
-            child: Text(l10n.actionCancel),
-          ),
-          CupertinoDialogAction(
-            isDestructiveAction: true,
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(l10n.actionDelete),
-          ),
-        ],
-      ),
-    );
-    if (confirmed != true || !mounted) return;
-    await widget.personStore.remove(_person.id);
     await forgetPersonFaces(_person.id);
     if (!mounted) return;
     // Just this screen. The person page beneath re-reads the person when

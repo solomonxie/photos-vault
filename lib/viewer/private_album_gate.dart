@@ -455,6 +455,41 @@ Future<Set<String>> peopleWithHiddenFolders(
   );
 }
 
+/// Every hidden folder of [ids] (each with its aliases), whatever its
+/// digits: tag → code. Found the way [personHasHiddenFolder] finds one.
+Future<Map<String, String>> personFolderCodes(
+  AssetRecordStore store,
+  Map<String, List<String>> ids, {
+  PasscodeTags? tags,
+}) async {
+  final hashes = await store.passcodeHashes();
+  if (hashes.isEmpty || ids.isEmpty) return const {};
+  final key = hashes.every(isLegacyTag)
+      ? null
+      : await (tags ?? PasscodeTags(records: store)).currentKey();
+  final everyId = [
+    for (final MapEntry(key: id, value: aliases) in ids.entries) ...[
+      id,
+      ...aliases,
+    ],
+  ];
+  return Isolate.run(() {
+    final found = <String, String>{};
+    for (final id in everyId) {
+      for (var i = 0; i < 10000; i++) {
+        final code = personAlbumCode(id, i.toString().padLeft(4, '0'));
+        for (final tag in [
+          hashPasscode(code),
+          if (key != null) passcodeTagWith(key, code),
+        ]) {
+          if (hashes.contains(tag)) found[tag] = code;
+        }
+      }
+    }
+    return found;
+  });
+}
+
 bool _anyPersonCode(String personId, Set<String> hashes, Uint8List? key) {
   for (var i = 0; i < 10000; i++) {
     final code = personAlbumCode(personId, i.toString().padLeft(4, '0'));

@@ -509,6 +509,9 @@ class FakePersonStore implements PersonStore {
       _members[personId]?.toList() ?? const [];
 
   @override
+  Future<Set<String>> photosOfDeletedPeople() async => const {};
+
+  @override
   Future<Map<String, List<String>>> allMemberships() async => {
     for (final entry in _members.entries)
       if (entry.value.isNotEmpty) entry.key: entry.value.toList(),

@@ -59,6 +59,7 @@ const personFields = {
   'middle_name',
   'last_name',
   'custom_fields',
+  'ignored',
 };
 
 /// Marks a person whose profile rows ([profileSets], `details`) are in the

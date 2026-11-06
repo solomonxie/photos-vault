@@ -506,6 +506,51 @@ class LibraryScreenState extends State<LibraryScreen>
     }
   }
 
+  static const _leftBehindKey = 'left_behind_binned_v1';
+
+  /// Photos left by people deleted before deleting a person took their
+  /// photos too, binned once: kept for someone no longer here, or traced to
+  /// someone deleted. Never on a fresh install, where memberships may still
+  /// be on their way back and every Only Here photo would look orphaned.
+  Future<void> _binLeftBehindOnce() async {
+    try {
+      if (await assetRecordStore.getAppState(_leftBehindKey) != null) return;
+      if (_launchedEmpty || _restoreFirst != null) {
+        await assetRecordStore.setAppState(_leftBehindKey, 'skipped');
+        return;
+      }
+      if ((await _personStore.listAll()).isEmpty) return;
+      final tagged = {
+        for (final ids in (await _personStore.allMemberships()).values) ...ids,
+      };
+      final traced = await _personStore.photosOfDeletedPeople();
+      final records = [
+        for (final r in await assetRecordStore.listAll())
+          if (r.deletedAt == null &&
+              r.passcodeHash == null &&
+              !r.isLocked &&
+              !tagged.contains(r.localId) &&
+              (r.peopleOnly || traced.contains(r.localId)))
+            r,
+      ];
+      for (var at = 0; at < records.length;) {
+        final batch = records
+            .skip(at)
+            .take(PhotoLibraryService.deleteBatchLimit)
+            .toList();
+        await binNow(batch, library: _photoLibraryService, removal: _removal);
+        at += batch.length;
+      }
+      await assetRecordStore.setAppState(_leftBehindKey, '${records.length}');
+      if (records.isNotEmpty && mounted) await reload();
+    } catch (_) {
+      // Tried again next launch.
+    }
+  }
+
+  /// The library was empty when this launch began: a fresh install.
+  bool _launchedEmpty = false;
+
   /// Faces of the photos opened or picked, one at a time, out of sight.
   late final FaceAnalyzer _faceAnalyzer = FaceAnalyzer(
     assetRecordStore: assetRecordStore,
@@ -777,6 +822,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // running, so any unpacked zip left is litter.
     _housekeeping = Timer(const Duration(seconds: 5), () async {
       await _markZipPhotosOnce();
+      await _binLeftBehindOnce();
       if (!mounted) return;
       try {
         await backfillImportLog(
@@ -956,6 +1002,7 @@ class LibraryScreenState extends State<LibraryScreen>
     // merges with whatever got in ahead, so a slow download costs neither
     // metadata nor a second record.
     if (_all.isEmpty) {
+      _launchedEmpty = true;
       final restore = _restoreAppDataThenReload(scannedRows: true)
           .timeout(_restoreHold, onTimeout: () {});
       _restoreFirst = restore;
@@ -1591,7 +1638,12 @@ class LibraryScreenState extends State<LibraryScreen>
 
     final personStamp = await _personStore.changeStamp();
     final personsMoved = personStamp != _personStamp;
-    final read = personsMoved ? await _personStore.listAll() : _people;
+    final read = personsMoved
+        ? [
+            for (final p in await _personStore.listAll())
+              if (!p.ignored) p,
+          ]
+        : _people;
     var people = read;
     if (personsMoved) _personMembers = await _personStore.allMemberships();
     final personMembers = _personMembers;

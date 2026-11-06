@@ -491,6 +491,8 @@ class Applier {
                     ? ''
                     : c == 'custom_fields'
                     ? '[]'
+                    : c == 'ignored'
+                    ? 0
                     : null),
       };
       if (values.isNotEmpty) {

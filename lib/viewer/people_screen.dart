@@ -1,3 +1,5 @@
+import 'person_deletion.dart';
+
 import 'dart:async';
 
 import 'package:flutter/cupertino.dart';
@@ -131,6 +133,9 @@ class _PeopleScreenState extends State<PeopleScreen> {
   /// Open people in no group, most photos first: once per reload.
   List<Person> _ungrouped = const [];
 
+  /// Kept with their photos, out of the list: [Person.ignored].
+  List<Person> _ignoredPeople = const [];
+
   /// The biggest few, one tap each beside the Group dropdown.
 
   /// One size for every circle on this page. A named person and a face
@@ -223,7 +228,15 @@ class _PeopleScreenState extends State<PeopleScreen> {
   }
 
   Future<void> _reload() async {
-    final people = await widget.personStore.listAll();
+    final everyone = await widget.personStore.listAll();
+    final people = [
+      for (final p in everyone)
+        if (!p.ignored) p,
+    ];
+    final ignoredPeople = [
+      for (final p in everyone)
+        if (p.ignored) p,
+    ]..sort((a, b) => nameSortKey(a.name).compareTo(nameSortKey(b.name)));
     final records = await _records();
     // Counted over what may be shown: a hidden photo in the count gives
     // away that it exists.
@@ -277,6 +290,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
     setState(() {
       _sort = sort;
       _reversed = reversed;
+      _ignoredPeople = ignoredPeople;
       if (sort == PeopleSort.messages) _chats = messages;
       _firstKnown = firstKnown;
       _lastKnown = lastKnown;
@@ -665,6 +679,67 @@ class _PeopleScreenState extends State<PeopleScreen> {
   /// Each into their own hidden folder, one code for all of them.
   Future<void> _hidePicked() => _hidePeople(_picked);
 
+  Future<void> _ignorePicked() async {
+    for (final person in _people) {
+      if (_picked.contains(person.id)) {
+        await widget.personStore.update(person.copyWith(ignored: true));
+      }
+    }
+    if (!mounted) return;
+    _endSelecting();
+    await _reload();
+  }
+
+  Future<void> _stopIgnoring(Person person) async {
+    await widget.personStore.update(person.copyWith(ignored: false));
+    await _reload();
+  }
+
+  Widget _ignoredRow(AppLocalizations l10n) => CupertinoListTile(
+    key: const ValueKey('people-ignored-row'),
+    leading: const Icon(
+      CupertinoIcons.eye_slash,
+      color: CupertinoColors.systemGrey,
+    ),
+    title: Text(l10n.faceGroupsIgnoredTitle),
+    trailing: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '${_ignoredPeople.length}',
+          style: const TextStyle(color: CupertinoColors.systemGrey),
+        ),
+        const SizedBox(width: 4),
+        const Icon(
+          CupertinoIcons.chevron_forward,
+          size: 18,
+          color: CupertinoColors.systemGrey2,
+        ),
+      ],
+    ),
+    onTap: () => _openSubpage(
+      l10n.faceGroupsIgnoredTitle,
+      const ValueKey('people-ignored-page'),
+      () => [
+        for (final p in _ignoredPeople)
+          Row(
+            children: [
+              Expanded(child: _personRow(l10n, p)),
+              CupertinoButton(
+                key: ValueKey('people-unignore-${p.id}'),
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                onPressed: () => _stopIgnoring(p),
+                child: Text(
+                  l10n.faceGroupsUnignore,
+                  style: const TextStyle(fontSize: 15),
+                ),
+              ),
+            ],
+          ),
+      ],
+    ),
+  );
+
   /// Their profile photo stays out: hiding the rest shouldn't leave them
   /// a grey circle.
   Future<void> _hidePeople(Set<String> ids) async {
@@ -762,9 +837,16 @@ class _PeopleScreenState extends State<PeopleScreen> {
           ),
         ) ==
         true;
+    final deletion = PersonDeletion(
+      personStore: widget.personStore,
+      assetRecordStore: widget.assetRecordStore,
+    );
+    final ids = {for (final p in picked) p.id};
+    final plan = await deletion.plan(ids);
+    if (!mounted) return;
     if (!await ask(
       l10n.peopleBatchDeleteTitle(picked.length),
-      l10n.personProfileDeleteConfirmBody,
+      personDeletionBody(l10n, plan),
       l10n.actionDelete,
       const ValueKey('peopleBatchDeleteConfirm'),
     )) {
@@ -779,12 +861,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
     )) {
       return;
     }
-    final blocked = await peopleWithHiddenFolders(widget.assetRecordStore, {
-      for (final p in picked) p.id: await widget.personStore.aliasesOf(p.id),
-    });
+    final gone = await deletion.run(ids, plan);
+    final blocked = ids.difference(gone);
     for (final person in picked) {
       if (blocked.contains(person.id)) continue;
-      await widget.personStore.remove(person.id);
       await forgetPersonFaces(
         person.id,
         analysisStore: widget.faceIdentity?.analysisStore,
@@ -1523,6 +1603,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
                   onAddToGroup: _addPickedToGroup,
                   onLeaveGroup: _removePickedFromGroup,
                   onDelete: _deletePicked,
+                  onIgnore: _ignorePicked,
                   onFreeUp: widget.fixQueue == null ? null : _freeUpPicked,
                   onOptimize: widget.fixQueue == null ? null : _optimizePicked,
                 ),
@@ -1786,6 +1867,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
           ),
           onTap: _openUngrouped,
         ),
+      if (_ignoredPeople.isNotEmpty && query.isEmpty) _ignoredRow(l10n),
       if ((_imported.isNotEmpty || _ignoredGroups > 0) && query.isEmpty)
         _facesRow(l10n),
       if (_people.isNotEmpty) _sectionHeading(l10n.peopleSectionNamed),
@@ -1872,6 +1954,11 @@ class _PeopleSelectionBar extends StatelessWidget {
               child: Text(l10n.peopleBatchOptimize),
             ),
           CupertinoActionSheetAction(
+            key: const ValueKey('peopleBatchIgnore'),
+            onPressed: () => run(sheet, onIgnore),
+            child: Text(l10n.faceGroupsIgnore),
+          ),
+          CupertinoActionSheetAction(
             key: const ValueKey('peopleBatchDelete'),
             isDestructiveAction: true,
             onPressed: () => run(sheet, onDelete),
@@ -1896,6 +1983,7 @@ class _PeopleSelectionBar extends StatelessWidget {
     required this.onAddToGroup,
     required this.onLeaveGroup,
     required this.onDelete,
+    required this.onIgnore,
     required this.onFreeUp,
     required this.onOptimize,
   });
@@ -1909,6 +1997,7 @@ class _PeopleSelectionBar extends StatelessWidget {
   final VoidCallback onAddToGroup;
   final VoidCallback onLeaveGroup;
   final VoidCallback onDelete;
+  final VoidCallback onIgnore;
   final VoidCallback? onFreeUp;
   final VoidCallback? onOptimize;
 

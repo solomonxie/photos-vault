@@ -473,6 +473,40 @@ void main() {
     expect(await personStore.listAll(), isEmpty);
   });
 
+  testWidgets('an ignored person leaves the list, kept under Ignored, and '
+      'comes back', (tester) async {
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.create(name: 'Zoe');
+    await personStore.addAssets(mia.id, ['p1']);
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    await tester.longPress(find.text('Mia'));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchMore')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('peopleBatchIgnore')));
+    await tester.pumpAndSettle();
+    expect(find.text('Mia'), findsNothing);
+    expect((await personStore.getById(mia.id))!.ignored, isTrue);
+    expect((await personStore.allMemberships())[mia.id], ['p1']);
+
+    await tester.tap(find.byKey(const ValueKey('people-ignored-row')));
+    await tester.pumpAndSettle();
+    expect(find.text('Mia'), findsOneWidget);
+    await tester.tap(find.byKey(ValueKey('people-unignore-${mia.id}')));
+    await tester.pumpAndSettle();
+    expect((await personStore.getById(mia.id))!.ignored, isFalse);
+  });
+
   testWidgets('backing out of a merge at any step changes nothing', (
     tester,
   ) async {

@@ -234,9 +234,13 @@ class Person {
     this.firstName = '',
     this.middleName = '',
     this.lastName = '',
+    this.ignored = false,
   });
 
   final String id;
+
+  /// Kept, photos and all, but out of the People list: under Ignored.
+  final bool ignored;
 
   /// What they're shown as. The parts below are optional and kept apart
   /// from it: "Mia" in the list, "Mia Jane Wu" on paper.
@@ -294,6 +298,7 @@ class Person {
     String? firstName,
     String? middleName,
     String? lastName,
+    bool? ignored,
   }) => Person(
     id: id,
     name: name ?? this.name,
@@ -311,6 +316,7 @@ class Person {
     locked: locked ?? this.locked,
     passcodeHash: passcodeHash != null ? passcodeHash() : this.passcodeHash,
     passcodeHint: passcodeHint != null ? passcodeHint() : this.passcodeHint,
+    ignored: ignored ?? this.ignored,
   );
 }
 

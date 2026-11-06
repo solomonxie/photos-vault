@@ -766,6 +766,7 @@ class AppSnapshotIo {
       'createdAt': person.createdAt.toIso8601String(),
       'avatarLocalId': person.avatarLocalId,
       'avatarFace': person.avatarFace?.encode(),
+      if (person.ignored) 'ignored': true,
       'bio': detail.bio,
       'birthDate': detail.birthDate?.toIso8601String(),
       'gender': detail.gender?.name,
@@ -816,6 +817,7 @@ class AppSnapshotIo {
             .map(PersonCustomField.fromJson)
             .toList(),
         locked: row['locked'] as bool? ?? false,
+        ignored: row['ignored'] as bool? ?? false,
         passcodeHash: () => row['passcodeHash'] as String?,
         passcodeHint: () => row['passcodeHint'] as String?,
       ),

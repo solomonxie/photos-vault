@@ -1345,9 +1345,8 @@ void main() {
     expect(find.text('Daniel'), findsNothing);
   });
 
-  testWidgets('a person whose hidden folder holds photos cannot be deleted', (
-    tester,
-  ) async {
+  testWidgets('deleting a person says their photos and hidden folder go '
+      'with them', (tester) async {
     final personStore = FakePersonStore();
     final records = FakeAssetRecordStore();
     final mia = await personStore.create(name: 'Mia');
@@ -1377,9 +1376,12 @@ void main() {
     });
     await tester.pumpAndSettle();
 
-    expect(find.text('Empty Their Hidden Folder First'), findsOneWidget);
-    expect(find.text('Delete this person?'), findsNothing);
-    await tester.tap(find.text('OK'));
+    expect(find.text('Delete this person?'), findsOneWidget);
+    expect(
+      find.textContaining('Their hidden folder and its 1 photo are deleted'),
+      findsOneWidget,
+    );
+    await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
     expect(await personStore.getById(mia.id), isNotNull);
   });
