@@ -153,9 +153,8 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   Map<String, int> _sharedPhotos = const {};
   Map<String, Person> _peopleById = const {};
 
-  /// Drawn links only, kept beside [_relationships] so the section's
-  /// ranking runs when they change, not on every build.
-  List<PersonRelationship> _explicit = const [];
+  /// Group name by person id for each derived link.
+  Map<String, String> _groupNames = const {};
 
   /// Sections in Edit, by id.
   final _editing = <String>{};
@@ -589,15 +588,13 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       _ownerId = ownerId;
       // Shown beside the explicit ones rather than written down — see
       // [groupRelationships].
-      _relationships = [
-        ...relationships,
-        ...groupRelationships(
-          personId: _person.id,
-          members: allGroups,
-          explicit: relationships,
-        ),
-      ];
-      _explicit = relationships;
+      final derived = groupRelationships(
+        personId: _person.id,
+        members: allGroups,
+        explicit: relationships,
+      );
+      _relationships = [...relationships, ...derived];
+      _groupNames = _viaGroupNames(derived, allGroups);
       if (_bio.text != detail.bio) _bio.text = detail.bio;
       if (_hint.text != detail.hint) _hint.text = detail.hint;
     });
@@ -755,7 +752,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       _loading = true;
       _detail = PersonDetail.empty;
       _relationships = const [];
-      _explicit = const [];
+      _groupNames = const {};
       _locations = const [];
       _education = const [];
       _jobs = const [];
@@ -811,21 +808,27 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   /// re-pick of person + type + organization) — [existing] is removed
   /// first if the target person changed, so editing never leaves a stale
   /// link behind.
-  Future<void> _addOrEditRelationship({PersonRelationship? existing}) async {
+  Future<void> _addOrEditRelationship({
+    PersonRelationship? existing,
+    Person? preset,
+  }) async {
     final l10n = AppLocalizations.of(context)!;
     final linkedIds = _relationships
+        .where((r) => !r.derived)
         .map((r) => r.relatedPersonId)
         .where((id) => id != existing?.relatedPersonId)
         .toSet();
     final candidates = _allPeople
         .where((p) => p.id != _person.id && !linkedIds.contains(p.id))
         .toList();
-    final other = await showPersonPickerSheet(
-      context: context,
-      candidates: candidates,
-      personStore: widget.personStore,
-      ownerId: _ownerId,
-    );
+    final other =
+        preset ??
+        await showPersonPickerSheet(
+          context: context,
+          candidates: candidates,
+          personStore: widget.personStore,
+          ownerId: _ownerId,
+        );
     if (other == null || !mounted) return;
 
     final type = await _pickRelationshipType();
@@ -869,8 +872,8 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     final l10n = AppLocalizations.of(context)!;
     final scope = _scope;
     setState(() {
-      _explicit = [
-        for (final x in _explicit)
+      _relationships = [
+        for (final x in _relationships)
           if (x.relatedPersonId != r.relatedPersonId) x,
       ];
     });
@@ -895,6 +898,29 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       },
     );
     await _reload();
+  }
+
+  /// The group each derived link came from: the first of its kind holding
+  /// both, as [groupRelationships] picked it.
+  Map<String, String> _viaGroupNames(
+    List<PersonRelationship> derived,
+    Map<PersonGroup, List<String>> allGroups,
+  ) {
+    final mine = [
+      for (final e in allGroups.entries)
+        if (e.value.contains(_person.id)) e,
+    ];
+    return {
+      for (final r in derived)
+        r.relatedPersonId: mine
+            .firstWhere(
+              (e) =>
+                  relationshipForGroup(e.key.kind) == r.type &&
+                  e.value.contains(r.relatedPersonId),
+            )
+            .key
+            .name,
+    };
   }
 
   /// Tapping a relationship row's name opens *that* person's page — editing
@@ -1334,7 +1360,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       l10n,
       _events.where((e) => e.isLastSeen).firstOrNull?.at,
     );
-    final people = {for (final r in _relationships) r.relatedPersonId}.length;
+    final people = _relationships.length;
     return ProfileSummaryCard(
       facts: profileFacts(
         l10n,
@@ -1529,7 +1555,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final people = _explicit;
+    final people = _relationships;
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(l10n.personProfileTitle),
@@ -1610,13 +1636,18 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
               sliverBody: true,
               body: () => ProfileRelationships(
                 relationships: people,
+                groupNames: _groupNames,
                 people: _peopleById,
                 sharedPhotos: _sharedPhotos,
                 assetRecordStore: widget.assetRecordStore,
                 editing: _editing.contains('relationships'),
                 typeLabel: (t) => _relationshipLabel(l10n, t),
                 onOpen: _openRelatedPerson,
-                onEdit: (r) => _addOrEditRelationship(existing: r),
+                onEdit: (r) => r.derived
+                    ? _addOrEditRelationship(
+                        preset: _peopleById[r.relatedPersonId],
+                      )
+                    : _addOrEditRelationship(existing: r),
                 onDelete: _removeRelationship,
               ),
             ),

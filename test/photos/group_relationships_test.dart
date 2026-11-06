@@ -93,4 +93,16 @@ void main() {
 
     expect(links, hasLength(1));
   });
+
+  test('a pair in a company and a family is family, whichever came first', () {
+    final links = groupRelationships(
+      personId: 'mia',
+      members: {
+        _group('acme', GroupKind.company): ['mia', 'dan'],
+        _group('smiths', GroupKind.family): ['mia', 'dan'],
+      },
+    );
+    expect(links.single.type, RelationshipType.family);
+    expect(links.single.organization, 'smiths');
+  });
 }

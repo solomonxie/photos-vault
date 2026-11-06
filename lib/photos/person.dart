@@ -109,23 +109,26 @@ List<PersonRelationship> groupRelationships({
 }) {
   final already = {for (final r in explicit) r.relatedPersonId};
   final out = <String, PersonRelationship>{};
+  final kinds = <String, GroupKind>{};
   for (final entry in members.entries) {
     if (!entry.value.contains(personId)) continue;
     for (final other in entry.value) {
       if (other == personId || already.contains(other)) continue;
-      // First group wins for a pair in two groups. Arbitrary, and better than
-      // showing the same two people twice under different labels.
-      out.putIfAbsent(
-        other,
-        () => PersonRelationship(
-          personId: personId,
-          relatedPersonId: other,
-          type: relationshipForGroup(entry.key.kind),
-          organization: entry.key.kind == GroupKind.circle
-              ? null
-              : entry.key.name,
-          derived: true,
-        ),
+      // Closest kind wins for a pair in several groups (family, then the
+      // rest, as in ego_net's closeness); a tie keeps the first.
+      final kind = entry.key.kind;
+      final held = kinds[other];
+      if (held != null &&
+          (held == GroupKind.family || kind != GroupKind.family)) {
+        continue;
+      }
+      kinds[other] = kind;
+      out[other] = PersonRelationship(
+        personId: personId,
+        relatedPersonId: other,
+        type: relationshipForGroup(kind),
+        organization: kind == GroupKind.circle ? null : entry.key.name,
+        derived: true,
       );
     }
   }

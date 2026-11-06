@@ -36,6 +36,7 @@ class ProfileRelationships extends StatefulWidget {
   const ProfileRelationships({
     super.key,
     required this.relationships,
+    required this.groupNames,
     required this.people,
     required this.sharedPhotos,
     required this.assetRecordStore,
@@ -46,8 +47,11 @@ class ProfileRelationships extends StatefulWidget {
     required this.onDelete,
   });
 
-  /// Drawn links only; group ones are rows of their own in Groups.
+  /// Drawn links and group-derived ones; a derived row is not deletable.
   final List<PersonRelationship> relationships;
+
+  /// Group name by related person id, for the "via" line of derived rows.
+  final Map<String, String> groupNames;
   final Map<String, Person> people;
   final Map<String, int> sharedPhotos;
   final AssetRecordStore assetRecordStore;
@@ -252,35 +256,49 @@ class _ProfileRelationshipsState extends State<ProfileRelationships> {
   Widget _row(PersonRelationship r) {
     final person = widget.people[r.relatedPersonId];
     final org = r.organization;
+    final via = r.derived ? groupViaLabel(r) : null;
+    final tile = CupertinoListTile(
+      leading: person == null
+          ? null
+          : PersonAvatar.forPerson(
+              assetRecordStore: widget.assetRecordStore,
+              person: person,
+              size: 32,
+            ),
+      leadingSize: 32,
+      title: Text(_name(r)),
+      subtitle: via != null
+          ? Text(via)
+          : org == null || org.isEmpty
+          ? null
+          : Text(org),
+      trailing: widget.editing
+          ? const Icon(
+              CupertinoIcons.pencil,
+              size: 18,
+              color: CupertinoColors.systemGrey,
+            )
+          : const Icon(
+              CupertinoIcons.chevron_forward,
+              size: 18,
+              color: CupertinoColors.systemGrey2,
+            ),
+      onTap: () => widget.editing ? widget.onEdit(r) : widget.onOpen(r),
+    );
+    final key = ValueKey('rel:${r.relatedPersonId}');
+    if (r.derived) return KeyedSubtree(key: key, child: tile);
     return ProfileDeletableRow(
-      key: ValueKey('rel:${r.relatedPersonId}'),
+      key: key,
       editing: widget.editing,
       onDelete: () => widget.onDelete(r),
-      child: CupertinoListTile(
-        leading: person == null
-            ? null
-            : PersonAvatar.forPerson(
-                assetRecordStore: widget.assetRecordStore,
-                person: person,
-                size: 32,
-              ),
-        leadingSize: 32,
-        title: Text(_name(r)),
-        subtitle: org == null || org.isEmpty ? null : Text(org),
-        trailing: widget.editing
-            ? const Icon(
-                CupertinoIcons.pencil,
-                size: 18,
-                color: CupertinoColors.systemGrey,
-              )
-            : const Icon(
-                CupertinoIcons.chevron_forward,
-                size: 18,
-                color: CupertinoColors.systemGrey2,
-              ),
-        onTap: () => widget.editing ? widget.onEdit(r) : widget.onOpen(r),
-      ),
+      child: tile,
     );
+  }
+
+  String? groupViaLabel(PersonRelationship r) {
+    final group = widget.groupNames[r.relatedPersonId];
+    if (group == null) return null;
+    return AppLocalizations.of(context)!.relationshipViaGroup(group);
   }
 }
 

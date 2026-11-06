@@ -676,6 +676,43 @@ void main() {
     expect(relationships.single.type, RelationshipType.friend);
   });
 
+  testWidgets('someone in the family group can still be made a spouse', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    final daniel = await personStore.create(name: 'Daniel');
+    const smiths = PersonGroup(id: 'g', name: 'Smiths', kind: GroupKind.family);
+    for (final p in [mia, daniel]) {
+      await personStore.joinGroup(p.id, smiths, scope: PersonScope.open);
+    }
+
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
+    await _scrollTo(tester, addRelationship);
+    await tester.tap(addRelationship);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Daniel').last);
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Spouse'));
+    await tester.pumpAndSettle();
+
+    final relationships = await personStore.relationshipsFor(mia.id);
+    expect(relationships.single.type, RelationshipType.spouse);
+    expect(find.text('via Smiths', skipOffstage: false), findsNothing);
+  });
+
   testWidgets('a long relationship group shows five until opened', (
     tester,
   ) async {
@@ -1308,42 +1345,44 @@ void main() {
     expect(find.text('Your sibling'), findsNothing);
   });
 
-  testWidgets('group links are one row that opens the people behind it', (
-    tester,
-  ) async {
-    await _useTallSurface(tester);
-    final personStore = FakePersonStore();
-    final mia = await personStore.create(name: 'Mia');
-    await personStore.create(name: 'Daniel');
-    const acme = PersonGroup(id: 'g1', name: 'Acme', kind: GroupKind.company);
-    await personStore.joinGroup(mia.id, acme, scope: PersonScope.open);
-    for (final p in await personStore.listAll()) {
-      await personStore.joinGroup(p.id, acme, scope: PersonScope.open);
-    }
+  testWidgets(
+    'group links show under Relationships, and as a row that opens the group',
+    (tester) async {
+      await _useTallSurface(tester);
+      final personStore = FakePersonStore();
+      final mia = await personStore.create(name: 'Mia');
+      await personStore.create(name: 'Daniel');
+      const acme = PersonGroup(id: 'g1', name: 'Acme', kind: GroupKind.company);
+      await personStore.joinGroup(mia.id, acme, scope: PersonScope.open);
+      for (final p in await personStore.listAll()) {
+        await personStore.joinGroup(p.id, acme, scope: PersonScope.open);
+      }
 
-    await tester.pumpWidget(
-      _wrap(
-        PersonProfileScreen(
-          person: mia,
-          personStore: personStore,
-          assetRecordStore: FakeAssetRecordStore(),
+      await tester.pumpWidget(
+        _wrap(
+          PersonProfileScreen(
+            person: mia,
+            personStore: personStore,
+            assetRecordStore: FakeAssetRecordStore(),
+          ),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+      );
+      await tester.pumpAndSettle();
 
-    // Not listed one by one under Relationships: one row for the group.
-    expect(find.text('Daniel', skipOffstage: false), findsNothing);
-    await tester.tap(find.text('Colleagues at Acme'));
-    await tester.pumpAndSettle();
-    expect(find.text('Daniel'), findsOneWidget);
-    await tester.enterText(
-      find.byKey(const ValueKey('profilePeopleSearch')),
-      'zzz',
-    );
-    await tester.pump();
-    expect(find.text('Daniel'), findsNothing);
-  });
+      // Listed under Relationships too, saying which group it comes from.
+      expect(find.text('Daniel', skipOffstage: false), findsOneWidget);
+      expect(find.text('via Acme', skipOffstage: false), findsOneWidget);
+      await tester.tap(find.text('Colleagues at Acme'));
+      await tester.pumpAndSettle();
+      expect(find.text('Daniel'), findsOneWidget);
+      await tester.enterText(
+        find.byKey(const ValueKey('profilePeopleSearch')),
+        'zzz',
+      );
+      await tester.pump();
+      expect(find.text('Daniel'), findsNothing);
+    },
+  );
 
   testWidgets('deleting a person says their photos and hidden folder go '
       'with them', (tester) async {
