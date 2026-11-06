@@ -2,17 +2,22 @@ import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
+import '../photos/face_identity.dart';
 import '../photos/face_import.dart';
+import '../photos/people_order.dart';
+import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../settings/settings_section.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'imported_group_screen.dart';
 import 'person_avatar.dart';
+import 'person_page_screen.dart';
 
 /// People → Faces to Name: the imported groups, biggest first. Select to
 /// ignore several at once; ignored groups wait under Ignored, kept, so a
-/// later import puts the same faces back there. With [ignored], that list.
+/// later import puts the same faces back there. With [ignored], the one
+/// Ignored page: ignored people, then ignored unnamed faces.
 class FaceGroupsScreen extends StatefulWidget {
   const FaceGroupsScreen({
     super.key,
@@ -20,13 +25,15 @@ class FaceGroupsScreen extends StatefulWidget {
     required this.assetRecordStore,
     required this.personStore,
     this.onOpenAsset,
+    this.faceIdentity,
     this.ignored = false,
   });
 
-  final AiAnalysisStore analysisStore;
+  final AiAnalysisStore? analysisStore;
   final AssetRecordStore assetRecordStore;
   final PersonStore personStore;
   final Future<void> Function(String localId)? onOpenAsset;
+  final FaceIdentityService? faceIdentity;
   final bool ignored;
 
   @override
@@ -38,6 +45,7 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
 
   List<StoredFaceGroup> _groups = const [];
   Map<String, AssetRecord> _records = const {};
+  List<Person> _ignoredPeople = const [];
   int _ignoredCount = 0;
   bool _loaded = false;
   bool _selecting = false;
@@ -58,19 +66,27 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
   }
 
   Future<void> _load() async {
-    final found = await loadFaceGroups(
-      widget.analysisStore,
-      widget.assetRecordStore,
-      ignored: widget.ignored,
-    );
-    final ignored = widget.ignored
+    final analysis = widget.analysisStore;
+    final found = analysis == null
+        ? (groups: const <StoredFaceGroup>[], records: <String, AssetRecord>{})
+        : await loadFaceGroups(
+            analysis,
+            widget.assetRecordStore,
+            ignored: widget.ignored,
+          );
+    final ignoredGroups = widget.ignored || analysis == null
         ? 0
-        : (await widget.analysisStore.faceGroups(ignored: true)).length;
+        : (await analysis.faceGroups(ignored: true)).length;
+    final ignoredPeople = [
+      for (final p in await widget.personStore.listAll())
+        if (p.ignored) p,
+    ]..sort((a, b) => nameSortKey(a.name).compareTo(nameSortKey(b.name)));
     if (!mounted) return;
     setState(() {
       _groups = found.groups;
       _records = found.records;
-      _ignoredCount = ignored;
+      _ignoredPeople = ignoredPeople;
+      _ignoredCount = ignoredGroups + ignoredPeople.length;
       _loaded = true;
       _picked.retainAll({for (final g in _groups) g.id});
       if (_groups.isEmpty) _selecting = false;
@@ -83,7 +99,7 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
         builder: (_) => ImportedGroupScreen(
           group: group,
           records: _records,
-          analysisStore: widget.analysisStore,
+          analysisStore: widget.analysisStore!,
           assetRecordStore: widget.assetRecordStore,
           personStore: widget.personStore,
           onOpenAsset: widget.onOpenAsset,
@@ -102,6 +118,7 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
           assetRecordStore: widget.assetRecordStore,
           personStore: widget.personStore,
           onOpenAsset: widget.onOpenAsset,
+          faceIdentity: widget.faceIdentity,
           ignored: true,
         ),
       ),
@@ -115,7 +132,7 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
     setState(() => _busy = true);
     try {
       for (final id in _picked) {
-        await widget.analysisStore.ignoreGroup(id, ignored: !widget.ignored);
+        await widget.analysisStore!.ignoreGroup(id, ignored: !widget.ignored);
       }
       _picked.clear();
       _selecting = false;
@@ -124,6 +141,79 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
       if (mounted) setState(() => _busy = false);
     }
   }
+
+  Future<void> _stopIgnoring(Person person) async {
+    await widget.personStore.update(person.copyWith(ignored: false));
+    await _load();
+  }
+
+  Future<void> _openPerson(Person person) async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => PersonPageScreen(
+          person: person,
+          personStore: widget.personStore,
+          assetRecordStore: widget.assetRecordStore,
+          aiAnalysisStore: widget.analysisStore,
+          faceIdentity: widget.faceIdentity,
+        ),
+      ),
+    );
+    await _load();
+  }
+
+  Widget _heading(String text, int count) => Padding(
+    padding: const EdgeInsets.fromLTRB(16, 16, 16, 8),
+    child: Row(
+      children: [
+        Expanded(
+          child: Text(
+            text,
+            style: const TextStyle(
+              fontSize: 13,
+              fontWeight: FontWeight.w600,
+              color: CupertinoColors.systemGrey,
+            ),
+          ),
+        ),
+        Text(
+          '$count',
+          style: const TextStyle(
+            fontSize: 13,
+            color: CupertinoColors.systemGrey,
+          ),
+        ),
+      ],
+    ),
+  );
+
+  Widget _personRow(AppLocalizations l10n, Person person) => Row(
+    children: [
+      Expanded(
+        child: CupertinoListTile(
+          key: ValueKey('people-row-${person.id}'),
+          leadingSize: _faceSize + 4,
+          padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+          leading: PersonAvatar.forPerson(
+            assetRecordStore: widget.assetRecordStore,
+            person: person,
+            size: _faceSize,
+          ),
+          title: Text(person.name, overflow: TextOverflow.ellipsis),
+          onTap: () => _openPerson(person),
+        ),
+      ),
+      CupertinoButton(
+        key: ValueKey('people-unignore-${person.id}'),
+        padding: const EdgeInsets.symmetric(horizontal: 16),
+        onPressed: () => _stopIgnoring(person),
+        child: Text(
+          l10n.faceGroupsUnignore,
+          style: const TextStyle(fontSize: 15),
+        ),
+      ),
+    ],
+  );
 
   void _toggle(String id) => setState(
     () => _picked.contains(id) ? _picked.remove(id) : _picked.add(id),
@@ -212,15 +302,23 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
                   widget.ignored ? 'people-ignored-page' : 'people-faces-page',
                 ),
                 children: [
-                  if (widget.ignored)
+                  if (widget.ignored && _ignoredPeople.isNotEmpty) ...[
+                    _heading(l10n.peopleSectionNamed, _ignoredPeople.length),
+                    for (final p in _ignoredPeople) _personRow(l10n, p),
+                  ],
+                  if (widget.ignored && _groups.isNotEmpty) ...[
+                    _heading(l10n.peopleIgnoredFacesSection, _groups.length),
                     Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 4),
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
                       child: Text(
                         l10n.faceGroupsIgnoredHint,
                         style: settingsHintStyle,
                       ),
                     ),
-                  if (_loaded && _groups.isEmpty)
+                  ],
+                  if (_loaded &&
+                      _groups.isEmpty &&
+                      (!widget.ignored || _ignoredPeople.isEmpty))
                     Padding(
                       padding: const EdgeInsets.only(top: 48),
                       child: Center(

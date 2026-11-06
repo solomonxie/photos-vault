@@ -389,28 +389,6 @@ void main() {
     );
   });
 
-  testWidgets('hiding all of someone\'s photos keeps their profile photo', (
-    tester,
-  ) async {
-    final personStore = FakePersonStore();
-    final mia = await personStore.create(name: 'Mia');
-    await personStore.addAssets(mia.id, ['p1']);
-    final photos = await _withPhotos(['p1']);
-    await tester.pumpWidget(
-      _wrap(PeopleScreen(personStore: personStore, assetRecordStore: photos)),
-    );
-    await tester.pumpAndSettle();
-
-    await tester.longPress(find.text('Mia'));
-    await tester.pumpAndSettle();
-    await tester.tap(find.byKey(const ValueKey('peopleBatchHide')));
-    await tester.pumpAndSettle();
-    expect(
-      find.text('Only their profile photo is left, and it stays.'),
-      findsOneWidget,
-    );
-  });
-
   testWidgets('held, a row is picked to rename, merge or delete', (
     tester,
   ) async {
@@ -505,6 +483,9 @@ void main() {
     await tester.tap(find.byKey(ValueKey('people-unignore-${mia.id}')));
     await tester.pumpAndSettle();
     expect((await personStore.getById(mia.id))!.ignored, isFalse);
+    await tester.pageBack();
+    await tester.pumpAndSettle();
+    expect(find.text('Mia'), findsOneWidget);
   });
 
   testWidgets('backing out of a merge at any step changes nothing', (
@@ -788,8 +769,9 @@ void main() {
 
     expect(find.text('1 Selected'), findsOneWidget);
     expect(find.byKey(ValueKey('people-pick-${mia.id}')), findsOneWidget);
-    expect(find.byKey(const ValueKey('peopleBatchHide')), findsOneWidget);
-    expect(find.byKey(const ValueKey('peopleBatchUnhide')), findsOneWidget);
+    expect(find.byKey(const ValueKey('peopleBatchMerge')), findsOneWidget);
+    expect(find.byKey(const ValueKey('peopleBatchHide')), findsNothing);
+    expect(find.byKey(const ValueKey('peopleBatchUnhide')), findsNothing);
     expect(find.byType(PersonPageScreen), findsNothing, reason: 'a tap picks');
 
     await tester.tap(find.text('Select All'));
@@ -797,7 +779,7 @@ void main() {
     expect(find.text('2 Selected'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('peopleSelectionDone')));
     await tester.pumpAndSettle();
-    expect(find.byKey(const ValueKey('peopleBatchHide')), findsNothing);
+    expect(find.byKey(const ValueKey('peopleBatchMerge')), findsNothing);
   });
 
   Future<FakePersonStore> grouped() async {
@@ -1092,8 +1074,8 @@ void main() {
     await analyses.ignoreGroup('big');
     await tester.pageBack();
     await tester.pumpAndSettle();
-    await _openFaces(tester);
-    await tester.tap(find.byKey(const ValueKey('faceGroupsIgnored')));
+    // Nothing left to name: the one Ignored list is reached from People.
+    await tester.tap(find.byKey(const ValueKey('people-ignored-row')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('people-imported-big')));
     await tester.pumpAndSettle();

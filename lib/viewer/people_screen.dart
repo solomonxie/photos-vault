@@ -18,7 +18,6 @@ import '../photos/person_detail.dart';
 import '../photos/person_store.dart';
 import '../photos/fix_queue.dart';
 import '../photos/people_order.dart';
-import '../photos/people_unhide.dart';
 import '../photos/storage_advice.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
@@ -676,9 +675,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
     ),
   );
 
-  /// Each into their own hidden folder, one code for all of them.
-  Future<void> _hidePicked() => _hidePeople(_picked);
-
   Future<void> _ignorePicked() async {
     for (final person in _people) {
       if (_picked.contains(person.id)) {
@@ -690,8 +686,22 @@ class _PeopleScreenState extends State<PeopleScreen> {
     await _reload();
   }
 
-  Future<void> _stopIgnoring(Person person) async {
-    await widget.personStore.update(person.copyWith(ignored: false));
+  /// One Ignored page for people and unnamed faces alike.
+  Future<void> _openIgnored() async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => FaceGroupsScreen(
+          analysisStore: widget.aiAnalysisStore,
+          assetRecordStore: widget.assetRecordStore,
+          personStore: widget.personStore,
+          onOpenAsset: widget.onOpenAsset,
+          faceIdentity: widget.faceIdentity,
+          ignored: true,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _loadFaceGroups();
     await _reload();
   }
 
@@ -706,7 +716,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
       mainAxisSize: MainAxisSize.min,
       children: [
         Text(
-          '${_ignoredPeople.length}',
+          '${_ignoredPeople.length + _ignoredGroups}',
           style: const TextStyle(color: CupertinoColors.systemGrey),
         ),
         const SizedBox(width: 4),
@@ -717,94 +727,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
         ),
       ],
     ),
-    onTap: () => _openSubpage(
-      l10n.faceGroupsIgnoredTitle,
-      const ValueKey('people-ignored-page'),
-      () => [
-        for (final p in _ignoredPeople)
-          Row(
-            children: [
-              Expanded(child: _personRow(l10n, p)),
-              CupertinoButton(
-                key: ValueKey('people-unignore-${p.id}'),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                onPressed: () => _stopIgnoring(p),
-                child: Text(
-                  l10n.faceGroupsUnignore,
-                  style: const TextStyle(fontSize: 15),
-                ),
-              ),
-            ],
-          ),
-      ],
-    ),
+    onTap: _openIgnored,
   );
-
-  /// Their profile photo stays out: hiding the rest shouldn't leave them
-  /// a grey circle.
-  Future<void> _hidePeople(Set<String> ids) async {
-    final l10n = AppLocalizations.of(context)!;
-    final faces = {
-      for (final person in _people)
-        if (ids.contains(person.id))
-          ?(person.avatarLocalId ?? _firstPhoto[person.id]),
-    };
-    final (records: all, :owner) = _photosOf(ids);
-    final records = [
-      for (final r in all)
-        if (!faces.contains(r.localId)) r,
-    ];
-    if (records.isEmpty) {
-      return _note(
-        all.isEmpty
-            ? l10n.peopleBatchNothingToHide
-            : l10n.peopleHideOnlyProfile,
-      );
-    }
-    final hidden = await hideIntoPrivateAlbum(
-      context,
-      assetRecordStore: widget.assetRecordStore,
-      records: records,
-      codeForRecord: (digits, r) => personAlbumCode(owner[r.localId]!, digits),
-      onSettled: () {
-        if (mounted) _reload();
-      },
-    );
-    if (!mounted) return;
-    if (hidden) _endSelecting();
-    await _reload();
-  }
-
-  Future<void> _unhidePicked() async {
-    final l10n = AppLocalizations.of(context)!;
-    final digits = await showPrivateAlbumPasscodeSheet(
-      context,
-      title: l10n.peopleBatchUnhideTitle,
-    );
-    if (digits == null || !mounted) return;
-    final ids = [
-      for (final person in _people)
-        if (_picked.contains(person.id)) person.id,
-    ];
-    final result = await PeopleUnhide(
-      store: widget.assetRecordStore,
-      personStore: widget.personStore,
-    ).run(ids, digits);
-    if (!mounted) return;
-    await _reload();
-    if (!mounted) return;
-    await _note(
-      [
-        if (result.returned == 0 && result.failed == 0 && result.skipped == 0)
-          l10n.peopleBatchUnhideNone
-        else
-          l10n.peopleBatchUnhideDone(result.returned),
-        if (result.failed > 0) l10n.peopleBatchUnhideFailed(result.failed),
-        if (result.skipped > 0) l10n.peopleBatchUnhideSkipped(result.skipped),
-      ].join('\n'),
-    );
-    if (result.returned > 0) _endSelecting();
-  }
 
   /// Twice asked: a profile, its details and links don't come back. Anyone
   /// with a hidden folder is left, as on their profile.
@@ -1595,8 +1519,6 @@ class _PeopleScreenState extends State<PeopleScreen> {
                 bottom: 0,
                 child: _PeopleSelectionBar(
                   count: _picked.length,
-                  onHide: _hidePicked,
-                  onUnhide: _unhidePicked,
                   onMerge: _mergePicked,
                   onEdit: _editPicked,
                   onRename: _renamePicked,
@@ -1867,9 +1789,9 @@ class _PeopleScreenState extends State<PeopleScreen> {
           ),
           onTap: _openUngrouped,
         ),
-      if (_ignoredPeople.isNotEmpty && query.isEmpty) _ignoredRow(l10n),
-      if ((_imported.isNotEmpty || _ignoredGroups > 0) && query.isEmpty)
-        _facesRow(l10n),
+      if (_ignoredPeople.length + _ignoredGroups > 0 && query.isEmpty)
+        _ignoredRow(l10n),
+      if (_imported.isNotEmpty && query.isEmpty) _facesRow(l10n),
       if (_people.isNotEmpty) _sectionHeading(l10n.peopleSectionNamed),
       if (!_loaded)
         const Padding(
@@ -1975,8 +1897,6 @@ class _PeopleSelectionBar extends StatelessWidget {
 
   const _PeopleSelectionBar({
     required this.count,
-    required this.onHide,
-    required this.onUnhide,
     required this.onMerge,
     required this.onEdit,
     required this.onRename,
@@ -1989,8 +1909,6 @@ class _PeopleSelectionBar extends StatelessWidget {
   });
 
   final int count;
-  final VoidCallback onHide;
-  final VoidCallback onUnhide;
   final VoidCallback onMerge;
   final VoidCallback onEdit;
   final VoidCallback onRename;
@@ -2064,18 +1982,6 @@ class _PeopleSelectionBar extends StatelessWidget {
           ),
           Row(
             children: [
-              action(
-                CupertinoIcons.eye_slash,
-                l10n.libraryHide,
-                onHide,
-                const ValueKey('peopleBatchHide'),
-              ),
-              action(
-                CupertinoIcons.eye,
-                l10n.peopleBatchUnhide,
-                onUnhide,
-                const ValueKey('peopleBatchUnhide'),
-              ),
               action(
                 CupertinoIcons.person_2,
                 l10n.peopleBatchMerge,

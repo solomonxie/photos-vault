@@ -1233,16 +1233,8 @@
   "peopleNoDate": "无日期",
   "peopleShowAll": "显示全部 {count} 人",
   "peopleSelectHint": "点人物即可选择。",
-  "peopleBatchUnhide": "取消隐藏",
   "peopleBatchFreeUp": "从本机移除",
   "peopleBatchOptimize": "优化",
-  "peopleBatchNothingToHide": "图库中没有他们可隐藏的照片。",
-  "peopleHideOnlyProfile": "只剩头像照片，头像会保留。",
-  "peopleBatchUnhideTitle": "他们隐藏文件夹的密码",
-  "peopleBatchUnhideNone": "该密码下没有他们的隐藏照片。",
-  "peopleBatchUnhideDone": "{count} 张照片已回到对应人物。",
-  "peopleBatchUnhideFailed": "{count} 张无法恢复。",
-  "peopleBatchUnhideSkipped": "{count} 张旧版归档照片需打开该人物的隐藏文件夹处理。",
   "peopleBatchNothingToFree": "他们的照片中没有既已备份又在本机上的。",
   "peopleBatchNothingToOptimize": "上次存储扫描中没有他们可优化的照片。可在“建议”中重新扫描。",
   "mergePeopleTitle": "合并人物",
@@ -1687,5 +1679,7 @@
   "selectionMovedToPerson": "已将 {count} 张照片移到{name}的页面，不再出现在你的图库中。",
   "personOnlyHere": "仅此处",
   "selectionSelectAllConfirm": "全选 {count} 项？",
-  "privateAlbumBucketOnly": "仅在存储桶中 · {count} 张 · 轻点打开"
+  "privateAlbumBucketOnly": "仅在存储桶中 · {count} 张 · 轻点打开",
+  "relationshipViaGroup": "来自「{group}」",
+  "peopleIgnoredFacesSection": "未命名人脸"
 }
