@@ -2002,7 +2002,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           onDelete: () => _leaveGroup(l10n, group),
           child: CupertinoListTile(
             title: Text(_groupLinkTitle(l10n, group)),
-            subtitle: Text(groupKindLabel(l10n, group.kind)),
+            subtitle: Text(groupSubtitle(l10n, group)),
             additionalInfo: Text(
               l10n.profileGroupPeople(_othersIn(group).length),
             ),

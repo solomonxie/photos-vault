@@ -229,6 +229,7 @@ class FakePersonStore implements PersonStore {
     String groupId, {
     String? name,
     GroupKind? kind,
+    ({DateTime? start, DateTime? end})? range,
   }) async {
     for (final list in groups.values) {
       for (var i = 0; i < list.length; i++) {
@@ -238,6 +239,8 @@ class FakePersonStore implements PersonStore {
           id: g.id,
           name: name ?? g.name,
           kind: kind ?? g.kind,
+          start: range == null ? g.start : range.start,
+          end: range == null ? g.end : range.end,
         );
       }
     }
@@ -361,6 +364,7 @@ class FakePersonStore implements PersonStore {
         ])
         ..locations.addAll(await locationsFor(id))
         ..relationships.addAll(await relationshipsFor(id))
+        ..groups.addAll(await groupsFor(id))
         ..sealed.addAll(await sealedRowsFor(id)),
   };
 

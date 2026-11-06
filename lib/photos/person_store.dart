@@ -253,6 +253,15 @@ class PersonStore {
         'ALTER TABLE $_personTable ADD COLUMN ignored INTEGER NOT NULL DEFAULT 0',
       );
     }
+    final groupColumns = {
+      for (final c in await db.rawQuery('PRAGMA table_info($_groupTable)'))
+        c['name'] as String,
+    };
+    for (final column in const ['start_date', 'end_date']) {
+      if (!groupColumns.contains(column)) {
+        await db.execute('ALTER TABLE $_groupTable ADD COLUMN $column INTEGER');
+      }
+    }
     // Whether a photo is on someone because one of its faces was named
     // them: taking the name off the face takes it off them, and only then.
     if (!(await db.rawQuery('PRAGMA table_info($_memberTable)'))
@@ -332,6 +341,8 @@ class PersonStore {
         'group_id',
         'name',
         'kind',
+        'start_date',
+        'end_date',
       ], private: "{row}.passcode_hash != '' OR $_privateOwnerSql"),
       CaptureSpec(
         _relationshipTable,
@@ -1424,8 +1435,10 @@ class PersonStore {
       );
       await txn.rawInsert(
         'INSERT OR IGNORE INTO $_groupTable '
-        '(person_id, group_id, passcode_hash, payload, name, kind) '
-        'SELECT ?, group_id, passcode_hash, payload, name, kind '
+        '(person_id, group_id, passcode_hash, payload, name, kind, '
+        'start_date, end_date) '
+        'SELECT ?, group_id, passcode_hash, payload, name, kind, '
+        'start_date, end_date '
         'FROM $_groupTable WHERE person_id = ?',
         [keepId, goneId],
       );
@@ -2048,6 +2061,13 @@ class PersonStore {
     )) {
       of(row['person_id']).relationships.add(_relationshipFromRow(row));
     }
+    for (final row in await db.query(
+      _groupTable,
+      where: open,
+      whereArgs: openArgs,
+    )) {
+      of(row['person_id']).groups.add(_groupOf(row));
+    }
     for (final table in _sealedTables) {
       for (final row in await db.query(table, where: "passcode_hash != ''")) {
         of(row['person_id']).sealed.add({'table': table, ...row});
@@ -2259,8 +2279,18 @@ class PersonStore {
           'group_id': group.id,
           'passcode_hash': passcodeHash,
         },
-        content: {'name': group.name, 'kind': group.kind.name},
-        blanks: const {'name': '', 'kind': ''},
+        content: {
+          'name': group.name,
+          'kind': group.kind.name,
+          'start_date': group.start?.millisecondsSinceEpoch,
+          'end_date': group.end?.millisecondsSinceEpoch,
+        },
+        blanks: const {
+          'name': '',
+          'kind': '',
+          'start_date': null,
+          'end_date': null,
+        },
         passcodeHash: passcodeHash,
         keys: keys,
       ),
@@ -2268,17 +2298,26 @@ class PersonStore {
     );
   }
 
-  /// Renames, or re-kinds, the open set's group for everyone in it.
+  /// Renames, re-kinds or re-dates the open set's group for everyone in it.
+  /// A [range] end left null clears it.
   Future<void> updateGroup(
     String groupId, {
     String? name,
     GroupKind? kind,
+    ({DateTime? start, DateTime? end})? range,
   }) async {
-    if (name == null && kind == null) return;
+    if (name == null && kind == null && range == null) return;
     final db = await _open();
     await db.update(
       _groupTable,
-      {'name': ?name, 'kind': ?kind?.name},
+      {
+        'name': ?name,
+        'kind': ?kind?.name,
+        if (range != null) ...{
+          'start_date': range.start?.millisecondsSinceEpoch,
+          'end_date': range.end?.millisecondsSinceEpoch,
+        },
+      },
       where: 'group_id = ? AND passcode_hash = ?',
       whereArgs: [groupId, openNamespace],
     );
@@ -2341,15 +2380,7 @@ class PersonStore {
       final content = _contentOf(row, passcodeHash, keys);
       if (content == null) continue;
       final id = content['group_id'] as String;
-      byId[id] ??= PersonGroup(
-        id: id,
-        name: content['name'] as String? ?? '',
-        kind:
-            GroupKind.values
-                .where((k) => k.name == content['kind'] as String?)
-                .firstOrNull ??
-            GroupKind.circle,
-      );
+      byId[id] ??= _groupOf(content);
       (members[id] ??= []).add(content['person_id'] as String);
     }
     return {
@@ -2364,16 +2395,24 @@ class PersonStore {
   ) => [
     for (final row in rows)
       if (_contentOf(row, passcodeHash, keys) case final content?)
-        PersonGroup(
-          id: content['group_id'] as String,
-          name: content['name'] as String? ?? '',
-          kind:
-              GroupKind.values
-                  .where((k) => k.name == content['kind'] as String?)
-                  .firstOrNull ??
-              GroupKind.circle,
-        ),
+        _groupOf(content),
   ];
+
+  static PersonGroup _groupOf(Map<String, Object?> content) {
+    DateTime? day(Object? ms) =>
+        ms is int ? DateTime.fromMillisecondsSinceEpoch(ms) : null;
+    return PersonGroup(
+      id: content['group_id'] as String,
+      name: content['name'] as String? ?? '',
+      kind:
+          GroupKind.values
+              .where((k) => k.name == content['kind'] as String?)
+              .firstOrNull ??
+          GroupKind.circle,
+      start: day(content['start_date']),
+      end: day(content['end_date']),
+    );
+  }
 
   // --- Events ---
 
@@ -2595,6 +2634,7 @@ class PersonExportSet {
   final history = <PersonHistoryEntry>[];
   final locations = <PersonLocation>[];
   final relationships = <PersonRelationship>[];
+  final groups = <PersonGroup>[];
   final sealed = <Map<String, Object?>>[];
 }
 

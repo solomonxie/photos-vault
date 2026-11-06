@@ -6,6 +6,9 @@ import 'dart:typed_data';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/l10n/app_localizations.dart';
+import 'package:photos_vault/photos/person.dart';
+import 'package:photos_vault/photos/person_owner.dart';
+import 'package:photos_vault/photos/person_store.dart';
 import 'package:photos_vault/photos/photo_library_service.dart';
 import 'package:photos_vault/photos/record_fixer.dart';
 import 'package:photos_vault/photos/storage_advice.dart';
@@ -191,6 +194,51 @@ void main() {
       find.descendant(of: row, matching: find.text('1 photo')),
       findsOneWidget,
     );
+  });
+
+  testWidgets('Started from groups: pick, apply, and the row goes', (
+    tester,
+  ) async {
+    final store = await seeded();
+    final people = FakePersonStore();
+    final me = await people.create(name: 'Me', id: 'me');
+    final mia = await people.create(name: 'Mia', id: 'mia');
+    final dan = await people.create(name: 'Dan', id: 'dan');
+    await store.setAppState(PersonOwner.key, me.id);
+    final school = PersonGroup(
+      id: 'g',
+      name: 'School',
+      kind: GroupKind.school,
+      start: DateTime(2010, 9, 1),
+    );
+    for (final p in [me, mia, dan]) {
+      await people.joinGroup(p.id, school, scope: PersonScope.open);
+    }
+    await people.markMet(dan.id, DateTime(2005));
+    await open(tester, store, people: people);
+
+    final row = find.byKey(const ValueKey('suggestions-started-from-groups'));
+    await tester.ensureVisible(row);
+    expect(
+      find.descendant(of: row, matching: find.text('1 person')),
+      findsOneWidget,
+    );
+    await tester.tap(row);
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('started-dan')), findsNothing);
+    expect(find.textContaining('From School'), findsOneWidget);
+
+    await tester.tap(find.byKey(const ValueKey('started-mia')));
+    await tester.pump();
+    await tester.tap(find.byKey(const ValueKey('startedApply')));
+    await tester.pumpAndSettle();
+
+    expect((await people.openEventSpans())[mia.id]?.firstMet, school.start);
+    expect(find.byKey(const ValueKey('startedEmpty')), findsOneWidget);
+
+    await tester.tap(find.byType(CupertinoNavigationBarBackButton));
+    await tester.pumpAndSettle();
+    expect(row, findsNothing);
   });
 
   testWidgets('Rescan keeps the list on screen until the new one lands', (

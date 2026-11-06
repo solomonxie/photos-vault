@@ -434,4 +434,30 @@ void main() {
       isEmpty,
     );
   });
+  test('a sealed group keeps its range sealed, and opens with it', () async {
+    final store = newStore();
+    final mia = await store.create(name: 'Mia');
+    final work = hashPasscode('1111');
+    final keys = _keysFor('1111');
+    await store.joinGroup(
+      mia.id,
+      PersonGroup(
+        id: 'g',
+        name: 'Secret Club',
+        kind: GroupKind.circle,
+        start: DateTime(2012, 5, 1),
+      ),
+      scope: PersonScope.sealed(work, keys),
+    );
+    final row = (await store.sealedRowsFor(mia.id)).single;
+    expect(row['start_date'], isNull);
+    expect(row['name'], '');
+    final g = (await store.groupsFor(
+      mia.id,
+      passcodeHash: work,
+      keys: keys,
+    )).single;
+    expect((g.name, g.start), ('Secret Club', DateTime(2012, 5, 1)));
+    expect(await store.allGroups(), isEmpty);
+  });
 }

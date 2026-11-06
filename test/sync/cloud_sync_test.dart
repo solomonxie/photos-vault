@@ -19,6 +19,7 @@ import 'package:photos_vault/sync/cloud_sync.dart';
 import 'package:photos_vault/sync/op.dart';
 import 'package:photos_vault/sync/segment.dart';
 import 'package:photos_vault/sync/sync_store.dart';
+import 'package:photos_vault/sync/translate.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 import '../settings/fake_secure_store.dart';
@@ -457,6 +458,42 @@ void main() {
           {'Lisbon', 'Only on B'},
         );
       }
+    });
+
+    test('a group range syncs, and a change to it comes back', () async {
+      final a = await phone('a');
+      final m = await mia(a);
+      await a.people.updateGroup(
+        'g1',
+        range: (start: DateTime(2010, 9, 1), end: DateTime(2014, 6, 1)),
+      );
+      await a.sync.enable(home);
+      final b = await phone('b');
+      await b.sync.enable(home);
+      var g = (await b.people.groupsFor(m.id)).single;
+      expect((g.start, g.end), (DateTime(2010, 9, 1), DateTime(2014, 6, 1)));
+
+      await b.people.updateGroup(
+        'g1',
+        range: (start: DateTime(2009), end: null),
+      );
+      await b.sync.round();
+      await a.sync.round();
+      g = (await a.people.groupsFor(m.id)).single;
+      expect((g.name, g.start, g.end), ('Uni', DateTime(2009), null));
+    });
+
+    test('an undated group is the same member it was before ranges', () {
+      expect(
+        profileMember('person_group', {
+          'group_id': 'g',
+          'name': 'Uni',
+          'kind': 'school',
+          'start_date': null,
+          'end_date': null,
+        }),
+        '{"group_id":"g","name":"Uni","kind":"school"}',
+      );
     });
 
     test('a profile behind a passcode never leaves the phone', () async {

@@ -1,4 +1,5 @@
 import 'package:flutter/cupertino.dart';
+import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
@@ -12,7 +13,7 @@ import 'person_page_screen.dart';
 import 'profile_chip.dart' show groupKindLabel;
 import 'search_picker_sheet.dart';
 
-/// One group: its name and kind to change, who is in it, people to add or
+/// One group: its name, kind and dates to change, who is in it, people to add or
 /// take out, and the group itself to delete. Open set only.
 class GroupScreen extends StatefulWidget {
   const GroupScreen({
@@ -33,6 +34,8 @@ class GroupScreen extends StatefulWidget {
 class _GroupScreenState extends State<GroupScreen> {
   late final _name = TextEditingController(text: widget.group.name);
   late GroupKind _kind = widget.group.kind;
+  late DateTime? _start = widget.group.start;
+  late DateTime? _end = widget.group.end;
   List<Person> _members = const [];
   List<Person> _everyone = const [];
   Map<String, List<String>> _photos = const {};
@@ -60,11 +63,18 @@ class _GroupScreenState extends State<GroupScreen> {
       for (final e in groups.entries)
         if (e.key.id == widget.group.id) ...e.value,
     };
+    final stored = groups.keys
+        .where((g) => g.id == widget.group.id)
+        .firstOrNull;
     final everyone = await widget.personStore.listAll()
       ..sort((a, b) => a.name.toLowerCase().compareTo(b.name.toLowerCase()));
     final photos = await widget.personStore.allMemberships();
     if (!mounted) return;
     setState(() {
+      if (stored != null) {
+        _start = stored.start;
+        _end = stored.end;
+      }
       _everyone = everyone;
       _photos = photos;
       _setMembers([
@@ -85,11 +95,45 @@ class _GroupScreenState extends State<GroupScreen> {
     await widget.personStore.updateGroup(widget.group.id, kind: kind);
   }
 
+  Future<void> _pickDate({required bool start}) async {
+    final picked = await _pickDay(context, start ? _start : _end);
+    if (picked == null || !mounted) return;
+    setState(() {
+      if (start) {
+        _start = picked.value;
+      } else {
+        _end = picked.value;
+      }
+    });
+    await widget.personStore.updateGroup(
+      widget.group.id,
+      range: (start: _start, end: _end),
+    );
+  }
+
   PersonGroup get _current => PersonGroup(
     id: widget.group.id,
     name: _name.text.trim().isEmpty ? widget.group.name : _name.text.trim(),
     kind: _kind,
+    start: _start,
+    end: _end,
   );
+
+  Widget _dateRow(AppLocalizations l10n, {required bool start}) {
+    final value = start ? _start : _end;
+    return CupertinoListTile(
+      key: ValueKey(start ? 'groupStart' : 'groupEnd'),
+      backgroundColor: settingsPageBackground,
+      padding: const EdgeInsets.symmetric(vertical: 6),
+      leading: Icon(start ? CupertinoIcons.calendar : CupertinoIcons.flag),
+      title: Text(start ? l10n.groupStart : l10n.groupEnd),
+      additionalInfo: Text(
+        value == null ? l10n.groupDateNone : DateFormat.yMMMd().format(value),
+      ),
+      trailing: const CupertinoListTileChevron(),
+      onTap: () => _pickDate(start: start),
+    );
+  }
 
   Future<void> _add() async {
     final l10n = AppLocalizations.of(context)!;
@@ -295,6 +339,8 @@ class _GroupScreenState extends State<GroupScreen> {
               },
             ),
             const SizedBox(height: 12),
+            _dateRow(l10n, start: true),
+            _dateRow(l10n, start: false),
             if (_groupPhotos.isNotEmpty)
               CupertinoListTile(
                 key: const ValueKey('groupPhotos'),
@@ -372,4 +418,50 @@ class _GroupScreenState extends State<GroupScreen> {
       ),
     );
   }
+}
+
+/// A day, or no day: null when dismissed, a record (even holding null)
+/// when chosen.
+Future<({DateTime? value})?> _pickDay(BuildContext context, DateTime? initial) {
+  final l10n = AppLocalizations.of(context)!;
+  final from = initial ?? DateTime.now();
+  var chosen = DateTime(from.year, from.month, from.day);
+  return showCupertinoModalPopup<({DateTime? value})>(
+    context: context,
+    builder: (sheet) => Container(
+      height: 300,
+      color: CupertinoColors.systemBackground.resolveFrom(sheet),
+      child: SafeArea(
+        top: false,
+        child: Column(
+          children: [
+            Row(
+              children: [
+                CupertinoButton(
+                  key: const ValueKey('groupDateClear'),
+                  onPressed: () => Navigator.of(sheet).pop((value: null)),
+                  child: Text(l10n.actionClear),
+                ),
+                const Spacer(),
+                CupertinoButton(
+                  key: const ValueKey('groupDateDone'),
+                  onPressed: () => Navigator.of(sheet).pop((value: chosen)),
+                  child: Text(l10n.actionDone),
+                ),
+              ],
+            ),
+            Expanded(
+              child: CupertinoDatePicker(
+                mode: CupertinoDatePickerMode.date,
+                initialDateTime: chosen,
+                minimumYear: 1900,
+                onDateTimeChanged: (d) =>
+                    chosen = DateTime(d.year, d.month, d.day),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ),
+  );
 }

@@ -106,3 +106,16 @@ String groupKindLabel(AppLocalizations l10n, GroupKind kind) => switch (kind) {
   GroupKind.school => l10n.groupKindSchool,
   GroupKind.circle => l10n.groupKindCircle,
 };
+
+/// "2010–2014", "2018–", "–2014", or empty.
+String groupRangeLabel(PersonGroup group) {
+  final (start, end) = (group.start, group.end);
+  if (start == null && end == null) return '';
+  return '${start?.year ?? ''}–${end?.year ?? ''}';
+}
+
+/// "School · 2010–2014".
+String groupSubtitle(AppLocalizations l10n, PersonGroup group) => [
+  groupKindLabel(l10n, group.kind),
+  groupRangeLabel(group),
+].where((s) => s.isNotEmpty).join(' · ');

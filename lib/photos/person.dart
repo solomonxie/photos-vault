@@ -191,13 +191,32 @@ RelationshipType relationshipForGroup(GroupKind kind) => switch (kind) {
 };
 
 class PersonGroup {
-  const PersonGroup({required this.id, required this.name, required this.kind});
+  const PersonGroup({
+    required this.id,
+    required this.name,
+    required this.kind,
+    this.start,
+    this.end,
+  });
 
   final String id;
   final String name;
   final GroupKind kind;
 
-  Map<String, Object?> toJson() => {'id': id, 'name': name, 'kind': kind.name};
+  /// When it ran, to the day; either end may be open.
+  final DateTime? start;
+  final DateTime? end;
+
+  PersonGroup withRange(DateTime? start, DateTime? end) =>
+      PersonGroup(id: id, name: name, kind: kind, start: start, end: end);
+
+  Map<String, Object?> toJson() => {
+    'id': id,
+    'name': name,
+    'kind': kind.name,
+    if (start != null) 'start': _day(start!),
+    if (end != null) 'end': _day(end!),
+  };
 
   static PersonGroup fromJson(Map<String, Object?> json) => PersonGroup(
     id: json['id'] as String? ?? '',
@@ -207,7 +226,19 @@ class PersonGroup {
             .where((k) => k.name == json['kind'] as String?)
             .firstOrNull ??
         GroupKind.circle,
+    start: _parseDay(json['start']),
+    end: _parseDay(json['end']),
   );
+
+  static String _day(DateTime d) =>
+      '${d.year.toString().padLeft(4, '0')}-'
+      '${d.month.toString().padLeft(2, '0')}-'
+      '${d.day.toString().padLeft(2, '0')}';
+
+  static DateTime? _parseDay(Object? v) {
+    final d = v is String ? DateTime.tryParse(v) : null;
+    return d == null ? null : DateTime(d.year, d.month, d.day);
+  }
 }
 
 /// Where a [Person] has lived — an origin or a relocation, never a trip.

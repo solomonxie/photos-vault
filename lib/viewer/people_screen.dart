@@ -1294,7 +1294,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
       CupertinoListTile(
         key: ValueKey('people-group-${group.id}'),
         title: Text(group.name),
-        subtitle: Text(groupKindLabel(l10n, group.kind)),
+        subtitle: Text(groupSubtitle(l10n, group)),
         trailing: Row(
           mainAxisSize: MainAxisSize.min,
           children: [

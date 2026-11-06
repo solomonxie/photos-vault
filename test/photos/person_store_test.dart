@@ -609,4 +609,66 @@ void main() {
       expect((await store.localIdsIn(mia.id)).toSet(), {'manual', 'both'});
     },
   );
+  test('a group range: new members inherit it, updateGroup moves it on '
+      'every row and clears it', () async {
+    final store = newStore();
+    final mia = await store.create(name: 'Mia');
+    final dan = await store.create(name: 'Dan');
+    final school = PersonGroup(
+      id: 'g',
+      name: 'School',
+      kind: GroupKind.school,
+      start: DateTime(2010, 9, 1),
+      end: DateTime(2014, 6, 30),
+    );
+    await store.joinGroup(mia.id, school, scope: PersonScope.open);
+    final stored = (await store.allGroups()).keys.single;
+    expect((stored.start, stored.end), (school.start, school.end));
+    await store.joinGroup(dan.id, stored, scope: PersonScope.open);
+    expect((await store.groupsFor(dan.id)).single.start, DateTime(2010, 9, 1));
+
+    await store.updateGroup(
+      'g',
+      range: (start: DateTime(2009, 9, 1), end: null),
+    );
+    for (final id in [mia.id, dan.id]) {
+      final g = (await store.groupsFor(id)).single;
+      expect((g.start, g.end), (DateTime(2009, 9, 1), null));
+      expect(g.name, 'School');
+    }
+    await store.updateGroup('g', name: 'High School');
+    expect((await store.groupsFor(dan.id)).single.start, DateTime(2009, 9, 1));
+  });
+
+  test('a group range survives a person merge and the export', () async {
+    final store = newStore();
+    final keep = await store.create(name: 'Mia');
+    final gone = await store.create(name: 'Mia C');
+    await store.joinGroup(
+      gone.id,
+      PersonGroup(
+        id: 'g',
+        name: 'Acme',
+        kind: GroupKind.company,
+        start: DateTime(2018),
+      ),
+      scope: PersonScope.open,
+    );
+    await store.merge(keep.id, gone.id);
+    expect((await store.groupsFor(keep.id)).single.start, DateTime(2018));
+    final sets = await store.exportSets();
+    expect(sets[keep.id]!.groups.single.start, DateTime(2018));
+  });
+
+  test('PersonGroup JSON keeps the range to the day', () {
+    final g = PersonGroup(
+      id: 'g',
+      name: 'Acme',
+      kind: GroupKind.company,
+      start: DateTime(2018, 4, 2),
+    );
+    final back = PersonGroup.fromJson(g.toJson());
+    expect((back.start, back.end), (DateTime(2018, 4, 2), null));
+    expect(g.toJson().containsKey('end'), isFalse);
+  });
 }

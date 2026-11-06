@@ -167,6 +167,8 @@ apply in one local transaction, then advance vv; a crash mid-apply → reapply (
   `person_alias`, `person_group`, `person_relationship` ride as OR-set
   members on their person: the row's columns as JSON, so an edit is
   `mrem` old + `madd` new. Sealed rows and private/demo people never leave.
+- Columns added later (`person_group.start_date`/`end_date`) are left out
+  of the member JSON while null, so older members keep matching.
 - `profile: 1` marks a person whose rows are in the log. Without it the
   applier leaves that person's rows alone: empty means "never sent".
 - A phone that synced before sends its rows once (`profiles_joined`),

@@ -792,6 +792,7 @@ class AppSnapshotIo {
             'organization': r.organization,
           },
       ],
+      'groups': [for (final g in set.groups) g.toJson()],
     };
   }
 
@@ -874,6 +875,13 @@ class AppSnapshotIo {
         ),
         scope: PersonScope.open,
       );
+    }
+    for (final group
+        in (row['groups'] as List<dynamic>? ?? const [])
+            .whereType<Map<String, Object?>>()) {
+      final g = PersonGroup.fromJson(group);
+      if (g.id.isEmpty) continue;
+      await personStore.joinGroup(id, g, scope: PersonScope.open);
     }
     await personStore.rememberKnownAs([
       for (final k

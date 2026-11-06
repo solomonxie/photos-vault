@@ -74,19 +74,29 @@ const profileSets = {
   'person_location': ('places', ['id', 'kind', 'place', 'since']),
   'person_known_as': ('known_as', ['kind', 'key', 'value', 'added_at']),
   'person_alias': ('aliases', ['alias_id']),
-  'person_group': ('groups', ['group_id', 'name', 'kind']),
+  'person_group': (
+    'groups',
+    ['group_id', 'name', 'kind', 'start_date', 'end_date'],
+  ),
   'person_relationship': (
     'relations',
     ['related_person_id', 'type', 'organization', 'created_at'],
   ),
 };
 
+/// Columns added after their set first synced: left out while empty, so a
+/// row without them is the same member it always was.
+const profileLateColumns = {'start_date', 'end_date'};
+
 /// One profile row as its set member: the same JSON from the same row on
 /// every phone, so a removal names exactly what was added.
 String profileMember(String table, Map<String, Object?> row) {
   final cols = profileSets[table]!.$2;
   if (cols.length == 1) return '${row[cols.single]}';
-  return jsonEncode({for (final c in cols) c: row[c]});
+  return jsonEncode({
+    for (final c in cols)
+      if (row[c] != null || !profileLateColumns.contains(c)) c: row[c],
+  });
 }
 
 /// Columns the capture triggers record, per table.

@@ -20,6 +20,7 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'album_suggestions_screen.dart';
 import 'merge_people_screen.dart';
+import 'started_suggestions_screen.dart';
 import 'suggestion_action_screen.dart';
 import 'suggestion_copy.dart';
 import 'library_index.dart';
@@ -171,6 +172,26 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
   List<AssetRecord> _archivedOnPhone = const [];
 
   List<MergeSuggestion> _merges = const [];
+  int _started = 0;
+
+  Future<void> _loadStarted() async {
+    final people = widget.personStore;
+    if (people == null) return;
+    final found = await loadStartedSuggestions(people, widget.store);
+    if (mounted) setState(() => _started = found.length);
+  }
+
+  Future<void> _openStarted() async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => StartedSuggestionsScreen(
+          personStore: widget.personStore!,
+          assetRecordStore: widget.store,
+        ),
+      ),
+    );
+    await _loadStarted();
+  }
 
   /// Bounded by the number of people, not photos: every pair once.
   Future<void> _loadMerges() async {
@@ -210,6 +231,7 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
 
   Future<void> _loadSuggestions() async {
     unawaited(_loadMerges());
+    unawaited(_loadStarted());
     final all = await widget.store.listAll();
     // A person's photos stay on the phone: their page is looked at.
     final onPeople = {
@@ -279,7 +301,8 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
     await _loadSuggestions();
   }
 
-  bool get _organizing => _suggestions.isNotEmpty || _merges.isNotEmpty;
+  bool get _organizing =>
+      _suggestions.isNotEmpty || _merges.isNotEmpty || _started > 0;
 
   /// Albums to make, people to merge or group: tidying rather than fixing,
   /// under one heading.
@@ -323,6 +346,17 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
             body: l10n.mergePeopleHow,
             amount: l10n.mergePeopleAmount(_merges.length),
             onTap: _openMerges,
+          ),
+        ),
+      if (_started > 0)
+        card(
+          _ActionRow(
+            key: const ValueKey('suggestions-started-from-groups'),
+            icon: CupertinoIcons.calendar_badge_plus,
+            title: l10n.startedSuggestTitle,
+            body: l10n.startedSuggestHow,
+            amount: l10n.startedSuggestAmount(_started),
+            onTap: _openStarted,
           ),
         ),
     ];
