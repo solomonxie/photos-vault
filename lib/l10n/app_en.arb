@@ -1381,7 +1381,7 @@
   "peopleSortMenu": "Sort…",
   "peopleSortTitle": "Sort People",
   "peopleSortPhotos": "Photos",
-  "peopleSortFirstMet": "Met",
+  "peopleSortFirstMet": "Started",
   "peopleSortLastSeen": "Recent",
   "peopleSortName": "Name",
   "peopleMetOn": "met {date}",

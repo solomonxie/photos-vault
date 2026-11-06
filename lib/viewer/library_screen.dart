@@ -1624,7 +1624,8 @@ class LibraryScreenState extends State<LibraryScreen>
     // In the order People is in. Re-sorted only when what it sorts by can
     // have moved: one pass over memberships, not per frame.
     final sort = await loadPeopleSort(assetRecordStore);
-    if (countsStale || sort != _peopleSort) {
+    final reversed = await loadPeopleReversed(assetRecordStore);
+    if (countsStale || sort != _peopleSort || reversed != _peopleReversed) {
       final dated = sort == PeopleSort.firstMet || sort == PeopleSort.lastSeen;
       final dates = dated
           ? knownDates(
@@ -1645,11 +1646,13 @@ class LibraryScreenState extends State<LibraryScreen>
             : const {},
         firstKnown: dates?.first ?? const {},
         lastKnown: dates?.last ?? const {},
+        reversed: reversed,
       );
       if (!_samePeople(sorted, people) || !identical(people, _people)) {
         people = sorted;
       }
       _peopleSort = sort;
+      _peopleReversed = reversed;
     }
     if (!mounted) return;
     _reloadedAll = all;
@@ -1760,6 +1763,7 @@ class LibraryScreenState extends State<LibraryScreen>
   Map<String, List<String>> _albumsOf = const {};
   Object? _personStamp;
   PeopleSort? _peopleSort;
+  bool _peopleReversed = false;
   Map<String, List<String>> _personMembers = const {};
   Set<String> _tagged = const {};
 

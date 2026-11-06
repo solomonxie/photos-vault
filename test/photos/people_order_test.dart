@@ -26,6 +26,24 @@ void main() {
     expect([for (final p in people) p.id], ['3', '2', '1']);
   });
 
+  test('reversed runs the other way, undated still last', () {
+    final people = [_p('1', 'A'), _p('2', 'B'), _p('3', 'C')];
+    sortPeople(
+      people,
+      PeopleSort.photos,
+      counts: {'1': 3, '2': 9, '3': 1},
+      reversed: true,
+    );
+    expect([for (final p in people) p.id], ['3', '1', '2']);
+    sortPeople(
+      people,
+      PeopleSort.lastSeen,
+      lastKnown: {'1': DateTime(2020), '3': DateTime(2024)},
+      reversed: true,
+    );
+    expect([for (final p in people) p.id], ['1', '3', '2']);
+  });
+
   test('Chinese names file under their pinyin initial', () {
     expect(nameInitial('王小明'), 'W');
     expect(nameInitial('wendy'), 'W');

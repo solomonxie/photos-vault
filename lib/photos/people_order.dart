@@ -10,6 +10,7 @@ import 'person_store.dart';
 enum PeopleSort { photos, messages, firstMet, lastSeen, name }
 
 const peopleSortKey = 'people_sort_v1';
+const peopleSortReversedKey = 'people_sort_reversed_v1';
 
 Future<PeopleSort> loadPeopleSort(AssetRecordStore store) async {
   try {
@@ -18,6 +19,16 @@ Future<PeopleSort> loadPeopleSort(AssetRecordStore store) async {
         PeopleSort.lastSeen;
   } catch (_) {
     return PeopleSort.lastSeen;
+  }
+}
+
+/// The other way round from each sort's natural order (most first, newest
+/// first, A–Z, earliest first for Started).
+Future<bool> loadPeopleReversed(AssetRecordStore store) async {
+  try {
+    return await store.getAppState(peopleSortReversedKey) == '1';
+  } catch (_) {
+    return false;
   }
 }
 
@@ -70,8 +81,8 @@ Future<Map<String, int>> messageCounts([ConversationStore? store]) async {
   return (first: firstKnown, last: lastKnown);
 }
 
-/// Sorts [people] in place. Undated last either way: unknown is not "long
-/// ago".
+/// Sorts [people] in place, the other way when [reversed]. Undated last
+/// either way: unknown is not "long ago".
 void sortPeople(
   List<Person> people,
   PeopleSort sort, {
@@ -79,25 +90,29 @@ void sortPeople(
   Map<String, int> messages = const {},
   Map<String, DateTime> firstKnown = const {},
   Map<String, DateTime> lastKnown = const {},
+  bool reversed = false,
 }) {
+  int way(int c) => reversed ? -c : c;
   final keys = sort == PeopleSort.name
       ? {for (final p in people) p.id: nameSortKey(p.name)}
       : const <String, String>{};
   int byDate(Map<String, DateTime> at, Person a, Person b, bool newest) {
     final x = at[a.id], y = at[b.id];
     if (x == null || y == null) return x == null ? (y == null ? 0 : 1) : -1;
-    return newest ? y.compareTo(x) : x.compareTo(y);
+    return way(newest ? y.compareTo(x) : x.compareTo(y));
   }
 
   people.sort(
     (a, b) => switch (sort) {
-      PeopleSort.photos => (counts[b.id] ?? 0).compareTo(counts[a.id] ?? 0),
-      PeopleSort.messages => (messages[b.id] ?? 0).compareTo(
-        messages[a.id] ?? 0,
+      PeopleSort.photos => way(
+        (counts[b.id] ?? 0).compareTo(counts[a.id] ?? 0),
+      ),
+      PeopleSort.messages => way(
+        (messages[b.id] ?? 0).compareTo(messages[a.id] ?? 0),
       ),
       PeopleSort.firstMet => byDate(firstKnown, a, b, false),
       PeopleSort.lastSeen => byDate(lastKnown, a, b, true),
-      PeopleSort.name => keys[a.id]!.compareTo(keys[b.id]!),
+      PeopleSort.name => way(keys[a.id]!.compareTo(keys[b.id]!)),
     },
   );
 }

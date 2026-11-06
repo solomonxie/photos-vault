@@ -112,6 +112,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Map<PersonGroup, List<String>> _groups = const {};
 
   PeopleSort _sort = PeopleSort.lastSeen;
+  bool _reversed = false;
   bool _loaded = false;
   static const _sortKey = peopleSortKey;
 
@@ -258,6 +259,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
       chats: await latestChats(widget.conversationStore),
     );
     final sort = await _loadSort();
+    final reversed = await loadPeopleReversed(widget.assetRecordStore);
     final messages = sort == PeopleSort.messages
         ? await messageCounts(widget.conversationStore)
         : _chats;
@@ -269,10 +271,12 @@ class _PeopleScreenState extends State<PeopleScreen> {
       messages: messages,
       firstKnown: firstKnown,
       lastKnown: lastKnown,
+      reversed: reversed,
     );
     if (!mounted) return;
     setState(() {
       _sort = sort;
+      _reversed = reversed;
       if (sort == PeopleSort.messages) _chats = messages;
       _firstKnown = firstKnown;
       _lastKnown = lastKnown;
@@ -312,7 +316,9 @@ class _PeopleScreenState extends State<PeopleScreen> {
 
   Future<PeopleSort> _loadSort() => loadPeopleSort(widget.assetRecordStore);
 
+  /// Picking the sort already on turns it the other way round.
   Future<void> _setSort(PeopleSort sort) async {
+    final reversed = sort == _sort && !_reversed;
     if (sort == PeopleSort.messages) {
       _chats = await messageCounts(widget.conversationStore);
       if (!mounted) return;
@@ -325,13 +331,19 @@ class _PeopleScreenState extends State<PeopleScreen> {
       messages: _chats,
       firstKnown: _firstKnown,
       lastKnown: _lastKnown,
+      reversed: reversed,
     );
     setState(() {
       _sort = sort;
+      _reversed = reversed;
       _people = people;
     });
     try {
       await widget.assetRecordStore.setAppState(_sortKey, sort.name);
+      await widget.assetRecordStore.setAppState(
+        peopleSortReversedKey,
+        reversed ? '1' : '0',
+      );
     } catch (_) {
       // No app-state table (a widget test): this visit only.
     }
@@ -344,6 +356,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
     PeopleSort.lastSeen => l10n.peopleSortLastSeen,
     PeopleSort.name => l10n.peopleSortName,
   };
+
+  /// Which way the list runs: ↓ is each sort's natural order — most, newest,
+  /// A–Z, earliest Started.
+  static String _arrow(bool reversed) => reversed ? '↑' : '↓';
 
   void _showSort() {
     final l10n = AppLocalizations.of(context)!;
@@ -361,7 +377,9 @@ class _PeopleScreenState extends State<PeopleScreen> {
                 Navigator.of(sheet).pop();
                 _setSort(s);
               },
-              child: Text(s == _sort ? '✓ ${label(s)}' : label(s)),
+              child: Text(
+                s == _sort ? '✓ ${label(s)} ${_arrow(_reversed)}' : label(s),
+              ),
             ),
         ],
         cancelButton: CupertinoActionSheetAction(
@@ -512,7 +530,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
           _FilterPill(
             key: const ValueKey('peopleSortMenu'),
             icon: CupertinoIcons.arrow_up_arrow_down,
-            label: _sortLabel(l10n, _sort),
+            label: '${_sortLabel(l10n, _sort)} ${_arrow(_reversed)}',
             active: false,
             onTap: _showSort,
           ),
