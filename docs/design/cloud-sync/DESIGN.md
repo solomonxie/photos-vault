@@ -102,7 +102,7 @@ Per-device op log in the bucket under `sync/`. Details in `PROTOCOL.md`:
 - **Extension**:
   - The connection lives in `chrome.storage.local`, never `.sync`, so the
     secret doesn't follow the Google account.
-  - Library state lives in IndexedDB; thumbnails go in the Cache API.
+  - Library state lives in IndexedDB; media is never stored locally (presigned GETs, `no-store`).
   - `host_permissions` for the bucket endpoint is requested at setup.
     Extension pages aren't subject to CORS, so the bucket needs no
     configuration change.

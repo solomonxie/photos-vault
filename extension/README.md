@@ -11,6 +11,13 @@ Design: `../docs/design/cloud-sync/` (`DESIGN.md`, `PROTOCOL.md`, `uiux/`,
 npm install      # local node_modules only
 npm run check    # tsc
 npm test         # vitest: protocol vectors, SigV4, engine
+npm run build    # → dist/
 ```
 
-The page itself (setup, grid, viewer) is Phase 4 — not built yet.
+Load: `chrome://extensions` → Developer mode → Load unpacked → `dist/`;
+click the toolbar icon. After a rebuild, hit reload on the extension card.
+
+- No media on this computer: thumbnails and views are presigned URLs
+  (`response-cache-control: no-store`), never the Cache API or IndexedDB.
+  IndexedDB holds only library metadata and the sync outbox.
+- Icons: `static/icons/`, from the iOS 1024 px app icon via `sips -z`.

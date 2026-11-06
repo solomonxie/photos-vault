@@ -3,12 +3,14 @@
 ## Tile
 ```
 ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐ ┌──────┐
-│      │ │    ♥ │ │ ▶0:14│ │ LIVE │ │ ⌛   │ │ ✓    │
+│      │ │    ♥ │ │ ▶0:14│ │ LIVE │ │ ▢    │ │ ✓    │
 └──────┘ └──────┘ └──────┘ └──────┘ └──────┘ └──────┘
  plain    fav      video    live     no thumb selected
 ```
-Square, `object-fit: cover`. The thumbnail comes from the Cache API, else a
-presigned GET (cached on arrival), else ⌛. Hover shows the selection circle
+Square, 6px corners, `object-fit: cover`. The thumbnail is a presigned GET
+(`no-store`, URL reused while valid; no media kept on the computer), fading
+in over a solid placeholder; no thumbnail shows a faint photo icon. ☁ when
+no phone holds it. Hover shows the selection circle
 in the top-left.
 
 ## Day header

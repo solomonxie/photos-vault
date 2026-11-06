@@ -474,9 +474,6 @@
    }
   }
  },
- "dropToUpload": {
-  "message": "Drop to upload to your bucket"
- },
  "uploadProgress": {
   "message": "Uploading $A$ of $B$",
   "placeholders": {
@@ -546,5 +543,125 @@
     "content": "$1"
    }
   }
+ },
+ "navSettings": {
+  "message": "Settings"
+ },
+ "statusSyncedAgo": {
+  "message": "Synced $ARG$",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "selectDay": {
+  "message": "Select"
+ },
+ "yearRail": {
+  "message": "Jump to year"
+ },
+ "cloudOnly": {
+  "message": "Only in your bucket"
+ },
+ "settingsCloud": {
+  "message": "Cloud"
+ },
+ "settingsProvider": {
+  "message": "Provider"
+ },
+ "settingsBucket": {
+  "message": "Bucket"
+ },
+ "settingsRegion": {
+  "message": "Region"
+ },
+ "settingsEndpoint": {
+  "message": "Endpoint"
+ },
+ "settingsPrefix": {
+  "message": "Prefix"
+ },
+ "settingsPrefixRoot": {
+  "message": "Whole bucket"
+ },
+ "settingsKeyId": {
+  "message": "Access key ID"
+ },
+ "settingsSecretNote": {
+  "message": "The secret key stays in this browser and is never shown."
+ },
+ "settingsTest": {
+  "message": "Test connection"
+ },
+ "settingsTesting": {
+  "message": "Testing…"
+ },
+ "settingsTestOk": {
+  "message": "Connected · $ARG$ ms",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "settingsDisconnect": {
+  "message": "Disconnect"
+ },
+ "disconnectTitle": {
+  "message": "Disconnect this bucket?"
+ },
+ "disconnectBody": {
+  "message": "Your photos stay in the bucket. To come back, connect it again with its keys."
+ },
+ "settingsSync": {
+  "message": "Sync"
+ },
+ "settingsLastPull": {
+  "message": "Last pull"
+ },
+ "settingsInterval": {
+  "message": "Checks for changes"
+ },
+ "settingsIntervalValue": {
+  "message": "Every $ARG$ seconds while this page is open",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "settingsWaiting": {
+  "message": "Edits waiting to upload"
+ },
+ "settingsConflicts": {
+  "message": "Edited in two places"
+ },
+ "settingsLastError": {
+  "message": "Last error"
+ },
+ "settingsStorage": {
+  "message": "Storage"
+ },
+ "settingsNoMedia": {
+  "message": "Photos and videos are never stored on this computer. They are shown straight from your bucket."
+ },
+ "settingsMetadata": {
+  "message": "Library data on this computer"
+ },
+ "settingsMetadataHint": {
+  "message": "Albums, captions and sync state, so the library opens at once."
+ },
+ "settingsAbout": {
+  "message": "About"
+ },
+ "settingsVersion": {
+  "message": "Version"
+ },
+ "settingsLanguage": {
+  "message": "Language"
+ },
+ "settingsLanguageHint": {
+  "message": "Follows Chrome"
  }
 }

@@ -141,6 +141,14 @@ export class Bucket {
     return { objects: out, prefixes };
   }
 
+  /// One signed listing of at most one key: proves reach, credentials and permission.
+  async ping(): Promise<number> {
+    const started = performance.now();
+    const res = await this.send('GET', '', { query: { 'list-type': '2', prefix: this.full('sync/'), 'max-keys': '1' } });
+    if (!res.ok) await this.fail(res);
+    return Math.round(performance.now() - started);
+  }
+
   async get(key: string): Promise<Uint8Array> {
     const res = await this.send('GET', this.full(key));
     if (!res.ok) await this.fail(res);
@@ -175,14 +183,17 @@ export class Bucket {
     return (await sha256Hex(there)) === hash ? 'exists-same' : 'collision';
   }
 
+  /// `no-store`: media is shown, never written to the browser's disk cache.
   presignGet(key: string, expiresSeconds = 900, download?: string) {
+    const query: Record<string, string> = { 'response-cache-control': 'no-store' };
+    if (download) query['response-content-disposition'] = `attachment; filename="${download}"`;
     return presign(
       this.c,
       {
         method: 'GET',
         host: this.host,
         path: `/${this.full(key)}`,
-        query: download ? { 'response-content-disposition': `attachment; filename="${download}"` } : undefined,
+        query,
       },
       expiresSeconds,
       new Date(this.now()),

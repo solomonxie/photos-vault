@@ -63,6 +63,13 @@ export function uploadTray(up: Uploader, onView: (id: string) => void) {
           : null,
         h('button', { class: 'icon', onclick: () => ((collapsed = !collapsed), render()) }, collapsed ? '⌃' : '⌄'),
         left === 0 ? h('button', { class: 'icon', onclick: () => up.clearDone() }, '✕') : null,
+        left > 0
+          ? h(
+              'div',
+              { class: 'tray-total' },
+              h('i', { style: `width:${Math.round(((done + jobs.reduce((n, j) => n + (j.state === 'uploading' ? j.progress : 0), 0)) / jobs.length) * 100)}%` }),
+            )
+          : null,
       ),
       collapsed ? '' : h('div', { class: 'tray-rows' }, ...jobs.map(row)),
     );
@@ -70,40 +77,15 @@ export function uploadTray(up: Uploader, onView: (id: string) => void) {
   return { el, render };
 }
 
-/// The page-wide drop target, shown while files are dragged over.
+/// Files dropped anywhere on the page go to the uploader; the tray is the only feedback.
 export function dropZone(onFiles: (files: File[]) => void) {
-  const veil = h('div', { class: 'drop-veil', hidden: true }, h('div', {}, t('dropToUpload')));
-  let depth = 0;
   const hasFiles = (e: DragEvent) => [...(e.dataTransfer?.types ?? [])].includes('Files');
-  window.addEventListener('dragenter', (e) => {
-    if (!hasFiles(e)) return;
-    depth++;
-    veil.hidden = false;
-  });
-  window.addEventListener('dragleave', () => {
-    depth = Math.max(0, depth - 1);
-    if (depth === 0) veil.hidden = true;
-  });
-  // A drag that ends outside the window, or never reaches drop, leaves
-  // no dragleave to match: the first ordinary move or leaving the window
-  // puts the veil away.
-  const reset = () => {
-    depth = 0;
-    veil.hidden = true;
-  };
-  window.addEventListener('mousemove', reset);
-  window.addEventListener('blur', reset);
-  window.addEventListener('dragend', reset);
-  window.addEventListener('dragleave', (e) => e.relatedTarget === null && reset());
   window.addEventListener('dragover', (e) => hasFiles(e) && e.preventDefault());
   window.addEventListener('drop', (e) => {
     if (!hasFiles(e)) return;
     e.preventDefault();
-    depth = 0;
-    veil.hidden = true;
     onFiles([...(e.dataTransfer?.files ?? [])]);
   });
-  return veil;
 }
 
 export function pickFiles(onFiles: (files: File[]) => void) {

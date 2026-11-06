@@ -19,6 +19,8 @@ export interface Photo {
   binnedAt: number | null;
   lat: number | null;
   lng: number | null;
+  /// In the bucket only, not on the phone.
+  cloudOnly?: boolean;
 }
 
 export interface Album {
@@ -129,8 +131,14 @@ export function photoOf(ent: EntityState): Photo {
     binnedAt: typeof binned === 'number' ? binned : null,
     lat: numOrNull(field(ent, 'latitude')),
     lng: numOrNull(field(ent, 'longitude')),
+    cloudOnly: cloudOnly(ent),
   };
 }
+
+/// No phone holds it: some phone reported on it (`presence`, or any
+/// `on_devices` op) and none is listed. Never reported reads as on a phone.
+const cloudOnly = (ent: EntityState) =>
+  (field(ent, 'presence') != null || ent.sets.has('on_devices')) && members(ent, 'on_devices').length === 0;
 
 /// The phone names a place "City, Country": country and city are automatic.
 const cityOf = (location: string): [string, string] | null => {

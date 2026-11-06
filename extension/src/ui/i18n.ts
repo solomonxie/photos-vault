@@ -8,7 +8,7 @@ export const t = (key: string, ...subs: (string | number)[]): string => {
   return s || key;
 };
 
-const lang = () => (typeof chrome !== 'undefined' && chrome.i18n ? chrome.i18n.getUILanguage() : 'en');
+export const lang = () => (typeof chrome !== 'undefined' && chrome.i18n ? chrome.i18n.getUILanguage() : 'en');
 
 export const dayLabel = (at: number, place: string) => {
   const d = new Date(at);
@@ -47,4 +47,9 @@ export const ago = (at: number) => {
   if (s < 3600) return rtf.format(-Math.round(s / 60), 'minute');
   if (s < 86_400) return rtf.format(-Math.round(s / 3600), 'hour');
   return rtf.format(-Math.round(s / 86_400), 'day');
+};
+
+export const size = (bytes: number) => {
+  const [n, unit] = bytes >= 1e9 ? [bytes / 1e9, 'gigabyte'] : bytes >= 1e6 ? [bytes / 1e6, 'megabyte'] : [bytes / 1e3, 'kilobyte'];
+  return new Intl.NumberFormat(lang(), { style: 'unit', unit, maximumFractionDigits: 1 }).format(n);
 };

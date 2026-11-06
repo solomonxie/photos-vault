@@ -1,13 +1,7 @@
 # Upload
 
-Drop files anywhere, or [ Upload ] → file picker. A tray docks bottom-right.
-
-```
-║ Drop to upload to sol-photos                                             ║ ← full-page drop
-║ ┌ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┐  ║   target, dashed
-║                          12 photos, 1 video                              ║
-║ └ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ─ ┘  ║
-```
+[ Upload ] → file picker; files dropped on the page go in too, with no
+overlay. A tray docks bottom-right.
 
 ```
                                    ┌───────────────────────────────────────┐

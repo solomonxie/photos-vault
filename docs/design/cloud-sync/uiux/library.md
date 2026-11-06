@@ -18,7 +18,7 @@ The home page: every photo, newest first, grouped by day.
 ║           │ └──────┴──────┴──────┘                                       ║
 ║ ⚙         │ Sun · Oct 12, 2026                                           ║
 ║           │ ┌──────┬──────┬──────┬──────┬──────┬──────┐                  ║
-║           │ │      │      │      │      │ ⌛   │      │                  ║ ← ⌛ = no thumbnail
+║           │ │      │      │      │      │ ▢    │      │                  ║ ← ▢ = no thumbnail
 ╚═══════════╧══════════════════════════════════════════════════════════════╝   yet (HEIC upload)
 ```
 
@@ -41,7 +41,7 @@ Reached from: launch · sidebar Photos · Esc from Viewer
 ```
 first load   ⟳ Loading your library… 12.4 of 31 MB       ← checkpoint download
 cached       grid at once from IndexedDB; the chip shows ⟳ until the pull settles
-offline      grid from cache · chip "Offline" · thumbnails not cached show ⌛
+offline      grid from cache · chip "Offline" · thumbnails don't load (none kept locally)
 empty        No photos yet.  Drop photos here or [[ Upload ]]
 error        ⚠ Can't reach sol-photos: RequestTimeout    [ Retry ]   (grid stays)
 ```

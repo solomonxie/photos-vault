@@ -474,9 +474,6 @@
    }
   }
  },
- "dropToUpload": {
-  "message": "拖放到这里上传到存储桶"
- },
  "uploadProgress": {
   "message": "正在上传第 $A$ / $B$ 张",
   "placeholders": {
@@ -546,5 +543,125 @@
     "content": "$1"
    }
   }
+ },
+ "navSettings": {
+  "message": "设置"
+ },
+ "statusSyncedAgo": {
+  "message": "已同步 · $ARG$",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "selectDay": {
+  "message": "选择"
+ },
+ "yearRail": {
+  "message": "跳到年份"
+ },
+ "cloudOnly": {
+  "message": "仅在存储桶中"
+ },
+ "settingsCloud": {
+  "message": "云端"
+ },
+ "settingsProvider": {
+  "message": "服务商"
+ },
+ "settingsBucket": {
+  "message": "存储桶"
+ },
+ "settingsRegion": {
+  "message": "区域"
+ },
+ "settingsEndpoint": {
+  "message": "端点"
+ },
+ "settingsPrefix": {
+  "message": "前缀"
+ },
+ "settingsPrefixRoot": {
+  "message": "整个存储桶"
+ },
+ "settingsKeyId": {
+  "message": "访问密钥 ID"
+ },
+ "settingsSecretNote": {
+  "message": "密钥只保存在这个浏览器中，不会显示。"
+ },
+ "settingsTest": {
+  "message": "测试连接"
+ },
+ "settingsTesting": {
+  "message": "测试中…"
+ },
+ "settingsTestOk": {
+  "message": "已连接 · $ARG$ 毫秒",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "settingsDisconnect": {
+  "message": "断开连接"
+ },
+ "disconnectTitle": {
+  "message": "断开这个存储桶？"
+ },
+ "disconnectBody": {
+  "message": "照片仍保留在存储桶中。要回来，请用它的密钥重新连接。"
+ },
+ "settingsSync": {
+  "message": "同步"
+ },
+ "settingsLastPull": {
+  "message": "上次拉取"
+ },
+ "settingsInterval": {
+  "message": "检查更改"
+ },
+ "settingsIntervalValue": {
+  "message": "页面打开时每 $ARG$ 秒",
+  "placeholders": {
+   "arg": {
+    "content": "$1"
+   }
+  }
+ },
+ "settingsWaiting": {
+  "message": "等待上传的修改"
+ },
+ "settingsConflicts": {
+  "message": "两处都有修改"
+ },
+ "settingsLastError": {
+  "message": "上次错误"
+ },
+ "settingsStorage": {
+  "message": "存储"
+ },
+ "settingsNoMedia": {
+  "message": "照片和视频从不保存在这台电脑上，而是直接从存储桶显示。"
+ },
+ "settingsMetadata": {
+  "message": "本机上的图库数据"
+ },
+ "settingsMetadataHint": {
+  "message": "相册、说明和同步状态，让图库立即打开。"
+ },
+ "settingsAbout": {
+  "message": "关于"
+ },
+ "settingsVersion": {
+  "message": "版本"
+ },
+ "settingsLanguage": {
+  "message": "语言"
+ },
+ "settingsLanguageHint": {
+  "message": "跟随 Chrome"
  }
 }

@@ -4,10 +4,28 @@
   "description": "__MSG_description__",
   "version": "0.1.0",
   "default_locale": "en",
+  "icons": {
+    "16": "icons/icon-16.png",
+    "32": "icons/icon-32.png",
+    "48": "icons/icon-48.png",
+    "128": "icons/icon-128.png"
+  },
   "minimum_chrome_version": "120",
-  "action": {},
-  "background": { "service_worker": "background.js", "type": "module" },
-  "permissions": ["storage", "unlimitedStorage"],
+  "action": {
+    "default_icon": {
+      "16": "icons/icon-16.png",
+      "32": "icons/icon-32.png"
+    },
+    "default_title": "__MSG_name__"
+  },
+  "background": {
+    "service_worker": "background.js",
+    "type": "module"
+  },
+  "permissions": [
+    "storage",
+    "unlimitedStorage"
+  ],
   "optional_host_permissions": [
     "https://*.amazonaws.com/*",
     "https://*.myqcloud.com/*",
