@@ -363,45 +363,24 @@ Uint8List? payloadOfPrefix(Uint8List prefix) {
   return payloadOf(prefix);
 }
 
-/// One tile. Asks for its own bytes, and says nothing while it waits — a
-/// spinner per tile on a scrolling grid is worse than an empty square.
-class VaultTile extends StatefulWidget {
-  const VaultTile({
+/// A hidden photo's thumbnail, out of its carrier. Says nothing while it
+/// waits — a spinner per tile on a scrolling grid is worse than an empty
+/// square.
+class VaultThumbnail extends StatefulWidget {
+  const VaultThumbnail({
     super.key,
     required this.gallery,
-    required this.entry,
-    this.onTap,
-    this.onLongPress,
-    this.onSelectDragUpdate,
-    this.onSelectDragEnd,
-    this.selecting = false,
-    this.selected = false,
-    this.onThisPhone = true,
+    required this.objectKey,
   });
 
   final VaultGallery gallery;
-  final IndexEntry entry;
-  final VoidCallback? onTap;
-  final VoidCallback? onLongPress;
-
-  /// A hold then sweep, or a sideways drag once selecting — see
-  /// `AssetTile.onSelectDragUpdate`.
-  final void Function(Offset globalPosition)? onSelectDragUpdate;
-  final VoidCallback? onSelectDragEnd;
-
-  final bool selecting;
-  final bool selected;
-
-  /// False for a photo whose full copy is in the bucket only. Marked rather
-  /// than hidden or dimmed: it is still the user's photo and still opens,
-  /// it just costs a download first.
-  final bool onThisPhone;
+  final String objectKey;
 
   @override
-  State<VaultTile> createState() => _VaultTileState();
+  State<VaultThumbnail> createState() => _VaultThumbnailState();
 }
 
-class _VaultTileState extends State<VaultTile> {
+class _VaultThumbnailState extends State<VaultThumbnail> {
   Uint8List? _bytes;
   var _tried = false;
 
@@ -412,7 +391,7 @@ class _VaultTileState extends State<VaultTile> {
   }
 
   Future<void> _load() async {
-    final bytes = await widget.gallery.thumbnail(widget.entry.objectKey);
+    final bytes = await widget.gallery.thumbnail(widget.objectKey);
     if (!mounted) return;
     setState(() {
       _bytes = bytes;
@@ -422,88 +401,22 @@ class _VaultTileState extends State<VaultTile> {
 
   @override
   Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
     final bytes = _bytes;
-    final drag = widget.onSelectDragUpdate;
-    final dragEnd = widget.onSelectDragEnd;
-    return GestureDetector(
-      onTap: widget.onTap,
-      onLongPress: widget.onLongPress,
-      onLongPressMoveUpdate: drag == null
-          ? null
-          : (details) => drag(details.globalPosition),
-      onLongPressEnd: dragEnd == null ? null : (_) => dragEnd(),
-      onHorizontalDragUpdate: !widget.selecting || drag == null
-          ? null
-          : (details) => drag(details.globalPosition),
-      onHorizontalDragEnd: !widget.selecting || dragEnd == null
-          ? null
-          : (_) => dragEnd(),
-      child: MetaData(
-        metaData: widget.entry,
-        behavior: HitTestBehavior.opaque,
-        child: Stack(
-          fit: StackFit.expand,
-          children: [
-            Container(
-              color: const Color(0xFF1C1C1E),
-              child: bytes != null
-                  ? Image.memory(
-                      bytes,
-                      fit: BoxFit.cover,
-                      gaplessPlayback: true,
+    return ColoredBox(
+      color: const Color(0xFF1C1C1E),
+      child: bytes != null
+          ? Image.memory(bytes, fit: BoxFit.cover, gaplessPlayback: true)
+          : Center(
+              child: _tried
+                  ? Text(
+                      AppLocalizations.of(context)!.vaultLockedItem,
+                      style: const TextStyle(
+                        fontSize: 11,
+                        color: CupertinoColors.systemGrey,
+                      ),
                     )
-                  : Center(
-                      child: _tried
-                          ? Text(
-                              l10n.vaultLockedItem,
-                              style: const TextStyle(
-                                fontSize: 11,
-                                color: CupertinoColors.systemGrey,
-                              ),
-                            )
-                          : const SizedBox.shrink(),
-                    ),
+                  : const SizedBox.shrink(),
             ),
-            // Bottom-left, small, and only on the ones that aren't here — the
-            // ordinary case earns no badge, so the marked tiles are the answer
-            // to "what would I have to wait for".
-            if (!widget.onThisPhone)
-              const Positioned(
-                left: 4,
-                bottom: 4,
-                child: Icon(
-                  CupertinoIcons.cloud,
-                  size: 13,
-                  color: CupertinoColors.white,
-                  shadows: [Shadow(blurRadius: 3, color: Color(0x99000000))],
-                ),
-              ),
-            if (widget.selecting)
-              Positioned(
-                right: 4,
-                top: 4,
-                child: Icon(
-                  widget.selected
-                      ? CupertinoIcons.checkmark_circle_fill
-                      : CupertinoIcons.circle,
-                  size: 20,
-                  color: widget.selected
-                      ? CupertinoColors.activeBlue
-                      : CupertinoColors.white,
-                  shadows: const [
-                    Shadow(blurRadius: 3, color: Color(0x99000000)),
-                  ],
-                ),
-              ),
-            if (widget.selecting && widget.selected)
-              const DecoratedBox(
-                decoration: BoxDecoration(color: Color(0x330A84FF)),
-                child: SizedBox.expand(),
-              ),
-          ],
-        ),
-      ),
     );
   }
 }

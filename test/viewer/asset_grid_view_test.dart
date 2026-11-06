@@ -78,6 +78,59 @@ Rect? _tileOverlapping(WidgetTester tester, Rect rect) {
 }
 
 void main() {
+  testWidgets('a photo only the bucket has sits in the same grid, dimmed '
+      'and badged, drawn by whoever knows where its picture is', (
+    tester,
+  ) async {
+    final now = DateTime.now();
+    final away = AssetRecord(
+      localId: 'vaultEntry:carrier.jpg',
+      contentHash: 'carrier.jpg',
+      platform: 'test',
+      sourceType: AssetSourceType.manualFile,
+      localDeleted: true,
+      passcodeHash: 'tag',
+      createdAt: now,
+      updatedAt: now,
+      derivatives: const {
+        DerivativeKind.original: DerivativeState(status: UploadStatus.uploaded),
+      },
+    );
+    await tester.pumpWidget(
+      _wrap(
+        AssetGridView(
+          records: [_record('manual:here', now), away],
+          onTap: (_) {},
+          actionsFor: (_) => _actions,
+          imageFor: (r) => r.localId == away.localId
+              ? const SizedBox(key: ValueKey('fromCarrier'))
+              : null,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byType(AssetTile), findsNWidgets(2));
+    expect(find.byKey(const ValueKey('fromCarrier')), findsOne);
+    final tile = find.byWidgetPredicate(
+      (w) => w is AssetTile && w.record.localId == away.localId,
+    );
+    expect(
+      find.descendant(
+        of: tile,
+        matching: find.byWidgetPredicate(
+          (w) => w is ColoredBox && w.color == const Color(0x738E8E93),
+        ),
+      ),
+      findsOne,
+    );
+    expect(
+      find.descendant(of: tile, matching: find.byType(StatusDot)),
+      findsOne,
+    );
+    expect(StatusDot(record: away).record.isFullyBackedUp, isTrue);
+  });
+
   // A phone-sized surface, not the 800x600 test default — tile size (and
   // so how much library fits on screen) is what these tests are about.
   setUp(() {

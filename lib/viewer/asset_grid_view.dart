@@ -41,7 +41,11 @@ class AssetGridView extends StatefulWidget {
     this.onAdd,
     this.scrubberInsets = const EdgeInsets.symmetric(vertical: 12),
     this.dateOf = PhotoGridLayout.takenAt,
+    this.imageFor,
   });
+
+  /// See [AssetTile.imageFor].
+  final Widget? Function(AssetRecord)? imageFor;
 
   /// See [PhotoGridLayout.dateOf].
   final DateTime Function(AssetRecord) dateOf;
@@ -436,6 +440,7 @@ class AssetGridViewState extends State<AssetGridView> {
                   selection: widget.selection,
                   markedId: widget.markedId,
                   actionsFor: widget.actionsFor,
+                  imageFor: widget.imageFor,
                 ),
               if (widget.onAdd != null && !_layout.isEmpty)
                 SliverToBoxAdapter(

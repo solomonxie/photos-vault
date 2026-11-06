@@ -23,7 +23,6 @@ import 'album_notes.dart';
 import '../vault/object_key.dart';
 import '../vault/hidden_removal.dart';
 import '../vault/hidden_repair.dart';
-import '../vault/hidden_restore.dart';
 import '../vault/hidden_transition.dart';
 import '../vault/passphrase_sheet.dart';
 import '../vault/plain_files.dart';
@@ -340,6 +339,101 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
   /// one of them is that row's backup, not a second photo.
   Set<String> _rowKeys = const {};
 
+  static const _standInPrefix = 'vaultEntry:';
+
+  static String _standInId(String objectKey) => '$_standInPrefix$objectKey';
+
+  /// What a bucket-only photo is drawn as: a record that is nowhere but the
+  /// bucket, so the grid dims it and badges it like any other cloud-only
+  /// photo. Never written; the tap that opens it gives it a real row.
+  AssetRecord _standIn(IndexEntry e) {
+    final moves = e.hasMotion == true && !e.isVideo;
+    const up = UploadStatus.uploaded;
+    return AssetRecord(
+      localId: _standInId(e.objectKey),
+      contentHash: e.objectKey,
+      platform: Platform.operatingSystem,
+      createdAt: e.takenAt,
+      updatedAt: e.takenAt,
+      sourceType: AssetSourceType.manualFile,
+      localDeleted: true,
+      isVideo: e.isVideo,
+      isLivePhoto: moves,
+      width: e.width == 0 ? null : e.width,
+      height: e.height == 0 ? null : e.height,
+      passcodeHash: widget.passcodeHash,
+      derivatives: {
+        DerivativeKind.original: DerivativeState(
+          status: up,
+          destinationKey: e.objectKey,
+        ),
+        if (moves) DerivativeKind.livePhoto: const DerivativeState(status: up),
+      },
+    );
+  }
+
+  /// Rows and bucket-only photos in one date order, built once per change
+  /// of either rather than on every build.
+  List<AssetRecord> get _gridRecords {
+    final from = (_records, _cloudEntries, _rowKeys, _doomed);
+    final was = _gridFrom;
+    if (was != null &&
+        identical(was.$1, from.$1) &&
+        identical(was.$2, from.$2) &&
+        identical(was.$3, from.$3) &&
+        identical(was.$4, from.$4)) {
+      return _grid;
+    }
+    final entries = _entriesWithoutRows;
+    _standIns = {for (final e in entries) _standInId(e.objectKey): e};
+    _gridFrom = from;
+    return _grid = entries.isEmpty
+        ? _records
+        : ([..._records, ...entries.map(_standIn)]
+            ..sort((a, b) => a.createdAt.compareTo(b.createdAt)));
+  }
+
+  (List<AssetRecord>, List<IndexEntry>, Set<String>, Set<String>)? _gridFrom;
+  List<AssetRecord> _grid = const [];
+  Map<String, IndexEntry> _standIns = const {};
+
+  Widget? _imageFor(AssetRecord record) {
+    final entry = _standIns[record.localId];
+    final gallery = _gallery;
+    if (entry == null || gallery == null) return null;
+    return VaultThumbnail(gallery: gallery, objectKey: entry.objectKey);
+  }
+
+  /// Selected photos only the bucket has, brought down and given rows, so
+  /// what follows treats them like the rest. The ids to act on.
+  Future<List<String>> _selectionBroughtDown() async {
+    final ids = {..._selectedIds};
+    final keys = widget.albumKeys;
+    final picked = [for (final id in ids) ?_standIns[id]];
+    if (picked.isEmpty) return ids.toList();
+    ids.removeAll(picked.map((e) => _standInId(e.objectKey)));
+    if (keys == null) return ids.toList();
+    setState(() => _busy = true);
+    try {
+      for (final entry in picked) {
+        final record = await _filed.adopt(
+          keys,
+          widget.passcodeHash,
+          entry,
+          download: true,
+        );
+        if (record != null) ids.add(record.localId);
+      }
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    if (mounted) {
+      await _reload();
+      await _reloadHoldings();
+    }
+    return ids.toList();
+  }
+
   List<IndexEntry> get _entriesWithoutRows => [
     for (final e in _cloudEntries)
       if (!_rowKeys.contains(e.objectKey) && !_doomed.contains(e.objectKey)) e,
@@ -485,13 +579,6 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
   /// of these back to the bucket" a decision rather than a guess.
   int _localBytes = 0;
 
-  /// Selection over the bucket-side grid, separate from [_selecting] over the
-  /// local records: the two grids hold different things and offer different
-  /// verbs. One selection mode covering both would put "Move to Library"
-  /// beside "Download" for photos that can only do one of them.
-  bool _cloudSelecting = false;
-  Set<String> _selectedCloudKeys = {};
-  bool _cloudBusy = false;
   List<PassphraseEntry> _passphrases = const [];
 
   /// Its own load, deliberately not part of [_reload]: this reaches secure
@@ -646,7 +733,6 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
   void _enterSelectMode() => setState(() => _selecting = true);
 
   final _sweep = SelectSweep<String>();
-  final _cloudSweep = SelectSweep<String>();
 
   /// Holding a photo starts selecting it; the same finger then sweeps.
   void _startSelecting(AssetRecord record) {
@@ -665,21 +751,9 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     final next = _sweep.over(
       record.localId,
       _selectedIds,
-      () => [for (final r in _records) r.localId],
+      () => [for (final r in _gridRecords) r.localId],
     );
     if (next != null) setState(() => _selectedIds = next);
-  }
-
-  void _onCloudSweep(Offset globalPosition) {
-    if (!_cloudSelecting) return;
-    final entry = metaDataUnder<IndexEntry>(context, globalPosition);
-    if (entry == null) return;
-    final next = _cloudSweep.over(
-      entry.objectKey,
-      _selectedCloudKeys,
-      () => [for (final e in _cloudEntries) e.objectKey],
-    );
-    if (next != null) setState(() => _selectedCloudKeys = next);
   }
 
   void _exitSelectMode() => setState(() {
@@ -697,7 +771,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
 
   Future<void> _moveSelectedToLibrary() async {
     if (_selectedIds.isEmpty || _busy) return;
-    await _removeManyFromAlbum(_selectedIds.toList());
+    await _removeManyFromAlbum(await _selectionBroughtDown());
     if (mounted) _exitSelectMode();
   }
 
@@ -780,10 +854,8 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
         for (final e in _cloudEntries)
           if (!keys.contains(e.objectKey)) e,
       ];
-      _selectedIds = _selectedIds.difference(ids);
-      _selectedCloudKeys = _selectedCloudKeys.difference(keys);
+      _selectedIds = _selectedIds.difference({...ids, ...keys.map(_standInId)});
       if (_selectedIds.isEmpty) _selecting = false;
-      if (_selectedCloudKeys.isEmpty) _cloudSelecting = false;
     });
   }
 
@@ -815,13 +887,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     if (gallery == null) return;
     final entries = await gallery.list();
     if (!mounted) return;
-    setState(() {
-      _cloudEntries = entries;
-      _selectedCloudKeys = {
-        for (final e in entries)
-          if (_selectedCloudKeys.contains(e.objectKey)) e.objectKey,
-      };
-    });
+    setState(() => _cloudEntries = entries);
     await _reloadHoldings();
   }
 
@@ -849,7 +915,8 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       await _showNote(l10n.hiddenMoveNoKey);
       return;
     }
-    final ids = _selectedIds.toList();
+    final ids = await _selectionBroughtDown();
+    if (!mounted) return;
     setState(() => _busy = true);
     var moved = 0;
     try {
@@ -936,16 +1003,21 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     final chosen = _records
         .where((r) => _selectedIds.contains(r.localId))
         .toList();
-    if (await _deleteHidden(records: chosen)) _exitSelectMode();
+    final entries = [for (final id in _selectedIds) ?_standIns[id]];
+    if (await _deleteHidden(records: chosen, entries: entries)) {
+      _exitSelectMode();
+    }
   }
 
   /// Resized copies stay in this album; a replaced original goes through
   /// [HiddenRemoval], for good — there is no Recently Deleted in here.
   Future<void> _resizeSelected() async {
     final l10n = AppLocalizations.of(context)!;
+    final ids = (await _selectionBroughtDown()).toSet();
+    if (!mounted) return;
     final chosen = [
       for (final r in _records)
-        if (_selectedIds.contains(r.localId) && !r.countsAsVideo) r,
+        if (ids.contains(r.localId) && !r.countsAsVideo) r,
     ];
     // Which copy stands in for which original: an original's backup goes
     // only once its copy's is up.
@@ -982,58 +1054,6 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     if (created.isEmpty || !mounted) return;
     _exitSelectMode();
     await _reload();
-  }
-
-  Future<void> _resizeSelectedCloud() async {
-    final gallery = _gallery;
-    if (gallery == null) return;
-    final l10n = AppLocalizations.of(context)!;
-    final copies = <String, String>{};
-    final created = await resizePhotos<IndexEntry>(
-      context,
-      records: [
-        for (final e in _selectedCloud)
-          if (!e.isVideo) e,
-      ],
-      readBytes: gallery.original,
-      // A filed photo has no record left; the copy is a new one in this
-      // album, filed the usual way.
-      saveCopy: (entry, bytes, extension) async {
-        final copy = await createDerivedAsset(
-          source: AssetRecord(
-            localId: 'vault:${entry.objectKey}',
-            contentHash: entry.objectKey,
-            platform: 'ios',
-            createdAt: entry.takenAt,
-            updatedAt: entry.takenAt,
-            passcodeHash: widget.passcodeHash,
-          ),
-          bytes: bytes,
-          extension: extension,
-          store: widget.assetRecordStore,
-        );
-        copies[entry.objectKey] = copy.localId;
-        return copy;
-      },
-      replaceOriginals: (originals) {
-        _dropFromView(entries: originals);
-        return _removal.delete(
-          keys: widget.albumKeys,
-          entries: originals,
-          passphrases: _passphrases,
-          replacedBy: copies,
-        );
-      },
-      replaceNote: l10n.resizeBodyHidden,
-    );
-    if (created.isEmpty || !mounted) return;
-    _exitCloudSelect();
-    await _reload();
-    await _refreshCloud();
-  }
-
-  Future<void> _deleteSelectedCloud() async {
-    if (await _deleteHidden(entries: _selectedCloud)) _exitCloudSelect();
   }
 
   Future<void> _addFromLibrary() async {
@@ -1102,6 +1122,11 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
       _toggleSelected(record);
       return;
     }
+    final entry = _standIns[record.localId];
+    if (entry != null) {
+      unawaited(_openCloud(entry));
+      return;
+    }
     // Reloaded on the way back: a resize or edit in the viewer adds photos
     // this grid hasn't read.
     Navigator.of(context)
@@ -1125,296 +1150,6 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
         .then((_) {
           if (mounted) unawaited(_reload());
         });
-  }
-
-  /// The two things you can do to a selection of hidden photos: send the
-  /// full copies back to the bucket, or bring them down.
-  ///
-  /// Both are shown whatever is selected, and each is dead when it would do
-  /// nothing — a mixed selection is the normal case, and a bar whose buttons
-  /// appear and vanish as tiles are tapped is harder to aim at than one whose
-  /// buttons grey out.
-  Widget _cloudSelectionBar(AppLocalizations l10n) {
-    final chosen = _selectedCloud;
-    final here = chosen.where((e) => _onThisPhone.contains(e.objectKey)).length;
-    final away = chosen.length - here;
-    return SafeArea(
-      top: false,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 4, 16, 8),
-        child: Column(
-          children: [
-            Text(
-              l10n.vaultSelectionHeld(here, away),
-              style: const TextStyle(
-                fontSize: 12,
-                color: CupertinoColors.systemGrey,
-              ),
-            ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: CupertinoButton(
-                    color: const Color(0xFF2C2C2E),
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    onPressed: _cloudBusy || here == 0 ? null : _freeUpSelected,
-                    child: Text(
-                      l10n.vaultFreeUpButton(here),
-                      style: const TextStyle(fontSize: 15),
-                    ),
-                  ),
-                ),
-                const SizedBox(width: 8),
-                CupertinoButton(
-                  color: const Color(0xFF2C2C2E),
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 10,
-                    horizontal: 14,
-                  ),
-                  onPressed: _cloudBusy || chosen.isEmpty
-                      ? null
-                      : _resizeSelectedCloud,
-                  child: const Icon(CupertinoIcons.fullscreen_exit, size: 20),
-                ),
-                const SizedBox(width: 8),
-                CupertinoButton(
-                  key: const ValueKey('vaultRecoverSelected'),
-                  color: const Color(0xFF2C2C2E),
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 10,
-                    horizontal: 14,
-                  ),
-                  onPressed: _cloudBusy || chosen.isEmpty
-                      ? null
-                      : _recoverSelectedCloud,
-                  child: const Icon(CupertinoIcons.arrow_uturn_left, size: 20),
-                ),
-                const SizedBox(width: 8),
-                CupertinoButton(
-                  color: const Color(0xFF2C2C2E),
-                  padding: const EdgeInsets.symmetric(
-                    vertical: 10,
-                    horizontal: 14,
-                  ),
-                  onPressed: _cloudBusy || chosen.isEmpty
-                      ? null
-                      : _deleteSelectedCloud,
-                  child: const Icon(
-                    CupertinoIcons.delete,
-                    size: 20,
-                    color: CupertinoColors.systemRed,
-                  ),
-                ),
-                const SizedBox(width: 8),
-                Expanded(
-                  child: CupertinoButton.filled(
-                    padding: const EdgeInsets.symmetric(vertical: 10),
-                    onPressed: _cloudBusy || away == 0
-                        ? null
-                        : _downloadSelected,
-                    child: Text(
-                      l10n.vaultDownloadButton(away),
-                      style: const TextStyle(fontSize: 15),
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ],
-        ),
-      ),
-    );
-  }
-
-  /// Everything that is only in the bucket. Its own grid rather than mixed
-  /// into the local one: these have no record on this phone to mix with.
-  Widget _cloudSliver(AppLocalizations l10n) {
-    final gallery = _gallery;
-    final shown = _entriesWithoutRows;
-    if (gallery == null || shown.isEmpty) {
-      return const SliverToBoxAdapter(child: SizedBox.shrink());
-    }
-    return SliverMainAxisGroup(
-      slivers: [
-        SliverToBoxAdapter(
-          child: Padding(
-            padding: const EdgeInsets.fromLTRB(16, 20, 16, 8),
-            child: Row(
-              children: [
-                const Icon(
-                  CupertinoIcons.cloud,
-                  size: 16,
-                  color: CupertinoColors.systemGrey,
-                ),
-                const SizedBox(width: 6),
-                Expanded(
-                  child: Text(
-                    l10n.privateAlbumBucketOnly(shown.length),
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: CupertinoColors.systemGrey,
-                    ),
-                  ),
-                ),
-              ],
-            ),
-          ),
-        ),
-        _cloudGrid(gallery, shown),
-      ],
-    );
-  }
-
-  /// The same three across as the photos above it.
-  Widget _cloudGrid(VaultGallery gallery, List<IndexEntry> shown) {
-    return SliverPadding(
-      padding: const EdgeInsets.symmetric(horizontal: 1),
-      sliver: SliverGrid(
-        gridDelegate: const SliverGridDelegateWithFixedCrossAxisCount(
-          crossAxisCount: 3,
-          mainAxisSpacing: 2,
-          crossAxisSpacing: 2,
-        ),
-        delegate: SliverChildBuilderDelegate((context, index) {
-          final entry = shown[index];
-          return VaultTile(
-            gallery: gallery,
-            entry: entry,
-            selecting: _cloudSelecting,
-            selected: _selectedCloudKeys.contains(entry.objectKey),
-            onThisPhone: _onThisPhone.contains(entry.objectKey),
-            onTap: _cloudSelecting
-                ? () => _toggleCloud(entry)
-                : () => _openCloud(entry),
-            onLongPress: _cloudSelecting
-                ? null
-                : () => _enterCloudSelect(entry),
-            onSelectDragUpdate: _onCloudSweep,
-            onSelectDragEnd: _cloudSweep.end,
-          );
-        }, childCount: shown.length),
-      ),
-    );
-  }
-
-  void _enterCloudSelect(IndexEntry entry) {
-    setState(() {
-      _cloudSelecting = true;
-      _selectedCloudKeys = {entry.objectKey};
-    });
-    _cloudSweep.begin(entry.objectKey);
-  }
-
-  void _exitCloudSelect() => setState(() {
-    _cloudSelecting = false;
-    _selectedCloudKeys = {};
-  });
-
-  void _toggleCloud(IndexEntry entry) => setState(() {
-    if (!_selectedCloudKeys.remove(entry.objectKey)) {
-      _selectedCloudKeys.add(entry.objectKey);
-    }
-  });
-
-  List<IndexEntry> get _selectedCloud => [
-    for (final entry in _cloudEntries)
-      if (_selectedCloudKeys.contains(entry.objectKey)) entry,
-  ];
-
-  /// Drops the full local copy of each selected photo and keeps its tile.
-  ///
-  /// Each one is checked against the bucket first (`sendBackToBucket`), and
-  /// a photo the bucket cannot be shown to hold is left alone and counted —
-  /// freeing space must never be how a hidden photo stops existing.
-  Future<void> _freeUpSelected() async {
-    final gallery = _gallery;
-    if (gallery == null || _cloudBusy) return;
-    final chosen = _selectedCloud;
-    if (chosen.isEmpty) return;
-    setState(() => _cloudBusy = true);
-    var freed = 0;
-    var refused = 0;
-    for (final entry in chosen) {
-      if (await gallery.sendBackToBucket(entry)) {
-        freed++;
-      } else {
-        refused++;
-      }
-    }
-    if (!mounted) return;
-    setState(() => _cloudBusy = false);
-    _exitCloudSelect();
-    await _reloadHoldings();
-    if (!mounted) return;
-    final l10n = AppLocalizations.of(context)!;
-    await _say(
-      refused == 0
-          ? l10n.vaultFreedResult(freed)
-          : l10n.vaultFreedPartial(freed, refused),
-    );
-  }
-
-  /// Un-hides filed photos: each goes back to Photos first, and leaves the
-  /// album only once Photos has it. One that can't go back stays here.
-  Future<void> _recoverSelectedCloud() async {
-    final gallery = _gallery;
-    final keys = widget.albumKeys;
-    if (gallery == null || keys == null || _cloudBusy) return;
-    final chosen = _selectedCloud;
-    if (chosen.isEmpty) return;
-    setState(() => _cloudBusy = true);
-    final restore = HiddenRestore(
-      gallery: gallery,
-      saveFiles: _custody.saveFiles,
-    );
-    final plainIds = <String, String>{};
-    for (final entry in chosen) {
-      final localId = await restore.restore(entry);
-      if (localId != null) plainIds[entry.objectKey] = localId;
-    }
-    final released = await _removal.release(
-      keys: keys,
-      plainIds: plainIds,
-      passphrases: _passphrases,
-    );
-    if (!mounted) return;
-    setState(() => _cloudBusy = false);
-    _exitCloudSelect();
-    await _refreshCloud();
-    final failed = released ? chosen.length - plainIds.length : chosen.length;
-    if (failed > 0 && mounted) {
-      await _showNote(
-        AppLocalizations.of(context)!.privateAlbumReturnFailed(failed),
-      );
-    }
-  }
-
-  /// Brings the selected photos back down, so they open with no network.
-  Future<void> _downloadSelected() async {
-    final gallery = _gallery;
-    if (gallery == null || _cloudBusy) return;
-    final chosen = [
-      for (final entry in _selectedCloud)
-        if (!_onThisPhone.contains(entry.objectKey)) entry,
-    ];
-    if (chosen.isEmpty) return;
-    setState(() => _cloudBusy = true);
-    var got = 0;
-    for (final entry in chosen) {
-      if (await gallery.download(entry)) got++;
-    }
-    if (!mounted) return;
-    setState(() => _cloudBusy = false);
-    _exitCloudSelect();
-    await _reloadHoldings();
-    if (!mounted) return;
-    final l10n = AppLocalizations.of(context)!;
-    await _say(
-      got == chosen.length
-          ? l10n.vaultDownloadedResult(got)
-          : l10n.vaultDownloadedPartial(got, chosen.length - got),
-    );
   }
 
   Future<void> _say(String message) => showCupertinoDialog<void>(
@@ -1765,27 +1500,15 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
           middle: Text(widget.title ?? l10n.privateAlbumScreenTitle),
           leading: _selecting
               ? SelectAllButton(
-                  total: _records.length,
+                  total: _gridRecords.length,
                   selectedCount: _selectedIds.length,
                   onSelectNext: () => setState(
                     () => _selectedIds = selectEverything(
-                      _records.reversed.map((r) => r.localId),
+                      _gridRecords.reversed.map((r) => r.localId),
                       _selectedIds,
                     ),
                   ),
                   onDeselectAll: () => setState(() => _selectedIds = {}),
-                )
-              : _cloudSelecting
-              ? SelectAllButton(
-                  total: _cloudEntries.length,
-                  selectedCount: _selectedCloudKeys.length,
-                  onSelectNext: () => setState(
-                    () => _selectedCloudKeys = selectEverything(
-                      _cloudEntries.reversed.map((e) => e.objectKey),
-                      _selectedCloudKeys,
-                    ),
-                  ),
-                  onDeselectAll: () => setState(() => _selectedCloudKeys = {}),
                 )
               : null,
           // Everything that acts on the *album* rather than on a photo is
@@ -1794,15 +1517,15 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
           // across the top read as a toolbar of unrelated verbs — with
           // "Delete Private Album" sitting in red next to "Add", a tap away
           // from each other.
-          trailing: _selecting || _cloudSelecting
+          trailing: _selecting
               ? SelectionDoneButton(
                   key: const ValueKey('privateSelectionDone'),
-                  onPressed: _selecting ? _exitSelectMode : _exitCloudSelect,
+                  onPressed: _exitSelectMode,
                 )
               : Row(
                   mainAxisSize: MainAxisSize.min,
                   children: [
-                    if (_records.isNotEmpty)
+                    if (_gridRecords.isNotEmpty)
                       CupertinoButton(
                         padding: const EdgeInsets.symmetric(horizontal: 6),
                         minimumSize: Size.zero,
@@ -1844,7 +1567,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                         const CupertinoActivityIndicator(radius: 8)
                       else
                         Text(
-                          '${l10n.privateAlbumItemCount(_records.length + _entriesWithoutRows.length)}'
+                          '${l10n.privateAlbumItemCount(_gridRecords.length)}'
                           ' · ${_formatSize(_totalBytes + _localBytes)}',
                           style: const TextStyle(
                             color: CupertinoColors.systemGrey,
@@ -1872,7 +1595,8 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
               ),
               Expanded(
                 child: AssetGridView(
-                  records: _records,
+                  records: _gridRecords,
+                  imageFor: _imageFor,
                   onTap: _open,
                   selectedIds: _selecting ? _selectedIds : null,
                   onLongPress: _startSelecting,
@@ -1898,7 +1622,6 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                     ),
                   ),
                   trailingSlivers: [
-                    _cloudSliver(l10n),
                     _addSliver(l10n),
                     _notesSliver(l10n),
                     _backupFooter(l10n),
@@ -1976,7 +1699,6 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                     ),
                   ),
                 ),
-              if (_cloudSelecting) _cloudSelectionBar(l10n),
             ],
           ),
         ),

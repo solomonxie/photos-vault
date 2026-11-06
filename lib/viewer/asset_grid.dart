@@ -91,6 +91,9 @@ List<Widget> assetGridSlivers({
   /// See [AssetTile.onSelectDragUpdate].
   void Function(Offset globalPosition)? onSelectDragUpdate,
   VoidCallback? onSelectDragEnd,
+
+  /// See [AssetTile.imageFor].
+  Widget? Function(AssetRecord)? imageFor,
 }) {
   final l10n = AppLocalizations.of(context)!;
   final grid =
@@ -146,6 +149,7 @@ List<Widget> assetGridSlivers({
                             onMissing: onMissing,
                             onSelectDragUpdate: onSelectDragUpdate,
                             onSelectDragEnd: onSelectDragEnd,
+                            imageFor: imageFor,
                           )
                         : const SizedBox.shrink(),
                   ),
@@ -169,6 +173,7 @@ List<Widget> assetGridSlivers({
           onMissing,
           onSelectDragUpdate,
           onSelectDragEnd,
+          imageFor,
         ],
       ),
     ),
@@ -204,6 +209,7 @@ Widget _tileFor(
   required void Function(AssetRecord)? onMissing,
   required void Function(Offset globalPosition)? onSelectDragUpdate,
   required VoidCallback? onSelectDragEnd,
+  required Widget? Function(AssetRecord)? imageFor,
 }) => AssetTile(
   key: ValueKey(record.localId),
   record: record,
@@ -218,6 +224,7 @@ Widget _tileFor(
   selected: selectedIds?.contains(record.localId),
   selection: selection,
   marked: record.localId == markedId,
+  imageFor: imageFor,
 );
 
 class _DayHeader extends StatelessWidget {
@@ -426,9 +433,14 @@ class AssetTile extends StatelessWidget {
     this.onMissing,
     this.onSelectDragUpdate,
     this.onSelectDragEnd,
+    this.imageFor,
   });
 
   final AssetRecord record;
+
+  /// The picture, from somewhere other than [assetImage] — null falls back
+  /// to it. A hidden photo only the bucket has draws from its carrier.
+  final Widget? Function(AssetRecord)? imageFor;
 
   /// Side of the square tile, in logical pixels.
   ///
@@ -579,13 +591,14 @@ class AssetTile extends StatelessWidget {
         // of this tile already has the whole picture in memory to put
         // up on its first frame. 200 on the long edge leaves the short
         // edge about where the old 150 square was.
-        assetImage(
-          record,
-          thumbnailSize: 200,
-          fittedThumbnail: true,
-          placeholder: _placeholder,
-          onMissing: onMissing,
-        ),
+        imageFor?.call(record) ??
+            assetImage(
+              record,
+              thumbnailSize: 200,
+              fittedThumbnail: true,
+              placeholder: _placeholder,
+              onMissing: onMissing,
+            ),
         // Only in the bucket now: dimmed, so what is no longer on this
         // phone reads apart from what is. A flat overlay rather than a
         // greyscale filter, which would be a saveLayer per tile.
