@@ -203,14 +203,14 @@ export function dayGrid(
       p.favorite ? h('span', { class: 'badge fav' }, icon('heart', { size: 14, filled: true })) : null,
       p.cloudOnly ? h('span', { class: 'badge cloud', title: t('cloudOnly') }, icon('cloud', { size: 14 })) : null,
     );
-    const key = p.thumbKey ?? p.originalKey;
+    const key = p.thumbKey ?? p.mediumKey;
     if (!key) {
       tile.classList.add('nothumb');
       return tile;
     }
     img.addEventListener('load', () => img.classList.add('in'), { once: true });
     img.addEventListener('error', () => tile.classList.add('nothumb'), { once: true });
-    void thumbUrl(bucket, key).then((u) => {
+    void thumbUrl(bucket, key, () => tile.isConnected).then((u) => {
       if (!u) return tile.classList.add('nothumb');
       img.src = u;
       // Already in the page's image memory: no fade for a tile scrolled back.

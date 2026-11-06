@@ -275,7 +275,7 @@ function currentOwner(): { e: 'album' | 'person'; id: string } | null {
 function cover(id: string | null | undefined) {
   const img = h('img', { alt: '', decoding: 'async' });
   const p = id ? lib.photos.get(id) : undefined;
-  const key = p?.thumbKey ?? p?.originalKey;
+  const key = p?.thumbKey ?? p?.mediumKey;
   img.addEventListener('load', () => img.classList.add('in'), { once: true });
   if (key) void thumbUrl(bucket, key).then((u) => u && (img.src = u));
   return img;
