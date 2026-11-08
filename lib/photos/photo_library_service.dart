@@ -602,10 +602,13 @@ class PhotoLibraryService {
   }
 
   /// A date changed over in Photos (04#12). Only from an edit iOS reported,
-  /// not from every scan: a scan would also undo a date set here that
-  /// Photos refused, or one a fresh save hasn't been given yet.
+  /// not from every scan, and never over a date set here
+  /// ([AssetRecord.dateSetAt]): Photos may have refused it, or not have it
+  /// yet.
   Future<bool> _refreshDate(AssetRecord record, AssetEntity entity) async {
-    if (record.sourcePath != null || record.passcodeHash != null) {
+    if (record.sourcePath != null ||
+        record.passcodeHash != null ||
+        record.dateSetAt != null) {
       return false;
     }
     final listed = entity.createDateTime;
@@ -614,8 +617,7 @@ class PhotoLibraryService {
         record.createdAt.millisecondsSinceEpoch ~/ 1000) {
       return false;
     }
-    await store.setCreatedAt(record.localId, listed);
-    return true;
+    return store.setLibraryDate(record.localId, listed);
   }
 
   /// Library ids something says are gone: a deletion notice, or a grid

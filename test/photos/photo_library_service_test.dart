@@ -1,5 +1,6 @@
 import 'dart:math' as math;
 
+import 'package:photos_vault/photos/library_metadata.dart';
 import 'package:photos_vault/photos/photo_changes.dart';
 import 'package:photos_vault/photos/photo_library_change.dart';
 import 'package:photos_vault/photos/photo_library_service.dart';
@@ -1013,6 +1014,42 @@ void main() {
       expect(result.updated, greaterThan(0));
       expect(
         (await store.getByLocalId('photo:a1'))!.createdAt,
+        DateTime.fromMillisecondsSinceEpoch(5000 * 1000),
+      );
+    });
+
+    test('a date set here survives Photos refusing it and the next edit '
+        'notice; an unmarked photo still takes Photos\' date', () async {
+      final store = FakeAssetRecordStore();
+      var listing = [
+        _entity('set', createSecond: 1000),
+        _entity('other', createSecond: 1000),
+      ];
+      final service = over(store, () => listing);
+      await service.syncAll();
+      final set = (await store.getByLocalId('photo:set'))!;
+      final chosen = DateTime(1999, 5, 1);
+
+      // No PhotoKit under test: the library write fails, as a refusal does.
+      await setCreatedAtEverywhere(store, {set: chosen});
+      // A notice processed while the library write is still pending.
+      await service.applyChange(
+        const PhotoLibraryChange(updated: {'set', 'other'}),
+      );
+      await Future<void>.delayed(const Duration(milliseconds: 10));
+      listing = [
+        _entity('set', createSecond: 5000),
+        _entity('other', createSecond: 5000),
+      ];
+      await service.applyChange(
+        const PhotoLibraryChange(updated: {'set', 'other'}),
+      );
+
+      final kept = (await store.getByLocalId('photo:set'))!;
+      expect(kept.createdAt, chosen);
+      expect(kept.dateSetAt, isNotNull);
+      expect(
+        (await store.getByLocalId('photo:other'))!.createdAt,
         DateTime.fromMillisecondsSinceEpoch(5000 * 1000),
       );
     });

@@ -605,6 +605,48 @@ void main() {
     expect(saved!.createdAt, DateTime(2026, 1, 1));
   });
 
+  testWidgets('a new date shows in the viewer at once and is stored', (
+    tester,
+  ) async {
+    final record = _record(localId: 'a');
+    final assetRecordStore = FakeAssetRecordStore();
+    await assetRecordStore.upsert(
+      localId: record.localId,
+      contentHash: record.localId,
+      platform: 'ios',
+      sourceType: AssetSourceType.manualFile,
+      sourcePath: record.sourcePath,
+      createdAt: record.createdAt,
+    );
+
+    await tester.pumpWidget(
+      _wrap(
+        DetailScreen(
+          records: [record],
+          initialIndex: 0,
+          assetRecordStore: assetRecordStore,
+          personStore: FakePersonStore(),
+          onDelete: (_) async => true,
+          onToggleFavorite: (_) async {},
+        ),
+      ),
+    );
+    await tester.pump();
+    await _scrollToInfoPanel(tester);
+
+    await _tapInPanel(tester, find.textContaining('2026'));
+    // The year wheel, one row back.
+    await tester.drag(find.text('2026'), const Offset(0, 40));
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('Save'));
+    await tester.pumpAndSettle();
+
+    expect(find.textContaining('2025'), findsOneWidget);
+    expect(find.textContaining('2026'), findsNothing);
+    final saved = await assetRecordStore.getByLocalId('a');
+    expect(saved!.createdAt, DateTime(2025, 1, 1));
+  });
+
   testWidgets('editing the location shows it in place of "No Location"', (
     tester,
   ) async {

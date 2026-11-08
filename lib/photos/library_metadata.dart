@@ -29,11 +29,30 @@ Future<void> setFavoriteEverywhere(
   await PhotoLibraryService.setFavoriteInLibrary(record, isFavorite);
 }
 
+/// Returns once our records hold the dates, so the screen shows them at
+/// once. PhotoKit follows in the background, one asset at a time: each
+/// write can wait on iOS's "Allow to modify this photo?" or on iCloud.
+/// Refused or not, the dates are marked as set here, and the mark stays:
+/// Photos' own date never comes back over the user's choice.
 Future<void> setCreatedAtEverywhere(
   AssetRecordStore store,
-  AssetRecord record,
-  DateTime createdAt,
+  Map<AssetRecord, DateTime> dates,
 ) async {
-  await store.setCreatedAt(record.localId, createdAt);
-  await PhotoLibraryService.setCreatedAtInLibrary(record, createdAt);
+  await store.setCreatedAtMany({
+    for (final MapEntry(key: record, value: at) in dates.entries)
+      record.localId: at,
+  });
+  final writes = [...dates.entries];
+  _libraryWrites = _libraryWrites.then((_) async {
+    for (final MapEntry(key: record, value: at) in writes) {
+      try {
+        await PhotoLibraryService.setCreatedAtInLibrary(record, at);
+      } catch (_) {
+        // Best-effort, as the favourite is; the next one still goes.
+      }
+    }
+  });
 }
+
+/// One PhotoKit date write after another: prompts never stack.
+Future<void> _libraryWrites = Future.value();

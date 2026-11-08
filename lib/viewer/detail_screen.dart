@@ -57,6 +57,7 @@ import 'place_screen.dart';
 import 'travel_entry_editor.dart';
 import 'search_picker_sheet.dart';
 import 'video_controls.dart';
+import 'date_time_sheet.dart';
 
 /// Matches `CupertinoThemeData.scaffoldBackgroundColor` in app.dart — pure
 /// black looked out of place next to every other screen's dark grey.
@@ -2655,40 +2656,14 @@ class _InfoPanelState extends State<_InfoPanel> {
   }
 
   Future<void> _editDateTime() async {
-    final l10n = AppLocalizations.of(context)!;
-    var picked = widget.record.createdAt.toLocal();
-    final saved = await showCupertinoModalPopup<bool>(
-      context: context,
-      builder: (context) => CupertinoActionSheet(
-        title: Text(l10n.detailEditDateTimeTitle),
-        message: SizedBox(
-          height: 200,
-          child: CupertinoDatePicker(
-            mode: CupertinoDatePickerMode.dateAndTime,
-            initialDateTime: picked,
-            maximumDate: DateTime.now(),
-            onDateTimeChanged: (value) => picked = value,
-          ),
-        ),
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(l10n.settingsSaveButton),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: Text(l10n.actionCancel),
-        ),
-      ),
+    final picked = await showDateTimeSheet(
+      context,
+      initial: widget.record.createdAt.toLocal(),
     );
-    if (saved != true) return;
-    await setCreatedAtEverywhere(
-      widget.assetRecordStore,
-      widget.record,
-      picked,
-    );
-    widget.onRecordChanged(widget.record.withCreatedAt(picked));
+    if (picked == null || !mounted) return;
+    final record = widget.record;
+    await setCreatedAtEverywhere(widget.assetRecordStore, {record: picked});
+    widget.onRecordChanged(record.withCreatedAt(picked));
   }
 
   /// Same "search existing, or type to create" drop-down used for education/
@@ -3184,7 +3159,8 @@ class _InfoPanelState extends State<_InfoPanel> {
           _detectingRow(l10n),
           // Only where the caller brought an album store: opened from a
           // person's page there's nothing to file into.
-          if (widget.albumStore != null) ...[
+          // Albums are the owner's library's: not for someone else's photo.
+          if (widget.albumStore != null && widget.record.isMine) ...[
             const SizedBox(height: 24),
             _SectionHeader(title: l10n.collectionsAlbums, onAdd: _addToAlbum),
             const SizedBox(height: 8),
