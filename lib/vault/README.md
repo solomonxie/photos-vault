@@ -33,6 +33,19 @@ hidden_migration.dart    gives old carrier names protocol names, album open
 hidden_transition.dart   the one owner of hide / un-hide, journaled in sqlite
 passcode_tags.dart       code → tag (HMAC, Keychain key, escrowed); old tags
                          accepted and upgraded
+owner_folder.dart        every folder is a person's; main-page Hidden = the
+                         owner's. Bare-digit folders move in on unlock; Move
+                         to Person. Both additive: re-encrypt, never delete.
+                         Bucket-only photos carried (filed_photos.dart
+                         carry): download, decrypt, new row, backup re-sends
+hidden_leftovers.dart    what a left-behind folder still really holds (rows,
+                         unsuperseded carriers); local, off the UI isolate.
+                         > 0 → "Older photos" row in the owner's folder, and
+                         its bucket-only photos carried in, in the background
+retired_carriers.dart    carriers carried out or 404 everywhere: not counted,
+                         never deleted. Matched by name minus date stamp
+                         (object_key.dart carrierIdentity): stamps follow
+                         the phone's time zone
 plain_files.dart <AppSupport>/vault/plain — hidden photos' plain files,
                  out of the device backup, neutral names
 hidden_repair.dart       one-time list of what older builds left; changes nothing

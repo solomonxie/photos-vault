@@ -67,7 +67,11 @@ class HiddenBucketScan {
     Set<String> known = const {},
     bool read = true,
   }) async {
-    final skip = {for (final k in known) ...siblingCarrierKeysOf(k)};
+    // By identity: a row's name worked out in another time zone is still
+    // that row's carrier.
+    final skip = {
+      for (final k in known) ...siblingCarrierKeysOf(k).map(carrierIdentity),
+    };
     final macKey = keys.carrier.macKey;
     final targets = {for (final t in await targetsStore.loadAll()) t.id: t};
 
@@ -75,7 +79,9 @@ class HiddenBucketScan {
       for (final o in await store.listBucketObjects())
         if (o.directory == 'originals' &&
             nameBelongsTo(o.fileName, macKey) &&
-            !skip.contains(vaultObjectKey('originals', o.fileName)))
+            !skip.contains(
+              carrierIdentity(vaultObjectKey('originals', o.fileName)),
+            ))
           o,
     ];
     final bases = {for (final o in mine) _stemOf(o.fileName)};

@@ -9,7 +9,10 @@ import 'person.dart';
 /// people table would have needed a parallel version of every one of those.
 ///
 /// Kept in `app_state` next to the other app-level settings, so Remove All App
-/// Data forgets it along with everything else it describes.
+/// Data forgets it along with everything else it describes. Chosen in
+/// Settings, or by the main page's Hidden the first time it is opened: the
+/// owner's hidden folder is the one it opens (`owner_folder.dart`). It
+/// rides in the app-data backup, and a change moves the backup's mark.
 class PersonOwner {
   const PersonOwner(this.settings);
 
@@ -22,8 +25,11 @@ class PersonOwner {
     return (stored == null || stored.isEmpty) ? null : stored;
   }
 
-  Future<void> set(String? personId) =>
-      settings.setAppState(key, personId ?? '');
+  Future<void> set(String? personId) async {
+    if (await id() == personId) return;
+    await settings.setAppState(key, personId ?? '');
+    await settings.markChanged();
+  }
 }
 
 /// How [relationships] say this person stands to the owner, in the words

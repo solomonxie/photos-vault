@@ -1,5 +1,6 @@
 import 'dart:async';
 import 'dart:convert';
+import 'dart:isolate';
 
 import '../photos/ai_analysis_store.dart';
 import '../photos/face_identity.dart';
@@ -16,6 +17,7 @@ import 'hidden_removal.dart';
 import 'keys.dart';
 import 'object_key.dart';
 import 'plain_files.dart';
+import 'retired_carriers.dart';
 import 'store.dart';
 
 /// The one owner of a photo going into or out of hiding.
@@ -129,11 +131,16 @@ class HiddenTransition {
   /// adopted photo out of [from]'s index first; false there, a transition
   /// already under way, or no full copy on this phone leaves it where it
   /// is.
+  ///
+  /// [retire] false is additive: nothing under [from] is queued for
+  /// deletion or dropped here, so its old carriers stay in every bucket.
+  /// [from]'s album no longer shows them ([supersededCarrierKeys]).
   Future<bool> moveRecord(
     AssetRecord record, {
     required AlbumKeys? from,
     required String to,
     Future<bool> Function(AssetRecord record)? unlist,
+    bool retire = true,
   }) async {
     if (record.passcodeHash == null || record.passcodeHash == to) return false;
     // Its full copy is only the old album's carrier: nothing here to make
@@ -142,7 +149,9 @@ class HiddenTransition {
     if (await _rowOf(record.localId) != null) return false;
     if (unlist != null && !await unlist(record)) return false;
     final fresh = await store.getByLocalId(record.localId) ?? record;
-    final tasks = await _carrierTasks(fresh, from);
+    final tasks = retire
+        ? await _carrierTasks(fresh, from)
+        : const <PendingDelete>[];
     final localCarriers = relativeCarrierKeys(fresh, from);
     // `to` rides in the payload: step 1 needs it after a kill.
     await store.openTransition(
@@ -150,10 +159,20 @@ class HiddenTransition {
       move,
       payload: jsonEncode({'to': to, 'tasks': jsonDecode(_encode(tasks))}),
     );
-    await _advance((await _rowOf(record.localId))!);
+    try {
+      await _advance((await _rowOf(record.localId))!);
+    } catch (_) {
+      // Additive and not yet re-tagged: nothing was queued, so it simply
+      // stays where it was rather than being finished at the next launch.
+      final open = await _rowOf(record.localId);
+      if (!retire && open != null && open.step == 0) {
+        await store.closeTransition(record.localId);
+      }
+      rethrow;
+    }
     // The old album's copy on this phone. Best-effort, not journaled: the
     // keys that name it aren't kept, and a leftover only costs space.
-    if (from != null) {
+    if (from != null && retire) {
       try {
         await _vaultStore.removeAll(from, localCarriers);
       } catch (_) {}
@@ -367,4 +386,32 @@ String? _relative(String? key) {
   if (key == null) return null;
   final at = key.indexOf('originals/');
   return at == -1 ? null : key.substring(at);
+}
+
+/// The carriers [keys]' album may still hold of photos now kept under
+/// another tag than [tag], by [carrierIdentity]: an additive move leaves
+/// them in the buckets, and the album must not show them as photos only
+/// the bucket has. With them, every [RetiredCarriers] one. Worked out off
+/// the UI isolate, one keyed hash per hidden row.
+Future<Set<String>> supersededCarrierKeys(
+  AssetRecordStore store,
+  String tag,
+  AlbumKeys keys,
+) async {
+  final retired = await RetiredCarriers(store).all();
+  final elsewhere = [
+    for (final r in await store.hiddenRecords())
+      if (r.passcodeHash != tag) r,
+  ];
+  if (elsewhere.isEmpty) return retired;
+  final carrier = keys.carrier;
+  return Isolate.run(
+    () => {
+      ...retired,
+      for (final r in elsewhere) ...[
+        carrierIdentity(vaultCarrierKey(r, carrier)),
+        if (r.isLivePhoto) carrierIdentity(vaultLiveCarrierKey(r, carrier)),
+      ],
+    },
+  );
 }

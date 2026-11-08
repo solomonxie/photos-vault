@@ -6,7 +6,9 @@ import 'package:flutter/services.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
+import '../photos/alias_folders.dart';
 import '../photos/library_custody.dart';
+import '../photos/person_store.dart';
 import '../settings/backup_targets_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
@@ -14,9 +16,11 @@ import '../storage/passcode_hash.dart';
 import '../upload/original_restore.dart';
 import '../vault/hidden_transition.dart';
 import '../vault/keys.dart';
+import '../vault/owner_folder.dart';
 import '../vault/passcode_tags.dart';
 import '../vault/passphrase_sheet.dart';
 import '../upload/pending_deletes.dart';
+import 'owner_gate.dart';
 import 'private_album_screen.dart';
 
 export '../storage/passcode_hash.dart' show personAlbumCode;
@@ -501,18 +505,147 @@ bool _anyPersonCode(String personId, Set<String> hashes, Uint8List? key) {
   return false;
 }
 
+/// The main page's Hidden: the owner's own folder (`owner_folder.dart`).
+/// Nobody set as owner yet, or the one set since deleted: who that is is
+/// asked first. What the bare digits still hold from older builds moves
+/// in before it opens, retried on every unlock; what can't is offered as
+/// a row inside it.
+Future<void> openOwnerHidden(
+  BuildContext context, {
+  required AssetRecordStore assetRecordStore,
+  PersonStore? personStore,
+  LibraryCustody? custody,
+  VaultKeys? vaultKeys,
+  int? libraryCount,
+  OwnerFolder Function(VaultKeys keys)? ownerFolder,
+  LeftoverCounter? countLeftover,
+  LeftoverCarrier? carryLeftover,
+}) async {
+  final people = personStore ?? PersonStore();
+  final ownerId = await ensureOwner(
+    context,
+    store: assetRecordStore,
+    people: people,
+  );
+  if (ownerId == null || !context.mounted) return;
+  await openPrivateAlbums(
+    context,
+    assetRecordStore: assetRecordStore,
+    personStore: people,
+    custody: custody,
+    vaultKeys: vaultKeys,
+    libraryCount: libraryCount,
+    countLeftover: countLeftover,
+    carryLeftover: carryLeftover,
+    folderPersonId: ownerId,
+    codeFor: (digits) => personAlbumCode(ownerId, digits),
+    beforeOpen: (digits, keys) async {
+      // Always a candidate: whether its key still has carriers of its own
+      // is counted by the folder screen, off the UI isolate.
+      final extra = <String>{digits};
+      try {
+        extra.addAll(
+          await (ownerFolder?.call(keys) ??
+                  OwnerFolder(
+                    store: assetRecordStore,
+                    people: people,
+                    vaultKeys: keys,
+                  ))
+              .adoptPlain(ownerId, digits, lookInBucket: false),
+        );
+      } catch (_) {
+        // Not moved this time; retried on the next unlock.
+      }
+      extra.addAll(
+        await _foldAliases(
+          assetRecordStore,
+          keys,
+          ownerId,
+          await people.aliasesOf(ownerId),
+          digits,
+        ),
+      );
+      unawaited(PrivateAlbumScreen.hiddenBackup?.run());
+      return extra.toList();
+    },
+  );
+}
+
+/// Folds [aliases]' folders under [digits] into [personId]'s; the alias
+/// codes that may still hold something.
+Future<List<String>> _foldAliases(
+  AssetRecordStore store,
+  VaultKeys keys,
+  String personId,
+  List<String> aliases,
+  String digits,
+) async {
+  if (aliases.isEmpty) return const [];
+  try {
+    return await AliasFolders(
+      store: store,
+      vaultKeys: keys,
+    ).fold(personId, aliases, digits);
+  } catch (_) {
+    // Not folded this time: each is counted as it is.
+    return [for (final a in aliases) personAlbumCode(a, digits)];
+  }
+}
+
+/// A person's own hidden folder — see [personAlbumCode]. Folders of people
+/// merged into them, under the same digits, fold into it on each unlock.
+Future<void> openPersonHidden(
+  BuildContext context, {
+  required AssetRecordStore assetRecordStore,
+  required PersonStore personStore,
+  required String personId,
+  required String title,
+  Future<void> Function(String digits, VaultKeys keys)? alsoOnUnlock,
+  VaultKeys? vaultKeys,
+  LeftoverCounter? countLeftover,
+  LeftoverCarrier? carryLeftover,
+}) => openPrivateAlbums(
+  context,
+  assetRecordStore: assetRecordStore,
+  vaultKeys: vaultKeys,
+  countLeftover: countLeftover,
+  carryLeftover: carryLeftover,
+  personStore: personStore,
+  folderPersonId: personId,
+  codeFor: (digits) => personAlbumCode(personId, digits),
+  beforeOpen: (digits, keys) async {
+    if (alsoOnUnlock != null) unawaited(alsoOnUnlock(digits, keys));
+    final left = await _foldAliases(
+      assetRecordStore,
+      keys,
+      personId,
+      await personStore.aliasesOf(personId),
+      digits,
+    );
+    unawaited(PrivateAlbumScreen.hiddenBackup?.run());
+    return left;
+  },
+  title: title,
+);
+
 /// [codeFor] turns the typed digits into the album's code — see
 /// [personAlbumCode]; [title] names the album screen. [beforeOpen] runs
-/// with the digits first and names any further codes to open after it.
+/// with the digits first and names other folders that may still hold
+/// photos of their own. One screen opens, never a chain: those that
+/// really do show as rows at its bottom, so back always returns here.
 Future<void> openPrivateAlbums(
   BuildContext context, {
   required AssetRecordStore assetRecordStore,
+  PersonStore? personStore,
   LibraryCustody? custody,
   VaultKeys? vaultKeys,
   int? libraryCount,
   String Function(String digits)? codeFor,
   Future<List<String>> Function(String digits, VaultKeys keys)? beforeOpen,
   String? title,
+  LeftoverCounter? countLeftover,
+  LeftoverCarrier? carryLeftover,
+  String? folderPersonId,
 }) async {
   final keys = vaultKeys ?? VaultKeys();
   // Set up at the moment it first matters, rather than behind a switch in
@@ -532,29 +665,37 @@ Future<void> openPrivateAlbums(
   final digits = await showPrivateAlbumPasscodeSheet(context, title: title);
   if (digits == null) return;
   final extra = await beforeOpen?.call(digits, keys) ?? const <String>[];
-  for (final passcode in [codeFor?.call(digits) ?? digits, ...extra]) {
-    final tag = await PasscodeTags(
-      records: assetRecordStore,
-      vaultKeys: keys,
-    ).tagFor(passcode);
-    // Fills the key ring for this session, so the upload path can find this
-    // album's key by the tag the records carry without ever holding the
-    // digits itself. Dropped when the app dies.
-    final album = await keys.unlockAlbum(passcode, tag);
-    if (!context.mounted) return;
-    await Navigator.of(context).push(
-      CupertinoPageRoute(
-        builder: (_) => PrivateAlbumScreen(
-          passcodeHash: tag,
-          assetRecordStore: assetRecordStore,
-          custody: custody,
-          albumKeys: album,
-          vaultKeys: keys,
-          title: title,
-        ),
+  final passcode = codeFor?.call(digits) ?? digits;
+  final tag = await PasscodeTags(
+    records: assetRecordStore,
+    vaultKeys: keys,
+  ).tagFor(passcode);
+  // Fills the key ring for this session, so the upload path can find this
+  // album's key by the tag the records carry without ever holding the
+  // digits itself. Dropped when the app dies.
+  final album = await keys.unlockAlbum(passcode, tag);
+  if (!context.mounted) return;
+  await Navigator.of(context).push(
+    CupertinoPageRoute(
+      builder: (_) => PrivateAlbumScreen(
+        passcodeHash: tag,
+        assetRecordStore: assetRecordStore,
+        custody: custody,
+        albumKeys: album,
+        vaultKeys: keys,
+        digits: digits,
+        personStore: personStore,
+        title: title,
+        leftoverCodes: [
+          for (final c in extra)
+            if (c != passcode) c,
+        ],
+        countLeftover: countLeftover,
+        carryLeftover: carryLeftover,
+        folderPersonId: folderPersonId,
       ),
-    );
-  }
+    ),
+  );
 }
 
 /// Below this many photos the decoys repeat and stand out.
@@ -626,7 +767,8 @@ Future<bool> _askHeif(BuildContext context, int count) async {
 /// own hash, and asking for it again to add to it would be asking a
 /// question already answered. [codeFor] turns the typed code into another
 /// folder's, as [personAlbumCode] does for a person's; [codeForRecord] does
-/// it per photo, for several people's folders under one code.
+/// it per photo, for several people's folders under one code. With none of
+/// the three, the owner's folder, asking who that is if nobody is set.
 Future<bool> hideIntoPrivateAlbum(
   BuildContext context, {
   required AssetRecordStore assetRecordStore,
@@ -638,9 +780,20 @@ Future<bool> hideIntoPrivateAlbum(
   PendingDeletes? pendingDeletes,
   BackupTargetsStore? targetsStore,
   AiAnalysisStore? analysisStore,
+  PersonStore? personStore,
   VoidCallback? onSettled,
 }) async {
   final l10n = AppLocalizations.of(context)!;
+  // No folder named: the owner's, as the main page's Hidden opens.
+  if (passcodeHash == null && codeFor == null && codeForRecord == null) {
+    final ownerId = await ensureOwner(
+      context,
+      store: assetRecordStore,
+      people: personStore ?? PersonStore(),
+    );
+    if (ownerId == null || !context.mounted) return false;
+    codeFor = (digits) => personAlbumCode(ownerId, digits);
+  }
   // No confirmation of our own, with one exception. The OS puts one up for
   // the delete a moment later — listing exactly what is about to go — and
   // two dialogs in a row asking the same question is how people learn to

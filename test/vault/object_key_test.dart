@@ -175,6 +175,23 @@ void main() {
     });
   });
 
+  test("a carrier's identity is its name without the date stamp", () {
+    const hex = '34f7bad5abe188aa5fe44996cca78552';
+    expect(
+      carrierIdentity('originals/20130914100737_$hex.jpg'),
+      carrierIdentity('originals/20130914090737_$hex.jpg'),
+    );
+    expect(
+      carrierIdentity('originals/20130914100737_$hex.jpg'),
+      'originals/$hex.jpg',
+    );
+    expect(carrierIdentity('originals/$hex.jpg'), 'originals/$hex.jpg');
+    expect(
+      carrierIdentity('originals/photo_A_L0_001.jpg'),
+      'originals/photo_A_L0_001.jpg',
+    );
+  });
+
   test('anything a filesystem or a URL would choke on is replaced', () {
     expect(
       vaultSafeName('photo:B84E8479/L0/001 (2).HEIC'),

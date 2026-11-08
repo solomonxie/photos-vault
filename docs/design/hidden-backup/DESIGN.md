@@ -144,7 +144,7 @@ photos.
   ┌──────────────────────────────────┐        ┌──────────────────────────────┐
   │ passphrase ─PBKDF2─▶ masterKey   │        │ originals/<id>.jpg  carrier  │
   │                     (Keychain)   │        │ originals/<id>.jpg  carrier  │
-  │       │ HKDF + the 4 digits      │        │ app-data/20260921.zip        │
+  │       │ HKDF + the 4 digits      │        │ app-data/<dev>/20260921.zip  │
   │       ▼                          │        │ app-data/index.bin  always   │
   │   albumKey (RAM only)            │        └──────────────────────────────┘
   │       │                          │                      ▲

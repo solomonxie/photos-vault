@@ -5,6 +5,7 @@ import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/photos/library_custody.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/passcode_hash.dart';
+import 'package:photos_vault/viewer/asset_grid.dart';
 import 'package:photos_vault/viewer/private_album_screen.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
@@ -553,6 +554,87 @@ void main() {
 
     expect(find.byType(PrivateAlbumScreen), findsNothing);
     expect(find.text('library'), findsOneWidget);
+  });
+
+  group('back swipe from the left edge', () {
+    Future<FakeAssetRecordStore> pushAlbum(WidgetTester tester) async {
+      final assetStore = FakeAssetRecordStore();
+      for (var i = 0; i < 40; i++) {
+        await assetStore.upsert(
+          localId: 'manual:$i',
+          contentHash: '$i',
+          platform: 'ios',
+          sourceType: AssetSourceType.manualFile,
+          sourcePath: '/tmp/$i.jpg',
+        );
+        await assetStore.setPasscodeHash('manual:$i', _hash);
+      }
+      await tester.pumpWidget(
+        _wrap(CupertinoButton(onPressed: () {}, child: const Text('library'))),
+      );
+      unawaited(
+        Navigator.of(tester.element(find.text('library'))).push(
+          CupertinoPageRoute<void>(
+            builder: (_) => PrivateAlbumScreen(
+              passcodeHash: _hash,
+              assetRecordStore: assetStore,
+            ),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      return assetStore;
+    }
+
+    /// A thumb's swipe: it starts a little downward, enough for the grid's
+    /// scroll to have taken it before.
+    Future<void> swipeBack(WidgetTester tester, double y) async {
+      final finger = await tester.startGesture(Offset(4, y));
+      await finger.moveBy(const Offset(10, 22));
+      await tester.pump(const Duration(milliseconds: 16));
+      for (var i = 0; i < 20; i++) {
+        await finger.moveBy(const Offset(30, 2));
+        await tester.pump(const Duration(milliseconds: 16));
+      }
+      await finger.up();
+      await tester.pumpAndSettle();
+    }
+
+    /// The first tile, which sits in the left column.
+    Finder firstTile() => find.byType(AssetTile).first;
+
+    double tileY(WidgetTester tester) => tester.getCenter(firstTile()).dy;
+
+    testWidgets('over a full grid, even when it starts downward', (
+      tester,
+    ) async {
+      await pushAlbum(tester);
+      await swipeBack(tester, tileY(tester));
+      expect(find.byType(PrivateAlbumScreen), findsNothing);
+      expect(find.text('library'), findsOneWidget);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('while selecting', (tester) async {
+      await pushAlbum(tester);
+      await tester.tap(find.text('Select'));
+      await tester.pumpAndSettle();
+      await swipeBack(tester, tileY(tester));
+      expect(find.byType(PrivateAlbumScreen), findsNothing);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
+
+    testWidgets('leaves a tap on the edge for the tile under it', (
+      tester,
+    ) async {
+      await pushAlbum(tester);
+      await tester.tap(find.text('Select'));
+      await tester.pumpAndSettle();
+      final tile = firstTile();
+      expect(tester.getTopLeft(tile).dx, lessThan(12));
+      await tester.tapAt(Offset(12, tester.getCenter(tile).dy));
+      await tester.pumpAndSettle();
+      expect(find.byType(PrivateAlbumScreen), findsOneWidget);
+      expect(find.text('Recover 1 to Library'), findsOneWidget);
+    }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });
 
   testWidgets('the footer says what happens, with nothing to choose', (

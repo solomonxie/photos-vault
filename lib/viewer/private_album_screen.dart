@@ -8,6 +8,9 @@ import 'package:flutter/services.dart';
 import '../photos/derived_asset.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/library_custody.dart';
+import '../photos/person_owner.dart';
+import '../photos/person_placement.dart';
+import '../photos/person_store.dart';
 import '../storage/asset_record.dart';
 import '../settings/backup_targets_store.dart';
 import '../storage/asset_record_store.dart';
@@ -29,21 +32,38 @@ import '../vault/plain_files.dart';
 import '../vault/private_lifecycle.dart';
 import '../upload/bucket_import.dart';
 import '../vault/hidden_bucket_scan.dart';
+import '../vault/hidden_leftovers.dart';
 import '../vault/hidden_migration.dart';
 import '../vault/keys.dart';
+import '../vault/owner_folder.dart';
 import '../vault/passcode_tags.dart';
 import '../vault/store.dart';
 import '../vault/photo_screen.dart';
 import 'asset_grid.dart';
+import 'back_swipe_edge.dart';
 import 'asset_grid_view.dart';
 import 'asset_picker_screen.dart';
 import 'detail_screen.dart';
 import 'resize_photos.dart';
 import 'select_all.dart';
 import 'select_sweep.dart';
+import 'person_picker_sheet.dart';
 import 'private_album_gate.dart';
 import 'zoom_page_route.dart';
 import '../vault/hidden_backup.dart';
+
+/// How many photos of its own the folder tagged `tag` still holds; see
+/// [HiddenLeftovers]. Overridable for tests.
+typedef LeftoverCounter = Future<int> Function(String tag, AlbumKeys? keys);
+
+/// Carries what only the bucket holds under [from] into the folder tagged
+/// [toTag]; how many stopped counting there. See [carryBucketOnly].
+/// Overridable for tests.
+typedef LeftoverCarrier = Future<int> Function(
+  String fromTag,
+  AlbumKeys from,
+  String toTag,
+);
 
 /// Contents of a private "album" — every [AssetRecord] currently tagged
 /// with [passcodeHash]. There's no separate album entity to load: this
@@ -62,9 +82,32 @@ class PrivateAlbumScreen extends StatefulWidget {
     this.vaultKeys,
     this.targetsStore,
     this.title,
+    this.digits,
+    this.personStore,
+    this.leftoverCodes = const [],
+    this.countLeftover,
+    this.carryLeftover,
+    this.folderPersonId,
   });
 
+  /// Whose folder this is. Un-hiding puts a photo in that person's own
+  /// library: their page only, or the main library for the owner. Null
+  /// where it isn't known, as before: the main library.
+  final String? folderPersonId;
+
   final String passcodeHash;
+
+  /// Folders a move left behind (the bare digits, a merged person's).
+  /// Each that still holds photos of its own is a row at the bottom; the
+  /// rest show nothing. Codes in memory only, like [digits].
+  final List<String> leftoverCodes;
+  final LeftoverCounter? countLeftover;
+  final LeftoverCarrier? carryLeftover;
+
+  /// The four digits this album was opened with, in memory only: Move to
+  /// Person sends photos to that person's folder under the same digits.
+  final String? digits;
+  final PersonStore? personStore;
 
   /// A person's folder names itself; the Utilities album doesn't.
   final String? title;
@@ -113,6 +156,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     _loadFromBucket();
     _loadTarget();
     _loadRepairs();
+    _loadLeftovers();
     _watchBackup();
     _screenshotHook();
   }
@@ -151,6 +195,125 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     }
   }
 
+  List<({String code, String tag, AlbumKeys? keys, int count})> _leftovers =
+      const [];
+
+  Future<void> _loadLeftovers() async {
+    final vault = widget.vaultKeys;
+    if (widget.leftoverCodes.isEmpty || vault == null) return;
+    final count =
+        widget.countLeftover ??
+        HiddenLeftovers(store: widget.assetRecordStore).count;
+    final tags = PasscodeTags(
+      records: widget.assetRecordStore,
+      vaultKeys: vault,
+    );
+    final found = <({String code, String tag, AlbumKeys? keys, int count})>[];
+    for (final code in widget.leftoverCodes) {
+      try {
+        final tag = await tags.tagFor(code);
+        if (tag == widget.passcodeHash) continue;
+        // On the ring, so what stays there keeps backing up.
+        final keys = await vault.unlockAlbum(code, tag);
+        final n = await count(tag, keys);
+        if (n > 0) found.add((code: code, tag: tag, keys: keys, count: n));
+      } catch (_) {
+        // Not shown this time; counted again on the next unlock.
+      }
+    }
+    if (mounted) setState(() => _leftovers = found);
+    for (final leftover in found) {
+      final keys = leftover.keys;
+      if (keys != null && _carried.add(leftover.tag)) {
+        unawaited(_carryLeftover(leftover.tag, keys));
+      }
+    }
+  }
+
+  /// Leftover folders already carried from while this screen is open.
+  final _carried = <String>{};
+
+  /// Photos only the bucket holds in a leftover folder, carried into this
+  /// one in the background ([carryBucketOnly]); the row recounts when done.
+  Future<void> _carryLeftover(String tag, AlbumKeys keys) async {
+    if (widget.albumKeys == null) return;
+    final to = widget.passcodeHash;
+    try {
+      final changed = await (widget.carryLeftover ?? _carryInto)(tag, keys, to);
+      if (changed == 0 || !mounted) return;
+      await widget.vaultKeys?.keepAlbum(to);
+      unawaited(_hiddenBackup?.run());
+      if (!mounted) return;
+      await _reload();
+      await _loadLeftovers();
+    } catch (_) {
+      // Tried again on the next unlock.
+    }
+  }
+
+  Future<int> _carryInto(String fromTag, AlbumKeys from, String toTag) async =>
+      (await carryBucketOnly(
+        store: widget.assetRecordStore,
+        from: from,
+        fromTag: fromTag,
+        toTag: toTag,
+      )).moved;
+
+  Future<void> _openLeftover(
+    ({String code, String tag, AlbumKeys? keys, int count}) leftover,
+  ) async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute(
+        builder: (_) => PrivateAlbumScreen(
+          passcodeHash: leftover.tag,
+          assetRecordStore: widget.assetRecordStore,
+          custody: widget.custody,
+          albumKeys: leftover.keys,
+          vaultKeys: widget.vaultKeys,
+          targetsStore: widget.targetsStore,
+          digits: widget.digits,
+          personStore: widget.personStore,
+          folderPersonId: widget.folderPersonId,
+          title: AppLocalizations.of(context)!.privateAlbumOlderPhotos,
+        ),
+      ),
+    );
+    if (!mounted) return;
+    await _reload();
+    await _loadLeftovers();
+  }
+
+  /// One row per leftover folder, below this folder's own photos.
+  Widget _leftoversSliver(AppLocalizations l10n) => SliverToBoxAdapter(
+    child: Column(
+      children: [
+        for (final (i, leftover) in _leftovers.indexed)
+          Padding(
+            padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+            child: CupertinoButton(
+              key: ValueKey('hiddenLeftover$i'),
+              color: const Color(0xFF2C2C2E),
+              padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 12),
+              onPressed: () => _openLeftover(leftover),
+              child: Row(
+                children: [
+                  const Icon(CupertinoIcons.folder, size: 20),
+                  const SizedBox(width: 10),
+                  Expanded(
+                    child: Text(
+                      l10n.privateAlbumOlderPhotosRow(leftover.count),
+                      style: const TextStyle(fontSize: 16),
+                    ),
+                  ),
+                  const Icon(CupertinoIcons.chevron_forward, size: 16),
+                ],
+              ),
+            ),
+          ),
+      ],
+    ),
+  );
+
   late final HiddenNotes? _notesStore = widget.albumKeys == null
       ? null
       : HiddenNotes(store: widget.assetRecordStore, keys: widget.albumKeys!);
@@ -175,6 +338,15 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
   Future<void> _loadFromBucket() async {
     final keys = widget.albumKeys;
     if (keys == null) return;
+    try {
+      _superseded = await supersededCarrierKeys(
+        widget.assetRecordStore,
+        widget.passcodeHash,
+        keys,
+      );
+    } catch (_) {}
+    if (!mounted) return;
+    if (_superseded.isNotEmpty) setState(() => _doomed = {..._superseded});
     final gallery = VaultGallery(keys: keys);
     // This phone's last copy of the listing first, so the grid is up
     // before the bucket answers.
@@ -248,13 +420,14 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
         for (final t in await PendingDeletes(
           store: widget.assetRecordStore,
         ).pending())
-          ?_relativeKey(t.objectKey),
+          if (_relativeKey(t.objectKey) case final key?) carrierIdentity(key),
+        ..._superseded,
       };
       final held = _found[tag];
       if (held != null) {
         return [
           for (final e in held)
-            if (!doomed.contains(e.objectKey)) e,
+            if (!doomed.contains(carrierIdentity(e.objectKey))) e,
         ];
       }
       final rows = _keysOf(
@@ -436,23 +609,50 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
 
   List<IndexEntry> get _entriesWithoutRows => [
     for (final e in _cloudEntries)
-      if (!_rowKeys.contains(e.objectKey) && !_doomed.contains(e.objectKey)) e,
+      if (carrierIdentity(e.objectKey) case final id
+          when !_rowKeys.contains(id) && !_doomed.contains(id))
+        e,
   ];
 
-  /// Copies queued for deletion: never shown as photos only the bucket has.
+  /// Copies queued for deletion, and ones left behind by an additive move
+  /// ([_superseded]): never shown as photos only the bucket has.
   Set<String> _doomed = const {};
 
+  /// This album's old carriers of photos moved to another folder.
+  Set<String> _superseded = const {};
+
+  /// After photos only the bucket had were carried out: off the grid.
+  Future<void> _reloadSuperseded() async {
+    final keys = widget.albumKeys;
+    if (keys == null) return;
+    try {
+      final found = await supersededCarrierKeys(
+        widget.assetRecordStore,
+        widget.passcodeHash,
+        keys,
+      );
+      if (!mounted) return;
+      setState(() {
+        _superseded = found;
+        _doomed = {..._doomed, ...found};
+      });
+    } catch (_) {}
+  }
+
+  /// By [carrierIdentity], as [_doomed] is: a name worked out in another
+  /// time zone is the same carrier.
   Set<String> _keysOf(List<AssetRecord> records) {
     final keys = widget.albumKeys;
     return {
       for (final r in records) ...[
         if (keys != null)
           // A keyed hash of the id and the extension, so worked out once.
-          _carrierKeys['${r.countsAsVideo}|${r.localId}'] ??= vaultCarrierKey(
-            r,
-            keys.carrier,
+          _carrierKeys['${r.countsAsVideo}|${r.localId}'] ??= carrierIdentity(
+            vaultCarrierKey(r, keys.carrier),
           ),
-        ?_relativeKey(r.stateOf(DerivativeKind.original).destinationKey),
+        if (_relativeKey(r.stateOf(DerivativeKind.original).destinationKey)
+            case final key?)
+          carrierIdentity(key),
       ],
     };
   }
@@ -673,6 +873,13 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     final ids = localIds.toList();
     setState(() => _busy = true);
     var failed = 0;
+    final unhiddenIds = <String>[];
+    // Only the owner's library is mirrored in Photos; anyone else's
+    // folder un-hides onto their page.
+    final whose = widget.folderPersonId;
+    final toPhotos =
+        whose == null ||
+        whose == await PersonOwner(widget.assetRecordStore).id();
     try {
       for (final id in ids) {
         final record = await widget.assetRecordStore.getByLocalId(id);
@@ -689,14 +896,30 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                   r,
                 ], passphrases: _passphrases),
         );
+        if (unhidden) unhiddenIds.add(id);
         // Read again: un-hiding moved its file back out of `vault/plain/`.
         if (!unhidden ||
-            await _custody.putBack(
-                  await widget.assetRecordStore.getByLocalId(id) ?? record,
-                ) ==
-                CustodyResult.failed) {
+            toPhotos &&
+                await _custody.putBack(
+                      await widget.assetRecordStore.getByLocalId(id) ?? record,
+                    ) ==
+                    CustodyResult.failed) {
           failed++;
         }
+      }
+      // Owned by the folder's person: the owner's main library, or
+      // someone else's page.
+      if (toPhotos) {
+        await widget.assetRecordStore.setOwner([
+          for (final r in await widget.assetRecordStore.listOf(unhiddenIds))
+            if (!r.isMine) r.localId,
+        ], null);
+      } else {
+        await PersonPlacement(
+          records: widget.assetRecordStore,
+          people: _people,
+          custody: _custody,
+        ).restoreTo(whose, unhiddenIds);
       }
     } finally {
       if (mounted) setState(() => _busy = false);
@@ -889,6 +1112,111 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     if (!mounted) return;
     setState(() => _cloudEntries = entries);
     await _reloadHoldings();
+  }
+
+  /// Where the selection goes: a person's folder under the same digits, or
+  /// another code.
+  Future<void> _chooseMove() async {
+    if (widget.digits == null) return _moveSelected();
+    final l10n = AppLocalizations.of(context)!;
+    final toPerson = await showCupertinoModalPopup<bool>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        actions: [
+          CupertinoActionSheetAction(
+            key: const ValueKey('hiddenMoveToPerson'),
+            onPressed: () => Navigator.of(context).pop(true),
+            child: Text(l10n.hiddenMoveToPerson),
+          ),
+          CupertinoActionSheetAction(
+            key: const ValueKey('hiddenMoveToCode'),
+            onPressed: () => Navigator.of(context).pop(false),
+            child: Text(l10n.hiddenMoveToCode),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (toPerson == null || !mounted) return;
+    return toPerson ? _moveSelectedToPerson() : _moveSelected();
+  }
+
+  late final PersonStore _people = widget.personStore ?? PersonStore();
+
+  /// Into a person's folder under the digits this one was opened with —
+  /// no keypad; made by the move if it held nothing. Additive: the backup
+  /// re-encrypts each photo under that folder's key and nothing is deleted
+  /// from a bucket. Photos only the bucket has are carried there; one
+  /// that can't move (adopted by an older build, a failed download) stays
+  /// here.
+  Future<void> _moveSelectedToPerson() async {
+    final l10n = AppLocalizations.of(context)!;
+    final digits = widget.digits;
+    if (digits == null) return;
+    final people = [
+      for (final p in await _people.listAll())
+        if (!p.locked) p,
+    ];
+    final ownerId = await PersonOwner(widget.assetRecordStore).id();
+    if (!mounted) return;
+    final person = await showPersonPickerSheet(
+      context: context,
+      candidates: people,
+      personStore: _people,
+      title: l10n.hiddenMoveToPersonTitle,
+      ownerId: ownerId,
+    );
+    if (person == null || !mounted) return;
+    // Photos only the bucket has are carried straight there, not brought
+    // down here first.
+    final entries = [for (final id in _selectedIds) ?_standIns[id]];
+    final ids = [
+      for (final id in _selectedIds)
+        if (!_standIns.containsKey(id)) id,
+    ];
+    setState(() => _busy = true);
+    late final HiddenMoveResult result;
+    try {
+      result = await moveToPersonFolder(
+        store: widget.assetRecordStore,
+        vaultKeys: widget.vaultKeys,
+        transition: _transition,
+        from: widget.albumKeys,
+        fromTag: widget.passcodeHash,
+        personId: person.id,
+        digits: digits,
+        localIds: ids,
+        entries: entries,
+      );
+    } finally {
+      if (mounted) setState(() => _busy = false);
+    }
+    unawaited(PrivateAlbumScreen.hiddenBackup?.run());
+    if (!mounted) return;
+    if (result.sameFolder) {
+      await _showNote(l10n.hiddenMoveSamePerson);
+      return;
+    }
+    if (result.noKey) {
+      await _showNote(l10n.hiddenMoveNoKey);
+      return;
+    }
+    _exitSelectMode();
+    await _reload();
+    if (!mounted) return;
+    if (entries.isNotEmpty) {
+      await _reloadSuperseded();
+      if (!mounted) return;
+    }
+    final failed = ids.length + entries.length - result.moved;
+    await _showNote(
+      failed > 0
+          ? l10n.hiddenMoveFailed(failed)
+          : l10n.hiddenMovePersonDone(result.moved, person.name),
+    );
   }
 
   /// Into another hidden album, named by its code — typed once, in the
@@ -1594,52 +1922,59 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                 ),
               ),
               Expanded(
-                child: AssetGridView(
-                  records: _gridRecords,
-                  imageFor: _imageFor,
+                child: BackSwipeEdge<AssetRecord>(
                   onTap: _open,
-                  selectedIds: _selecting ? _selectedIds : null,
                   onLongPress: _startSelecting,
-                  onSelectDragUpdate: _onSweep,
-                  onSelectDragEnd: _sweep.end,
-                  // Mounted even with nothing in it, so the backup footer is
-                  // there for the decision that gets made before the first
-                  // photo goes in.
-                  emptySliver: SliverToBoxAdapter(
-                    key: const ValueKey('privateAlbumEmpty'),
-                    child: Padding(
-                      padding: const EdgeInsets.symmetric(vertical: 48),
-                      child: Center(
-                        child: !_loaded
-                            ? const CupertinoActivityIndicator()
-                            : Text(
-                                l10n.privateAlbumEmpty,
-                                style: const TextStyle(
-                                  color: CupertinoColors.systemGrey,
+                  onLongPressMove: _onSweep,
+                  onLongPressEnd: _sweep.end,
+                  child: AssetGridView(
+                    records: _gridRecords,
+                    imageFor: _imageFor,
+                    onTap: _open,
+                    selectedIds: _selecting ? _selectedIds : null,
+                    onLongPress: _startSelecting,
+                    onSelectDragUpdate: _onSweep,
+                    onSelectDragEnd: _sweep.end,
+                    // Mounted even with nothing in it, so the backup footer is
+                    // there for the decision that gets made before the first
+                    // photo goes in.
+                    emptySliver: SliverToBoxAdapter(
+                      key: const ValueKey('privateAlbumEmpty'),
+                      child: Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 48),
+                        child: Center(
+                          child: !_loaded
+                              ? const CupertinoActivityIndicator()
+                              : Text(
+                                  l10n.privateAlbumEmpty,
+                                  style: const TextStyle(
+                                    color: CupertinoColors.systemGrey,
+                                  ),
                                 ),
-                              ),
+                        ),
                       ),
                     ),
+                    trailingSlivers: [
+                      _addSliver(l10n),
+                      _notesSliver(l10n),
+                      _leftoversSliver(l10n),
+                      _backupFooter(l10n),
+                      _howItWorks(l10n),
+                    ],
+                    actionsFor: (r) => [
+                      TileAction(
+                        icon: CupertinoIcons.eye,
+                        label: l10n.privateAlbumRemove,
+                        onPressed: () => _removeFromAlbum(r),
+                      ),
+                      TileAction(
+                        icon: CupertinoIcons.delete,
+                        label: l10n.libraryDeleteTooltip,
+                        isDestructive: true,
+                        onPressed: () => _delete(r),
+                      ),
+                    ],
                   ),
-                  trailingSlivers: [
-                    _addSliver(l10n),
-                    _notesSliver(l10n),
-                    _backupFooter(l10n),
-                    _howItWorks(l10n),
-                  ],
-                  actionsFor: (r) => [
-                    TileAction(
-                      icon: CupertinoIcons.eye,
-                      label: l10n.privateAlbumRemove,
-                      onPressed: () => _removeFromAlbum(r),
-                    ),
-                    TileAction(
-                      icon: CupertinoIcons.delete,
-                      label: l10n.libraryDeleteTooltip,
-                      isDestructive: true,
-                      onPressed: () => _delete(r),
-                    ),
-                  ],
                 ),
               ),
               if (_selecting)
@@ -1670,7 +2005,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                           color: const Color(0xFF2C2C2E),
                           onPressed: _selectedIds.isEmpty || _busy
                               ? null
-                              : _moveSelected,
+                              : _chooseMove,
                           child: Semantics(
                             label: l10n.hiddenMoveTitle,
                             child: const Icon(CupertinoIcons.folder),

@@ -23,7 +23,7 @@ format, and the app made it the only one.
 |---|---|---|
 | **the phone** | every local byte of every picture — hidden photos, and the ordinary thumbnail/photo/video caches | shards |
 | **the bucket** (S3/COS/OSS) | backups of everything, hidden ones as carriers | unchanged: `originals/`, `thumbnails/`, and carriers |
-| **iCloud Drive** | app metadata only — albums, people, tags, captions. **No pictures, hidden or otherwise** | unchanged: `app-data/YYYYMMDD.zip` |
+| **iCloud Drive** | app metadata only — albums, people, tags, captions. **No pictures, hidden or otherwise** | unchanged: `YYYYMMDD-<device>.zip` (older builds: `YYYYMMDD.zip`) |
 
 iCloud stays what it is today. It is document-scope-public and shows up in
 Files, and a folder of pictures there is a folder of pictures no matter what

@@ -51,6 +51,19 @@ ProtocolName? parseProtocolName(String fileName) {
 
 bool fitsProtocol(String fileName) => parseProtocolName(fileName) != null;
 
+/// What a carrier is known by whatever its date reads: the key with the
+/// stamp dropped. A hidden name's stamp is a keyed instant written in the
+/// phone's own time zone, so the same carrier worked out in another zone
+/// has another stamp; its 32 hex (and extension) never move. Any other
+/// key is returned as it is, so this is idempotent.
+String carrierIdentity(String key) {
+  final slash = key.lastIndexOf('/');
+  final name = key.substring(slash + 1);
+  final m = _protocolName.firstMatch(name);
+  if (m == null) return key;
+  return '${key.substring(0, slash + 1)}${m[2]}${m[3] ?? ''}';
+}
+
 /// Whether [macKey] is the key of the album that wrote [fileName]. Local,
 /// instant, and false for every ordinary name and every other album.
 bool nameBelongsTo(String fileName, Uint8List macKey) {
