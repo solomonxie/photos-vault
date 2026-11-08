@@ -26,6 +26,8 @@ const assetFields = {
   'longitude',
   'is_favorite',
   'is_archived',
+  // Whose photo: a person id, null for the owner's. See AssetRecord.ownerId.
+  'owner_id',
   'deleted_at',
   'created_at',
   'original_key',
@@ -46,6 +48,22 @@ const assetAddOnly = {
   'width',
   'height',
 };
+
+/// Which devices hold a photo's bytes: an OR-set of device ids. A phone
+/// only adds or removes its own; `x: null` names it, filled in at sealing.
+const presenceSet = 'on_devices';
+
+/// Set once a phone has reported on a photo: from then on an empty
+/// [presenceSet] means on no phone, not "never reported".
+const presenceMarker = 'presence';
+
+/// This phone's presence ops for one photo: [held] or not.
+List<Change> presence(String id, {required bool held}) => held
+    ? [Change('asset', id, OpKind.madd, f: presenceSet)]
+    : [
+        Change('asset', id, OpKind.set, f: presenceMarker, x: 1),
+        Change('asset', id, OpKind.mrem, f: presenceSet),
+      ];
 
 const albumFields = {'name', 'description', 'cover_local_id'};
 const personFields = {
@@ -105,6 +123,7 @@ const assetCaptureColumns = [
   ...assetAddOnly,
   'tags',
   'original_status',
+  'local_deleted',
 ];
 const albumCaptureColumns = [...albumFields, 'tags', 'is_demo'];
 const personCaptureColumns = [...personFields, 'is_demo'];
@@ -289,6 +308,7 @@ List<Change> _asset(
         : [Change('asset', id, OpKind.set, f: 'hidden', x: true)];
   }
   final wasShared = uploaded(before) && !_private(before);
+  final held = row['local_deleted'];
   if (!wasShared) {
     return [
       Change(
@@ -299,17 +319,22 @@ List<Change> _asset(
           for (final f in assetFields) f: row[f],
           for (final c in assetAddOnly) c: row[c],
           if (_private(before)) 'hidden': false,
+          if (held != null) presenceMarker: 1,
         },
       ),
       for (final t in _tags(row))
         Change('asset', id, OpKind.madd, f: 'tags', x: t),
+      if (held == 0) ...presence(id, held: true),
     ];
   }
+  // Rows captured before `local_deleted` was say nothing about it.
+  final was = before!['local_deleted'];
   return [
     for (final f in assetFields)
-      if (before![f] != row[f])
-        Change('asset', id, OpKind.set, f: f, x: row[f]),
+      if (before[f] != row[f]) Change('asset', id, OpKind.set, f: f, x: row[f]),
     ..._tagDiff('asset', id, _tags(before), _tags(row)),
+    if (was != null && held != null && was != held)
+      ...presence(id, held: held == 0),
   ];
 }
 

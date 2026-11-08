@@ -15,7 +15,9 @@ import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:photos_vault/sync/apply.dart';
 import 'package:photos_vault/sync/capture.dart';
+import 'package:photos_vault/sync/bootstrap.dart';
 import 'package:photos_vault/sync/cloud_sync.dart';
+import 'package:photos_vault/sync/merge.dart';
 import 'package:photos_vault/sync/op.dart';
 import 'package:photos_vault/sync/segment.dart';
 import 'package:photos_vault/sync/sync_store.dart';
@@ -158,6 +160,30 @@ void main() {
     await a.assets.setDescription('A1', 'Beach, day 2');
     await a.sync.round();
     expect(await a.store.waiting(), 0);
+  });
+
+  test('a date set on another device is a set date here: Photos\' own '
+      'date no longer replaces it', () async {
+    final a = await phone('a');
+    await a.photo('A1');
+    await a.photo('A2');
+    await a.sync.enable(home);
+    final b = await phone('b');
+    await b.sync.enable(home);
+
+    final chosen = DateTime(1999, 5, 1);
+    await b.assets.setCreatedAtMany({'A1': chosen});
+    await b.assets.setDescription('A2', 'Lake');
+    await b.sync.round();
+    await a.sync.round();
+
+    final dated = (await a.assets.getByLocalId('A1'))!;
+    expect(dated.createdAt, chosen);
+    expect(dated.dateSetAt, isNotNull);
+    expect(await a.assets.setLibraryDate('A1', DateTime(2020)), isFalse);
+    final other = (await a.assets.getByLocalId('A2'))!;
+    expect(other.description, 'Lake');
+    expect(other.dateSetAt, isNull, reason: 'its date never moved');
   });
 
   test('both phones rename offline: one winner everywhere, a conflict on both, settled by one resolve', () async {
@@ -676,5 +702,178 @@ void main() {
         reason: 'the cloud not naming it is no reason to drop it here',
       );
     });
+  });
+
+  group('presence', () {
+    Future<EntityState> cloud(_Phone ph, String id) async {
+      final s = SyncState();
+      await ph.store.loadInto(s, ['asset/$id']);
+      return s.entities['asset/$id']!;
+    }
+
+    // As `extension/src/model.ts` reads it.
+    bool cloudOnly(EntityState ent) =>
+        (ent.fields[presenceMarker]?.x != null ||
+            ent.sets.containsKey(presenceSet)) &&
+        ent.members(presenceSet).isEmpty;
+
+    Future<void> outside(_Phone ph, Future<void> Function() write) async {
+      final db = await ph.assets.syncDatabase();
+      await setCapture(db, enabled: false);
+      await write();
+      await setCapture(db, enabled: true);
+    }
+
+    test(
+      'each phone adds and removes only itself; empty is cloud-only',
+      () async {
+        final a = await phone('a');
+        await a.photo('A1');
+        await a.sync.enable(home);
+        final b = await phone('b');
+        await b.sync.enable(home);
+        final da = await a.store.device();
+        final db = await b.store.device();
+
+        var ent = await cloud(b, 'A1');
+        expect(ent.members(presenceSet), [da]);
+        expect(cloudOnly(ent), isFalse);
+        expect(
+          (await b.assets.getByLocalId('A1'))!.localDeleted,
+          isTrue,
+          reason: 'the record b has from the cloud says nothing for b',
+        );
+
+        // b downloads it, a frees its copy.
+        await b.assets.setLocalDeleted('A1', false);
+        await b.sync.round();
+        await a.sync.round();
+        expect(
+          (await cloud(a, 'A1')).members(presenceSet),
+          {da, db}.toList()..sort(),
+        );
+        await a.assets.setLocalDeleted('A1', true);
+        await a.sync.round();
+        await b.sync.round();
+        ent = await cloud(b, 'A1');
+        expect(ent.members(presenceSet), [db]);
+        expect(cloudOnly(ent), isFalse);
+
+        await b.assets.setLocalDeleted('A1', true);
+        await b.sync.round();
+        await a.sync.round();
+        for (final ph in [a, b]) {
+          ent = await cloud(ph, 'A1');
+          expect(ent.members(presenceSet), isEmpty);
+          expect(cloudOnly(ent), isTrue);
+        }
+      },
+    );
+
+    test('a phone that synced before presence backfills once, '
+        'and only what changed', () async {
+      final a = await phone('a');
+      for (final id in ['H', 'F', 'K']) {
+        await a.photo(id);
+      }
+      await a.sync.enable(home);
+      final da = await a.store.device();
+      // Freed and re-held on a build that sent no presence.
+      await outside(a, () => a.assets.setLocalDeleted('F', true));
+      await a.store.setMeta('presence_joined', false);
+
+      final sent = bucket.objects.keys.where((k) => k.contains('/log/')).length;
+      await a.sync.round();
+      expect(await a.store.meta('presence_joined'), 'true');
+      expect(
+        bucket.objects.keys.where((k) => k.contains('/log/')).length,
+        sent + 1,
+        reason: 'one segment for the whole backfill',
+      );
+      expect((await cloud(a, 'F')).members(presenceSet), isEmpty);
+      expect(cloudOnly(await cloud(a, 'F')), isTrue);
+      expect((await cloud(a, 'H')).members(presenceSet), [da]);
+
+      expect(
+        await queuePresence(
+          store: a.store,
+          assets: await a.assets.syncDatabase(),
+        ),
+        0,
+        reason: 'compared against the merged state: nothing new to say',
+      );
+      final after = bucket.objects.keys
+          .where((k) => k.contains('/log/'))
+          .length;
+      await a.sync.round();
+      expect(
+        bucket.objects.keys.where((k) => k.contains('/log/')).length,
+        after,
+        reason: 'nothing changed, nothing sent',
+      );
+    });
+
+    test('never reported is unknown, not cloud-only', () async {
+      final a = await phone('a');
+      await a.photo('OWN');
+      await a.sync.enable(home);
+
+      // An older phone's photo and a browser upload: no presence at all.
+      var seq = 0;
+      Future<void> older(String d, String id) async {
+        seq++;
+        final op = Op(
+          h: '${(bucket.clock + 1000 + seq).toString().padLeft(13, '0')}-0000',
+          d: d,
+          seq: 1,
+          vv: const {},
+          e: 'asset',
+          id: id,
+          o: OpKind.add,
+          x: {'original_key': 'originals/$id.jpg', 'created_at': 1},
+        );
+        await bucket.put(
+          Segment.key(d, 1),
+          Segment(d: d, seq: 1, vv: const {}, ops: [op]).encode(),
+        );
+      }
+
+      await older('oldphone', 'OLD1');
+      await older('browser', 'web:y');
+      await a.sync.round();
+      expect((await a.assets.getByLocalId('web:y'))!.localDeleted, isTrue);
+
+      // Even a backfill from a phone holding cloud records of them.
+      await a.store.setMeta('presence_joined', false);
+      await a.sync.round();
+      for (final id in ['OLD1', 'web:y']) {
+        final ent = await cloud(a, id);
+        expect(ent.fields[presenceMarker], isNull, reason: id);
+        expect(cloudOnly(ent), isFalse, reason: id);
+      }
+      expect(cloudOnly(await cloud(a, 'OWN')), isFalse);
+    });
+
+    test(
+      'a restored sync.db does not replay the old phone\'s presence',
+      () async {
+        final a = await phone('a');
+        await a.photo('A1');
+        await a.sync.enable(home);
+        await a.store.addChanges([
+          ...presence('A1', held: false),
+          const Change('asset', 'A1', OpKind.set, f: 'is_favorite', x: 1),
+        ]);
+        await a.store.close();
+
+        final b = await phone('b');
+        await b.store.mergeFrom(p.join(dir.path, 'a-sync.db'));
+        expect(
+          [for (final (_, c) in await b.store.outbox()) c.f],
+          [presenceMarker, 'is_favorite'],
+          reason: 'the new phone sends its own presence',
+        );
+      },
+    );
   });
 }

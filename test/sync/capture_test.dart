@@ -48,7 +48,10 @@ void main() {
         destinationKey: 'originals/A.HEIC',
       ),
     );
-    expect(await _drain(store.syncDatabase), ['asset/A add']);
+    expect(await _drain(store.syncDatabase), [
+      'asset/A add',
+      'asset/A madd on_devices',
+    ], reason: 'on this phone');
 
     await store.setDescription('A', 'Beach, day 2');
     await store.setFavorite('A', true);
@@ -72,7 +75,10 @@ void main() {
     expect(await _drain(store.syncDatabase), ['asset/A set hidden=true']);
 
     await store.setPasscodeHash('A', null);
-    expect(await _drain(store.syncDatabase), ['asset/A add']);
+    expect(await _drain(store.syncDatabase), [
+      'asset/A add',
+      'asset/A madd on_devices',
+    ]);
   });
 
   test('album writes: create, members in and out, delete', () async {

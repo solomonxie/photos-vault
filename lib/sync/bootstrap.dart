@@ -1,5 +1,6 @@
 import 'package:sqflite/sqflite.dart';
 
+import 'apply.dart';
 import 'merge.dart';
 import 'op.dart';
 
@@ -112,6 +113,55 @@ Future<int> queueLibrary({
         if (k.startsWith('person/')) k.substring(7),
     },
   );
+  return queued;
+}
+
+/// This phone's presence ([presenceSet]) on the shared photos the cloud
+/// already has, once per device id. Held and not listed: added. Listed and
+/// no longer held: removed. Never listed, not held, and this phone's own
+/// record (freed before presence synced): marked, so it reads as on no
+/// phone. A record this phone only ever had from the cloud says nothing.
+/// Photos the cloud lacks are left to their `add`, which carries presence.
+/// Compared against the merged state: a rerun sends nothing new.
+Future<int> queuePresence({
+  required SyncStore store,
+  required Database assets,
+}) async {
+  final device = await store.device();
+  var queued = 0;
+  Object? after = '';
+  while (true) {
+    final rows = await assets.rawQuery(
+      'SELECT local_id AS k, local_deleted, platform FROM asset_record '
+      "WHERE original_status = 'uploaded' AND passcode_hash IS NULL "
+      'AND local_id > ? ORDER BY local_id LIMIT 1000',
+      [after],
+    );
+    if (rows.isEmpty) break;
+    after = rows.last['k'];
+    final state = SyncState();
+    await store.loadInto(state, [for (final r in rows) 'asset/${r['k']}']);
+    final changes = <Change>[];
+    for (final r in rows) {
+      final id = r['k'] as String;
+      final ent = state.entities['asset/$id'];
+      if (ent == null || !ent.exists) continue;
+      final held = r['local_deleted'] == 0;
+      final listed = ent.members(presenceSet).contains(device);
+      final known =
+          ent.fields[presenceMarker] != null ||
+          ent.sets.containsKey(presenceSet);
+      if (held && !listed) {
+        changes.addAll(presence(id, held: true));
+      } else if (!held && listed) {
+        changes.addAll(presence(id, held: false));
+      } else if (!held && !known && r['platform'] != Applier.cloudPlatform) {
+        changes.add(Change('asset', id, OpKind.set, f: presenceMarker, x: 1));
+      }
+    }
+    await store.addChanges(changes);
+    queued += changes.length;
+  }
   return queued;
 }
 

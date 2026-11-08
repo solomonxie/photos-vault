@@ -194,6 +194,7 @@ class Applier {
     'longitude',
     'is_favorite',
     'is_archived',
+    'owner_id',
     'created_at',
   ];
 
@@ -208,8 +209,8 @@ class Applier {
     for (var i = 0; i < ids.length; i += _chunk) {
       final part = ids.sublist(i, (i + _chunk).clamp(0, ids.length));
       for (final r in await txn.rawQuery(
-        'SELECT local_id, tags, deleted_at, binned_by, platform, passcode_hash '
-        'FROM asset_record WHERE 1 '
+        'SELECT local_id, tags, deleted_at, binned_by, platform, '
+        'passcode_hash, created_at FROM asset_record WHERE 1 '
         'AND local_id IN (${List.filled(part.length, '?').join(',')})',
         part,
       )) {
@@ -258,6 +259,12 @@ class Applier {
         }
       }
       if (values.isEmpty) continue;
+      // A date set elsewhere is a set date here too: Photos' own date,
+      // on this phone's next change notice, must not undo it.
+      final date = values['created_at'];
+      if (date is int && date != row['created_at']) {
+        values['date_set_at'] = now;
+      }
       values['updated_at'] = now;
       final n = await _update(txn, 'asset_record', 'local_id = ?', [
         ent.id,
@@ -302,6 +309,7 @@ class Applier {
       'height': x('height'),
       'is_favorite': _sql(x('is_favorite') ?? 0),
       'is_archived': _sql(x('is_archived') ?? 0),
+      'owner_id': x('owner_id'),
       'deleted_at': x('deleted_at'),
       'binned_by': x('deleted_at') == null ? null : binnedByCloud,
       'tags': jsonEncode(ent.members('tags')),

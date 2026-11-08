@@ -154,8 +154,10 @@ class LogSync {
       final ops = <Op>[];
       for (final (_, c) in part) {
         hlc = hlc.tick(bucket.now());
+        // A phone speaks only for itself: see [presenceSet].
+        final x = c.f == presenceSet && c.x == null ? device : c.x;
         final ts = c.o == OpKind.mrem
-            ? [...?state.entities['${c.e}/${c.id}']?.sets[c.f]?[c.x]?.adds]
+            ? [...?state.entities['${c.e}/${c.id}']?.sets[c.f]?[x]?.adds]
             : const <String>[];
         final op = Op(
           h: '$hlc',
@@ -166,7 +168,7 @@ class LogSync {
           id: c.id,
           o: c.o,
           f: c.f,
-          x: c.x,
+          x: x,
           ts: ts,
         );
         state.apply(op);

@@ -59,12 +59,14 @@ Entities and fields (v1). Anything not listed never leaves the phone:
 
 | `e` | id | fields (LWW) | text fields (conflict-tracked) | sets |
 |---|---|---|---|---|
-| `asset` | `local_id` / `web:<uuid>` | `created_at` (taken), `latitude`, `longitude`, `is_favorite`, `is_archived`, `deleted_at`, `hidden`, `purged`, `original_key`, `thumbnail_key`, `medium_key`, `live_key`, `edited_key`; at `add`: `content_hash`, `is_video`, `is_live_photo`, `width`, `height` | `description`, `location` | `tags` |
+| `asset` | `local_id` / `web:<uuid>` | `created_at` (taken), `latitude`, `longitude`, `is_favorite`, `is_archived`, `deleted_at`, `hidden`, `purged`, `original_key`, `thumbnail_key`, `medium_key`, `live_key`, `edited_key`, `presence`, `owner_id`; at `add`: `content_hash`, `is_video`, `is_live_photo`, `width`, `height` | `description`, `location` | `tags`, `on_devices` |
 | `album` | UUID | `cover_local_id`, `deleted_at` | `name`, `description` | `members` (asset ids), `tags` |
 | `person` | UUID | `birth_date`, `gender`, `avatar_local_id`, `avatar_face`, `first_name`, `middle_name`, `last_name`, `custom_fields`, `details` (open `person_detail` payload), `profile`, `deleted_at`, `hidden` | `name`, `bio` | `members` (asset ids), `events`, `places`, `known_as`, `aliases`, `groups`, `relations` (one JSON member per open row) |
 | `place` | UUID (travel.db) | `kind` (country · city · area · point), `lat`, `lng`, `parent_id`, `country`, `address`, `category`, `created_at`, `deleted_at` | `name`, `description` | — |
 | `entry` | UUID (travel.db) | `place_id`, `kind` (impression · diary), `at`, `rating`, `created_at`, `deleted_at` | `title`, `text` | `tags`, `photos`, `people` |
 | `route` | UUID (travel.db) | `starts`, `ends`, `created_at`, `deleted_at` | `title`, `note`, `stops` (JSON `[{place, arrived, note, mode, leg, review}]`, leg = to the next stop) | `photos`, `people` |
+
+`owner_id` on an asset: a person id, or null/absent = the app's owner. Only the owner's photos are in the library, albums and Places; others' show on their owner's person page (with photos they are tagged in, `members`).
 
 **Private stays private.** A hidden, locked or passcode-gated row never
 emits an op. Hiding an asset that was already synced emits
@@ -177,3 +179,23 @@ apply in one local transaction, then advance vv; a crash mid-apply → reapply (
 - Known gap: a person made open again after being private doesn't resend
   their rows.
 
+## Photo presence (Nov 2026)
+- `on_devices`: OR-set of device ids whose phone holds the photo's bytes
+  (`local_deleted = 0`: in Photos, or a file in app storage). A phone
+  only ever adds or removes its **own** id; in the outbox the member is
+  `null` and sealing fills in the device id.
+- Emitted only on change: the `add` carries `presence: 1` plus a `madd`
+  when held; `local_deleted` flipping later is `madd`, or `set presence 1`
+  + `mrem`.
+- Backfill once per device id (`presence_joined`), against the merged
+  state, so a rerun sends nothing: held and unlisted → `madd`; listed and
+  not held → `mrem`; this phone's own record already freed → `set
+  presence 1`. A record a phone only ever had from the cloud says nothing.
+- Cloud-only = (`presence` set or any `on_devices` op) and no member. A
+  photo nobody reported on (older phones) is unknown, read as on a
+  phone. A browser upload sends `presence: 1` in its `add`, so it reads
+  as cloud-only.
+- Restoring `sync.db` drops the old device's presence ops; the new id
+  backfills.
+- Known gap: a phone that is lost or reinstalled stays listed on what it
+  held (errs toward "on a phone").

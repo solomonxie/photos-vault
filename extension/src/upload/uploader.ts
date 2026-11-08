@@ -191,6 +191,7 @@ export class Uploader {
             is_favorite: 0,
             is_archived: 0,
             deleted_at: null,
+            presence: 1,
           },
         },
       ]);

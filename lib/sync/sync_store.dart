@@ -345,7 +345,8 @@ class SyncStore {
 
   /// From a backed-up `sync.db`: its edits that never reached the bucket
   /// (outbox and sealed segments), queued again under this phone's device
-  /// id. Nothing else: the merge state comes back from the bucket itself.
+  /// id. Nothing else: the merge state comes back from the bucket itself,
+  /// and presence is this phone's own, sent fresh (`queuePresence`).
   Future<int> mergeFrom(String path) async {
     final old = await _factory.openDatabase(
       path,
@@ -362,13 +363,15 @@ class SyncStore {
       )) {
         final seg = Segment.decode(r['bytes'] as List<int>, lastModified: 0);
         for (final op in seg.ops) {
+          if (op.f == presenceSet) continue;
           changes.add(Change(op.e, op.id, op.o, f: op.f, x: op.x));
         }
       }
       for (final r in await old.rawQuery(
         'SELECT change FROM outbox ORDER BY n',
       )) {
-        changes.add(_decodeChange(r['change'] as String));
+        final c = _decodeChange(r['change'] as String);
+        if (c.f != presenceSet) changes.add(c);
       }
     } finally {
       await old.close();

@@ -244,6 +244,9 @@ class CloudSync {
       },
     );
     if (hasCloud) await _apply(cloudKeys);
+    // The rest carry presence in their `add`.
+    await queuePresence(store: store, assets: await assets.syncDatabase());
+    await store.setMeta('presence_joined', true);
     await sync.flush();
     await sync.publishCheckpoint();
     await store.setMeta(
@@ -298,6 +301,16 @@ class CloudSync {
     );
     await sync.seal();
     await store.setMeta('profiles_joined', true);
+  }
+
+  /// Presence (which phones hold a photo) joined the log after the photos
+  /// did: a phone sends its own once, sealed first so every photo it has
+  /// sent is in the state it compares against.
+  Future<void> _queuePresence(LogSync sync) async {
+    if (await store.meta('presence_joined') == 'true') return;
+    await sync.seal();
+    await queuePresence(store: store, assets: await assets.syncDatabase());
+    await store.setMeta('presence_joined', true);
   }
 
   /// Travel joined the log after the photos did: a phone that synced
@@ -409,6 +422,7 @@ class CloudSync {
     try {
       await sync.flush();
       await _queueProfiles(sync);
+      await _queuePresence(sync);
       final keys = await sync.pull();
       _lastPull = DateTime.now();
       await _apply(keys);

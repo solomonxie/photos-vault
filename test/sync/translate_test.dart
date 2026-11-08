@@ -159,4 +159,42 @@ void main() {
       'mrem members',
     ]);
   });
+
+  test(
+    'presence: the add carries it, a flip sends it, an old capture does not',
+    () {
+      Map<String, Object?> held(int v) => {..._asset(), 'local_deleted': v};
+      final add = translate(
+        'asset_record',
+        'A',
+        'update',
+        _asset(status: 'pending'),
+        held(0),
+        0,
+      );
+      expect(_ops(add), ['add', 'madd on_devices']);
+      expect((add.first.x as Map)[presenceMarker], 1);
+      expect(
+        add.last.x,
+        isNull,
+        reason: 'filled with the device id at sealing',
+      );
+      expect(_ops(translate('asset_record', 'A', 'update', null, held(1), 0)), [
+        'add',
+      ], reason: 'already freed: marked, nobody listed');
+      expect(
+        _ops(translate('asset_record', 'A', 'update', held(0), held(1), 0)),
+        ['set presence', 'mrem on_devices'],
+      );
+      expect(
+        _ops(translate('asset_record', 'A', 'update', held(1), held(0), 0)),
+        ['madd on_devices'],
+      );
+      expect(
+        translate('asset_record', 'A', 'update', _asset(), held(1), 0),
+        isEmpty,
+        reason: 'captured before local_deleted was: says nothing',
+      );
+    },
+  );
 }
