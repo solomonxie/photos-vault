@@ -19,6 +19,7 @@ import '../viewer/built_in_album.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../storage/membership_sweep.dart';
+import '../photos/person_owner.dart';
 import '../vault/passcode_tags.dart';
 import 'change_log.dart';
 import 'data_files.dart';
@@ -333,6 +334,10 @@ class AppSnapshotIo {
         'id': album.id,
         'name': album.name,
         'createdAt': album.createdAt.toIso8601String(),
+        if (album.description.isNotEmpty) 'description': album.description,
+        if (album.tags.isNotEmpty) 'tags': album.tags,
+        if (album.coverLocalId case final cover? when !hidden.contains(cover))
+          'coverLocalId': cover,
         'localIds': shown(albumMembers[album.id] ?? const <String>[]),
         'notes': [
           for (final note in await albumStore.notes(album.id)) _noteRow(note),
@@ -361,6 +366,7 @@ class AppSnapshotIo {
         person,
         shown(personMembers[person.id] ?? const <String>[]),
         sets[person.id] ?? PersonExportSet(),
+        hidden,
       );
       if (knownAs[person.id] case final known?) {
         row['knownAs'] = [
@@ -384,6 +390,8 @@ class AppSnapshotIo {
       vault: {
         'hiddenNotes': await assetRecordStore.allHiddenNoteRows(),
         'tagEscrow': await _tags.exportEscrows(),
+        // Whose hidden folder the main page opens.
+        'owner': ?await PersonOwner(assetRecordStore).id(),
       },
     );
   }
@@ -411,6 +419,7 @@ class AppSnapshotIo {
       !r.isArchived &&
       !r.isDeleted &&
       !r.localDeleted &&
+      r.dateSetAt == null &&
       r.description.isEmpty &&
       r.tags.isEmpty &&
       r.location == null &&
@@ -428,18 +437,30 @@ class AppSnapshotIo {
     for (final row in snapshot.albums) {
       await _importAlbum(row);
     }
-    for (final row in snapshot.people) {
-      await _importPerson(row);
-    }
-    // Relationships go in a second pass: both ends have to exist first.
-    for (final row in snapshot.people) {
-      await _importRelationships(row);
-    }
+    await personStore.withoutChangeLog(() async {
+      for (final row in snapshot.people) {
+        await _importPerson(row);
+      }
+      // Relationships go in a second pass: both ends have to exist first.
+      for (final row in snapshot.people) {
+        await _importRelationships(row);
+      }
+    });
     for (final note in _rowsOf(snapshot.vault['hiddenNotes'])) {
       await assetRecordStore.restoreHiddenNote(note);
     }
     await _tags.importEscrows(_rowsOf(snapshot.vault['tagEscrow']));
+    await _importOwner(snapshot.vault['owner']);
     return restored;
+  }
+
+  /// This phone's own choice stands; the backup's fills one not made yet.
+  Future<void> _importOwner(Object? id) async {
+    if (id is! String || id.isEmpty) return;
+    final owner = PersonOwner(assetRecordStore);
+    if (await owner.id() != null) return;
+    if (await personStore.getById(id) == null) return;
+    await owner.set(id);
   }
 
   /// Clears the data represented by an app-data snapshot. Credentials and
@@ -470,11 +491,14 @@ class AppSnapshotIo {
     'hasEdit': record.hasEdit,
     'isGif': record.isGif,
     'createdAt': record.createdAt.toIso8601String(),
+    'dateSetAt': ?record.dateSetAt?.toIso8601String(),
     'addedAt': record.addedAt.toIso8601String(),
     'isFavorite': record.isFavorite,
     'isHidden': record.isHidden,
     if (record.isArchived) 'isArchived': true,
+    if (record.isLocked) 'isLocked': true,
     if (record.peopleOnly) 'peopleOnly': true,
+    'ownerId': ?record.ownerId,
     'deletedAt': record.deletedAt?.toIso8601String(),
     if (record.binnedByLibrary) 'binnedByLibrary': true,
     'localDeleted': record.localDeleted,
@@ -598,6 +622,12 @@ class AppSnapshotIo {
     required bool fresh,
   }) async {
     final localId = current.localId;
+    // A date the user set beats the one a scan read from Photos.
+    final setAt = _date(row['dateSetAt']);
+    final setDate = _date(row['createdAt']);
+    if (setAt != null && setDate != null && current.dateSetAt == null) {
+      await assetRecordStore.restoreSetDate(localId, setDate, setAt);
+    }
     final description = row['description'] as String? ?? '';
     if (description.isNotEmpty && current.description.isEmpty) {
       await assetRecordStore.setDescription(localId, description);
@@ -626,8 +656,15 @@ class AppSnapshotIo {
     if ((row['isArchived'] as bool? ?? false) && !current.isArchived) {
       await assetRecordStore.setArchived([localId], true);
     }
+    if ((row['isLocked'] as bool? ?? false) && !current.isLocked) {
+      await assetRecordStore.setLocked(localId, true);
+    }
     if (row['peopleOnly'] as bool? ?? false) {
       await assetRecordStore.setPeopleOnly([localId], true);
+    }
+    final ownerId = row['ownerId'] as String?;
+    if (ownerId != null && current.ownerId == null) {
+      await assetRecordStore.setOwner([localId], ownerId);
     }
     if ((row['isHidden'] as bool? ?? false) && !current.isHidden) {
       await assetRecordStore.setHidden(localId, true);
@@ -707,7 +744,20 @@ class AppSnapshotIo {
     if (id == null || name == null) return;
     // The album's own creation date isn't restorable through the store's
     // API, and nothing reads it — albums sort by name.
-    await albumStore.upsert(id: id, name: name);
+    final album = await albumStore.upsert(id: id, name: name);
+    final description = row['description'] as String? ?? '';
+    final tags = (row['tags'] as List<dynamic>? ?? const []).cast<String>();
+    final cover = row['coverLocalId'] as String?;
+    final filled = album.copyWith(
+      description: album.description.isEmpty ? description : null,
+      tags: {...album.tags, ...tags}.toList(),
+      coverLocalId: album.coverLocalId ?? cover,
+    );
+    if (filled.description != album.description ||
+        filled.tags.length != album.tags.length ||
+        filled.coverLocalId != album.coverLocalId) {
+      await albumStore.update(filled);
+    }
     final localIds = (row['localIds'] as List<dynamic>? ?? const [])
         .cast<String>();
     if (localIds.isNotEmpty) await albumStore.addAssets(id, localIds);
@@ -741,6 +791,7 @@ class AppSnapshotIo {
     Person person,
     List<String> localIds,
     PersonExportSet set,
+    Set<String> hidden,
   ) {
     // The open set. What is kept behind a passcode goes out sealed, under
     // `sealed` below — it cannot be read here and must not be lost either.
@@ -760,9 +811,13 @@ class AppSnapshotIo {
           'awards': entry.awards.map((a) => a.toJson()).toList(),
         },
     ];
+    final shown = localIds.toSet();
     return {
       'id': person.id,
       'name': person.name,
+      if (person.firstName.isNotEmpty) 'firstName': person.firstName,
+      if (person.middleName.isNotEmpty) 'middleName': person.middleName,
+      if (person.lastName.isNotEmpty) 'lastName': person.lastName,
       'createdAt': person.createdAt.toIso8601String(),
       'avatarLocalId': person.avatarLocalId,
       'avatarFace': person.avatarFace?.encode(),
@@ -793,6 +848,22 @@ class AppSnapshotIo {
           },
       ],
       'groups': [for (final g in set.groups) g.toJson()],
+      'events': [
+        for (final e in set.events) {'id': e.id, ...e.toJson()},
+      ],
+      if (set.aliases.isNotEmpty) 'aliases': set.aliases,
+      'faceLocalIds': [...set.viaFace.where(shown.contains)],
+      // Their history as the profile shows it; a hidden photo's id stays.
+      'changes': [
+        for (final c in set.changes)
+          if (!hidden.contains(c.before) && !hidden.contains(c.after))
+            {
+              'at': c.at.toIso8601String(),
+              'kind': c.kind,
+              'before': c.before,
+              'after': c.after,
+            },
+      ],
     };
   }
 
@@ -819,13 +890,50 @@ class AppSnapshotIo {
             .toList(),
         locked: row['locked'] as bool? ?? false,
         ignored: row['ignored'] as bool? ?? false,
+        firstName: person.firstName.isEmpty
+            ? row['firstName'] as String?
+            : null,
+        middleName: person.middleName.isEmpty
+            ? row['middleName'] as String?
+            : null,
+        lastName: person.lastName.isEmpty ? row['lastName'] as String? : null,
         passcodeHash: () => row['passcodeHash'] as String?,
         passcodeHint: () => row['passcodeHint'] as String?,
       ),
     );
     final localIds = (row['localIds'] as List<dynamic>? ?? const [])
         .cast<String>();
-    if (localIds.isNotEmpty) await personStore.addAssets(id, localIds);
+    final viaFace = (row['faceLocalIds'] as List<dynamic>? ?? const [])
+        .cast<String>()
+        .toSet();
+    // Face ones first: a manual add would take a face's claim off.
+    if (viaFace.isNotEmpty) {
+      await personStore.addAssets(id, viaFace, viaFace: true);
+    }
+    final byHand = localIds.where((l) => !viaFace.contains(l)).toList();
+    if (byHand.isNotEmpty) await personStore.addAssets(id, byHand);
+    await personStore.restoreEvents([
+      for (final e in _rowsOf(row['events']))
+        if (e['id'] case final String eventId)
+          PersonEvent.fromJson(eventId, id, e),
+    ]);
+    await personStore.restoreAliases(
+      id,
+      (row['aliases'] as List<dynamic>? ?? const []).whereType<String>(),
+    );
+    await personStore.restoreChanges(id, [
+      for (final c in _rowsOf(row['changes']))
+        if ((_date(c['at']), c['kind']) case (
+          final DateTime at,
+          final String kind,
+        ))
+          PersonChange(
+            at: at,
+            kind: kind,
+            before: c['before'] as String?,
+            after: c['after'] as String?,
+          ),
+    ]);
     for (final location
         in (row['locations'] as List<dynamic>? ?? const [])
             .whereType<Map<String, Object?>>()) {

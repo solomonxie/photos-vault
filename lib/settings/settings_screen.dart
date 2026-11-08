@@ -15,7 +15,9 @@ import '../l10n/app_localizations.dart';
 import '../l10n/failure_text.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/conversation_store.dart';
+import '../photos/person_owner.dart';
 import '../photos/person_store.dart';
+import '../viewer/owner_gate.dart';
 import '../photos/travel_store.dart';
 import '../sync/cloud_sync.dart';
 import '../sync/log_sync.dart';
@@ -44,10 +46,14 @@ class SettingsScreen extends StatefulWidget {
     this.bucketBackup,
     this.vault,
     this.snapshotFile,
+    this.personStore,
   });
 
   final BackupTargetsStore? store;
   final AssetRecordStore? assetRecordStore;
+
+  /// Who "Me" can be. Optional so tests can hand in a fake.
+  final PersonStore? personStore;
 
   /// The iCloud copy of everything that isn't a photo. Optional so the
   /// screen still stands alone in tests, which have no platform channel to
@@ -80,10 +86,12 @@ class _SettingsScreenState extends State<SettingsScreen>
   /// One reader of the three stores, shared by every destination on this
   /// page. They each used to build their own, which meant three sets of
   /// database handles for one library.
+  late final PersonStore _personStore = widget.personStore ?? PersonStore();
+
   late final AppSnapshotIo _snapshots = AppSnapshotIo(
     assetRecordStore: _assetRecordStore,
     albumStore: AlbumStore(),
-    personStore: PersonStore(),
+    personStore: _personStore,
     aiAnalysisStore: AiAnalysisStore(),
     conversationStore: ConversationStore(),
     wordsStore: WordsStore(),
@@ -131,6 +139,7 @@ class _SettingsScreenState extends State<SettingsScreen>
 
   bool _bucketDataEnabled = false;
   DateTime? _bucketDataLastBackupAt;
+  bool _bucketDataStale = false;
   bool _bucketDataBusy = false;
 
   List<S3BackupTarget>? _targets;
@@ -163,6 +172,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     _reloadICloud();
     _reloadBucketData();
     _loadTrash();
+    _loadOwner();
     _waitingTimer;
     WidgetsBinding.instance.addObserver(this);
   }
@@ -185,9 +195,11 @@ class _SettingsScreenState extends State<SettingsScreen>
   Future<void> _reloadBucketData() async {
     var enabled = false;
     DateTime? lastBackupAt;
+    var stale = false;
     try {
       enabled = await _bucketBackup.isEnabled();
       lastBackupAt = await _bucketBackup.lastBackupAt();
+      stale = await _bucketBackup.isStale();
     } catch (_) {
       // No database to remember the switch in — the row reads as off
       // rather than taking the screen down with it.
@@ -196,6 +208,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     setState(() {
       _bucketDataEnabled = enabled;
       _bucketDataLastBackupAt = lastBackupAt;
+      _bucketDataStale = stale;
     });
   }
 
@@ -226,7 +239,12 @@ class _SettingsScreenState extends State<SettingsScreen>
       state = await _icloudBackup.drive.status();
       enabled = await _icloudBackup.isEnabled();
       if (state == ICloudState.available) {
-        lastBackupAt = await _icloudBackup.drive.latestWriteAt();
+        // This phone's own last copy. The folder's newest file is picked by
+        // name, and an old `99999999-pre-deletion-…` copy outsorts every
+        // daily, so it read Sep 24 for weeks of good copies.
+        lastBackupAt =
+            await _icloudBackup.schedule.lastRunAt() ??
+            await _icloudBackup.drive.latestWriteAt();
       }
     } catch (_) {
       // No channel and no database to remember the switch in — which is a
@@ -490,6 +508,9 @@ class _SettingsScreenState extends State<SettingsScreen>
               child: ListView(
                 padding: const EdgeInsets.only(top: 8, bottom: 40),
                 children: [
+                  SettingsGroupHeading(title: l10n.settingsMeHeading),
+                  _meGroup(l10n),
+                  const SizedBox(height: 28),
                   SettingsGroupHeading(title: l10n.cloudUploadsHeading),
                   _uploadsGroup(l10n, targets),
                   const SizedBox(height: 28),
@@ -513,6 +534,39 @@ class _SettingsScreenState extends State<SettingsScreen>
   }
 
   // ----------------------------------------------------------------- groups
+
+  /// The owner's name, or null while nobody is set.
+  String? _ownerName;
+
+  Future<void> _loadOwner() async {
+    try {
+      final id = await PersonOwner(_assetRecordStore).id();
+      final person = id == null ? null : await _personStore.getById(id);
+      if (mounted) setState(() => _ownerName = person?.name);
+    } catch (_) {
+      // Reads as not set.
+    }
+  }
+
+  Widget _meGroup(AppLocalizations l10n) => SettingsGroup(
+    footer: l10n.settingsMeFooter,
+    children: [
+      SettingsGroupRow(
+        key: const ValueKey('settingsMeRow'),
+        title: l10n.settingsMeRow,
+        value: _ownerName ?? l10n.settingsMeNotSet,
+        chevron: true,
+        onTap: () async {
+          await pickOwner(
+            context,
+            store: _assetRecordStore,
+            people: _personStore,
+          );
+          await _loadOwner();
+        },
+      ),
+    ],
+  );
 
   /// Chosen before the first sync; fixed after, since a different bucket
   /// is a different log (see `SyncStore.reset`).
@@ -713,6 +767,12 @@ class _SettingsScreenState extends State<SettingsScreen>
                   onChanged: targets.isEmpty ? null : _toggleBucketData,
                 ),
         ),
+        if (_bucketDataStale && bucketAt != null && targets.isNotEmpty)
+          _WarnLine(
+            l10n.settingsBucketDataStale(
+              DateTime.now().difference(bucketAt).inDays,
+            ),
+          ),
         if (_trashBytes > 0)
           SettingsGroupRow(
             key: const ValueKey('settingsEmptyImportTrash'),
@@ -932,6 +992,28 @@ class _SettingsScreenState extends State<SettingsScreen>
 
 /// The one fix the user can make themselves, in the accent colour, under
 /// the iCloud row it belongs to.
+/// A destination falling behind, said under its row in orange.
+class _WarnLine extends StatelessWidget {
+  const _WarnLine(this.text);
+
+  final String text;
+
+  @override
+  Widget build(BuildContext context) => Padding(
+    key: const ValueKey('settingsBucketDataStale'),
+    padding: const EdgeInsets.fromLTRB(
+      settingsPagePadding,
+      0,
+      settingsPagePadding,
+      10,
+    ),
+    child: Text(
+      text,
+      style: const TextStyle(fontSize: 12, color: CupertinoColors.systemOrange),
+    ),
+  );
+}
+
 class _FixLine extends StatelessWidget {
   const _FixLine();
 

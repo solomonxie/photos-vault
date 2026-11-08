@@ -8,7 +8,8 @@ import 'package:sqflite/sqflite.dart' show Database, DatabaseFactory;
 /// table of [dropIds], is there for [scrub] to join against.
 ///
 /// Written beside [dest] and renamed over it, so a kill leaves the previous
-/// copy rather than half of this one. False when it couldn't be made.
+/// copy rather than half of this one. False when it couldn't be made, and
+/// [lastCopyError] says why.
 Future<bool> copyDatabase(
   Database db,
   DatabaseFactory factory,
@@ -47,7 +48,8 @@ Future<bool> copyDatabase(
     }
     await File(temp).rename(dest);
     return true;
-  } catch (_) {
+  } catch (e) {
+    lastCopyError = '$e';
     try {
       await File(temp).delete();
     } catch (_) {
@@ -56,6 +58,9 @@ Future<bool> copyDatabase(
     return false;
   }
 }
+
+/// Why the last [copyDatabase] failed, for a backup's own record.
+String? lastCopyError;
 
 /// Adds every row of the database file at [path] to [live], table by table,
 /// over the columns both sides have — a backup written by an older build may

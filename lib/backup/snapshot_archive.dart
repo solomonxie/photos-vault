@@ -71,6 +71,25 @@ String monthlyArchiveName(DateTime at) =>
 
 bool isDailyArchiveName(String name) => RegExp(r'^\d{8}\.zip$').hasMatch(name);
 
+/// A device's id as backups key it: cloud sync's UUID (`backup_device.dart`).
+bool isDeviceId(String s) => _uuid.hasMatch(s);
+
+const _uuidPattern =
+    '[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}';
+final _uuid = RegExp('^$_uuidPattern\$');
+final _deviceDaily = RegExp('^\\d{8}-($_uuidPattern)\\.zip\$');
+
+/// `20260918-<device>.zip` — a daily in a flat folder shared by devices
+/// (iCloud Drive). The bucket uses a folder per device instead.
+String deviceDailyArchiveName(DateTime at, String device) =>
+    '${dailyArchiveName(at).substring(0, 8)}-$device.zip';
+
+bool isDeviceDailyArchiveName(String name) => _deviceDaily.hasMatch(name);
+
+/// The device a flat archive name carries, or null for one without
+/// (old layout, monthly, pre-deletion).
+String? deviceOfArchive(String name) => _deviceDaily.firstMatch(name)?.group(1);
+
 bool isMonthlyArchiveName(String name) =>
     RegExp(r'^\d{6}\.zip$').hasMatch(name);
 
@@ -78,6 +97,7 @@ bool isMonthlyArchiveName(String name) =>
 /// tells its own backups apart from anything else sharing the folder.
 bool isSnapshotArchiveName(String name) =>
     isDailyArchiveName(name) ||
+    isDeviceDailyArchiveName(name) ||
     isMonthlyArchiveName(name) ||
     isPreDeletionArchiveName(name);
 
@@ -151,6 +171,36 @@ Uint8List zipSnapshot(
   return ZipEncoder().encodeBytes(archive);
 }
 
+/// [zip] with its `data-files.json` replaced by [dataFiles] — the day's
+/// rows pointing at an older, complete set of blobs.
+Uint8List zipWithDataFiles(
+  Uint8List zip,
+  List<Map<String, Object?>> dataFiles,
+) {
+  final source = ZipDecoder().decodeBytes(zip);
+  final archive = Archive();
+  for (final file in source.files) {
+    if (file.isFile && file.name != dataFilesEntryName) archive.addFile(file);
+  }
+  archive.addFile(
+    ArchiveFile.string(dataFilesEntryName, encodeDataFiles(dataFiles)),
+  );
+  return ZipEncoder().encodeBytes(archive);
+}
+
+/// [zipWithDataFiles] on another isolate: a whole library's inflate and
+/// deflate.
+Future<Uint8List> zipWithDataFilesAside(
+  Uint8List zip,
+  List<Map<String, Object?>> dataFiles,
+) async {
+  try {
+    return await Isolate.run(() => zipWithDataFiles(zip, dataFiles));
+  } on ArgumentError {
+    return zipWithDataFiles(zip, dataFiles);
+  }
+}
+
 /// Just the blob list of an archive: empty when it has none (an older
 /// build's), null when the bytes aren't a readable zip — which a caller
 /// deciding what to delete must treat as "don't know".
@@ -214,7 +264,13 @@ class SnapshotPayload {
     required this.csv,
     this.files,
     this.complete = true,
+    this.empty = false,
+    this.failure,
   });
+
+  /// Why the blobs couldn't be gathered, when [complete] is false. For the
+  /// backup's own record, never shown.
+  final String? failure;
 
   final Uint8List zip;
 
@@ -233,6 +289,11 @@ class SnapshotPayload {
   /// it would be the newest one. Tomorrow's gate tries again.
   final bool complete;
 
+  /// No photos, albums or people: what a cloud-only device with nothing of
+  /// its own exports. Never uploaded — restore ignores it anyway, and it
+  /// would only crowd out a real copy.
+  final bool empty;
+
   /// Removes the staged database copies. Whoever built the payload calls it
   /// once every destination is done.
   Future<void> dispose() async => files?.dispose();
@@ -250,11 +311,14 @@ class SnapshotPayload {
   }) async {
     DataFileSet? files;
     var complete = true;
+    String? failure;
     if (dataFiles) {
       try {
         files = await snapshots.collectDataFiles();
-      } catch (_) {
+      } catch (e) {
         complete = false;
+        final text = '$e';
+        failure = text.length > 200 ? text.substring(0, 200) : text;
       }
     }
     final manifest = files?.manifest;
@@ -271,6 +335,8 @@ class SnapshotPayload {
         csv: here.csv,
         files: files,
         complete: complete,
+        empty: snapshot.isEmpty,
+        failure: failure,
       );
     }
     return SnapshotPayload(
@@ -278,6 +344,8 @@ class SnapshotPayload {
       csv: encoded.csv,
       files: files,
       complete: complete,
+      empty: snapshot.isEmpty,
+      failure: failure,
     );
   }
 }
@@ -328,21 +396,46 @@ List<(String doomed, String keeper)> thinningPlan(
 
 /// One destination's best copy for a fresh install.
 class RestoreCandidate {
-  const RestoreCandidate(this.snapshot, {this.preDeletion = false});
+  const RestoreCandidate(
+    this.snapshot, {
+    this.preDeletion = false,
+    this.device,
+  });
 
   final AppSnapshot snapshot;
 
-  /// Taken just before Remove All App Data: outranks any daily copy, which
-  /// after a wipe is of an empty library (see [latestArchiveName]).
+  /// Taken just before Remove All App Data: outranks the same device's
+  /// daily copies, which after a wipe are of an empty library (see
+  /// [latestArchiveName]).
   final bool preDeletion;
 
-  /// Whether this is the one to restore rather than [other]: a pre-deletion
-  /// copy first, then the newest `exportedAt`.
+  /// The device that wrote it; null for the old shared layout, whose
+  /// copies may be any device's.
+  final String? device;
+
+  /// How much user data it carries.
+  int get weight =>
+      snapshot.assets.length + snapshot.albums.length + snapshot.people.length;
+
+  /// Whether this is the one to restore rather than [other]. One device's
+  /// copies: a pre-deletion copy, then the newest. Different (or unknown)
+  /// devices: a clearly richer copy first — a cloud-only phone's thin copy
+  /// must not win just by being newer — then the same rule.
   bool beats(RestoreCandidate? other) {
     if (other == null) return true;
+    final sameDevice = device != null && device == other.device;
+    if (!sameDevice) {
+      if (_clearlyRicher(this, other)) return true;
+      if (_clearlyRicher(other, this)) return false;
+    }
     if (preDeletion != other.preDeletion) return preDeletion;
     return snapshot.exportedAt.isAfter(other.snapshot.exportedAt);
   }
+
+  /// A quarter more: room for photos deleted between two copies of the
+  /// same library, nowhere near a partial device's copy.
+  static bool _clearlyRicher(RestoreCandidate a, RestoreCandidate b) =>
+      a.weight * 4 > b.weight * 5;
 
   static RestoreCandidate? best(Iterable<RestoreCandidate?> all) {
     RestoreCandidate? best;
@@ -351,6 +444,49 @@ class RestoreCandidate {
     }
     return best;
   }
+}
+
+/// How many old-layout archives a restore weighs against each other: any
+/// device wrote them, so the newest may be a thin one.
+const legacyRestoreLookback = 15;
+
+/// The best copy among [byDevice]'s archive names (null key: the old
+/// shared layout), read through [read]. Per device, its newest readable
+/// copy (pre-deletion first); an empty one means that device has nothing
+/// to give. Old-layout copies are each weighed, up to
+/// [legacyRestoreLookback] of them.
+Future<RestoreCandidate?> bestArchiveAcrossDevices(
+  Map<String?, List<String>> byDevice,
+  Future<AppSnapshot?> Function(String? device, String name) read,
+) async {
+  final found = <RestoreCandidate>[];
+  for (final MapEntry(key: device, value: names) in byDevice.entries) {
+    final first = latestArchiveName(names);
+    final ordered = [
+      ?first,
+      ...(names.where((n) => n != first && isSnapshotArchiveName(n)).toList()
+            ..sort())
+          .reversed,
+    ];
+    var taken = 0;
+    for (final name in ordered) {
+      final snapshot = await read(device, name);
+      if (snapshot == null) continue;
+      if (snapshot.isEmpty) {
+        if (device != null) break;
+        continue;
+      }
+      found.add(
+        RestoreCandidate(
+          snapshot,
+          preDeletion: isPreDeletionArchiveName(name),
+          device: device,
+        ),
+      );
+      if (device != null || ++taken >= legacyRestoreLookback) break;
+    }
+  }
+  return RestoreCandidate.best(found);
 }
 
 /// [unzipSnapshot] on another isolate: a whole library's inflate and JSON.

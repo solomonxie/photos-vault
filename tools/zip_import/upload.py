@@ -2,11 +2,15 @@
 stills as HEIF (`.heif` marks a converted upload), GIFs and videos as they
 are, each with a 512 px JPEG thumbnail. The name carries the date taken —
 `import_<YYYYMMDDHHMMSS>_<12 hex>` — which the app's Import from Bucket
-falls back to when it can't read one from the file. Nothing without a date
+falls back to when it can't read one from the file. Each goes straight to
+the app's own name (`<stamp>_<sha256(import key)[:32]>`), logged to
+uploaded.jsonl and renamed.jsonl; a key already in the bucket is never
+written over, and nothing is deleted. Nothing without a date
 is sent: those wait in survey.jsonl for one (see dates.jsonl).
 
 Usage: upload.py  (WORK=/tmp/zip-import, .env.bucket at the repo root)"""
 
+import hashlib
 import json
 import os
 import subprocess
@@ -102,24 +106,43 @@ def main():
         todo = todo[:limit]
     print(f"to send: {len(todo)}", flush=True)
 
+    def exists(key):
+        try:
+            s3.head_object(Bucket=bucket, Key=key)
+            return True
+        except s3.exceptions.ClientError as e:
+            if e.response["Error"]["Code"] in ("404", "NoSuchKey", "NotFound"):
+                return False
+            raise
+
     def send(row):
         with tempfile.TemporaryDirectory(prefix="zip-import-") as tmp:
             base, original, ext, thumb = prepare(row, tmp, stamp(row, dates))
-            key = f"{prefix}/originals/{base}.{ext}"
+            old = f"{prefix}/originals/{base}.{ext}"
+            # The app's own name, as rename.py used to give it: adds only, no deletes.
+            final = f"{base.split('_')[1]}_{hashlib.sha256(old.encode()).hexdigest()[:32]}"
+            key = f"{prefix}/originals/{final}.{ext}"
+            thumb_key = f"{prefix}/thumbnails/{final}.jpg"
+            if exists(key) or exists(thumb_key):
+                raise RuntimeError(f"exists, skipped: {key}")
             s3.upload_file(original, bucket, key)
             if s3.head_object(Bucket=bucket, Key=key)["ContentLength"] != os.path.getsize(original):
                 raise RuntimeError(f"size mismatch {key}")
-            s3.upload_file(thumb, bucket, f"{prefix}/thumbnails/{base}.jpg",
-                           ExtraArgs={"ContentType": "image/jpeg"})
-            return {"sha256": row["sha256"], "key": key, "name": row["name"]}
+            s3.upload_file(thumb, bucket, thumb_key, ExtraArgs={"ContentType": "image/jpeg"})
+            return ({"sha256": row["sha256"], "key": old, "name": row["name"]},
+                    {"from": old, "to": key, "sha256": row["sha256"]})
 
     n = failed = 0
-    with ThreadPoolExecutor(6) as ex, open(done_path, "a") as log:
+    with ThreadPoolExecutor(6) as ex, open(done_path, "a") as log, \
+            open(os.path.join(WORK, "renamed.jsonl"), "a") as renamed:
         futures = [ex.submit(send, r) for r in todo]
         for f in futures:
             try:
-                log.write(json.dumps(f.result()) + "\n")
+                up, rn = f.result()
+                log.write(json.dumps(up) + "\n")
                 log.flush()
+                renamed.write(json.dumps(rn) + "\n")
+                renamed.flush()
                 n += 1
             except Exception as e:
                 failed += 1

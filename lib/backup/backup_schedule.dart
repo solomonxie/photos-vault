@@ -48,10 +48,32 @@ class BackupSchedule {
     return raw == null ? null : DateTime.tryParse(raw);
   }
 
-  Future<void> recordSuccess() async {
-    await settings.setAppState(markKey, '${await snapshots.changeMark()}');
+  /// [complete] false: a copy landed but still owes something (blobs
+  /// mid-upload). The time moves, the mark doesn't, so tomorrow's gate
+  /// runs again.
+  Future<void> recordSuccess({bool complete = true}) async {
+    if (complete) {
+      await settings.setAppState(markKey, '${await snapshots.changeMark()}');
+    }
     await settings.setAppState(atKey, _now().toIso8601String());
   }
+
+  /// Nothing worth sending (an empty library): settled until it changes,
+  /// without claiming a copy was made.
+  Future<void> recordNothingToSend() async =>
+      settings.setAppState(markKey, '${await snapshots.changeMark()}');
+
+  /// The last copy is older than [after] and changes have been made since —
+  /// the destination is falling behind, not merely idle.
+  Future<bool> isStale({Duration after = staleAfter}) async {
+    final last = await lastRunAt();
+    if (last == null || _now().difference(last) <= after) return false;
+    final recorded =
+        int.tryParse(await settings.getAppState(markKey) ?? '') ?? -1;
+    return await snapshots.changeMark() != recorded;
+  }
+
+  static const staleAfter = Duration(days: 3);
 }
 
 bool _isSameDay(DateTime a, DateTime b) =>

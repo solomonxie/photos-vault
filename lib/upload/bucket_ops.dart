@@ -253,8 +253,9 @@ class BucketOps {
   }
 
   /// Removes one old daily app-data archive — `<prefix>app-data/YYYYMMDD.zip`
-  /// and no other shape of key — once [keeperKey], the archive kept for the
-  /// same month, is proven live. Anything unanswered keeps both.
+  /// or `<prefix>app-data/<device>/YYYYMMDD.zip`, no other shape of key —
+  /// once [keeperKey], the archive kept for the same month in the same
+  /// folder, is proven live. Anything unanswered keeps both.
   ///
   /// Separate from [deleteGuarded] because these are not photos: no record
   /// names them and none is a carrier. What makes it safe is the shape check
@@ -266,7 +267,8 @@ class BucketOps {
   }) async {
     if (!isDailyArchiveKey(target, key) ||
         !isDailyArchiveKey(target, keeperKey) ||
-        key == keeperKey) {
+        key == keeperKey ||
+        _folderOf(key) != _folderOf(keeperKey)) {
       return ArchiveDelete.refused;
     }
     final kept = await head(target, keeperKey);
@@ -293,15 +295,21 @@ class BucketOps {
 
 enum ArchiveDelete { deleted, refused, failed }
 
-/// `<prefix>app-data/YYYYMMDD.zip` in [target], exactly.
+/// `<prefix>app-data/YYYYMMDD.zip` or `<prefix>app-data/<device>/YYYYMMDD.zip`
+/// in [target], exactly.
 bool isDailyArchiveKey(S3BackupTarget target, String key) {
   final prefix = target.prefix.isEmpty || target.prefix.endsWith('/')
       ? target.prefix
       : '${target.prefix}/';
   final folder = '${prefix}app-data/';
   return key.startsWith(folder) &&
-      RegExp(r'^\d{8}\.zip$').hasMatch(key.substring(folder.length));
+      RegExp(
+        r'^(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/)?'
+        r'\d{8}\.zip$',
+      ).hasMatch(key.substring(folder.length));
 }
+
+String _folderOf(String key) => key.substring(0, key.lastIndexOf('/') + 1);
 
 bool isVideoKey(String key) {
   final name = key.split('/').last;

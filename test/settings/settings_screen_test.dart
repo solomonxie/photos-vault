@@ -5,7 +5,9 @@ import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/settings/add_backup_screen.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/bucket_browser_screen.dart';
+import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:photos_vault/settings/settings_screen.dart';
+import 'package:photos_vault/upload/bucket_ops.dart';
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
@@ -64,8 +66,22 @@ Future<BackupTargetsStore> _storeWithBucket({String prefix = 'p/'}) async {
         objects[url.path] = body! as List<int>;
         return http.Response('', 200);
       },
+      ops: _Ops(objects),
     ),
   );
+}
+
+class _Ops extends BucketOps {
+  _Ops(this.objects);
+  final Map<String, List<int>> objects;
+
+  @override
+  Future<ObjectHead> head(S3BackupTarget target, String key) async {
+    final body = objects['/$key'];
+    return body == null
+        ? ObjectHead.absent
+        : ObjectHead(Probe.present, size: body.length);
+  }
 }
 
 /// One snapshot, and the fake pair the screen drives it through.
@@ -183,6 +199,7 @@ void main() {
     await _useTallSurface(tester);
     final store = await _storeWithBucket();
     final assets = FakeAssetRecordStore();
+    await assets.upsert(localId: 'photo:1', contentHash: '1', platform: 'ios');
     final bucket = _bucketBackup(store, assets);
 
     await tester.pumpWidget(
@@ -217,13 +234,67 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(await bucket.backup.isEnabled(), isTrue);
+    late final String device;
+    await tester.runAsync(() async => device = await bucket.backup.device.id());
     expect(
       bucket.objects.keys,
-      contains('/p/app-data/${dailyArchiveName(DateTime.now())}'),
+      contains('/p/app-data/$device/${dailyArchiveName(DateTime.now())}'),
     );
     // And the readable index, loose beside it — the bucket console is where
     // a recovery actually starts.
     expect(bucket.objects.keys, contains('/p/app-data/index.csv'));
+  });
+
+  testWidgets('a bucket copy days behind says so under its row', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final store = await _storeWithBucket();
+    final assets = FakeAssetRecordStore();
+    await assets.upsert(localId: 'photo:1', contentHash: '1', platform: 'ios');
+    await assets.setAppState(
+      BucketBackup.lastBackupKey,
+      DateTime.now().subtract(const Duration(days: 10)).toIso8601String(),
+    );
+    final bucket = _bucketBackup(store, assets);
+
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(
+          store: store,
+          assetRecordStore: assets,
+          bucketBackup: bucket.backup,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('settingsBucketDataStale')), findsOne);
+    expect(find.textContaining("hasn't updated in 10 days"), findsOne);
+  });
+
+  testWidgets('a recent bucket copy shows no warning', (tester) async {
+    await _useTallSurface(tester);
+    final store = await _storeWithBucket();
+    final assets = FakeAssetRecordStore();
+    await assets.setAppState(
+      BucketBackup.lastBackupKey,
+      DateTime.now().subtract(const Duration(days: 1)).toIso8601String(),
+    );
+    final bucket = _bucketBackup(store, assets);
+
+    await tester.pumpWidget(
+      _wrap(
+        SettingsScreen(
+          store: store,
+          assetRecordStore: assets,
+          bucketBackup: bucket.backup,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    expect(find.byKey(const ValueKey('settingsBucketDataStale')), findsNothing);
   });
 
   testWidgets('with no bucket, the app data switch says so and stays dead', (

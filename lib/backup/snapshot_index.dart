@@ -116,3 +116,9 @@ String _cell(String value) {
   if (!value.contains(RegExp('[",\r\n]'))) return value;
   return '"${value.replaceAll('"', '""')}"';
 }
+
+/// Whether an index of [incoming] bytes should replace one of [existing]:
+/// the shared loose copy shows the library at its fullest, so a device with
+/// a much thinner one (a cloud-only phone) leaves it be.
+bool indexOutweighs(int? existing, int incoming) =>
+    existing == null || incoming * 5 >= existing * 4;

@@ -1,3 +1,4 @@
+import 'dart:async';
 import 'dart:io';
 import 'dart:typed_data';
 
@@ -6,6 +7,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:path/path.dart' as p;
 import 'package:photos_vault/backup/app_snapshot.dart';
+import 'package:photos_vault/backup/backup_device.dart';
 import 'package:photos_vault/backup/bucket_backup.dart';
 import 'package:photos_vault/backup/icloud_backup.dart';
 import 'package:photos_vault/backup/icloud_drive.dart';
@@ -76,6 +78,17 @@ Future<(ConversationStore, WordsStore, Directory)> _phone(
   return (chats, words, support);
 }
 
+const _me = '11111111-1111-4111-8111-111111111111';
+
+/// One photo row and this phone's device id: an export with nothing in
+/// `library.json` is never uploaded.
+Future<FakeAssetRecordStore> _assets() async {
+  final assets = FakeAssetRecordStore();
+  await assets.upsert(localId: 'photo:1', contentHash: '1', platform: 'ios');
+  await assets.setAppState(BackupDevice.key, _me);
+  return assets;
+}
+
 DataFiles _files(ConversationStore c, WordsStore w, Directory support) =>
     DataFiles(
       conversations: c,
@@ -87,6 +100,13 @@ DataFiles _files(ConversationStore c, WordsStore w, Directory support) =>
 class _Bucket {
   final objects = <String, List<int>>{};
   bool failUploads = false;
+
+  /// Uploads that never answer, as when iOS suspends the app mid-transfer.
+  bool hangUploads = false;
+
+  /// Blobs this big or bigger never finish — a store too large for the
+  /// time iOS grants.
+  int? failFrom;
   bool denyDeletes = false;
   bool brokenListing = false;
   final deleted = <String>[];
@@ -110,6 +130,11 @@ class _Bucket {
     required S3BackupTarget target,
   }) async {
     if (failUploads) return false;
+    if (hangUploads) return Completer<bool>().future;
+    if (failFrom case final limit?
+        when await File(filePath).length() >= limit) {
+      return false;
+    }
     uploads.add(key);
     objects['${target.bucket}/$key'] = await File(filePath).readAsBytes();
     return true;
@@ -147,8 +172,30 @@ class _Ops extends BucketOps {
   _Ops(this.bucket);
   final _Bucket bucket;
 
+  /// HEADs asked of blobs.
+  int heads = 0;
+
+  /// Null: as a bucket that can't be listed.
+  bool listable = true;
+
+  @override
+  Future<List<S3Object>?> listFolder(S3BackupTarget target, String dir) async {
+    if (!listable) return null;
+    final at = '${target.bucket}/${target.prefix}$dir';
+    return [
+      for (final MapEntry(:key, :value) in bucket.objects.entries)
+        if (key.startsWith(at) && !key.substring(at.length).contains('/'))
+          S3Object(
+            key: key.substring(target.bucket.length + 1),
+            size: value.length,
+            lastModified: DateTime(2026),
+          ),
+    ];
+  }
+
   @override
   Future<ObjectHead> head(S3BackupTarget target, String key) async {
+    if (key.contains('/blobs/')) heads++;
     final body = bucket.objects['${target.bucket}/$key'];
     return body == null
         ? ObjectHead.absent
@@ -223,6 +270,8 @@ class _Drive implements ICloudDrive {
   @override
   Future<bool> deleteBlob(String name) async => blobs.remove(name) != null;
 }
+
+final _today = 'b/photos/app-data/$_me/${dailyArchiveName(DateTime.now())}';
 
 void main() {
   setUpAll(sqfliteFfiInit);
@@ -529,11 +578,12 @@ void main() {
   });
 
   group('bucket', () {
+    late _Ops ops;
     Future<(BucketBackup, _Bucket, FakeAssetRecordStore)> backup({
       DateTime? now,
     }) async {
       final (chats, words, support) = await _phone(dir);
-      final assets = FakeAssetRecordStore();
+      final assets = await _assets();
       final io = AppSnapshotIo(
         assetRecordStore: assets,
         albumStore: FakeAlbumStore(),
@@ -552,7 +602,7 @@ void main() {
           get: bucket.get,
           list: bucket.list,
           putFile: bucket.putFile,
-          ops: _Ops(bucket),
+          ops: ops = _Ops(bucket),
           now: now == null ? null : () => now,
         ),
         bucket,
@@ -567,8 +617,7 @@ void main() {
           .where((k) => k.startsWith('b/photos/app-data/blobs/'))
           .toList();
       expect(blobs, hasLength(3));
-      final zip = bucket
-          .objects['b/photos/app-data/${dailyArchiveName(DateTime.now())}']!;
+      final zip = bucket.objects[_today]!;
       final listed = dataFilesIn(zip)!.map((e) => e.sha256).toSet();
       expect(blobs.map((k) => k.split('/').last).toSet(), listed);
       bucket.uploads.clear();
@@ -576,22 +625,126 @@ void main() {
       expect(bucket.uploads, isEmpty);
     });
 
+    test('blobs are checked with one listing, not a HEAD each', () async {
+      final (b, _, _) = await backup();
+      expect(await b.backUpNow(), isTrue);
+      ops.heads = 0;
+      expect(await b.backUpNow(), isTrue);
+      expect(ops.heads, 0);
+      // A bucket that won't list is still asked, one blob at a time.
+      ops.listable = false;
+      expect(await b.backUpNow(), isTrue);
+      expect(ops.heads, greaterThan(0));
+    });
+
+    test('blobs that never land do not hold the rows back', () async {
+      final (b, bucket, _) = await backup();
+      bucket.failUploads = true;
+      expect(await b.backUpNow(), isTrue);
+      final zip = bucket.objects[_today]!;
+      expect(unzipSnapshot(zip)!.assets, hasLength(1));
+      expect(
+        dataFilesIn(zip),
+        isEmpty,
+        reason: 'no blob is there, so the zip names none',
+      );
+      expect(await b.lastBackupAt(), isNotNull);
+      expect(await b.schedule.isDue(), isFalse, reason: 'tried again tomorrow');
+    });
+
     test(
-      'a blob that fails keeps the zip back and the day unrecorded',
+      'the copy counts once it is up, however long the blobs take',
       () async {
         final (b, bucket, _) = await backup();
-        bucket.failUploads = true;
-        expect(await b.backUpNow(), isFalse);
-        expect(bucket.objects.keys.where((k) => k.endsWith('.zip')), isEmpty);
-        expect(await b.lastBackupAt(), isNull);
+        bucket.hangUploads = true;
+        unawaited(b.backUpNow());
+        // Until the copy is recorded; the blob uploads never finish.
+        for (var i = 0; i < 200 && await b.lastBackupAt() == null; i++) {
+          await Future<void>.delayed(const Duration(milliseconds: 25));
+        }
+        expect(bucket.objects[_today], isNotNull);
+        expect(await b.lastBackupAt(), isNotNull);
+        expect(await b.isStale(), isFalse);
       },
     );
+
+    test('a zip written mid-upload names the last complete blobs, never a missing one', () async {
+      final (b, bucket, _) = await backup();
+      expect(await b.backUpNow(), isTrue);
+      final first = dataFilesIn(bucket.objects[_today]!)!;
+      expect(first, hasLength(3));
+
+      // The chats change, and their new copy is too big to finish.
+      final chats = ConversationStore(
+        databaseFactory: databaseFactoryFfi,
+        path: p.join(dir.path, 'conversations.db'),
+      );
+      addTearDown(chats.close);
+      await chats.insert('p1', [_m(9, 'later')]);
+      bucket.failFrom = 1;
+      bucket.uploads.clear();
+      await b.backUpNow();
+      final second = dataFilesIn(bucket.objects[_today]!)!;
+      for (final e in second) {
+        expect(
+          bucket.objects['b/photos/app-data/blobs/${e.sha256}'],
+          isNotNull,
+          reason: '${e.name} names a blob that is there',
+        );
+      }
+      final chatsBlob = second.singleWhere(
+        (e) => e.name == DataFiles.conversationsName,
+      );
+      expect(
+        chatsBlob.sha256,
+        first.singleWhere((e) => e.name == DataFiles.conversationsName).sha256,
+        reason: "yesterday's chats stand in until today's land",
+      );
+      expect(second, hasLength(3));
+
+      // Next run the upload goes through: the zip names the new chats.
+      bucket.failFrom = null;
+      await b.backUpNow();
+      final third = dataFilesIn(bucket.objects[_today]!)!;
+      expect(
+        third.singleWhere((e) => e.name == DataFiles.conversationsName).sha256,
+        isNot(chatsBlob.sha256),
+      );
+      expect(await b.schedule.isDue(), isFalse);
+    });
+
+    test('an empty library uploads nothing', () async {
+      final (chats, words, support) = await _phone(dir);
+      final assets = FakeAssetRecordStore();
+      final bucket = _Bucket();
+      final b = BucketBackup(
+        snapshots: AppSnapshotIo(
+          assetRecordStore: assets,
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          conversationStore: chats,
+          wordsStore: words,
+          supportDirectory: () async => support,
+        ),
+        settings: assets,
+        targetsStore: await _targets(),
+        put: bucket.put,
+        get: bucket.get,
+        list: bucket.list,
+        putFile: bucket.putFile,
+        ops: _Ops(bucket),
+      );
+      expect(await b.backUpNow(), isFalse);
+      expect(bucket.objects, isEmpty);
+      expect(await b.lastBackupAt(), isNull);
+      expect(await b.schedule.isDue(), isFalse, reason: 'until it changes');
+      expect(await b.isStale(), isFalse);
+    });
 
     test('a restore brings the chats back from the bucket', () async {
       final (b, bucket, _) = await backup();
       await b.backUpNow();
-      final zip = bucket
-          .objects['b/photos/app-data/${dailyArchiveName(DateTime.now())}']!;
+      final zip = bucket.objects[_today]!;
       final snapshot = unzipSnapshot(zip)!;
       expect(snapshot.dataFiles, hasLength(3));
       final fresh = Directory(p.join(dir.path, 'fresh'))..createSync();
@@ -630,12 +783,18 @@ void main() {
 
     Future<(BucketBackup, _Bucket)> seeded() async {
       final (chats, words, support) = await _phone(dir, withData: false);
-      final assets = FakeAssetRecordStore();
+      final assets = await _assets();
       final bucket = _Bucket();
       for (final name in [
+        '$_me/20260801.zip',
+        '$_me/20260815.zip',
+        '$_me/20260831.zip',
+        // The old shared layout and another phone's: never this one's to thin.
         '20260801.zip',
         '20260815.zip',
         '20260831.zip',
+        '22222222-2222-4222-8222-222222222222/20260801.zip',
+        '22222222-2222-4222-8222-222222222222/20260831.zip',
         '202607.zip',
         'index.csv',
       ]) {
@@ -662,33 +821,33 @@ void main() {
       return (b, bucket);
     }
 
-    test(
-      'after a written day, old dailies go; nothing else is touched',
-      () async {
-        final (b, bucket) = await seeded();
-        expect(await b.backUpNow(), isTrue);
-        expect(
-          bucket.deleted,
-          unorderedEquals([
-            'photos/app-data/20260801.zip',
-            'photos/app-data/20260815.zip',
-          ]),
-        );
-        expect(
-          bucket.objects.keys,
-          containsAll([
-            'b/photos/app-data/20260831.zip',
-            'b/photos/app-data/202607.zip',
-            'b/photos/app-data/index.csv',
-            'b/photos/app-data/20261025.zip',
-          ]),
-        );
-        expect(
-          bucket.objects.keys.where((k) => k.contains('/blobs/')),
-          isNotEmpty,
-        );
-      },
-    );
+    test('after a written day, old dailies go; nothing else is touched', () async {
+      final (b, bucket) = await seeded();
+      expect(await b.backUpNow(), isTrue);
+      expect(
+        bucket.deleted,
+        unorderedEquals([
+          'photos/app-data/$_me/20260801.zip',
+          'photos/app-data/$_me/20260815.zip',
+        ]),
+      );
+      expect(
+        bucket.objects.keys,
+        containsAll([
+          'b/photos/app-data/$_me/20260831.zip',
+          'b/photos/app-data/20260801.zip',
+          'b/photos/app-data/20260815.zip',
+          'b/photos/app-data/22222222-2222-4222-8222-222222222222/20260801.zip',
+          'b/photos/app-data/202607.zip',
+          'b/photos/app-data/index.csv',
+          'b/photos/app-data/$_me/20261025.zip',
+        ]),
+      );
+      expect(
+        bucket.objects.keys.where((k) => k.contains('/blobs/')),
+        isNotEmpty,
+      );
+    });
 
     test('a listing that does not answer deletes nothing', () async {
       final (b, bucket) = await seeded();
@@ -702,7 +861,10 @@ void main() {
       bucket.denyDeletes = true;
       expect(await b.backUpNow(), isTrue);
       expect(bucket.deleted, isEmpty);
-      expect(bucket.objects.keys, contains('b/photos/app-data/20260801.zip'));
+      expect(
+        bucket.objects.keys,
+        contains('b/photos/app-data/$_me/20260801.zip'),
+      );
     });
 
     test("a month whose keeper can't be proven keeps everything", () async {
@@ -727,6 +889,15 @@ void main() {
         ),
         ArchiveDelete.refused,
       );
+      expect(
+        await ops.deleteOldArchive(
+          target,
+          'photos/app-data/$_me/20260801.zip',
+          keeperKey: 'photos/app-data/20260815.zip',
+        ),
+        ArchiveDelete.refused,
+        reason: 'a keeper in another folder proves nothing',
+      );
       expect(bucket.deleted, isEmpty);
       expect(b, isNotNull);
     });
@@ -735,7 +906,7 @@ void main() {
   group('iCloud', () {
     Future<(ICloudBackup, _Drive, ConversationStore)> icloud() async {
       final (chats, words, support) = await _phone(dir);
-      final assets = FakeAssetRecordStore();
+      final assets = await _assets();
       final drive = _Drive();
       return (
         ICloudBackup(

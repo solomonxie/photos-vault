@@ -359,6 +359,18 @@ Future<bool> slimChangeLog(
   }
 }
 
+/// Moves the mark with no row logged — for a write outside the logged
+/// tables that a backup still carries (a setting in `app_state`).
+Future<void> bumpChangeMark(DatabaseExecutor db) async {
+  final seq = await db.insert(changeLogTable, {
+    'table_name': '',
+    'row_key': '',
+    'op': _quietOp,
+    'at': '',
+  });
+  await db.delete(changeLogTable, where: 'seq = ?', whereArgs: [seq]);
+}
+
 /// How far the log has got. Comparing this against the number stored for a
 /// destination is the whole "only if something changed" gate — no diffing,
 /// no timestamps to trust.

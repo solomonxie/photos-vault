@@ -80,6 +80,21 @@ AppSnapshot _snapshot(String localId, DateTime at) => AppSnapshot(
   people: const [],
 );
 
+/// [n] photos, as a library of that size would export.
+AppSnapshot _library(String tag, int n, DateTime at) => AppSnapshot(
+  version: AppSnapshot.currentVersion,
+  exportedAt: at,
+  assets: [
+    for (var i = 0; i < n; i++)
+      {'localId': 'photo:$tag$i', 'contentHash': '$tag$i', 'platform': 'ios'},
+  ],
+  albums: const [],
+  people: const [],
+);
+
+const _main = 'aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa';
+const _se = 'bbbbbbbb-bbbb-4bbb-8bbb-bbbbbbbbbbbb';
+
 void main() {
   late FakeAssetRecordStore records;
   late AppSnapshotIo io;
@@ -190,5 +205,88 @@ void main() {
 
     expect(await paged.restoreIfFreshInstall(), 1);
     expect(await restoredIds(), {'photo:9'});
+  });
+
+  group('per device', () {
+    test(
+      'the rich phone\'s copy beats a newer thin one from another',
+      () async {
+        inBucket(
+          '$_main/20261025.zip',
+          _library('m', 20, DateTime(2026, 10, 25)),
+        );
+        inBucket('$_se/20261104.zip', _library('s', 3, DateTime(2026, 11, 4)));
+
+        expect(await bucketBackup.restoreIfFreshInstall(), 20);
+        expect(await restoredIds(), contains('photo:m0'));
+        expect(await restoredIds(), isNot(contains('photo:s0')));
+      },
+    );
+
+    test('one phone\'s copies: the newest, even if smaller', () async {
+      inBucket(
+        '$_main/20261020.zip',
+        _library('old', 20, DateTime(2026, 10, 20)),
+      );
+      inBucket(
+        '$_main/20261025.zip',
+        _library('new', 10, DateTime(2026, 10, 25)),
+      );
+
+      expect(await bucketBackup.restoreIfFreshInstall(), 10);
+      expect(await restoredIds(), contains('photo:new0'));
+    });
+
+    test(
+      'old shared keys still restore, and a thin newer one there loses',
+      () async {
+        inBucket('20261025.zip', _library('m', 20, DateTime(2026, 10, 25)));
+        inBucket('20261102.zip', _library('e', 0, DateTime(2026, 11, 2)));
+        inBucket('20261104.zip', _library('s', 3, DateTime(2026, 11, 4)));
+
+        expect(await bucketBackup.restoreIfFreshInstall(), 20);
+        expect(await restoredIds(), contains('photo:m0'));
+      },
+    );
+
+    test('a device folder and the old layout weighed together', () async {
+      inBucket('20261025.zip', _library('legacy', 20, DateTime(2026, 10, 25)));
+      inBucket('$_main/20261106.zip', _library('m', 19, DateTime(2026, 11, 6)));
+
+      expect(await bucketBackup.restoreIfFreshInstall(), 19);
+      expect(
+        await restoredIds(),
+        contains('photo:m0'),
+        reason: 'about the same library: the newer copy',
+      );
+    });
+
+    test('iCloud: per-device names, the rich one wins', () async {
+      inICloud(
+        deviceDailyArchiveName(DateTime(2026, 10, 25), _main),
+        _library('m', 20, DateTime(2026, 10, 25)),
+      );
+      inICloud(
+        deviceDailyArchiveName(DateTime(2026, 11, 4), _se),
+        _library('s', 3, DateTime(2026, 11, 4)),
+      );
+
+      expect(
+        await restoreNewestOnFreshInstall(icloud: icloud, bucket: bucketBackup),
+        20,
+      );
+      expect(await restoredIds(), contains('photo:m0'));
+    });
+
+    test(
+      'across destinations: rich iCloud beats a thin newer bucket copy',
+      () async {
+        inICloud('20261025.zip', _library('m', 20, DateTime(2026, 10, 25)));
+        inBucket('$_se/20261104.zip', _library('s', 3, DateTime(2026, 11, 4)));
+
+        await restoreNewestOnFreshInstall(icloud: icloud, bucket: bucketBackup);
+        expect(await restoredIds(), contains('photo:m0'));
+      },
+    );
   });
 }

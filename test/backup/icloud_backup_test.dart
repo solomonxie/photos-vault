@@ -1,6 +1,7 @@
 import 'dart:io';
 
 import 'package:photos_vault/backup/app_snapshot.dart';
+import 'package:photos_vault/backup/backup_device.dart';
 import 'package:photos_vault/backup/icloud_backup.dart';
 import 'package:photos_vault/backup/icloud_drive.dart';
 import 'package:photos_vault/backup/snapshot_archive.dart';
@@ -118,6 +119,9 @@ _stores() {
   );
 }
 
+const _me = '11111111-1111-4111-8111-111111111111';
+const _other = '22222222-2222-4222-8222-222222222222';
+
 void main() {
   setUpAll(sqfliteFfiInit);
 
@@ -151,7 +155,7 @@ void main() {
     expect(drive.archives.keys.where(isSnapshotArchiveName), hasLength(1));
     expect(
       drive.archives.keys.where(isSnapshotArchiveName).single,
-      dailyArchiveName(DateTime.now()),
+      deviceDailyArchiveName(DateTime.now(), await backup.device.id()),
     );
     // And the readable index landed beside it, loose, for the recovery that
     // starts in a Files window rather than in this app.
@@ -165,14 +169,17 @@ void main() {
       contentHash: 'PH1',
       platform: 'ios',
     );
+    await source.assets.setAppState(BackupDevice.key, _me);
     final drive = _FakeDrive();
-    // Ten already up there, plus a file that isn't ours.
+    // Ten already up there, plus a file that isn't ours, another phone's
+    // and an old shared one.
     for (var day = 1; day <= 10; day++) {
-      drive.archives['202609${day.toString().padLeft(2, '0')}.zip'] = Uint8List(
-        0,
-      );
+      drive.archives['202609${day.toString().padLeft(2, '0')}-$_me.zip'] =
+          Uint8List(0);
     }
     drive.archives['holiday.zip'] = Uint8List(0);
+    drive.archives['20260801-$_other.zip'] = Uint8List(0);
+    drive.archives['20260801.zip'] = Uint8List(0);
 
     await ICloudBackup(
       snapshots: source.io,
@@ -180,12 +187,22 @@ void main() {
       drive: drive,
     ).backUpNow();
 
-    // Eleven of ours were written, so the oldest goes and ten are left —
-    // and the user's own file stays, because the folder is theirs.
-    expect(drive.archives.keys.where(isSnapshotArchiveName), hasLength(10));
-    expect(drive.archives.keys, isNot(contains('20260901.zip')));
+    // Eleven of this phone's were written, so the oldest goes and ten are
+    // left — and the user's own file stays, because the folder is theirs.
+    expect(
+      drive.archives.keys.where((n) => deviceOfArchive(n) == _me),
+      hasLength(10),
+    );
+    expect(drive.archives.keys, isNot(contains('20260901-$_me.zip')));
     expect(drive.archives.keys, contains('holiday.zip'));
-    expect(drive.archives.keys, contains(dailyArchiveName(DateTime.now())));
+    expect(
+      drive.archives.keys,
+      containsAll(['20260801-$_other.zip', '20260801.zip']),
+    );
+    expect(
+      drive.archives.keys,
+      contains(deviceDailyArchiveName(DateTime.now(), _me)),
+    );
   });
 
   test('a final copy is never pruned away', () async {
@@ -195,11 +212,11 @@ void main() {
       contentHash: 'PH1',
       platform: 'ios',
     );
+    await source.assets.setAppState(BackupDevice.key, _me);
     final drive = _FakeDrive();
     for (var day = 1; day <= 10; day++) {
-      drive.archives['202609${day.toString().padLeft(2, '0')}.zip'] = Uint8List(
-        0,
-      );
+      drive.archives['202609${day.toString().padLeft(2, '0')}-$_me.zip'] =
+          Uint8List(0);
     }
     drive.archives['20260105-090000-pre-deletion-photos-vault.zip'] = Uint8List(
       0,
@@ -224,7 +241,7 @@ void main() {
         '99999999-before-removal-20260101-000000.zip',
       ]),
     );
-    expect(drive.archives.keys, isNot(contains('20260901.zip')));
+    expect(drive.archives.keys, isNot(contains('20260901-$_me.zip')));
   });
 
   test('final copies are kept, but not without limit', () async {
@@ -456,10 +473,23 @@ void main() {
       // Same month, same file: a backup twice in September is one
       // September.
       expect(drive.archives.keys.where(isSnapshotArchiveName).toList(), [
-        dailyArchiveName(DateTime.now()),
+        deviceDailyArchiveName(DateTime.now(), await backup.device.id()),
       ]);
     },
   );
+
+  test('an empty library writes nothing', () async {
+    final source = _stores();
+    final drive = _FakeDrive();
+    final backup = ICloudBackup(
+      snapshots: source.io,
+      settings: source.assets,
+      drive: drive,
+    );
+    expect(await backup.backUpNow(), isFalse);
+    expect(drive.archives, isEmpty);
+    expect(await backup.schedule.isDue(), isFalse, reason: 'until it changes');
+  });
 
   group('the snapshot', () {
     test('survives a round trip through text', () async {

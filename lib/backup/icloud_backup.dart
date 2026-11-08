@@ -3,6 +3,7 @@ import 'dart:typed_data';
 
 import '../storage/asset_record_store.dart';
 import 'app_snapshot.dart';
+import 'backup_device.dart';
 import 'backup_schedule.dart';
 import 'data_files.dart';
 import 'icloud_drive.dart';
@@ -18,14 +19,17 @@ import 'snapshot_index.dart';
 /// written, one file read on a fresh install — and the section hint says so
 /// rather than letting the word "iCloud" imply a merge.
 ///
-/// One zip a day — `20260918.zip` — written only on a day something
+/// One zip a day per device — `20260918-<device>.zip` (see
+/// `backup_device.dart`; older builds wrote a shared `20260918.zip`, which
+/// two phones on one account overwrote) — written only on a day something
 /// actually changed, and never more than once. A single rolling file was
 /// tried first and is the wrong shape for the job: the copy is there for
 /// the day something goes wrong, and "something went wrong" is usually
 /// noticed later, by which time one rolling file has already been
 /// overwritten with the damage.
 ///
-/// The folder keeps the **latest [keepCopies]** and prunes the rest. A
+/// The folder keeps each device's **latest [keepCopies]** and prunes the
+/// rest of that device's. A
 /// count rather than an age, because here the user pays for the storage
 /// and a count is what bounds the bill — the opposite of `LocalVault`,
 /// where age is what keeps the promise legible. Depth beyond ten days is
@@ -39,10 +43,17 @@ class ICloudBackup {
     required this.snapshots,
     required this.settings,
     ICloudDrive? drive,
-  }) : drive = drive ?? ICloudDrive();
+    BackupDevice? backupDevice,
+  }) : drive = drive ?? ICloudDrive(),
+       _device = backupDevice;
 
   final AppSnapshotIo snapshots;
   final ICloudDrive drive;
+
+  /// Whose daily a file is: one iCloud account is often two phones.
+  late final BackupDevice device =
+      _device ?? BackupDevice(snapshots: snapshots, settings: settings);
+  final BackupDevice? _device;
 
   /// Where the toggle and the "already restored once" mark live — the
   /// database, not the keychain. A keychain flag outlives the app on iOS,
@@ -120,28 +131,40 @@ class ICloudBackup {
 
   Future<bool> _write(SnapshotPayload built) async {
     if (!built.complete) return false;
+    if (built.empty) {
+      await schedule.recordNothingToSend();
+      return false;
+    }
     if (!await _sendBlobs(built.files)) return false;
-    final wrote = await drive.writeBytes(
-      dailyArchiveName(DateTime.now()),
-      built.zip,
-    );
+    final id = await device.id();
+    final todays = deviceDailyArchiveName(DateTime.now(), id);
+    final wrote = await drive.writeBytes(todays, built.zip);
     if (!wrote) return false;
-    // Loose beside the zips, overwritten each time: this folder is visible
-    // in Files, and the recovery this is for starts with somebody opening
-    // it and needing to see their library rather than a list of archives.
-    // Never pruned — `isSnapshotArchiveName` only matches `.zip` names.
-    await drive.writeBytes(
-      indexEntryName,
-      Uint8List.fromList(utf8.encode(built.csv)),
-    );
+    await _writeIndex(id, built.csv);
     await schedule.recordSuccess();
-    await _pruneOldCopies();
+    await _pruneOldCopies(id);
     try {
-      await _dropUnusedBlobs(built.files, dailyArchiveName(DateTime.now()));
+      await _dropUnusedBlobs(built.files, todays);
     } catch (_) {
       // Housekeeping; tomorrow's run looks again.
     }
     return true;
+  }
+
+  /// Loose beside the zips, overwritten each time: this folder is visible
+  /// in Files, and the recovery this is for starts with somebody opening
+  /// it and needing to see their library rather than a list of archives.
+  /// Never pruned — `isSnapshotArchiveName` only matches `.zip` names.
+  ///
+  /// `index-<device>.csv` always; the shared `index.csv` only when this one
+  /// isn't much thinner than it (see [indexOutweighs]).
+  Future<void> _writeIndex(String id, String csv) async {
+    final bytes = Uint8List.fromList(utf8.encode(csv));
+    await drive.writeBytes('index-$id.csv', bytes);
+    final existing = await drive.readBytes(indexEntryName);
+    if (indexOutweighs(existing?.length, bytes.length)) {
+      await drive.writeBytes(indexEntryName, bytes);
+    }
   }
 
   /// Deletes blobs no kept archive names — the folder is the user's paid
@@ -176,6 +199,7 @@ class ICloudBackup {
     if (await drive.status() != ICloudState.available) return false;
     final built = await SnapshotPayload.build(snapshots);
     try {
+      if (built.empty) return false;
       // Still written if the blobs can't be: a wipe takes the rows first.
       await _sendBlobs(built.files);
       return await drive.writeBytes(
@@ -209,11 +233,12 @@ class ICloudBackup {
   /// Drive for every wipe they ever perform, forever.
   ///
   /// Only names this app would have written are touched either way: the
-  /// folder is the user's, and anything else in it is theirs.
-  Future<void> _pruneOldCopies() async {
+  /// folder is the user's, and anything else in it is theirs. Dailies only
+  /// of this device: another phone's and the old shared ones are left.
+  Future<void> _pruneOldCopies(String id) async {
     final mine = (await drive.list()).where(isSnapshotArchiveName).toList();
 
-    final dated = mine.where((name) => !isPreDeletionArchiveName(name)).toList()
+    final dated = mine.where((name) => deviceOfArchive(name) == id).toList()
       ..sort();
     if (dated.length > keepCopies) {
       for (final name in dated.take(dated.length - keepCopies)) {
@@ -275,27 +300,20 @@ class ICloudBackup {
   Future<void> markRestored() =>
       settings.setAppState(restoredKey, DateTime.now().toIso8601String());
 
-  /// The archive worth restoring from, of any naming generation, or — for
-  /// a backup taken before this app wrote zips at all — the single
-  /// `library.json` it used to write.
-  ///
-  /// Chosen here rather than by the folder handing back whatever sorts
-  /// last: a pre-deletion copy outranks a newer daily one. See
-  /// [latestArchiveName].
+  /// The copy worth restoring from — each device's dailies and the old
+  /// shared ones weighed against each other (see
+  /// [bestArchiveAcrossDevices]) — or, for a backup taken before this app
+  /// wrote zips at all, the single `library.json` it used to write.
   Future<RestoreCandidate?> _latestSnapshot() async {
-    final name = latestArchiveName(await drive.list());
-    if (name != null) {
-      final bytes = await drive.readBytes(name);
-      if (bytes != null) {
-        final snapshot = await unzipSnapshotAside(bytes);
-        if (snapshot != null) {
-          return RestoreCandidate(
-            snapshot,
-            preDeletion: isPreDeletionArchiveName(name),
-          );
-        }
-      }
+    final byDevice = <String?, List<String>>{};
+    for (final name in (await drive.list()).where(isSnapshotArchiveName)) {
+      (byDevice[deviceOfArchive(name)] ??= []).add(name);
     }
+    final best = await bestArchiveAcrossDevices(byDevice, (_, name) async {
+      final bytes = await drive.readBytes(name);
+      return bytes == null ? null : unzipSnapshotAside(bytes);
+    });
+    if (best != null) return best;
     // A folder this build can't make sense of — an archive named by a
     // later build, or a listing that didn't come back.
     final bytes = await drive.readLatestBytes();

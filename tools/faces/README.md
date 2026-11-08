@@ -23,7 +23,7 @@ $py tools/faces/run.py cluster
 $py tools/faces/run.py review                            # http://127.0.0.1:8765
 $py tools/faces/run.py export --out faces.json --prev <last imported faces.json>
 ```
-- `analyse`: stills in the newest app-data snapshot, archived (zip-imported)
+- `analyse`: stills in the fullest recent app-data snapshot (per-device copies weighed, see `library.py`), archived (zip-imported)
   included; hidden, binned and videos left out. 16 originals on disk at most,
   each deleted once read. `--refresh` re-reads the snapshot.
 - `phone`: faces named on the phone become labels (matched by box), so

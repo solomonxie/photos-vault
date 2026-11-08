@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:photo_manager/photo_manager.dart';
 import 'package:photos_vault/backup/app_snapshot.dart';
+import 'package:photos_vault/photos/photo_library_change.dart';
 import 'package:photos_vault/photos/photo_library_service.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
@@ -132,6 +133,83 @@ void main() {
       personStore: fresh,
     ).import(snapshot);
     expect((await fresh.getById(mia.id))!.ignored, isTrue);
+  });
+
+  test("whose a photo is: backed up, restored, and moves the mark", () async {
+    final old = phone();
+    await old.records.upsert(
+      localId: 'photo:X',
+      contentHash: 'X',
+      platform: 'ios',
+      libraryId: 'X',
+      createdAt: _entity('X').createDateTime,
+    );
+    final mark = await old.records.changeMark();
+    await old.records.setOwner(['photo:X'], 'mia');
+    expect(await old.records.changeMark(), greaterThan(mark));
+    final snapshot = AppSnapshot.decode((await old.io.export()).encode())!;
+
+    final b = phone();
+    expect(await b.io.isFreshInstall(), isTrue);
+    await b.io.import(snapshot);
+    final r = (await b.records.getByLocalId('photo:X'))!;
+    expect(r.ownerId, 'mia');
+    expect(r.inLibraryViews, isFalse);
+  });
+
+  group('a date set in the app', () {
+    final chosen = DateTime(1999, 5, 1, 12);
+
+    Future<AppSnapshot> dated() async {
+      final old = phone();
+      await old.records.upsert(
+        localId: 'photo:X',
+        contentHash: 'X',
+        platform: 'ios',
+        libraryId: 'X',
+        createdAt: _entity('X').createDateTime,
+      );
+      final mark = await old.records.changeMark();
+      await old.records.setCreatedAtMany({'photo:X': chosen});
+      expect(
+        await old.records.changeMark(),
+        greaterThan(mark),
+        reason: 'the daily gate sees it',
+      );
+      // Through JSON, as the snapshot file is.
+      return AppSnapshot.decode((await old.io.export()).encode())!;
+    }
+
+    Future<void> expectKept(AssetRecordStore records) async {
+      final r = (await records.getByLocalId('photo:X'))!;
+      expect(r.createdAt, chosen);
+      expect(r.dateSetAt, isNotNull);
+      // Photos still has its own date; its next edit notice changes nothing.
+      await scanner(records, [
+        _entity('X'),
+      ]).applyChange(const PhotoLibraryChange(updated: {'X'}));
+      expect((await records.getByLocalId('photo:X'))!.createdAt, chosen);
+    }
+
+    test('a fresh-install restore keeps it and its mark', () async {
+      final snapshot = await dated();
+      final b = phone();
+      expect(await b.io.isFreshInstall(), isTrue);
+      await b.io.import(snapshot);
+      await expectKept(b.records);
+    });
+
+    test('a scan ahead of the restore gives way to it', () async {
+      final snapshot = await dated();
+      final b = phone();
+      await scanner(b.records, [_entity('X')]).syncAll();
+      expect(
+        (await b.records.getByLocalId('photo:X'))!.createdAt,
+        _entity('X').createDateTime,
+      );
+      await b.io.import(snapshot);
+      await expectKept(b.records);
+    });
   });
 
   test('same phone: a scan ahead of the restore is merged with', () async {

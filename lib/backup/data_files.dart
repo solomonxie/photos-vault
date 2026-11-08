@@ -7,6 +7,7 @@ import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 
 import '../photos/ai_analysis_store.dart';
+import 'database_copy.dart' show lastCopyError;
 import '../photos/conversation_store.dart';
 import '../photos/chat_voice.dart';
 import '../photos/travel_store.dart';
@@ -179,7 +180,9 @@ class DataFiles {
       Future<bool> Function(String dest) copy,
     ) async {
       final raw = p.join(staging.path, name);
-      if (!await copy(raw)) throw StateError('could not copy $name');
+      if (!await copy(raw)) {
+        throw StateError('could not copy $name: $lastCopyError');
+      }
       final gz = '$raw.gz';
       final (sha, size) = await Isolate.run(() => _gzipAndHash(raw, gz));
       await File(raw).delete();

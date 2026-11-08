@@ -56,9 +56,27 @@ class PauseBackup {
   final BackgroundTime time;
 
   Future<void>? _running;
+  DateTime? _startedAt;
 
-  Future<void> run() =>
-      _running ??= time.during(_run).whenComplete(() => _running = null);
+  /// A run iOS froze mid-request may never finish; one this old no longer
+  /// holds every later pause back.
+  static const stuckAfter = Duration(minutes: 10);
+
+  Future<void> run() {
+    final started = _startedAt;
+    if (_running != null &&
+        started != null &&
+        DateTime.now().difference(started) > stuckAfter) {
+      _running = null;
+    }
+    if (_running != null) return _running!;
+    _startedAt = DateTime.now();
+    late final Future<void> mine;
+    mine = time.during(_run).whenComplete(() {
+      if (identical(_running, mine)) _running = null;
+    });
+    return _running = mine;
+  }
 
   Future<void> _run() async {
     final vaultDue = await _ask(vault.schedule.isDue);
@@ -107,8 +125,10 @@ class PauseBackup {
   }
 }
 
-/// Of every destination, the copy a fresh install restores: a pre-deletion
-/// copy first, then the newest `exportedAt` — not whichever was asked first.
+/// Of every destination, the copy a fresh install restores — by
+/// [RestoreCandidate.beats]: a clearly richer device's copy over a thin
+/// one, then a pre-deletion copy, then the newest `exportedAt`; not
+/// whichever was asked first.
 /// Both are marked restored, so neither layers its copy on later. Returns
 /// how many photos' records came back.
 ///

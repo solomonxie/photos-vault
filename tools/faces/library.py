@@ -1,9 +1,10 @@
-"""The user's library as the app sees it: the newest app-data snapshot in the
-bucket. Read-only on the bucket."""
+"""The user's library as the app sees it: the fullest recent app-data
+snapshot in the bucket. Read-only on the bucket."""
 
 import io
 import json
 import os
+import re
 import zipfile
 
 import boto3
@@ -35,21 +36,60 @@ def client():
     return s3, e["BUCKET"], e["PREFIX"]
 
 
+DEVICE = re.compile(r"^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$")
+LEGACY_LOOKBACK = 15
+
+
+def candidates(keys, base):
+    """Each device folder's newest daily (`app-data/<device>/YYYYMMDD.zip`),
+    plus the newest few of the old shared layout (`app-data/YYYYMMDD.zip`),
+    which any device may have overwritten."""
+    by_device = {}
+    for k in keys:
+        rel = k[len(base):].split("/")
+        name = rel[-1]
+        if not (name.endswith(".zip") and name[:8].isdigit() and name[:2] == "20"):
+            continue
+        if len(rel) == 1:
+            by_device.setdefault(None, []).append(k)
+        elif len(rel) == 2 and DEVICE.match(rel[0]):
+            by_device.setdefault(rel[0], []).append(k)
+    out = []
+    for device, ks in by_device.items():
+        ks.sort(key=lambda k: os.path.basename(k))
+        out += ks[-LEGACY_LOOKBACK:] if device is None else ks[-1:]
+    return out
+
+
 def snapshot(refresh=False):
+    """The newest candidate not clearly thinner (a quarter fewer photos,
+    albums and people) than the fullest, as the app's restore picks. A
+    cloud-only phone's thin copy must not stand in for the library."""
     path = os.path.join(WORK, "library.json")
     if refresh or not os.path.exists(path):
         s3, bucket, prefix = client()
+        base = f"{prefix}/app-data/"
         keys = []
         for page in s3.get_paginator("list_objects_v2").paginate(
-            Bucket=bucket, Prefix=f"{prefix}/app-data/"
+            Bucket=bucket, Prefix=base
         ):
-            keys += [o["Key"] for o in page.get("Contents", [])]
-        dated = sorted(k for k in keys if os.path.basename(k)[:8].isdigit()
-                       and os.path.basename(k)[:2] == "20" and k.endswith(".zip"))
-        body = s3.get_object(Bucket=bucket, Key=dated[-1])["Body"].read()
-        with zipfile.ZipFile(io.BytesIO(body)) as z, open(path, "wb") as f:
-            f.write(z.read("library.json"))
-        print("snapshot", dated[-1])
+            keys += [o["Key"] for o in page.get("Contents", [])
+                     if "/blobs/" not in o["Key"]]
+        found = []
+        for key in candidates(keys, base):
+            body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+            with zipfile.ZipFile(io.BytesIO(body)) as z:
+                raw = z.read("library.json")
+            lib = json.loads(raw)
+            rows = (len(lib.get("assets", [])) + len(lib.get("albums", []))
+                    + len(lib.get("people", [])))
+            found.append((rows, os.path.basename(key)[:8], key, raw))
+        most = max(f[0] for f in found)
+        rows, _, key, raw = max((f for f in found if f[0] * 5 >= most * 4),
+                                key=lambda f: (f[1], f[0]))
+        with open(path, "wb") as f:
+            f.write(raw)
+        print("snapshot", key, rows, "rows")
     with open(path) as f:
         return json.load(f)
 

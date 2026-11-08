@@ -92,4 +92,37 @@ void main() {
     expect(await icloud.isDue(), isFalse);
     expect(await bucket.isDue(), isTrue);
   });
+
+  group('stale', () {
+    test('over three days behind with changes since', () async {
+      final schedule = newSchedule();
+      await schedule.recordSuccess();
+      assets.mark = 7;
+      today = DateTime(2026, 9, 21, 20);
+      expect(await schedule.isStale(), isFalse, reason: 'under three days');
+      today = DateTime(2026, 9, 22, 9);
+      expect(await schedule.isStale(), isTrue);
+    });
+
+    test('idle is not stale: nothing changed since the last copy', () async {
+      final schedule = newSchedule();
+      await schedule.recordSuccess();
+      today = DateTime(2026, 10, 18);
+      expect(await schedule.isStale(), isFalse);
+    });
+
+    test('a partial copy moves the time but leaves the day owed', () async {
+      final schedule = newSchedule();
+      assets.mark = 3;
+      await schedule.recordSuccess(complete: false);
+      expect(await schedule.lastRunAt(), today);
+      today = DateTime(2026, 9, 19, 9);
+      expect(await schedule.isDue(), isTrue);
+    });
+
+    test('never run is not stale', () async {
+      today = DateTime(2026, 12, 1);
+      expect(await newSchedule().isStale(), isFalse);
+    });
+  });
 }

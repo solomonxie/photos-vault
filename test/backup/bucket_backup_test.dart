@@ -6,6 +6,7 @@ import 'package:photos_vault/backup/snapshot_archive.dart';
 import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:photos_vault/settings/s3_listing.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
+import 'package:photos_vault/upload/bucket_ops.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:http/http.dart' as http;
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
@@ -57,6 +58,19 @@ class _FakeBucket {
   );
 
   static String _name(Uri url) => '${url.host.split('.').first}${url.path}';
+}
+
+class _Ops extends BucketOps {
+  _Ops(this.bucket);
+  final _FakeBucket bucket;
+
+  @override
+  Future<ObjectHead> head(S3BackupTarget target, String key) async {
+    final body = bucket.objects['${target.bucket}/$key'];
+    return body == null
+        ? ObjectHead.absent
+        : ObjectHead(Probe.present, size: body.length);
+  }
 }
 
 ({
@@ -111,6 +125,7 @@ void main() {
     put: bucket.put,
     get: bucket.get,
     list: bucket.list,
+    ops: _Ops(bucket),
   );
 
   test('the switch writes the snapshot under the bucket prefix', () async {
@@ -142,7 +157,10 @@ void main() {
     // Flipping it on wrote at once, in its own folder beside the photos,
     // as this month's archive.
     final name = dailyArchiveName(DateTime.now());
-    final key = 'my-bucket/photos/app-data/$name';
+    final device = await backup.device.id();
+    final key = 'my-bucket/photos/app-data/$device/$name';
+    // Its own folder: another phone on this bucket never writes over it.
+    expect(isDeviceId(device), isTrue);
     expect(bucket.objects.keys, contains(key));
     expect(unzipSnapshot(bucket.objects[key]!)!.encode(), contains('temple'));
     // Plus the readable index, loose in the same folder: the bucket console
@@ -151,6 +169,10 @@ void main() {
     expect(bucket.objects.keys, contains(indexKey));
     expect(utf8.decode(bucket.objects[indexKey]!), contains('taken_at'));
     expect(utf8.decode(bucket.objects[indexKey]!), contains('temple'));
+    expect(
+      bucket.objects.keys,
+      contains('my-bucket/photos/app-data/$device/index.csv'),
+    );
     expect(await backup.lastBackupAt(), isNotNull);
   });
 
@@ -307,5 +329,74 @@ void main() {
 
     expect(restored, 0);
     expect(await live.assets.getByLocalId('photo:PH1'), isNull);
+  });
+
+  test(
+    'a thin device leaves the shared index alone, but writes its own',
+    () async {
+      final source = _stores();
+      await source.assets.upsert(
+        localId: 'photo:PH1',
+        contentHash: 'PH1',
+        platform: 'ios',
+      );
+      final targets = await _storeWithBucket();
+      final bucket = _FakeBucket();
+      const indexKey = 'my-bucket/photos/app-data/index.csv';
+      final full = List<int>.filled(10000, 65);
+      bucket.objects[indexKey] = full;
+      final backup = build(
+        snapshots: source.io,
+        settings: source.assets,
+        targets: targets,
+        bucket: bucket,
+      );
+
+      expect(await backup.backUpNow(), isTrue);
+      expect(bucket.objects[indexKey], same(full));
+      final device = await backup.device.id();
+      expect(
+        utf8.decode(
+          bucket.objects['my-bucket/photos/app-data/$device/index.csv']!,
+        ),
+        contains('taken_at'),
+      );
+    },
+  );
+
+  test('two devices on one bucket never overwrite each other\'s day', () async {
+    final targets = await _storeWithBucket();
+    final bucket = _FakeBucket();
+    final a = _stores();
+    await a.assets.upsert(
+      localId: 'photo:a',
+      contentHash: 'a',
+      platform: 'ios',
+    );
+    final b = _stores();
+    await b.assets.upsert(
+      localId: 'photo:b',
+      contentHash: 'b',
+      platform: 'ios',
+    );
+    final one = build(
+      snapshots: a.io,
+      settings: a.assets,
+      targets: targets,
+      bucket: bucket,
+    );
+    final two = build(
+      snapshots: b.io,
+      settings: b.assets,
+      targets: targets,
+      bucket: bucket,
+    );
+    await one.backUpNow();
+    await two.backUpNow();
+
+    final name = dailyArchiveName(DateTime.now());
+    final dailies = bucket.objects.keys.where((k) => k.endsWith(name)).toList();
+    expect(dailies, hasLength(2));
+    expect(await one.device.id(), isNot(await two.device.id()));
   });
 }
