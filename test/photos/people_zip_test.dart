@@ -72,7 +72,7 @@ void main() {
     ),
   );
 
-  test('visible photos go to Archive and the person; hidden ones to the '
+  test("visible photos are their person's, on their page; hidden ones to the "
       "person's own hidden folder, tagged to nobody", () async {
     final opened = await PeopleZip.open(zip(), root);
     final records = FakeAssetRecordStore();
@@ -92,7 +92,10 @@ void main() {
     final byName = {for (final x in await people.listAll()) x.name: x};
     final miaIds = await people.localIdsIn(byName['Mia']!.id);
     expect(miaIds, hasLength(1));
-    expect((await records.getByLocalId(miaIds.single))!.isArchived, isTrue);
+    expect(
+      (await records.getByLocalId(miaIds.single))!.ownerId,
+      byName['Mia']!.id,
+    );
     expect(await people.localIdsIn(byName['Leo']!.id), isEmpty);
     final hidden = (await records.listAll()).where((r) => r.isHidden).toList();
     expect(hidden, isEmpty, reason: 'born under a code, not the Hidden flag');
@@ -105,9 +108,9 @@ void main() {
     );
     expect(leo.include, isTrue);
     expect(
-      records.upserts.where((r) => r.passcodeHash == null).single.isArchived,
-      isTrue,
-      reason: 'archived as written, never a moment in the grid',
+      records.upserts.where((r) => r.passcodeHash == null).single.ownerId,
+      byName['Mia']!.id,
+      reason: 'hers as written, never a moment in the grid',
     );
   });
 

@@ -291,6 +291,25 @@ class FakePersonStore implements PersonStore {
       events.remove(id);
 
   @override
+  Future<void> restoreEvents(Iterable<PersonEvent> restored) async {
+    for (final e in restored) {
+      events.putIfAbsent(e.id, () => e);
+    }
+  }
+
+  @override
+  Future<void> restoreAliases(String personId, Iterable<String> ids) async {}
+
+  @override
+  Future<void> restoreChanges(
+    String personId,
+    List<PersonChange> changes,
+  ) async {}
+
+  @override
+  Future<T> withoutChangeLog<T>(Future<T> Function() body) => body();
+
+  @override
   Future<int> dropDerivedLastSeen(
     Future<bool> Function(String personId, DateTime at) derived,
   ) async {
@@ -422,6 +441,11 @@ class FakePersonStore implements PersonStore {
   };
 
   @override
+  Future<Map<String, List<String>>> aliasMap() async => {
+    for (final MapEntry(:key, :value) in _aliases.entries) key: [...value],
+  };
+
+  @override
   Future<List<String>> aliasesOf(String personId) async => [
     ...?_aliases[personId],
   ];
@@ -514,6 +538,21 @@ class FakePersonStore implements PersonStore {
 
   @override
   Future<Set<String>> photosOfDeletedPeople() async => const {};
+
+  @override
+  Future<Set<String>> taggedAmong(
+    Iterable<String> localIds, {
+    String? except,
+  }) async {
+    final tagged = {
+      for (final MapEntry(:key, :value) in _members.entries)
+        if (key != except) ...value,
+    };
+    return {
+      for (final id in localIds)
+        if (tagged.contains(id)) id,
+    };
+  }
 
   @override
   Future<Map<String, List<String>>> allMemberships() async => {
@@ -716,6 +755,14 @@ class FakePersonStore implements PersonStore {
 
   @override
   Future<void> retag(String from, String to) async {}
+
+  @override
+  Future<int> reseal(
+    String from,
+    List<AlbumKeys> fromKeys,
+    String to,
+    AlbumKeys toKeys,
+  ) async => 0;
 
   @override
   Future<bool> copyTo(

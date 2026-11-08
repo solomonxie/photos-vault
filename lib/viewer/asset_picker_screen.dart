@@ -22,7 +22,11 @@ class AssetPickerScreen extends StatefulWidget {
     required this.title,
     required this.assetRecordStore,
     this.excludeIds = const {},
+    this.mineOnly = false,
   });
+
+  /// My Library and Archive only: not photos kept on someone's page.
+  final bool mineOnly;
 
   final String title;
   final AssetRecordStore assetRecordStore;
@@ -60,7 +64,9 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
           all
               .where(
                 (r) =>
-                    r.isVisibleInLibrary &&
+                    (widget.mineOnly
+                        ? r.inLibraryViews
+                        : r.isVisibleInLibrary) &&
                     !widget.excludeIds.contains(r.localId),
               )
               .toList()

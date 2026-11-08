@@ -1,4 +1,5 @@
 import '../l10n/app_localizations.dart';
+import '../photos/person_placement.dart';
 import '../photos/asset_removal.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/person_store.dart';
@@ -25,9 +26,10 @@ typedef PersonDeletionPlan = ({
   int hiddenCount,
 });
 
-/// Deleting a person deletes their photos too: the ones no one else in
-/// People is in go to Recently Deleted, and every hidden folder of theirs
-/// goes for good. A photo that also shows someone still here stays.
+/// Deleting a person deletes their photos too: the ones they own that no
+/// one else in People is in go to Recently Deleted, and every hidden folder
+/// of theirs goes for good. One of theirs that also shows someone still
+/// here becomes the owner's; the owner's own photos they're tagged in stay.
 class PersonDeletion {
   PersonDeletion({
     required this.personStore,
@@ -57,10 +59,16 @@ class PersonDeletion {
       for (final MapEntry(key: id, value: photos) in members.entries)
         if (!ids.contains(id)) ...photos,
     };
-    final own = {for (final id in ids) ...?members[id]}.difference(others);
+    final tagged = {for (final id in ids) ...?members[id]};
     final photos = [
-      for (final r in await assetRecordStore.listOf(own))
-        if (r.passcodeHash == null && r.deletedAt == null && !r.isLocked) r,
+      for (final r in await assetRecordStore.listAll())
+        if ((ids.contains(r.ownerId) ||
+                r.peopleOnly && tagged.contains(r.localId)) &&
+            !others.contains(r.localId) &&
+            r.passcodeHash == null &&
+            r.deletedAt == null &&
+            !r.isLocked)
+          r,
     ];
     final folders = <String, Map<String, String>>{};
     var hidden = 0;
@@ -87,6 +95,15 @@ class PersonDeletion {
           .toList();
       await binNow(batch, library: _library, removal: _removal);
       at += batch.length;
+    }
+    // Theirs but showing someone still here, or in the bin: the owner's
+    // now, so nothing is left owned by nobody.
+    final placement = PersonPlacement(
+      records: assetRecordStore,
+      people: personStore,
+    );
+    for (final id in ids) {
+      await placement.reassign(id, null);
     }
     final gone = <String>{};
     for (final id in ids) {

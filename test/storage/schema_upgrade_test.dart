@@ -305,4 +305,54 @@ void main() {
     expect(a['tables'], b['tables']);
     expect(a['rest'], b['rest']);
   });
+
+  test('v33 gains date_set_at: old rows unmarked and still take Photos\' '
+      'date; a date set from then on is marked and holds', () async {
+    final path = p.join(dir.path, 'v33.db');
+    final store = AssetRecordStore(
+      databaseFactory: databaseFactoryFfi,
+      path: path,
+    );
+    await store.upsert(
+      localId: 'photo:a',
+      contentHash: 'a',
+      platform: 'ios',
+      createdAt: DateTime(2020),
+    );
+    await store.close();
+    final raw = await databaseFactoryFfi.openDatabase(path);
+    for (final row in await raw.rawQuery(
+      "SELECT name FROM sqlite_master WHERE type = 'trigger' "
+      "AND sql LIKE '%date_set_at%'",
+    )) {
+      await raw.execute('DROP TRIGGER "${row['name']}"');
+    }
+    await raw.execute('ALTER TABLE asset_record DROP COLUMN date_set_at');
+    await raw.setVersion(33);
+    await raw.close();
+
+    final upgraded = AssetRecordStore(
+      databaseFactory: databaseFactoryFfi,
+      path: path,
+    );
+    final before = (await upgraded.getByLocalId('photo:a'))!;
+    expect(before.createdAt, DateTime(2020));
+    expect(before.dateSetAt, isNull);
+    expect(await upgraded.setLibraryDate('photo:a', DateTime(2021)), isTrue);
+    expect((await upgraded.getByLocalId('photo:a'))!.createdAt, DateTime(2021));
+
+    await upgraded.setCreatedAtMany({'photo:a': DateTime(1999)});
+    expect((await upgraded.getByLocalId('photo:a'))!.dateSetAt, isNotNull);
+    expect(await upgraded.setLibraryDate('photo:a', DateTime(2021)), isFalse);
+    expect((await upgraded.getByLocalId('photo:a'))!.createdAt, DateTime(1999));
+    await upgraded.close();
+
+    final fresh = p.join(dir.path, 'fresh34.db');
+    await open(fresh);
+    final a = await _schemaOf(path);
+    final b = await _schemaOf(fresh);
+    expect(a['version'], b['version']);
+    expect(a['tables'], b['tables']);
+    expect(a['rest'], b['rest']);
+  });
 }

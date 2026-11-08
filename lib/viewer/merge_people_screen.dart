@@ -7,6 +7,7 @@ import '../photos/ai_analysis_store.dart';
 import '../photos/conversation_store.dart';
 import '../photos/merge_suggestions.dart';
 import '../photos/person.dart';
+import '../photos/person_placement.dart';
 import '../photos/person_store.dart';
 import '../photos/travel_store.dart';
 import '../photos/words_store.dart';
@@ -287,6 +288,12 @@ Future<bool> mergePeopleInto(
       break;
     }
     if (outcome != PersonMergeOutcome.merged) continue;
+    // Their photos are the kept one's now: the main library's if that's
+    // the owner.
+    await PersonPlacement(
+      records: assetRecordStore,
+      people: personStore,
+    ).reassign(person.id, keep.id);
     await aiAnalysisStore?.movePerson(person.id, keep.id);
     await moveConversations(person.id, keep.id, store: conversationStore);
     await moveWords(person.id, keep.id);

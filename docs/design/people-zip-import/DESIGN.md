@@ -107,7 +107,7 @@ Per row, how it meets a profile already here:
 - A person's folder code is `person:<id>:<digits>`; merging can't re-key it without the digits, and they're never guessed.
 - `merge` records the gone id as an alias of the kept one (`person_alias`); aliases carry through later merges.
 - Opening the kept person's folder with digits: each alias folder under the same digits moves into the kept one's (`AliasFolders.fold`, `HiddenTransition.moveRecord`). Same digits → one folder.
-- A photo that can't move (adopted by an older build, or only in a bucket) leaves its alias folder open after the kept one.
+- A photo that can't move (adopted by an older build, or only in a bucket) keeps its alias folder reachable as an "Older photos" row at the bottom of the kept one's; old copies of moved photos don't count, and back always leaves to where Hidden was opened.
 - Batch Unhide and the delete guard include aliases.
 
 ## Person change history

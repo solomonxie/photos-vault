@@ -1,5 +1,5 @@
 import { expect, test } from 'vitest';
-import { SearchIndex, buildLibrary, groupByDay, placeIds } from '../src/model';
+import { SearchIndex, buildLibrary, groupByDay, photoOf, placeIds } from '../src/model';
 import { parsePaste, originsFor } from '../src/connection';
 import { SyncState } from '../src/sync/merge';
 import type { WireOp } from '../src/sync/op';
@@ -85,4 +85,48 @@ test('host access asks for this one bucket, not the whole provider', () => {
   expect(originsFor({ provider: 'cos', bucket: 'b-1250000000', region: 'ap-hongkong' })).toEqual([
     'https://b-1250000000.cos.ap-hongkong.myqcloud.com/*',
   ]);
+});
+
+test('cloud-only: some phone reported and none holds it; never reported is not', () => {
+  const s = state([
+    { e: 'asset', id: 'OLD', o: 'add', x: { created_at: day(1) } },
+    { e: 'asset', id: 'HELD', o: 'add', x: { created_at: day(1), presence: 1 } },
+    { e: 'asset', id: 'HELD', o: 'madd', f: 'on_devices', x: 'phone1' },
+    { e: 'asset', id: 'FREED', o: 'add', x: { created_at: day(1), presence: 1 } },
+    { e: 'asset', id: 'GONE', o: 'add', x: { created_at: day(1) } },
+    { e: 'asset', id: 'GONE', o: 'madd', f: 'on_devices', x: 'phone1' },
+  ]);
+  const tags = [...s.entities.get('asset/GONE')!.sets.get('on_devices')!.get('phone1')!.a];
+  s.apply({ e: 'asset', id: 'GONE', o: 'mrem', f: 'on_devices', x: 'phone1', ts: tags, h: '1793414099000-0000', d: 'p', seq: 2, vv: {} });
+  const of = (id: string) => photoOf(s.entities.get(`asset/${id}`)!).cloudOnly;
+  expect([of('OLD'), of('HELD'), of('FREED'), of('GONE')]).toEqual([false, false, true, true]);
+});
+
+test('owner: others\' photos stay out of timeline, albums and places; show on owner\'s and tagged people\'s pages', () => {
+  const lib = buildLibrary(
+    state([
+      { e: 'asset', id: 'M', o: 'add', x: { created_at: day(1), location: 'Lisbon, Portugal' } },
+      { e: 'asset', id: 'N', o: 'add', x: { created_at: day(2), location: 'Lisbon, Portugal', owner_id: '' } },
+      { e: 'asset', id: 'X', o: 'add', x: { created_at: day(3), location: 'Lisbon, Portugal', owner_id: 'P' } },
+      { e: 'asset', id: 'Y', o: 'add', x: { created_at: day(4), owner_id: 'P', deleted_at: day(5) } },
+      { e: 'album', id: 'L', o: 'add', x: { name: 'Trip' } },
+      ...['M', 'X'].map((x) => ({ e: 'album', id: 'L', o: 'madd' as const, f: 'members', x })),
+      { e: 'person', id: 'P', o: 'add', x: { name: 'Ann' } },
+      { e: 'person', id: 'Q', o: 'add', x: { name: 'Bob' } },
+      { e: 'person', id: 'Q', o: 'madd', f: 'members', x: 'X' },
+      { e: 'person', id: 'Q', o: 'madd', f: 'members', x: 'M' },
+      { e: 'person', id: 'P', o: 'madd', f: 'members', x: 'X' },
+    ]),
+  );
+  expect(lib.photos.get('N')!.owner).toBeNull();
+  expect(lib.photos.get('X')!.owner).toBe('P');
+  expect(lib.timeline.map((p) => p.id)).toEqual(['N', 'M']);
+  expect(lib.bin.map((p) => p.id)).toEqual(['Y']);
+  expect(lib.albums[0]!.photos).toEqual(['M']);
+  expect(lib.places[0]!.photos.sort()).toEqual(['M', 'N']);
+  const page = (id: string) => lib.people.find((p) => p.id === id)!.photos;
+  expect(page('P')).toEqual(['X']);
+  expect(page('Q')).toEqual(['X', 'M']);
+  expect(lib.people.every((p) => p.photos.every((id) => lib.photos.get(id)!.binnedAt === null))).toBe(true);
+  expect(new SearchIndex(lib).all('lisbon')).toEqual(['N', 'M']);
 });

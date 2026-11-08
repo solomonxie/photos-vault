@@ -8,14 +8,15 @@ import '../photos/library_metadata.dart';
 import '../photos/person.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/face_identity.dart';
+import '../photos/person_placement.dart';
 import '../photos/person_store.dart';
-import '../photos/alias_folders.dart';
 import '../photos/asset_removal.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../vault/people_album_keys.dart';
 import 'asset_grid.dart';
 import 'asset_grid_view.dart';
+import 'back_swipe_edge.dart';
 import 'asset_picker_screen.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
@@ -68,10 +69,21 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
   /// Age, current job, city — under the name, from the open set only.
   List<String> _facts = const [];
 
+  late final _placement = PersonPlacement(
+    records: widget.assetRecordStore,
+    people: widget.personStore,
+  );
+
+  /// This page is the owner's: their photos are the main library.
+  bool _isOwner = false;
+
   @override
   void initState() {
     super.initState();
     _reload();
+    _placement.isOwner(_person.id).then((yes) {
+      if (mounted && yes) setState(() => _isOwner = true);
+    });
   }
 
   @override
@@ -170,6 +182,11 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     if (to == null || to.id == _person.id) return;
     await widget.personStore.addAssets(to.id, ids);
     await widget.personStore.removeAssets(_person.id, ids);
+    // Photos that were theirs go with them: the new person's now.
+    await _placement.giveTo(to.id, [
+      for (final r in _selectedRecords)
+        if (r.ownerId == _person.id) r.localId,
+    ]);
     try {
       await _identity.analysisStore.movePersonOn(_person.id, to.id, ids);
     } catch (_) {}
@@ -186,33 +203,39 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     await _reload();
   }
 
-  /// Into the main library: out of Archive, and no longer only theirs.
+  /// Into the main library: out of Archive, and no longer only theirs —
+  /// back in Photos too, which mirrors the main library.
   Future<void> _toLibrarySelected() async {
-    final ids = [
-      for (final r in _selectedRecords)
-        if (r.isArchived) r.localId,
-    ];
-    if (ids.isNotEmpty) await widget.assetRecordStore.setArchived(ids, false);
+    final records = _selectedRecords;
+    await _placement.toLibrary([
+      for (final r in records)
+        if (!r.isMine) r.localId,
+    ]);
+    await widget.assetRecordStore.setArchived([
+      for (final r in records)
+        if (r.isArchived && r.isMine) r.localId,
+    ], false);
     _endSelecting();
     await _reload();
   }
 
-  /// The other way: off the main library, kept on this page only.
-  Future<void> _onlyHereSelected() async {
+  /// The other way: into this person's own library — off the main one and
+  /// out of Photos.
+  Future<void> _toTheirLibrarySelected() async {
     final ids = [
       for (final r in _selectedRecords)
-        if (r.inLibraryViews) r.localId,
+        if (r.ownerId != _person.id) r.localId,
     ];
-    if (ids.isNotEmpty) {
-      await widget.assetRecordStore.setArchived(ids, true);
-      await widget.assetRecordStore.setPeopleOnly(ids, true);
-    }
+    await _placement.keepFor(_person.id, ids);
     _endSelecting();
     await _reload();
   }
 
-  /// Any picked one still in the main library: the bar offers Only Here.
-  bool get _pickedInLibrary => _selectedRecords.any((r) => r.inLibraryViews);
+  /// Any picked one still in the main library: the bar offers moving it to
+  /// their library.
+  /// Never on the owner's page, whose own library the main one is.
+  bool get _pickedInLibrary =>
+      !_isOwner && _selectedRecords.any((r) => r.ownerId != _person.id);
 
   /// For good, not to Recently Deleted: from this phone, Photos and every
   /// bucket, after one confirmation.
@@ -276,8 +299,15 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
   }
 
   Future<void> _reload() async {
-    final ids = await widget.personStore.localIdsIn(_person.id);
+    // Who they own and who they're in: two different things, one page.
+    final tagged = await widget.personStore.localIdsIn(_person.id);
     // From the library's cache: no rows, no file checks.
+    final all = await widget.assetRecordStore.listAll();
+    final ids = {
+      ...tagged,
+      for (final r in all)
+        if (r.ownerId == _person.id) r.localId,
+    };
     final members = await widget.assetRecordStore.listOf(ids);
     if (!mounted) return;
     setState(
@@ -336,21 +366,53 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
         builder: (_) => AssetPickerScreen(
           title: l10n.personPageAddPhotos,
           assetRecordStore: widget.assetRecordStore,
+          mineOnly: true,
           excludeIds: _records.map((r) => r.localId).toSet(),
         ),
       ),
     );
-    if (picked == null || picked.isEmpty) return;
-    await widget.personStore.addAssets(
-      _person.id,
-      picked.map((r) => r.localId),
-    );
+    if (picked == null || picked.isEmpty || !mounted) return;
+    final ids = [for (final r in picked) r.localId];
+    final onlyHere = _isOwner ? false : await _askOnlyHere(l10n, ids.length);
+    if (onlyHere == null) return;
+    if (onlyHere) {
+      await _placement.keepFor(_person.id, ids);
+    } else {
+      await widget.personStore.addAssets(_person.id, ids);
+    }
     // Linking a photo is also where somebody with no picture gets one, and
     // the store does that itself — read back rather than second-guess it.
     final refreshed = await widget.personStore.getById(_person.id);
     if (refreshed != null) _person = refreshed;
     await _reload();
   }
+
+  /// Moved onto this page only (true), or linked and left in the library
+  /// too (false); null, cancelled.
+  Future<bool?> _askOnlyHere(AppLocalizations l10n, int count) =>
+      showCupertinoModalPopup<bool>(
+        context: context,
+        builder: (sheet) => CupertinoActionSheet(
+          title: Text(l10n.personAddHowTitle(count)),
+          message: Text(l10n.personAddHowBody(_person.name)),
+          actions: [
+            CupertinoActionSheetAction(
+              key: const ValueKey('personAddToTheirLibrary'),
+              onPressed: () => Navigator.of(sheet).pop(true),
+              child: Text(l10n.personMoveToTheirLibrary(_person.name)),
+            ),
+            CupertinoActionSheetAction(
+              key: const ValueKey('personAddReference'),
+              onPressed: () => Navigator.of(sheet).pop(false),
+              child: Text(l10n.personAddReference),
+            ),
+          ],
+          cancelButton: CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(sheet).pop(),
+            child: Text(l10n.actionCancel),
+          ),
+        ),
+      );
 
   /// Their picture, cropped to nothing in particular: a photo picked whole
   /// carries no face box, so any one left over from a face tapped in a
@@ -412,8 +474,8 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     await _reload();
   }
 
-  void _open(AssetRecord record) {
-    Navigator.of(context).push(
+  Future<void> _open(AssetRecord record) async {
+    await Navigator.of(context).push(
       ZoomPageRoute(
         builder: (_) => DetailScreen(
           records: _records,
@@ -425,39 +487,24 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
         ),
       ),
     );
+    // A date edited in there moves the photo.
+    await _reload();
   }
 
   /// This person's own hidden folder — see [personAlbumCode]. Photos go in
   /// by hand only, never by face recognition, and they show nowhere else.
-  /// Folders of people merged into them, under the same digits, join it.
-  Future<void> _openHidden() => openPrivateAlbums(
+  Future<void> _openHidden() => openPersonHidden(
     context,
     assetRecordStore: widget.assetRecordStore,
-    codeFor: (digits) => personAlbumCode(_person.id, digits),
-    beforeOpen: (digits, keys) async {
-      unawaited(
-        keepPeopleAlbums(
-          records: widget.assetRecordStore,
-          people: widget.personStore,
-          keys: keys,
-          digits: digits,
-        ).then((_) => PrivateAlbumScreen.hiddenBackup?.run()),
-      );
-      final aliases = await widget.personStore.aliasesOf(_person.id);
-      if (aliases.isEmpty) return const [];
-      try {
-        final left = await AliasFolders(
-          store: widget.assetRecordStore,
-          vaultKeys: keys,
-        ).fold(_person.id, aliases, digits);
-        unawaited(PrivateAlbumScreen.hiddenBackup?.run());
-        return left;
-      } catch (_) {
-        // Not folded this time: each alias folder opens on its own.
-        return [for (final a in aliases) personAlbumCode(a, digits)];
-      }
-    },
+    personStore: widget.personStore,
+    personId: _person.id,
     title: AppLocalizations.of(context)!.personPageHiddenTitle(_person.name),
+    alsoOnUnlock: (digits, keys) => keepPeopleAlbums(
+      records: widget.assetRecordStore,
+      people: widget.personStore,
+      keys: keys,
+      digits: digits,
+    ).then((_) => PrivateAlbumScreen.hiddenBackup?.run()),
   );
 
   Widget _addPhotosButton(AppLocalizations l10n) => CupertinoButton(
@@ -521,9 +568,10 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                     onRemove: _removeSelected,
                     onFavorite: _favoriteSelected,
                     onToLibrary: _pickedInLibrary
-                        ? _onlyHereSelected
+                        ? _toTheirLibrarySelected
                         : _toLibrarySelected,
                     onlyHere: _pickedInLibrary,
+                    name: _person.name,
                     onMove: _moveSelected,
                     onDelete: _deleteSelected,
                   ),
@@ -660,65 +708,70 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                     ],
                   ),
                 )
-              : AssetGridView(
-                  records: _records,
+              : BackSwipeEdge<AssetRecord>(
                   onTap: _selecting ? _toggleSelected : _open,
-                  // Hold still opens the menu; sweeping is for select mode.
-                  onSelectDragUpdate: _selecting ? _onSelectDragUpdate : null,
-                  onSelectDragEnd: _selecting ? _sweep.end : null,
-                  selection: _selecting ? _picked : null,
-                  trailingSlivers: [
-                    // Clear of the selection bar.
-                    if (_selecting)
-                      const SliverToBoxAdapter(child: SizedBox(height: 120))
-                    else
-                      SliverToBoxAdapter(
-                        child: Padding(
-                          padding: const EdgeInsets.symmetric(vertical: 16),
-                          child: Center(child: _addPhotosButton(l10n)),
+                  onLongPressMove: _selecting ? _onSelectDragUpdate : null,
+                  onLongPressEnd: _selecting ? _sweep.end : null,
+                  child: AssetGridView(
+                    records: _records,
+                    onTap: _selecting ? _toggleSelected : _open,
+                    // Hold still opens the menu; sweeping is for select mode.
+                    onSelectDragUpdate: _selecting ? _onSelectDragUpdate : null,
+                    onSelectDragEnd: _selecting ? _sweep.end : null,
+                    selection: _selecting ? _picked : null,
+                    trailingSlivers: [
+                      // Clear of the selection bar.
+                      if (_selecting)
+                        const SliverToBoxAdapter(child: SizedBox(height: 120))
+                      else
+                        SliverToBoxAdapter(
+                          child: Padding(
+                            padding: const EdgeInsets.symmetric(vertical: 16),
+                            child: Center(child: _addPhotosButton(l10n)),
+                          ),
                         ),
+                    ],
+                    actionsFor: (r) => [
+                      TileAction(
+                        icon: CupertinoIcons.checkmark_circle,
+                        label: l10n.albumSelect,
+                        onPressed: () => setState(() {
+                          _selecting = true;
+                          _picked.value = {r.localId};
+                        }),
                       ),
-                  ],
-                  actionsFor: (r) => [
-                    TileAction(
-                      icon: CupertinoIcons.checkmark_circle,
-                      label: l10n.albumSelect,
-                      onPressed: () => setState(() {
-                        _selecting = true;
-                        _picked.value = {r.localId};
-                      }),
-                    ),
-                    TileAction(
-                      icon: r.isFavorite
-                          ? CupertinoIcons.heart_slash
-                          : CupertinoIcons.heart,
-                      label: r.isFavorite
-                          ? l10n.libraryUnfavorite
-                          : l10n.libraryFavorite,
-                      onPressed: () => _toggleFavorite(r),
-                    ),
-                    TileAction(
-                      icon: CupertinoIcons.person_crop_circle,
-                      label: l10n.personPageUseAsProfilePhoto,
-                      onPressed: () => _setProfilePhoto(r),
-                    ),
-                    TileAction(
-                      icon: CupertinoIcons.person_badge_minus,
-                      label: l10n.personPageRemoveFromPerson,
-                      onPressed: () => _removeFromPerson(r),
-                    ),
-                    TileAction(
-                      icon: CupertinoIcons.eye_slash,
-                      label: l10n.personPageHideUnder,
-                      onPressed: () => _hide(r),
-                    ),
-                    TileAction(
-                      icon: CupertinoIcons.delete,
-                      label: l10n.libraryDeleteTooltip,
-                      isDestructive: true,
-                      onPressed: () => _delete(r),
-                    ),
-                  ],
+                      TileAction(
+                        icon: r.isFavorite
+                            ? CupertinoIcons.heart_slash
+                            : CupertinoIcons.heart,
+                        label: r.isFavorite
+                            ? l10n.libraryUnfavorite
+                            : l10n.libraryFavorite,
+                        onPressed: () => _toggleFavorite(r),
+                      ),
+                      TileAction(
+                        icon: CupertinoIcons.person_crop_circle,
+                        label: l10n.personPageUseAsProfilePhoto,
+                        onPressed: () => _setProfilePhoto(r),
+                      ),
+                      TileAction(
+                        icon: CupertinoIcons.person_badge_minus,
+                        label: l10n.personPageRemoveFromPerson,
+                        onPressed: () => _removeFromPerson(r),
+                      ),
+                      TileAction(
+                        icon: CupertinoIcons.eye_slash,
+                        label: l10n.personPageHideUnder,
+                        onPressed: () => _hide(r),
+                      ),
+                      TileAction(
+                        icon: CupertinoIcons.delete,
+                        label: l10n.libraryDeleteTooltip,
+                        isDestructive: true,
+                        onPressed: () => _delete(r),
+                      ),
+                    ],
+                  ),
                 ),
         ),
       ],
@@ -735,8 +788,11 @@ class _PersonSelectionBar extends StatelessWidget {
     required this.onToLibrary,
     required this.onMove,
     required this.onDelete,
+    required this.name,
     this.onlyHere = false,
   });
+
+  final String name;
 
   /// [onToLibrary] takes them off the library instead.
   final bool onlyHere;
@@ -829,9 +885,9 @@ class _PersonSelectionBar extends StatelessWidget {
               onlyHere
                   ? action(
                       CupertinoIcons.person_crop_square,
-                      l10n.personOnlyHere,
+                      l10n.personMoveToTheirLibrary(name),
                       onToLibrary,
-                      const ValueKey('personOnlyHereSelected'),
+                      const ValueKey('personToTheirLibrarySelected'),
                     )
                   : action(
                       CupertinoIcons.photo_on_rectangle,

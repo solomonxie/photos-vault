@@ -90,6 +90,7 @@ class AssetRecord {
     this.isLocked = false,
     this.isArchived = false,
     this.peopleOnly = false,
+    this.ownerId,
     this.localOptimized = false,
     this.deletedAt,
     this.binnedByLibrary = false,
@@ -102,6 +103,7 @@ class AssetRecord {
     this.width,
     this.height,
     this.libraryId,
+    this.dateSetAt,
     DateTime? addedAt,
   }) : addedAt = addedAt ?? createdAt;
 
@@ -114,6 +116,10 @@ class AssetRecord {
   /// When this app first recorded the photo — not when it was taken. An
   /// old photo imported today is "Recently Added" today.
   final DateTime addedAt;
+
+  /// When the user set [createdAt] in this app (or another device did,
+  /// through sync). Set, Photos' date never replaces it.
+  final DateTime? dateSetAt;
   final AssetSourceType sourceType;
 
   /// Absolute file path, set only for [AssetSourceType.manualFile].
@@ -199,13 +205,23 @@ class AssetRecord {
   /// the Archive album.
   final bool isArchived;
 
-  /// Archived and kept for its people only: brought in with a people zip,
-  /// it shows on their pages and nowhere else — not the grid, not Archive
-  /// — until moved to the library.
+  /// Legacy, before [ownerId]: archived and kept for its people only.
+  /// Read only to convert it ([ownerId] set, or back to the owner's).
   final bool peopleOnly;
 
-  /// In the library's own lists: the grid, Archive, Recents, Places.
-  bool get inLibraryViews => isVisibleInLibrary && !(isArchived && peopleOnly);
+  /// Whose photo it is: a person's id, or null for the owner's own. One
+  /// owner however many faces are in it — who is *in* a photo is the
+  /// person tags, a separate thing. Only the owner's photos are in the
+  /// main library, its albums and Photos; anyone else's show on their
+  /// page only.
+  final String? ownerId;
+
+  /// The owner's own photo.
+  bool get isMine => ownerId == null && !(isArchived && peopleOnly);
+
+  /// In the library's own lists: the grid, Archive, Recents, Places,
+  /// albums.
+  bool get inLibraryViews => isVisibleInLibrary && isMine;
 
   /// The copy on this device is a shrunken or re-encoded one — Optimize
   /// Storage rewrote it in place and the bucket kept the original. Matters
@@ -298,6 +314,7 @@ class AssetRecord {
     bool? isLocked,
     bool? isArchived,
     bool? peopleOnly,
+    String? Function()? ownerId,
     bool? localOptimized,
     DateTime? Function()? deletedAt,
     bool? binnedByLibrary,
@@ -306,6 +323,7 @@ class AssetRecord {
     bool? localDeleted,
     DateTime? updatedAt,
     DateTime? createdAt,
+    DateTime? dateSetAt,
     String? description,
     List<String>? tags,
     String? Function()? location,
@@ -322,6 +340,7 @@ class AssetRecord {
     createdAt: createdAt ?? this.createdAt,
     updatedAt: updatedAt ?? DateTime.now(),
     addedAt: addedAt,
+    dateSetAt: dateSetAt ?? this.dateSetAt,
     sourceType: sourceType,
     sourcePath: sourcePath ?? this.sourcePath,
     thumbnailPath: thumbnailPath != null ? thumbnailPath() : this.thumbnailPath,
@@ -336,6 +355,7 @@ class AssetRecord {
     isLocked: isLocked ?? this.isLocked,
     isArchived: isArchived ?? this.isArchived,
     peopleOnly: peopleOnly ?? this.peopleOnly,
+    ownerId: ownerId != null ? ownerId() : this.ownerId,
     localOptimized: localOptimized ?? this.localOptimized,
     deletedAt: deletedAt != null ? deletedAt() : this.deletedAt,
     binnedByLibrary: binnedByLibrary ?? this.binnedByLibrary,
@@ -365,6 +385,11 @@ class AssetRecord {
 
   AssetRecord withPeopleOnly(bool value) => _copyWith(peopleOnly: value);
 
+  /// Given to [owner] (null: the owner's own). Archive is the owner's
+  /// alone, so either way it starts out of it.
+  AssetRecord withOwner(String? owner) =>
+      _copyWith(ownerId: () => owner, isArchived: false, peopleOnly: false);
+
   AssetRecord withArchived(bool value) =>
       _copyWith(isArchived: value, peopleOnly: value ? peopleOnly : false);
 
@@ -378,6 +403,9 @@ class AssetRecord {
       );
 
   AssetRecord withCreatedAt(DateTime value) => _copyWith(createdAt: value);
+
+  AssetRecord withDateSet(DateTime value, DateTime at) =>
+      _copyWith(createdAt: value, dateSetAt: at);
 
   AssetRecord withDescription(String value) => _copyWith(description: value);
 

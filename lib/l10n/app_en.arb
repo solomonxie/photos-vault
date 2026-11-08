@@ -462,6 +462,14 @@
     }
   },
   "settingsBucketDataNoBucket": "Add a bucket below first",
+  "settingsBucketDataStale": "The bucket copy hasn't updated in {days} days. It keeps trying each time you leave the app.",
+  "@settingsBucketDataStale": {
+    "placeholders": {
+      "days": {
+        "type": "int"
+      }
+    }
+  },
   "settingsICloudNever": "No backup yet",
   "settingsICloudLastBackup": "Last copy {when}",
   "@settingsICloudLastBackup": {
@@ -791,6 +799,15 @@
     }
   },
   "privateAlbumMoveFromLibrary": "Add",
+  "privateAlbumOlderPhotos": "Older photos",
+  "privateAlbumOlderPhotosRow": "Older photos · {count}",
+  "@privateAlbumOlderPhotosRow": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      }
+    }
+  },
   "privateAlbumDeleteAlbum": "Delete Private Album",
   "privateAlbumDeleteConfirmTitle": "Delete this private album?",
   "privateAlbumDeleteConfirmBody": "The photos will be moved back to your library. Nothing is deleted.",
@@ -1001,8 +1018,6 @@
   "peopleSectionNamed": "PEOPLE",
   "peopleSectionGroups": "GROUPS",
   "peopleFilterAll": "All",
-  "ownerThisIsMe": "This is me",
-  "ownerThisIsMeNote": "Marks whose phone this is, so other profiles can say how they relate to you.",
   "ownerPickerMe": "Me",
   "ownerRelationFamily": "Your relative",
   "ownerRelationSpouse": "Your partner",
@@ -1736,6 +1751,26 @@
       }
     }
   },
+  "hiddenMoveToPerson": "Move to Person…",
+  "hiddenMoveToCode": "Move to Another Code…",
+  "hiddenMoveToPersonTitle": "Move to Whose Folder",
+  "hiddenMoveSamePerson": "They're already in that person's folder.",
+  "ownerPickTitle": "Who Are You?",
+  "settingsMeHeading": "You",
+  "settingsMeRow": "Me",
+  "settingsMeNotSet": "Not set",
+  "settingsMeFooter": "Whose phone this is. Profiles say how others relate to you, and Hidden opens your own folder. Changing it later leaves each folder with the person it was made for.",
+  "hiddenMovePersonDone": "{count, plural, one{Moved 1 item to {name}'s folder.} other{Moved {count} items to {name}'s folder.}}",
+  "@hiddenMovePersonDone": {
+    "placeholders": {
+      "count": {
+        "type": "int"
+      },
+      "name": {
+        "type": "String"
+      }
+    }
+  },
   "hiddenMoveTitle": "Move to Another Hidden Album",
   "hiddenMoveBody": "Enter the other album's 4-digit code.",
   "hiddenMoveAction": "Move",
@@ -1777,6 +1812,8 @@
   "suggestionsArchivedHow": "Archived photos already in your bucket. Delete this iPhone's copy to free space; they stay in Archive and open from the bucket.",
   "suggestionsArchivedAmount": "{count, plural, one{1 photo} other{{count} photos}}",
   "@suggestionsArchivedAmount": {"placeholders": {"count": {"type": "int"}}},
+  "suggestionsKeptInPhotosTitle": "Still in Photos",
+  "suggestionsKeptInPhotosHow": "On someone else's page but still in Photos, which only mirrors your library. Tap to copy them here and remove them from Photos.",
   "personPageHideUnder": "Hide Under Person",
   "personPageSelectHint": "Tap photos to select them.",
   "peopleFilterGroup": "Group",
@@ -1810,6 +1847,17 @@
   "startedSuggestApply": "Apply ({count})",
   "@startedSuggestApply": {"placeholders": {"count": {"type": "int"}}},
   "startedSuggestEmpty": "No Started dates to suggest.",
+  "familySuggestTitle": "Families by Surname",
+  "familySuggestHow": "People who share a rare surname. Common ones, like most Chinese surnames, also need a shared generation name or photos together.",
+  "familySuggestAmount": "{count, plural, one{1 family} other{{count} families}}",
+  "@familySuggestAmount": {"placeholders": {"count": {"type": "int"}}},
+  "familySuggestGroupName": "{surname} Family",
+  "@familySuggestGroupName": {"placeholders": {"surname": {"type": "String"}}},
+  "familySuggestJoins": "Join {group}",
+  "@familySuggestJoins": {"placeholders": {"group": {"type": "String"}}},
+  "familySuggestApply": "Make Families ({count})",
+  "@familySuggestApply": {"placeholders": {"count": {"type": "int"}}},
+  "familySuggestEmpty": "No families to suggest.",
   "ungroupedTitle": "People Without a Group",
   "ungroupedEmpty": "Everyone is in a group.",
   "groupPickerNewNamed": "New Group \"{name}\"",
@@ -1969,6 +2017,8 @@
   "settingsEmptyImportTrashBody": "Permanently deletes {size} of files you deleted from this app's folder in the Files app. Photos already imported are not affected.",
   "@settingsEmptyImportTrashBody": {"placeholders": {"size": {"type": "String"}}},
   "peopleGroupsRow": "Groups",
+  "peopleMyGroups": "My Groups",
+  "peopleOthersGroups": "Other People's Groups",
   "peopleNewGroup": "New Group…",
   "peopleNewGroupName": "Group name",
   "groupNameLabel": "Group name",
@@ -2359,7 +2409,15 @@
   "selectionMoveToPerson": "Move to a Person's Page…",
   "selectionMovedToPerson": "{count, plural, one{1 photo moved to {name}'s page. It's no longer in your library.} other{{count} photos moved to {name}'s page. They're no longer in your library.}}",
   "@selectionMovedToPerson": {"placeholders": {"count": {"type": "int"}, "name": {"type": "String"}}},
-  "personOnlyHere": "Only Here",
+  "personMoveToTheirLibrary": "Move to {name}'s Library",
+  "@personMoveToTheirLibrary": {"placeholders": {"name": {"type": "String"}}},
+  "selectionTaggedOwner": "{count, plural, one{1 photo linked to {name}. It stays in your library.} other{{count} photos linked to {name}. They stay in your library.}}",
+  "@selectionTaggedOwner": {"placeholders": {"count": {"type": "int"}, "name": {"type": "String"}}},
+  "personAddHowTitle": "{count, plural, one{Add 1 photo} other{Add {count} photos}}",
+  "@personAddHowTitle": {"placeholders": {"count": {"type": "int"}}},
+  "personAddHowBody": "Move them to {name}'s own library, or keep them in yours and just link them here.",
+  "@personAddHowBody": {"placeholders": {"name": {"type": "String"}}},
+  "personAddReference": "Link, Keep in My Library",
   "selectionSelectAllConfirm": "Select all {count}?",
   "@selectionSelectAllConfirm": {"placeholders": {"count": {"type": "int"}}},
   "privateAlbumBucketOnly": "{count, plural, one{Only in your bucket · 1 · tap to open} other{Only in your bucket · {count} · tap one to open}}",

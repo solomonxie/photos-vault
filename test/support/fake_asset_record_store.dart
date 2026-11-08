@@ -109,6 +109,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
     bool isHidden = false,
     bool isArchived = false,
     bool peopleOnly = false,
+    String? ownerId,
     bool keepOnLibraryConflict = false,
   }) async {
     final existing = _records[localId];
@@ -144,6 +145,7 @@ class FakeAssetRecordStore implements AssetRecordStore {
       isHidden: isHidden,
       isArchived: isArchived,
       peopleOnly: peopleOnly,
+      ownerId: ownerId,
       createdAt: now,
       updatedAt: now,
       addedAt: added,
@@ -354,6 +356,14 @@ class FakeAssetRecordStore implements AssetRecordStore {
   }
 
   @override
+  Future<void> setOwner(Iterable<String> localIds, String? owner) async {
+    for (final id in localIds) {
+      final existing = _records[id];
+      if (existing != null) _records[id] = existing.withOwner(owner);
+    }
+  }
+
+  @override
   Future<void> setArchived(Iterable<String> localIds, bool value) async {
     for (final id in localIds) {
       final existing = _records[id];
@@ -431,7 +441,33 @@ class FakeAssetRecordStore implements AssetRecordStore {
   Future<void> setCreatedAt(String localId, DateTime value) async {
     final existing = _records[localId];
     if (existing == null) return;
+    _records[localId] = existing.withDateSet(value, DateTime.now());
+  }
+
+  @override
+  Future<bool> setLibraryDate(String localId, DateTime value) async {
+    final existing = _records[localId];
+    if (existing == null || existing.dateSetAt != null) return false;
     _records[localId] = existing.withCreatedAt(value);
+    return true;
+  }
+
+  @override
+  Future<void> restoreSetDate(
+    String localId,
+    DateTime value,
+    DateTime setAt,
+  ) async {
+    final existing = _records[localId];
+    if (existing == null) return;
+    _records[localId] = existing.withDateSet(value, setAt);
+  }
+
+  @override
+  Future<void> setCreatedAtMany(Map<String, DateTime> dates) async {
+    for (final MapEntry(:key, :value) in dates.entries) {
+      await setCreatedAt(key, value);
+    }
   }
 
   @override
@@ -1027,6 +1063,9 @@ class FakeAssetRecordStore implements AssetRecordStore {
 
   @override
   Future<int> changeMark() async => mark;
+
+  @override
+  Future<void> markChanged() async => mark++;
 
   @override
   Future<Database> syncDatabase() =>

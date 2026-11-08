@@ -19,16 +19,28 @@ void main() {
     records = FakeAssetRecordStore();
     mia = (await people.create(name: 'Mia')).id;
     final bob = (await people.create(name: 'Bob')).id;
-    for (final id in ['manual:alone', 'manual:both', 'manual:hidden']) {
+    for (final id in [
+      'manual:alone',
+      'manual:both',
+      'manual:hidden',
+      'manual:linked',
+    ]) {
       await records.upsert(
         localId: id,
         contentHash: id,
         platform: 'ios',
         sourceType: AssetSourceType.manualFile,
         sourcePath: '/tmp/$id.jpg',
+        // Kept on her page; the linked one is in the main library.
+        isArchived: id != 'manual:linked',
+        peopleOnly: id != 'manual:linked',
       );
     }
-    await people.addAssets(mia, ['manual:alone', 'manual:both']);
+    await people.addAssets(mia, [
+      'manual:alone',
+      'manual:both',
+      'manual:linked',
+    ]);
     await people.addAssets(bob, ['manual:both']);
     await records.setPasscodeHash(
       'manual:hidden',
@@ -46,15 +58,13 @@ void main() {
     deleteFolder: (tag, code) async => folderGoes,
   );
 
-  test(
-    'their own photos and every hidden folder, not a shared photo',
-    () async {
-      final plan = await deletion(folderGoes: true).plan({mia});
-      expect([for (final r in plan.photos) r.localId], ['manual:alone']);
-      expect(plan.folders[mia]!.values.single, personAlbumCode(mia, '0420'));
-      expect(plan.hiddenCount, 1);
-    },
-  );
+  test('their own library and every hidden folder, not a shared or linked '
+      'photo', () async {
+    final plan = await deletion(folderGoes: true).plan({mia});
+    expect([for (final r in plan.photos) r.localId], ['manual:alone']);
+    expect(plan.folders[mia]!.values.single, personAlbumCode(mia, '0420'));
+    expect(plan.hiddenCount, 1);
+  });
 
   test(
     'a person whose folder did not go is kept; their photos still go',

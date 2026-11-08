@@ -292,6 +292,7 @@ class PersonStore {
         _eventTable,
         _groupTable,
         _knownTable,
+        _aliasTable,
       ],
       private: {
         for (final table in [_personTable, ..._sealedTables])
@@ -727,6 +728,53 @@ class PersonStore {
           [to, from],
         );
       }
+    });
+  }
+
+  /// Moves everything kept under [from] to [to] when the two are sealed
+  /// under different keys: each sealed row opened with one of [fromKeys]
+  /// and sealed again with [toKeys], in one transaction. A row none of
+  /// [fromKeys] opens, or whose key is already taken under [to], stays.
+  /// Returns how many rows moved.
+  Future<int> reseal(
+    String from,
+    List<AlbumKeys> fromKeys,
+    String to,
+    AlbumKeys toKeys,
+  ) async {
+    if (from == to || from == openNamespace || to == openNamespace) return 0;
+    final db = await _open();
+    return db.transaction((txn) async {
+      var moved = await txn.rawUpdate(
+        'UPDATE OR IGNORE $_personTable SET passcode_hash = ? '
+        'WHERE passcode_hash = ?',
+        [to, from],
+      );
+      for (final table in _sealedTables) {
+        final rows = await txn.rawQuery(
+          'SELECT rowid AS rid, payload FROM $table WHERE passcode_hash = ?',
+          [from],
+        );
+        for (final row in rows) {
+          final payload = row['payload'] as String? ?? '';
+          String? sealed;
+          if (payload.isNotEmpty) {
+            for (final keys in fromKeys) {
+              final content = _seal.openJson(payload, keys);
+              if (content == null) continue;
+              sealed = _seal.sealJson(content, toKeys);
+              break;
+            }
+            if (sealed == null) continue;
+          }
+          moved += await txn.rawUpdate(
+            'UPDATE OR IGNORE $table SET passcode_hash = ?, payload = ? '
+            'WHERE rowid = ?',
+            [to, sealed ?? payload, row['rid']],
+          );
+        }
+      }
+      return moved;
     });
   }
 
@@ -1326,15 +1374,62 @@ class PersonStore {
       whereArgs: [personId],
       orderBy: 'seq DESC',
     );
-    return [
-      for (final r in rows)
-        PersonChange(
-          at: DateTime.fromMillisecondsSinceEpoch(r['at'] as int),
-          kind: r['kind'] as String,
-          before: r['before'] as String?,
-          after: r['after'] as String?,
-        ),
-    ];
+    return [for (final r in rows) _changeFromRow(r)];
+  }
+
+  static PersonChange _changeFromRow(Map<String, Object?> r) => PersonChange(
+    at: DateTime.fromMillisecondsSinceEpoch(r['at'] as int),
+    kind: r['kind'] as String,
+    before: r['before'] as String?,
+    after: r['after'] as String?,
+  );
+
+  /// [changes] (oldest first) put back in [personId]'s log, each unless an
+  /// identical entry is already there.
+  Future<void> restoreChanges(
+    String personId,
+    List<PersonChange> changes,
+  ) async {
+    if (changes.isEmpty) return;
+    final db = await _open();
+    final batch = db.batch();
+    for (final c in changes) {
+      final row = [personId, c.at.millisecondsSinceEpoch, c.kind];
+      batch.rawInsert(
+        'INSERT INTO $_changeTable (person_id, at, kind, before, after) '
+        'SELECT ?, ?, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM $_changeTable '
+        'WHERE person_id = ? AND at = ? AND kind = ? '
+        'AND before IS ? AND after IS ?)',
+        [...row, c.before, c.after, ...row, c.before, c.after],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// [body] with the change log switched off: a restore's own writes are
+  /// not changes anybody made. A kill mid-way is undone at the next open.
+  Future<T> withoutChangeLog<T>(Future<T> Function() body) async {
+    final db = await _open();
+    await db.insert(_muteTable, {'x': 1});
+    try {
+      return await body();
+    } finally {
+      await db.delete(_muteTable);
+    }
+  }
+
+  /// Ids merged into [personId], put back. One already pointing elsewhere
+  /// keeps where it points.
+  Future<void> restoreAliases(String personId, Iterable<String> ids) async {
+    final db = await _open();
+    final batch = db.batch();
+    for (final id in ids) {
+      batch.insert(_aliasTable, {
+        'alias_id': id,
+        'person_id': personId,
+      }, conflictAlgorithm: sqflite.ConflictAlgorithm.ignore);
+    }
+    await batch.commit(noResult: true);
   }
 
   /// Names each person has gone by: renamed from, or merged in. Oldest
@@ -1367,6 +1462,20 @@ class PersonStore {
       for (final r in await db.query(_aliasTable, columns: ['alias_id']))
         r['alias_id'] as String,
     };
+  }
+
+  /// Every person's merged ids, oldest first, in one query: person → ids.
+  Future<Map<String, List<String>>> aliasMap() async {
+    final db = await _open();
+    final out = <String, List<String>>{};
+    for (final r in await db.query(
+      _aliasTable,
+      columns: ['person_id', 'alias_id'],
+      orderBy: 'rowid',
+    )) {
+      (out[r['person_id'] as String] ??= []).add(r['alias_id'] as String);
+    }
+    return out;
   }
 
   /// The ids merged into [personId], oldest first.
@@ -1721,6 +1830,27 @@ class PersonStore {
     return {for (final r in rows) ?r['local_id'] as String?};
   }
 
+  /// Which of [localIds] at least one person besides [except] is tagged in.
+  Future<Set<String>> taggedAmong(
+    Iterable<String> localIds, {
+    String? except,
+  }) async {
+    final ids = localIds.toList();
+    if (ids.isEmpty) return {};
+    final db = await _open();
+    final found = <String>{};
+    for (var i = 0; i < ids.length; i += 500) {
+      final chunk = ids.sublist(i, i + 500 > ids.length ? ids.length : i + 500);
+      final rows = await db.rawQuery(
+        'SELECT DISTINCT local_id FROM $_memberTable WHERE person_id != ? '
+        'AND local_id IN (${List.filled(chunk.length, '?').join(',')})',
+        [except ?? '', ...chunk],
+      );
+      found.addAll(rows.map((r) => r['local_id'] as String));
+    }
+    return found;
+  }
+
   Future<Map<String, List<String>>> allMemberships() async {
     final db = await _open();
     final rows = await db.query(
@@ -2067,6 +2197,26 @@ class PersonStore {
       whereArgs: openArgs,
     )) {
       of(row['person_id']).groups.add(_groupOf(row));
+    }
+    for (final row in await db.query(
+      _eventTable,
+      where: open,
+      whereArgs: openArgs,
+    )) {
+      of(row['person_id']).events.add(_eventFromRow(row));
+    }
+    for (final row in await db.query(_aliasTable, orderBy: 'rowid')) {
+      of(row['person_id']).aliases.add(row['alias_id'] as String);
+    }
+    for (final row in await db.query(
+      _memberTable,
+      columns: ['person_id', 'local_id'],
+      where: 'via_face = 1',
+    )) {
+      of(row['person_id']).viaFace.add(row['local_id'] as String);
+    }
+    for (final row in await db.query(_changeTable, orderBy: 'seq')) {
+      of(row['person_id']).changes.add(_changeFromRow(row));
     }
     for (final table in _sealedTables) {
       for (final row in await db.query(table, where: "passcode_hash != ''")) {
@@ -2471,17 +2621,39 @@ class PersonStore {
     return [
       for (final row in rows)
         if (_contentOf(row, passcodeHash, keys) case final content?)
-          PersonEvent.fromJson(
-            content['id'] as String,
-            content['person_id'] as String,
-            {
-              'type': content['type'],
-              'at': content['at'],
-              'tags': jsonDecode(content['tags'] as String? ?? '[]'),
-              'notes': content['notes'],
-            },
-          ),
+          _eventFromRow(content),
     ]..sort((a, b) => (a.at ?? DateTime(0)).compareTo(b.at ?? DateTime(0)));
+  }
+
+  static PersonEvent _eventFromRow(Map<String, Object?> content) =>
+      PersonEvent.fromJson(
+        content['id'] as String,
+        content['person_id'] as String,
+        {
+          'type': content['type'],
+          'at': content['at'],
+          'tags': jsonDecode(content['tags'] as String? ?? '[]'),
+          'notes': content['notes'],
+        },
+      );
+
+  /// Open-set events a restore brings back. One already held under its id
+  /// is kept as it is: a restore never replaces newer work.
+  Future<void> restoreEvents(Iterable<PersonEvent> events) async {
+    final db = await _open();
+    final batch = db.batch();
+    for (final event in events) {
+      batch.insert(_eventTable, {
+        'id': event.id,
+        'person_id': event.personId,
+        'passcode_hash': openNamespace,
+        'type': event.type.name,
+        'at': event.at?.millisecondsSinceEpoch,
+        'tags': jsonEncode(event.tags),
+        'notes': event.notes,
+      }, conflictAlgorithm: sqflite.ConflictAlgorithm.ignore);
+    }
+    await batch.commit(noResult: true);
   }
 
   /// Per person, from the open set in one query: the First met and Last
@@ -2635,6 +2807,12 @@ class PersonExportSet {
   final locations = <PersonLocation>[];
   final relationships = <PersonRelationship>[];
   final groups = <PersonGroup>[];
+  final events = <PersonEvent>[];
+  final aliases = <String>[];
+
+  /// Photos on them because a face was named them.
+  final viaFace = <String>{};
+  final changes = <PersonChange>[];
   final sealed = <Map<String, Object?>>[];
 }
 

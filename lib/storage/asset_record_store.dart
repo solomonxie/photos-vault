@@ -118,7 +118,7 @@ class AssetRecordStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 33,
+        version: 35,
         onCreate: (db, version) async {
           await db.execute(_createTableSql);
           await db.execute(_createLibraryIdIndexSql);
@@ -350,6 +350,21 @@ class AssetRecordStore {
             await db.execute(_createDeleteQueueTableSql);
             await _importDeleteQueues(db);
           }
+          // Null on every row: dates so far are Photos' or unknown.
+          if (oldVersion < 34 &&
+              !(await db.rawQuery('PRAGMA table_info($_table)'))
+                  .any((c) => c['name'] == 'date_set_at')) {
+            await db.execute(
+              'ALTER TABLE $_table ADD COLUMN date_set_at INTEGER',
+            );
+          }
+          // Null on every row: the owner's. Kept-for-someone rows are
+          // given theirs after launch, which needs the people database.
+          if (oldVersion < 35 &&
+              !(await db.rawQuery('PRAGMA table_info($_table)'))
+                  .any((c) => c['name'] == 'owner_id')) {
+            await db.execute('ALTER TABLE $_table ADD COLUMN owner_id TEXT');
+          }
         },
       ),
     );
@@ -368,8 +383,9 @@ class AssetRecordStore {
     // the schema the app just finished upgrading to.
     await installChangeLog(
       db,
-      const [_table],
-      private: const {_table: privateRowSql},
+      const [_table, _hiddenNoteTable],
+      // Every note is sealed and behind a code: only the mark moves.
+      private: const {_table: privateRowSql, _hiddenNoteTable: '1'},
       quiet: const {_table: _quietColumns},
       silent: const {_table: _silentColumns},
     );
@@ -779,6 +795,7 @@ class AssetRecordStore {
       is_locked INTEGER NOT NULL DEFAULT 0,
       is_archived INTEGER NOT NULL DEFAULT 0,
       people_only INTEGER NOT NULL DEFAULT 0,
+      owner_id TEXT,
       local_optimized INTEGER NOT NULL DEFAULT 0,
       deleted_at INTEGER,
       binned_by TEXT,
@@ -794,6 +811,7 @@ class AssetRecordStore {
       created_at INTEGER NOT NULL,
       updated_at INTEGER NOT NULL,
       added_at INTEGER,
+      date_set_at INTEGER,
       held_name TEXT,
       rev INTEGER NOT NULL DEFAULT 0
     )
@@ -2391,6 +2409,10 @@ class AssetRecordStore {
   /// How far this database's change log has got. See `change_log.dart`.
   Future<int> changeMark() async => changeLogMark(await _open());
 
+  /// Moves [changeMark] for a write the log doesn't see, such as a setting
+  /// the backup carries.
+  Future<void> markChanged() async => bumpChangeMark(await _open());
+
   /// For cloud sync's capture triggers (`lib/sync/capture.dart`).
   Future<Database> syncDatabase() => _open();
 
@@ -2454,6 +2476,7 @@ class AssetRecordStore {
     bool isHidden = false,
     bool isArchived = false,
     bool peopleOnly = false,
+    String? ownerId,
     bool keepOnLibraryConflict = false,
   }) async {
     final db = await _open();
@@ -2511,6 +2534,7 @@ class AssetRecordStore {
       'is_hidden': isHidden ? 1 : 0,
       'is_archived': isArchived ? 1 : 0,
       'people_only': peopleOnly ? 1 : 0,
+      'owner_id': ownerId,
       'created_at': now.millisecondsSinceEpoch,
       'updated_at': DateTime.now().millisecondsSinceEpoch,
       'added_at': added.millisecondsSinceEpoch,
@@ -2544,6 +2568,7 @@ class AssetRecordStore {
       isHidden: isHidden,
       isArchived: isArchived,
       peopleOnly: peopleOnly,
+      ownerId: ownerId,
       createdAt: now,
       updatedAt: now,
       addedAt: added,
@@ -2745,6 +2770,31 @@ class AssetRecordStore {
     });
   }
 
+  /// Gives [localIds] to [owner] (null: the owner's own), out of Archive
+  /// and off the legacy flag either way. See [AssetRecord.ownerId].
+  Future<void> setOwner(Iterable<String> localIds, String? owner) async {
+    final ids = localIds.toList();
+    if (ids.isEmpty) return;
+    final db = await _open();
+    await db.transaction((txn) async {
+      final now = DateTime.now().millisecondsSinceEpoch;
+      for (var i = 0; i < ids.length; i += 500) {
+        final chunk = ids.sublist(i, min(i + 500, ids.length));
+        await txn.update(
+          _table,
+          {
+            'owner_id': owner,
+            'is_archived': 0,
+            'people_only': 0,
+            'updated_at': now,
+          },
+          where: 'local_id IN (${List.filled(chunk.length, '?').join(',')})',
+          whereArgs: chunk,
+        );
+      }
+    });
+  }
+
   /// One statement for any number of photos: archiving a trip is one tap.
   Future<void> setArchived(Iterable<String> localIds, bool value) async {
     final ids = localIds.toList();
@@ -2782,12 +2832,60 @@ class AssetRecordStore {
     );
   }
 
-  Future<void> setCreatedAt(String localId, DateTime value) async {
+  Future<void> setCreatedAt(String localId, DateTime value) =>
+      setCreatedAtMany({localId: value});
+
+  /// A batch "Adjust Date": one transaction, not a round trip per photo.
+  /// Marks each date as set here ([AssetRecord.dateSetAt]), so Photos'
+  /// own date never comes back over it, whatever it says.
+  Future<void> setCreatedAtMany(Map<String, DateTime> dates) async {
+    if (dates.isEmpty) return;
+    final db = await _open();
+    final now = DateTime.now().millisecondsSinceEpoch;
+    final batch = db.batch();
+    for (final MapEntry(key: localId, :value) in dates.entries) {
+      batch.update(
+        _table,
+        {
+          'created_at': value.millisecondsSinceEpoch,
+          'date_set_at': now,
+          'updated_at': now,
+        },
+        where: 'local_id = ?',
+        whereArgs: [localId],
+      );
+    }
+    await batch.commit(noResult: true);
+  }
+
+  /// Photos' date for [localId], unless one was set here: false then, and
+  /// nothing written. Checked in the write, not before it.
+  Future<bool> setLibraryDate(String localId, DateTime value) async {
+    final db = await _open();
+    final n = await db.update(
+      _table,
+      {
+        'created_at': value.millisecondsSinceEpoch,
+        'updated_at': DateTime.now().millisecondsSinceEpoch,
+      },
+      where: 'local_id = ? AND date_set_at IS NULL',
+      whereArgs: [localId],
+    );
+    return n > 0;
+  }
+
+  /// A restore's user-set date: the date and its mark, as backed up.
+  Future<void> restoreSetDate(
+    String localId,
+    DateTime value,
+    DateTime setAt,
+  ) async {
     final db = await _open();
     await db.update(
       _table,
       {
         'created_at': value.millisecondsSinceEpoch,
+        'date_set_at': setAt.millisecondsSinceEpoch,
         'updated_at': DateTime.now().millisecondsSinceEpoch,
       },
       where: 'local_id = ?',
@@ -3885,6 +3983,7 @@ class AssetRecordStore {
     'is_locked',
     'is_archived',
     'people_only',
+    'owner_id',
     'local_optimized',
     'deleted_at',
     'binned_by',
@@ -3900,6 +3999,7 @@ class AssetRecordStore {
     'created_at',
     'updated_at',
     'added_at',
+    'date_set_at',
     'rev',
   ];
 
@@ -4090,6 +4190,7 @@ class AssetRecordStore {
         a.isLocked == b.isLocked &&
         a.isArchived == b.isArchived &&
         a.peopleOnly == b.peopleOnly &&
+        a.ownerId == b.ownerId &&
         a.localOptimized == b.localOptimized &&
         a.isHidden == b.isHidden &&
         a.deletedAt == b.deletedAt &&
@@ -4306,6 +4407,10 @@ class AssetRecordStore {
         final int at => DateTime.fromMillisecondsSinceEpoch(at),
         _ => null,
       },
+      dateSetAt: switch (row['date_set_at']) {
+        final int at => DateTime.fromMillisecondsSinceEpoch(at),
+        _ => null,
+      },
       derivatives: {
         for (final kind in DerivativeKind.values) kind: stateFor(kind),
       },
@@ -4313,6 +4418,7 @@ class AssetRecordStore {
       isLocked: (row['is_locked'] as int? ?? 0) != 0,
       isArchived: (row['is_archived'] as int? ?? 0) != 0,
       peopleOnly: (row['people_only'] as int? ?? 0) != 0,
+      ownerId: row['owner_id'] as String?,
       localOptimized: (row['local_optimized'] as int? ?? 0) != 0,
       isHidden: (row['is_hidden'] as int? ?? 0) != 0,
       deletedAt: deletedAtMillis == null

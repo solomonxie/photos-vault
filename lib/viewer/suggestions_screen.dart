@@ -9,7 +9,9 @@ import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/album_suggestions.dart';
 import '../photos/merge_suggestions.dart';
+import '../photos/library_custody.dart';
 import '../photos/person_store.dart';
+import '../photos/photo_library_service.dart';
 import '../photos/fix_queue.dart';
 import '../photos/flag_scan.dart';
 import '../photos/storage_advice.dart';
@@ -19,8 +21,10 @@ import '../storage/album_store.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'album_suggestions_screen.dart';
+import 'back_swipe_edge.dart';
 import 'merge_people_screen.dart';
 import 'started_suggestions_screen.dart';
+import 'family_suggestions_screen.dart';
 import 'suggestion_action_screen.dart';
 import 'suggestion_copy.dart';
 import 'library_index.dart';
@@ -171,8 +175,32 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
   /// nobody's page.
   List<AssetRecord> _archivedOnPhone = const [];
 
+  /// On someone else's page but still in Photos: moved there before moving
+  /// took them out. Only the owner's library is mirrored in Photos.
+  List<AssetRecord> _keptInPhotos = const [];
+
   List<MergeSuggestion> _merges = const [];
   int _started = 0;
+  int _families = 0;
+
+  Future<void> _loadFamilies() async {
+    final people = widget.personStore;
+    if (people == null) return;
+    final (found, _) = await loadFamilySuggestions(people);
+    if (mounted) setState(() => _families = found.length);
+  }
+
+  Future<void> _openFamilies() async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => FamilySuggestionsScreen(
+          personStore: widget.personStore!,
+          assetRecordStore: widget.store,
+        ),
+      ),
+    );
+    await _loadFamilies();
+  }
 
   Future<void> _loadStarted() async {
     final people = widget.personStore;
@@ -232,6 +260,7 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
   Future<void> _loadSuggestions() async {
     unawaited(_loadMerges());
     unawaited(_loadStarted());
+    unawaited(_loadFamilies());
     final all = await widget.store.listAll();
     // A person's photos stay on the phone: their page is looked at.
     final onPeople = {
@@ -248,7 +277,20 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
             !onPeople.contains(r.localId))
           r,
     ];
-    if (mounted) setState(() => _archivedOnPhone = archived);
+    final keptInPhotos = [
+      for (final r in all)
+        if (!r.isMine &&
+            r.isVisibleInLibrary &&
+            r.sourceType == AssetSourceType.photoManager &&
+            PhotoLibraryService.libraryIdOf(r) != null)
+          r,
+    ];
+    if (mounted) {
+      setState(() {
+        _archivedOnPhone = archived;
+        _keptInPhotos = keptInPhotos;
+      });
+    }
     final albums = widget.albumStore;
     if (albums == null) return;
     final filed = {
@@ -301,8 +343,22 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
     await _loadSuggestions();
   }
 
+  /// One OS prompt per tap, up to its batch limit; the row stays while
+  /// any are left.
+  Future<void> _takeOutOfPhotos() async {
+    final batch = _keptInPhotos
+        .take(PhotoLibraryService.deleteBatchLimit)
+        .toList();
+    if (batch.isEmpty) return;
+    await LibraryCustody(store: widget.store).takeOutMany(batch);
+    await _loadSuggestions();
+  }
+
   bool get _organizing =>
-      _suggestions.isNotEmpty || _merges.isNotEmpty || _started > 0;
+      _suggestions.isNotEmpty ||
+      _merges.isNotEmpty ||
+      _started > 0 ||
+      _families > 0;
 
   /// Albums to make, people to merge or group: tidying rather than fixing,
   /// under one heading.
@@ -357,6 +413,17 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
             body: l10n.startedSuggestHow,
             amount: l10n.startedSuggestAmount(_started),
             onTap: _openStarted,
+          ),
+        ),
+      if (_families > 0)
+        card(
+          _ActionRow(
+            key: const ValueKey('suggestions-families-by-surname'),
+            icon: CupertinoIcons.house_fill,
+            title: l10n.familySuggestTitle,
+            body: l10n.familySuggestHow,
+            amount: l10n.familySuggestAmount(_families),
+            onTap: _openFamilies,
           ),
         ),
     ];
@@ -519,6 +586,7 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
     final nothing =
         _phone.isEmpty &&
         _archivedOnPhone.isEmpty &&
+        _keptInPhotos.isEmpty &&
         _inBucket.isEmpty &&
         review.isEmpty &&
         !_organizing &&
@@ -536,48 +604,63 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
               ),
       ),
       child: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.fromLTRB(
-            settingsPagePadding,
-            12,
-            settingsPagePadding,
-            32,
-          ),
-          children: [
-            _header(l10n),
-            if (_phone.isNotEmpty || _archivedOnPhone.isNotEmpty)
-              ..._section(
-                l10n.suggestionsGroupPhone,
-                null,
-                _phone,
-                extra: [
-                  if (_archivedOnPhone.isNotEmpty)
-                    _ActionRow(
-                      key: const ValueKey('suggestions-archived-on-phone'),
-                      icon: CupertinoIcons.archivebox,
-                      title: l10n.suggestionsArchivedTitle,
-                      body: l10n.suggestionsArchivedHow,
-                      amount: l10n.suggestionsArchivedAmount(
-                        _archivedOnPhone.length,
+        child: BackSwipeEdge<Object>(
+          child: ListView(
+            padding: const EdgeInsets.fromLTRB(
+              settingsPagePadding,
+              12,
+              settingsPagePadding,
+              32,
+            ),
+            children: [
+              _header(l10n),
+              if (_phone.isNotEmpty ||
+                  _archivedOnPhone.isNotEmpty ||
+                  _keptInPhotos.isNotEmpty)
+                ..._section(
+                  l10n.suggestionsGroupPhone,
+                  null,
+                  _phone,
+                  extra: [
+                    if (_archivedOnPhone.isNotEmpty)
+                      _ActionRow(
+                        key: const ValueKey('suggestions-archived-on-phone'),
+                        icon: CupertinoIcons.archivebox,
+                        title: l10n.suggestionsArchivedTitle,
+                        body: l10n.suggestionsArchivedHow,
+                        amount: l10n.suggestionsArchivedAmount(
+                          _archivedOnPhone.length,
+                        ),
+                        onTap: _openArchivedOnPhone,
                       ),
-                      onTap: _openArchivedOnPhone,
-                    ),
-                ],
-              ),
-            if (_inBucket.isNotEmpty)
-              ..._section(l10n.suggestionsGroupBucket, null, _inBucket),
-            if (review.isNotEmpty) ..._reviewSection(l10n),
-            if (_organizing) ..._organizeSection(l10n),
-            if (nothing)
-              Padding(
-                padding: const EdgeInsets.symmetric(vertical: 48),
-                child: Text(
-                  l10n.suggestionsNone,
-                  textAlign: TextAlign.center,
-                  style: settingsHintStyle,
+                    if (_keptInPhotos.isNotEmpty)
+                      _ActionRow(
+                        key: const ValueKey('suggestions-kept-in-photos'),
+                        icon: CupertinoIcons.person_crop_square,
+                        title: l10n.suggestionsKeptInPhotosTitle,
+                        body: l10n.suggestionsKeptInPhotosHow,
+                        amount: l10n.suggestionsArchivedAmount(
+                          _keptInPhotos.length,
+                        ),
+                        onTap: _takeOutOfPhotos,
+                      ),
+                  ],
                 ),
-              ),
-          ],
+              if (_inBucket.isNotEmpty)
+                ..._section(l10n.suggestionsGroupBucket, null, _inBucket),
+              if (review.isNotEmpty) ..._reviewSection(l10n),
+              if (_organizing) ..._organizeSection(l10n),
+              if (nothing)
+                Padding(
+                  padding: const EdgeInsets.symmetric(vertical: 48),
+                  child: Text(
+                    l10n.suggestionsNone,
+                    textAlign: TextAlign.center,
+                    style: settingsHintStyle,
+                  ),
+                ),
+            ],
+          ),
         ),
       ),
     );

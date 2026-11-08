@@ -72,7 +72,7 @@ class ManualAddService {
     String? passcodeHash,
     bool isHidden = false,
     bool isArchived = false,
-    bool peopleOnly = false,
+    String? ownerId,
     DateTime? fallbackDate,
   }) async {
     final hash = await hashFile(path);
@@ -93,7 +93,7 @@ class ManualAddService {
       passcodeHash: passcodeHash,
       isHidden: isHidden,
       isArchived: isArchived,
-      peopleOnly: peopleOnly,
+      ownerId: ownerId,
     );
   }
 }

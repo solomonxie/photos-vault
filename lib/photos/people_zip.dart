@@ -10,6 +10,7 @@ import '../storage/asset_record_store.dart';
 import '../storage/passcode_hash.dart';
 import '../vault/plain_files.dart';
 import 'manual_add.dart';
+import 'person_placement.dart';
 import 'person_store.dart';
 import 'profile_csv.dart';
 import 'profile_transfer.dart';
@@ -258,8 +259,13 @@ class PeopleZipImporter {
     final total = chosen.fold(0, (n, pick) => n + pick.photos.length);
     var done = 0, visible = 0, hidden = 0, failed = 0;
     onProgress?.call(done, total);
+    final placement = PersonPlacement(
+      records: recordStore,
+      people: personStore,
+    );
     for (final pick in chosen) {
       final personId = pick.personId!;
+      final isOwner = await placement.isOwner(personId);
       final span = spans[personId];
       final profile = pick.person.profile;
       final fallback =
@@ -288,14 +294,13 @@ class PeopleZipImporter {
               hidden++;
             }
           } else {
-            // Archived and kept for its person as it is written, so it
-            // reaches neither the grid nor Archive. A photo already here
-            // keeps whatever it was.
+            // Theirs as it is written, so it reaches neither the grid nor
+            // Archive; the owner's own go to the main library. A photo
+            // already here keeps whatever it was.
             final created = await _dated(
               await _manualAdd.enqueueFile(
                 path,
-                isArchived: true,
-                peopleOnly: true,
+                ownerId: isOwner ? null : personId,
                 fallbackDate: fallback,
               ),
               fallback,
@@ -312,9 +317,6 @@ class PeopleZipImporter {
       }
       if (tagged.isNotEmpty) {
         await personStore.addAssets(personId, tagged);
-        // Loaded before this flag existed: still archived ones become
-        // their person's only. One moved to the library stays there.
-        await recordStore.setPeopleOnly(tagged, true);
       }
     }
     return PeopleZipResult(

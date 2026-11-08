@@ -1,3 +1,5 @@
+import '../support/edge_back_swipe.dart';
+
 import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/storage/asset_record.dart';
@@ -211,7 +213,7 @@ void main() {
     expect(await assetStore.getByLocalId('manual:c'), isNotNull);
   });
 
-  testWidgets('Only Here takes picked library photos off the library, onto '
+  testWidgets('Move to their library takes picked photos off the library, onto '
       'this page alone', (tester) async {
     final assetStore = FakeAssetRecordStore();
     final personStore = FakePersonStore();
@@ -241,11 +243,13 @@ void main() {
     await tester.tap(find.text('Select').last);
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('personToLibrarySelected')), findsNothing);
-    await tester.tap(find.byKey(const ValueKey('personOnlyHereSelected')));
+    await tester.tap(
+      find.byKey(const ValueKey('personToTheirLibrarySelected')),
+    );
     await tester.pumpAndSettle();
 
     final a = (await assetStore.getByLocalId('manual:a'))!;
-    expect((a.isArchived, a.peopleOnly, a.inLibraryViews), (true, true, false));
+    expect((a.ownerId, a.inLibraryViews), (person.id, false));
     expect((await assetStore.getByLocalId('manual:b'))!.inLibraryViews, isTrue);
     expect(await personStore.localIdsIn(person.id), contains('manual:a'));
   });
@@ -448,6 +452,27 @@ void main() {
     expect(saved.avatarLocalId, 'manual:group');
     expect(saved.avatarFace, face);
   });
+
+  testWidgets('a back swipe from the left edge leaves, starting downward', (
+    tester,
+  ) async {
+    final assets = FakeAssetRecordStore();
+    final people = FakePersonStore();
+    await addPhotos(assets);
+    final person = await people.create(name: 'Mia');
+    await people.addAssets(person.id, [
+      for (var i = 0; i < 40; i++) 'manual:p$i',
+    ]);
+    await expectEdgeSwipeLeaves(
+      tester,
+      () => PersonPageScreen(
+        person: person,
+        personStore: people,
+        assetRecordStore: assets,
+      ),
+      PersonPageScreen,
+    );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 }
 
 /// A long press that actually opens a [CupertinoContextMenu] — it wants the

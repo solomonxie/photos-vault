@@ -8,6 +8,8 @@ import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/asset_record_store.dart';
 import 'package:photos_vault/storage/bucket_object.dart';
 import 'package:photos_vault/upload/pending_deletes.dart';
+import 'package:photos_vault/viewer/library_index.dart';
+import 'package:photos_vault/viewer/photo_grid_layout.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 void main() {
@@ -195,6 +197,50 @@ void main() {
       await reading;
 
       expect((await s.listAll()).map((r) => r.localId), ['photo:b']);
+    });
+
+    test('a re-dated photo is in the next list and in changesBetween, '
+        'and the library index patched from it re-sorts', () async {
+      final s = open();
+      await add(s, 'photo:a', at: DateTime(2020));
+      await add(s, 'photo:b', at: DateTime(2021));
+      await add(s, 'photo:c', at: DateTime(2022));
+      final first = await s.listAll();
+      final index = LibraryIndex.of(first, DateTime(2026));
+      // Another caller's list in between: the chain still holds.
+      await s.setFavorite('photo:c', true);
+      await s.listAll();
+
+      await s.setCreatedAtMany({
+        'photo:a': DateTime(2023),
+        'photo:b': DateTime(2019),
+      });
+      final second = await s.listAll();
+
+      expect(second.map((r) => r.localId), ['photo:b', 'photo:c', 'photo:a']);
+      final changes = {
+        for (final c in s.changesBetween(first, second)!) c.after!.localId: c,
+      };
+      expect(changes.keys, unorderedEquals(['photo:a', 'photo:b', 'photo:c']));
+      expect(changes['photo:a']!.before!.createdAt, DateTime(2020));
+      expect(changes['photo:a']!.after!.createdAt, DateTime(2023));
+      final patched = LibraryIndex.patch(
+        index,
+        second,
+        changes.values.toList(),
+        DateTime(2026),
+      )!;
+      expect(patched.home.map((r) => r.localId), [
+        'photo:b',
+        'photo:c',
+        'photo:a',
+      ]);
+      expect(patched.favorites.single.localId, 'photo:c');
+      expect(
+        PhotoGridLayout.sameShape(patched.home, index.home),
+        isFalse,
+        reason: 'new dates are a new layout',
+      );
     });
 
     test('changesBetween: record by record, across lists', () async {

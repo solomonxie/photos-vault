@@ -16,6 +16,8 @@ export interface Photo {
   originalKey: string | null;
   editedKey: string | null;
   tags: string[];
+  /// A person's id, or null: the app's owner.
+  owner: string | null;
   binnedAt: number | null;
   lat: number | null;
   lng: number | null;
@@ -128,6 +130,7 @@ export function photoOf(ent: EntityState): Photo {
     originalKey: key(field(ent, 'original_key')),
     editedKey: key(field(ent, 'edited_key')),
     tags: members(ent, 'tags'),
+    owner: key(field(ent, 'owner_id')),
     binnedAt: typeof binned === 'number' ? binned : null,
     lat: numOrNull(field(ent, 'latitude')),
     lng: numOrNull(field(ent, 'longitude')),
@@ -266,6 +269,12 @@ export function buildLibrary(state: SyncState): Library {
   const albumsOf = new Map<string, string[]>();
   const peopleOf = new Map<string, string[]>();
   const live = (ids: string[]) => ids.filter((id) => photos.has(id));
+  /// Mine only: others' photos show on their owner's person page.
+  const mine = (ids: string[]) => ids.filter((id) => photos.get(id)?.owner === null);
+  const ownedBy = new Map<string, string[]>();
+  for (const p of photos.values()) {
+    if (p.owner !== null) ownedBy.set(p.owner, [...(ownedBy.get(p.owner) ?? []), p.id]);
+  }
   const hand: HandPlace[] = [];
   const impressions: Impression[] = [];
   const plans: Plan[] = [];
@@ -300,7 +309,7 @@ export function buildLibrary(state: SyncState): Library {
         stops: parseStops(field(ent, 'stops')),
       });
     } else if (ent.e === 'album') {
-      const ids = live(members(ent, 'members'));
+      const ids = mine(members(ent, 'members'));
       albums.push({
         id: ent.id,
         name: str(field(ent, 'name')),
@@ -312,13 +321,15 @@ export function buildLibrary(state: SyncState): Library {
     } else if (ent.e === 'person') {
       const name = str(field(ent, 'name'));
       if (!name) continue;
-      const ids = live(members(ent, 'members'));
+      const ids = [...new Set([...live(members(ent, 'members')), ...(ownedBy.get(ent.id) ?? [])])].filter(
+        (id) => photos.get(id)?.binnedAt === null,
+      );
       people.push({ id: ent.id, name, avatar: key(field(ent, 'avatar_local_id')), photos: ids });
       for (const id of ids) peopleOf.set(id, [...(peopleOf.get(id) ?? []), ent.id]);
     }
   }
   const all = [...photos.values()].sort((a, b) => b.takenAt - a.takenAt);
-  const timeline = all.filter((p) => p.binnedAt === null);
+  const timeline = all.filter((p) => p.binnedAt === null && p.owner === null);
   const byTaken = (ids: string[]) =>
     ids.sort((a, b) => (photos.get(b)?.takenAt ?? 0) - (photos.get(a)?.takenAt ?? 0));
   for (const a of albums) byTaken(a.photos);
