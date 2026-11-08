@@ -15,6 +15,7 @@ import '../photos/person.dart';
 import '../photos/face_identity.dart';
 import '../photos/face_import.dart';
 import '../photos/person_detail.dart';
+import '../photos/person_owner.dart';
 import '../photos/person_store.dart';
 import '../photos/fix_queue.dart';
 import '../photos/people_order.dart';
@@ -22,6 +23,7 @@ import '../photos/storage_advice.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'person_avatar.dart';
+import 'back_swipe_edge.dart';
 import 'profile_chip.dart';
 import 'person_page_screen.dart';
 import 'face_groups_screen.dart';
@@ -111,6 +113,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
   Map<String, AssetRecord>? _recordsById;
   String _query = '';
   Map<PersonGroup, List<String>> _groups = const {};
+
+  /// Whose phone this is: their groups are listed apart from everyone
+  /// else's.
+  String? _ownerId;
 
   PeopleSort _sort = PeopleSort.lastSeen;
   bool _reversed = false;
@@ -246,7 +252,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
     final firstPhoto = <String, String>{};
     final tagged = <String>{};
     final members = _members = await widget.personStore.allMemberships();
-    for (final person in people) {
+    // Ignored people too: they still turn up when searched for by name.
+    for (final person in everyone) {
       final shown = [
         for (final id in members[person.id] ?? const <String>[])
           if (visible.contains(id)) id,
@@ -256,10 +263,11 @@ class _PeopleScreenState extends State<PeopleScreen> {
         for (final id in members[person.id] ?? const <String>[])
           if (present.contains(id)) id,
       ].length;
-      tagged.addAll(members[person.id] ?? const <String>[]);
+      if (!person.ignored) tagged.addAll(members[person.id] ?? const []);
       if (shown.isNotEmpty) firstPhoto[person.id] = shown.first;
     }
     final groups = await widget.personStore.allGroups();
+    final ownerId = await PersonOwner(widget.assetRecordStore).id();
     final formerNames = await widget.personStore.allFormerNames();
     final spans = await widget.personStore.openEventSpans();
     final byId = visibleRecordsOf(records);
@@ -294,6 +302,7 @@ class _PeopleScreenState extends State<PeopleScreen> {
       _firstKnown = firstKnown;
       _lastKnown = lastKnown;
       _groups = groups;
+      _ownerId = ownerId;
       _initials.clear();
       _inAGroup = {for (final ids in groups.values) ...ids};
       _ungrouped = [
@@ -1290,29 +1299,70 @@ class _PeopleScreenState extends State<PeopleScreen> {
       ),
       onTap: _newGroup,
     ),
-    for (final MapEntry(key: group, value: ids) in _sortedGroups())
-      CupertinoListTile(
-        key: ValueKey('people-group-${group.id}'),
-        title: Text(group.name),
-        subtitle: Text(groupSubtitle(l10n, group)),
-        trailing: Row(
-          mainAxisSize: MainAxisSize.min,
-          children: [
-            Text(
-              '${ids.length}',
-              style: const TextStyle(color: CupertinoColors.systemGrey),
-            ),
-            const SizedBox(width: 4),
-            const Icon(
-              CupertinoIcons.chevron_forward,
-              size: 18,
-              color: CupertinoColors.systemGrey2,
-            ),
-          ],
-        ),
-        onTap: () => _openGroup(group),
-      ),
+    ..._groupsSplit(l10n),
   ];
+
+  /// The owner's groups first, then everyone else's: a cousin's family
+  /// isn't one of yours. One list while nobody is set as owner.
+  List<Widget> _groupsSplit(AppLocalizations l10n) {
+    final owner = _ownerId;
+    final sorted = _sortedGroups();
+    if (owner == null) return [for (final e in sorted) _groupRow(l10n, e)];
+    final mine = [
+      for (final e in sorted)
+        if (e.value.contains(owner)) e,
+    ];
+    final others = [
+      for (final e in sorted)
+        if (!e.value.contains(owner)) e,
+    ];
+    return [
+      if (mine.isNotEmpty) ...[
+        _groupsHeading(l10n.peopleMyGroups, mine.length),
+        for (final e in mine) _groupRow(l10n, e),
+      ],
+      if (others.isNotEmpty) ...[
+        _groupsHeading(l10n.peopleOthersGroups, others.length),
+        for (final e in others) _groupRow(l10n, e),
+      ],
+    ];
+  }
+
+  Widget _groupsHeading(String title, int count) => Padding(
+    padding: const EdgeInsets.fromLTRB(20, 24, 20, 6),
+    child: Text(
+      '${title.toUpperCase()} · $count',
+      style: const TextStyle(fontSize: 13, color: CupertinoColors.systemGrey),
+    ),
+  );
+
+  Widget _groupRow(
+    AppLocalizations l10n,
+    MapEntry<PersonGroup, List<String>> entry,
+  ) {
+    final MapEntry(key: group, value: ids) = entry;
+    return CupertinoListTile(
+      key: ValueKey('people-group-${group.id}'),
+      title: Text(group.name),
+      subtitle: Text(groupSubtitle(l10n, group)),
+      trailing: Row(
+        mainAxisSize: MainAxisSize.min,
+        children: [
+          Text(
+            '${ids.length}',
+            style: const TextStyle(color: CupertinoColors.systemGrey),
+          ),
+          const SizedBox(width: 4),
+          const Icon(
+            CupertinoIcons.chevron_forward,
+            size: 18,
+            color: CupertinoColors.systemGrey2,
+          ),
+        ],
+      ),
+      onTap: () => _openGroup(group),
+    );
+  }
 
   /// A row's own page, rebuilt with every reload.
   void _openSubpage(String title, Key key, List<Widget> Function() rows) {
@@ -1435,7 +1485,10 @@ class _PeopleScreenState extends State<PeopleScreen> {
     // Searched: best match first, whatever the sort.
     final filtered = searchByNames(
       [
-        for (final person in _people)
+        for (final person in [
+          ..._people,
+          if (query.isNotEmpty) ..._ignoredPeople,
+        ])
           if (_matchesFilter(person, now)) person,
       ],
       query,
@@ -1497,7 +1550,9 @@ class _PeopleScreenState extends State<PeopleScreen> {
             Positioned.fill(
               child: CupertinoScrollbar(
                 controller: _scroll,
-                child: _list(l10n, query, filtered, main, folded, bare),
+                child: BackSwipeEdge<Object>(
+                  child: _list(l10n, query, filtered, main, folded, bare),
+                ),
               ),
             ),
             if (_sort == PeopleSort.name &&
@@ -1622,6 +1677,15 @@ class _PeopleScreenState extends State<PeopleScreen> {
       title: Row(
         children: [
           Flexible(child: Text(person.name, overflow: TextOverflow.ellipsis)),
+          if (person.ignored)
+            const Padding(
+              padding: EdgeInsets.only(left: 6),
+              child: Icon(
+                CupertinoIcons.eye_slash,
+                size: 16,
+                color: CupertinoColors.systemGrey,
+              ),
+            ),
           if ((_chats[person.id] ?? 0) > 0)
             Padding(
               key: ValueKey('people-chats-${person.id}'),

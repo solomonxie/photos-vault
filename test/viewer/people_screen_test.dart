@@ -10,6 +10,7 @@ import 'package:photos_vault/viewer/search_picker_sheet.dart';
 import 'package:photos_vault/photos/person_store.dart';
 
 import 'package:photos_vault/photos/person.dart';
+import 'package:photos_vault/photos/person_owner.dart';
 import 'package:photos_vault/photos/person_detail.dart';
 
 import '../support/fake_ai_analysis_store.dart';
@@ -387,6 +388,41 @@ void main() {
       find.byKey(ValueKey('people-group-${groups.keys.single.id}')),
       findsOneWidget,
     );
+  });
+
+  testWidgets("groups you're in are listed apart from everyone else's", (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    final records = FakeAssetRecordStore();
+    final me = await personStore.create(name: 'Me');
+    final mia = await personStore.create(name: 'Mia');
+    await PersonOwner(records).set(me.id);
+    await personStore.joinGroup(
+      me.id,
+      const PersonGroup(id: 'g1', name: 'Work', kind: GroupKind.company),
+      scope: PersonScope.open,
+    );
+    await personStore.joinGroup(
+      mia.id,
+      const PersonGroup(id: 'g2', name: 'Lees', kind: GroupKind.family),
+      scope: PersonScope.open,
+    );
+    await tester.pumpWidget(
+      _wrap(PeopleScreen(personStore: personStore, assetRecordStore: records)),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('people-groups-row')));
+    await tester.pumpAndSettle();
+
+    double top(Finder f) => tester.getTopLeft(f).dy;
+    final mine = top(find.text('MY GROUPS · 1'));
+    final work = top(find.byKey(const ValueKey('people-group-g1')));
+    final others = top(find.text("OTHER PEOPLE'S GROUPS · 1"));
+    final lees = top(find.byKey(const ValueKey('people-group-g2')));
+    expect(mine, lessThan(work));
+    expect(work, lessThan(others));
+    expect(others, lessThan(lees));
   });
 
   testWidgets('held, a row is picked to rename, merge or delete', (
@@ -1174,5 +1210,66 @@ void main() {
       'g1',
       'g2',
     });
+  });
+
+  testWidgets('an ignored group can be named, and a person made there stays '
+      'ignored', (tester) async {
+    final records = await _withPhotos(['p1', 'p2', 'p3', 'p4']);
+    final analyses = FakeAiAnalysisStore();
+    await analyses.importNamedFaces(
+      const [],
+      grouped: [
+        for (final id in ['p1', 'p2', 'p3', 'p4'])
+          (localId: id, face: _face, groupId: 'g1'),
+      ],
+    );
+    await analyses.ignoreGroup('g1');
+    final people = FakePersonStore();
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: people,
+          assetRecordStore: records,
+          aiAnalysisStore: analyses,
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('people-ignored-row')));
+    await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('people-imported-g1')));
+    await tester.pumpAndSettle();
+
+    await tester.tap(find.byKey(const ValueKey('faceGroupName')));
+    await tester.pumpAndSettle();
+    await tester.enterText(find.byType(CupertinoTextField), 'Zed');
+    await tester.pumpAndSettle();
+    await tester.tap(find.text('New Person "Zed"'));
+    await tester.pumpAndSettle();
+
+    final zed = (await people.listAll()).singleWhere((p) => p.name == 'Zed');
+    expect(zed.ignored, isTrue);
+  });
+
+  testWidgets('an ignored person stays out of the list but is found by '
+      'search', (tester) async {
+    final personStore = FakePersonStore();
+    await personStore.create(name: 'Mia Chen');
+    final zed = await personStore.create(name: 'Zed Ford');
+    await personStore.update(zed.copyWith(ignored: true));
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    expect(find.byKey(ValueKey('people-row-${zed.id}')), findsNothing);
+
+    await tester.enterText(find.byType(CupertinoSearchTextField), 'Zed');
+    await tester.pump();
+    expect(find.byKey(ValueKey('people-row-${zed.id}')), findsOneWidget);
   });
 }
