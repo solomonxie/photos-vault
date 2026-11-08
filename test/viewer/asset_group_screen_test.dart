@@ -1,3 +1,5 @@
+import '../support/edge_back_swipe.dart';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/l10n/app_localizations.dart';
@@ -47,4 +49,21 @@ void main() {
     }
     expect(find.byKey(const ValueKey('groupSelectionDone')), findsNothing);
   });
+
+  testWidgets('a back swipe from the left edge leaves, starting downward', (
+    tester,
+  ) async {
+    final store = FakeAssetRecordStore();
+    await addPhotos(store);
+    final records = await store.listAll();
+    await expectEdgeSwipeLeaves(
+      tester,
+      () => AssetGroupScreen(
+        title: 'Videos',
+        records: records,
+        assetRecordStore: store,
+      ),
+      AssetGroupScreen,
+    );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 }

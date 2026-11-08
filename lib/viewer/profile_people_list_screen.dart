@@ -4,6 +4,7 @@ import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../storage/asset_record_store.dart';
+import 'back_swipe_edge.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
 import '../photos/name_sound.dart';
@@ -76,36 +77,38 @@ class _ProfilePeopleListScreenState extends State<ProfilePeopleListScreen> {
                         ),
                       ),
                     )
-                  : ListView.builder(
-                      itemCount: _shown.length,
-                      itemExtent: 56,
-                      itemBuilder: (context, i) {
-                        final p = _shown[i];
-                        return CupertinoListTile(
-                          key: ValueKey('profilePeople:${p.id}'),
-                          leading: PersonAvatar.forPerson(
-                            assetRecordStore: widget.assetRecordStore,
-                            person: p,
-                            size: 36,
-                          ),
-                          leadingSize: 36,
-                          title: Text(p.name),
-                          trailing: const Icon(
-                            CupertinoIcons.chevron_forward,
-                            size: 18,
-                            color: CupertinoColors.systemGrey2,
-                          ),
-                          onTap: () => Navigator.of(context).push(
-                            CupertinoPageRoute<void>(
-                              builder: (_) => PersonPageScreen(
-                                person: p,
-                                personStore: widget.personStore,
-                                assetRecordStore: widget.assetRecordStore,
+                  : BackSwipeEdge<Object>(
+                      child: ListView.builder(
+                        itemCount: _shown.length,
+                        itemExtent: 56,
+                        itemBuilder: (context, i) {
+                          final p = _shown[i];
+                          return CupertinoListTile(
+                            key: ValueKey('profilePeople:${p.id}'),
+                            leading: PersonAvatar.forPerson(
+                              assetRecordStore: widget.assetRecordStore,
+                              person: p,
+                              size: 36,
+                            ),
+                            leadingSize: 36,
+                            title: Text(p.name),
+                            trailing: const Icon(
+                              CupertinoIcons.chevron_forward,
+                              size: 18,
+                              color: CupertinoColors.systemGrey2,
+                            ),
+                            onTap: () => Navigator.of(context).push(
+                              CupertinoPageRoute<void>(
+                                builder: (_) => PersonPageScreen(
+                                  person: p,
+                                  personStore: widget.personStore,
+                                  assetRecordStore: widget.assetRecordStore,
+                                ),
                               ),
                             ),
-                          ),
-                        );
-                      },
+                          );
+                        },
+                      ),
                     ),
             ),
           ],

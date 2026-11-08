@@ -15,6 +15,7 @@ import 'album_notes.dart';
 import 'asset_grid.dart';
 import 'built_in_album.dart';
 import 'asset_grid_view.dart';
+import 'back_swipe_edge.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'photo_grid_layout.dart';
@@ -281,13 +282,38 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
         ),
       ),
     );
-    if (_toggled.isEmpty || !mounted) return;
-    final gone = {..._toggled};
-    _toggled.clear();
-    setState(
-      () =>
-          _records = _records.where((r) => !gone.contains(r.localId)).toList(),
-    );
+    if (_toggled.isNotEmpty && mounted) {
+      final gone = {..._toggled};
+      _toggled.clear();
+      setState(
+        () => _records = _records
+            .where((r) => !gone.contains(r.localId))
+            .toList(),
+      );
+    }
+    await _refreshDates();
+  }
+
+  /// A date edited in the viewer: the record replaced, and moved when the
+  /// grid is by date taken. One read from the library's cache.
+  Future<void> _refreshDates() async {
+    final fresh = {
+      for (final r in await widget.assetRecordStore.listOf(
+        _records.map((r) => r.localId),
+      ))
+        r.localId: r,
+    };
+    if (!mounted) return;
+    AssetRecord? redated(AssetRecord r) => switch (fresh[r.localId]) {
+      final f? when f.createdAt != r.createdAt => f,
+      _ => null,
+    };
+    if (!_records.any((r) => redated(r) != null)) return;
+    final next = [for (final r in _records) redated(r) ?? r];
+    if (identical(widget.dateOf, PhotoGridLayout.takenAt)) {
+      next.sort(recordOrder);
+    }
+    setState(() => _records = next);
   }
 
   @override
@@ -357,50 +383,58 @@ class _AssetGroupScreenState extends State<AssetGroupScreen> {
     );
   }
 
-  Widget _grid(AppLocalizations l10n) => AssetGridView(
-    records: _records,
-    dateOf: widget.dateOf,
+  Widget _grid(AppLocalizations l10n) => BackSwipeEdge<AssetRecord>(
     onTap: _selecting ? _toggleSelected : _open,
     onLongPress: _startSelecting,
-    onSelectDragUpdate: _onSelectDragUpdate,
-    onSelectDragEnd: _sweep.end,
-    selection: _selecting ? _picked : null,
-    trailingSlivers: [
-      if (widget.notes case final notes?)
-        SliverToBoxAdapter(child: AlbumNotes(book: notes)),
-      if (_selecting) const SliverToBoxAdapter(child: SizedBox(height: 110)),
-    ],
-    actionsFor: (r) => [
-      TileAction(
-        icon: r.isFavorite ? CupertinoIcons.heart_slash : CupertinoIcons.heart,
-        label: r.isFavorite ? l10n.libraryUnfavorite : l10n.libraryFavorite,
-        onPressed: () => _toggleFavorite(r),
-      ),
-      if (widget.archive)
+    onLongPressMove: _onSelectDragUpdate,
+    onLongPressEnd: _sweep.end,
+    child: AssetGridView(
+      records: _records,
+      dateOf: widget.dateOf,
+      onTap: _selecting ? _toggleSelected : _open,
+      onLongPress: _startSelecting,
+      onSelectDragUpdate: _onSelectDragUpdate,
+      onSelectDragEnd: _sweep.end,
+      selection: _selecting ? _picked : null,
+      trailingSlivers: [
+        if (widget.notes case final notes?)
+          SliverToBoxAdapter(child: AlbumNotes(book: notes)),
+        if (_selecting) const SliverToBoxAdapter(child: SizedBox(height: 110)),
+      ],
+      actionsFor: (r) => [
         TileAction(
-          icon: CupertinoIcons.archivebox,
-          label: l10n.archiveUndoAction,
-          onPressed: () => _unarchive(r),
+          icon: r.isFavorite
+              ? CupertinoIcons.heart_slash
+              : CupertinoIcons.heart,
+          label: r.isFavorite ? l10n.libraryUnfavorite : l10n.libraryFavorite,
+          onPressed: () => _toggleFavorite(r),
         ),
-      ...coverActions(
-        l10n,
-        isCover: widget.coverFor != null && _cover == r.localId,
-        enabled: widget.coverFor != null,
-        onUse: () => _setCover(r.localId),
-        onDefault: () => _setCover(null),
-      ),
-      TileAction(
-        icon: CupertinoIcons.eye_slash,
-        label: l10n.libraryHide,
-        onPressed: () => _hide(r),
-      ),
-      TileAction(
-        icon: CupertinoIcons.delete,
-        label: l10n.libraryDeleteTooltip,
-        isDestructive: true,
-        onPressed: () => _delete(r),
-      ),
-    ],
+        if (widget.archive)
+          TileAction(
+            icon: CupertinoIcons.archivebox,
+            label: l10n.archiveUndoAction,
+            onPressed: () => _unarchive(r),
+          ),
+        ...coverActions(
+          l10n,
+          isCover: widget.coverFor != null && _cover == r.localId,
+          enabled: widget.coverFor != null,
+          onUse: () => _setCover(r.localId),
+          onDefault: () => _setCover(null),
+        ),
+        TileAction(
+          icon: CupertinoIcons.eye_slash,
+          label: l10n.libraryHide,
+          onPressed: () => _hide(r),
+        ),
+        TileAction(
+          icon: CupertinoIcons.delete,
+          label: l10n.libraryDeleteTooltip,
+          isDestructive: true,
+          onPressed: () => _delete(r),
+        ),
+      ],
+    ),
   );
 }
 

@@ -11,6 +11,7 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart' show assetImage;
 import 'asset_group_screen.dart';
+import 'back_swipe_edge.dart';
 import 'native_map.dart';
 import 'place_screen.dart' show photosAtBetween;
 import 'route_editor_screen.dart';
@@ -321,147 +322,152 @@ class _RouteScreenState extends State<RouteScreen> {
         if (l.target == LinkTarget.person && _people[l.id] != null)
           _people[l.id]!,
     ];
-    return CustomScrollView(
-      slivers: [
-        SliverToBoxAdapter(
-          child: SizedBox(
-            height: 300,
-            child: NativeMap(
-              pins: pins,
-              line: line,
-              controller: _map,
-              onPinTap: (id) {
-                final i = int.tryParse(id);
-                if (i != null && i < stops.length) _focusStop(stops[i]);
-              },
-            ),
-          ),
-        ),
-        if (dates.isNotEmpty || detail.route.note.isNotEmpty)
+    return BackSwipeEdge<Object>(
+      child: CustomScrollView(
+        slivers: [
           SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  if (dates.isNotEmpty)
-                    Text(
-                      dates,
-                      style: const TextStyle(
-                        fontSize: 13,
-                        color: CupertinoColors.systemGrey,
-                      ),
-                    ),
-                  if (detail.route.note.isNotEmpty) ...[
-                    const SizedBox(height: 6),
-                    Text(detail.route.note),
-                  ],
-                ],
+            child: SizedBox(
+              height: 300,
+              child: NativeMap(
+                pins: pins,
+                line: line,
+                controller: _map,
+                onPinTap: (id) {
+                  final i = int.tryParse(id);
+                  if (i != null && i < stops.length) _focusStop(stops[i]);
+                },
               ),
             ),
           ),
-        if (detail.stops.isEmpty)
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.all(24),
-              child: Text(
-                l10n.routeNoStops,
-                textAlign: TextAlign.center,
-                style: const TextStyle(color: CupertinoColors.systemGrey),
-              ),
-            ),
-          ),
-        SliverPadding(
-          padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-          sliver: SliverList.builder(
-            itemCount: detail.stops.length,
-            itemBuilder: (context, i) {
-              final stop = detail.stops[i];
-              final place = detail.places[stop.placeId];
-              final next = i + 1 < detail.stops.length
-                  ? detail.places[detail.stops[i + 1].placeId]
-                  : null;
-              final day = stop.arrived;
-              final before = i == 0 ? null : detail.stops[i - 1].arrived;
-              final newDay =
-                  day != null &&
-                  (before == null ||
-                      before.year != day.year ||
-                      before.month != day.month ||
-                      before.day != day.day);
-              final strip = _stopPhotos[i];
-              return Column(
-                crossAxisAlignment: CrossAxisAlignment.stretch,
-                children: [
-                  if (newDay)
-                    Padding(
-                      key: ValueKey('routeDay-$i'),
-                      padding: EdgeInsets.only(top: i == 0 ? 0 : 14, bottom: 6),
-                      child: Text(
-                        l10n.routeDay(
-                          _dayNumber(detail, day),
-                          DateFormat.MMMEd().format(day),
-                        ),
+          if (dates.isNotEmpty || detail.route.note.isNotEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    if (dates.isNotEmpty)
+                      Text(
+                        dates,
                         style: const TextStyle(
                           fontSize: 13,
-                          fontWeight: FontWeight.w600,
                           color: CupertinoColors.systemGrey,
                         ),
                       ),
-                    ),
-                  _StopRow(
-                    key: ValueKey('routeStop-$i'),
-                    number: i + 1,
-                    stop: stop,
-                    place: place,
-                    last: i == detail.stops.length - 1,
-                    onTap: place == null ? null : () => _focusStop(place),
-                  ),
-                  if (strip != null && widget.assetRecordStore != null) ...[
-                    _photosToggle(l10n, i, strip),
-                    if (_open.contains(i))
-                      _stopStrip(
-                        i,
-                        strip,
-                        place?.name ?? '',
-                        widget.assetRecordStore!,
-                      ),
+                    if (detail.route.note.isNotEmpty) ...[
+                      const SizedBox(height: 6),
+                      Text(detail.route.note),
+                    ],
                   ],
-                  // "Other" with nothing written says nothing: not shown.
-                  if (i < detail.legs.length &&
-                      (detail.legs[i].mode != LegMode.other ||
-                          detail.legs[i].note.isNotEmpty))
-                    _LegRow(
-                      key: ValueKey('routeLeg-$i'),
-                      leg: detail.legs[i],
-                      onTap: place == null || next == null
-                          ? null
-                          : () => _focusLeg(place, next),
-                    ),
-                ],
-              );
-            },
-          ),
-        ),
-        if (photos.isNotEmpty) ...[
-          _header(l10n.routePhotos),
-          SliverToBoxAdapter(child: _photoStrip(photos)),
-        ],
-        if (people.isNotEmpty) ...[
-          _header(l10n.routePeople),
-          SliverToBoxAdapter(
-            child: Padding(
-              padding: const EdgeInsets.symmetric(horizontal: 16),
-              child: Wrap(
-                spacing: 6,
-                runSpacing: 6,
-                children: [for (final p in people) RouteChip(p.name)],
+                ),
               ),
             ),
+          if (detail.stops.isEmpty)
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.all(24),
+                child: Text(
+                  l10n.routeNoStops,
+                  textAlign: TextAlign.center,
+                  style: const TextStyle(color: CupertinoColors.systemGrey),
+                ),
+              ),
+            ),
+          SliverPadding(
+            padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+            sliver: SliverList.builder(
+              itemCount: detail.stops.length,
+              itemBuilder: (context, i) {
+                final stop = detail.stops[i];
+                final place = detail.places[stop.placeId];
+                final next = i + 1 < detail.stops.length
+                    ? detail.places[detail.stops[i + 1].placeId]
+                    : null;
+                final day = stop.arrived;
+                final before = i == 0 ? null : detail.stops[i - 1].arrived;
+                final newDay =
+                    day != null &&
+                    (before == null ||
+                        before.year != day.year ||
+                        before.month != day.month ||
+                        before.day != day.day);
+                final strip = _stopPhotos[i];
+                return Column(
+                  crossAxisAlignment: CrossAxisAlignment.stretch,
+                  children: [
+                    if (newDay)
+                      Padding(
+                        key: ValueKey('routeDay-$i'),
+                        padding: EdgeInsets.only(
+                          top: i == 0 ? 0 : 14,
+                          bottom: 6,
+                        ),
+                        child: Text(
+                          l10n.routeDay(
+                            _dayNumber(detail, day),
+                            DateFormat.MMMEd().format(day),
+                          ),
+                          style: const TextStyle(
+                            fontSize: 13,
+                            fontWeight: FontWeight.w600,
+                            color: CupertinoColors.systemGrey,
+                          ),
+                        ),
+                      ),
+                    _StopRow(
+                      key: ValueKey('routeStop-$i'),
+                      number: i + 1,
+                      stop: stop,
+                      place: place,
+                      last: i == detail.stops.length - 1,
+                      onTap: place == null ? null : () => _focusStop(place),
+                    ),
+                    if (strip != null && widget.assetRecordStore != null) ...[
+                      _photosToggle(l10n, i, strip),
+                      if (_open.contains(i))
+                        _stopStrip(
+                          i,
+                          strip,
+                          place?.name ?? '',
+                          widget.assetRecordStore!,
+                        ),
+                    ],
+                    // "Other" with nothing written says nothing: not shown.
+                    if (i < detail.legs.length &&
+                        (detail.legs[i].mode != LegMode.other ||
+                            detail.legs[i].note.isNotEmpty))
+                      _LegRow(
+                        key: ValueKey('routeLeg-$i'),
+                        leg: detail.legs[i],
+                        onTap: place == null || next == null
+                            ? null
+                            : () => _focusLeg(place, next),
+                      ),
+                  ],
+                );
+              },
+            ),
           ),
+          if (photos.isNotEmpty) ...[
+            _header(l10n.routePhotos),
+            SliverToBoxAdapter(child: _photoStrip(photos)),
+          ],
+          if (people.isNotEmpty) ...[
+            _header(l10n.routePeople),
+            SliverToBoxAdapter(
+              child: Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 16),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [for (final p in people) RouteChip(p.name)],
+                ),
+              ),
+            ),
+          ],
+          const SliverToBoxAdapter(child: SizedBox(height: 32)),
         ],
-        const SliverToBoxAdapter(child: SizedBox(height: 32)),
-      ],
+      ),
     );
   }
 

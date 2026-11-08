@@ -12,6 +12,7 @@ import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
 import 'asset_picker_screen.dart';
 import 'asset_grid_view.dart';
+import 'back_swipe_edge.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'album_notes.dart';
@@ -268,6 +269,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
         builder: (_) => AssetPickerScreen(
           title: l10n.albumAddPhotos,
           assetRecordStore: widget.assetRecordStore,
+          mineOnly: true,
           excludeIds: _records.map((r) => r.localId).toSet(),
         ),
       ),
@@ -288,7 +290,8 @@ class _AlbumScreenState extends State<AlbumScreen> {
       _loaded = true;
       _records = [
         for (final r in members)
-          if (r.isVisibleInLibrary) r,
+          // The owner's only: albums are their library's.
+          if (r.inLibraryViews) r,
       ];
     });
   }
@@ -345,8 +348,8 @@ class _AlbumScreenState extends State<AlbumScreen> {
     await _reload();
   }
 
-  void _open(AssetRecord record) {
-    Navigator.of(context).push(
+  Future<void> _open(AssetRecord record) async {
+    await Navigator.of(context).push(
       ZoomPageRoute(
         builder: (_) => DetailScreen(
           records: _records,
@@ -357,6 +360,8 @@ class _AlbumScreenState extends State<AlbumScreen> {
         ),
       ),
     );
+    // A date edited in there moves the photo.
+    await _reload();
   }
 
   @override
@@ -456,53 +461,59 @@ class _AlbumScreenState extends State<AlbumScreen> {
                 ),
             ],
           )
-        : AssetGridView(
-            records: _records,
+        : BackSwipeEdge<AssetRecord>(
             onTap: _selecting ? _toggleSelected : _open,
             onLongPress: _startSelecting,
-            onSelectDragUpdate: _onSelectDragUpdate,
-            onSelectDragEnd: _sweep.end,
-            selection: _selecting ? _picked : null,
-            onAdd: _selecting ? null : _addPhotos,
-            leadingSlivers: [SliverToBoxAdapter(child: _header(l10n))],
-            trailingSlivers: [
-              SliverToBoxAdapter(child: _notes),
-              // Clear of the selection bar.
-              if (_selecting)
-                const SliverToBoxAdapter(child: SizedBox(height: 120)),
-            ],
-            actionsFor: (r) => [
-              TileAction(
-                icon: r.isFavorite
-                    ? CupertinoIcons.heart_slash
-                    : CupertinoIcons.heart,
-                label: r.isFavorite
-                    ? l10n.libraryUnfavorite
-                    : l10n.libraryFavorite,
-                onPressed: () => _toggleFavorite(r),
-              ),
-              TileAction(
-                icon: CupertinoIcons.rectangle_on_rectangle,
-                label: l10n.albumUseAsCover,
-                onPressed: () => _setCover(r),
-              ),
-              TileAction(
-                icon: CupertinoIcons.rectangle_stack_badge_minus,
-                label: l10n.libraryRemoveFromAlbum,
-                onPressed: () => _removeFromAlbum(r),
-              ),
-              TileAction(
-                icon: CupertinoIcons.eye_slash,
-                label: l10n.libraryHide,
-                onPressed: () => _hide(r),
-              ),
-              TileAction(
-                icon: CupertinoIcons.delete,
-                label: l10n.libraryDeleteTooltip,
-                isDestructive: true,
-                onPressed: () => _delete(r),
-              ),
-            ],
+            onLongPressMove: _onSelectDragUpdate,
+            onLongPressEnd: _sweep.end,
+            child: AssetGridView(
+              records: _records,
+              onTap: _selecting ? _toggleSelected : _open,
+              onLongPress: _startSelecting,
+              onSelectDragUpdate: _onSelectDragUpdate,
+              onSelectDragEnd: _sweep.end,
+              selection: _selecting ? _picked : null,
+              onAdd: _selecting ? null : _addPhotos,
+              leadingSlivers: [SliverToBoxAdapter(child: _header(l10n))],
+              trailingSlivers: [
+                SliverToBoxAdapter(child: _notes),
+                // Clear of the selection bar.
+                if (_selecting)
+                  const SliverToBoxAdapter(child: SizedBox(height: 120)),
+              ],
+              actionsFor: (r) => [
+                TileAction(
+                  icon: r.isFavorite
+                      ? CupertinoIcons.heart_slash
+                      : CupertinoIcons.heart,
+                  label: r.isFavorite
+                      ? l10n.libraryUnfavorite
+                      : l10n.libraryFavorite,
+                  onPressed: () => _toggleFavorite(r),
+                ),
+                TileAction(
+                  icon: CupertinoIcons.rectangle_on_rectangle,
+                  label: l10n.albumUseAsCover,
+                  onPressed: () => _setCover(r),
+                ),
+                TileAction(
+                  icon: CupertinoIcons.rectangle_stack_badge_minus,
+                  label: l10n.libraryRemoveFromAlbum,
+                  onPressed: () => _removeFromAlbum(r),
+                ),
+                TileAction(
+                  icon: CupertinoIcons.eye_slash,
+                  label: l10n.libraryHide,
+                  onPressed: () => _hide(r),
+                ),
+                TileAction(
+                  icon: CupertinoIcons.delete,
+                  label: l10n.libraryDeleteTooltip,
+                  isDestructive: true,
+                  onPressed: () => _delete(r),
+                ),
+              ],
+            ),
           );
   }
 

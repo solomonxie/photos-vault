@@ -1,3 +1,5 @@
+import '../support/edge_back_swipe.dart';
+
 import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/viewer/favorites_screen.dart';
@@ -79,4 +81,19 @@ void main() {
 
     expect(find.text('No favorites yet.'), findsOneWidget);
   });
+
+  testWidgets('a back swipe from the left edge leaves, starting downward', (
+    tester,
+  ) async {
+    final store = FakeAssetRecordStore();
+    await addPhotos(store);
+    for (var i = 0; i < 40; i++) {
+      await store.setFavorite('manual:p$i', true);
+    }
+    await expectEdgeSwipeLeaves(
+      tester,
+      () => FavoritesScreen(assetRecordStore: store),
+      FavoritesScreen,
+    );
+  }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 }

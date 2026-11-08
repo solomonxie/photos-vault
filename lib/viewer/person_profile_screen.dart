@@ -1,3 +1,4 @@
+import 'back_swipe_edge.dart';
 import 'person_deletion.dart';
 
 import 'package:flutter/cupertino.dart';
@@ -12,6 +13,8 @@ import '../photos/person.dart';
 import '../photos/face_identity.dart';
 import '../photos/person_detail.dart';
 import '../photos/person_owner.dart';
+import '../vault/owner_folder.dart';
+import 'owner_gate.dart';
 import '../photos/people_zip.dart' show undatedImport;
 import '../photos/person_store.dart';
 import '../photos/place_search.dart';
@@ -715,8 +718,24 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       if (await showVaultSetupSheet(context, keys: _vaultKeys) == null) return;
     }
     if (!mounted) return;
-    final passcode = await showPrivateAlbumPasscodeSheet(context);
-    if (passcode == null) return;
+    // Sealed sets are the owner's, under the same code as their folder.
+    final ownerId = await ensureOwner(
+      context,
+      store: widget.assetRecordStore,
+      people: widget.personStore,
+    );
+    if (ownerId == null || !mounted) return;
+    final digits = await showPrivateAlbumPasscodeSheet(context);
+    if (digits == null) return;
+    // What older builds sealed under the bare digits moves in first.
+    try {
+      await OwnerFolder(
+        store: widget.assetRecordStore,
+        people: widget.personStore,
+        vaultKeys: _vaultKeys,
+      ).adoptPlain(ownerId, digits, lookInBucket: false);
+    } catch (_) {}
+    final passcode = personAlbumCode(ownerId, digits);
 
     final tag = await PasscodeTags(
       records: widget.assetRecordStore,
@@ -1572,235 +1591,235 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
         ),
       ),
       child: SafeArea(
-        child: CustomScrollView(
-          controller: _scroll,
-          keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
-          slivers: [
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: _identity(l10n),
+        child: BackSwipeEdge<Object>(
+          child: CustomScrollView(
+            controller: _scroll,
+            keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
+            slivers: [
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 16),
+                  child: _identity(l10n),
+                ),
               ),
-            ),
-            SliverToBoxAdapter(child: _summary(l10n)),
-            SliverPersistentHeader(
-              pinned: true,
-              delegate: ProfileJumpBar([
-                ('about', l10n.profileJumpAbout),
-                ('chats', l10n.profileJumpChats),
-                ('people', l10n.profileJumpPeople),
-                ('work', l10n.profileJumpWork),
-                ('life', l10n.profileJumpLife),
-              ], _jump),
-            ),
-            ..._section(
-              id: 'about',
-              anchor: 'about',
-              title: l10n.profileAboutHeader,
-              body: () => _bioField(l10n),
-            ),
-            ..._section(
-              id: 'chats',
-              anchor: 'chats',
-              title: l10n.profileChatsHeader,
-              empty: _conversations == 0,
-              emptyHint: l10n.profileChatsPrompt,
-              body: () => ChatsPreview(data: _chats, onOpen: _openChats),
-            ),
-            ..._section(
-              id: 'words',
-              anchor: 'words',
-              title: l10n.wordsHeader,
-              count: _wordTotal,
-              empty: _wordCounts.isEmpty,
-              emptyHint: l10n.wordsPrompt,
-              body: _wordsSection,
-            ),
-            if (_travelRoutes.isNotEmpty || _travelEntries.isNotEmpty)
+              SliverToBoxAdapter(child: _summary(l10n)),
+              SliverPersistentHeader(
+                pinned: true,
+                delegate: ProfileJumpBar([
+                  ('about', l10n.profileJumpAbout),
+                  ('chats', l10n.profileJumpChats),
+                  ('people', l10n.profileJumpPeople),
+                  ('work', l10n.profileJumpWork),
+                  ('life', l10n.profileJumpLife),
+                ], _jump),
+              ),
               ..._section(
-                id: 'travels',
-                anchor: 'travels',
-                title: l10n.travelsHeader,
-                count: _travelRoutes.length + _travelEntries.length,
-                body: _travelsSection,
+                id: 'about',
+                anchor: 'about',
+                title: l10n.profileAboutHeader,
+                body: () => _bioField(l10n),
               ),
-            ..._section(
-              id: 'relationships',
-              anchor: 'people',
-              title: l10n.personProfileRelationshipsHeader,
-              count: people.length,
-              empty: people.isEmpty,
-              emptyHint: l10n.profileRelationshipsPrompt,
-              onAdd: () => _addOrEditRelationship(),
-              editable: true,
-              sliverBody: true,
-              body: () => ProfileRelationships(
-                relationships: people,
-                groupNames: _groupNames,
-                people: _peopleById,
-                sharedPhotos: _sharedPhotos,
-                assetRecordStore: widget.assetRecordStore,
-                editing: _editing.contains('relationships'),
-                typeLabel: (t) => _relationshipLabel(l10n, t),
-                onOpen: _openRelatedPerson,
-                onEdit: (r) => r.derived
-                    ? _addOrEditRelationship(
-                        preset: _peopleById[r.relatedPersonId],
-                      )
-                    : _addOrEditRelationship(existing: r),
-                onDelete: _removeRelationship,
+              ..._section(
+                id: 'chats',
+                anchor: 'chats',
+                title: l10n.profileChatsHeader,
+                empty: _conversations == 0,
+                emptyHint: l10n.profileChatsPrompt,
+                body: () => ChatsPreview(data: _chats, onOpen: _openChats),
               ),
-            ),
-            ..._section(
-              id: 'groups',
-              title: l10n.groupsHeader,
-              count: _groups.length,
-              empty: _groups.isEmpty,
-              emptyHint: l10n.groupsPromptHint,
-              onAdd: _addToGroup,
-              editable: true,
-              body: () => _groupsSection(l10n),
-            ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 8),
-                child: ProfileCard(
-                  children: [
-                    _linkRow(
-                      l10n.personProfileViewGraph,
-                      () => Navigator.of(context).push(
-                        CupertinoPageRoute(
-                          builder: (_) => PersonGraphScreen(
-                            personStore: widget.personStore,
-                            assetRecordStore: widget.assetRecordStore,
-                            focusPersonId: _person.id,
+              ..._section(
+                id: 'words',
+                anchor: 'words',
+                title: l10n.wordsHeader,
+                count: _wordTotal,
+                empty: _wordCounts.isEmpty,
+                emptyHint: l10n.wordsPrompt,
+                body: _wordsSection,
+              ),
+              if (_travelRoutes.isNotEmpty || _travelEntries.isNotEmpty)
+                ..._section(
+                  id: 'travels',
+                  anchor: 'travels',
+                  title: l10n.travelsHeader,
+                  count: _travelRoutes.length + _travelEntries.length,
+                  body: _travelsSection,
+                ),
+              ..._section(
+                id: 'relationships',
+                anchor: 'people',
+                title: l10n.personProfileRelationshipsHeader,
+                count: people.length,
+                empty: people.isEmpty,
+                emptyHint: l10n.profileRelationshipsPrompt,
+                onAdd: () => _addOrEditRelationship(),
+                editable: true,
+                sliverBody: true,
+                body: () => ProfileRelationships(
+                  relationships: people,
+                  groupNames: _groupNames,
+                  people: _peopleById,
+                  sharedPhotos: _sharedPhotos,
+                  assetRecordStore: widget.assetRecordStore,
+                  editing: _editing.contains('relationships'),
+                  typeLabel: (t) => _relationshipLabel(l10n, t),
+                  onOpen: _openRelatedPerson,
+                  onEdit: (r) => r.derived
+                      ? _addOrEditRelationship(
+                          preset: _peopleById[r.relatedPersonId],
+                        )
+                      : _addOrEditRelationship(existing: r),
+                  onDelete: _removeRelationship,
+                ),
+              ),
+              ..._section(
+                id: 'groups',
+                title: l10n.groupsHeader,
+                count: _groups.length,
+                empty: _groups.isEmpty,
+                emptyHint: l10n.groupsPromptHint,
+                onAdd: _addToGroup,
+                editable: true,
+                body: () => _groupsSection(l10n),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 8),
+                  child: ProfileCard(
+                    children: [
+                      _linkRow(
+                        l10n.personProfileViewGraph,
+                        () => Navigator.of(context).push(
+                          CupertinoPageRoute(
+                            builder: (_) => PersonGraphScreen(
+                              personStore: widget.personStore,
+                              assetRecordStore: widget.assetRecordStore,
+                              focusPersonId: _person.id,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  ],
+                    ],
+                  ),
                 ),
               ),
-            ),
-            ..._section(
-              id: 'job',
-              anchor: 'work',
-              title: l10n.personProfileJobLabel,
-              count: _jobs.length,
-              empty: _jobs.isEmpty,
-              emptyHint: l10n.personProfileJobPromptHint,
-              onAdd: () => _addHistoryEntry(
-                HistoryCategory.job,
-                l10n.personProfileJobLabel,
+              ..._section(
+                id: 'job',
+                anchor: 'work',
+                title: l10n.personProfileJobLabel,
+                count: _jobs.length,
+                empty: _jobs.isEmpty,
+                emptyHint: l10n.personProfileJobPromptHint,
+                onAdd: () => _addHistoryEntry(
+                  HistoryCategory.job,
+                  l10n.personProfileJobLabel,
+                ),
+                body: () => HistoryTimeline(
+                  entries: _jobs,
+                  onOpen: (e) =>
+                      _openHistoryEntry(e, l10n.personProfileJobLabel),
+                ),
               ),
-              body: () => HistoryTimeline(
-                entries: _jobs,
-                onOpen: (e) => _openHistoryEntry(e, l10n.personProfileJobLabel),
+              ..._section(
+                id: 'education',
+                title: l10n.personProfileEducationLabel,
+                count: _education.length,
+                empty: _education.isEmpty,
+                emptyHint: l10n.personProfileEducationPromptHint,
+                onAdd: () => _addHistoryEntry(
+                  HistoryCategory.education,
+                  l10n.personProfileEducationLabel,
+                ),
+                body: () => HistoryTimeline(
+                  entries: _education,
+                  onOpen: (e) =>
+                      _openHistoryEntry(e, l10n.personProfileEducationLabel),
+                ),
               ),
-            ),
-            ..._section(
-              id: 'education',
-              title: l10n.personProfileEducationLabel,
-              count: _education.length,
-              empty: _education.isEmpty,
-              emptyHint: l10n.personProfileEducationPromptHint,
-              onAdd: () => _addHistoryEntry(
-                HistoryCategory.education,
-                l10n.personProfileEducationLabel,
+              ..._section(
+                id: 'places',
+                anchor: 'life',
+                title: l10n.personProfileLocationHeader,
+                count: _locations.length,
+                empty: _locations.isEmpty,
+                emptyHint: l10n.personProfileLocationPromptHint,
+                onAdd: () => _editLocation(),
+                editable: true,
+                body: () => _placesSection(l10n),
               ),
-              body: () => HistoryTimeline(
-                entries: _education,
-                onOpen: (e) =>
-                    _openHistoryEntry(e, l10n.personProfileEducationLabel),
+              ..._section(
+                id: 'events',
+                title: l10n.eventsHeader,
+                onAdd: () => _editEvent(),
+                editable: _events.any((e) => !e.isFixed),
+                body: () => _eventsSection(l10n),
               ),
-            ),
-            ..._section(
-              id: 'places',
-              anchor: 'life',
-              title: l10n.personProfileLocationHeader,
-              count: _locations.length,
-              empty: _locations.isEmpty,
-              emptyHint: l10n.personProfileLocationPromptHint,
-              onAdd: () => _editLocation(),
-              editable: true,
-              body: () => _placesSection(l10n),
-            ),
-            ..._section(
-              id: 'events',
-              title: l10n.eventsHeader,
-              onAdd: () => _editEvent(),
-              editable: _events.any((e) => !e.isFixed),
-              body: () => _eventsSection(l10n),
-            ),
-            ..._section(
-              id: 'impression',
-              title: l10n.impressionHeader,
-              body: () => ProfileImpression(
-                impression: _detail.impression,
-                onChanged: (i) =>
-                    _persistDetail(_detail.copyWith(impression: i)),
+              ..._section(
+                id: 'impression',
+                title: l10n.impressionHeader,
+                body: () => ProfileImpression(
+                  impression: _detail.impression,
+                  onChanged: (i) =>
+                      _persistDetail(_detail.copyWith(impression: i)),
+                ),
               ),
-            ),
-            ..._moreDetails(l10n),
-            ..._section(
-              id: 'names',
-              title: l10n.profileNamePartsHeader,
-              body: () => _nameParts(l10n),
-            ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                child: ProfileCard(
-                  children: [
-                    _linkRow(
-                      l10n.timelineTitle,
-                      () => Navigator.of(context).push(
-                        CupertinoPageRoute<void>(
-                          builder: (_) => PersonTimelineScreen(
-                            person: _person,
-                            personStore: widget.personStore,
-                            assetRecordStore: widget.assetRecordStore,
-                            conversationStore: _conversationStore,
+              ..._moreDetails(l10n),
+              ..._section(
+                id: 'names',
+                title: l10n.profileNamePartsHeader,
+                body: () => _nameParts(l10n),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
+                  child: ProfileCard(
+                    children: [
+                      _linkRow(
+                        l10n.timelineTitle,
+                        () => Navigator.of(context).push(
+                          CupertinoPageRoute<void>(
+                            builder: (_) => PersonTimelineScreen(
+                              person: _person,
+                              personStore: widget.personStore,
+                              assetRecordStore: widget.assetRecordStore,
+                              conversationStore: _conversationStore,
+                            ),
                           ),
+                        ),
+                        key: const ValueKey('personTimelineRow'),
+                      ),
+                      _linkRow(l10n.personChangesRow, () async {
+                        await Navigator.of(context).push(
+                          CupertinoPageRoute(
+                            builder: (_) => PersonChangeLogScreen(
+                              person: _person,
+                              personStore: widget.personStore,
+                            ),
+                          ),
+                        );
+                        await _loadFormerNames();
+                      }, key: const ValueKey('personChangesRow')),
+                    ],
+                  ),
+                ),
+              ),
+              SliverToBoxAdapter(
+                child: Padding(
+                  padding: const EdgeInsets.only(top: 24, bottom: 32),
+                  child: Center(
+                    child: CupertinoButton(
+                      onPressed: _confirmDeletePerson,
+                      child: Text(
+                        l10n.personProfileDeletePerson,
+                        style: const TextStyle(
+                          color: CupertinoColors.systemRed,
                         ),
                       ),
-                      key: const ValueKey('personTimelineRow'),
-                    ),
-                    _linkRow(l10n.personChangesRow, () async {
-                      await Navigator.of(context).push(
-                        CupertinoPageRoute(
-                          builder: (_) => PersonChangeLogScreen(
-                            person: _person,
-                            personStore: widget.personStore,
-                          ),
-                        ),
-                      );
-                      await _loadFormerNames();
-                    }, key: const ValueKey('personChangesRow')),
-                  ],
-                ),
-              ),
-            ),
-            ..._section(
-              id: 'utilities',
-              title: l10n.utilitiesHeader,
-              body: () => _utilitiesSection(l10n),
-            ),
-            SliverToBoxAdapter(
-              child: Padding(
-                padding: const EdgeInsets.only(top: 24, bottom: 32),
-                child: Center(
-                  child: CupertinoButton(
-                    onPressed: _confirmDeletePerson,
-                    child: Text(
-                      l10n.personProfileDeletePerson,
-                      style: const TextStyle(color: CupertinoColors.systemRed),
                     ),
                   ),
                 ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );
@@ -2172,28 +2191,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     RelationshipType.schoolmate => l10n.ownerRelationSchoolmate,
     RelationshipType.other => l10n.ownerRelationOther,
   };
-
-  /// Odd jobs, at the bottom, above Delete Person.
-  Widget _utilitiesSection(AppLocalizations l10n) =>
-      CupertinoListSection.insetGrouped(
-        margin: const EdgeInsets.symmetric(horizontal: 16),
-        backgroundColor: profileCardBackground,
-        decoration: profileCardDecoration,
-        children: [
-          CupertinoListTile(
-            key: const ValueKey('utility-this-is-me'),
-            title: Text(l10n.ownerThisIsMe),
-            subtitle: Text(l10n.ownerThisIsMeNote),
-            trailing: CupertinoSwitch(
-              value: _person.id == _ownerId,
-              onChanged: (on) async {
-                await _owner.set(on ? _person.id : null);
-                await _reload();
-              },
-            ),
-          ),
-        ],
-      );
 }
 
 extension _FirstOrNull<T> on Iterable<T> {

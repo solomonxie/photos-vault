@@ -11,6 +11,7 @@ import '../storage/album_store.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
 import 'asset_group_screen.dart';
+import 'back_swipe_edge.dart';
 
 /// Busy days in no album, each one tap from an album or the Archive. What
 /// is done or waved off drops out.
@@ -214,23 +215,25 @@ class _AlbumSuggestionsScreenState extends State<AlbumSuggestionsScreen> {
         middle: Text(l10n.albumSuggestionsTitle),
       ),
       child: SafeArea(
-        child: ListView.separated(
-          padding: const EdgeInsets.fromLTRB(
-            settingsPagePadding,
-            12,
-            settingsPagePadding,
-            32,
-          ),
-          itemCount: _left.length,
-          separatorBuilder: (_, _) => const SizedBox(height: 12),
-          itemBuilder: (context, i) => _SuggestionCard(
-            key: ValueKey('album-suggestion-${_left[i].key}'),
-            suggestion: _left[i],
-            title: dateRange(context, _left[i]),
-            onReview: () => _review(_left[i]),
-            onCreate: () => _createAlbum(_left[i]),
-            onArchive: () => _archive(_left[i]),
-            onDismiss: () => _dismiss(_left[i]),
+        child: BackSwipeEdge<Object>(
+          child: ListView.separated(
+            padding: const EdgeInsets.fromLTRB(
+              settingsPagePadding,
+              12,
+              settingsPagePadding,
+              32,
+            ),
+            itemCount: _left.length,
+            separatorBuilder: (_, _) => const SizedBox(height: 12),
+            itemBuilder: (context, i) => _SuggestionCard(
+              key: ValueKey('album-suggestion-${_left[i].key}'),
+              suggestion: _left[i],
+              title: dateRange(context, _left[i]),
+              onReview: () => _review(_left[i]),
+              onCreate: () => _createAlbum(_left[i]),
+              onArchive: () => _archive(_left[i]),
+              onDismiss: () => _dismiss(_left[i]),
+            ),
           ),
         ),
       ),

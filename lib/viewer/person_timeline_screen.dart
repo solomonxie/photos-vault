@@ -9,6 +9,7 @@ import '../settings/settings_section.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_group_screen.dart';
+import 'back_swipe_edge.dart';
 import 'person_event_sheet.dart' show eventTypeLabel;
 
 /// One thing on a person's timeline: an event, a start or end, a move, a
@@ -195,47 +196,52 @@ class _PersonTimelineScreenState extends State<PersonTimelineScreen> {
             ? const Center(child: CupertinoActivityIndicator())
             : entries.isEmpty
             ? Center(child: Text(l10n.timelineEmpty, style: settingsHintStyle))
-            : ListView.builder(
-                padding: const EdgeInsets.symmetric(vertical: 8),
-                itemCount: entries.length,
-                itemBuilder: (context, i) {
-                  final e = entries[i];
-                  final newYear = i == 0 || entries[i - 1].at.year != e.at.year;
-                  return Column(
-                    crossAxisAlignment: CrossAxisAlignment.stretch,
-                    children: [
-                      if (newYear)
-                        Padding(
-                          padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
-                          child: Text(
-                            '${e.at.year}',
-                            style: settingsRowTitleStyle,
+            : BackSwipeEdge<Object>(
+                child: ListView.builder(
+                  padding: const EdgeInsets.symmetric(vertical: 8),
+                  itemCount: entries.length,
+                  itemBuilder: (context, i) {
+                    final e = entries[i];
+                    final newYear =
+                        i == 0 || entries[i - 1].at.year != e.at.year;
+                    return Column(
+                      crossAxisAlignment: CrossAxisAlignment.stretch,
+                      children: [
+                        if (newYear)
+                          Padding(
+                            padding: const EdgeInsets.fromLTRB(16, 16, 16, 4),
+                            child: Text(
+                              '${e.at.year}',
+                              style: settingsRowTitleStyle,
+                            ),
                           ),
+                        CupertinoListTile(
+                          key: ValueKey('timeline-$i'),
+                          backgroundColor: settingsPageBackground,
+                          leading: Icon(
+                            e.icon,
+                            color: CupertinoColors.systemGrey,
+                          ),
+                          title: Text(e.title),
+                          subtitle: Text(
+                            [
+                              (e.month
+                                      ? DateFormat.yMMMM()
+                                      : DateFormat.yMMMd())
+                                  .format(e.at),
+                              if (e.detail.isNotEmpty) e.detail,
+                            ].join(' · '),
+                            maxLines: 2,
+                          ),
+                          trailing: e.photos.isEmpty
+                              ? null
+                              : const CupertinoListTileChevron(),
+                          onTap: e.photos.isEmpty ? null : () => _openPhotos(e),
                         ),
-                      CupertinoListTile(
-                        key: ValueKey('timeline-$i'),
-                        backgroundColor: settingsPageBackground,
-                        leading: Icon(
-                          e.icon,
-                          color: CupertinoColors.systemGrey,
-                        ),
-                        title: Text(e.title),
-                        subtitle: Text(
-                          [
-                            (e.month ? DateFormat.yMMMM() : DateFormat.yMMMd())
-                                .format(e.at),
-                            if (e.detail.isNotEmpty) e.detail,
-                          ].join(' · '),
-                          maxLines: 2,
-                        ),
-                        trailing: e.photos.isEmpty
-                            ? null
-                            : const CupertinoListTileChevron(),
-                        onTap: e.photos.isEmpty ? null : () => _openPhotos(e),
-                      ),
-                    ],
-                  );
-                },
+                      ],
+                    );
+                  },
+                ),
               ),
       ),
     );

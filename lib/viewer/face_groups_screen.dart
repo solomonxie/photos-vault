@@ -10,6 +10,7 @@ import '../photos/person_store.dart';
 import '../settings/settings_section.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import 'back_swipe_edge.dart';
 import 'imported_group_screen.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
@@ -297,104 +298,108 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
         child: Column(
           children: [
             Expanded(
-              child: ListView(
-                key: ValueKey(
-                  widget.ignored ? 'people-ignored-page' : 'people-faces-page',
-                ),
-                children: [
-                  if (widget.ignored && _ignoredPeople.isNotEmpty) ...[
-                    _heading(l10n.peopleSectionNamed, _ignoredPeople.length),
-                    for (final p in _ignoredPeople) _personRow(l10n, p),
-                  ],
-                  if (widget.ignored && _groups.isNotEmpty) ...[
-                    _heading(l10n.peopleIgnoredFacesSection, _groups.length),
-                    Padding(
-                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
-                      child: Text(
-                        l10n.faceGroupsIgnoredHint,
-                        style: settingsHintStyle,
-                      ),
-                    ),
-                  ],
-                  if (_loaded &&
-                      _groups.isEmpty &&
-                      (!widget.ignored || _ignoredPeople.isEmpty))
-                    Padding(
-                      padding: const EdgeInsets.only(top: 48),
-                      child: Center(
+              child: BackSwipeEdge<Object>(
+                child: ListView(
+                  key: ValueKey(
+                    widget.ignored
+                        ? 'people-ignored-page'
+                        : 'people-faces-page',
+                  ),
+                  children: [
+                    if (widget.ignored && _ignoredPeople.isNotEmpty) ...[
+                      _heading(l10n.peopleSectionNamed, _ignoredPeople.length),
+                      for (final p in _ignoredPeople) _personRow(l10n, p),
+                    ],
+                    if (widget.ignored && _groups.isNotEmpty) ...[
+                      _heading(l10n.peopleIgnoredFacesSection, _groups.length),
+                      Padding(
+                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
                         child: Text(
-                          widget.ignored
-                              ? l10n.faceGroupsIgnoredEmpty
-                              : l10n.faceGroupsAllNamed,
-                          style: const TextStyle(
-                            color: CupertinoColors.systemGrey,
+                          l10n.faceGroupsIgnoredHint,
+                          style: settingsHintStyle,
+                        ),
+                      ),
+                    ],
+                    if (_loaded &&
+                        _groups.isEmpty &&
+                        (!widget.ignored || _ignoredPeople.isEmpty))
+                      Padding(
+                        padding: const EdgeInsets.only(top: 48),
+                        child: Center(
+                          child: Text(
+                            widget.ignored
+                                ? l10n.faceGroupsIgnoredEmpty
+                                : l10n.faceGroupsAllNamed,
+                            style: const TextStyle(
+                              color: CupertinoColors.systemGrey,
+                            ),
                           ),
                         ),
                       ),
-                    ),
-                  if (!widget.ignored && !_selecting && _ignoredCount > 0)
-                    CupertinoListTile(
-                      key: const ValueKey('faceGroupsIgnored'),
-                      leading: const Icon(
-                        CupertinoIcons.eye_slash,
-                        color: CupertinoColors.systemGrey,
-                      ),
-                      title: Text(l10n.faceGroupsIgnoredTitle),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '$_ignoredCount',
-                            style: const TextStyle(
-                              color: CupertinoColors.systemGrey,
+                    if (!widget.ignored && !_selecting && _ignoredCount > 0)
+                      CupertinoListTile(
+                        key: const ValueKey('faceGroupsIgnored'),
+                        leading: const Icon(
+                          CupertinoIcons.eye_slash,
+                          color: CupertinoColors.systemGrey,
+                        ),
+                        title: Text(l10n.faceGroupsIgnoredTitle),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '$_ignoredCount',
+                              style: const TextStyle(
+                                color: CupertinoColors.systemGrey,
+                              ),
                             ),
-                          ),
-                          const SizedBox(width: 4),
-                          const Icon(
-                            CupertinoIcons.chevron_forward,
-                            size: 18,
-                            color: CupertinoColors.systemGrey2,
-                          ),
-                        ],
-                      ),
-                      onTap: _openIgnored,
-                    ),
-                  if (_groups.where((g) => _photos(g) < _foldUnder).toList()
-                      case final small when small.isNotEmpty) ...[
-                    CupertinoListTile(
-                      key: const ValueKey('faceGroupsSmall'),
-                      leading: const Icon(
-                        CupertinoIcons.square_stack,
-                        color: CupertinoColors.systemGrey,
-                      ),
-                      title: Text(l10n.faceGroupsSmall(_foldUnder)),
-                      trailing: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          Text(
-                            '${small.length}',
-                            style: const TextStyle(
-                              color: CupertinoColors.systemGrey,
+                            const SizedBox(width: 4),
+                            const Icon(
+                              CupertinoIcons.chevron_forward,
+                              size: 18,
+                              color: CupertinoColors.systemGrey2,
                             ),
-                          ),
-                          const SizedBox(width: 4),
-                          Icon(
-                            _showSmall
-                                ? CupertinoIcons.chevron_up
-                                : CupertinoIcons.chevron_down,
-                            size: 18,
-                            color: CupertinoColors.systemGrey2,
-                          ),
-                        ],
+                          ],
+                        ),
+                        onTap: _openIgnored,
                       ),
-                      onTap: () => setState(() => _showSmall = !_showSmall),
-                    ),
-                    if (_showSmall)
-                      for (final g in small) _row(l10n, g),
+                    if (_groups.where((g) => _photos(g) < _foldUnder).toList()
+                        case final small when small.isNotEmpty) ...[
+                      CupertinoListTile(
+                        key: const ValueKey('faceGroupsSmall'),
+                        leading: const Icon(
+                          CupertinoIcons.square_stack,
+                          color: CupertinoColors.systemGrey,
+                        ),
+                        title: Text(l10n.faceGroupsSmall(_foldUnder)),
+                        trailing: Row(
+                          mainAxisSize: MainAxisSize.min,
+                          children: [
+                            Text(
+                              '${small.length}',
+                              style: const TextStyle(
+                                color: CupertinoColors.systemGrey,
+                              ),
+                            ),
+                            const SizedBox(width: 4),
+                            Icon(
+                              _showSmall
+                                  ? CupertinoIcons.chevron_up
+                                  : CupertinoIcons.chevron_down,
+                              size: 18,
+                              color: CupertinoColors.systemGrey2,
+                            ),
+                          ],
+                        ),
+                        onTap: () => setState(() => _showSmall = !_showSmall),
+                      ),
+                      if (_showSmall)
+                        for (final g in small) _row(l10n, g),
+                    ],
+                    for (final g in _groups)
+                      if (_photos(g) >= _foldUnder) _row(l10n, g),
                   ],
-                  for (final g in _groups)
-                    if (_photos(g) >= _foldUnder) _row(l10n, g),
-                ],
+                ),
               ),
             ),
             if (_selecting)

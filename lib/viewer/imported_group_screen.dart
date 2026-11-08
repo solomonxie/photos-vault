@@ -12,6 +12,7 @@ import '../settings/settings_section.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
+import 'back_swipe_edge.dart';
 import 'delete_confirmation.dart';
 import 'person_avatar.dart';
 import 'person_picker_sheet.dart';
@@ -22,7 +23,8 @@ typedef _Face = ({String localId, FaceRect face});
 /// `docs/design/face-recognition/MAC-PIPELINE.md`), all ticked: tap leaves one out, touch and hold opens
 /// its photo. Name the ticked ones, take them out of the group, ignore
 /// them, or delete their photos. Faces or whole photos, one selection.
-/// With [ignored], an ignored group: its faces, and Stop Ignoring.
+/// With [ignored], an ignored group: its faces, Stop Ignoring, and Name;
+/// a person made here stays ignored.
 class ImportedGroupScreen extends StatefulWidget {
   const ImportedGroupScreen({
     super.key,
@@ -132,18 +134,23 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
     final f = _faces[i];
     final record = widget.records[f.localId];
     if (record == null) return const SizedBox.shrink();
-    return AssetTile(
-      key: ValueKey('photo|${f.localId}|${f.face.encode()}'),
-      record: record,
-      extent: extent,
-      cornerColor: settingsPageBackground,
-      selected: _picked.contains(f),
-      onTap: () => setState(
-        () => _picked.contains(f) ? _picked.remove(f) : _picked.add(f),
+    void toggle() => setState(
+      () => _picked.contains(f) ? _picked.remove(f) : _picked.add(f),
+    );
+    final open = widget.onOpenAsset == null
+        ? null
+        : () => widget.onOpenAsset!(f.localId);
+    return MetaData(
+      metaData: EdgeTap(toggle, open),
+      child: AssetTile(
+        key: ValueKey('photo|${f.localId}|${f.face.encode()}'),
+        record: record,
+        extent: extent,
+        cornerColor: settingsPageBackground,
+        selected: _picked.contains(f),
+        onTap: toggle,
+        onLongPress: open,
       ),
-      onLongPress: widget.onOpenAsset == null
-          ? null
-          : () => widget.onOpenAsset!(f.localId),
     );
   }
 
@@ -227,6 +234,10 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
     if (person == null || !mounted) return;
     setState(() => _busy = true);
     try {
+      final isNew = !candidates.any((c) => c.id == person.id);
+      if (widget.ignored && isNew) {
+        await widget.personStore.update(person.copyWith(ignored: true));
+      }
       final named = await _import.name(person.id, ticked);
       if (!mounted) return;
       _undo = (personId: person.id, faces: named);
@@ -456,50 +467,60 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
               ),
             if (_asPhotos)
               Expanded(
-                child: LayoutBuilder(
-                  builder: (context, box) {
-                    final across = (box.maxWidth / 120).ceil().clamp(3, 8);
-                    final extent = (box.maxWidth - (across - 1) * 2) / across;
-                    return GridView.builder(
-                      key: const ValueKey('faceGroupPhotos'),
-                      gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
-                        crossAxisCount: across,
-                        mainAxisSpacing: 2,
-                        crossAxisSpacing: 2,
-                      ),
-                      itemCount: _faces.length,
-                      itemBuilder: (context, i) => _photoTile(i, extent),
-                    );
-                  },
+                child: backSwipeTiles(
+                  child: LayoutBuilder(
+                    builder: (context, box) {
+                      final across = (box.maxWidth / 120).ceil().clamp(3, 8);
+                      final extent = (box.maxWidth - (across - 1) * 2) / across;
+                      return GridView.builder(
+                        key: const ValueKey('faceGroupPhotos'),
+                        gridDelegate: SliverGridDelegateWithFixedCrossAxisCount(
+                          crossAxisCount: across,
+                          mainAxisSpacing: 2,
+                          crossAxisSpacing: 2,
+                        ),
+                        itemCount: _faces.length,
+                        itemBuilder: (context, i) => _photoTile(i, extent),
+                      );
+                    },
+                  ),
                 ),
               )
             else
               Expanded(
-                child: GridView.builder(
-                  padding: const EdgeInsets.all(8),
-                  gridDelegate: const SliverGridDelegateWithMaxCrossAxisExtent(
-                    maxCrossAxisExtent: 88,
-                    mainAxisSpacing: 8,
-                    crossAxisSpacing: 8,
-                  ),
-                  itemCount: _faces.length,
-                  itemBuilder: (context, i) {
-                    final f = _faces[i];
-                    return _FaceTile(
-                      key: ValueKey('${f.localId}|${f.face.encode()}'),
-                      face: f,
-                      on: widget.ignored || !_off.contains(i),
-                      tick: !widget.ignored,
-                      records: widget.records,
-                      assetRecordStore: widget.assetRecordStore,
-                      onTap: widget.ignored
+                child: backSwipeTiles(
+                  child: GridView.builder(
+                    padding: const EdgeInsets.all(8),
+                    gridDelegate:
+                        const SliverGridDelegateWithMaxCrossAxisExtent(
+                          maxCrossAxisExtent: 88,
+                          mainAxisSpacing: 8,
+                          crossAxisSpacing: 8,
+                        ),
+                    itemCount: _faces.length,
+                    itemBuilder: (context, i) {
+                      final f = _faces[i];
+                      final tap = widget.ignored
                           ? () => widget.onOpenAsset?.call(f.localId)
-                          : () => _toggle(i),
-                      onLongPress: widget.onOpenAsset == null
+                          : () => _toggle(i);
+                      final hold = widget.onOpenAsset == null
                           ? null
-                          : () => widget.onOpenAsset!(f.localId),
-                    );
-                  },
+                          : () => widget.onOpenAsset!(f.localId);
+                      return MetaData(
+                        metaData: EdgeTap(tap, hold),
+                        child: _FaceTile(
+                          key: ValueKey('${f.localId}|${f.face.encode()}'),
+                          face: f,
+                          on: widget.ignored || !_off.contains(i),
+                          tick: !widget.ignored,
+                          records: widget.records,
+                          assetRecordStore: widget.assetRecordStore,
+                          onTap: tap,
+                          onLongPress: hold,
+                        ),
+                      );
+                    },
+                  ),
                 ),
               ),
             if (_asPhotos)
@@ -530,13 +551,28 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
             else if (widget.ignored)
               Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
-                child: SizedBox(
-                  width: double.infinity,
-                  child: CupertinoButton.filled(
-                    key: const ValueKey('faceGroupUnignore'),
-                    onPressed: _busy ? null : _unignore,
-                    child: Text(l10n.faceGroupsUnignore),
-                  ),
+                child: Row(
+                  children: [
+                    Expanded(
+                      child: CupertinoButton(
+                        key: const ValueKey('faceGroupUnignore'),
+                        color: settingsControlFill,
+                        onPressed: _busy ? null : _unignore,
+                        child: FittedBox(
+                          fit: BoxFit.scaleDown,
+                          child: Text(l10n.faceGroupsUnignore, maxLines: 1),
+                        ),
+                      ),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: CupertinoButton.filled(
+                        key: const ValueKey('faceGroupName'),
+                        onPressed: _busy ? null : _name,
+                        child: Text(l10n.faceGroupsName),
+                      ),
+                    ),
+                  ],
                 ),
               )
             else

@@ -8,6 +8,7 @@ import '../storage/asset_record_store.dart';
 import '../upload/pending_deletes.dart';
 import 'asset_grid.dart';
 import 'asset_grid_view.dart';
+import 'back_swipe_edge.dart';
 import 'detail_screen.dart';
 import 'zoom_page_route.dart';
 
@@ -232,22 +233,25 @@ class _RecentlyDeletedScreenState extends State<RecentlyDeletedScreen> {
                           ),
                         ),
                         Expanded(
-                          child: AssetGridView(
-                            records: _records,
+                          child: BackSwipeEdge<AssetRecord>(
                             onTap: _open,
-                            actionsFor: (r) => [
-                              TileAction(
-                                icon: CupertinoIcons.arrow_uturn_left,
-                                label: l10n.libraryRecover,
-                                onPressed: () => _recover(r),
-                              ),
-                              TileAction(
-                                icon: CupertinoIcons.delete,
-                                label: l10n.libraryDeletePermanentlyAction,
-                                isDestructive: true,
-                                onPressed: () => _deletePermanently(r),
-                              ),
-                            ],
+                            child: AssetGridView(
+                              records: _records,
+                              onTap: _open,
+                              actionsFor: (r) => [
+                                TileAction(
+                                  icon: CupertinoIcons.arrow_uturn_left,
+                                  label: l10n.libraryRecover,
+                                  onPressed: () => _recover(r),
+                                ),
+                                TileAction(
+                                  icon: CupertinoIcons.delete,
+                                  label: l10n.libraryDeletePermanentlyAction,
+                                  isDestructive: true,
+                                  onPressed: () => _deletePermanently(r),
+                                ),
+                              ],
+                            ),
                           ),
                         ),
                       ],

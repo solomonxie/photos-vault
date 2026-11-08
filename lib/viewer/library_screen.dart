@@ -39,6 +39,8 @@ import '../photos/on_device_analysis.dart';
 import '../photos/person.dart';
 import '../photos/people_order.dart';
 import '../photos/people_zip.dart' show PeopleZip;
+import '../photos/person_owner.dart';
+import '../photos/person_placement.dart';
 import '../photos/person_store.dart';
 import '../photos/face_identity.dart';
 import '../photos/photo_library_change.dart';
@@ -113,6 +115,7 @@ import 'people_screen.dart';
 import 'photo_grid_layout.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
+import 'owner_gate.dart';
 import 'private_album_gate.dart';
 import 'private_album_screen.dart';
 import 'recently_deleted_screen.dart';
@@ -121,6 +124,7 @@ import 'person_picker_sheet.dart';
 import 'search_picker_sheet.dart';
 import 'suggestions_screen.dart';
 import 'zoom_page_route.dart';
+import 'date_time_sheet.dart';
 
 /// The whole app, one page — matches real Photos: no separate "Library" vs
 /// "Collections" tabs, just a day-grouped grid up top and Media
@@ -823,7 +827,17 @@ class LibraryScreenState extends State<LibraryScreen>
     _housekeeping = Timer(const Duration(seconds: 5), () async {
       await _markZipPhotosOnce();
       await _binLeftBehindOnce();
+      try {
+        // Kept the old way, or by a restored older backup: given an owner.
+        await PersonPlacement(
+          records: assetRecordStore,
+          people: _personStore,
+        ).convertLegacy(await assetRecordStore.listAll());
+      } catch (_) {
+        // Tried again next launch.
+      }
       if (!mounted) return;
+      await reload();
       try {
         await backfillImportLog(
           people: _personStore,
@@ -2089,8 +2103,13 @@ class LibraryScreenState extends State<LibraryScreen>
     if (_offeringShared || !mounted) return;
     _offeringShared = true;
     try {
+      // Into the owner's folder; with nobody set yet, under the bare
+      // code, which moves there on the main page's next unlock.
+      final owner = await PersonOwner(assetRecordStore).id();
+      final tags = PasscodeTags(records: assetRecordStore);
       final filed = await _shareInbox.fileBatches(
-        tagFor: PasscodeTags(records: assetRecordStore).tagFor,
+        tagFor: (code) =>
+            tags.tagFor(owner == null ? code : personAlbumCode(owner, code)),
       );
       if (filed.isNotEmpty) {
         // Their encrypted copies only; never the plain upload path.
@@ -2119,10 +2138,16 @@ class LibraryScreenState extends State<LibraryScreen>
         ),
       );
       if (hide == null || !mounted) return;
+      final ownerId = await ensureOwner(
+        context,
+        store: assetRecordStore,
+        people: _personStore,
+      );
+      if (ownerId == null || !mounted) return;
       final passcode = await askHideCode(context);
       if (passcode == null) return;
       final hash = await PasscodeTags(records: assetRecordStore)
-          .tagFor(passcode);
+          .tagFor(personAlbumCode(ownerId, passcode));
       final hidden = await _shareInbox.file(passcodeHash: hash);
       // Their encrypted copies only; never the plain upload path.
       unawaited(_hiddenBackup.run().catchError((_) {}));
@@ -2401,8 +2426,8 @@ class LibraryScreenState extends State<LibraryScreen>
 
   Future<void> _batchArchive() => _setArchived(_selectedRecords, true);
 
-  /// Onto one person and off the library: tagged to them, filed away, and
-  /// shown on their page only ([AssetRecord.peopleOnly]).
+  /// Given to one person and tagged: off the library, on their page only
+  /// ([AssetRecord.ownerId]). To the owner, just tagged.
   Future<void> _batchMoveToPerson() async {
     final records = [
       for (final r in _selectedRecords)
@@ -2421,14 +2446,22 @@ class LibraryScreenState extends State<LibraryScreen>
     );
     if (person == null || !mounted) return;
     final ids = [for (final r in records) r.localId];
-    await _personStore.addAssets(person.id, ids);
-    await assetRecordStore.setArchived(ids, true);
-    await assetRecordStore.setPeopleOnly(ids, true);
+    // The owner's own library is this one: tagged, and left here.
+    final placement = PersonPlacement(
+      records: assetRecordStore,
+      people: _personStore,
+    );
+    final toOwner = await placement.isOwner(person.id);
+    await placement.keepFor(person.id, ids);
     if (!mounted) return;
     setState(() => _selection = null);
     await reload();
     if (!mounted) return;
-    _showResult(l10n.selectionMovedToPerson(ids.length, person.name));
+    _showResult(
+      toOwner
+          ? l10n.selectionTaggedOwner(ids.length, person.name)
+          : l10n.selectionMovedToPerson(ids.length, person.name),
+    );
   }
 
   /// Hiding takes the photo out of Photos as well — otherwise "hidden"
@@ -2452,6 +2485,7 @@ class LibraryScreenState extends State<LibraryScreen>
         custody: _custody,
         targetsStore: _backupTargetsStore,
         analysisStore: _aiAnalysisStore,
+        personStore: _personStore,
         onSettled: () {
           if (mounted) reload();
         },
@@ -2980,49 +3014,19 @@ class LibraryScreenState extends State<LibraryScreen>
   /// so a batch of shots keeps its internal spacing — the same thing
   /// Photos' "Adjust Date & Time" does to a multi-selection.
   Future<void> _batchAdjustDateTime() async {
-    final l10n = AppLocalizations.of(context)!;
     final selected = _selectedRecords;
     if (selected.isEmpty) return;
     final anchor = selected
         .map((r) => r.createdAt)
         .reduce((a, b) => a.isBefore(b) ? a : b)
         .toLocal();
-    var picked = anchor;
-    final saved = await showCupertinoModalPopup<bool>(
-      context: context,
-      builder: (context) => CupertinoActionSheet(
-        title: Text(l10n.detailEditDateTimeTitle),
-        message: SizedBox(
-          height: 200,
-          child: CupertinoDatePicker(
-            mode: CupertinoDatePickerMode.dateAndTime,
-            initialDateTime: anchor,
-            maximumDate: DateTime.now(),
-            onDateTimeChanged: (value) => picked = value,
-          ),
-        ),
-        actions: [
-          CupertinoActionSheetAction(
-            onPressed: () => Navigator.of(context).pop(true),
-            child: Text(l10n.settingsSaveButton),
-          ),
-        ],
-        cancelButton: CupertinoActionSheetAction(
-          onPressed: () => Navigator.of(context).pop(false),
-          child: Text(l10n.actionCancel),
-        ),
-      ),
-    );
-    if (saved != true) return;
+    final picked = await showDateTimeSheet(context, initial: anchor);
+    if (picked == null) return;
     final shift = picked.difference(anchor);
     if (shift == Duration.zero) return;
-    for (final record in selected) {
-      await setCreatedAtEverywhere(
-        assetRecordStore,
-        record,
-        record.createdAt.add(shift),
-      );
-    }
+    await setCreatedAtEverywhere(assetRecordStore, {
+      for (final record in selected) record: record.createdAt.add(shift),
+    });
     await reload();
   }
 
@@ -3041,9 +3045,10 @@ class LibraryScreenState extends State<LibraryScreen>
   }
 
   Future<void> _openPrivateAlbums() async {
-    await openPrivateAlbums(
+    await openOwnerHidden(
       context,
       assetRecordStore: assetRecordStore,
+      personStore: _personStore,
       custody: _custody,
       vaultKeys: _vaultKeys,
       libraryCount: _all.length,
@@ -3147,6 +3152,7 @@ class LibraryScreenState extends State<LibraryScreen>
           store: _backupTargetsStore,
           assetRecordStore: assetRecordStore,
           icloudBackup: _icloudBackup,
+          personStore: _personStore,
         ),
       ),
     );
@@ -3471,8 +3477,15 @@ class LibraryScreenState extends State<LibraryScreen>
   /// [CupertinoPageScaffold], whose version scrolls the primary controller to
   /// its minimum: in a newest-first grid that's the *oldest* photo, the one
   /// place in a ten-year library nobody means to land.
+  ///
+  /// Every observer means this screen too while a page is pushed over it:
+  /// that tap is the page's own, and toggling here sent the hidden grid to
+  /// the oldest photos. Home is the root route, so anything above it can pop.
   @override
-  void handleStatusBarTap() => _jumpHome();
+  void handleStatusBarTap() {
+    if (Navigator.maybeOf(context)?.canPop() ?? false) return;
+    _jumpHome();
+  }
 
   /// Back home to the newest photos — and, tapped again from there, on up
   /// to the very top. Bound to the status bar, the navigation bar and the large

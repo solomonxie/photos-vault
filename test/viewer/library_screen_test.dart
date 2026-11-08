@@ -323,6 +323,69 @@ void main() {
     expect(newest.bottom, greaterThan(screen.height - 50));
   });
 
+  testWidgets('a status bar tap on a page on top leaves home where it was', (
+    tester,
+  ) async {
+    final targetsStore = BackupTargetsStore(store: FakeSecureStore());
+    final recordStore = FakeAssetRecordStore();
+    for (var i = 0; i < 120; i++) {
+      await recordStore.upsert(
+        localId: 'manual:$i',
+        contentHash: 'h$i',
+        platform: 'ios',
+        sourceType: AssetSourceType.manualFile,
+        sourcePath: '/tmp/library_screen_test_$i.jpg',
+        createdAt: DateTime(2020).add(Duration(hours: i)),
+      );
+    }
+    await tester.pumpWidget(
+      _wrap(
+        LibraryScreen(
+          assetRecordStore: recordStore,
+          thumbnailCache: _noThumbnails(recordStore),
+          syncJobStore: FakeSyncJobStore(),
+          albumStore: FakeAlbumStore(),
+          personStore: FakePersonStore(),
+          backupTargetsStore: targetsStore,
+          backupCoordinator: BackupCoordinator(
+            targetsStore: targetsStore,
+            recordStore: recordStore,
+            s3Uploader: _UnusedS3Uploader(),
+          ),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    final grid = tester.state<AssetGridViewState>(find.byType(AssetGridView));
+    final rest = grid.scrollController.offset;
+    expect(grid.isAtNewest, isTrue);
+
+    final navigator = tester.state<NavigatorState>(find.byType(Navigator));
+    unawaited(
+      navigator.push(
+        CupertinoPageRoute<void>(
+          builder: (_) => const CupertinoPageScaffold(child: Text('Album')),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+    // iOS hands the tap to every binding observer, the page underneath too.
+    await tester.binding.defaultBinaryMessenger.handlePlatformMessage(
+      'flutter/status_bar',
+      const JSONMethodCodec().encodeMethodCall(
+        const MethodCall('handleScrollToTop'),
+      ),
+      (_) {},
+    );
+    await tester.pumpAndSettle();
+    navigator.pop();
+    await tester.pumpAndSettle();
+
+    expect(grid.scrollController.offset, rest);
+    expect(find.byKey(const ValueKey('manual:119')), findsOneWidget);
+    expect(find.byKey(const ValueKey('manual:0')), findsNothing);
+  });
+
   testWidgets('tapping a listed file opens the detail screen', (tester) async {
     final targetsStore = BackupTargetsStore(store: FakeSecureStore());
     final recordStore = FakeAssetRecordStore();

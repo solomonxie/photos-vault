@@ -306,13 +306,16 @@ void main() {
       const PersonDetail(bio: 'open bio'),
       scope: PersonScope.open,
     );
+    // Sealed sets are the owner's, under their folder's code.
+    final assets = FakeAssetRecordStore();
+    await PersonOwner(assets).set(mia.id);
 
     await tester.pumpWidget(
       _wrap(
         PersonProfileScreen(
           person: mia,
           personStore: personStore,
-          assetRecordStore: FakeAssetRecordStore(),
+          assetRecordStore: assets,
           vaultKeys: vaultKeys,
         ),
       ),
@@ -342,13 +345,13 @@ void main() {
     );
     await tester.pump();
 
-    // Saved under 1234's tag and nowhere else.
+    // Saved under the owner's 1234 tag and nowhere else.
     final tag = await PasscodeTags(
       records: FakeAssetRecordStore(),
       people: personStore,
       vaultKeys: vaultKeys,
-    ).tagFor('1234');
-    expect(tag, isNot(hashPasscode('1234')));
+    ).tagFor(personAlbumCode(mia.id, '1234'));
+    expect(tag, isNot(hashPasscode(personAlbumCode(mia.id, '1234'))));
     expect(
       (await personStore.detailFor(mia.id, passcodeHash: tag)).bio,
       'the other bio',
@@ -528,13 +531,15 @@ void main() {
     // the master key it derives is not.
     await vaultKeys.forgetOnThisDevice();
     final mia = await personStore.create(name: 'Mia');
+    final assets = FakeAssetRecordStore();
+    await PersonOwner(assets).set(mia.id);
 
     await tester.pumpWidget(
       _wrap(
         PersonProfileScreen(
           person: mia,
           personStore: personStore,
-          assetRecordStore: FakeAssetRecordStore(),
+          assetRecordStore: assets,
           vaultKeys: vaultKeys,
         ),
       ),

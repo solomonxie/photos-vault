@@ -8,6 +8,7 @@ import '../settings/settings_section.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_group_screen.dart';
+import 'back_swipe_edge.dart';
 import 'person_avatar.dart';
 import 'person_page_screen.dart';
 import 'profile_chip.dart' show groupKindLabel;
@@ -304,116 +305,118 @@ class _GroupScreenState extends State<GroupScreen> {
         middle: Text(_current.name),
       ),
       child: SafeArea(
-        child: ListView(
-          padding: const EdgeInsets.all(settingsPagePadding),
-          children: [
-            CupertinoTextField(
-              key: const ValueKey('groupName'),
-              controller: _name,
-              placeholder: l10n.groupNameLabel,
-              style: const TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: CupertinoColors.white,
+        child: BackSwipeEdge<Object>(
+          child: ListView(
+            padding: const EdgeInsets.all(settingsPagePadding),
+            children: [
+              CupertinoTextField(
+                key: const ValueKey('groupName'),
+                controller: _name,
+                placeholder: l10n.groupNameLabel,
+                style: const TextStyle(
+                  fontSize: 20,
+                  fontWeight: FontWeight.w600,
+                  color: CupertinoColors.white,
+                ),
+                onChanged: (v) {
+                  setState(() {});
+                  _rename(v);
+                },
               ),
-              onChanged: (v) {
-                setState(() {});
-                _rename(v);
-              },
-            ),
-            const SizedBox(height: 12),
-            CupertinoSlidingSegmentedControl<GroupKind>(
-              groupValue: _kind,
-              onValueChanged: (k) {
-                if (k != null) _setKind(k);
-              },
-              children: {
-                for (final k in GroupKind.values)
-                  k: Padding(
-                    padding: const EdgeInsets.symmetric(vertical: 6),
+              const SizedBox(height: 12),
+              CupertinoSlidingSegmentedControl<GroupKind>(
+                groupValue: _kind,
+                onValueChanged: (k) {
+                  if (k != null) _setKind(k);
+                },
+                children: {
+                  for (final k in GroupKind.values)
+                    k: Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 6),
+                      child: Text(
+                        groupKindLabel(l10n, k),
+                        style: const TextStyle(fontSize: 13),
+                      ),
+                    ),
+                },
+              ),
+              const SizedBox(height: 12),
+              _dateRow(l10n, start: true),
+              _dateRow(l10n, start: false),
+              if (_groupPhotos.isNotEmpty)
+                CupertinoListTile(
+                  key: const ValueKey('groupPhotos'),
+                  backgroundColor: settingsPageBackground,
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  leading: const Icon(CupertinoIcons.photo_on_rectangle),
+                  title: Text(l10n.groupPhotos),
+                  additionalInfo: Text('${_groupPhotos.length}'),
+                  trailing: const CupertinoListTileChevron(),
+                  onTap: _openPhotos,
+                ),
+              const SizedBox(height: 8),
+              Row(
+                children: [
+                  Expanded(
                     child: Text(
-                      groupKindLabel(l10n, k),
-                      style: const TextStyle(fontSize: 13),
+                      l10n.groupMembers(_members.length),
+                      style: settingsRowTitleStyle,
                     ),
                   ),
-              },
-            ),
-            const SizedBox(height: 12),
-            _dateRow(l10n, start: true),
-            _dateRow(l10n, start: false),
-            if (_groupPhotos.isNotEmpty)
-              CupertinoListTile(
-                key: const ValueKey('groupPhotos'),
-                backgroundColor: settingsPageBackground,
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                leading: const Icon(CupertinoIcons.photo_on_rectangle),
-                title: Text(l10n.groupPhotos),
-                additionalInfo: Text('${_groupPhotos.length}'),
-                trailing: const CupertinoListTileChevron(),
-                onTap: _openPhotos,
-              ),
-            const SizedBox(height: 8),
-            Row(
-              children: [
-                Expanded(
-                  child: Text(
-                    l10n.groupMembers(_members.length),
-                    style: settingsRowTitleStyle,
+                  CupertinoButton(
+                    key: const ValueKey('groupAddPeople'),
+                    padding: EdgeInsets.zero,
+                    onPressed: _add,
+                    child: Text(l10n.groupAddPeople),
                   ),
-                ),
-                CupertinoButton(
-                  key: const ValueKey('groupAddPeople'),
-                  padding: EdgeInsets.zero,
-                  onPressed: _add,
-                  child: Text(l10n.groupAddPeople),
-                ),
-              ],
-            ),
-            for (final person in _members)
-              CupertinoListTile(
-                key: ValueKey('groupMember-${person.id}'),
-                backgroundColor: settingsPageBackground,
-                padding: const EdgeInsets.symmetric(vertical: 6),
-                leadingSize: 40,
-                leading: PersonAvatar.forPerson(
-                  assetRecordStore: widget.assetRecordStore,
-                  person: person,
-                  firstTaggedLocalId: _photos[person.id]?.firstOrNull,
-                  records: widget.assetRecordStore.visibleById,
-                  size: 40,
-                ),
-                title: Text(person.name),
-                subtitle: Text(
-                  l10n.mergePeoplePhotos(_photos[person.id]?.length ?? 0),
-                ),
-                trailing: CupertinoButton(
-                  key: ValueKey('groupRemove-${person.id}'),
-                  padding: EdgeInsets.zero,
-                  minimumSize: const Size(36, 36),
-                  onPressed: () => _remove(person),
-                  child: const Icon(
-                    CupertinoIcons.minus_circle,
-                    color: CupertinoColors.systemRed,
-                    size: 22,
+                ],
+              ),
+              for (final person in _members)
+                CupertinoListTile(
+                  key: ValueKey('groupMember-${person.id}'),
+                  backgroundColor: settingsPageBackground,
+                  padding: const EdgeInsets.symmetric(vertical: 6),
+                  leadingSize: 40,
+                  leading: PersonAvatar.forPerson(
+                    assetRecordStore: widget.assetRecordStore,
+                    person: person,
+                    firstTaggedLocalId: _photos[person.id]?.firstOrNull,
+                    records: widget.assetRecordStore.visibleById,
+                    size: 40,
                   ),
+                  title: Text(person.name),
+                  subtitle: Text(
+                    l10n.mergePeoplePhotos(_photos[person.id]?.length ?? 0),
+                  ),
+                  trailing: CupertinoButton(
+                    key: ValueKey('groupRemove-${person.id}'),
+                    padding: EdgeInsets.zero,
+                    minimumSize: const Size(36, 36),
+                    onPressed: () => _remove(person),
+                    child: const Icon(
+                      CupertinoIcons.minus_circle,
+                      color: CupertinoColors.systemRed,
+                      size: 22,
+                    ),
+                  ),
+                  onTap: () => _open(person),
                 ),
-                onTap: () => _open(person),
+              const SizedBox(height: 28),
+              CupertinoButton(
+                key: const ValueKey('groupMergeInto'),
+                onPressed: _mergeInto,
+                child: Text(l10n.groupMerge),
               ),
-            const SizedBox(height: 28),
-            CupertinoButton(
-              key: const ValueKey('groupMergeInto'),
-              onPressed: _mergeInto,
-              child: Text(l10n.groupMerge),
-            ),
-            CupertinoButton(
-              key: const ValueKey('groupDelete'),
-              onPressed: _delete,
-              child: Text(
-                l10n.groupDelete,
-                style: const TextStyle(color: CupertinoColors.systemRed),
+              CupertinoButton(
+                key: const ValueKey('groupDelete'),
+                onPressed: _delete,
+                child: Text(
+                  l10n.groupDelete,
+                  style: const TextStyle(color: CupertinoColors.systemRed),
+                ),
               ),
-            ),
-          ],
+            ],
+          ),
         ),
       ),
     );

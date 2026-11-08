@@ -10,6 +10,7 @@ import 'album_notes.dart';
 import 'asset_grid.dart';
 import 'built_in_album.dart';
 import 'asset_grid_view.dart';
+import 'back_swipe_edge.dart';
 import 'delete_confirmation.dart';
 import 'detail_screen.dart';
 import 'library_index.dart';
@@ -104,8 +105,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
     if (mounted) setState(() => _cover = localId);
   }
 
-  void _open(AssetRecord record) {
-    Navigator.of(context).push(
+  Future<void> _open(AssetRecord record) async {
+    await Navigator.of(context).push(
       ZoomPageRoute(
         builder: (_) => DetailScreen(
           records: _records,
@@ -116,6 +117,8 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
         ),
       ),
     );
+    // A date edited in there moves the photo.
+    await _reload();
   }
 
   @override
@@ -145,33 +148,36 @@ class _FavoritesScreenState extends State<FavoritesScreen> {
                   if (widget.notes case final notes?) AlbumNotes(book: notes),
                 ],
               )
-            : AssetGridView(
-                records: _records,
+            : BackSwipeEdge<AssetRecord>(
                 onTap: _open,
-                trailingSlivers: [
-                  if (widget.notes case final notes?)
-                    SliverToBoxAdapter(child: AlbumNotes(book: notes)),
-                ],
-                actionsFor: (r) => [
-                  TileAction(
-                    icon: CupertinoIcons.heart_slash,
-                    label: l10n.libraryUnfavorite,
-                    onPressed: () => _unfavorite(r),
-                  ),
-                  ...coverActions(
-                    l10n,
-                    enabled: true,
-                    isCover: _cover == r.localId,
-                    onUse: () => _setCover(r.localId),
-                    onDefault: () => _setCover(null),
-                  ),
-                  TileAction(
-                    icon: CupertinoIcons.delete,
-                    label: l10n.libraryDeleteTooltip,
-                    isDestructive: true,
-                    onPressed: () => _delete(r),
-                  ),
-                ],
+                child: AssetGridView(
+                  records: _records,
+                  onTap: _open,
+                  trailingSlivers: [
+                    if (widget.notes case final notes?)
+                      SliverToBoxAdapter(child: AlbumNotes(book: notes)),
+                  ],
+                  actionsFor: (r) => [
+                    TileAction(
+                      icon: CupertinoIcons.heart_slash,
+                      label: l10n.libraryUnfavorite,
+                      onPressed: () => _unfavorite(r),
+                    ),
+                    ...coverActions(
+                      l10n,
+                      enabled: true,
+                      isCover: _cover == r.localId,
+                      onUse: () => _setCover(r.localId),
+                      onDefault: () => _setCover(null),
+                    ),
+                    TileAction(
+                      icon: CupertinoIcons.delete,
+                      label: l10n.libraryDeleteTooltip,
+                      isDestructive: true,
+                      onPressed: () => _delete(r),
+                    ),
+                  ],
+                ),
               ),
       ),
     );

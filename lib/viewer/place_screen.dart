@@ -14,6 +14,7 @@ import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'asset_grid.dart';
 import 'asset_group_screen.dart';
+import 'back_swipe_edge.dart';
 import 'native_map.dart';
 import 'places_screen.dart';
 import 'route_screen.dart';
@@ -783,236 +784,238 @@ class _PlaceScreenState extends State<PlaceScreen> {
       child: place == null
           ? const Center(child: CupertinoActivityIndicator())
           : SafeArea(
-              child: ListView(
-                padding: const EdgeInsets.only(bottom: 32),
-                children: [
-                  if (_cover case final cover?)
-                    GestureDetector(
-                      key: const ValueKey('placeCover'),
-                      onTap: _openPhotos,
-                      child: SizedBox(
-                        height: 220,
-                        child: assetImage(
-                          cover,
-                          thumbnailSize: 900,
-                          placeholder: () => const ColoredBox(
-                            color: CupertinoColors.systemGrey5,
+              child: BackSwipeEdge<Object>(
+                child: ListView(
+                  padding: const EdgeInsets.only(bottom: 32),
+                  children: [
+                    if (_cover case final cover?)
+                      GestureDetector(
+                        key: const ValueKey('placeCover'),
+                        onTap: _openPhotos,
+                        child: SizedBox(
+                          height: 220,
+                          child: assetImage(
+                            cover,
+                            thumbnailSize: 900,
+                            placeholder: () => const ColoredBox(
+                              color: CupertinoColors.systemGrey5,
+                            ),
+                          ),
+                        ),
+                      ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
+                      child: ClipRRect(
+                        borderRadius: BorderRadius.circular(12),
+                        child: SizedBox(
+                          height: _cover == null ? 170 : 130,
+                          child: NativeMap(
+                            pins: _pins,
+                            region: _regionOf(place),
+                            onPinTap: _openPlace,
+                            onLongPress: _isPin(place) ? null : _dropPin,
                           ),
                         ),
                       ),
                     ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(16, 12, 16, 0),
-                    child: ClipRRect(
-                      borderRadius: BorderRadius.circular(12),
-                      child: SizedBox(
-                        height: _cover == null ? 170 : 130,
-                        child: NativeMap(
-                          pins: _pins,
-                          region: _regionOf(place),
-                          onPinTap: _openPlace,
-                          onLongPress: _isPin(place) ? null : _dropPin,
-                        ),
-                      ),
-                    ),
-                  ),
-                  Padding(
-                    padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
-                    child: Column(
-                      crossAxisAlignment: CrossAxisAlignment.start,
-                      children: [
-                        if (_path.isNotEmpty)
-                          Wrap(
-                            key: const ValueKey('placePath'),
-                            children: [
-                              for (final (i, p) in _path.indexed) ...[
-                                if (i > 0) const Text(' › ', style: grey),
-                                GestureDetector(
-                                  key: ValueKey('placePath-${p.id}'),
-                                  onTap: () => _openPlace(p.id),
-                                  child: Text(p.name, style: blue),
-                                ),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(20, 16, 20, 0),
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          if (_path.isNotEmpty)
+                            Wrap(
+                              key: const ValueKey('placePath'),
+                              children: [
+                                for (final (i, p) in _path.indexed) ...[
+                                  if (i > 0) const Text(' › ', style: grey),
+                                  GestureDetector(
+                                    key: ValueKey('placePath-${p.id}'),
+                                    onTap: () => _openPlace(p.id),
+                                    child: Text(p.name, style: blue),
+                                  ),
+                                ],
                               ],
+                            ),
+                          const SizedBox(height: 2),
+                          Row(
+                            crossAxisAlignment: CrossAxisAlignment.baseline,
+                            textBaseline: TextBaseline.alphabetic,
+                            children: [
+                              Expanded(
+                                child: Text(
+                                  place.name,
+                                  style: const TextStyle(
+                                    fontSize: 28,
+                                    fontWeight: FontWeight.w700,
+                                  ),
+                                ),
+                              ),
                             ],
                           ),
-                        const SizedBox(height: 2),
-                        Row(
-                          crossAxisAlignment: CrossAxisAlignment.baseline,
-                          textBaseline: TextBaseline.alphabetic,
-                          children: [
-                            Expanded(
-                              child: Text(
-                                place.name,
-                                style: const TextStyle(
-                                  fontSize: 28,
-                                  fontWeight: FontWeight.w700,
-                                ),
-                              ),
-                            ),
-                          ],
-                        ),
-                        const SizedBox(height: 2),
-                        Text(
-                          [
-                            placeKindLabel(l10n, place.kind),
-                            if (place.category.isNotEmpty) place.category,
-                            if (place.address.isNotEmpty) place.address,
-                          ].join(' · '),
-                          style: grey,
-                        ),
-                      ],
+                          const SizedBox(height: 2),
+                          Text(
+                            [
+                              placeKindLabel(l10n, place.kind),
+                              if (place.category.isNotEmpty) place.category,
+                              if (place.address.isNotEmpty) place.address,
+                            ].join(' · '),
+                            style: grey,
+                          ),
+                        ],
+                      ),
                     ),
-                  ),
-                  CupertinoListSection.insetGrouped(
-                    children: [
-                      place.description.isEmpty
-                          ? CupertinoListTile(
-                              key: const ValueKey('placeDescription'),
-                              leading: const Icon(
-                                CupertinoIcons.text_alignleft,
-                                color: CupertinoColors.systemGrey,
-                              ),
-                              title: Text(
-                                l10n.placeDescriptionAdd,
-                                style: const TextStyle(
+                    CupertinoListSection.insetGrouped(
+                      children: [
+                        place.description.isEmpty
+                            ? CupertinoListTile(
+                                key: const ValueKey('placeDescription'),
+                                leading: const Icon(
+                                  CupertinoIcons.text_alignleft,
                                   color: CupertinoColors.systemGrey,
                                 ),
-                              ),
-                              onTap: _editDescription,
-                            )
-                          : GestureDetector(
-                              key: const ValueKey('placeDescription'),
-                              behavior: HitTestBehavior.opaque,
-                              onTap: _editDescription,
-                              child: Padding(
-                                padding: const EdgeInsets.fromLTRB(
-                                  20,
-                                  12,
-                                  20,
-                                  12,
+                                title: Text(
+                                  l10n.placeDescriptionAdd,
+                                  style: const TextStyle(
+                                    color: CupertinoColors.systemGrey,
+                                  ),
                                 ),
-                                child: Text(
-                                  place.description,
-                                  style: const TextStyle(height: 1.35),
+                                onTap: _editDescription,
+                              )
+                            : GestureDetector(
+                                key: const ValueKey('placeDescription'),
+                                behavior: HitTestBehavior.opaque,
+                                onTap: _editDescription,
+                                child: Padding(
+                                  padding: const EdgeInsets.fromLTRB(
+                                    20,
+                                    12,
+                                    20,
+                                    12,
+                                  ),
+                                  child: Text(
+                                    place.description,
+                                    style: const TextStyle(height: 1.35),
+                                  ),
                                 ),
                               ),
-                            ),
-                    ],
-                  ),
-                  if (_visits.isNotEmpty && widget.assetRecordStore != null)
-                    CupertinoListSection.insetGrouped(
-                      key: const ValueKey('placeVisits'),
-                      header: Text(l10n.placeVisits(_visits.length)),
-                      children: [
-                        for (final v
-                            in _allVisits
-                                ? _visits
-                                : _visits.take(_shownVisits))
-                          CupertinoListTile(
-                            key: ValueKey(
-                              'placeVisit-${v.from.millisecondsSinceEpoch}',
-                            ),
-                            leading: const Icon(
-                              CupertinoIcons.calendar,
-                              color: CupertinoColors.systemPink,
-                            ),
-                            title: Text(visitLabel(v)),
-                            additionalInfo: Text('${v.photos.length}'),
-                            trailing: const CupertinoListTileChevron(),
-                            onTap: () => _openVisit(v),
-                          ),
-                        if (_visits.length > _shownVisits)
-                          CupertinoListTile(
-                            key: const ValueKey('placeVisitsMore'),
-                            title: Text(
-                              _allVisits
-                                  ? l10n.placesShowFewer
-                                  : l10n.placesShowMore(
-                                      _visits.length - _shownVisits,
-                                    ),
-                              style: const TextStyle(
-                                color: CupertinoColors.activeBlue,
-                              ),
-                            ),
-                            onTap: () =>
-                                setState(() => _allVisits = !_allVisits),
-                          ),
                       ],
                     ),
-                  // A pin holds no pins; an area from before pins replaced
-                  // areas still lists what was filed in it.
-                  if (!_isPin(place) || _inside.isNotEmpty)
-                    CupertinoListSection.insetGrouped(
-                      header: Text(
-                        place.isCountry
-                            ? l10n.footprintsPlaces
-                            : l10n.placePins,
+                    if (_visits.isNotEmpty && widget.assetRecordStore != null)
+                      CupertinoListSection.insetGrouped(
+                        key: const ValueKey('placeVisits'),
+                        header: Text(l10n.placeVisits(_visits.length)),
+                        children: [
+                          for (final v
+                              in _allVisits
+                                  ? _visits
+                                  : _visits.take(_shownVisits))
+                            CupertinoListTile(
+                              key: ValueKey(
+                                'placeVisit-${v.from.millisecondsSinceEpoch}',
+                              ),
+                              leading: const Icon(
+                                CupertinoIcons.calendar,
+                                color: CupertinoColors.systemPink,
+                              ),
+                              title: Text(visitLabel(v)),
+                              additionalInfo: Text('${v.photos.length}'),
+                              trailing: const CupertinoListTileChevron(),
+                              onTap: () => _openVisit(v),
+                            ),
+                          if (_visits.length > _shownVisits)
+                            CupertinoListTile(
+                              key: const ValueKey('placeVisitsMore'),
+                              title: Text(
+                                _allVisits
+                                    ? l10n.placesShowFewer
+                                    : l10n.placesShowMore(
+                                        _visits.length - _shownVisits,
+                                      ),
+                                style: const TextStyle(
+                                  color: CupertinoColors.activeBlue,
+                                ),
+                              ),
+                              onTap: () =>
+                                  setState(() => _allVisits = !_allVisits),
+                            ),
+                        ],
                       ),
-                      children: [
-                        for (final p in _inside)
-                          _swipe(
-                            key: ValueKey('placeSwipe-${p.id}'),
-                            onDelete: () => _deletePin(p),
-                            onStart: () => _move(p),
-                            startLabel: l10n.placeMove,
-                            child: placeTile(
-                              l10n,
-                              p,
-                              _tally,
-                              onTap: () => _openPlace(p.id),
-                            ),
-                          ),
-                        if (!_isPin(place))
-                          addRow(
-                            const ValueKey('placeAddPoint'),
-                            l10n.placeAddPoint,
-                            _addInside,
-                          ),
-                      ],
-                    ),
-                  CupertinoListSection.insetGrouped(
-                    header: Text(l10n.placeImpressions),
-                    children: [
-                      for (final e in _entries)
-                        _swipe(
-                          key: ValueKey('entrySwipe-${e.id}'),
-                          onDelete: () => _deleteEntry(e),
-                          child: impressionTile(
-                            l10n,
-                            e,
-                            at: e.placeId == place.id
-                                ? null
-                                : _byId[e.placeId]?.name,
-                            onTap: () => _read(e),
-                          ),
+                    // A pin holds no pins; an area from before pins replaced
+                    // areas still lists what was filed in it.
+                    if (!_isPin(place) || _inside.isNotEmpty)
+                      CupertinoListSection.insetGrouped(
+                        header: Text(
+                          place.isCountry
+                              ? l10n.footprintsPlaces
+                              : l10n.placePins,
                         ),
-                      addRow(
-                        const ValueKey('placeAddImpression'),
-                        l10n.placeAddImpression,
-                        _write,
-                      ),
-                    ],
-                  ),
-                  if (_routes.isNotEmpty)
-                    CupertinoListSection.insetGrouped(
-                      header: Text(l10n.placeRoutesThrough),
-                      children: [
-                        for (final r in _routes)
-                          CupertinoListTile(
-                            key: ValueKey('placeRoute-${r.id}'),
-                            leading: const Icon(
-                              CupertinoIcons.arrow_branch,
-                              color: CupertinoColors.systemIndigo,
+                        children: [
+                          for (final p in _inside)
+                            _swipe(
+                              key: ValueKey('placeSwipe-${p.id}'),
+                              onDelete: () => _deletePin(p),
+                              onStart: () => _move(p),
+                              startLabel: l10n.placeMove,
+                              child: placeTile(
+                                l10n,
+                                p,
+                                _tally,
+                                onTap: () => _openPlace(p.id),
+                              ),
                             ),
-                            title: Text(r.title),
-                            trailing: const CupertinoListTileChevron(),
-                            onTap: () => _openRoute(r),
+                          if (!_isPin(place))
+                            addRow(
+                              const ValueKey('placeAddPoint'),
+                              l10n.placeAddPoint,
+                              _addInside,
+                            ),
+                        ],
+                      ),
+                    CupertinoListSection.insetGrouped(
+                      header: Text(l10n.placeImpressions),
+                      children: [
+                        for (final e in _entries)
+                          _swipe(
+                            key: ValueKey('entrySwipe-${e.id}'),
+                            onDelete: () => _deleteEntry(e),
+                            child: impressionTile(
+                              l10n,
+                              e,
+                              at: e.placeId == place.id
+                                  ? null
+                                  : _byId[e.placeId]?.name,
+                              onTap: () => _read(e),
+                            ),
                           ),
+                        addRow(
+                          const ValueKey('placeAddImpression'),
+                          l10n.placeAddImpression,
+                          _write,
+                        ),
                       ],
                     ),
-                  if (_photos.isNotEmpty && widget.assetRecordStore != null)
-                    ..._photoSection(l10n),
-                ],
+                    if (_routes.isNotEmpty)
+                      CupertinoListSection.insetGrouped(
+                        header: Text(l10n.placeRoutesThrough),
+                        children: [
+                          for (final r in _routes)
+                            CupertinoListTile(
+                              key: ValueKey('placeRoute-${r.id}'),
+                              leading: const Icon(
+                                CupertinoIcons.arrow_branch,
+                                color: CupertinoColors.systemIndigo,
+                              ),
+                              title: Text(r.title),
+                              trailing: const CupertinoListTileChevron(),
+                              onTap: () => _openRoute(r),
+                            ),
+                        ],
+                      ),
+                    if (_photos.isNotEmpty && widget.assetRecordStore != null)
+                      ..._photoSection(l10n),
+                  ],
+                ),
               ),
             ),
     );

@@ -10,6 +10,7 @@ import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
 import '../photos/words_file.dart';
 import '../photos/words_store.dart';
+import 'back_swipe_edge.dart';
 import 'words_markdown.dart';
 
 String writingKindLabel(AppLocalizations l10n, WritingKind kind) =>
@@ -423,47 +424,49 @@ class _WritingScreenState extends State<WritingScreen> {
       child: SafeArea(
         child: w == null
             ? const Center(child: CupertinoActivityIndicator())
-            : ListView.builder(
-                padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
-                itemCount: _blocks.length + 1,
-                itemBuilder: (_, i) {
-                  if (i == 0) {
-                    return Padding(
-                      padding: const EdgeInsets.only(bottom: 16),
-                      child: Column(
-                        crossAxisAlignment: CrossAxisAlignment.start,
-                        children: [
-                          if (w.title.isNotEmpty)
+            : BackSwipeEdge<Object>(
+                child: ListView.builder(
+                  padding: const EdgeInsets.fromLTRB(20, 12, 20, 40),
+                  itemCount: _blocks.length + 1,
+                  itemBuilder: (_, i) {
+                    if (i == 0) {
+                      return Padding(
+                        padding: const EdgeInsets.only(bottom: 16),
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            if (w.title.isNotEmpty)
+                              Text(
+                                w.title,
+                                style: const TextStyle(
+                                  fontSize: 26,
+                                  fontWeight: FontWeight.w700,
+                                  color: CupertinoColors.white,
+                                ),
+                              ),
+                            const SizedBox(height: 6),
                             Text(
-                              w.title,
+                              [
+                                if (w.at != null)
+                                  DateFormat.yMMMMd().format(w.at!),
+                                writingKindLabel(l10n, w.kind),
+                                if (w.source.isNotEmpty) w.source,
+                              ].join(' · '),
                               style: const TextStyle(
-                                fontSize: 26,
-                                fontWeight: FontWeight.w700,
-                                color: CupertinoColors.white,
+                                fontSize: 13,
+                                color: CupertinoColors.systemGrey,
                               ),
                             ),
-                          const SizedBox(height: 6),
-                          Text(
-                            [
-                              if (w.at != null)
-                                DateFormat.yMMMMd().format(w.at!),
-                              writingKindLabel(l10n, w.kind),
-                              if (w.source.isNotEmpty) w.source,
-                            ].join(' · '),
-                            style: const TextStyle(
-                              fontSize: 13,
-                              color: CupertinoColors.systemGrey,
-                            ),
-                          ),
-                        ],
-                      ),
+                          ],
+                        ),
+                      );
+                    }
+                    return Padding(
+                      padding: const EdgeInsets.only(bottom: 14),
+                      child: _block(_blocks[i - 1]),
                     );
-                  }
-                  return Padding(
-                    padding: const EdgeInsets.only(bottom: 14),
-                    child: _block(_blocks[i - 1]),
-                  );
-                },
+                  },
+                ),
               ),
       ),
     );
