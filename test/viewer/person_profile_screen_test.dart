@@ -178,7 +178,7 @@ void main() {
       await tester.pumpAndSettle();
       await tester.enterText(find.byKey(searchPickerFieldKey), 'UC Berkeley');
       await tester.pump();
-      await tester.tap(find.text('Use "UC Berkeley"'));
+      await tester.tap(find.text('Use “UC Berkeley”'));
       await tester.pumpAndSettle();
 
       // Lands on the new entry's detail page.
@@ -433,9 +433,9 @@ void main() {
     // One "Add" line each, saying what the section would hold.
     expect(find.text('Add Education'), findsOneWidget);
     expect(find.text('Start – End · Majors / Degrees'), findsOneWidget);
-    expect(find.text('Add Job'), findsOneWidget);
+    expect(find.text('Add Work'), findsOneWidget);
     expect(find.text('Add Places Lived'), findsOneWidget);
-    expect(find.text('Origin or relocation · Year'), findsOneWidget);
+    expect(find.text('Hometown or move · Year'), findsOneWidget);
 
     // More details offers its fields as chips rather than as eight rows of
     // "Not set", which is what they were.
@@ -588,12 +588,12 @@ void main() {
     await tester.pumpAndSettle();
 
     // Always there, always first, and nothing written until it is filled in.
-    expect(find.text('First met / knew at'), findsOneWidget);
+    expect(find.text('First met'), findsOneWidget);
     expect(await personStore.eventsFor(mia.id), isEmpty);
     // No delete button on it, unlike every other event.
     expect(find.byIcon(CupertinoIcons.xmark_circle), findsNothing);
 
-    await tester.tap(find.text('First met / knew at'));
+    await tester.tap(find.text('First met'));
     await tester.pumpAndSettle();
     // The type is not offered: there is exactly one of these.
     expect(find.text('Type'), findsNothing);
@@ -628,7 +628,7 @@ void main() {
     await tester.tap(find.text('Trip').last);
     await tester.pumpAndSettle();
     await tester.enterText(
-      find.widgetWithText(CupertinoTextField, 'Comma separated'),
+      find.widgetWithText(CupertinoTextField, 'Separate with commas'),
       'kyoto, autumn',
     );
     await tester.enterText(
@@ -787,8 +787,8 @@ void main() {
 
     // The row says what it will do, and doing it doesn't ask again — the
     // name has already been typed once.
-    expect(find.text('New Person "Ada"'), findsOneWidget);
-    await tester.tap(find.text('New Person "Ada"'));
+    expect(find.text('New Person “Ada”'), findsOneWidget);
+    await tester.tap(find.text('New Person “Ada”'));
     await tester.pumpAndSettle();
 
     expect(find.text('Add'), findsNothing, reason: 'no second prompt');
@@ -906,7 +906,7 @@ void main() {
       expect(find.text('Company'), findsWidgets);
       await tester.enterText(find.byKey(searchPickerFieldKey), 'Acme Corp');
       await tester.pump();
-      await tester.tap(find.text('Use "Acme Corp"'));
+      await tester.tap(find.text('Use “Acme Corp”'));
       await tester.pumpAndSettle();
 
       final relationships = await personStore.relationshipsFor(mia.id);
@@ -1114,8 +1114,8 @@ void main() {
     // still current, so it's open-ended.
     expect(find.text('1995 – 2010', skipOffstage: false), findsOneWidget);
     expect(find.text('2010 – Present', skipOffstage: false), findsOneWidget);
-    expect(find.text('Origin', skipOffstage: false), findsNothing);
-    expect(find.text('Relocation', skipOffstage: false), findsNothing);
+    expect(find.text('Hometown', skipOffstage: false), findsNothing);
+    expect(find.text('Moved To', skipOffstage: false), findsNothing);
   });
 
   testWidgets(
@@ -1270,7 +1270,7 @@ void main() {
     double top(String text) =>
         tester.getTopLeft(find.text(text, skipOffstage: false)).dy;
     expect(top('Places Lived'), greaterThan(top('Relationships')));
-    expect(top('More details'), greaterThan(top('Places Lived')));
+    expect(top('More Details'), greaterThan(top('Places Lived')));
 
     final addButton = find.byKey(customFieldsAddKey);
     await _scrollTo(tester, addButton);
@@ -1422,7 +1422,7 @@ void main() {
 
     expect(find.text('Delete this person?'), findsOneWidget);
     expect(
-      find.textContaining('Their hidden folder and its 1 photo are deleted'),
+      find.textContaining('Their hidden folder and the 1 photo in it are deleted'),
       findsOneWidget,
     );
     await tester.tap(find.text('Cancel'));

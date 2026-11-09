@@ -269,7 +269,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('No photos tagged yet.'), findsOneWidget);
+    expect(find.text('No photos of this person yet.'), findsOneWidget);
   });
 
   testWidgets('the whole name line opens the profile, not just the chevron', (

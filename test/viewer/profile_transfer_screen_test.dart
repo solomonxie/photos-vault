@@ -39,14 +39,14 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Import from a file'));
+    await tester.tap(find.text('Import from File'));
     await tester.pumpAndSettle();
 
     expect(find.text('2 people in this file'), findsOne);
     expect(find.text('Mia'), findsOne);
     expect(await store.listAll(), isEmpty);
 
-    await tester.tap(find.text('Import 2 people'));
+    await tester.tap(find.text('Import 2 People'));
     await tester.pumpAndSettle();
 
     final people = await store.listAll();
@@ -93,10 +93,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final apply = find.widgetWithText(CupertinoButton, 'Import 1 person');
+    final apply = find.widgetWithText(CupertinoButton, 'Import 1 Person');
     expect(tester.widget<CupertinoButton>(apply).onPressed, isNull);
     expect(
-      find.text('2 people here have this name — tap to choose one'),
+      find.text('2 people here have this name. Tap to choose one.'),
       findsOne,
     );
 
@@ -125,17 +125,17 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('Import from a file'));
+    await tester.tap(find.text('Import from File'));
     await tester.pumpAndSettle();
 
     // Merging by default, said in orange; no tap needed.
     expect(
       find.text(
-        'Merging into the existing person — tap to add as new or change the name',
+        'Merging into the existing person. Tap to add as new or change the name.',
       ),
       findsOne,
     );
-    await tester.tap(find.text('Import 2 people'));
+    await tester.tap(find.text('Import 2 People'));
     await tester.pumpAndSettle();
 
     final people = await store.listAll();
@@ -156,10 +156,10 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('Import from a file'));
+    await tester.tap(find.text('Import from File'));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('profileCsvMergeAll')), findsNothing);
-    await tester.tap(find.text('Import 2 people'));
+    await tester.tap(find.text('Import 2 People'));
     await tester.pumpAndSettle();
     expect(await store.listAll(), hasLength(2));
   });
@@ -178,14 +178,14 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('Import from a file'));
+    await tester.tap(find.text('Import from File'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Mia'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('importAsNew')));
     await tester.pumpAndSettle();
     expect(find.text('Adds a new person'), findsOne);
-    await tester.tap(find.text('Import 2 people'));
+    await tester.tap(find.text('Import 2 People'));
     await tester.pumpAndSettle();
     expect(await store.listAll(), hasLength(3));
   });
@@ -204,14 +204,14 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('Import from a file'));
+    await tester.tap(find.text('Import from File'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Similar to Mia Chen — tap to choose'));
+    await tester.tap(find.text('Similar to Mia Chen. Tap to choose.'));
     await tester.pumpAndSettle();
     expect(find.text('Merge into Mia Chen'), findsOne);
     await tester.tap(find.byKey(const ValueKey('importAsNew')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Import 2 people'));
+    await tester.tap(find.text('Import 2 People'));
     await tester.pumpAndSettle();
     expect((await store.listAll()).map((p) => p.name), [
       'Mia Chen',
@@ -234,7 +234,7 @@ void main() {
         ),
       ),
     );
-    await tester.tap(find.text('Import from a file'));
+    await tester.tap(find.text('Import from File'));
     await tester.pumpAndSettle();
 
     Future<void> rename(String from, String to) async {
@@ -253,7 +253,7 @@ void main() {
     await rename('Daniel', 'Dan Park');
     expect(find.text('Importing as “Dan Park”'), findsOne);
 
-    await tester.tap(find.text('Import 2 people'));
+    await tester.tap(find.text('Import 2 People'));
     await tester.pumpAndSettle();
     expect((await store.listAll()).map((p) => p.name), ['Mia Wu', 'Dan Park']);
     expect((await store.detailFor(mia.id)).bio, 'Photographer');
@@ -272,7 +272,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Import from a file'));
+    await tester.tap(find.text('Import from File'));
     await tester.pumpAndSettle();
     await tester.tap(
       find.descendant(
@@ -281,7 +281,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Import 1 person'));
+    await tester.tap(find.text('Import 1 Person'));
     await tester.pumpAndSettle();
 
     expect((await store.listAll()).map((p) => p.name), ['Mia']);
@@ -302,7 +302,7 @@ void main() {
       ),
     );
 
-    await tester.tap(find.text('Import from a file'));
+    await tester.tap(find.text('Import from File'));
     await tester.pumpAndSettle();
 
     expect(find.textContaining('no'), findsWidgets);
@@ -337,7 +337,7 @@ void main() {
     // The write is a real file, so the export has to run on the real event
     // loop — a widget test's fake clock never delivers dart:io's completion.
     await tester.runAsync(() async {
-      await tester.tap(find.text('Export profiles'));
+      await tester.tap(find.text('Export Profiles'));
       await Future<void>.delayed(const Duration(milliseconds: 200));
     });
     await tester.pump();
@@ -347,7 +347,7 @@ void main() {
     expect(rows.single.name, 'Mia');
     expect(rows.single.bio, 'Photographer');
     expect(rows.single.gender, Gender.female);
-    expect(find.text('1 profile written to profiles.csv'), findsOne);
+    expect(find.text('Saved 1 profile to profiles.csv'), findsOne);
   });
 
   testWidgets('nobody to export says so rather than sharing an empty file', (
@@ -367,12 +367,12 @@ void main() {
     );
 
     await tester.runAsync(() async {
-      await tester.tap(find.text('Export profiles'));
+      await tester.tap(find.text('Export Profiles'));
       await Future<void>.delayed(const Duration(milliseconds: 200));
     });
     await tester.pump();
 
     expect(shared, isFalse);
-    expect(find.text('There are no named people to export yet.'), findsOne);
+    expect(find.text("There's no one with a name to export yet."), findsOne);
   });
 }

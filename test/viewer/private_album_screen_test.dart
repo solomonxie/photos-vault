@@ -152,7 +152,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('Nothing here yet.'), findsOneWidget);
+    expect(find.text('Nothing hidden yet.'), findsOneWidget);
   });
 
   testWidgets('holding a photo selects it, and sweeping picks up the next', (
@@ -186,7 +186,7 @@ void main() {
     await hold.up();
     await tester.pumpAndSettle();
 
-    expect(find.text('Recover 2 to Library'), findsOneWidget);
+    expect(find.text('Unhide 2 Items'), findsOneWidget);
   });
 
   testWidgets(
@@ -223,7 +223,7 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('manual:b')));
       await tester.pump();
 
-      await tester.tap(find.text('Recover 2 to Library'));
+      await tester.tap(find.text('Unhide 2 Items'));
       // Un-hiding checks the file on disk: real I/O, outside fake time.
       for (var i = 0; i < 10; i++) {
         await tester.runAsync(
@@ -233,7 +233,7 @@ void main() {
       }
       await tester.pumpAndSettle();
 
-      expect(find.text('Nothing here yet.'), findsOneWidget);
+      expect(find.text('Nothing hidden yet.'), findsOneWidget);
       expect((await assetStore.getByLocalId('manual:a'))!.passcodeHash, isNull);
       expect((await assetStore.getByLocalId('manual:b'))!.passcodeHash, isNull);
     },
@@ -272,7 +272,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('manual:b')));
     await tester.pump();
 
-    await tester.tap(find.text('Recover 2 to Library'));
+    await tester.tap(find.text('Unhide 2 Items'));
     for (var i = 0; i < 5 && custody.waiting.isEmpty; i++) {
       await tester.runAsync(
         () => Future<void>.delayed(const Duration(milliseconds: 20)),
@@ -284,7 +284,7 @@ void main() {
     // While it runs: the selection changes, and the button is tapped again.
     await tester.tap(find.byKey(const ValueKey('manual:c')));
     await tester.pump();
-    await tester.tap(find.textContaining('to Library'));
+    await tester.tap(find.textContaining('Unhide'));
     await tester.pump();
 
     for (var i = 0; i < 20; i++) {
@@ -358,7 +358,7 @@ void main() {
 
       // The page's own actions sit on the bar, not behind a "…".
       await _openAlbumMenu(tester);
-      await tester.tap(find.text('Delete Private Album'));
+      await tester.tap(find.text('Delete Hidden Album'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Delete'));
       await tester.pumpAndSettle();
@@ -396,7 +396,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('manual:free')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Add 1'));
+    await tester.tap(find.text('Hide 1'));
     await tester.pumpAndSettle();
     // Asked up front now, so the rest can carry on behind the grid.
     await tester.tap(find.text('Keep Originals'));
@@ -442,10 +442,10 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('manual:free')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Add 1'));
+    await tester.tap(find.text('Hide 1'));
     await tester.pumpAndSettle();
 
-    expect(find.text('This phone will be the only copy'), findsOneWidget);
+    expect(find.text('This Phone Will Have the Only Copy'), findsOneWidget);
 
     // Backing out leaves the photo exactly where it was.
     await tester.tap(find.text('Cancel'));
@@ -490,7 +490,7 @@ void main() {
       await tester.tap(find.byKey(ValueKey('manual:$name')));
       await tester.pumpAndSettle();
     }
-    await tester.tap(find.text('Add 3'));
+    await tester.tap(find.text('Hide 3'));
     await tester.pumpAndSettle();
     // Asked up front now, so the rest can carry on behind the grid.
     await tester.tap(find.text('Keep Originals'));
@@ -633,7 +633,7 @@ void main() {
       await tester.tapAt(Offset(12, tester.getCenter(tile).dy));
       await tester.pumpAndSettle();
       expect(find.byType(PrivateAlbumScreen), findsOneWidget);
-      expect(find.text('Recover 1 to Library'), findsOneWidget);
+      expect(find.text('Unhide 1 Item'), findsOneWidget);
     }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
   });
 
@@ -680,15 +680,15 @@ void main() {
 
     // A few lines to decide by, not ten unasked-for.
     expect(find.textContaining('Every code opens an album'), findsOneWidget);
-    expect(find.textContaining('cannot open one'), findsNothing);
+    expect(find.textContaining("can't open any of them"), findsNothing);
 
     await tester.tap(find.text('More'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('cannot open one'), findsOneWidget);
+    expect(find.textContaining("can't open any of them"), findsOneWidget);
 
     await tester.tap(find.text('Less'));
     await tester.pumpAndSettle();
-    expect(find.textContaining('cannot open one'), findsNothing);
+    expect(find.textContaining("can't open any of them"), findsNothing);
   });
 
   testWidgets('there is no backup switch left to find', (tester) async {

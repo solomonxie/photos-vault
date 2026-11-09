@@ -77,7 +77,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    expect(find.text('No photos in this album.'), findsOneWidget);
+    expect(find.text('No photos in this album yet.'), findsOneWidget);
   });
 
   testWidgets('Remove from Album drops membership without deleting the asset', (
@@ -225,7 +225,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(searchPickerFieldKey), 'trip');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Use "trip"'));
+    await tester.tap(find.text('Use “trip”'));
     await tester.pumpAndSettle();
 
     expect((await albumStore.getById('a1'))!.tags, ['trip']);
@@ -267,7 +267,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('manual:free')));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Add 1'));
+    await tester.tap(find.text('Hide 1'));
     await tester.pumpAndSettle();
 
     expect(await albumStore.localIdsIn('a1'), ['manual:free']);

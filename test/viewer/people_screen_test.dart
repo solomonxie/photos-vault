@@ -112,7 +112,7 @@ void main() {
     double y(String name) => tester.getTopLeft(find.text(name)).dy;
     expect(y('Bo'), lessThan(y('Ana')));
     expect(y('Ana'), lessThan(y('Cy')));
-    expect(find.textContaining('last update'), findsNWidgets(2));
+    expect(find.textContaining('updated '), findsNWidgets(2));
   });
 
   testWidgets('lists existing people with their photo count', (tester) async {
@@ -1244,7 +1244,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(CupertinoTextField), 'Zed');
     await tester.pumpAndSettle();
-    await tester.tap(find.text('New Person "Zed"'));
+    await tester.tap(find.text('New Person “Zed”'));
     await tester.pumpAndSettle();
 
     final zed = (await people.listAll()).singleWhere((p) => p.name == 'Zed');

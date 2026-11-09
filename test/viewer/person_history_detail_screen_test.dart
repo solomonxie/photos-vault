@@ -86,7 +86,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(searchPickerFieldKey), 'Stanford');
     await tester.pump();
-    await tester.tap(find.text('Use "Stanford"'));
+    await tester.tap(find.text('Use “Stanford”'));
     await tester.pumpAndSettle();
 
     expect(find.text('Stanford'), findsOneWidget);
@@ -269,7 +269,7 @@ void main() {
     );
     await tester.pump();
     await tester.enterText(
-      find.widgetWithText(CupertinoTextField, 'Tags, comma separated'),
+      find.widgetWithText(CupertinoTextField, 'Tags, separated by commas'),
       'flutter, payments',
     );
     await tester.pump();

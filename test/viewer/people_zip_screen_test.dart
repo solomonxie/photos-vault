@@ -135,7 +135,7 @@ void main() {
     }
 
     await settle();
-    expect(find.text('Similar to Mia Wu — tap to choose'), findsOneWidget);
+    expect(find.text('Similar to Mia Wu. Tap to choose.'), findsOneWidget);
     await tester.tap(find.byKey(const ValueKey('peopleZipResolve-Mia')));
     await settle();
     await tester.tap(find.byKey(const ValueKey('importMergeInto-0')));
@@ -196,7 +196,7 @@ void main() {
     await settle();
     expect(
       find.text(
-        'Merging into the existing person — tap to add as new or change the name',
+        'Merging into the existing person. Tap to add as new or change the name.',
       ),
       findsOneWidget,
     );

@@ -231,7 +231,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.text("The two codes didn't match, so nothing was hidden."),
+      find.text("The codes didn't match, so nothing was hidden."),
       findsOneWidget,
     );
     await tester.tap(find.text('OK'));

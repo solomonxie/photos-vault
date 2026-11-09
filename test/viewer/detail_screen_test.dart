@@ -680,7 +680,7 @@ void main() {
     await _tapInPanel(tester, find.text('No Location'));
     await tester.enterText(find.byKey(searchPickerFieldKey), 'Kyoto, Japan');
     await tester.pump();
-    await tester.tap(find.text('Use "Kyoto, Japan"'));
+    await tester.tap(find.text('Use “Kyoto, Japan”'));
     await tester.pumpAndSettle();
 
     expect(find.text('Kyoto, Japan'), findsOneWidget);
@@ -776,7 +776,7 @@ void main() {
 
     await tester.enterText(find.byKey(searchPickerFieldKey), 'sunset');
     await tester.pump();
-    await tester.tap(find.text('Use "sunset"'));
+    await tester.tap(find.text('Use “sunset”'));
     await tester.pumpAndSettle();
 
     expect(find.text('sunset'), findsOneWidget);
@@ -981,7 +981,7 @@ void main() {
     await tester.pump();
 
     expect(
-      find.text('Backed up · LIVE: Failed', skipOffstage: false),
+      find.text('Backed up · Live: Not backed up', skipOffstage: false),
       findsOneWidget,
     );
   });
@@ -1249,7 +1249,7 @@ void main() {
         1,
         reason: 'a request per rebuild would be a request per frame',
       );
-      expect(find.textContaining('lives in the cloud only'), findsOneWidget);
+      expect(find.textContaining('is only in your bucket'), findsOneWidget);
     });
 
     testWidgets('a failed download leaves the offer up to try again', (

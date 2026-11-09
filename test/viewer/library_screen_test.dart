@@ -481,7 +481,7 @@ void main() {
       // A sheet at the bottom, the way Photos asks.
       expect(find.byType(CupertinoActionSheet), findsOneWidget);
       expect(
-        find.text('It will be moved to Recently Deleted.'),
+        find.text('It moves to Recently Deleted.'),
         findsOneWidget,
       );
 
@@ -550,7 +550,7 @@ void main() {
     await tester.tap(find.widgetWithText(CupertinoButton, 'Add Files'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Added 0 files, 0 backed up.'), findsOneWidget);
+    expect(find.text('Added 0 files. 0 backed up.'), findsOneWidget);
   });
 
   testWidgets('a fresh install shows an empty library and seeds nothing', (
@@ -839,7 +839,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.enterText(find.byKey(searchPickerFieldKey), 'Kyoto');
     await tester.pump();
-    await tester.tap(find.text('Use "Kyoto"'));
+    await tester.tap(find.text('Use “Kyoto”'));
     await tester.pumpAndSettle();
 
     expect((await recordStore.getByLocalId('manual:one'))!.location, 'Kyoto');
@@ -916,7 +916,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('detailDeleteButton')));
     await tester.pumpAndSettle();
 
-    expect(find.text('Remove from Device'), findsOneWidget);
+    expect(find.text('Remove from iPhone'), findsOneWidget);
     expect(find.text('Delete Photo'), findsOneWidget);
   });
 
@@ -945,9 +945,9 @@ void main() {
       await tester.tap(find.byKey(const ValueKey('detailDeleteButton')));
       await tester.pumpAndSettle();
 
-      expect(find.text('Remove from Device'), findsNothing);
+      expect(find.text('Remove from iPhone'), findsNothing);
       expect(
-        find.text('It will be moved to Recently Deleted.'),
+        find.text('It moves to Recently Deleted.'),
         findsOneWidget,
       );
     },
@@ -1122,7 +1122,7 @@ void main() {
       expect(find.text('Backup Queue'), findsNothing);
       // The analyze queue lives under People.
       expect(find.text('Analyze Queue'), findsNothing);
-      expect(find.text('Cloud Settings'), findsOneWidget);
+      expect(find.text('Cloud Bucket'), findsOneWidget);
 
       await tester.tap(find.text('Favorites'));
       await tester.pumpAndSettle();
@@ -1258,7 +1258,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await tester.tap(find.text('Cloud Settings'));
+      await tester.tap(find.text('Cloud Bucket'));
       await tester.pumpAndSettle();
       await tester.pageBack();
       await tester.pumpAndSettle();
@@ -1635,7 +1635,7 @@ void main() {
       await tester.tap(find.text('Mia Chen'));
       await tester.pumpAndSettle();
 
-      expect(find.text('No photos tagged yet.'), findsOneWidget);
+      expect(find.text('No photos of this person yet.'), findsOneWidget);
     },
   );
 
@@ -1986,7 +1986,7 @@ void main() {
     await tester.pumpAndSettle();
 
     // Coming back from Cloud Settings syncs everything still owed.
-    await tester.tap(find.text('Cloud Settings'));
+    await tester.tap(find.text('Cloud Bucket'));
     await tester.pumpAndSettle();
     await tester.pageBack();
     await tester.pumpAndSettle();
@@ -2040,7 +2040,7 @@ void main() {
     // It used to be filed in Cloud Settings, which is a page about where
     // photos go rather than about the whole app.
     final privacyY = tester
-        .getCenter(find.text('Your Copies, Your Privacy'))
+        .getCenter(find.text('Your Photos, Your Privacy'))
         .dy;
     final removeY = tester.getCenter(find.text('Remove All App Data')).dy;
     expect(privacyY, lessThan(removeY));

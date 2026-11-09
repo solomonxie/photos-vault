@@ -79,7 +79,7 @@ void main() {
     await tester.pump();
 
     expect(
-      find.text("This photo's file isn't in any bucket this phone can reach."),
+      find.text("This photo's file isn't in any bucket this iPhone can reach."),
       findsOneWidget,
     );
   });

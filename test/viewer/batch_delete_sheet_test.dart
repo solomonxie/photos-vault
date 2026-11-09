@@ -34,8 +34,8 @@ void main() {
     tester,
   ) async {
     await _open(tester, removable: 2);
-    expect(find.text('Remove 2 from Device'), findsOneWidget);
-    await tester.tap(find.text('Remove 2 from Device'));
+    expect(find.text('Remove 2 from iPhone'), findsOneWidget);
+    await tester.tap(find.text('Remove 2 from iPhone'));
     await tester.pumpAndSettle();
   });
 

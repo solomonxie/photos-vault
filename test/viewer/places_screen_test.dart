@@ -459,7 +459,7 @@ void main() {
     await tester.tap(find.byKey(const ValueKey('place-fold-Canada')));
     await tester.pumpAndSettle();
     expect(cities(), ['C0', 'C1', 'C2', 'C3', 'C4', 'C5', 'C6']);
-    await tester.tap(find.text('Show Fewer'));
+    await tester.tap(find.text('Show Less'));
     await tester.pumpAndSettle();
     expect(cities(), hasLength(5));
   });

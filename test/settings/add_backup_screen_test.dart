@@ -195,7 +195,7 @@ void main() {
       await tester.tap(find.text('Save'));
       await tester.pumpAndSettle();
 
-      expect(find.textContaining("Couldn't detect"), findsOneWidget);
+      expect(find.textContaining("Couldn't find"), findsOneWidget);
       expect(await store.loadAll(), isEmpty);
     },
   );
@@ -535,7 +535,7 @@ void _providerTests() {
       );
       await tester.pumpAndSettle();
 
-      expect(find.text('Cloud vendor'), findsOneWidget);
+      expect(find.text('Provider'), findsOneWidget);
       expect(find.text('Amazon S3'), findsOneWidget);
       expect(find.text('Tencent Cloud COS'), findsOneWidget);
       expect(find.text('Alibaba Cloud OSS'), findsOneWidget);
@@ -707,7 +707,7 @@ void _saveGuardTests() {
     await tester.tap(find.text('Save'));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('dots in its name'), findsOneWidget);
+    expect(find.textContaining('dots in their name'), findsOneWidget);
     expect(asked, isFalse);
   });
 

@@ -330,7 +330,7 @@ void main() {
       200,
     );
 
-    expect(find.text('TO LOOK AT'), findsOneWidget);
+    expect(find.text('TO REVIEW'), findsOneWidget);
     expect(
       find.byKey(const ValueKey('suggestions-review-big')),
       findsOneWidget,
@@ -355,7 +355,7 @@ void main() {
     expect(find.text('No suggestions'), findsOneWidget);
     expect(
       find.text(
-        "1 photo is still backing up. Optimize is offered once it's done.",
+        "1 photo is still backing up. You can optimize it once it's done.",
       ),
       findsOneWidget,
     );
@@ -538,14 +538,14 @@ void main() {
     await tester.tap(action('removeFromLibrary'));
     await tester.pumpAndSettle();
     expect(
-      find.text('Not in any bucket set up now, and not on this iPhone'),
+      find.text('Not in any of your current buckets, and not on this iPhone'),
       findsOneWidget,
     );
 
     await tester.tap(find.byKey(const ValueKey('suggestions-run')));
     await tester.pumpAndSettle();
     expect(
-      find.textContaining("They're removed from this app for good"),
+      find.textContaining("They'll be removed from this app permanently"),
       findsWidgets,
     );
     await tester.tap(find.text('Remove from Library').last);

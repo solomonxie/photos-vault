@@ -138,7 +138,7 @@ void main() {
     expect(find.text('Restore this backup?'), findsOneWidget);
     expect(find.textContaining('Sep 12, 2026'), findsOneWidget);
     expect(
-      find.textContaining('Nothing you already have is changed'),
+      find.textContaining('Nothing you already have will change'),
       findsOne,
     );
     // What is actually in it, so two copies a week apart can be told apart.
@@ -438,7 +438,7 @@ void main() {
     // Leads with the part that doesn't change: both orders still put
     // every photo in every bucket.
     expect(
-      find.textContaining('is backed up to every bucket either way'),
+      find.textContaining('every photo is backed up to every bucket'),
       findsOneWidget,
     );
 
@@ -457,7 +457,7 @@ void main() {
     await tester.pumpWidget(_wrap(SettingsScreen(store: store)));
     await tester.pumpAndSettle();
 
-    expect(find.text('Manual Only'), findsNothing);
+    expect(find.text('Manually'), findsNothing);
     expect(find.textContaining('Backs up automatically'), findsOneWidget);
   });
 
@@ -469,13 +469,13 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(
-      find.textContaining('Full quality, exactly as stored'),
+      find.textContaining('Full quality, exactly as it is on your iPhone'),
       findsNothing,
     );
     await tester.tap(find.text('HEIF'));
     await tester.pumpAndSettle();
     expect(
-      find.textContaining('Full quality, exactly as stored'),
+      find.textContaining('Full quality, exactly as it is on your iPhone'),
       findsOneWidget,
     );
 

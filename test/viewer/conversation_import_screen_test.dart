@@ -92,14 +92,14 @@ void main() {
       findsOne,
     );
     expect(
-      find.text('Closest match: Daniel Lee — tap to choose from 1 more'),
+      find.text('Closest match: Daniel Lee. Tap to see 1 more.'),
       findsOne,
     );
     expect(
-      find.text('Attaching to the person with this name — tap to change'),
+      find.text('Goes to the person with this name. Tap to change.'),
       findsOne,
     );
-    expect(find.text('Not in People — tap to choose someone'), findsOne);
+    expect(find.text('Not in People. Tap to choose someone.'), findsOne);
     expect(find.byKey(const ValueKey('importNeedsChoice')), findsNothing);
     expect(find.text('Import for 2 people'), findsOne);
 
@@ -108,7 +108,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.text('Cancel'));
     await tester.pumpAndSettle();
-    expect(find.text('Not in People — tap to choose someone'), findsOne);
+    expect(find.text('Not in People. Tap to choose someone.'), findsOne);
 
     await tester.tap(find.byKey(const ValueKey('conversationsApply')));
     await tester.pumpAndSettle();
@@ -120,7 +120,7 @@ void main() {
     );
     expect(find.byKey(const ValueKey('conversationsDone')), findsOne);
     expect(
-      find.text('3 messages added for 2 people; 0 already here.'),
+      find.text('Added 3 messages for 2 people. 0 were already here.'),
       findsOne,
     );
     final logged = (await people.changesOf(liu.id)).first;
@@ -225,7 +225,7 @@ void main() {
     }
     expect(await conversations.countsByPerson(), {mia.id: 2});
     expect(
-      find.text('0 messages added for 1 person; 2 already here.'),
+      find.text('Added 0 messages for 1 person. 2 were already here.'),
       findsOne,
     );
     expect(

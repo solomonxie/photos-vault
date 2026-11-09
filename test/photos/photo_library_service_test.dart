@@ -427,7 +427,7 @@ void main() {
       var listing = [_entity('a1')];
       final service = await serviceWith(store, () => listing);
       await service.syncAll();
-      // "Remove from Device", then Restore Original: gone from the photo
+      // "Remove from iPhone", then Restore Original: gone from the photo
       // library for good, but this app holds a copy of its own.
       await store.setLocalDeleted('photo:a1', true);
       await store.setSourcePath('photo:a1', '/tmp/restored.jpg');

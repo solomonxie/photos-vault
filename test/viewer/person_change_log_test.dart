@@ -42,10 +42,10 @@ void main() {
     ]);
     expect(imported({'source': 'jobs', 'added': 2, 'replaced': 1}), [
       'Jobs imported',
-      '2 jobs added, 1 updated.',
+      'Added 2 jobs, updated 1.',
     ]);
     expect(imported({'source': 'profile'}), ['Profile imported']);
-    expect(imported({'source': 'people'}), ['Imported from a people zip']);
+    expect(imported({'source': 'people'}), ['Imported from a People zip']);
   });
 
   test('a jobs import lands in the change log', () async {

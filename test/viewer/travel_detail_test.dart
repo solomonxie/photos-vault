@@ -59,7 +59,7 @@ void main() {
     );
     await _toPanel(tester);
     final row = find.byKey(const ValueKey('detailTravel'));
-    expect(find.text('Add Impression of This Place'), findsOne);
+    expect(find.text('Add an Impression'), findsOne);
     await tester.ensureVisible(row);
     await tester.pumpAndSettle();
     await tester.tap(row);

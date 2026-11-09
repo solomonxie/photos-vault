@@ -32,7 +32,7 @@ void main() {
     await tester.tap(find.text('delete'));
     await tester.pumpAndSettle();
 
-    expect(find.text('It will be moved to Recently Deleted.'), findsOneWidget);
+    expect(find.text('It moves to Recently Deleted.'), findsOneWidget);
   });
 
   testWidgets('a photo with nothing behind it is not', (tester) async {
@@ -40,10 +40,10 @@ void main() {
     await tester.tap(find.text('delete'));
     await tester.pumpAndSettle();
 
-    expect(find.text('It will be moved to Recently Deleted.'), findsNothing);
+    expect(find.text('It moves to Recently Deleted.'), findsNothing);
     expect(
       find.text(
-        "This item isn't backed up, so it will be deleted permanently.",
+        "This item isn't backed up, so it'll be deleted permanently.",
       ),
       findsOneWidget,
     );
@@ -80,7 +80,7 @@ void main() {
       find.text('This photo is locked. Unlock it to delete it.'),
       findsOneWidget,
     );
-    expect(find.text('It will be moved to Recently Deleted.'), findsNothing);
+    expect(find.text('It moves to Recently Deleted.'), findsNothing);
     await tester.tap(find.text('OK'));
     await tester.pumpAndSettle();
     expect(outcome, DeleteOutcome.none);

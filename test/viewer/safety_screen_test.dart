@@ -108,7 +108,7 @@ void main() {
     // The status line is never blank: "no idea" is the answer this page
     // came to give, so it gives it.
     expect(
-      find.textContaining('Never checked with your bucket'),
+      find.textContaining('Not checked with your bucket yet'),
       findsOneWidget,
     );
   });
@@ -172,7 +172,7 @@ void main() {
 
     expect(find.text('No bucket yet'), findsOneWidget);
     expect(
-      find.text('This phone is the only copy. Add a bucket you own.'),
+      find.text('This phone has the only copy. Add a bucket you own.'),
       findsOneWidget,
     );
   });
@@ -258,7 +258,7 @@ void main() {
     }
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('The backup is real'), findsOneWidget);
+    expect(find.textContaining('Your backup works'), findsOneWidget);
   });
 
   testWidgets('the recovery steps name the user\'s own prefix', (tester) async {
