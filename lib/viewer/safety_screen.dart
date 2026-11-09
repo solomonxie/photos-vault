@@ -441,7 +441,7 @@ class _SafetyScreenState extends State<SafetyScreen> {
 
   Widget _appData(AppLocalizations l10n) {
     return SettingsSection(
-      heading: l10n.safetyAppDataHeading,
+      heading: l10n.safetyAppDataHeading.toUpperCase(),
       primary: false,
       hint: l10n.safetyAppDataHint,
       children: [
@@ -502,7 +502,7 @@ class _SafetyScreenState extends State<SafetyScreen> {
   Widget _recovery(AppLocalizations l10n) {
     final prefix = _targets.isEmpty ? null : _targets.first.prefix;
     return SettingsSection(
-      heading: l10n.safetyRecoveryHeading,
+      heading: l10n.safetyRecoveryHeading.toUpperCase(),
       primary: false,
       hint: l10n.safetyRecoveryHint,
       children: [

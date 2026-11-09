@@ -307,7 +307,10 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
                   ),
                   children: [
                     if (widget.ignored && _ignoredPeople.isNotEmpty) ...[
-                      _heading(l10n.peopleSectionNamed, _ignoredPeople.length),
+                      _heading(
+                        l10n.peopleSectionNamed.toUpperCase(),
+                        _ignoredPeople.length,
+                      ),
                       for (final p in _ignoredPeople) _personRow(l10n, p),
                     ],
                     if (widget.ignored && _groups.isNotEmpty) ...[

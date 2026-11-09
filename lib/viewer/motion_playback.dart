@@ -162,7 +162,7 @@ class MotionBadge extends StatelessWidget {
         ),
         const SizedBox(width: 4),
         Text(
-          label,
+          label.toUpperCase(),
           style: TextStyle(
             fontSize: 11,
             fontWeight: FontWeight.w600,

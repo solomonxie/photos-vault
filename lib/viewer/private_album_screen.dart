@@ -1693,7 +1693,7 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              l10n.privateAlbumHowTitle,
+              l10n.privateAlbumHowTitle.toUpperCase(),
               style: const TextStyle(
                 fontSize: 13,
                 letterSpacing: 0.4,

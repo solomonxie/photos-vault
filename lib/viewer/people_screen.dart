@@ -1856,7 +1856,8 @@ class _PeopleScreenState extends State<PeopleScreen> {
       if (_ignoredPeople.length + _ignoredGroups > 0 && query.isEmpty)
         _ignoredRow(l10n),
       if (_imported.isNotEmpty && query.isEmpty) _facesRow(l10n),
-      if (_people.isNotEmpty) _sectionHeading(l10n.peopleSectionNamed),
+      if (_people.isNotEmpty)
+        _sectionHeading(l10n.peopleSectionNamed.toUpperCase()),
       if (!_loaded)
         const Padding(
           padding: EdgeInsets.only(top: 48),

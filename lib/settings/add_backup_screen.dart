@@ -631,7 +631,7 @@ class _AddBackupScreenState extends State<AddBackupScreen> {
             if (_drafts.isNotEmpty) ...[
               const SettingsSectionDivider(),
               SettingsSection(
-                heading: l10n.settingsDraftsTitle,
+                heading: l10n.settingsDraftsTitle.toUpperCase(),
                 primary: false,
                 children: [
                   for (var i = 0; i < _drafts.length; i++) ...[
