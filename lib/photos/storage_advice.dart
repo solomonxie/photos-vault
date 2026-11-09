@@ -55,12 +55,21 @@ int largeFileThreshold({required bool isVideo}) =>
 /// count meaningless.
 const highResolutionEdge = 4100;
 
-/// What [StorageFix.optimize] makes of a video: 1080p HEVC.
-const compressedVideoEdge = 1920;
+/// [StorageFix.optimize] keeps resolution: a photo becomes HEIF at full
+/// size and this quality, a video HEVC at its own size. The saving is the
+/// format (JPEG, PNG, H.264), never pixels.
+const optimizedQuality = 90;
 
-/// What [StorageFix.optimize] shrinks a photo to — still sharp full-screen
-/// on a 3x display, a fraction of the bytes.
-const optimizedMaxEdge = 2560;
+/// What Optimize shrank to before it kept resolution — only to recognise
+/// those older copies.
+const legacyCompressedVideoEdge = 1920;
+const legacyOptimizedMaxEdge = 2560;
+
+/// Already as compact as a full-size re-encode gets them.
+const _compactStills = {'.heic', '.heif', '.gif', '.webp'};
+
+bool _stillShrinkable(String name) =>
+    !_compactStills.contains(p.extension(name).toLowerCase());
 
 /// Formats that re-encode dramatically smaller. HEIC and JPEG are left out
 /// on purpose: they're already compressed, and converting them buys little
@@ -139,16 +148,8 @@ class StorageItem {
   int get estimatedSaving => switch (fix) {
     StorageFix.backUpFirst => 0,
     StorageFix.removeFromDevice || StorageFix.removeDuplicate => bytes,
-    StorageFix.optimize || StorageFix.optimizeRemote =>
-      record.isVideo ? (bytes * 0.6).round() : _resizedSaving,
+    StorageFix.optimize || StorageFix.optimizeRemote => (bytes * 0.4).round(),
   };
-
-  int get _resizedSaving {
-    final edge = longestEdgeOf(record);
-    if (edge == null || edge <= optimizedMaxEdge) return (bytes * 0.5).round();
-    final ratio = optimizedMaxEdge / edge;
-    return (bytes * (1 - ratio * ratio)).round();
-  }
 }
 
 int? longestEdgeOf(AssetRecord record) {
@@ -232,23 +233,25 @@ List<StorageFix> _fixesFor(
   if (issues.isEmpty) return const [];
   if (!backedUp) return const [StorageFix.backUpFirst];
   final edge = longestEdgeOf(record);
-  final ext = p.extension(name).toLowerCase();
-  // One test for every re-encode: a smaller photo, a 1080p video, or a
-  // bulky format made compact.
+  // One test for every re-encode: a bulky format made compact, same size.
   final shrinkable =
       !record.localOptimized &&
       (record.isVideo
-          ? (edge != null && edge > compressedVideoEdge) ||
+          ? (edge != null && edge > legacyCompressedVideoEdge) ||
                 bytes >= largeVideoBytes
-          : (edge != null &&
-                    edge > optimizedMaxEdge &&
-                    (appOwned || ext != '.gif')) ||
-                (appOwned && issues.contains(StorageIssue.optimizableFormat)));
+          : _stillShrinkable(name));
   // An app-held Live Photo's still is paired with its `.mov` by name and by
   // Apple's metadata; a Dart re-encode would break both (04#11).
   final heldLive = appOwned && record.isLivePhoto;
+  // An app-held still re-encodes in Dart, to JPEG: worth it only from a
+  // bulky lossless format, never JPEG to JPEG.
+  final localShrinkable =
+      shrinkable &&
+      (record.isVideo ||
+          !appOwned ||
+          issues.contains(StorageIssue.optimizableFormat));
   return [
-    if (shrinkable && !smallestAlready && !heldLive) StorageFix.optimize,
+    if (localShrinkable && !smallestAlready && !heldLive) StorageFix.optimize,
     if (shrinkable && !remoteOptimized && !smallestAlready)
       StorageFix.optimizeRemote,
   ];
@@ -494,11 +497,9 @@ class StorageAdvisor {
           StorageIssue.highResolution,
       };
       final shrinkable = r.isVideo
-          ? (edge != null && edge > compressedVideoEdge) ||
+          ? (edge != null && edge > legacyCompressedVideoEdge) ||
                 bytes >= largeVideoBytes
-          : edge != null &&
-                edge > optimizedMaxEdge &&
-                p.extension(key).toLowerCase() != '.gif';
+          : _stillShrinkable(key);
       if (issues.isEmpty || !shrinkable) continue;
       out.add(
         StorageItem(

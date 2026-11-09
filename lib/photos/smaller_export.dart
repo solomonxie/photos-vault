@@ -101,7 +101,7 @@ Future<({Uint8List bytes, String extension})?> shrinkPhoto(
   return heic == null ? null : (bytes: heic, extension: '.heic');
 }
 
-/// [input] as 1080p HEVC at [output] (`ImageEncodeChannel.swift`). True
+/// [input] as HEVC at its own resolution, at [output] (`ImageEncodeChannel.swift`). True
 /// only when it was written and came out smaller; otherwise
 /// [lastVideoCompressError] says why.
 Future<bool> compressVideoNatively({

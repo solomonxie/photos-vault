@@ -355,7 +355,7 @@
     }
   },
   "suggestionsHowOptimizeRemote": "Replaces the original in your bucket with a smaller copy, for good. Any copy on this iPhone stays as it is.",
-  "suggestionsConfirmOptimizeRemoteBody": "In your bucket, photos become HEIF at up to 2560 px and videos become 1080p HEVC. The originals are replaced for good.\n\nCopies on this iPhone aren't touched. A photo that's only in your bucket won't have a full-quality copy anywhere.",
+  "suggestionsConfirmOptimizeRemoteBody": "In your bucket, photos become HEIF and videos become HEVC, both at full resolution. The original files are replaced for good.\n\nCopies on this iPhone aren't touched. A photo that's only in your bucket won't have its original file anywhere.",
   "suggestionsEtaSeconds": "a few seconds",
   "suggestionsEtaUnderMinute": "under a minute",
   "suggestionsEtaMinutes": "{minutes, plural, one{about 1 min} other{about {minutes} min}}",
@@ -385,7 +385,7 @@
   "suggestionsStepAdding": "Adding to library",
   "suggestionsStepConverting": "Converting",
   "suggestionsStepConfirming": "Waiting for you to confirm in the iOS prompt",
-  "suggestionsHighResolution": "{width} × {height} → 2560 px",
+  "suggestionsHighResolution": "{width} × {height}",
   "@suggestionsHighResolution": {
     "placeholders": {
       "width": {
@@ -1700,7 +1700,7 @@
     }
   },
   "suggestionsConfirmRemoveBody": "Deletes the full photo from this iPhone to free up space. Your bucket keeps the full-quality original and your iPhone keeps a small preview.\n\nOpening the photo downloads the original again.",
-  "suggestionsConfirmOptimizeBody": "Photos become HEIF up to 2560 px and videos become 1080p HEVC, replacing the originals on this iPhone and in Photos. The smaller copy then replaces the one in your bucket too.\n\nAlbums in the Photos app don't carry over.",
+  "suggestionsConfirmOptimizeBody": "Photos become HEIF and videos become HEVC, both at full resolution, replacing the originals on this iPhone and in Photos. The smaller copy then replaces the one in your bucket too.\n\nAlbums in the Photos app don't carry over.",
   "suggestionsConfirmReformatBody": "Each photo is downloaded, converted, and uploaded as a smaller copy. The original is removed from the bucket once its copy has been checked.",
   "suggestionsConfirmImportAnywayBody": "This looks like an old copy of a photo you already have.",
   "detailRestoreFailedTitle": "Couldn't download the full-resolution version",

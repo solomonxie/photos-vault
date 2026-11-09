@@ -84,7 +84,7 @@ void main() {
         'unsent' => 50 * 1024 * 1024,
         _ => 1024,
       },
-      name: '${r.localId}.heic',
+      name: '${r.localId}.jpg',
       appOwned: false,
     ),
   );
@@ -158,7 +158,7 @@ void main() {
     expect(action('backUp'), findsNothing);
     // Nothing here ever deletes a local copy, and a fine photo isn't listed.
     expect(action('removeFromDevice'), findsNothing);
-    expect(find.text('big.heic'), findsNothing, reason: 'files are a tap in');
+    expect(find.text('big.jpg'), findsNothing, reason: 'files are a tap in');
   });
 
   testWidgets('archived and backed up: offered off this iPhone, the rest '
@@ -368,7 +368,7 @@ void main() {
     await tester.tap(action('optimize'));
     await tester.pumpAndSettle();
 
-    expect(find.text('big.heic'), findsOneWidget);
+    expect(find.text('big.jpg'), findsOneWidget);
     expect(find.text('Optimize Space · 1'), findsOneWidget);
     expect(find.text('Deselect All'), findsOneWidget);
   });
@@ -378,7 +378,7 @@ void main() {
 
     await tester.tap(action('optimize'));
     await tester.pumpAndSettle();
-    await tester.tap(find.text('big.heic'));
+    await tester.tap(find.text('big.jpg'));
     await tester.pumpAndSettle();
 
     expect(find.text('Optimize Space · 0'), findsOneWidget);
@@ -452,7 +452,7 @@ void main() {
       StorageItem(
         record: record,
         bytes: 1,
-        name: 'cloud.heic',
+        name: 'cloud.jpg',
         appOwned: false,
         issues: const {StorageIssue.largeFile},
         fixes: const [StorageFix.optimizeRemote],
@@ -470,7 +470,7 @@ void main() {
     await tester.pumpAndSettle();
 
     expect(find.text('Optimize Space · 0'), findsOneWidget);
-    await tester.tap(find.text('cloud.heic'));
+    await tester.tap(find.text('cloud.jpg'));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Optimize Space · 1'));
     await tester.pumpAndSettle();

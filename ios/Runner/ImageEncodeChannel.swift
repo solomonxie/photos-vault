@@ -213,7 +213,7 @@ class ImageEncodeChannel {
     }
   }
 
-  /// A video re-encoded to 1080p HEVC by AVFoundation, metadata (date,
+  /// A video re-encoded to HEVC at its own resolution, metadata (date,
   /// place) carried over. True only when [output] came out smaller.
   private static func compressVideo(
     _ call: FlutterMethodCall,
@@ -229,7 +229,7 @@ class ImageEncodeChannel {
     let asset = AVURLAsset(url: URL(fileURLWithPath: input))
     guard let session = AVAssetExportSession(
       asset: asset,
-      presetName: AVAssetExportPresetHEVC1920x1080
+      presetName: AVAssetExportPresetHEVCHighestQuality
     ) else {
       result("no HEVC export for this video")
       return

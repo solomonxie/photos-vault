@@ -16,7 +16,8 @@ import '../upload/cloud_thumbnails.dart';
 import '../upload/lost_originals.dart';
 import 'fix_queue.dart';
 import 'image_pipeline.dart';
-import 'storage_advice.dart' show compressedVideoEdge, optimizedMaxEdge;
+import 'storage_advice.dart'
+    show legacyCompressedVideoEdge, legacyOptimizedMaxEdge;
 
 /// Cloud-only records with something wrong that only the record can fix:
 /// no picture of themselves on this phone, or no original anywhere a
@@ -543,7 +544,9 @@ class RecordFixer {
       return !r.localOptimized &&
           e != null &&
           r.addedAt.difference(r.createdAt) > const Duration(days: 1) &&
-          (r.isVideo ? e == compressedVideoEdge : e == optimizedMaxEdge);
+          (r.isVideo
+              ? e == legacyCompressedVideoEdge
+              : e == legacyOptimizedMaxEdge);
     }
 
     final byTime = <(int, bool), List<AssetRecord>>{};

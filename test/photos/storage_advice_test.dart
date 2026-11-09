@@ -37,7 +37,7 @@ void main() {
   StorageItem? advise(
     AssetRecord r, {
     int bytes = 1024,
-    String name = 'IMG_1.heic',
+    String name = 'IMG_1.jpg',
     bool appOwned = false,
   }) => adviseOn(record: r, bytes: bytes, name: name, appOwned: appOwned);
 
@@ -109,9 +109,30 @@ void main() {
         StorageIssue.optimizableFormat,
       });
       expect(item.fix, StorageFix.optimize);
-      // 6000 px down to 2560 keeps (2560/6000)² of the pixels.
-      expect(item.estimatedSaving, greaterThan(30 * 1024 * 1024));
-      expect(item.estimatedSaving, lessThan(40 * 1024 * 1024));
+      // Full size kept: the saving is the format alone.
+      expect(item.estimatedSaving, 16 * 1024 * 1024);
+    });
+
+    test('a HEIC is already compact: nothing to offer, whatever its size', () {
+      expect(
+        advise(
+          record(width: 8064, height: 6048),
+          bytes: 30 * 1024 * 1024,
+          name: 'IMG_1.HEIC',
+        ),
+        isNull,
+      );
+    });
+
+    test('an app-held JPEG is never re-encoded to JPEG on the phone', () {
+      final item = advise(
+        record(width: 6000, height: 4000),
+        bytes: 30 * 1024 * 1024,
+        name: 'big.jpg',
+        appOwned: true,
+      )!;
+
+      expect(item.fixes, [StorageFix.optimizeRemote]);
     });
 
     test('an app-owned optimizable format at a sane size is converted', () {
@@ -174,7 +195,7 @@ void main() {
       final item = adviseOn(
         record: record(width: 6000, height: 4000),
         bytes: 30 * 1024 * 1024,
-        name: 'IMG_1.heic',
+        name: 'IMG_1.jpg',
         appOwned: false,
         remoteOptimized: true,
       )!;
@@ -240,7 +261,7 @@ void main() {
         store: store,
         measure: (r) async => AssetMeasure(
           bytes: sizes[r.localId]!,
-          name: '${r.localId}.heic',
+          name: '${r.localId}.jpg',
           appOwned: false,
         ),
       ).scan();
@@ -252,8 +273,8 @@ void main() {
         'smaller bucket copy', () async {
       final store = FakeAssetRecordStore();
       for (final (id, key) in [
-        ('here', 'photos-vault/originals/here.heic'),
-        ('gone', 'photos-vault2/originals/gone.heic'),
+        ('here', 'photos-vault/originals/here.jpg'),
+        ('gone', 'photos-vault2/originals/gone.jpg'),
       ]) {
         await store.upsert(
           localId: id,
@@ -271,7 +292,7 @@ void main() {
       await store.replaceBucketObjects('t', [
         BucketObject(
           targetId: 't',
-          key: 'photos-vault/originals/here.heic',
+          key: 'photos-vault/originals/here.jpg',
           size: 9000,
           lastModified: DateTime(2026),
         ),
@@ -280,7 +301,7 @@ void main() {
       final found = await StorageAdvisor(
         store: store,
         measure: (r) async =>
-            AssetMeasure(bytes: 9000, name: 'a.heic', appOwned: false),
+            AssetMeasure(bytes: 9000, name: 'a.jpg', appOwned: false),
       ).scan();
 
       final fixes = {for (final i in found.items) i.record.localId: i.fixes};
@@ -310,7 +331,7 @@ void main() {
         measure: (r) async {
           measured.add(r.localId);
           await Future<void>.delayed(const Duration(milliseconds: 5));
-          return AssetMeasure(bytes: 9000, name: 'a.heic', appOwned: false);
+          return AssetMeasure(bytes: 9000, name: 'a.jpg', appOwned: false);
         },
       );
 
@@ -344,7 +365,7 @@ void main() {
           peak = running > peak ? running : peak;
           await Future<void>.delayed(const Duration(milliseconds: 1));
           running--;
-          return AssetMeasure(bytes: 9000, name: 'a.heic', appOwned: false);
+          return AssetMeasure(bytes: 9000, name: 'a.jpg', appOwned: false);
         },
       ).scan();
 
@@ -414,7 +435,7 @@ void main() {
           measures++;
           return const AssetMeasure(
             bytes: 30 * 1024 * 1024,
-            name: 'a.heic',
+            name: 'a.jpg',
             appOwned: false,
           );
         },
@@ -448,7 +469,7 @@ void main() {
           store: store,
           measure: (_) async => const AssetMeasure(
             bytes: 30 * 1024 * 1024,
-            name: 'a.heic',
+            name: 'a.jpg',
             appOwned: false,
           ),
         );
@@ -480,7 +501,7 @@ void main() {
         store: store,
         measure: (_) async => const AssetMeasure(
           bytes: 30 * 1024 * 1024,
-          name: 'a.heic',
+          name: 'a.jpg',
           appOwned: false,
         ),
       );
@@ -516,7 +537,7 @@ void main() {
           measured.add(r.localId);
           return AssetMeasure(
             bytes: 1024,
-            name: '${r.localId}.heic',
+            name: '${r.localId}.jpg',
             appOwned: false,
           );
         },
@@ -558,7 +579,7 @@ void main() {
           measures++;
           return const AssetMeasure(
             bytes: 1024,
-            name: 'a.heic',
+            name: 'a.jpg',
             appOwned: false,
           );
         },
@@ -594,7 +615,7 @@ void main() {
         store: store,
         measure: (r) async => AssetMeasure(
           bytes: 1024,
-          name: '${r.localId}.heic',
+          name: '${r.localId}.jpg',
           appOwned: false,
         ),
       );
@@ -635,7 +656,7 @@ void main() {
           measured.add(r.localId);
           return AssetMeasure(
             bytes: r.localId == 'a' ? 30 * 1024 * 1024 : 20 * 1024 * 1024,
-            name: '${r.localId}.heic',
+            name: '${r.localId}.jpg',
             appOwned: false,
           );
         },
@@ -664,7 +685,7 @@ void main() {
       await StorageAdvisor(
         store: store,
         measure: (_) async =>
-            const AssetMeasure(bytes: 10, name: 'a.heic', appOwned: false),
+            const AssetMeasure(bytes: 10, name: 'a.jpg', appOwned: false),
       ).scan(onProgress: (_, done, total) => reports.add((done, total)));
 
       expect(reports, [(1, 1)]);
@@ -719,14 +740,14 @@ void main() {
       DerivativeKind.original,
       const DerivativeState(
         status: UploadStatus.uploaded,
-        destinationKey: 'p/originals/x.heic',
+        destinationKey: 'p/originals/x.jpg',
       ),
     );
     await store.setLocalDeleted('gone', true);
     await store.replaceBucketObjects('t', [
       BucketObject(
         targetId: 't',
-        key: 'p/originals/x.heic',
+        key: 'p/originals/x.jpg',
         size: 30 * 1024 * 1024,
         lastModified: DateTime(2026),
       ),
@@ -766,7 +787,7 @@ void main() {
             measured.add(r.localId);
             return AssetMeasure(
               bytes: largePhotoBytes,
-              name: '${r.localId}.heic',
+              name: '${r.localId}.jpg',
               appOwned: false,
             );
           },
@@ -828,7 +849,7 @@ void main() {
       await store.replaceBucketObjects('t', [
         BucketObject(
           targetId: 't',
-          key: 'photos-vault/originals/photo_0.heic',
+          key: 'photos-vault/originals/photo_0.jpg',
           size: 9000,
           lastModified: DateTime(2026),
         ),

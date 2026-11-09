@@ -1199,7 +1199,7 @@ class _FakeWriter extends LibraryWriter {
       File('${dir.path}/original.heic')..writeAsBytesSync(List.filled(6000, 1));
 
   @override
-  Future<bool> encodeStill(String input, String output, int maxEdge) async {
+  Future<bool> encodeStill(String input, String output) async {
     File(output).writeAsBytesSync(List.filled(100, 2));
     return true;
   }
@@ -1224,7 +1224,7 @@ class _BarelySmallerWriter extends _FakeWriter {
   _BarelySmallerWriter(super.dir);
 
   @override
-  Future<bool> encodeStill(String input, String output, int maxEdge) async {
+  Future<bool> encodeStill(String input, String output) async {
     File(output).writeAsBytesSync(List.filled(5800, 2));
     return true;
   }

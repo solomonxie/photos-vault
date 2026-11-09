@@ -49,7 +49,7 @@ void main() {
     store: store,
     measure: (r) async => AssetMeasure(
       bytes: 60 * 1024 * 1024,
-      name: '${r.localId}.heic',
+      name: '${r.localId}.jpg',
       appOwned: false,
     ),
   );
@@ -113,7 +113,7 @@ void main() {
       DerivativeKind.original,
       DerivativeState(
         status: UploadStatus.uploaded,
-        destinationKey: 'photos-vault/originals/$id.heic',
+        destinationKey: 'photos-vault/originals/$id.jpg',
         backedUpHash: 'hash-$id',
       ),
     );
@@ -128,7 +128,7 @@ void main() {
   test('one scan lists every kind, and a relaunch shows it without '
       'scanning again', () async {
     await big('big');
-    await listed({thumb: 10, 'photos-vault/originals/big.heic': 10});
+    await listed({thumb: 10, 'photos-vault/originals/big.jpg': 10});
     final first = scanOver(queue());
     await first.open();
     await first.run();
@@ -313,7 +313,7 @@ void main() {
       DerivativeKind.original,
       const DerivativeState(
         status: UploadStatus.uploaded,
-        destinationKey: 'photos-vault/originals/twin.heic',
+        destinationKey: 'photos-vault/originals/twin.jpg',
         backedUpHash: 'hash-secret',
       ),
     );
@@ -327,7 +327,7 @@ void main() {
         ).toJson(),
       ]),
     );
-    await listed({'photos-vault/originals/plain.heic': 10});
+    await listed({'photos-vault/originals/plain.jpg': 10});
     final q = queue();
     final scan = scanOver(q);
     await scan.open();
@@ -351,7 +351,7 @@ void main() {
   test('hidden while the app runs: the next visit drops it before any '
       'scan', () async {
     await big('plain');
-    await listed({'photos-vault/originals/plain.heic': 10});
+    await listed({'photos-vault/originals/plain.jpg': 10});
     final scan = scanOver(queue());
     await scan.open();
     await scan.run();
@@ -371,7 +371,7 @@ void main() {
         adviseOn(
           record: record,
           bytes: 60 << 20,
-          name: 'a.heic',
+          name: 'a.jpg',
           appOwned: true,
         ),
         isNotNull,
@@ -381,7 +381,7 @@ void main() {
         adviseOn(
           record: (await store.getByLocalId('a'))!,
           bytes: 20 << 20,
-          name: 'a.heic',
+          name: 'a.jpg',
           appOwned: true,
         ),
         isNull,
@@ -412,13 +412,13 @@ void main() {
         DerivativeKind.original,
         const DerivativeState(
           status: UploadStatus.uploaded,
-          destinationKey: 'photos-vault/originals/c.heic',
+          destinationKey: 'photos-vault/originals/c.jpg',
         ),
       );
       await store.setLocalDeleted('c', true);
       await listed({
-        'photos-vault/originals/a.heic': 60 << 20,
-        'photos-vault/originals/c.heic': 60 << 20,
+        'photos-vault/originals/a.jpg': 60 << 20,
+        'photos-vault/originals/c.jpg': 60 << 20,
       });
       final a = advisor();
       await a.scan();
@@ -446,7 +446,7 @@ void main() {
           DerivativeKind.original,
           DerivativeState(
             status: UploadStatus.uploaded,
-            destinationKey: 'photos-vault/originals/$id.heic',
+            destinationKey: 'photos-vault/originals/$id.jpg',
             backedUpHash: 'same',
           ),
         );

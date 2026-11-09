@@ -280,10 +280,7 @@ class StorageOptimizer {
     try {
       final file = File(path);
       final before = await file.length();
-      final encoded = await _encode(
-        path,
-        item.fix == StorageFix.optimize ? optimizedMaxEdge : null,
-      );
+      final encoded = await _encode(path, null);
       if (encoded == null) return null;
       final (bytes, width, height) = encoded;
       // A re-encode that grew the file isn't an optimization, and isn't
@@ -833,7 +830,7 @@ class StorageOptimizer {
       final out = temp(record.isVideo ? '.mov' : '.heic');
       final wrote = record.isVideo
           ? await _writer.compressVideo(source.path, out.path)
-          : await _writer.encodeStill(source.path, out.path, optimizedMaxEdge);
+          : await _writer.encodeStill(source.path, out.path);
       if (wrote && await out.length() < await source.length() * _worthKeeping) {
         temps.remove(out);
         await _cleanUp(temps);
@@ -896,7 +893,7 @@ class StorageOptimizer {
       );
       final wrote = video
           ? await _writer.compressVideo(source.path, out.path)
-          : await _writer.encodeStill(source.path, out.path, optimizedMaxEdge);
+          : await _writer.encodeStill(source.path, out.path);
       if (!wrote) {
         if (video &&
             (lastVideoCompressError?.startsWith('not smaller') ?? false)) {
@@ -940,7 +937,7 @@ class StorageOptimizer {
   static bool _compressesVideo(StorageItem item) =>
       item.fix == StorageFix.optimize && item.record.isVideo;
 
-  /// An app-owned video, replaced by its 1080p HEVC copy.
+  /// An app-owned video, replaced by its HEVC copy.
   Future<int?> _compressOwned(StorageItem item) async {
     final path = item.record.sourcePath;
     if (path == null) return null;
@@ -1049,13 +1046,12 @@ class LibraryWriter {
   Future<File?> original(PhotoLibraryService library, AssetRecord record) =>
       library.fileFor(record);
 
-  Future<bool> encodeStill(String input, String output, int maxEdge) =>
-      encodeFileNatively(
-        input: input,
-        output: output,
-        format: 'heic',
-        maxEdge: maxEdge,
-      );
+  Future<bool> encodeStill(String input, String output) => encodeFileNatively(
+    input: input,
+    output: output,
+    format: 'heic',
+    quality: optimizedQuality,
+  );
 
   Future<bool> compressVideo(String input, String output) =>
       compressVideoNatively(input: input, output: output);

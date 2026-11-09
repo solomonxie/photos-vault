@@ -119,7 +119,7 @@ moves. Bucket fixes go one by one.
 |---|---|---|
 | On device | backed up, local copy still here | Remove from Device |
 | Large file | photo ≥ 10 MB, video ≥ 100 MB | (whichever of the others applies) |
-| High resolution | longest edge > 4000 px | Reduce Resolution — 2560 px, WebP |
+| High resolution | longest edge > 4000 px | Optimize — HEIF at full resolution (videos: HEVC, own resolution) |
 | Optimizable format | PNG / BMP / TIFF | Convert to WebP |
 
 Two size thresholds because one would be wrong for both: 10 MB is a fat

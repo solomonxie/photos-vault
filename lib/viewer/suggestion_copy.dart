@@ -175,8 +175,6 @@ String flagReason(AppLocalizations l10n, Flag flag) {
         if (p == FlagProblem.highResolution &&
             record?.width != null &&
             record?.height != null)
-          // The size it is and the size it becomes: the reason, and what
-          // Optimize Space does about it, in one look.
           l10n.suggestionsHighResolution(record!.width!, record.height!)
         else if (p != FlagProblem.onDevice)
           problemLabel(l10n, p),
