@@ -480,10 +480,7 @@ void main() {
       await tester.pumpAndSettle();
       // A sheet at the bottom, the way Photos asks.
       expect(find.byType(CupertinoActionSheet), findsOneWidget);
-      expect(
-        find.text('It moves to Recently Deleted.'),
-        findsOneWidget,
-      );
+      expect(find.text('It moves to Recently Deleted.'), findsOneWidget);
 
       // Cancelling leaves the item alone and the viewer open.
       await tester.tap(find.text('Cancel'));
@@ -946,10 +943,7 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(find.text('Remove from iPhone'), findsNothing);
-      expect(
-        find.text('It moves to Recently Deleted.'),
-        findsOneWidget,
-      );
+      expect(find.text('It moves to Recently Deleted.'), findsOneWidget);
     },
   );
 

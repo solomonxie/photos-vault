@@ -42,9 +42,7 @@ void main() {
 
     expect(find.text('It moves to Recently Deleted.'), findsNothing);
     expect(
-      find.text(
-        "This item isn't backed up, so it'll be deleted permanently.",
-      ),
+      find.text("This item isn't backed up, so it'll be deleted permanently."),
       findsOneWidget,
     );
   });

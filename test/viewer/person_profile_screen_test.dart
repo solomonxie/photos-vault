@@ -1422,7 +1422,9 @@ void main() {
 
     expect(find.text('Delete this person?'), findsOneWidget);
     expect(
-      find.textContaining('Their hidden folder and the 1 photo in it are deleted'),
+      find.textContaining(
+        'Their hidden folder and the 1 photo in it are deleted',
+      ),
       findsOneWidget,
     );
     await tester.tap(find.text('Cancel'));
