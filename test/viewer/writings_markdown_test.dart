@@ -1,5 +1,5 @@
 import 'package:flutter_test/flutter_test.dart';
-import 'package:photos_vault/viewer/words_markdown.dart';
+import 'package:photos_vault/viewer/writings_markdown.dart';
 
 void main() {
   test('blocks: headings, paragraphs, lists, quotes, code, rules, media', () {

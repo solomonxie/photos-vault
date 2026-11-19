@@ -19,7 +19,7 @@ class NameSound {
   final List<String> _tails;
 
   factory NameSound.of(String name) {
-    final words = _words(name.toLowerCase());
+    final words = _writings(name.toLowerCase());
     final letters = words.join();
     final han = hasHan(name);
     final heard = han ? words : [for (final w in words) _soundOf(w)];
@@ -31,7 +31,7 @@ class NameSound {
     );
   }
 
-  static List<String> _words(String s) {
+  static List<String> _writings(String s) {
     final out = <String>[];
     final run = StringBuffer();
     void flush() {

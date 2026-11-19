@@ -1057,7 +1057,7 @@ class TravelStore {
   );
 }
 
-/// Best-effort, own handle — as [moveWords] does.
+/// Best-effort, own handle — as [moveWritings] does.
 Future<void> moveTravel(String from, String to, {TravelStore? store}) async {
   try {
     await (store ?? TravelStore()).movePerson(from, to);

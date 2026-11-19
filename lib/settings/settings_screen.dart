@@ -22,7 +22,7 @@ import '../photos/travel_store.dart';
 import '../sync/cloud_sync.dart';
 import '../sync/log_sync.dart';
 import '../sync/sync_store.dart';
-import '../photos/words_store.dart';
+import '../photos/writings_store.dart';
 import '../storage/album_store.dart';
 import '../storage/asset_record_store.dart';
 import 'add_backup_screen.dart';
@@ -94,7 +94,7 @@ class _SettingsScreenState extends State<SettingsScreen>
     personStore: _personStore,
     aiAnalysisStore: AiAnalysisStore(),
     conversationStore: ConversationStore(),
-    wordsStore: WordsStore(),
+    writingsStore: WritingsStore(),
     travelStore: TravelStore(),
     syncStore: SyncStore(),
   );

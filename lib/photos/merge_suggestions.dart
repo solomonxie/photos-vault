@@ -101,11 +101,11 @@ class MergeSuggestion {
   /// shorter one anywhere ("王小明" holds "小明"); a Latin one only as its
   /// start, three letters or more ("Tommy" holds "Tom", "Lily" not "Li").
   static bool _within(String x, Set<String> xw, String y, Set<String> yw) {
-    final (short, shortWords, long, longWords) = x.length <= y.length
+    final (short, shortWritings, long, longWritings) = x.length <= y.length
         ? (x, xw, y, yw)
         : (y, yw, x, xw);
     if (short.contains(' ') || long.contains(' ')) {
-      return shortWords.every(longWords.contains);
+      return shortWritings.every(longWritings.contains);
     }
     if (_latin.hasMatch(short)) {
       return short.length >= 3 && long.startsWith(short);

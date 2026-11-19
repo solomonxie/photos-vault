@@ -185,7 +185,7 @@ class _PersonChangeLogScreenState extends State<PersonChangeLogScreen> {
         ],
       ),
       'words' => (
-        l10n.personChangeImportedWords,
+        l10n.personChangeImportedWritingsTitle,
         [l10n.personChangeImportedWritings(count)],
       ),
       'jobs' => (

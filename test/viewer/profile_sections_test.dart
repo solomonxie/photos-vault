@@ -5,7 +5,7 @@ import 'package:photos_vault/photos/conversation_file.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/photos/person_detail.dart';
 import 'package:photos_vault/photos/person_store.dart';
-import 'package:photos_vault/photos/words_file.dart';
+import 'package:photos_vault/photos/writings_file.dart';
 import 'package:photos_vault/viewer/person_page_screen.dart';
 import 'package:photos_vault/viewer/person_profile_screen.dart';
 import 'package:photos_vault/viewer/profile_previews.dart';
@@ -137,6 +137,8 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('profileTab:people')));
+    await tester.pumpAndSettle();
 
     final search = find.byKey(const ValueKey('relationshipSearch'));
     expect(search, findsOneWidget);
@@ -173,15 +175,15 @@ void main() {
     );
     await tester.pumpWidget(page());
     await tester.pumpAndSettle();
-    expect(find.text('Social energy'), findsOneWidget);
+    expect(find.text('No bio yet.'), findsOneWidget);
 
-    await tester.tap(find.byKey(profileSectionHeaderKey('Impression')));
+    await tester.tap(find.byKey(profileSectionHeaderKey('About')));
     await tester.pumpAndSettle();
-    expect(find.text('Social energy'), findsNothing);
+    expect(find.text('No bio yet.'), findsNothing);
 
     await tester.pumpWidget(page());
     await tester.pumpAndSettle();
-    expect(find.text('Social energy'), findsNothing);
+    expect(find.text('No bio yet.'), findsNothing);
   });
 
   testWidgets('chats: count, the latest message, apps and a summary chip', (
@@ -209,7 +211,7 @@ void main() {
 
     expect(find.byKey(const ValueKey('profileCountChats')), findsOneWidget);
     expect(find.text('3 messages'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('profileJump:chats')));
+    await tester.tap(find.byKey(const ValueKey('profileCountChats')));
     await tester.pumpAndSettle();
     expect(find.text('see you soon'), findsOneWidget);
     expect(find.text('WhatsApp 2'), findsOneWidget);
@@ -231,7 +233,7 @@ void main() {
     await tester.pumpWidget(
       _wrap(
         CupertinoPageScaffold(
-          child: WordsPreview(
+          child: WritingsPreview(
             latest: [w('a', 'One'), w('b', 'Two')],
             total: 40,
             onOpen: (_) {},

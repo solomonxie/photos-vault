@@ -4,44 +4,44 @@ import 'package:intl/intl.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/person_store.dart';
-import '../photos/words_file.dart';
-import '../photos/words_store.dart';
+import '../photos/writings_file.dart';
+import '../photos/writings_store.dart';
 import '../photos/work_history_file.dart';
 import 'person_import_screen.dart';
-import 'words_screen.dart';
+import 'writings_screen.dart';
 
 /// Words from the Mac: a `.zip` of `words.jsonl` and `media/`.
-Future<PersonImportPlan> readWordsPlan(
+Future<PersonImportPlan> readWritingsPlan(
   String path,
   AppLocalizations l10n, {
   required PersonStore personStore,
-  WordsStore? store,
+  WritingsStore? store,
 }) async {
-  final export = await readWordsFile(path);
-  if (export.writings.isEmpty) throw NothingToImport(l10n.wordsNothing);
+  final export = await readWritingsFile(path);
+  if (export.writings.isEmpty) throw NothingToImport(l10n.writingsNothing);
   final counts = export.counts.entries.toList()
     ..sort((a, b) => b.value.compareTo(a.value));
   final number = NumberFormat.decimalPattern();
   final dated = [for (final w in export.writings) ?w.at]..sort();
   return PersonImportPlan(
     rows: [
-      (l10n.wordsAll, number.format(export.writings.length)),
+      (l10n.writingsAll, number.format(export.writings.length)),
       for (final MapEntry(:key, :value) in counts)
         (writingKindLabel(l10n, key), number.format(value)),
       if (dated.isNotEmpty)
         (
-          l10n.wordsSpan,
+          l10n.writingsSpan,
           '${DateFormat.yMMM().format(dated.first)} – ${DateFormat.yMMM().format(dated.last)}',
         ),
-      (l10n.wordsMedia, number.format(export.mediaFiles)),
+      (l10n.writingsMedia, number.format(export.mediaFiles)),
     ],
     run: (personId, onProgress) async {
-      final words = store ?? WordsStore();
+      final words = store ?? WritingsStore();
       final total = export.writings.length;
       if (export.mediaFiles > 0) {
-        final root = await wordsMediaRoot();
+        final root = await writingsMediaRoot();
         await Directory(root).create(recursive: true);
-        await extractWordsMedia(path, root);
+        await extractWritingsMedia(path, root);
       }
       onProgress(0.5);
       await words.insert(
@@ -52,7 +52,7 @@ Future<PersonImportPlan> readWordsPlan(
       await personStore.logImports({
         personId: {'source': 'words', 'count': total},
       });
-      return l10n.wordsImported(total);
+      return l10n.writingsImported(total);
     },
   );
 }
@@ -82,7 +82,7 @@ Future<PersonImportPlan> readWorkHistoryPlan(
         ),
       if (lo != null && hi != null)
         (
-          l10n.wordsSpan,
+          l10n.writingsSpan,
           '${DateFormat.y().format(lo)} – ${DateFormat.y().format(hi)}',
         ),
       (l10n.workHistoryRoles, '${file.titles}'),

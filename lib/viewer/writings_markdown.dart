@@ -186,8 +186,8 @@ List<InlineSpan> inlineSpans(
 }
 
 /// A picture of a writing, decoded at the width it is shown, never larger.
-class WordsImage extends StatelessWidget {
-  const WordsImage({super.key, required this.file, required this.alt});
+class WritingsImage extends StatelessWidget {
+  const WritingsImage({super.key, required this.file, required this.alt});
 
   final File file;
   final String alt;
@@ -232,8 +232,8 @@ class _FullImage extends StatelessWidget {
 }
 
 /// A video of a writing: a tile until tapped, then a player page.
-class WordsVideo extends StatelessWidget {
-  const WordsVideo({super.key, required this.file, required this.alt});
+class WritingsVideo extends StatelessWidget {
+  const WritingsVideo({super.key, required this.file, required this.alt});
 
   final File file;
   final String alt;

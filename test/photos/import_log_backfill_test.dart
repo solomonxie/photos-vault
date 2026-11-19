@@ -5,8 +5,8 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/photos/conversation_file.dart';
 import 'package:photos_vault/photos/import_log_backfill.dart';
 import 'package:photos_vault/photos/person_store.dart';
-import 'package:photos_vault/photos/words_file.dart';
-import 'package:photos_vault/photos/words_store.dart';
+import 'package:photos_vault/photos/writings_file.dart';
+import 'package:photos_vault/photos/writings_store.dart';
 import 'package:photos_vault/photos/work_history_file.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
@@ -40,7 +40,7 @@ void main() {
         path: inMemoryDatabasePath,
       );
       final chats = FakeConversationStore();
-      final words = WordsStore(
+      final words = WritingsStore(
         databaseFactory: databaseFactoryFfi,
         path: '${dir.path}/words.db',
       );

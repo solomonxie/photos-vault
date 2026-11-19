@@ -265,13 +265,7 @@ void main() {
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(PersonPageScreen.nameLineKey));
     await tester.pumpAndSettle();
-    // Bottom of the profile, and the page is a lazy `ListView` — below the
-    // fold it has not been built, so there is nothing to make visible yet.
-    await tester.scrollUntilVisible(
-      find.text('Delete Person', skipOffstage: false),
-      200,
-      scrollable: find.byType(Scrollable).first,
-    );
+    await tester.tap(find.byKey(const ValueKey('profileMore')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Delete Person'));
     await tester.pumpAndSettle();
@@ -1062,18 +1056,18 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-    expect(
-      tester.getTopLeft(find.byKey(const ValueKey('faceGroupsSmall'))).dy,
-      greaterThan(
-        tester.getTopLeft(find.byKey(const ValueKey('people-imported-big'))).dy,
-      ),
-    );
     await _openFaces(tester);
 
     // Four photos is listed; one waits behind the small-groups row, which
     // comes after the big ones so they don't read as under it.
     expect(find.byKey(const ValueKey('people-imported-big')), findsOneWidget);
     expect(find.byKey(const ValueKey('people-imported-g1')), findsNothing);
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('faceGroupsSmall'))).dy,
+      greaterThan(
+        tester.getTopLeft(find.byKey(const ValueKey('people-imported-big'))).dy,
+      ),
+    );
     await tester.tap(find.byKey(const ValueKey('faceGroupsSmall')));
     await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('people-imported-g1')), findsOneWidget);

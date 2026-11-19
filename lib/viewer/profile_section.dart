@@ -7,9 +7,6 @@ import '../l10n/app_localizations.dart';
 /// silently pointed at the wrong one.
 Key profileSectionAddKey(String title) => ValueKey('section-add:$title');
 
-/// The one compact row a section shows before anything is in it.
-Key profileSectionPromptKey(String title) => ValueKey('section-prompt:$title');
-
 /// The header itself: tapping it folds the section.
 Key profileSectionHeaderKey(String title) => ValueKey('section-header:$title');
 
@@ -122,74 +119,6 @@ class ProfileSectionHeader extends StatelessWidget {
                 onPressed: onAdd,
                 child: const Icon(CupertinoIcons.add_circled),
               ),
-          ],
-        ),
-      ),
-    );
-  }
-}
-
-/// An empty section, folded to one line: "+ Add Education", and what it
-/// would hold underneath in grey.
-class ProfileEmptyRow extends StatelessWidget {
-  const ProfileEmptyRow({
-    super.key,
-    required this.title,
-    required this.hint,
-    this.onTap,
-  });
-
-  final String title;
-  final String hint;
-
-  /// Absent where nothing can be added here (imports come from elsewhere).
-  final VoidCallback? onTap;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    return GestureDetector(
-      key: profileSectionPromptKey(title),
-      behavior: HitTestBehavior.opaque,
-      onTap: onTap,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 14, 16, 0),
-        child: Row(
-          children: [
-            Icon(
-              onTap == null ? CupertinoIcons.tray : CupertinoIcons.add_circled,
-              key: onTap == null ? null : profileSectionAddKey(title),
-              size: 20,
-              color: onTap == null
-                  ? CupertinoColors.systemGrey
-                  : CupertinoColors.activeBlue,
-            ),
-            const SizedBox(width: 10),
-            Expanded(
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Text(
-                    onTap == null ? title : l10n.profileAddSection(title),
-                    style: TextStyle(
-                      fontSize: 15,
-                      color: onTap == null
-                          ? CupertinoColors.systemGrey
-                          : CupertinoColors.activeBlue,
-                    ),
-                  ),
-                  Text(
-                    hint,
-                    maxLines: 1,
-                    overflow: TextOverflow.ellipsis,
-                    style: const TextStyle(
-                      fontSize: 12,
-                      color: CupertinoColors.systemGrey2,
-                    ),
-                  ),
-                ],
-              ),
-            ),
           ],
         ),
       ),

@@ -10,7 +10,7 @@ import '../photos/person.dart';
 import '../photos/person_placement.dart';
 import '../photos/person_store.dart';
 import '../photos/travel_store.dart';
-import '../photos/words_store.dart';
+import '../photos/writings_store.dart';
 import '../settings/settings_section.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
@@ -296,7 +296,7 @@ Future<bool> mergePeopleInto(
     ).reassign(person.id, keep.id);
     await aiAnalysisStore?.movePerson(person.id, keep.id);
     await moveConversations(person.id, keep.id, store: conversationStore);
-    await moveWords(person.id, keep.id);
+    await moveWritings(person.id, keep.id);
     await moveTravel(person.id, keep.id);
     merged++;
   }

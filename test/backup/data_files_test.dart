@@ -17,8 +17,8 @@ import 'package:photos_vault/photos/conversation_file.dart';
 import 'package:photos_vault/photos/conversation_store.dart';
 import 'package:photos_vault/photos/travel.dart';
 import 'package:photos_vault/photos/travel_store.dart';
-import 'package:photos_vault/photos/words_file.dart';
-import 'package:photos_vault/photos/words_store.dart';
+import 'package:photos_vault/photos/writings_file.dart';
+import 'package:photos_vault/photos/writings_store.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
 import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:photos_vault/settings/s3_listing.dart';
@@ -51,7 +51,7 @@ Writing _w(String id) =>
     Writing(id: id, kind: WritingKind.essay, title: id, text: 'text $id');
 
 /// A phone's worth of stores in [dir]: chats, writings, one picture.
-Future<(ConversationStore, WordsStore, Directory)> _phone(
+Future<(ConversationStore, WritingsStore, Directory)> _phone(
   Directory dir, {
   bool withData = true,
 }) async {
@@ -59,7 +59,7 @@ Future<(ConversationStore, WordsStore, Directory)> _phone(
     databaseFactory: databaseFactoryFfi,
     path: p.join(dir.path, 'conversations.db'),
   );
-  final words = WordsStore(
+  final words = WritingsStore(
     databaseFactory: databaseFactoryFfi,
     path: p.join(dir.path, 'words.db'),
   );
@@ -89,7 +89,7 @@ Future<FakeAssetRecordStore> _assets() async {
   return assets;
 }
 
-DataFiles _files(ConversationStore c, WordsStore w, Directory support) =>
+DataFiles _files(ConversationStore c, WritingsStore w, Directory support) =>
     DataFiles(
       conversations: c,
       words: w,
@@ -485,7 +485,7 @@ void main() {
       DataFiles files(
         TravelStore t,
         ConversationStore c,
-        WordsStore w,
+        WritingsStore w,
         Directory s,
       ) => DataFiles(
         conversations: c,
@@ -542,7 +542,7 @@ void main() {
       albumStore: FakeAlbumStore(),
       personStore: FakePersonStore(),
       conversationStore: chats,
-      wordsStore: words,
+      writingsStore: words,
       travelStore: travel,
       supportDirectory: () async => support,
     );
@@ -566,7 +566,7 @@ void main() {
       albumStore: FakeAlbumStore(),
       personStore: FakePersonStore(),
       conversationStore: chats,
-      wordsStore: words,
+      writingsStore: words,
       supportDirectory: () async => support,
     );
     final before = await io.changeMark();
@@ -589,7 +589,7 @@ void main() {
         albumStore: FakeAlbumStore(),
         personStore: FakePersonStore(),
         conversationStore: chats,
-        wordsStore: words,
+        writingsStore: words,
         supportDirectory: () async => support,
       );
       final bucket = _Bucket();
@@ -723,7 +723,7 @@ void main() {
           albumStore: FakeAlbumStore(),
           personStore: FakePersonStore(),
           conversationStore: chats,
-          wordsStore: words,
+          writingsStore: words,
           supportDirectory: () async => support,
         ),
         settings: assets,
@@ -806,7 +806,7 @@ void main() {
           albumStore: FakeAlbumStore(),
           personStore: FakePersonStore(),
           conversationStore: chats,
-          wordsStore: words,
+          writingsStore: words,
           supportDirectory: () async => support,
         ),
         settings: assets,
@@ -915,7 +915,7 @@ void main() {
             albumStore: FakeAlbumStore(),
             personStore: FakePersonStore(),
             conversationStore: chats,
-            wordsStore: words,
+            writingsStore: words,
             supportDirectory: () async => support,
           ),
           settings: assets,

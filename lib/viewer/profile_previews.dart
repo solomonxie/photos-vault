@@ -5,10 +5,10 @@ import '../l10n/app_localizations.dart';
 import '../photos/conversation_file.dart';
 import '../photos/person.dart';
 import '../photos/travel.dart';
-import '../photos/words_file.dart';
+import '../photos/writings_file.dart';
 import 'profile_section.dart';
 import 'route_screen.dart' show routeDates;
-import 'words_screen.dart' show writingKindLabel;
+import 'writings_screen.dart' show writingKindLabel;
 
 /// What the profile shows of someone's chats: the latest message, how many
 /// from each app.
@@ -137,8 +137,8 @@ class _Pill extends StatelessWidget {
 }
 
 /// The latest three pieces, then "All N".
-class WordsPreview extends StatelessWidget {
-  const WordsPreview({
+class WritingsPreview extends StatelessWidget {
+  const WritingsPreview({
     super.key,
     required this.latest,
     required this.total,
@@ -175,8 +175,8 @@ class WordsPreview extends StatelessWidget {
             onTap: () => onOpen(w),
           ),
         CupertinoListTile(
-          key: const ValueKey('personWordsAll'),
-          title: Text(l10n.profileWordsAll(total)),
+          key: const ValueKey('personWritingsAll'),
+          title: Text(l10n.profileWritingsAll(total)),
           trailing: const Icon(
             CupertinoIcons.chevron_forward,
             size: 18,

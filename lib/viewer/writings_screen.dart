@@ -8,28 +8,28 @@ import 'package:path/path.dart' as p;
 
 import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
-import '../photos/words_file.dart';
-import '../photos/words_store.dart';
+import '../photos/writings_file.dart';
+import '../photos/writings_store.dart';
 import 'back_swipe_edge.dart';
-import 'words_markdown.dart';
+import 'writings_markdown.dart';
 
 String writingKindLabel(AppLocalizations l10n, WritingKind kind) =>
     switch (kind) {
-      WritingKind.blog => l10n.wordsKindBlog,
-      WritingKind.post => l10n.wordsKindPost,
-      WritingKind.essay => l10n.wordsKindEssay,
-      WritingKind.fiction => l10n.wordsKindFiction,
-      WritingKind.paper => l10n.wordsKindPaper,
-      WritingKind.thesis => l10n.wordsKindThesis,
-      WritingKind.report => l10n.wordsKindReport,
-      WritingKind.email => l10n.wordsKindEmail,
-      WritingKind.note => l10n.wordsKindNote,
-      WritingKind.other => l10n.wordsKindOther,
+      WritingKind.blog => l10n.writingsKindBlog,
+      WritingKind.post => l10n.writingsKindPost,
+      WritingKind.essay => l10n.writingsKindEssay,
+      WritingKind.fiction => l10n.writingsKindFiction,
+      WritingKind.paper => l10n.writingsKindPaper,
+      WritingKind.thesis => l10n.writingsKindThesis,
+      WritingKind.report => l10n.writingsKindReport,
+      WritingKind.email => l10n.writingsKindEmail,
+      WritingKind.note => l10n.writingsKindNote,
+      WritingKind.other => l10n.writingsKindOther,
     };
 
 /// A person's writings, newest first, a page of [_pageSize] at a time.
-class WordsScreen extends StatefulWidget {
-  const WordsScreen({
+class WritingsScreen extends StatefulWidget {
+  const WritingsScreen({
     super.key,
     required this.person,
     required this.store,
@@ -37,14 +37,14 @@ class WordsScreen extends StatefulWidget {
   });
 
   final Person person;
-  final WordsStore store;
+  final WritingsStore store;
   final WritingKind? kind;
 
   @override
-  State<WordsScreen> createState() => _WordsScreenState();
+  State<WritingsScreen> createState() => _WritingsScreenState();
 }
 
-class _WordsScreenState extends State<WordsScreen> {
+class _WritingsScreenState extends State<WritingsScreen> {
   static const _pageSize = 100;
 
   final List<WritingSummary> _items = [];
@@ -152,7 +152,7 @@ class _WordsScreenState extends State<WordsScreen> {
         scrollDirection: Axis.horizontal,
         padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
         children: [
-          chip(null, '${l10n.wordsAll} $total'),
+          chip(null, '${l10n.writingsAll} $total'),
           for (final k in kinds)
             chip(k, '${writingKindLabel(l10n, k)} ${_counts[k]}'),
         ],
@@ -244,7 +244,7 @@ class _WordsScreenState extends State<WordsScreen> {
     final l10n = AppLocalizations.of(context)!;
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
-        middle: Text(l10n.wordsTitle(widget.person.name)),
+        middle: Text(l10n.writingsTitle(widget.person.name)),
       ),
       child: SafeArea(
         child: Column(
@@ -252,10 +252,10 @@ class _WordsScreenState extends State<WordsScreen> {
             Padding(
               padding: const EdgeInsets.fromLTRB(12, 8, 12, 0),
               child: CupertinoSearchTextField(
-                key: const ValueKey('wordsSearch'),
+                key: const ValueKey('writingsSearch'),
                 autocorrect: false,
                 controller: _query,
-                placeholder: l10n.wordsSearch,
+                placeholder: l10n.writingsSearch,
                 onChanged: _search,
               ),
             ),
@@ -264,7 +264,7 @@ class _WordsScreenState extends State<WordsScreen> {
               child: _items.isEmpty && _end
                   ? Center(
                       child: Text(
-                        l10n.wordsNoResults,
+                        l10n.writingsNoResults,
                         style: const TextStyle(
                           color: CupertinoColors.systemGrey,
                         ),
@@ -296,7 +296,7 @@ class WritingScreen extends StatefulWidget {
   });
 
   final String id;
-  final WordsStore store;
+  final WritingsStore store;
 
   /// Overridable for tests; the app's words folder otherwise.
   final String? mediaRoot;
@@ -319,7 +319,7 @@ class _WritingScreenState extends State<WritingScreen> {
 
   Future<void> _load() async {
     final writing = await widget.store.get(widget.id);
-    final root = widget.mediaRoot ?? await wordsMediaRoot();
+    final root = widget.mediaRoot ?? await writingsMediaRoot();
     if (!mounted || writing == null) return;
     setState(() {
       _writing = writing;
@@ -411,8 +411,8 @@ class _WritingScreenState extends State<WritingScreen> {
               style: const TextStyle(color: CupertinoColors.systemGrey),
             )
           : isVideo
-          ? WordsVideo(file: File(p.join(_root, path)), alt: alt)
-          : WordsImage(file: File(p.join(_root, path)), alt: alt),
+          ? WritingsVideo(file: File(p.join(_root, path)), alt: alt)
+          : WritingsImage(file: File(p.join(_root, path)), alt: alt),
   };
 
   @override

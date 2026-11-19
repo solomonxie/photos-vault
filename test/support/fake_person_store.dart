@@ -258,7 +258,11 @@ class FakePersonStore implements PersonStore {
     String personId, {
     String passcodeHash = openNamespace,
     AlbumKeys? keys,
-  }) async => List.unmodifiable(groups[personId] ?? const []);
+  }) async => List.unmodifiable([
+    // Fresh objects each call, as the real store reads them from rows.
+    for (final g in groups[personId] ?? const <PersonGroup>[])
+      g.withRange(g.start, g.end),
+  ]);
 
   @override
   Future<Map<PersonGroup, List<String>>> allGroups({

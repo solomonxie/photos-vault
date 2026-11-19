@@ -1,7 +1,7 @@
 import '../storage/asset_record_store.dart';
 import 'conversation_store.dart';
 import 'person_store.dart';
-import 'words_store.dart';
+import 'writings_store.dart';
 
 const importLogBackfillKey = 'people.importLogBackfilled';
 
@@ -14,7 +14,7 @@ Future<int> backfillImportLog({
   required PersonStore people,
   required AssetRecordStore settings,
   ConversationStore? chats,
-  WordsStore? words,
+  WritingsStore? words,
 }) async {
   if (await settings.getAppState(importLogBackfillKey) == '1') return 0;
   final known = {for (final p in await people.listAll()) p.id};
@@ -35,7 +35,7 @@ Future<int> backfillImportLog({
     const <String, Map<String, int>>{},
   );
   final writings = await orEmpty(
-    (words ?? WordsStore()).countsByPerson,
+    (words ?? WritingsStore()).countsByPerson,
     const <String, int>{},
   );
   final jobs = await people.importedJobCounts();

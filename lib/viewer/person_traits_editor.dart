@@ -4,107 +4,21 @@ import '../l10n/app_localizations.dart';
 import '../photos/person_detail.dart';
 import 'profile_chip.dart';
 
-/// More details: the fields somebody has filled in, and chips offering the
-/// ones they have not.
-///
-/// Eight named rows sitting there empty was eight rows of "Not set" on every
-/// profile — the section became mostly blanks, which is worse than the blank
-/// section it replaced. As chips they cost one line until used: tap one and it
-/// becomes a row, clear the row and it goes back to being a chip.
-///
-/// Menus where the answers are a settled list, typing where they are not. The
-/// stored value is the English key, localised for display only, so switching
-/// language does not rewrite anybody's profile.
-class PersonTraitsEditor extends StatelessWidget {
-  const PersonTraitsEditor({
-    super.key,
-    required this.traits,
-    required this.onChanged,
-    required this.background,
-    required this.decoration,
-  });
-
-  final Map<String, String> traits;
-  final ValueChanged<Map<String, String>> onChanged;
-  final Color background;
-  final BoxDecoration decoration;
-
-  @override
-  Widget build(BuildContext context) {
-    final l10n = AppLocalizations.of(context)!;
-    final filled = [
-      for (final trait in personTraits)
-        if ((traits[trait.key] ?? '').isNotEmpty) trait,
-    ];
-    final offered = [
-      for (final trait in personTraits)
-        if ((traits[trait.key] ?? '').isEmpty) trait,
-    ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (filled.isNotEmpty)
-          CupertinoListSection.insetGrouped(
-            margin: const EdgeInsets.symmetric(horizontal: 16),
-            backgroundColor: background,
-            decoration: decoration,
-            children: [
-              for (final trait in filled)
-                _row(context, l10n, trait, traits[trait.key]!),
-            ],
-          ),
-        if (offered.isNotEmpty)
-          Padding(
-            padding: EdgeInsets.fromLTRB(16, filled.isEmpty ? 0 : 10, 16, 0),
-            child: Wrap(
-              spacing: 8,
-              runSpacing: 8,
-              children: [
-                for (final trait in offered)
-                  ProfileChip(
-                    key: traitChipKey(trait.key),
-                    label: traitLabel(l10n, trait.key),
-                    selected: false,
-                    onTap: () => _edit(context, l10n, trait, ''),
-                  ),
-              ],
-            ),
-          ),
-      ],
-    );
-  }
-
-  Widget _row(
-    BuildContext context,
-    AppLocalizations l10n,
-    PersonTrait trait,
-    String value,
-  ) => CupertinoListTile(
-    key: traitRowKey(trait.key),
-    title: Text(traitLabel(l10n, trait.key)),
-    trailing: Text(
-      traitValueLabel(l10n, trait.key, value),
-      style: const TextStyle(color: CupertinoColors.white),
-    ),
-    onTap: () => _edit(context, l10n, trait, value),
-  );
-
-  Future<void> _edit(
-    BuildContext context,
-    AppLocalizations l10n,
-    PersonTrait trait,
-    String value,
-  ) => trait.isMenu
-      ? _pickFromMenu(context, l10n, trait, value)
-      : _typeIt(context, l10n, trait, value);
-
-  Future<void> _pickFromMenu(
-    BuildContext context,
-    AppLocalizations l10n,
-    PersonTrait trait,
-    String value,
-  ) async {
-    final label = traitLabel(l10n, trait.key);
+/// Edits one named trait: a menu where the answers are a settled list,
+/// typing where they are not. The stored value is the English key,
+/// localised for display only, so switching language does not rewrite
+/// anybody's profile. Blank or "Not set" removes it.
+Future<void> editTrait(
+  BuildContext context,
+  PersonTrait trait,
+  Map<String, String> traits,
+  ValueChanged<Map<String, String>> onChanged,
+) async {
+  final l10n = AppLocalizations.of(context)!;
+  final label = traitLabel(l10n, trait.key);
+  final value = traits[trait.key] ?? '';
+  String? next;
+  if (trait.isMenu) {
     final picked = await showCupertinoModalPopup<({String? value})>(
       context: context,
       builder: (sheetContext) => CupertinoActionSheet(
@@ -128,40 +42,27 @@ class PersonTraitsEditor extends StatelessWidget {
         ),
       ),
     );
-    if (picked != null) _write(trait.key, picked.value ?? '');
-  }
-
-  Future<void> _typeIt(
-    BuildContext context,
-    AppLocalizations l10n,
-    PersonTrait trait,
-    String value,
-  ) async {
-    final saved = await showProfileTextPrompt(
+    if (picked == null) return;
+    next = picked.value ?? '';
+  } else {
+    next = await showProfileTextPrompt(
       context,
-      title: traitLabel(l10n, trait.key),
+      title: label,
       placeholder: traitPlaceholder(l10n, trait.key),
       initial: value,
     );
-    if (saved != null) _write(trait.key, saved);
+    if (next == null) return;
   }
-
-  /// Blank clears the row rather than storing an empty string, so a profile
-  /// carries only what somebody actually wrote — and the field goes back to
-  /// being one of the chips on offer.
-  void _write(String key, String value) {
-    final next = {...traits};
-    if (value.isEmpty) {
-      next.remove(key);
-    } else {
-      next[key] = value;
-    }
-    onChanged(next);
+  final updated = {...traits};
+  if (next.isEmpty) {
+    updated.remove(trait.key);
+  } else {
+    updated[trait.key] = next;
   }
+  onChanged(updated);
 }
 
 Key traitRowKey(String key) => ValueKey('trait:$key');
-Key traitChipKey(String key) => ValueKey('trait-chip:$key');
 
 String traitLabel(AppLocalizations l10n, String key) => switch (key) {
   'hair' => l10n.traitHair,

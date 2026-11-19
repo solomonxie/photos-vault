@@ -134,14 +134,21 @@ class ProfileSummaryCard extends StatelessWidget {
   );
 }
 
-/// The pinned row of section chips; tapping one scrolls to it.
-class ProfileJumpBar extends SliverPersistentHeaderDelegate {
-  ProfileJumpBar(this.items, this.onJump);
+enum ProfileTab { about, life, people }
 
-  static const height = 44.0;
+/// The profile's tabs, pinned under the header.
+class ProfileTabBar extends SliverPersistentHeaderDelegate {
+  ProfileTabBar({
+    required this.tabs,
+    required this.selected,
+    required this.onSelect,
+  });
 
-  final List<(String, String)> items;
-  final ValueChanged<String> onJump;
+  static const height = 48.0;
+
+  final Map<ProfileTab, String> tabs;
+  final ProfileTab selected;
+  final ValueChanged<ProfileTab> onSelect;
 
   @override
   double get minExtent => height;
@@ -156,43 +163,24 @@ class ProfileJumpBar extends SliverPersistentHeaderDelegate {
           CupertinoTheme.of(context).scaffoldBackgroundColor,
           context,
         ),
-        alignment: Alignment.centerLeft,
-        child: SingleChildScrollView(
-          scrollDirection: Axis.horizontal,
-          padding: const EdgeInsets.symmetric(horizontal: 12),
-          child: Row(
-            children: [
-              for (final (id, label) in items)
-                Padding(
-                  padding: const EdgeInsets.symmetric(horizontal: 4),
-                  child: CupertinoButton(
-                    key: ValueKey('profileJump:$id'),
-                    padding: const EdgeInsets.symmetric(horizontal: 12),
-                    minimumSize: const Size(0, 30),
-                    color: CupertinoDynamicColor.resolve(
-                      CupertinoColors.tertiarySystemFill,
-                      context,
-                    ),
-                    borderRadius: BorderRadius.circular(15),
-                    onPressed: () => onJump(id),
-                    child: Text(
-                      label,
-                      style: TextStyle(
-                        fontSize: 14,
-                        color: CupertinoDynamicColor.resolve(
-                          CupertinoColors.label,
-                          context,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-            ],
-          ),
+        padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
+        child: CupertinoSlidingSegmentedControl<ProfileTab>(
+          groupValue: selected,
+          onValueChanged: (t) {
+            if (t != null) onSelect(t);
+          },
+          children: {
+            for (final MapEntry(key: tab, value: label) in tabs.entries)
+              tab: Padding(
+                key: ValueKey('profileTab:${tab.name}'),
+                padding: const EdgeInsets.symmetric(horizontal: 8),
+                child: Text(label),
+              ),
+          },
         ),
       );
 
   @override
-  bool shouldRebuild(ProfileJumpBar old) =>
-      old.items.length != items.length || old.onJump != onJump;
+  bool shouldRebuild(ProfileTabBar old) =>
+      old.selected != selected || old.tabs.length != tabs.length;
 }

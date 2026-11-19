@@ -7,20 +7,20 @@ import 'package:sqflite/sqflite.dart'
     show ConflictAlgorithm, Database, DatabaseFactory, OpenDatabaseOptions;
 
 import '../backup/database_copy.dart';
-import 'words_file.dart';
+import 'writings_file.dart';
 
 /// Where imported pictures and videos of writings live: Application
 /// Support, beside the databases, out of the Files app.
-Future<String> wordsMediaRoot() async =>
+Future<String> writingsMediaRoot() async =>
     p.join((await getApplicationSupportDirectory()).path, 'words');
 
 /// Local `sqflite` store of a person's writings, one row per piece, keyed
 /// by [Writing.id] so a re-import replaces rather than adds.
-class WordsStore {
-  WordsStore({DatabaseFactory? databaseFactory, String? path})
+class WritingsStore {
+  WritingsStore({DatabaseFactory? databaseFactory, String? path})
     : this._(databaseFactory, path);
 
-  WordsStore._(this._databaseFactory, this._path);
+  WritingsStore._(this._databaseFactory, this._path);
 
   final DatabaseFactory? _databaseFactory;
   DatabaseFactory get _factory => _databaseFactory ?? sqflite.databaseFactory;
@@ -245,7 +245,7 @@ class WordsStore {
     ];
     await db.delete(_table, where: 'person_id = ?', whereArgs: [personId]);
     if (ids.isEmpty) return;
-    final root = mediaRoot ?? await wordsMediaRoot();
+    final root = mediaRoot ?? await writingsMediaRoot();
     for (final id in ids) {
       final dir = Directory(p.join(root, 'media', id));
       if (await dir.exists()) await dir.delete(recursive: true);
@@ -254,17 +254,21 @@ class WordsStore {
 }
 
 /// Best-effort, own handle — as [forgetPersonFaces] does.
-Future<void> moveWords(String from, String to, {WordsStore? store}) async {
+Future<void> moveWritings(
+  String from,
+  String to, {
+  WritingsStore? store,
+}) async {
   try {
-    await (store ?? WordsStore()).movePerson(from, to);
+    await (store ?? WritingsStore()).movePerson(from, to);
   } catch (_) {
     // No words database — nothing to move.
   }
 }
 
-Future<void> forgetWords(String personId, {WordsStore? store}) async {
+Future<void> forgetWritings(String personId, {WritingsStore? store}) async {
   try {
-    await (store ?? WordsStore()).forgetPerson(personId);
+    await (store ?? WritingsStore()).forgetPerson(personId);
   } catch (_) {
     // No words database — nothing to forget.
   }

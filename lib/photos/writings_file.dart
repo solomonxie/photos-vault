@@ -74,8 +74,8 @@ class WritingSummary {
   final String source;
 }
 
-class WordsExport {
-  const WordsExport(this.writings, this.skipped, this.mediaFiles);
+class WritingsExport {
+  const WritingsExport(this.writings, this.skipped, this.mediaFiles);
 
   final List<Writing> writings;
 
@@ -92,8 +92,8 @@ class WordsExport {
   }
 }
 
-const wordsListName = 'words.jsonl';
-const wordsMediaPrefix = 'media/';
+const writingsListName = 'words.jsonl';
+const writingsMediaPrefix = 'media/';
 
 final _mediaRef = RegExp(r'!\[[^\]]*\]\(([^)\s]+)\)');
 
@@ -113,12 +113,12 @@ bool hasMediaRef(String text) => _mediaRef.hasMatch(text);
 
 /// The list of a `.zip` (its `words.jsonl`) or a bare `.jsonl`, off the UI
 /// isolate: a lifetime of writing is tens of megabytes of text.
-Future<WordsExport> readWordsFile(String path) =>
-    Isolate.run(() => readWordsFileHere(path));
+Future<WritingsExport> readWritingsFile(String path) =>
+    Isolate.run(() => readWritingsFileHere(path));
 
-Future<WordsExport> readWordsFileHere(String path) async {
+Future<WritingsExport> readWritingsFileHere(String path) async {
   if (p.extension(path).toLowerCase() != '.zip') {
-    return readWordsLines(await File(path).readAsString());
+    return readWritingsLines(await File(path).readAsString());
   }
   final input = InputFileStream(path);
   try {
@@ -128,15 +128,15 @@ Future<WordsExport> readWordsFileHere(String path) async {
     for (final entry in archive.files) {
       if (!entry.isFile) continue;
       final name = _entryName(entry.name);
-      if (name == wordsListName) {
+      if (name == writingsListName) {
         list = utf8.decode(entry.readBytes() ?? const [], allowMalformed: true);
-      } else if (name.startsWith(wordsMediaPrefix)) {
+      } else if (name.startsWith(writingsMediaPrefix)) {
         media++;
       }
     }
-    if (list == null) return const WordsExport([], 0, 0);
-    final read = readWordsLines(list);
-    return WordsExport(read.writings, read.skipped, media);
+    if (list == null) return const WritingsExport([], 0, 0);
+    final read = readWritingsLines(list);
+    return WritingsExport(read.writings, read.skipped, media);
   } finally {
     await input.close();
   }
@@ -144,10 +144,10 @@ Future<WordsExport> readWordsFileHere(String path) async {
 
 /// Copies the zip's `media/…` into [root], keeping the relative paths the
 /// Markdown points at. Returns how many files were written.
-Future<int> extractWordsMedia(String zipPath, String root) =>
-    Isolate.run(() => extractWordsMediaHere(zipPath, root));
+Future<int> extractWritingsMedia(String zipPath, String root) =>
+    Isolate.run(() => extractWritingsMediaHere(zipPath, root));
 
-Future<int> extractWordsMediaHere(String zipPath, String root) async {
+Future<int> extractWritingsMediaHere(String zipPath, String root) async {
   if (p.extension(zipPath).toLowerCase() != '.zip') return 0;
   final input = InputFileStream(zipPath);
   var written = 0;
@@ -156,7 +156,9 @@ Future<int> extractWordsMediaHere(String zipPath, String root) async {
     for (final entry in archive.files) {
       if (!entry.isFile) continue;
       final name = _entryName(entry.name);
-      if (!name.startsWith(wordsMediaPrefix) || name.contains('..')) continue;
+      if (!name.startsWith(writingsMediaPrefix) || name.contains('..')) {
+        continue;
+      }
       final target = File(p.join(root, name));
       await target.parent.create(recursive: true);
       final out = OutputFileStream(target.path);
@@ -177,12 +179,13 @@ Future<int> extractWordsMediaHere(String zipPath, String root) async {
 String _entryName(String name) {
   final parts = p.posix.split(name);
   final at = parts.indexWhere(
-    (s) => s == wordsListName || s == wordsMediaPrefix.replaceAll('/', ''),
+    (s) =>
+        s == writingsListName || s == writingsMediaPrefix.replaceAll('/', ''),
   );
   return at <= 0 ? name : p.posix.joinAll(parts.sublist(at));
 }
 
-WordsExport readWordsLines(String text) {
+WritingsExport readWritingsLines(String text) {
   final writings = <Writing>[];
   var skipped = 0;
   for (final line in LineSplitter.split(text)) {
@@ -194,7 +197,7 @@ WordsExport readWordsLines(String text) {
       writings.add(w);
     }
   }
-  return WordsExport(writings, skipped, 0);
+  return WritingsExport(writings, skipped, 0);
 }
 
 Writing? _parse(String line) {

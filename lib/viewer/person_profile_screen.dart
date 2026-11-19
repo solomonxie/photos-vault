@@ -20,8 +20,8 @@ import '../photos/person_store.dart';
 import '../photos/place_search.dart';
 import '../photos/travel.dart';
 import '../photos/travel_store.dart';
-import '../photos/words_file.dart';
-import '../photos/words_store.dart';
+import '../photos/writings_file.dart';
+import '../photos/writings_store.dart';
 import '../storage/asset_record_store.dart';
 import '../vault/keys.dart';
 import '../vault/passcode_tags.dart';
@@ -32,6 +32,7 @@ import 'person_event_sheet.dart';
 import 'person_traits_editor.dart';
 import 'known_as_screen.dart';
 import 'profile_chip.dart';
+import 'profile_details.dart';
 import 'private_album_gate.dart';
 import 'profile_impression.dart';
 import 'profile_people_list_screen.dart';
@@ -51,21 +52,18 @@ import 'person_history_detail_screen.dart';
 import 'person_page_screen.dart';
 import 'person_picker_sheet.dart';
 import 'search_picker_sheet.dart';
-import 'words_screen.dart';
+import 'writings_screen.dart';
 
 export 'profile_section.dart'
-    show
-        profileSectionAddKey,
-        profileSectionPromptKey,
-        profileSectionHeaderKey,
-        profileSectionEditKey;
+    show profileSectionAddKey, profileSectionHeaderKey, profileSectionEditKey;
 
 /// The full editable profile behind a person page's name chevron.
 ///
-/// Name, a summary card and a pinned row of jumps, then by how often each
-/// part is wanted: About, Chats and Words, Relationships and Groups, Work,
-/// Life (places, events, impression, more details), and name parts and
-/// utilities last. Every section folds; an empty one is a single "Add" row.
+/// Name and a summary card, then three tabs: About (bio, chats, words,
+/// impression, details), Life (work, education, places, events,
+/// travels) and People (relationships, groups). A tab shows only sections
+/// with something in them; one Add button opens the rest. Timeline, changes,
+/// graph and delete sit in the nav bar's ⋯ menu.
 ///
 /// Everything below the name belongs to a passcode rather than to the
 /// person — four digits on the keypad in the nav bar switch which set is on
@@ -81,7 +79,7 @@ class PersonProfileScreen extends StatefulWidget {
     this.vaultKeys,
     this.autofocusName = false,
     this.conversationStore,
-    this.wordsStore,
+    this.writingsStore,
     this.travelStore,
     this.placeSearch,
     this.onOpenPhotos,
@@ -92,7 +90,7 @@ class PersonProfileScreen extends StatefulWidget {
   final VoidCallback? onOpenPhotos;
 
   final ConversationStore? conversationStore;
-  final WordsStore? wordsStore;
+  final WritingsStore? writingsStore;
   final TravelStore? travelStore;
   final PlaceSearch? placeSearch;
 
@@ -144,9 +142,10 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       widget.conversationStore ?? ConversationStore();
   int _conversations = 0;
   ChatsPreviewData _chats = ChatsPreviewData.empty;
-  late final WordsStore _wordsStore = widget.wordsStore ?? WordsStore();
-  Map<WritingKind, int> _wordCounts = const {};
-  List<WritingSummary> _latestWords = const [];
+  late final WritingsStore _writingsStore =
+      widget.writingsStore ?? WritingsStore();
+  Map<WritingKind, int> _writingCounts = const {};
+  List<WritingSummary> _latestWritings = const [];
   late final TravelStore _travelStore = widget.travelStore ?? TravelStore();
   late final PlaceSearch _placeSearch = widget.placeSearch ?? PlaceSearch();
   List<TravelRoute> _travelRoutes = const [];
@@ -161,6 +160,11 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
 
   /// Sections in Edit, by id.
   final _editing = <String>{};
+  ProfileTab _tab = ProfileTab.about;
+  bool _editingName = false;
+
+  /// Empty sections opened from Add, shown until the page closes.
+  final _revealed = <String>{};
   final _undo = UndoToast();
   final _scroll = ScrollController();
   final _anchors = {
@@ -175,11 +179,15 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     ])
       id: GlobalKey(),
   };
-  final _fieldsKey = GlobalKey<CustomFieldsEditorState>();
   late final PersonOwner _owner = PersonOwner(widget.assetRecordStore);
 
   String? _ownerId;
   List<PersonRelationship> _relationships = const [];
+
+  List<PersonRelationship> get _manualRelationships => [
+    for (final r in _relationships)
+      if (!r.derived) r,
+  ];
   List<Person> _allPeople = const [];
   Map<String, String> _namesById = const {};
   List<PersonLocation> _locations = const [];
@@ -198,7 +206,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     _reload();
     _loadFormerNames();
     _loadChats();
-    _loadWords();
+    _loadWritings();
     _loadTravels();
   }
 
@@ -233,16 +241,16 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     }
   }
 
-  Future<void> _loadWords() async {
+  Future<void> _loadWritings() async {
     try {
-      final counts = await _wordsStore.countsByKind(_person.id);
+      final counts = await _writingsStore.countsByKind(_person.id);
       final latest = counts.isEmpty
           ? const <WritingSummary>[]
-          : await _wordsStore.page(_person.id, limit: 3);
+          : await _writingsStore.page(_person.id, limit: 3);
       if (mounted) {
         setState(() {
-          _wordCounts = counts;
-          _latestWords = latest;
+          _writingCounts = counts;
+          _latestWritings = latest;
         });
       }
     } catch (_) {
@@ -250,22 +258,22 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     }
   }
 
-  Future<void> _openWords([WritingKind? kind]) => Navigator.of(context).push(
+  Future<void> _openWritings([WritingKind? kind]) => Navigator.of(context).push(
     CupertinoPageRoute<void>(
       builder: (_) =>
-          WordsScreen(person: _person, store: _wordsStore, kind: kind),
+          WritingsScreen(person: _person, store: _writingsStore, kind: kind),
     ),
   );
 
-  int get _wordTotal => _wordCounts.values.fold(0, (n, v) => n + v);
+  int get _writingTotal => _writingCounts.values.fold(0, (n, v) => n + v);
 
-  Widget _wordsSection() => WordsPreview(
-    latest: _latestWords,
-    total: _wordTotal,
-    onOpenAll: _openWords,
+  Widget _writingsSection() => WritingsPreview(
+    latest: _latestWritings,
+    total: _writingTotal,
+    onOpenAll: _openWritings,
     onOpen: (w) => Navigator.of(context).push(
       CupertinoPageRoute<void>(
-        builder: (_) => WritingScreen(id: w.id, store: _wordsStore),
+        builder: (_) => WritingScreen(id: w.id, store: _writingsStore),
       ),
     ),
   );
@@ -376,8 +384,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     );
   }
 
-  /// First, middle and last, under the display name. Empty ones show what
-  /// the name suggests, and one tap fills them in.
+  /// Empty parts show what the name suggests; one tap fills them in.
   Widget _nameParts(AppLocalizations l10n) {
     final suggested = suggestNameParts(_name.text);
     final empty =
@@ -1290,15 +1297,25 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     if (!_editing.remove(id)) _editing.add(id);
   });
 
-  /// Scrolls [id]'s section to just under the pinned jump bar.
+  /// Opens [id]'s tab and scrolls its section to just under the tab bar.
   void _jump(String id) {
+    final tab = id == 'people' ? ProfileTab.people : ProfileTab.about;
+    if (tab != _tab) {
+      setState(() => _tab = tab);
+      WidgetsBinding.instance.addPostFrameCallback((_) => _scrollTo(id));
+      return;
+    }
+    _scrollTo(id);
+  }
+
+  void _scrollTo(String id) {
     final box = _anchors[id]?.currentContext?.findRenderObject();
     if (box == null || !_scroll.hasClients) return;
     final viewport = RenderAbstractViewport.maybeOf(box);
     if (viewport == null) return;
     final position = _scroll.position;
     final target =
-        viewport.getOffsetToReveal(box, 0).offset - ProfileJumpBar.height;
+        viewport.getOffsetToReveal(box, 0).offset - ProfileTabBar.height;
     _scroll.animateTo(
       target.clamp(position.minScrollExtent, position.maxScrollExtent),
       duration: const Duration(milliseconds: 320),
@@ -1307,15 +1324,13 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   }
 
   /// A section as slivers: the header and its body; folded, the header
-  /// alone; [empty], one "Add" row in place of both.
+  /// alone.
   List<Widget> _section({
     required String id,
     required String title,
     required Widget Function() body,
     String? anchor,
     int? count,
-    bool empty = false,
-    String? emptyHint,
     VoidCallback? onAdd,
     bool editable = false,
     bool sliverBody = false,
@@ -1323,15 +1338,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     Widget anchored(Widget child) => anchor == null
         ? child
         : KeyedSubtree(key: _anchors[anchor], child: child);
-    if (empty && emptyHint != null) {
-      return [
-        SliverToBoxAdapter(
-          child: anchored(
-            ProfileEmptyRow(title: title, hint: emptyHint, onTap: onAdd),
-          ),
-        ),
-      ];
-    }
     final folded = _folded(id);
     return [
       SliverToBoxAdapter(
@@ -1379,7 +1385,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
       l10n,
       _events.where((e) => e.isLastSeen).firstOrNull?.at,
     );
-    final people = _relationships.length;
+    final people = _manualRelationships.length;
     return ProfileSummaryCard(
       facts: profileFacts(
         l10n,
@@ -1408,11 +1414,11 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
             l10n.profileCountMessages(_conversations),
             () => _jump('chats'),
           ),
-        if (_wordTotal > 0)
+        if (_writingTotal > 0)
           ProfileCount(
-            const ValueKey('profileCountWords'),
+            const ValueKey('profileCountWritings'),
             CupertinoIcons.doc_text,
-            l10n.profileCountWritings(_wordTotal),
+            l10n.profileCountWritings(_writingTotal),
             () => _jump('words'),
           ),
         if (people > 0)
@@ -1474,25 +1480,38 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
         ),
       ),
       const SizedBox(height: 12),
-      Padding(
-        padding: const EdgeInsets.symmetric(horizontal: 24),
-        child: CupertinoTextField.borderless(
-          controller: _name,
-          autofocus: widget.autofocusName,
-          textAlign: TextAlign.center,
-          placeholder: l10n.personProfileNameLabel,
-          style: const TextStyle(
-            fontSize: 26,
-            fontWeight: FontWeight.bold,
-            color: CupertinoColors.white,
+      // First, middle and last only while the name is being edited.
+      Focus(
+        onFocusChange: (f) => setState(() => _editingName = f),
+        child: TextFieldTapRegion(
+          child: Column(
+            children: [
+              Padding(
+                padding: const EdgeInsets.symmetric(horizontal: 24),
+                child: CupertinoTextField.borderless(
+                  controller: _name,
+                  autofocus: widget.autofocusName,
+                  textAlign: TextAlign.center,
+                  placeholder: l10n.personProfileNameLabel,
+                  style: const TextStyle(
+                    fontSize: 26,
+                    fontWeight: FontWeight.bold,
+                    color: CupertinoColors.white,
+                  ),
+                  // A blank name is never written: the person keeps the last
+                  // one, rather than an empty row in People.
+                  onChanged: (v) {
+                    if (v.trim().isNotEmpty) {
+                      _persist(_person.copyWith(name: v));
+                    }
+                    // The parts' suggestions follow the name.
+                    setState(() {});
+                  },
+                ),
+              ),
+              if (_editingName) _nameParts(l10n),
+            ],
           ),
-          // A blank name is never written: the person keeps the last
-          // one, rather than an empty row in People.
-          onChanged: (v) {
-            if (v.trim().isNotEmpty) _persist(_person.copyWith(name: v));
-            // The parts' suggestions follow the name.
-            setState(() {});
-          },
         ),
       ),
       if (_alsoKnownAs case final names when names.isNotEmpty)
@@ -1559,35 +1578,36 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     );
   }
 
-  Widget _linkRow(String text, VoidCallback onTap, {Key? key}) =>
-      CupertinoListTile(
-        key: key,
-        title: Text(text),
-        trailing: const Icon(
-          CupertinoIcons.chevron_forward,
-          size: 18,
-          color: CupertinoColors.systemGrey2,
-        ),
-        onTap: onTap,
-      );
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final people = _relationships;
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
         middle: Text(l10n.personProfileTitle),
-        trailing: CupertinoButton(
-          padding: EdgeInsets.zero,
-          onPressed: _switchNamespace,
-          // A keypad, not a padlock. A padlock says something is locked,
-          // which is the one thing this must not answer.
-          child: Icon(
-            _namespace == openNamespace
-                ? CupertinoIcons.number
-                : CupertinoIcons.number_circle_fill,
-          ),
+        trailing: Row(
+          mainAxisSize: MainAxisSize.min,
+          children: [
+            CupertinoButton(
+              padding: EdgeInsets.zero,
+              onPressed: _switchNamespace,
+              // A keypad, not a padlock. A padlock says something is locked,
+              // which is the one thing this must not answer.
+              child: Icon(
+                _namespace == openNamespace
+                    ? CupertinoIcons.number
+                    : CupertinoIcons.number_circle_fill,
+              ),
+            ),
+            CupertinoButton(
+              key: const ValueKey('profileMore'),
+              padding: const EdgeInsets.only(left: 12),
+              onPressed: () => _showMore(l10n),
+              child: Icon(
+                CupertinoIcons.ellipsis_circle,
+                semanticLabel: l10n.actionMore,
+              ),
+            ),
+          ],
         ),
       ),
       child: SafeArea(
@@ -1605,219 +1625,18 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
               SliverToBoxAdapter(child: _summary(l10n)),
               SliverPersistentHeader(
                 pinned: true,
-                delegate: ProfileJumpBar([
-                  ('about', l10n.profileJumpAbout),
-                  ('chats', l10n.profileJumpChats),
-                  ('people', l10n.profileJumpPeople),
-                  ('work', l10n.profileJumpWork),
-                  ('life', l10n.profileJumpLife),
-                ], _jump),
-              ),
-              ..._section(
-                id: 'about',
-                anchor: 'about',
-                title: l10n.profileAboutHeader,
-                body: () => _bioField(l10n),
-              ),
-              ..._section(
-                id: 'chats',
-                anchor: 'chats',
-                title: l10n.profileChatsHeader,
-                empty: _conversations == 0,
-                emptyHint: l10n.profileChatsPrompt,
-                body: () => ChatsPreview(data: _chats, onOpen: _openChats),
-              ),
-              ..._section(
-                id: 'words',
-                anchor: 'words',
-                title: l10n.wordsHeader,
-                count: _wordTotal,
-                empty: _wordCounts.isEmpty,
-                emptyHint: l10n.wordsPrompt,
-                body: _wordsSection,
-              ),
-              if (_travelRoutes.isNotEmpty || _travelEntries.isNotEmpty)
-                ..._section(
-                  id: 'travels',
-                  anchor: 'travels',
-                  title: l10n.travelsHeader,
-                  count: _travelRoutes.length + _travelEntries.length,
-                  body: _travelsSection,
-                ),
-              ..._section(
-                id: 'relationships',
-                anchor: 'people',
-                title: l10n.personProfileRelationshipsHeader,
-                count: people.length,
-                empty: people.isEmpty,
-                emptyHint: l10n.profileRelationshipsPrompt,
-                onAdd: () => _addOrEditRelationship(),
-                editable: true,
-                sliverBody: true,
-                body: () => ProfileRelationships(
-                  relationships: people,
-                  groupNames: _groupNames,
-                  people: _peopleById,
-                  sharedPhotos: _sharedPhotos,
-                  assetRecordStore: widget.assetRecordStore,
-                  editing: _editing.contains('relationships'),
-                  typeLabel: (t) => _relationshipLabel(l10n, t),
-                  onOpen: _openRelatedPerson,
-                  onEdit: (r) => r.derived
-                      ? _addOrEditRelationship(
-                          preset: _peopleById[r.relatedPersonId],
-                        )
-                      : _addOrEditRelationship(existing: r),
-                  onDelete: _removeRelationship,
+                delegate: ProfileTabBar(
+                  tabs: {
+                    ProfileTab.about: l10n.profileJumpAbout,
+                    ProfileTab.life: l10n.profileJumpLife,
+                    ProfileTab.people: l10n.profileJumpPeople,
+                  },
+                  selected: _tab,
+                  onSelect: (t) => setState(() => _tab = t),
                 ),
               ),
-              ..._section(
-                id: 'groups',
-                title: l10n.groupsHeader,
-                count: _groups.length,
-                empty: _groups.isEmpty,
-                emptyHint: l10n.groupsPromptHint,
-                onAdd: _addToGroup,
-                editable: true,
-                body: () => _groupsSection(l10n),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 8),
-                  child: ProfileCard(
-                    children: [
-                      _linkRow(
-                        l10n.personProfileViewGraph,
-                        () => Navigator.of(context).push(
-                          CupertinoPageRoute(
-                            builder: (_) => PersonGraphScreen(
-                              personStore: widget.personStore,
-                              assetRecordStore: widget.assetRecordStore,
-                              focusPersonId: _person.id,
-                            ),
-                          ),
-                        ),
-                      ),
-                    ],
-                  ),
-                ),
-              ),
-              ..._section(
-                id: 'job',
-                anchor: 'work',
-                title: l10n.personProfileJobLabel,
-                count: _jobs.length,
-                empty: _jobs.isEmpty,
-                emptyHint: l10n.personProfileJobPromptHint,
-                onAdd: () => _addHistoryEntry(
-                  HistoryCategory.job,
-                  l10n.personProfileJobLabel,
-                ),
-                body: () => HistoryTimeline(
-                  entries: _jobs,
-                  onOpen: (e) =>
-                      _openHistoryEntry(e, l10n.personProfileJobLabel),
-                ),
-              ),
-              ..._section(
-                id: 'education',
-                title: l10n.personProfileEducationLabel,
-                count: _education.length,
-                empty: _education.isEmpty,
-                emptyHint: l10n.personProfileEducationPromptHint,
-                onAdd: () => _addHistoryEntry(
-                  HistoryCategory.education,
-                  l10n.personProfileEducationLabel,
-                ),
-                body: () => HistoryTimeline(
-                  entries: _education,
-                  onOpen: (e) =>
-                      _openHistoryEntry(e, l10n.personProfileEducationLabel),
-                ),
-              ),
-              ..._section(
-                id: 'places',
-                anchor: 'life',
-                title: l10n.personProfileLocationHeader,
-                count: _locations.length,
-                empty: _locations.isEmpty,
-                emptyHint: l10n.personProfileLocationPromptHint,
-                onAdd: () => _editLocation(),
-                editable: true,
-                body: () => _placesSection(l10n),
-              ),
-              ..._section(
-                id: 'events',
-                title: l10n.eventsHeader,
-                onAdd: () => _editEvent(),
-                editable: _events.any((e) => !e.isFixed),
-                body: () => _eventsSection(l10n),
-              ),
-              ..._section(
-                id: 'impression',
-                title: l10n.impressionHeader,
-                body: () => ProfileImpression(
-                  impression: _detail.impression,
-                  onChanged: (i) =>
-                      _persistDetail(_detail.copyWith(impression: i)),
-                ),
-              ),
-              ..._moreDetails(l10n),
-              ..._section(
-                id: 'names',
-                title: l10n.profileNamePartsHeader,
-                body: () => _nameParts(l10n),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.fromLTRB(16, 20, 16, 0),
-                  child: ProfileCard(
-                    children: [
-                      _linkRow(
-                        l10n.timelineTitle,
-                        () => Navigator.of(context).push(
-                          CupertinoPageRoute<void>(
-                            builder: (_) => PersonTimelineScreen(
-                              person: _person,
-                              personStore: widget.personStore,
-                              assetRecordStore: widget.assetRecordStore,
-                              conversationStore: _conversationStore,
-                            ),
-                          ),
-                        ),
-                        key: const ValueKey('personTimelineRow'),
-                      ),
-                      _linkRow(l10n.personChangesRow, () async {
-                        await Navigator.of(context).push(
-                          CupertinoPageRoute(
-                            builder: (_) => PersonChangeLogScreen(
-                              person: _person,
-                              personStore: widget.personStore,
-                            ),
-                          ),
-                        );
-                        await _loadFormerNames();
-                      }, key: const ValueKey('personChangesRow')),
-                    ],
-                  ),
-                ),
-              ),
-              SliverToBoxAdapter(
-                child: Padding(
-                  padding: const EdgeInsets.only(top: 24, bottom: 32),
-                  child: Center(
-                    child: CupertinoButton(
-                      onPressed: _confirmDeletePerson,
-                      child: Text(
-                        l10n.personProfileDeletePerson,
-                        style: const TextStyle(
-                          color: CupertinoColors.systemRed,
-                        ),
-                      ),
-                    ),
-                  ),
-                ),
-              ),
+              ..._tabBody(l10n),
+              const SliverToBoxAdapter(child: SizedBox(height: 32)),
             ],
           ),
         ),
@@ -1825,49 +1644,470 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     );
   }
 
-  /// The named traits and the free label/value pairs, under one header
-  /// whose "+" suggests the usual labels.
+  /// The open tab's sections that have something in them, then one Add
+  /// button for the rest. Chats, Writings and Travels come from imports and
+  /// links, so empty they simply aren't there.
+  List<Widget> _tabBody(AppLocalizations l10n) {
+    final missing = <(String, VoidCallback)>[];
+    List<Widget> only(
+      String id,
+      String title,
+      bool filled,
+      List<Widget> Function() slivers, {
+      VoidCallback? add,
+      bool addable = true,
+    }) {
+      if (filled || _revealed.contains(id)) return slivers();
+      if (addable) {
+        missing.add((title, add ?? () => setState(() => _revealed.add(id))));
+      }
+      return const [];
+    }
+
+    // Group links are under Groups; listing them here too repeats them.
+    final people = _manualRelationships;
+    final body = switch (_tab) {
+      ProfileTab.about => [
+        ..._section(
+          id: 'about',
+          anchor: 'about',
+          title: l10n.profileAboutHeader,
+          body: () => _bioField(l10n),
+        ),
+        ...only(
+          'chats',
+          l10n.profileChatsHeader,
+          _conversations > 0,
+          addable: false,
+          () => _section(
+            id: 'chats',
+            anchor: 'chats',
+            title: l10n.profileChatsHeader,
+            body: () => ChatsPreview(data: _chats, onOpen: _openChats),
+          ),
+        ),
+        ...only(
+          'words',
+          l10n.writingsHeader,
+          _writingCounts.isNotEmpty,
+          addable: false,
+          () => _section(
+            id: 'words',
+            anchor: 'words',
+            title: l10n.writingsHeader,
+            count: _writingTotal,
+            body: _writingsSection,
+          ),
+        ),
+        ...only(
+          'impression',
+          l10n.impressionHeader,
+          !_detail.impression.isEmpty,
+          () => _section(
+            id: 'impression',
+            title: l10n.impressionHeader,
+            body: () => ProfileImpression(
+              impression: _detail.impression,
+              onChanged: (i) => _persistDetail(_detail.copyWith(impression: i)),
+            ),
+          ),
+        ),
+        ...only(
+          'details',
+          l10n.customFieldsHeader,
+          _detail.customFields.isNotEmpty || _detail.traits.isNotEmpty,
+          add: () => _addDetail(l10n),
+          () => _moreDetails(l10n),
+        ),
+      ],
+      ProfileTab.life => [
+        ...only(
+          'job',
+          l10n.personProfileJobLabel,
+          _jobs.isNotEmpty,
+          add: () =>
+              _addHistoryEntry(HistoryCategory.job, l10n.personProfileJobLabel),
+          () => _section(
+            id: 'job',
+            anchor: 'work',
+            title: l10n.personProfileJobLabel,
+            count: _jobs.length,
+            onAdd: () => _addHistoryEntry(
+              HistoryCategory.job,
+              l10n.personProfileJobLabel,
+            ),
+            body: () => HistoryTimeline(
+              entries: _jobs,
+              onOpen: (e) => _openHistoryEntry(e, l10n.personProfileJobLabel),
+            ),
+          ),
+        ),
+        ...only(
+          'education',
+          l10n.personProfileEducationLabel,
+          _education.isNotEmpty,
+          add: () => _addHistoryEntry(
+            HistoryCategory.education,
+            l10n.personProfileEducationLabel,
+          ),
+          () => _section(
+            id: 'education',
+            title: l10n.personProfileEducationLabel,
+            count: _education.length,
+            onAdd: () => _addHistoryEntry(
+              HistoryCategory.education,
+              l10n.personProfileEducationLabel,
+            ),
+            body: () => HistoryTimeline(
+              entries: _education,
+              onOpen: (e) =>
+                  _openHistoryEntry(e, l10n.personProfileEducationLabel),
+            ),
+          ),
+        ),
+        ...only(
+          'places',
+          l10n.personProfileLocationHeader,
+          _locations.isNotEmpty,
+          add: () => _editLocation(),
+          () => _section(
+            id: 'places',
+            anchor: 'life',
+            title: l10n.personProfileLocationHeader,
+            count: _locations.length,
+            onAdd: () => _editLocation(),
+            editable: true,
+            body: () => _placesSection(l10n),
+          ),
+        ),
+        ...only(
+          'events',
+          l10n.eventsHeader,
+          _events.any((e) => e.at != null),
+          add: () => setState(() => _revealed.add('events')),
+          () => _section(
+            id: 'events',
+            title: l10n.eventsHeader,
+            onAdd: () => _editEvent(),
+            editable: _events.any((e) => !e.isFixed),
+            body: () => _eventsSection(l10n),
+          ),
+        ),
+        ...only(
+          'travels',
+          l10n.travelsHeader,
+          _travelRoutes.isNotEmpty || _travelEntries.isNotEmpty,
+          addable: false,
+          () => _section(
+            id: 'travels',
+            anchor: 'travels',
+            title: l10n.travelsHeader,
+            count: _travelRoutes.length + _travelEntries.length,
+            body: _travelsSection,
+          ),
+        ),
+      ],
+      ProfileTab.people => [
+        ...only(
+          'relationships',
+          l10n.personProfileRelationshipsHeader,
+          people.isNotEmpty,
+          add: () => _addOrEditRelationship(),
+          () => _section(
+            id: 'relationships',
+            anchor: 'people',
+            title: l10n.personProfileRelationshipsHeader,
+            count: people.length,
+            onAdd: () => _addOrEditRelationship(),
+            editable: true,
+            sliverBody: true,
+            body: () => ProfileRelationships(
+              relationships: people,
+              groupNames: _groupNames,
+              people: _peopleById,
+              sharedPhotos: _sharedPhotos,
+              assetRecordStore: widget.assetRecordStore,
+              editing: _editing.contains('relationships'),
+              typeLabel: (t) => _relationshipLabel(l10n, t),
+              onOpen: _openRelatedPerson,
+              onEdit: (r) => r.derived
+                  ? _addOrEditRelationship(
+                      preset: _peopleById[r.relatedPersonId],
+                    )
+                  : _addOrEditRelationship(existing: r),
+              onDelete: _removeRelationship,
+            ),
+          ),
+        ),
+        ...only(
+          'groups',
+          l10n.groupsHeader,
+          _groups.isNotEmpty,
+          add: _addToGroup,
+          () => _section(
+            id: 'groups',
+            title: l10n.groupsHeader,
+            count: _groups.length,
+            onAdd: _addToGroup,
+            editable: true,
+            body: () => _groupsSection(l10n),
+          ),
+        ),
+      ],
+    };
+    return [
+      ...body,
+      if (missing.isNotEmpty)
+        SliverToBoxAdapter(
+          child: Padding(
+            padding: const EdgeInsets.only(top: 20),
+            child: Center(
+              child: CupertinoButton(
+                key: const ValueKey('profileAddMissing'),
+                onPressed: () => _pickMissing(l10n, missing),
+                child: Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    const Icon(CupertinoIcons.add_circled),
+                    const SizedBox(width: 6),
+                    Text(l10n.actionAdd),
+                  ],
+                ),
+              ),
+            ),
+          ),
+        ),
+    ];
+  }
+
+  Future<void> _pickMissing(
+    AppLocalizations l10n,
+    List<(String, VoidCallback)> missing,
+  ) async {
+    final picked = await showCupertinoModalPopup<VoidCallback>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        actions: [
+          for (final (title, add) in missing)
+            CupertinoActionSheetAction(
+              key: profileSectionAddKey(title),
+              onPressed: () => Navigator.of(context).pop(add),
+              child: Text(title),
+            ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    picked?.call();
+  }
+
+  Future<void> _showMore(AppLocalizations l10n) async {
+    final picked = await showCupertinoModalPopup<VoidCallback>(
+      context: context,
+      builder: (context) => CupertinoActionSheet(
+        actions: [
+          CupertinoActionSheetAction(
+            key: const ValueKey('personTimelineRow'),
+            onPressed: () => Navigator.of(context).pop(_openTimeline),
+            child: Text(l10n.timelineTitle),
+          ),
+          CupertinoActionSheetAction(
+            key: const ValueKey('personChangesRow'),
+            onPressed: () => Navigator.of(context).pop(_openChanges),
+            child: Text(l10n.personChangesRow),
+          ),
+          CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(context).pop(_openGraph),
+            child: Text(l10n.personProfileViewGraph),
+          ),
+          CupertinoActionSheetAction(
+            isDestructiveAction: true,
+            onPressed: () => Navigator.of(context).pop(_confirmDeletePerson),
+            child: Text(l10n.personProfileDeletePerson),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(context).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    picked?.call();
+  }
+
+  Future<void> _openTimeline() => Navigator.of(context).push(
+    CupertinoPageRoute<void>(
+      builder: (_) => PersonTimelineScreen(
+        person: _person,
+        personStore: widget.personStore,
+        assetRecordStore: widget.assetRecordStore,
+        conversationStore: _conversationStore,
+      ),
+    ),
+  );
+
+  Future<void> _openChanges() async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => PersonChangeLogScreen(
+          person: _person,
+          personStore: widget.personStore,
+        ),
+      ),
+    );
+    await _loadFormerNames();
+  }
+
+  Future<void> _openGraph() => Navigator.of(context).push(
+    CupertinoPageRoute<void>(
+      builder: (_) => PersonGraphScreen(
+        personStore: widget.personStore,
+        assetRecordStore: widget.assetRecordStore,
+        focusPersonId: _person.id,
+      ),
+    ),
+  );
+
+  /// Traits and label/value pairs read as one merged card; Edit opens the
+  /// raw list, "+" offers traits and the usual labels.
   List<Widget> _moreDetails(AppLocalizations l10n) {
     const id = 'details';
     final folded = _folded(id);
+    final editing = _editing.contains(id);
     return [
       SliverToBoxAdapter(
         child: ProfileSectionHeader(
           title: l10n.customFieldsHeader,
-          count: _detail.customFields.length,
+          count: ProfileDetails.rowCount(_detail.traits, _detail.customFields),
           folded: folded,
           onToggle: () => _toggleFold(id),
           addKey: customFieldsAddKey,
           onAdd: () {
             if (folded) _toggleFold(id);
-            WidgetsBinding.instance.addPostFrameCallback(
-              (_) => _fieldsKey.currentState?.add(),
-            );
+            _addDetail(l10n);
           },
-          editing: _editing.contains(id),
+          editing: editing,
           onEdit: _detail.customFields.isEmpty ? null : () => _toggleEdit(id),
         ),
       ),
       if (!folded)
         SliverToBoxAdapter(
-          child: CustomFieldsEditor(
-            key: _fieldsKey,
-            showHeader: false,
-            editing: _editing.contains(id),
-            suggestions: suggestedFieldLabels(l10n),
-            initialFields: _detail.customFields,
-            onChanged: (fields) =>
-                _persistDetail(_detail.copyWith(customFields: fields)),
-            underHeader: PersonTraitsEditor(
-              traits: _detail.traits,
-              background: profileCardBackground,
-              decoration: profileCardDecoration,
-              onChanged: (traits) =>
-                  _persistDetail(_detail.copyWith(traits: traits)),
-            ),
-          ),
+          child: editing
+              ? CustomFieldsEditor(
+                  showHeader: false,
+                  editing: true,
+                  initialFields: _detail.customFields,
+                  onChanged: (fields) =>
+                      _persistDetail(_detail.copyWith(customFields: fields)),
+                )
+              : ProfileDetails(
+                  traits: _detail.traits,
+                  fields: _detail.customFields,
+                  onTrait: _editTrait,
+                  onRow: (row) => _editDetailRow(l10n, row),
+                ),
         ),
     ];
+  }
+
+  Future<void> _editTrait(PersonTrait trait) => editTrait(
+    context,
+    trait,
+    _detail.traits,
+    (traits) => _persistDetail(_detail.copyWith(traits: traits)),
+  );
+
+  /// One field: its value in a prompt, blank removes it. Several merged:
+  /// the raw list, where each can be changed or taken out.
+  Future<void> _editDetailRow(AppLocalizations l10n, DetailRow row) async {
+    if (row.fields.length > 1) return _toggleEdit('details');
+    final i = row.fields.single;
+    final value = await showProfileTextPrompt(
+      context,
+      title: row.label,
+      placeholder: l10n.customFieldsValuePlaceholder,
+      initial: _detail.customFields[i].value,
+    );
+    if (value == null || !mounted) return;
+    final fields = [..._detail.customFields];
+    if (value.isEmpty) {
+      fields.removeAt(i);
+    } else {
+      fields[i] = PersonCustomField(label: row.label, value: value);
+    }
+    _persistDetail(_detail.copyWith(customFields: fields));
+  }
+
+  Future<void> _addDetail(AppLocalizations l10n) async {
+    final used = {
+      for (final f in _detail.customFields) f.label.trim().toLowerCase(),
+    };
+    final traits = [
+      for (final t in personTraits)
+        if ((_detail.traits[t.key] ?? '').isEmpty) t,
+    ];
+    final labels = [
+      for (final s in suggestedFieldLabels(l10n))
+        if (!used.contains(s.toLowerCase())) s,
+    ];
+    final picked = await showCupertinoModalPopup<Object>(
+      context: context,
+      builder: (sheet) => CupertinoActionSheet(
+        title: Text(l10n.profileFieldPickTitle),
+        actions: [
+          for (final s in labels)
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(sheet).pop(s),
+              child: Text(s),
+            ),
+          for (final t in traits)
+            CupertinoActionSheetAction(
+              key: traitRowKey('add-${t.key}'),
+              onPressed: () => Navigator.of(sheet).pop(t),
+              child: Text(traitLabel(l10n, t.key)),
+            ),
+          CupertinoActionSheetAction(
+            key: const ValueKey('customFieldOther'),
+            onPressed: () => Navigator.of(sheet).pop(''),
+            child: Text(l10n.profileFieldOther),
+          ),
+        ],
+        cancelButton: CupertinoActionSheetAction(
+          onPressed: () => Navigator.of(sheet).pop(),
+          child: Text(l10n.actionCancel),
+        ),
+      ),
+    );
+    if (picked == null || !mounted) return;
+    if (picked is PersonTrait) return _editTrait(picked);
+    var label = picked as String;
+    if (label.isEmpty) {
+      label =
+          await showProfileTextPrompt(
+            context,
+            title: l10n.profileFieldOther,
+            placeholder: l10n.customFieldsLabelPlaceholder,
+          ) ??
+          '';
+      if (label.isEmpty || !mounted) return;
+    }
+    final value = await showProfileTextPrompt(
+      context,
+      title: label,
+      placeholder: l10n.customFieldsValuePlaceholder,
+    );
+    if (value == null || value.isEmpty || !mounted) return;
+    _persistDetail(
+      _detail.copyWith(
+        customFields: [
+          ..._detail.customFields,
+          PersonCustomField(label: label, value: value),
+        ],
+      ),
+    );
   }
 
   /// What happened, oldest first.
@@ -2036,9 +2276,12 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     ],
   );
 
+  // By id: the store hands out fresh group objects on every load.
   List<String> _othersIn(PersonGroup group) => [
-    for (final id in _allGroups[group] ?? const <String>[])
-      if (id != _person.id) id,
+    for (final MapEntry(:key, :value) in _allGroups.entries)
+      if (key.id == group.id)
+        for (final id in value)
+          if (id != _person.id) id,
   ];
 
   /// "Colleagues at Acme": the links a group stands for, as one row.

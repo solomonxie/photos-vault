@@ -11,7 +11,7 @@ import 'database_copy.dart' show lastCopyError;
 import '../photos/conversation_store.dart';
 import '../photos/chat_voice.dart';
 import '../photos/travel_store.dart';
-import '../photos/words_store.dart';
+import '../photos/writings_store.dart';
 import '../sync/sync_store.dart';
 
 /// Everything the app holds that isn't rows in `library.json`: the chat
@@ -131,7 +131,7 @@ class DataFiles {
   }) : _supportDirectory = supportDirectory ?? getApplicationSupportDirectory;
 
   final ConversationStore? conversations;
-  final WordsStore? words;
+  final WritingsStore? words;
   final TravelStore? travel;
   final AiAnalysisStore? analysis;
 
@@ -142,7 +142,7 @@ class DataFiles {
   final Future<Directory> Function() _supportDirectory;
 
   static const conversationsName = 'conversations.db';
-  static const wordsName = 'words.db';
+  static const writingsName = 'words.db';
   static const travelName = TravelStore.fileName;
   static const analysisName = 'ai_analysis.db';
   static const syncName = SyncStore.fileName;
@@ -200,7 +200,7 @@ class DataFiles {
 
     try {
       if (conversations case final c?) await db(conversationsName, c.copyTo);
-      if (words case final w?) await db(wordsName, w.copyTo);
+      if (words case final w?) await db(writingsName, w.copyTo);
       if (travel case final t?) await db(travelName, t.copyTo);
       if (analysis case final a?) {
         await db(analysisName, (dest) => a.copyTo(dest, hiddenIds));
@@ -293,7 +293,7 @@ class DataFiles {
     }
     final merge = switch (entry.name) {
       conversationsName => conversations?.mergeFrom,
-      wordsName => words?.mergeFrom,
+      writingsName => words?.mergeFrom,
       travelName => travel?.mergeFrom,
       analysisName => analysis?.mergeFrom,
       syncName => sync?.mergeFrom,

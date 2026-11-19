@@ -54,6 +54,23 @@ Future<void> _scrollTo(WidgetTester tester, Finder finder) async {
   await tester.pumpAndSettle();
 }
 
+/// Opens [tab] ('about', 'life' or 'people').
+Future<void> _tab(WidgetTester tester, String tab) async {
+  await tester.tap(find.byKey(ValueKey('profileTab:$tab')));
+  await tester.pumpAndSettle();
+}
+
+/// An empty section is reached through its tab's Add button.
+Future<void> _add(WidgetTester tester, String tab, String title) async {
+  await _tab(tester, tab);
+  final add = find.byKey(const ValueKey('profileAddMissing'));
+  await _scrollTo(tester, add);
+  await tester.tap(add);
+  await tester.pumpAndSettle();
+  await tester.tap(find.byKey(profileSectionAddKey(title)));
+  await tester.pumpAndSettle();
+}
+
 void main() {
   testWidgets('Travels lists the routes and entries the person is linked to', (
     tester,
@@ -85,6 +102,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _tab(tester, 'life');
     await _scrollTo(tester, find.text('Travels'));
     expect(find.byKey(ValueKey('travelsRoute-${route.id}')), findsOne);
     expect(find.byKey(ValueKey('travelsEntry-${entry.id}')), findsOne);
@@ -173,9 +191,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await _scrollTo(tester, find.byKey(profileSectionAddKey('Education')));
-      await tester.tap(find.byKey(profileSectionAddKey('Education')));
-      await tester.pumpAndSettle();
+      await _add(tester, 'life', 'Education');
       await tester.enterText(find.byKey(searchPickerFieldKey), 'UC Berkeley');
       await tester.pump();
       await tester.tap(find.text('Use “UC Berkeley”'));
@@ -224,9 +240,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      await _scrollTo(tester, find.byKey(profileSectionAddKey('Education')));
-      await tester.tap(find.byKey(profileSectionAddKey('Education')));
-      await tester.pumpAndSettle();
+      await _add(tester, 'life', 'Education');
       await tester.tap(find.text('MIT'));
       await tester.pumpAndSettle();
 
@@ -252,6 +266,13 @@ void main() {
         ),
       ),
     );
+    await tester.pumpAndSettle();
+    expect(
+      find.byKey(const ValueKey('personNamePart-first')),
+      findsNothing,
+      reason: 'the parts stay out of sight until the name is edited',
+    );
+    await tester.tap(find.text('Mia Jane Wu'));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('personNamePartsSuggest')));
     await tester.pumpAndSettle();
@@ -285,6 +306,8 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Also known as Mia Chen'), findsOneWidget);
 
+    await tester.tap(find.byKey(const ValueKey('profileMore')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('personChangesRow')));
     await tester.pumpAndSettle();
     expect(find.text('Renamed'), findsOneWidget);
@@ -379,6 +402,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await _add(tester, 'about', 'Impression');
     final social = find.text('Social energy');
     await _scrollTo(tester, social);
     await tester.tap(social);
@@ -414,7 +438,7 @@ void main() {
     expect((await personStore.detailFor(mia.id)).impression.tags, isEmpty);
   });
 
-  testWidgets('an empty section says what it would hold', (tester) async {
+  testWidgets('empty sections wait behind one Add button', (tester) async {
     await _useTallSurface(tester);
     final personStore = FakePersonStore();
     final mia = await personStore.create(name: 'Mia');
@@ -430,17 +454,23 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // One "Add" line each, saying what the section would hold.
-    expect(find.text('Add Education'), findsOneWidget);
-    expect(find.text('Start – End · Majors / Degrees'), findsOneWidget);
-    expect(find.text('Add Work'), findsOneWidget);
-    expect(find.text('Add Places Lived'), findsOneWidget);
-    expect(find.text('Hometown or move · Year'), findsOneWidget);
+    await _tab(tester, 'life');
+    expect(find.byKey(profileSectionHeaderKey('Education')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('profileAddMissing')));
+    await tester.pumpAndSettle();
+    for (final title in ['Work', 'Education', 'Places Lived', 'Events']) {
+      expect(find.byKey(profileSectionAddKey(title)), findsOneWidget);
+    }
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
 
-    // More details offers its fields as chips rather than as eight rows of
-    // "Not set", which is what they were.
-    expect(find.byKey(traitChipKey('hair')), findsOneWidget);
-    expect(find.byKey(traitChipKey('eyes')), findsOneWidget);
+    // More details offers its fields in the add sheet, never as empty rows
+    // or chips on the page.
+    await _add(tester, 'about', 'More Details');
+    expect(find.byKey(traitRowKey('add-hair')), findsOneWidget);
+    expect(find.byKey(traitRowKey('add-eyes')), findsOneWidget);
+    await tester.tap(find.text('Cancel'));
+    await tester.pumpAndSettle();
     expect(find.byKey(traitRowKey('hair')), findsNothing);
   });
 
@@ -460,16 +490,18 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // A chip becomes a row once it holds something.
-    await tester.tap(find.byKey(traitChipKey('hair')));
+    await _add(tester, 'about', 'More Details');
+    await tester.tap(find.byKey(traitRowKey('add-hair')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('blonde').last);
     await tester.pumpAndSettle();
     expect((await personStore.detailFor(mia.id)).traits['hair'], 'blonde');
     expect(find.byKey(traitRowKey('hair')), findsOneWidget);
-    expect(find.byKey(traitChipKey('hair')), findsNothing);
 
-    await tester.tap(find.byKey(traitChipKey('height')));
+    await tester.tap(find.byKey(customFieldsAddKey));
+    await tester.pumpAndSettle();
+    expect(find.byKey(traitRowKey('add-hair')), findsNothing);
+    await tester.tap(find.byKey(traitRowKey('add-height')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(CupertinoTextField).last, '178 cm');
     await tester.tap(find.text('Save'));
@@ -486,8 +518,7 @@ void main() {
       (await personStore.detailFor(mia.id)).traits.containsKey('hair'),
       isFalse,
     );
-    // And goes back to being on offer.
-    expect(find.byKey(traitChipKey('hair')), findsOneWidget);
+    expect(find.byKey(traitRowKey('hair')), findsNothing);
   });
 
   testWidgets('a tag can be typed, and shows as typed', (tester) async {
@@ -506,6 +537,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await _add(tester, 'about', 'Impression');
     await tester.tap(find.byKey(const ValueKey('impression-tag-add')));
     await tester.pumpAndSettle();
     await tester.enterText(find.byType(CupertinoTextField).last, 'Sardonic');
@@ -587,7 +619,8 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Always there, always first, and nothing written until it is filled in.
+    await _add(tester, 'life', 'Events');
+    // Always first, and nothing written until it is filled in.
     expect(find.text('First met'), findsOneWidget);
     expect(await personStore.eventsFor(mia.id), isEmpty);
     // No delete button on it, unlike every other event.
@@ -621,6 +654,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
+    await _add(tester, 'life', 'Events');
     await tester.tap(find.byKey(profileSectionAddKey('Events')));
     await tester.pumpAndSettle();
     await tester.tap(find.text('Type'));
@@ -662,12 +696,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Relationships sits below More details now, off the bottom of the
-    // screen — a tap without this lands on nothing and passes quietly.
-    final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
-    await _scrollTo(tester, addRelationship);
-    await tester.tap(addRelationship);
-    await tester.pumpAndSettle();
+    await _add(tester, 'people', 'Relationships');
     expect(find.text('Daniel'), findsOneWidget);
     await tester.tap(find.text('Daniel'));
     await tester.pumpAndSettle();
@@ -704,9 +733,10 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
-    await _scrollTo(tester, addRelationship);
-    await tester.tap(addRelationship);
+    // The family link alone isn't a relationship, so it is added from Add.
+    await _tab(tester, 'people');
+    expect(find.text('1 person', skipOffstage: false), findsOneWidget);
+    await _add(tester, 'people', 'Relationships');
     await tester.pumpAndSettle();
     await tester.tap(find.text('Daniel').last);
     await tester.pumpAndSettle();
@@ -743,6 +773,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _tab(tester, 'people');
 
     final showAll = find.text('Show All (7)');
     await _scrollTo(tester, showAll);
@@ -776,12 +807,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Relationships sits below More details now, off the bottom of the
-    // screen — a tap without this lands on nothing and passes quietly.
-    final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
-    await _scrollTo(tester, addRelationship);
-    await tester.tap(addRelationship);
-    await tester.pumpAndSettle();
+    await _add(tester, 'people', 'Relationships');
     await tester.enterText(find.byKey(searchPickerFieldKey), 'Ada');
     await tester.pumpAndSettle();
 
@@ -791,7 +817,11 @@ void main() {
     await tester.tap(find.text('New Person “Ada”'));
     await tester.pumpAndSettle();
 
-    expect(find.text('Add'), findsNothing, reason: 'no second prompt');
+    expect(
+      find.text('Add').hitTestable(),
+      findsNothing,
+      reason: 'no second prompt',
+    );
     await tester.tap(find.text('Family'));
     await tester.pumpAndSettle();
 
@@ -818,12 +848,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Relationships sits below More details now, off the bottom of the
-    // screen — a tap without this lands on nothing and passes quietly.
-    final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
-    await _scrollTo(tester, addRelationship);
-    await tester.tap(addRelationship);
-    await tester.pumpAndSettle();
+    await _add(tester, 'people', 'Relationships');
     await tester.enterText(find.byKey(searchPickerFieldKey), 'Grandma Lily');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
@@ -857,12 +882,7 @@ void main() {
     );
     await tester.pumpAndSettle();
 
-    // Relationships sits below More details now, off the bottom of the
-    // screen — a tap without this lands on nothing and passes quietly.
-    final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
-    await _scrollTo(tester, addRelationship);
-    await tester.tap(addRelationship);
-    await tester.pumpAndSettle();
+    await _add(tester, 'people', 'Relationships');
     await tester.enterText(find.byKey(searchPickerFieldKey), 'daniel');
     await tester.testTextInput.receiveAction(TextInputAction.done);
     await tester.pumpAndSettle();
@@ -891,12 +911,7 @@ void main() {
       );
       await tester.pumpAndSettle();
 
-      // Relationships sits below More details now, off the bottom of the
-      // screen — a tap without this lands on nothing and passes quietly.
-      final addRelationship = find.byKey(profileSectionAddKey('Relationships'));
-      await _scrollTo(tester, addRelationship);
-      await tester.tap(addRelationship);
-      await tester.pumpAndSettle();
+      await _add(tester, 'people', 'Relationships');
       await tester.tap(find.text('Daniel'));
       await tester.pumpAndSettle();
       await tester.tap(find.text('Colleague'));
@@ -942,6 +957,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _tab(tester, 'people');
 
     await _scrollTo(tester, find.text('Daniel', skipOffstage: false));
     await tester.pumpAndSettle();
@@ -978,6 +994,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _tab(tester, 'people');
 
     final edit = find.byKey(profileSectionEditKey('Relationships'));
     await _scrollTo(tester, edit);
@@ -1019,6 +1036,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _tab(tester, 'people');
 
     final row = find.widgetWithText(CupertinoListTile, 'Daniel');
     await _scrollTo(tester, row);
@@ -1066,6 +1084,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _tab(tester, 'people');
 
     // One subsection header per type in use, each above only that type's rows.
     expect(find.text('Friend', skipOffstage: false), findsOneWidget);
@@ -1109,6 +1128,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _tab(tester, 'life');
 
     // Shanghai: 1995, the year Beijing (the next stop) starts. Beijing is
     // still current, so it's open-ended.
@@ -1144,6 +1164,7 @@ void main() {
         ),
       );
       await tester.pumpAndSettle();
+      await _tab(tester, 'life');
 
       expect(find.text('Senior Engineer', skipOffstage: false), findsOneWidget);
       expect(find.text('Acme Corp', skipOffstage: false), findsOneWidget);
@@ -1176,6 +1197,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _tab(tester, 'life');
 
     final row = find.widgetWithText(CupertinoListTile, 'Shanghai');
     await _scrollTo(tester, row);
@@ -1221,6 +1243,7 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await _tab(tester, 'life');
     final row = find.widgetWithText(CupertinoListTile, 'Shanghai');
     await _scrollTo(tester, row);
     await tester.drag(row, const Offset(-600, 0));
@@ -1232,69 +1255,65 @@ void main() {
     expect((await personStore.locationsFor(mia.id)).single.place, 'Shanghai');
   });
 
-  testWidgets('Relationships before Places Lived, More details after it', (
-    tester,
-  ) async {
-    await _useTallSurface(tester);
-    final personStore = FakePersonStore();
-    final mia = await personStore.create(name: 'Mia');
-    final dan = await personStore.create(name: 'Daniel');
-    await personStore.addRelationship(
-      mia.id,
-      dan.id,
-      RelationshipType.friend,
-      scope: PersonScope.open,
-    );
-    await personStore.addLocation(
-      PersonLocation(
-        id: 'loc-1',
-        personId: mia.id,
-        kind: LocationKind.origin,
-        place: 'Shanghai',
-        since: DateTime(1995),
-      ),
-      scope: PersonScope.open,
-    );
-
-    await tester.pumpWidget(
-      _wrap(
-        PersonProfileScreen(
-          person: mia,
-          personStore: personStore,
-          assetRecordStore: FakeAssetRecordStore(),
+  testWidgets(
+    'Relationships under People, Places Lived under Life, More details through Add',
+    (tester) async {
+      await _useTallSurface(tester);
+      final personStore = FakePersonStore();
+      final mia = await personStore.create(name: 'Mia');
+      final dan = await personStore.create(name: 'Daniel');
+      await personStore.addRelationship(
+        mia.id,
+        dan.id,
+        RelationshipType.friend,
+        scope: PersonScope.open,
+      );
+      await personStore.addLocation(
+        PersonLocation(
+          id: 'loc-1',
+          personId: mia.id,
+          kind: LocationKind.origin,
+          place: 'Shanghai',
+          since: DateTime(1995),
         ),
-      ),
-    );
-    await tester.pumpAndSettle();
+        scope: PersonScope.open,
+      );
 
-    double top(String text) =>
-        tester.getTopLeft(find.text(text, skipOffstage: false)).dy;
-    expect(top('Places Lived'), greaterThan(top('Relationships')));
-    expect(top('More Details'), greaterThan(top('Places Lived')));
+      await tester.pumpWidget(
+        _wrap(
+          PersonProfileScreen(
+            person: mia,
+            personStore: personStore,
+            assetRecordStore: FakeAssetRecordStore(),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
 
-    final addButton = find.byKey(customFieldsAddKey);
-    await _scrollTo(tester, addButton);
-    await tester.tap(addButton);
-    await tester.pumpAndSettle();
-    // The usual labels are offered first; Other is a blank one.
-    expect(find.text('WeChat'), findsOneWidget);
-    await tester.tap(find.byKey(const ValueKey('customFieldOther')));
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.widgetWithText(CupertinoTextField, 'Field'),
-      'Nickname',
-    );
-    await tester.pump();
-    await tester.enterText(
-      find.widgetWithText(CupertinoTextField, 'Value'),
-      'Mimi',
-    );
-    await tester.pump();
+      expect(find.text('Relationships'), findsNothing);
+      await _tab(tester, 'people');
+      expect(find.text('Relationships'), findsOneWidget);
+      expect(find.text('Places Lived'), findsNothing);
+      await _tab(tester, 'life');
+      expect(find.text('Places Lived'), findsOneWidget);
 
-    final saved = await personStore.detailFor(mia.id);
-    expect(saved.customFields.single.label, 'Nickname');
-    expect(saved.customFields.single.value, 'Mimi');
-  });
+      await _add(tester, 'about', 'More Details');
+      // The usual labels are offered first; Other asks for a label.
+      expect(find.text('WeChat'), findsOneWidget);
+      await tester.tap(find.byKey(const ValueKey('customFieldOther')));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(CupertinoTextField).last, 'Nickname');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+      await tester.enterText(find.byType(CupertinoTextField).last, 'Mimi');
+      await tester.tap(find.text('Save'));
+      await tester.pumpAndSettle();
+
+      final saved = await personStore.detailFor(mia.id);
+      expect(saved.customFields.single.label, 'Nickname');
+      expect(saved.customFields.single.value, 'Mimi');
+    },
+  );
 
   testWidgets('a profile says how its person stands to you', (tester) async {
     await _useTallSurface(tester);
@@ -1350,44 +1369,45 @@ void main() {
     expect(find.text('Your sibling'), findsNothing);
   });
 
-  testWidgets(
-    'group links show under Relationships, and as a row that opens the group',
-    (tester) async {
-      await _useTallSurface(tester);
-      final personStore = FakePersonStore();
-      final mia = await personStore.create(name: 'Mia');
-      await personStore.create(name: 'Daniel');
-      const acme = PersonGroup(id: 'g1', name: 'Acme', kind: GroupKind.company);
-      await personStore.joinGroup(mia.id, acme, scope: PersonScope.open);
-      for (final p in await personStore.listAll()) {
-        await personStore.joinGroup(p.id, acme, scope: PersonScope.open);
-      }
+  testWidgets('group links stay under Groups, as a row that opens the group', (
+    tester,
+  ) async {
+    await _useTallSurface(tester);
+    final personStore = FakePersonStore();
+    final mia = await personStore.create(name: 'Mia');
+    await personStore.create(name: 'Daniel');
+    const acme = PersonGroup(id: 'g1', name: 'Acme', kind: GroupKind.company);
+    await personStore.joinGroup(mia.id, acme, scope: PersonScope.open);
+    for (final p in await personStore.listAll()) {
+      await personStore.joinGroup(p.id, acme, scope: PersonScope.open);
+    }
 
-      await tester.pumpWidget(
-        _wrap(
-          PersonProfileScreen(
-            person: mia,
-            personStore: personStore,
-            assetRecordStore: FakeAssetRecordStore(),
-          ),
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
         ),
-      );
-      await tester.pumpAndSettle();
+      ),
+    );
+    await tester.pumpAndSettle();
+    await _tab(tester, 'people');
 
-      // Listed under Relationships too, saying which group it comes from.
-      expect(find.text('Daniel', skipOffstage: false), findsOneWidget);
-      expect(find.text('via Acme', skipOffstage: false), findsOneWidget);
-      await tester.tap(find.text('Colleagues at Acme'));
-      await tester.pumpAndSettle();
-      expect(find.text('Daniel'), findsOneWidget);
-      await tester.enterText(
-        find.byKey(const ValueKey('profilePeopleSearch')),
-        'zzz',
-      );
-      await tester.pump();
-      expect(find.text('Daniel'), findsNothing);
-    },
-  );
+    // Not repeated as relationships: those are only the ones added by hand.
+    expect(find.byKey(profileSectionHeaderKey('Relationships')), findsNothing);
+    expect(find.text('via Acme', skipOffstage: false), findsNothing);
+    expect(find.text('1 person'), findsOneWidget);
+    await tester.tap(find.text('Colleagues at Acme'));
+    await tester.pumpAndSettle();
+    expect(find.text('Daniel'), findsOneWidget);
+    await tester.enterText(
+      find.byKey(const ValueKey('profilePeopleSearch')),
+      'zzz',
+    );
+    await tester.pump();
+    expect(find.text('Daniel'), findsNothing);
+  });
 
   testWidgets('deleting a person says their photos and hidden folder go '
       'with them', (tester) async {
@@ -1410,14 +1430,16 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    await tester.tap(find.byKey(const ValueKey('profileMore')));
+    await tester.pumpAndSettle();
     final delete = find.text('Delete Person');
-    await _scrollTo(tester, delete);
     // The codes are tried on another isolate, which only answers on the
     // real clock.
-    await tester.runAsync(() async {
-      await tester.tap(delete);
-      await Future<void>.delayed(const Duration(seconds: 2));
-    });
+    await tester.tap(delete);
+    await tester.pumpAndSettle();
+    await tester.runAsync(
+      () => Future<void>.delayed(const Duration(seconds: 2)),
+    );
     await tester.pumpAndSettle();
 
     expect(find.text('Delete this person?'), findsOneWidget);

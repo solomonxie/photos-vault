@@ -5,7 +5,7 @@ import 'package:intl/intl.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/travel.dart';
 import '../photos/travel_store.dart';
-import 'words_markdown.dart';
+import 'writings_markdown.dart';
 
 /// "4 May 2024": the day an impression is about.
 String travelEntryLine(TravelEntry e) =>
@@ -290,7 +290,7 @@ class _TravelEntryEditorState extends State<TravelEntryEditor> {
   }
 }
 
-/// An entry's Markdown, drawn like a writing under Words. Pictures in it
+/// An entry's Markdown, drawn like a writing under Writings. Pictures in it
 /// show as their alt text: an entry links library photos instead.
 class TravelMarkdown extends StatefulWidget {
   const TravelMarkdown({super.key, required this.text});

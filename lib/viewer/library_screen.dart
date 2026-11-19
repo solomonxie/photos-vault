@@ -22,7 +22,7 @@ import '../photos/import_log_backfill.dart';
 import '../photos/travel_store.dart';
 import '../sync/cloud_sync.dart';
 import '../sync/sync_store.dart';
-import '../photos/words_store.dart';
+import '../photos/writings_store.dart';
 import '../photos/place_search.dart';
 import '../photos/derived_asset.dart';
 import '../photos/flag_scan.dart';
@@ -314,7 +314,7 @@ class LibraryScreenState extends State<LibraryScreen>
     aiAnalysisStore: _aiAnalysisStore,
     hasAsset: (id) => _photoLibraryService.hasAsset(id),
     conversationStore: ConversationStore(),
-    wordsStore: WordsStore(),
+    writingsStore: WritingsStore(),
     travelStore: _travelStore,
     syncStore: SyncStore(),
   );
@@ -2925,25 +2925,25 @@ class LibraryScreenState extends State<LibraryScreen>
             fixes: const [StorageFix.removeFromDevice],
           ),
       ]);
+    } catch (_) {
+      result = null;
     } finally {
+      navigator.pop();
       if (mounted) setState(() => _busy = false);
     }
     if (!mounted) return;
-    setState(() => _selection = null);
-    await reload();
-    if (!mounted) return;
-    final removed = records.length - result.skipped - result.unverified;
-    } catch (_) {
-      result = null;
-    _showResult(
-      navigator.pop();
-      [
-        l10n.selectionRemovedFromDevice(removed),
-        if (result.skipped > 0) l10n.storageResultSkipped(result.skipped),
     if (result == null) {
       _showResult(l10n.selectionRemovedFromDevice(0));
       return;
     }
+    setState(() => _selection = null);
+    await reload();
+    if (!mounted) return;
+    final removed = records.length - result.skipped - result.unverified;
+    _showResult(
+      [
+        l10n.selectionRemovedFromDevice(removed),
+        if (result.skipped > 0) l10n.storageResultSkipped(result.skipped),
         if (result.unverified > 0)
           l10n.storageResultUnverified(result.unverified),
       ].join('\n'),

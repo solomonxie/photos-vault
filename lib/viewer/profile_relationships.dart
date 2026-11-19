@@ -230,7 +230,7 @@ class _ProfileRelationshipsState extends State<ProfileRelationships> {
           padding: const EdgeInsets.fromLTRB(16, 0, 16, 6),
           child: Row(
             children: [
-              chip(l10n.wordsAll, null),
+              chip(l10n.writingsAll, null),
               for (final t in types)
                 chip('${widget.typeLabel(t)} ${_byType[t]!.length}', t),
             ],

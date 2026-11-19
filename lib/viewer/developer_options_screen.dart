@@ -59,7 +59,7 @@ class DeveloperOptionsScreen extends StatelessWidget {
       ' "chat": "wechat:ava", "source": "wechat",\n'
       ' "kind": "text", "sender": "Ava"}';
 
-  static const _wordsExample =
+  static const _writingsExample =
       '{"id": "weibo-2012-0412-a1", "kind": "post",\n'
       ' "title": "", "at": "2012-04-12T21:30:00",\n'
       ' "source": "weibo", "origin": "Blog/2012年微博汇总.md",\n'
@@ -206,24 +206,24 @@ class DeveloperOptionsScreen extends StatelessWidget {
             const SizedBox(height: 28),
             SettingsGroupHeading(title: l10n.devSectionLife),
             _Tool(
-              key: const ValueKey('devWordsImport'),
+              key: const ValueKey('devWritingsImport'),
               icon: CupertinoIcons.doc_text_fill,
               color: CupertinoColors.systemOrange,
-              title: l10n.devWordsTitle,
+              title: l10n.devWritingsTitle,
               format: 'ZIP',
-              summary: l10n.devWordsSummary,
-              how: l10n.devWordsHow,
-              spec: l10n.devWordsSpec,
-              example: _wordsExample,
+              summary: l10n.devWritingsSummary,
+              how: l10n.devWritingsHow,
+              spec: l10n.devWritingsSpec,
+              example: _writingsExample,
               action: l10n.devChooseFile,
               onRun: () => _open(
                 context,
                 PersonImportScreen(
-                  title: l10n.devWordsTitle,
-                  hint: l10n.devWordsSummary,
+                  title: l10n.devWritingsTitle,
+                  hint: l10n.devWritingsSummary,
                   extensions: const ['zip', 'jsonl'],
                   read: (path) =>
-                      readWordsPlan(path, l10n, personStore: personStore),
+                      readWritingsPlan(path, l10n, personStore: personStore),
                   personStore: personStore,
                   assetRecordStore: assetRecordStore,
                   pickOnOpen: true,

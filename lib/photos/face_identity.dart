@@ -3,7 +3,7 @@ import 'ai_analysis_store.dart';
 import 'conversation_store.dart';
 import 'person.dart';
 import 'travel_store.dart';
-import 'words_store.dart';
+import 'writings_store.dart';
 
 /// Forgets everything remembered about a person, from anywhere.
 ///
@@ -22,7 +22,7 @@ Future<void> forgetPersonFaces(
     // No analysis database — nothing was remembered to forget.
   }
   await forgetConversations(personId);
-  await forgetWords(personId);
+  await forgetWritings(personId);
   await forgetTravel(personId);
 }
 

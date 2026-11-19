@@ -12,7 +12,7 @@ import '../photos/person_store.dart';
 import '../photos/record_fixer.dart';
 import '../photos/travel_store.dart';
 import '../sync/sync_store.dart';
-import '../photos/words_store.dart';
+import '../photos/writings_store.dart';
 import '../storage/album_store.dart';
 import '../storage/note.dart';
 import '../viewer/built_in_album.dart';
@@ -177,7 +177,7 @@ class AppSnapshotIo {
     this.aiAnalysisStore,
     this.hasAsset,
     this.conversationStore,
-    this.wordsStore,
+    this.writingsStore,
     this.travelStore,
     this.syncStore,
     this.supportDirectory,
@@ -186,7 +186,7 @@ class AppSnapshotIo {
   /// Chats and writings: outside `library.json`, backed up as blobs.
   /// See `data_files.dart`.
   final ConversationStore? conversationStore;
-  final WordsStore? wordsStore;
+  final WritingsStore? writingsStore;
 
   /// The travel diary: places, entries, routes.
   final TravelStore? travelStore;
@@ -199,7 +199,7 @@ class AppSnapshotIo {
 
   late final DataFiles dataFiles = DataFiles(
     conversations: conversationStore,
-    words: wordsStore,
+    words: writingsStore,
     travel: travelStore,
     analysis: aiAnalysisStore,
     sync: syncStore,
@@ -257,7 +257,7 @@ class AppSnapshotIo {
       personStore.copyTo(at('people'), hidden, slim: slim),
       ?aiAnalysisStore?.copyTo(at('ai_analysis'), hidden),
       if (withChats) ?conversationStore?.copyTo(at('conversations')),
-      if (withChats) ?wordsStore?.copyTo(at('words')),
+      if (withChats) ?writingsStore?.copyTo(at('words')),
       ?travelStore?.copyTo(at('travel')),
       ?syncStore?.copyTo(at('sync')),
     ];

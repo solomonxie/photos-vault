@@ -3,8 +3,8 @@ import 'dart:io';
 import 'package:archive/archive_io.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
-import 'package:photos_vault/photos/words_file.dart';
-import 'package:photos_vault/photos/words_store.dart';
+import 'package:photos_vault/photos/writings_file.dart';
+import 'package:photos_vault/photos/writings_store.dart';
 import 'package:sqflite_common_ffi/sqflite_ffi.dart';
 
 Writing _w(
@@ -23,8 +23,8 @@ Writing _w(
 void main() {
   setUpAll(sqfliteFfiInit);
 
-  WordsStore newStore() {
-    final store = WordsStore(
+  WritingsStore newStore() {
+    final store = WritingsStore(
       databaseFactory: databaseFactoryFfi,
       path: inMemoryDatabasePath,
     );
@@ -33,7 +33,7 @@ void main() {
   }
 
   test('lines without an id or text are skipped and counted', () {
-    final export = readWordsLines(
+    final export = readWritingsLines(
       '{"id": "a", "kind": "blog", "text": "x", "at": "2013-12-23"}\n'
       'not json\n'
       '{"kind": "post", "text": "no id"}\n'
@@ -59,12 +59,12 @@ void main() {
       ..add(ArchiveFile('export/media/a/1.jpg', 3, [1, 2, 3]));
     File(zip).writeAsBytesSync(ZipEncoder().encode(archive));
 
-    final export = await readWordsFileHere(zip);
+    final export = await readWritingsFileHere(zip);
     expect(export.writings.single.id, 'a');
     expect(export.mediaFiles, 1);
 
     final root = p.join(dir.path, 'root');
-    expect(await extractWordsMediaHere(zip, root), 1);
+    expect(await extractWritingsMediaHere(zip, root), 1);
     expect(File(p.join(root, 'media/a/1.jpg')).readAsBytesSync(), [1, 2, 3]);
   });
 
