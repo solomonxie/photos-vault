@@ -1062,9 +1062,16 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
+    expect(
+      tester.getTopLeft(find.byKey(const ValueKey('faceGroupsSmall'))).dy,
+      greaterThan(
+        tester.getTopLeft(find.byKey(const ValueKey('people-imported-big'))).dy,
+      ),
+    );
     await _openFaces(tester);
 
-    // Four photos is listed; one waits behind the small-groups row.
+    // Four photos is listed; one waits behind the small-groups row, which
+    // comes after the big ones so they don't read as under it.
     expect(find.byKey(const ValueKey('people-imported-big')), findsOneWidget);
     expect(find.byKey(const ValueKey('people-imported-g1')), findsNothing);
     await tester.tap(find.byKey(const ValueKey('faceGroupsSmall')));

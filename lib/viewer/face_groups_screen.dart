@@ -366,6 +366,8 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
                         ),
                         onTap: _openIgnored,
                       ),
+                    for (final g in _groups)
+                      if (_photos(g) >= _foldUnder) _row(l10n, g),
                     if (_groups.where((g) => _photos(g) < _foldUnder).toList()
                         case final small when small.isNotEmpty) ...[
                       CupertinoListTile(
@@ -399,8 +401,6 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
                       if (_showSmall)
                         for (final g in small) _row(l10n, g),
                     ],
-                    for (final g in _groups)
-                      if (_photos(g) >= _foldUnder) _row(l10n, g),
                   ],
                 ),
               ),
