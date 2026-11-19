@@ -6,12 +6,14 @@ import 'package:path/path.dart' as p;
 
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
+import '../storage/note.dart';
 import '../vault/plain_files.dart';
 import 'manual_add.dart';
 
 /// What the share extension (`ios/ShareExtension/`) left in the App Group:
 /// photos and videos shared from Safari or any other app, waiting to be
-/// put in a hidden album. Never via Photos.
+/// put in a hidden album, and links to pages with no photo in them, for
+/// that album's notes. Never via Photos.
 ///
 /// The extension writes one folder per share and `<batch>.json`, last;
 /// [fileBatches] hides those without asking. A hidden
@@ -93,8 +95,12 @@ class ShareInbox {
   /// One without a readable code — or marked for the library by an older
   /// build — is spilled into the loose files, so it is asked about instead
   /// of lost or added in the clear.
+  ///
+  /// A batch's links go to [notesFor]'s album notes first; with no notes
+  /// for the code yet (no passphrase on this phone), the batch waits.
   Future<List<AssetRecord>> fileBatches({
     required Future<String> Function(String code) tagFor,
+    Future<NoteBook?> Function(String code)? notesFor,
   }) async {
     final hidden = <AssetRecord>[];
     final dir = await _inbox();
@@ -116,6 +122,17 @@ class ShareInbox {
             ? await _filesIn(folder)
             : const <File>[];
         final code = destination == 'hidden' ? await _readCode(ref) : null;
+        final links = json['notes'] is List ? json['notes'] as List : const [];
+        if (code != null && links.isNotEmpty) {
+          final book = await notesFor?.call(code);
+          if (book == null) continue;
+          for (final link in links) {
+            final text = link is Map ? _linkText(link) : null;
+            if (text != null) await book.save(text);
+          }
+          // Never saved twice if the files below stop partway.
+          await manifest.writeAsString(jsonEncode({...json, 'notes': []}));
+        }
         if (code == null) {
           for (final f in files) {
             await f.rename(p.join(dir.path, p.basename(f.path)));
@@ -142,6 +159,14 @@ class ShareInbox {
       }
     }
     return hidden;
+  }
+
+  static String? _linkText(Map link) {
+    final text = [
+      for (final key in const ['title', 'url'])
+        if (link[key] case final String v when v.trim().isNotEmpty) v.trim(),
+    ].join('\n');
+    return text.isEmpty ? null : text;
   }
 
   /// Where it was shared from — page title and address — as its caption,

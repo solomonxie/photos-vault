@@ -4,10 +4,28 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:path/path.dart' as p;
 import 'package:photos_vault/photos/manual_add.dart';
 import 'package:photos_vault/photos/share_inbox.dart';
+import 'package:photos_vault/storage/note.dart';
 import 'package:photos_vault/vault/plain_files.dart';
 import 'package:photos_vault/vault/store.dart';
 
 import '../support/fake_asset_record_store.dart';
+
+class _Notes implements NoteBook {
+  final texts = <String>[];
+
+  @override
+  Future<List<Note>> list() async => const [];
+
+  @override
+  Future<Note> save(String text, {Note? existing}) async {
+    texts.add(text);
+    final now = DateTime(2026);
+    return Note(id: text, text: text, createdAt: now, updatedAt: now);
+  }
+
+  @override
+  Future<void> delete(String id) async {}
+}
 
 class _Exclusion extends BackupExclusion {
   @override
@@ -122,5 +140,32 @@ void main() {
     final filed = await shares.fileBatches(tagFor: tagFor);
     final row = await store.getByLocalId(filed.single.localId);
     expect(row!.description, 'Kyoto temples\nhttps://example.com/kyoto');
+  });
+
+  test('a page with no photo in it is kept as a note in that album', () async {
+    File(p.join(inbox.path, 'b6.json')).writeAsStringSync(
+      '{"destination":"hidden","sources":{},"notes":'
+      '[{"title":"Kyoto temples","url":"https://example.com/kyoto"}]}',
+    );
+    codes['b6'] = '1234';
+    final books = <String, _Notes>{};
+    final filed = await shares.fileBatches(
+      tagFor: tagFor,
+      notesFor: (code) async => books[code] ??= _Notes(),
+    );
+    expect(filed, isEmpty);
+    expect(books['1234']!.texts, ['Kyoto temples\nhttps://example.com/kyoto']);
+    expect(codes, isEmpty);
+    expect(inbox.listSync(), isEmpty);
+  });
+
+  test('with no notes for the code yet, the link waits', () async {
+    File(p.join(inbox.path, 'b7.json')).writeAsStringSync(
+      '{"destination":"hidden","notes":[{"url":"https://example.com"}]}',
+    );
+    codes['b7'] = '1234';
+    await shares.fileBatches(tagFor: tagFor, notesFor: (_) async => null);
+    expect(File(p.join(inbox.path, 'b7.json')).existsSync(), isTrue);
+    expect(codes, contains('b7'));
   });
 }

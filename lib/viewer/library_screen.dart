@@ -85,6 +85,7 @@ import '../vault/mac_uploads.dart';
 import '../vault/bucket.dart';
 import '../vault/carrier_upload.dart';
 import '../vault/decoy.dart';
+import '../vault/hidden_notes.dart';
 import '../vault/keys.dart';
 import '../vault/passcode_tags.dart';
 import '../vault/plain_files.dart';
@@ -2107,9 +2108,16 @@ class LibraryScreenState extends State<LibraryScreen>
       // code, which moves there on the main page's next unlock.
       final owner = await PersonOwner(assetRecordStore).id();
       final tags = PasscodeTags(records: assetRecordStore);
+      String scoped(String code) =>
+          owner == null ? code : personAlbumCode(owner, code);
       final filed = await _shareInbox.fileBatches(
-        tagFor: (code) =>
-            tags.tagFor(owner == null ? code : personAlbumCode(owner, code)),
+        tagFor: (code) => tags.tagFor(scoped(code)),
+        notesFor: (code) async {
+          final keys = await _vaultKeys.activeAlbumKeys(scoped(code));
+          return keys == null
+              ? null
+              : HiddenNotes(store: assetRecordStore, keys: keys);
+        },
       );
       if (filed.isNotEmpty) {
         // Their encrypted copies only; never the plain upload path.

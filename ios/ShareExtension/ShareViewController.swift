@@ -4,7 +4,8 @@ import UniformTypeIdentifiers
 
 /// "Photos Vault" in the share sheet. Everything shared goes to a hidden
 /// album: asks for its code, copies the items into the App Group's inbox
-/// as one batch, and closes. The app files a batch on its
+/// as one batch, and closes. A web page with no photo in it is kept as a
+/// link, for the album's notes. The app files a batch on its
 /// next open without asking again (`lib/photos/share_inbox.dart`). Nothing
 /// here touches Photos.
 ///
@@ -158,12 +159,20 @@ final class SharePanel: UIViewController, UITextFieldDelegate {
 
   private func finish(code: String) async {
     let items = context?.inputItems as? [NSExtensionItem] ?? []
-    let saved = await ShareInbox.saveBatch(items, code: code)
-    if saved == 0 {
+    let (saved, links) = await ShareInbox.saveBatch(items, code: code)
+    if saved == 0 && links == 0 {
       reset(
         NSLocalizedString("Nothing saved", comment: ""),
         NSLocalizedString(
-          "No photo or video here. To save an image from a web page, long-press it and share that.",
+          "No photo, video or link here.",
+          comment: ""
+        )
+      )
+    } else if saved == 0 {
+      reset(
+        NSLocalizedString("Link saved", comment: ""),
+        NSLocalizedString(
+          "It'll be in the album's notes next time you open Photos Vault.",
           comment: ""
         )
       )
@@ -173,7 +182,9 @@ final class SharePanel: UIViewController, UITextFieldDelegate {
         NSLocalizedString("They'll be hidden next time you open Photos Vault.", comment: "")
       )
     }
-    try? await Task.sleep(nanoseconds: saved == 0 ? 2_500_000_000 : 1_200_000_000)
+    try? await Task.sleep(
+      nanoseconds: saved == 0 && links == 0 ? 2_500_000_000 : 1_200_000_000
+    )
     context?.completeRequest(returningItems: nil)
   }
 }
@@ -189,14 +200,19 @@ enum ShareInbox {
 
   /// One folder per share plus `<batch>.json` naming where it goes,
   /// written last: the app takes a batch only once its manifest exists.
-  static func saveBatch(_ items: [NSExtensionItem], code: String) async -> Int {
-    guard let inbox = directory() else { return 0 }
+  /// Pages that gave no photo or video go in the manifest as `notes`.
+  static func saveBatch(
+    _ items: [NSExtensionItem],
+    code: String
+  ) async -> (saved: Int, links: Int) {
+    guard let inbox = directory() else { return (0, 0) }
     let batch = UUID().uuidString
     let folder = inbox.appendingPathComponent(batch, isDirectory: true)
     try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
     // Where each file came from, by file name: the app writes it into the
     // photo's caption. No host app name: iOS doesn't give it to extensions.
     var sources: [String: [String: String]] = [:]
+    var notes: [[String: String]] = []
     for item in items {
       let providers = item.attachments ?? []
       let media = providers.filter(isMedia)
@@ -213,19 +229,32 @@ enum ShareInbox {
           }
         }
       }
+      var savedHere = 0
       for provider in media.isEmpty ? providers : media {
         guard let saved = await copy(provider, into: folder) else { continue }
         var source: [String: String] = [:]
         if let url = saved.url ?? page { source["url"] = url.absoluteString }
         if let title, !title.isEmpty { source["title"] = title }
         sources[saved.name] = source
+        savedHere += 1
+      }
+      if media.isEmpty, savedHere == 0 {
+        for provider in providers {
+          guard let url = await webURL(provider), !url.isFileURL else { continue }
+          var note = ["url": url.absoluteString]
+          if let title, !title.isEmpty { note["title"] = title }
+          notes.append(note)
+          break
+        }
       }
     }
-    guard !sources.isEmpty, storeCode(code, ref: batch) else {
+    guard !sources.isEmpty || !notes.isEmpty, storeCode(code, ref: batch) else {
       try? FileManager.default.removeItem(at: folder)
-      return 0
+      return (0, 0)
     }
-    let manifest: [String: Any] = ["destination": "hidden", "sources": sources]
+    let manifest: [String: Any] = [
+      "destination": "hidden", "sources": sources, "notes": notes,
+    ]
     guard let data = try? JSONSerialization.data(withJSONObject: manifest),
           FileManager.default.createFile(
             atPath: inbox.appendingPathComponent("\(batch).json").path,
@@ -233,9 +262,9 @@ enum ShareInbox {
           )
     else {
       try? FileManager.default.removeItem(at: folder)
-      return 0
+      return (0, 0)
     }
-    return sources.count
+    return (sources.count, notes.count)
   }
 
   private static func isMedia(_ provider: NSItemProvider) -> Bool {
