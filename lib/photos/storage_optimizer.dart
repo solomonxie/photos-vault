@@ -244,6 +244,9 @@ class StorageOptimizer {
           item.record.localId,
     };
     if (atRisk.isEmpty) return const {};
+    if (atRisk.length <= _proveEachUpTo) {
+      return _unconfirmedEach(verifier, items, atRisk);
+    }
     try {
       final report = await verifier.reconcile();
       if (!report.reachedBucket) return atRisk;
@@ -270,6 +273,67 @@ class StorageOptimizer {
     } catch (_) {
       return atRisk;
     }
+  }
+
+  /// Below this, a HEAD per object beats listing the whole bucket: a
+  /// selection of a few photos otherwise waits on every key there is.
+  static const _proveEachUpTo = 200;
+
+  Future<Set<String>> _unconfirmedEach(
+    BackupVerifier verifier,
+    List<StorageItem> items,
+    Set<String> atRisk,
+  ) async {
+    final unconfirmed = <String>{};
+    final requeued = <String>{};
+    Future<void> check(StorageItem item) async {
+      final record = item.record;
+      final id = record.localId;
+      try {
+        final original = await verifier.proveOriginal(record);
+        if (original == CopyProof.missing ||
+            original == CopyProof.notRecorded) {
+          await store.updateDerivative(
+            id,
+            DerivativeKind.original,
+            record
+                .stateOf(DerivativeKind.original)
+                .copyWith(status: UploadStatus.pending),
+          );
+          requeued.add(id);
+        }
+        if (original != CopyProof.present) {
+          unconfirmed.add(id);
+          return;
+        }
+        if (item.fix != StorageFix.removeFromDevice) return;
+        final thumbnail = await verifier.proveThumbnail(record);
+        if (thumbnail == CopyProof.missing ||
+            thumbnail == CopyProof.notRecorded) {
+          await store.updateDerivative(
+            id,
+            DerivativeKind.thumbnail,
+            record
+                .stateOf(DerivativeKind.thumbnail)
+                .copyWith(status: UploadStatus.pending),
+          );
+        }
+        if (thumbnail != CopyProof.present) unconfirmed.add(id);
+      } catch (_) {
+        unconfirmed.add(id);
+      }
+    }
+
+    final checking = [
+      for (final item in items)
+        if (atRisk.contains(item.record.localId)) item,
+    ];
+    const parallel = 8;
+    for (var i = 0; i < checking.length; i += parallel) {
+      await Future.wait(checking.skip(i).take(parallel).map(check));
+    }
+    _requeued = requeued;
+    return unconfirmed;
   }
 
   /// Returns the bytes saved, or null if nothing was written.

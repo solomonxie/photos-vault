@@ -13,6 +13,7 @@ import 'package:photos_vault/photos/storage_optimizer.dart';
 import 'package:photos_vault/upload/pending_deletes.dart';
 import 'package:photos_vault/photos/thumbnail_cache.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
+import 'package:photos_vault/settings/s3_backup_target.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/storage/bucket_object.dart';
 import 'package:photos_vault/upload/bucket_flagged.dart' show FixOutcome;
@@ -360,6 +361,131 @@ void main() {
         expect((await store.getByLocalId('manual:a'))!.localDeleted, isTrue);
       },
     );
+
+    group('a small selection', () {
+      Future<StorageItem> backedUp(FakeAssetRecordStore store, int i) async {
+        await store.upsert(
+          localId: 'photo:$i',
+          contentHash: '$i',
+          platform: 'ios',
+          libraryId: 'lib-$i',
+        );
+        for (final kind in [
+          DerivativeKind.original,
+          DerivativeKind.thumbnail,
+        ]) {
+          await store.updateDerivative(
+            'photo:$i',
+            kind,
+            DerivativeState(
+              status: UploadStatus.uploaded,
+              destinationKey: '${kind.name}/$i',
+            ),
+          );
+        }
+        await store.setThumbnailPath(
+          'photo:$i',
+          (File('${tempDir.path}/t$i.jpg')..writeAsBytesSync([1])).path,
+        );
+        return itemFor(
+          (await store.getByLocalId('photo:$i'))!,
+          1000,
+          StorageFix.removeFromDevice,
+        );
+      }
+
+      StorageOptimizer over(
+        FakeAssetRecordStore store,
+        BackupTargetsStore targets,
+        Set<String> missing,
+        List<String> listed,
+      ) => StorageOptimizer(
+        store: store,
+        thumbnails: ThumbnailCache(
+          store: store,
+          directory: () async => tempDir,
+        ),
+        library: libraryThatDeletes(const []),
+        backUp: (_) async {},
+        verifier: BackupVerifier(
+          targetsStore: targets,
+          recordStore: store,
+          head: (url) async =>
+              http.Response('', missing.any(url.path.endsWith) ? 404 : 200),
+          list:
+              ({
+                required S3BackupTarget target,
+                String prefix = '',
+                String? continuationToken,
+              }) async {
+                listed.add(prefix);
+                throw StateError('listed the whole bucket');
+              },
+        ),
+      );
+
+      Future<BackupTargetsStore> oneBucket() async {
+        final targets = BackupTargetsStore(store: FakeSecureStore());
+        await targets.add(
+          accessKeyId: 'AKIA',
+          secretAccessKey: 'secret',
+          region: 'us-east-1',
+          bucket: 'bucket',
+          prefix: 'photos/',
+        );
+        return targets;
+      }
+
+      test(
+        'is checked a photo at a time, never by listing the bucket',
+        () async {
+          final store = FakeAssetRecordStore();
+          final items = [for (var i = 0; i < 2; i++) await backedUp(store, i)];
+          final listed = <String>[];
+
+          final result = await over(
+            store,
+            await oneBucket(),
+            {},
+            listed,
+          ).apply(items);
+
+          expect(listed, isEmpty);
+          expect(deleted, [
+            ['lib-0', 'lib-1'],
+          ]);
+          expect(result.freedBytes, 2000);
+        },
+      );
+
+      test('a photo the bucket lacks, or its thumbnail, stays and goes back '
+          'in the queue', () async {
+        final store = FakeAssetRecordStore();
+        final items = [for (var i = 0; i < 3; i++) await backedUp(store, i)];
+
+        final result = await over(store, await oneBucket(), {
+          'original/1',
+          'thumbnail/2',
+        }, []).apply(items);
+
+        expect(deleted, [
+          ['lib-0'],
+        ]);
+        expect(result.unverified, 2);
+        final one = (await store.getByLocalId('photo:1'))!;
+        final two = (await store.getByLocalId('photo:2'))!;
+        expect(one.localDeleted, isFalse);
+        expect(two.localDeleted, isFalse);
+        expect(
+          one.stateOf(DerivativeKind.original).status,
+          UploadStatus.pending,
+        );
+        expect(
+          two.stateOf(DerivativeKind.thumbnail).status,
+          UploadStatus.pending,
+        );
+      });
+    });
 
     test('nothing is removed without a thumbnail left to draw', () async {
       final store = FakeAssetRecordStore();

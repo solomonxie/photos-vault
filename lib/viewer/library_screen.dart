@@ -2901,7 +2901,18 @@ class LibraryScreenState extends State<LibraryScreen>
   Future<void> _batchRemoveFromDevice(List<AssetRecord> records) async {
     final l10n = AppLocalizations.of(context)!;
     setState(() => _busy = true);
-    StorageFixResult result;
+    final navigator = Navigator.of(context, rootNavigator: true);
+    unawaited(
+      showCupertinoDialog<void>(
+        context: context,
+        barrierDismissible: false,
+        builder: (_) => const PopScope(
+          canPop: false,
+          child: Center(child: CupertinoActivityIndicator(radius: 14)),
+        ),
+      ),
+    );
+    StorageFixResult? result;
     try {
       result = await _storageOptimizer.apply([
         for (final r in records)
@@ -2922,10 +2933,17 @@ class LibraryScreenState extends State<LibraryScreen>
     await reload();
     if (!mounted) return;
     final removed = records.length - result.skipped - result.unverified;
+    } catch (_) {
+      result = null;
     _showResult(
+      navigator.pop();
       [
         l10n.selectionRemovedFromDevice(removed),
         if (result.skipped > 0) l10n.storageResultSkipped(result.skipped),
+    if (result == null) {
+      _showResult(l10n.selectionRemovedFromDevice(0));
+      return;
+    }
         if (result.unverified > 0)
           l10n.storageResultUnverified(result.unverified),
       ].join('\n'),
