@@ -145,8 +145,6 @@ void main() {
     expect(find.byKey(const ValueKey('personPageHidden')), findsOneWidget);
     expect(find.byKey(const ValueKey('personPageAddPhotos')), findsOneWidget);
     await _hold(tester, find.byKey(const ValueKey('manual:a')));
-    await tester.tap(find.text('Select').last);
-    await tester.pumpAndSettle();
     expect(find.text('1 Selected'), findsOneWidget);
     await tester.tap(find.text('Select All'));
     await tester.pumpAndSettle();
@@ -191,8 +189,6 @@ void main() {
     );
     await tester.pumpAndSettle();
     await _hold(tester, find.byKey(const ValueKey('manual:a')));
-    await tester.tap(find.text('Select').last);
-    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('manual:b')));
     await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('personDeleteSelected')));
@@ -240,8 +236,6 @@ void main() {
     );
     await tester.pumpAndSettle();
     await _hold(tester, find.byKey(const ValueKey('manual:a')));
-    await tester.tap(find.text('Select').last);
-    await tester.pumpAndSettle();
     expect(find.byKey(const ValueKey('personToLibrarySelected')), findsNothing);
     await tester.tap(
       find.byKey(const ValueKey('personToTheirLibrarySelected')),
@@ -298,41 +292,7 @@ void main() {
     expect(find.byType(PersonProfileScreen), findsOneWidget);
   });
 
-  testWidgets('holding a photo opens its menu, profile-photo option and all', (
-    tester,
-  ) async {
-    final assetStore = FakeAssetRecordStore();
-    final personStore = FakePersonStore();
-    await assetStore.upsert(
-      localId: 'manual:a',
-      contentHash: 'a',
-      platform: 'ios',
-      sourceType: AssetSourceType.manualFile,
-      sourcePath: '/tmp/a.jpg',
-    );
-    final person = await personStore.create(name: 'Mia');
-    await personStore.addAssets(person.id, ['manual:a']);
-
-    await tester.pumpWidget(
-      _wrap(
-        PersonPageScreen(
-          person: person,
-          personStore: personStore,
-          assetRecordStore: assetStore,
-        ),
-      ),
-    );
-    await tester.pumpAndSettle();
-
-    await _hold(tester, find.byKey(const ValueKey('manual:a')));
-
-    expect(find.text('Use as Profile Photo'), findsOneWidget);
-    expect(find.text('Remove from Person'), findsOneWidget);
-  });
-
-  testWidgets('Select in the hold menu starts select mode with that photo', (
-    tester,
-  ) async {
+  testWidgets('holding a photo selects it, no menu in between', (tester) async {
     final assetStore = FakeAssetRecordStore();
     final personStore = FakePersonStore();
     for (final id in ['manual:a', 'manual:b']) {
@@ -358,11 +318,15 @@ void main() {
     await tester.pumpAndSettle();
 
     await _hold(tester, find.byKey(const ValueKey('manual:a')));
-    await tester.tap(find.text('Select').last);
-    await tester.pumpAndSettle();
 
     expect(find.text('1 Selected'), findsOneWidget);
     expect(find.byKey(const ValueKey('personSelectionDone')), findsOneWidget);
+    // One photo picked: it can become their picture from the bar.
+    expect(find.text('Use as Profile Photo'), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('manual:b')));
+    await tester.pumpAndSettle();
+    expect(find.text('2 Selected'), findsOneWidget);
+    expect(find.text('Use as Profile Photo'), findsNothing);
   });
 
   testWidgets('"Use as Profile Photo" repoints the avatar at that photo', (
@@ -475,8 +439,7 @@ void main() {
   }, variant: TargetPlatformVariant.only(TargetPlatform.iOS));
 }
 
-/// A long press that actually opens a [CupertinoContextMenu] — it wants the
-/// full 800ms preview animation, which `tester.longPress` is too short for.
+/// A long press held well past the threshold, then released.
 Future<void> _hold(WidgetTester tester, Finder finder) async {
   final gesture = await tester.startGesture(tester.getCenter(finder));
   await tester.pump();

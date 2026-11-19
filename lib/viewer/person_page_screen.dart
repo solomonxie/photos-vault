@@ -14,7 +14,6 @@ import '../photos/asset_removal.dart';
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import '../vault/people_album_keys.dart';
-import 'asset_grid.dart';
 import 'asset_grid_view.dart';
 import 'back_swipe_edge.dart';
 import 'asset_picker_screen.dart';
@@ -96,6 +95,13 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
   bool _selecting = false;
   final _picked = ValueNotifier<Set<String>>(const {});
   final _sweep = SelectSweep<String>();
+
+  /// Hold selects, as in Photos; dragging on from there sweeps a range.
+  void _startSelecting(AssetRecord record) {
+    setState(() => _selecting = true);
+    _picked.value = {..._picked.value, record.localId};
+    _sweep.begin(record.localId, base: _picked.value);
+  }
 
   void _endSelecting() => setState(() {
     _selecting = false;
@@ -285,19 +291,6 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
     await _reload();
   }
 
-  Future<void> _hide(AssetRecord record) async {
-    await hideIntoPrivateAlbum(
-      context,
-      assetRecordStore: widget.assetRecordStore,
-      records: [record],
-      codeFor: (digits) => personAlbumCode(_person.id, digits),
-      onSettled: () {
-        if (mounted) _reload();
-      },
-    );
-    await _reload();
-  }
-
   Future<void> _reload() async {
     // Who they own and who they're in: two different things, one page.
     final tagged = await widget.personStore.localIdsIn(_person.id);
@@ -443,12 +436,6 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
         analysisStore: widget.aiAnalysisStore ?? AiAnalysisStore(),
       );
 
-  Future<void> _removeFromPerson(AssetRecord record) async {
-    await widget.personStore.removeAsset(_person.id, record.localId);
-    await _identity.unrememberPhotos(_person.id, [record.localId]);
-    await _reload();
-  }
-
   /// Deleting is the same decision on every screen: keep the cloud copy
   /// and free the space, or bin it. See `../photos/asset_removal.dart`.
   late final AssetRemoval _removal = AssetRemoval(
@@ -574,6 +561,16 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                     name: _person.name,
                     onMove: _moveSelected,
                     onDelete: _deleteSelected,
+                    onProfilePhoto: picked.length == 1
+                        ? () async {
+                            await _setProfilePhoto(
+                              _records.firstWhere(
+                                (r) => r.localId == picked.single,
+                              ),
+                            );
+                            _endSelecting();
+                          }
+                        : null,
                   ),
                 ),
               ),
@@ -710,14 +707,15 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                 )
               : BackSwipeEdge<AssetRecord>(
                   onTap: _selecting ? _toggleSelected : _open,
-                  onLongPressMove: _selecting ? _onSelectDragUpdate : null,
-                  onLongPressEnd: _selecting ? _sweep.end : null,
+                  onLongPress: _startSelecting,
+                  onLongPressMove: _onSelectDragUpdate,
+                  onLongPressEnd: _sweep.end,
                   child: AssetGridView(
                     records: _records,
                     onTap: _selecting ? _toggleSelected : _open,
-                    // Hold still opens the menu; sweeping is for select mode.
-                    onSelectDragUpdate: _selecting ? _onSelectDragUpdate : null,
-                    onSelectDragEnd: _selecting ? _sweep.end : null,
+                    onLongPress: _startSelecting,
+                    onSelectDragUpdate: _onSelectDragUpdate,
+                    onSelectDragEnd: _sweep.end,
                     selection: _selecting ? _picked : null,
                     trailingSlivers: [
                       // Clear of the selection bar.
@@ -731,46 +729,8 @@ class _PersonPageScreenState extends State<PersonPageScreen> {
                           ),
                         ),
                     ],
-                    actionsFor: (r) => [
-                      TileAction(
-                        icon: CupertinoIcons.checkmark_circle,
-                        label: l10n.albumSelect,
-                        onPressed: () => setState(() {
-                          _selecting = true;
-                          _picked.value = {r.localId};
-                        }),
-                      ),
-                      TileAction(
-                        icon: r.isFavorite
-                            ? CupertinoIcons.heart_slash
-                            : CupertinoIcons.heart,
-                        label: r.isFavorite
-                            ? l10n.libraryUnfavorite
-                            : l10n.libraryFavorite,
-                        onPressed: () => _toggleFavorite(r),
-                      ),
-                      TileAction(
-                        icon: CupertinoIcons.person_crop_circle,
-                        label: l10n.personPageUseAsProfilePhoto,
-                        onPressed: () => _setProfilePhoto(r),
-                      ),
-                      TileAction(
-                        icon: CupertinoIcons.person_badge_minus,
-                        label: l10n.personPageRemoveFromPerson,
-                        onPressed: () => _removeFromPerson(r),
-                      ),
-                      TileAction(
-                        icon: CupertinoIcons.eye_slash,
-                        label: l10n.personPageHideUnder,
-                        onPressed: () => _hide(r),
-                      ),
-                      TileAction(
-                        icon: CupertinoIcons.delete,
-                        label: l10n.libraryDeleteTooltip,
-                        isDestructive: true,
-                        onPressed: () => _delete(r),
-                      ),
-                    ],
+                    // Never called: [onLongPress] replaces the menu.
+                    actionsFor: (_) => const [],
                   ),
                 ),
         ),
@@ -790,7 +750,11 @@ class _PersonSelectionBar extends StatelessWidget {
     required this.onDelete,
     required this.name,
     this.onlyHere = false,
+    this.onProfilePhoto,
   });
+
+  /// One photo picked: make it their picture.
+  final VoidCallback? onProfilePhoto;
 
   final String name;
 
@@ -859,6 +823,17 @@ class _PersonSelectionBar extends StatelessWidget {
                     style: const TextStyle(fontWeight: FontWeight.w600),
                   ),
                 ),
+                if (onProfilePhoto != null)
+                  CupertinoButton(
+                    key: const ValueKey('personProfilePhotoSelected'),
+                    padding: const EdgeInsets.symmetric(horizontal: 8),
+                    minimumSize: Size.zero,
+                    onPressed: onProfilePhoto,
+                    child: Text(
+                      l10n.personPageUseAsProfilePhoto,
+                      style: const TextStyle(fontSize: 14),
+                    ),
+                  ),
               ],
             ),
           ),
