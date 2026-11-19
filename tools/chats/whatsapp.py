@@ -93,28 +93,44 @@ def _read_texts(path: Path):
     return [(_person_from_name(path.name), path.read_text("utf-8", "replace"))]
 
 
+def _heads(text):
+    return [m.group(1, 2, 7) for line in text.splitlines() if (m := LINE.match(_clean(line)))]
+
+
 def _day_first(heads):
+    """True/False when some date has a part over 12, else None."""
     for a, b, _ in heads:
+        if len(a) == 4:
+            continue
         if int(a) > 12:
             return True
         if int(b) > 12:
             return False
-    return True
+    return None
 
 
-def _parse(text):
+def _batch_day_first(texts):
+    """One phone exports every chat in its own locale, so a chat whose dates are all
+    ambiguous (both parts <= 12) follows the others; with none to go by, a 12-hour
+    clock means month first (US)."""
+    heads = [h for _, t in texts for h in _heads(t)]
+    votes = [v for _, t in texts if (v := _day_first(_heads(t))) is not None]
+    if votes:
+        return votes.count(True) > len(votes) / 2
+    return not any(ampm for _, _, ampm in heads)
+
+
+def _parse(text, day_first):
     # iOS marks system notices ("Messages and calls are end-to-end encrypted") with a
     # leading U+200E after the colon; media lines too, which MEDIA still catches.
     lines = [_clean(line.replace(": \u200e", ": \0")) for line in text.splitlines()]
-    msgs, heads = [], []
+    msgs = []
     for line in lines:
         m = LINE.match(line)
         if m:
-            heads.append(m.groups()[:3])
             msgs.append([m.groups(), m.group(8)])
         elif msgs:
             msgs[-1][1] += "\n" + line
-    day_first = _day_first(heads)
     out = []
     for g, body in msgs:
         a, b, c, hh, mm, ss, ampm, _ = g
@@ -137,8 +153,11 @@ def _parse(text):
 
 def from_exports(path: Path, me: str | None):
     out = []
-    for person, text in _read_texts(path):
-        msgs = _parse(text)
+    texts = _read_texts(path)
+    batch = _batch_day_first(texts)
+    for person, text in texts:
+        own = _day_first(_heads(text))
+        msgs = _parse(text, batch if own is None else own)
         if not msgs:
             continue  # only system notices, e.g. disappearing messages
         senders = {s for _, s, _ in msgs}

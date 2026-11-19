@@ -18,7 +18,7 @@ python3 tools/chats/run.py instagram <zip|dir>... [--me "Name"]
 - **iMessage**: the terminal needs Full Disk Access (Privacy & Security). Names come from Contacts by
   phone/email; numbers not in Contacts are kept as the number. SMS/RCS threads become source `sms`.
 - **WhatsApp**: backup via Finder, **unencrypted**. Exports: file name `WhatsApp Chat - <Name>` names
-  the person; date order (day/month) is guessed per file.
+  the person; date order (day/month) is read per file; a file with only ambiguous dates follows the rest of the batch.
 - **Messenger / Instagram**: Accounts Center → Download your information → Messages, JSON, all time.
   Pass every part zip; threads split across them are merged. Meta's Latin-1 mojibake is repaired.
   Voice messages carry their clip (8 kbps MP3, needs `ffmpeg`).
