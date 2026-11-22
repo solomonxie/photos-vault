@@ -98,47 +98,61 @@ class _AssetPickerScreenState extends State<AssetPickerScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(
-        middle: Text(widget.title),
-        trailing: _selected.isEmpty
-            ? null
-            : CupertinoButton(
-                padding: EdgeInsets.zero,
-                onPressed: _confirm,
-                child: Text(l10n.privateAlbumPickerAddButton(_selected.length)),
-              ),
-      ),
+      navigationBar: CupertinoNavigationBar(middle: Text(widget.title)),
       child: Stack(
         children: [
           SafeArea(
-            child: !_loaded
-                ? const SizedBox.shrink()
-                : _records.isEmpty
-                ? Center(
-                    child: Text(
-                      l10n.privateAlbumPickerEmpty,
-                      style: const TextStyle(color: CupertinoColors.systemGrey),
+            child: Column(
+              children: [
+                Expanded(
+                  child: !_loaded
+                      ? const SizedBox.shrink()
+                      : _records.isEmpty
+                      ? Center(
+                          child: Text(
+                            l10n.privateAlbumPickerEmpty,
+                            style: const TextStyle(
+                              color: CupertinoColors.systemGrey,
+                            ),
+                          ),
+                        )
+                      : AssetGridView(
+                          key: _gridKey,
+                          records: _records,
+                          // Every tile is a checkbox here — there's no viewer
+                          // to open, so a tap and a hold mean the same thing.
+                          onTap: _toggle,
+                          onLongPress: _toggle,
+                          selectedIds: _selected,
+                          actionsFor: (r) => const [],
+                        ),
+                ),
+                // Where the thumb is, not in the far corner.
+                if (_selected.isNotEmpty)
+                  Padding(
+                    padding: const EdgeInsets.fromLTRB(16, 8, 16, 8),
+                    child: SizedBox(
+                      width: double.infinity,
+                      child: CupertinoButton.filled(
+                        key: const ValueKey('pickerConfirm'),
+                        onPressed: _confirm,
+                        child: Text(
+                          l10n.privateAlbumPickerAddButton(_selected.length),
+                        ),
+                      ),
                     ),
-                  )
-                : AssetGridView(
-                    key: _gridKey,
-                    records: _records,
-                    // Every tile is a checkbox here — there's no viewer to
-                    // open, so a tap and a hold mean the same thing.
-                    onTap: _toggle,
-                    onLongPress: _toggle,
-                    selectedIds: _selected,
-                    actionsFor: (r) => const [],
                   ),
+              ],
+            ),
           ),
           // Tapping the header goes back to the newest photo, as on the
           // library page. The status-bar strip above it can't be covered —
           // iOS delivers that tap on a channel, not to the view. Clear of
-          // Back on the left, as of Add on the right.
+          // Back on the left.
           Positioned(
             top: MediaQuery.paddingOf(context).top,
             left: 96,
-            right: 96,
+            right: 16,
             height: _navigationBarHeight,
             child: GestureDetector(
               behavior: HitTestBehavior.translucent,

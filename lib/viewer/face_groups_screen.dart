@@ -45,6 +45,8 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
   static const _faceSize = 66.0;
 
   List<StoredFaceGroup> _groups = const [];
+  List<StoredFaceGroup> _big = const [];
+  List<StoredFaceGroup> _small = const [];
   Map<String, AssetRecord> _records = const {};
   List<Person> _ignoredPeople = const [];
   int _ignoredCount = 0;
@@ -85,6 +87,14 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
     if (!mounted) return;
     setState(() {
       _groups = found.groups;
+      _big = [
+        for (final g in found.groups)
+          if (_photos(g) >= _foldUnder) g,
+      ];
+      _small = [
+        for (final g in found.groups)
+          if (_photos(g) < _foldUnder) g,
+      ];
       _records = found.records;
       _ignoredPeople = ignoredPeople;
       _ignoredCount = ignoredGroups + ignoredPeople.length;
@@ -272,6 +282,52 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
     );
   }
 
+  /// The few header rows, then the group rows built only as scrolled to:
+  /// thousands of groups must not all be built when the small ones open.
+  Widget _list(AppLocalizations l10n, List<Widget> head) {
+    final small = _small;
+    final shown = _showSmall ? small.length : 0;
+    final bigEnd = head.length + _big.length;
+    final foldRow = small.isEmpty ? 0 : 1;
+    return ListView.builder(
+      key: ValueKey(
+        widget.ignored ? 'people-ignored-page' : 'people-faces-page',
+      ),
+      itemCount: bigEnd + foldRow + shown,
+      itemBuilder: (context, i) {
+        if (i < head.length) return head[i];
+        if (i < bigEnd) return _row(l10n, _big[i - head.length]);
+        if (i == bigEnd) return _smallToggle(l10n, small.length);
+        return _row(l10n, small[i - bigEnd - 1]);
+      },
+    );
+  }
+
+  Widget _smallToggle(AppLocalizations l10n, int count) => CupertinoListTile(
+    key: const ValueKey('faceGroupsSmall'),
+    leading: const Icon(
+      CupertinoIcons.square_stack,
+      color: CupertinoColors.systemGrey,
+    ),
+    title: Text(l10n.faceGroupsSmall(_foldUnder)),
+    trailing: Row(
+      mainAxisSize: MainAxisSize.min,
+      children: [
+        Text(
+          '$count',
+          style: const TextStyle(color: CupertinoColors.systemGrey),
+        ),
+        const SizedBox(width: 4),
+        Icon(
+          _showSmall ? CupertinoIcons.chevron_up : CupertinoIcons.chevron_down,
+          size: 18,
+          color: CupertinoColors.systemGrey2,
+        ),
+      ],
+    ),
+    onTap: () => setState(() => _showSmall = !_showSmall),
+  );
+
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
@@ -299,110 +355,68 @@ class _FaceGroupsScreenState extends State<FaceGroupsScreen> {
           children: [
             Expanded(
               child: BackSwipeEdge<Object>(
-                child: ListView(
-                  key: ValueKey(
-                    widget.ignored
-                        ? 'people-ignored-page'
-                        : 'people-faces-page',
-                  ),
-                  children: [
-                    if (widget.ignored && _ignoredPeople.isNotEmpty) ...[
-                      _heading(
-                        l10n.peopleSectionNamed.toUpperCase(),
-                        _ignoredPeople.length,
+                child: _list(l10n, [
+                  if (widget.ignored && _ignoredPeople.isNotEmpty) ...[
+                    _heading(
+                      l10n.peopleSectionNamed.toUpperCase(),
+                      _ignoredPeople.length,
+                    ),
+                    for (final p in _ignoredPeople) _personRow(l10n, p),
+                  ],
+                  if (widget.ignored && _groups.isNotEmpty) ...[
+                    _heading(l10n.peopleIgnoredFacesSection, _groups.length),
+                    Padding(
+                      padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                      child: Text(
+                        l10n.faceGroupsIgnoredHint,
+                        style: settingsHintStyle,
                       ),
-                      for (final p in _ignoredPeople) _personRow(l10n, p),
-                    ],
-                    if (widget.ignored && _groups.isNotEmpty) ...[
-                      _heading(l10n.peopleIgnoredFacesSection, _groups.length),
-                      Padding(
-                        padding: const EdgeInsets.fromLTRB(16, 0, 16, 4),
+                    ),
+                  ],
+                  if (_loaded &&
+                      _groups.isEmpty &&
+                      (!widget.ignored || _ignoredPeople.isEmpty))
+                    Padding(
+                      padding: const EdgeInsets.only(top: 48),
+                      child: Center(
                         child: Text(
-                          l10n.faceGroupsIgnoredHint,
-                          style: settingsHintStyle,
+                          widget.ignored
+                              ? l10n.faceGroupsIgnoredEmpty
+                              : l10n.faceGroupsAllNamed,
+                          style: const TextStyle(
+                            color: CupertinoColors.systemGrey,
+                          ),
                         ),
                       ),
-                    ],
-                    if (_loaded &&
-                        _groups.isEmpty &&
-                        (!widget.ignored || _ignoredPeople.isEmpty))
-                      Padding(
-                        padding: const EdgeInsets.only(top: 48),
-                        child: Center(
-                          child: Text(
-                            widget.ignored
-                                ? l10n.faceGroupsIgnoredEmpty
-                                : l10n.faceGroupsAllNamed,
+                    ),
+                  if (!widget.ignored && !_selecting && _ignoredCount > 0)
+                    CupertinoListTile(
+                      key: const ValueKey('faceGroupsIgnored'),
+                      leading: const Icon(
+                        CupertinoIcons.eye_slash,
+                        color: CupertinoColors.systemGrey,
+                      ),
+                      title: Text(l10n.faceGroupsIgnoredTitle),
+                      trailing: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          Text(
+                            '$_ignoredCount',
                             style: const TextStyle(
                               color: CupertinoColors.systemGrey,
                             ),
                           ),
-                        ),
+                          const SizedBox(width: 4),
+                          const Icon(
+                            CupertinoIcons.chevron_forward,
+                            size: 18,
+                            color: CupertinoColors.systemGrey2,
+                          ),
+                        ],
                       ),
-                    if (!widget.ignored && !_selecting && _ignoredCount > 0)
-                      CupertinoListTile(
-                        key: const ValueKey('faceGroupsIgnored'),
-                        leading: const Icon(
-                          CupertinoIcons.eye_slash,
-                          color: CupertinoColors.systemGrey,
-                        ),
-                        title: Text(l10n.faceGroupsIgnoredTitle),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '$_ignoredCount',
-                              style: const TextStyle(
-                                color: CupertinoColors.systemGrey,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            const Icon(
-                              CupertinoIcons.chevron_forward,
-                              size: 18,
-                              color: CupertinoColors.systemGrey2,
-                            ),
-                          ],
-                        ),
-                        onTap: _openIgnored,
-                      ),
-                    for (final g in _groups)
-                      if (_photos(g) >= _foldUnder) _row(l10n, g),
-                    if (_groups.where((g) => _photos(g) < _foldUnder).toList()
-                        case final small when small.isNotEmpty) ...[
-                      CupertinoListTile(
-                        key: const ValueKey('faceGroupsSmall'),
-                        leading: const Icon(
-                          CupertinoIcons.square_stack,
-                          color: CupertinoColors.systemGrey,
-                        ),
-                        title: Text(l10n.faceGroupsSmall(_foldUnder)),
-                        trailing: Row(
-                          mainAxisSize: MainAxisSize.min,
-                          children: [
-                            Text(
-                              '${small.length}',
-                              style: const TextStyle(
-                                color: CupertinoColors.systemGrey,
-                              ),
-                            ),
-                            const SizedBox(width: 4),
-                            Icon(
-                              _showSmall
-                                  ? CupertinoIcons.chevron_up
-                                  : CupertinoIcons.chevron_down,
-                              size: 18,
-                              color: CupertinoColors.systemGrey2,
-                            ),
-                          ],
-                        ),
-                        onTap: () => setState(() => _showSmall = !_showSmall),
-                      ),
-                      if (_showSmall)
-                        for (final g in small) _row(l10n, g),
-                    ],
-                  ],
-                ),
+                      onTap: _openIgnored,
+                    ),
+                ]),
               ),
             ),
             if (_selecting)
