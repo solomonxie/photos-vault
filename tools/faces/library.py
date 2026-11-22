@@ -110,6 +110,37 @@ def open_photos(lib, archived=True):
     return out
 
 
+STILLS = (".jpg", ".jpeg", ".heic", ".heif", ".png", ".webp")
+
+
+def bucket_photos(known):
+    """Stills under `originals/` that no snapshot lists (uploaded straight to
+    the bucket, e.g. a Google Photos export), as `bucket:<stem>`, the id the
+    app gives them once taken into the library. Keys of hidden photos in any
+    recent snapshot, and [known] keys, are left out."""
+    s3, bucket, prefix = client()
+    base = f"{prefix}/app-data/"
+    keys, originals = [], []
+    for page in s3.get_paginator("list_objects_v2").paginate(Bucket=bucket, Prefix=prefix + "/"):
+        for o in page.get("Contents", []):
+            k = o["Key"]
+            if k.startswith(base) and "/blobs/" not in k:
+                keys.append(k)
+            elif k.startswith(f"{prefix}/originals/") and k.lower().endswith(STILLS):
+                originals.append(k)
+    listed, hidden = set(known), set()
+    for key in candidates(keys, base):
+        body = s3.get_object(Bucket=bucket, Key=key)["Body"].read()
+        with zipfile.ZipFile(io.BytesIO(body)) as z:
+            lib = json.loads(z.read("library.json"))
+        for a in lib.get("assets", []):
+            k = ((a.get("derivatives") or {}).get("original") or {}).get("destinationKey")
+            if k:
+                (hidden if a.get("passcodeHash") else listed).add(k)
+    return [(f"bucket:{stem(k)}", k) for k in sorted(originals)
+            if k not in listed and k not in hidden]
+
+
 def manual_labels(lib):
     """{localId: [person name]} on library photos only: zip-imported people
     tag archived photos, and their labels are too dirty to seed from."""

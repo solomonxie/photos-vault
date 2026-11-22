@@ -57,11 +57,14 @@ def analyse_one(rec, path):
     return w, h, faces
 
 
-def run(limit=None):
+def run(limit=None, bucket=False):
     db = connect()
     lib = library.snapshot()
     done = {k for (k,) in db.execute("SELECT key FROM photo")}
-    todo = [(lid, key) for lid, key in library.open_photos(lib) if key not in done]
+    photos = library.open_photos(lib)
+    if bucket:
+        photos += library.bucket_photos({k for _, k in photos} | done)
+    todo = [(lid, key) for lid, key in photos if key not in done]
     labelled = library.manual_labels(lib)
     todo.sort(key=lambda t: t[0] not in labelled)  # seeds first: results show early
     if limit:

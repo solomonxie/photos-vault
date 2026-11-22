@@ -10,6 +10,8 @@ def main():
     a = sub.add_parser("analyse")
     a.add_argument("--limit", type=int)
     a.add_argument("--refresh", action="store_true", help="fetch the newest snapshot first")
+    a.add_argument("--bucket", action="store_true",
+                   help="also originals no snapshot lists (uploaded straight to the bucket)")
     ph = sub.add_parser("phone", help="names given on the phone, as labels")
     ph.add_argument("--db", required=True, help="copy of the app's ai_analysis.db")
     ph.add_argument("--people", required=True, help="copy of the app's people.db")
@@ -26,7 +28,7 @@ def main():
         import library
         if args.refresh:
             library.snapshot(refresh=True)
-        analyse.run(args.limit)
+        analyse.run(args.limit, bucket=args.bucket)
     elif args.cmd == "phone":
         import phone
         phone.run(args.db, args.people)
