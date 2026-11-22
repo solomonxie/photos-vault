@@ -31,11 +31,9 @@ import '../photos/library_metadata.dart';
 import '../photos/library_scanner.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/arrival_log.dart';
-import '../photos/face_analyzer.dart';
 import '../photos/file_hash.dart' as file_hash;
 import '../photos/manual_add.dart';
 import '../photos/share_inbox.dart';
-import '../photos/on_device_analysis.dart';
 import '../photos/person.dart';
 import '../photos/people_order.dart';
 import '../photos/people_zip.dart' show PeopleZip;
@@ -125,7 +123,7 @@ import 'person_picker_sheet.dart';
 import 'search_picker_sheet.dart';
 import 'suggestions_screen.dart';
 import 'zoom_page_route.dart';
-import 'date_time_sheet.dart';
+import 'date_editor.dart';
 
 /// The whole app, one page — matches real Photos: no separate "Library" vs
 /// "Collections" tabs, just a day-grouped grid up top and Media
@@ -156,7 +154,6 @@ class LibraryScreen extends StatefulWidget {
     this.hashFile,
     this.thumbnailCache,
     this.syncJobStore,
-    this.onDeviceAnalysis,
     this.travelStore,
     this.placeSearch,
     this.restoreOriginal,
@@ -242,7 +239,6 @@ class LibraryScreen extends StatefulWidget {
   final SyncJobStore? syncJobStore;
 
   /// Overridable for tests so they never reach the Vision platform channel.
-  final OnDeviceAnalysisService? onDeviceAnalysis;
   final TravelStore? travelStore;
   final PlaceSearch? placeSearch;
 
@@ -439,12 +435,6 @@ class LibraryScreenState extends State<LibraryScreen>
     verifier: _backupVerifier,
   );
   late final SyncJobStore _syncJobStore = widget.syncJobStore ?? SyncJobStore();
-  late final OnDeviceAnalysisService _onDeviceAnalysis =
-      widget.onDeviceAnalysis ??
-      OnDeviceAnalysisService(
-        analysisStore: _aiAnalysisStore,
-        onReoriented: _personStore.reorientAvatars,
-      );
 
   late final ForegroundHeartbeat _heartbeat = ForegroundHeartbeat(
     assetRecordStore,
@@ -461,7 +451,6 @@ class LibraryScreenState extends State<LibraryScreen>
     records: () => _all,
     displayName: _displayNameFor,
     hashFile: _hashFile,
-    analyze: _onDeviceAnalysis.analyze,
   );
 
   /// The one queue every unit of sync work goes through. Public so the
@@ -556,21 +545,7 @@ class LibraryScreenState extends State<LibraryScreen>
   /// The library was empty when this launch began: a fresh install.
   bool _launchedEmpty = false;
 
-  /// Faces of the photos opened or picked, one at a time, out of sight.
-  late final FaceAnalyzer _faceAnalyzer = FaceAnalyzer(
-    assetRecordStore: assetRecordStore,
-    analysisStore: _aiAnalysisStore,
-    onDeviceAnalysis: _onDeviceAnalysis,
-    faceIdentity: _faceIdentity,
-    taggedPeopleOf: (localId) async => [
-      for (final p in await _personStore.peopleFor(localId)) p.id,
-    ],
-    resolvePath: _filePathFor,
-    resolveSource: _visionSourceFor,
-  );
-  StreamSubscription<String>? _facesFound;
   Timer? _housekeeping;
-  Timer? _facesReload;
 
   /// Who the faces belong to, across photos. One instance: it holds the
   /// reference set every screen's suggestions are measured against.
@@ -797,10 +772,6 @@ class LibraryScreenState extends State<LibraryScreen>
     _picked.dispose();
     syncQueue.dispose();
     _housekeeping?.cancel();
-    _facesFound?.cancel();
-    _facesReload?.cancel();
-    if (FaceAnalyzer.shared == _faceAnalyzer) FaceAnalyzer.shared = null;
-    _faceAnalyzer.dispose();
     super.dispose();
   }
 
@@ -815,7 +786,6 @@ class LibraryScreenState extends State<LibraryScreen>
       ).restoreThumbnail,
     );
     PrivateAlbumScreen.hiddenBackup = _hiddenBackup;
-    FaceAnalyzer.shared = _faceAnalyzer;
     CloudSync.instance = _cloudSync;
     unawaited(_cloudSync.load());
     // A round only when edits wait or two minutes have passed: see tick().
@@ -850,15 +820,6 @@ class LibraryScreenState extends State<LibraryScreen>
       }
       if (!mounted) return;
       await PeopleZip.sweepLeftovers(await getTemporaryDirectory());
-    });
-    unawaited(_faceAnalyzer.load());
-    // A face linked by the analyzer can move People counts: reloaded once
-    // it goes quiet for a moment, not per photo.
-    _facesFound = _faceAnalyzer.finished.listen((_) {
-      _facesReload?.cancel();
-      _facesReload = Timer(const Duration(seconds: 2), () {
-        if (mounted) reload(faces: true);
-      });
     });
     _watchPhotoLibrary();
     unawaited(_countFootprints());
@@ -2361,10 +2322,6 @@ class LibraryScreenState extends State<LibraryScreen>
   Future<String?> _filePathFor(AssetRecord record) =>
       _engine.filePathFor(record);
 
-  /// No full-size render for Vision: see [SyncEngine.visionSourceFor].
-  Future<String?> _visionSourceFor(AssetRecord record) =>
-      _engine.visionSourceFor(record);
-
   /// Backs up [records] (whatever this action just added) plus anything
   /// else still pending/failed from before — an import of content already
   /// present is a no-op add (deduped by hash), so on its own it would
@@ -2509,17 +2466,6 @@ class LibraryScreenState extends State<LibraryScreen>
     if (await _hideRecords(_selectedRecords) && mounted) {
       setState(() => _selection = null);
     }
-  }
-
-  /// Into the analyzer behind whatever it's doing; nothing to watch.
-  void _batchAnalyzeFaces() {
-    final ids = [
-      for (final r in _selectedRecords)
-        if (!r.isVideo && r.passcodeHash == null) r.localId,
-    ];
-    _faceAnalyzer.add(ids);
-    setState(() => _selection = null);
-    _showResult(AppLocalizations.of(context)!.analyzeFacesStarted(ids.length));
   }
 
   Future<void> _batchResize() async {
@@ -3042,16 +2988,17 @@ class LibraryScreenState extends State<LibraryScreen>
   Future<void> _batchAdjustDateTime() async {
     final selected = _selectedRecords;
     if (selected.isEmpty) return;
-    final anchor = selected
+    final first = selected
         .map((r) => r.createdAt)
-        .reduce((a, b) => a.isBefore(b) ? a : b)
-        .toLocal();
-    final picked = await showDateTimeSheet(context, initial: anchor);
-    if (picked == null) return;
-    final shift = picked.difference(anchor);
-    if (shift == Duration.zero) return;
+        .reduce((a, b) => a.isBefore(b) ? a : b);
+    final change = await showDateEditor(
+      context,
+      initial: first,
+      count: selected.length,
+    );
+    if (change == null) return;
     await setCreatedAtEverywhere(assetRecordStore, {
-      for (final record in selected) record: record.createdAt.add(shift),
+      for (final record in selected) record: change(record.createdAt.toLocal()),
     });
     await reload();
   }
@@ -3459,7 +3406,6 @@ class LibraryScreenState extends State<LibraryScreen>
                         onHide: _batchHide,
                         onArchive: _batchArchive,
                         onResize: _batchResize,
-                        onAnalyzeFaces: _batchAnalyzeFaces,
                         onMoveToPerson: _batchMoveToPerson,
                       ),
                     ),
@@ -4402,7 +4348,6 @@ class _SelectionBar extends StatelessWidget {
     required this.onHide,
     required this.onArchive,
     required this.onResize,
-    required this.onAnalyzeFaces,
     required this.onDelete,
     required this.onMoveToPerson,
   });
@@ -4416,7 +4361,6 @@ class _SelectionBar extends StatelessWidget {
   final VoidCallback onHide;
   final VoidCallback onArchive;
   final VoidCallback onResize;
-  final VoidCallback onAnalyzeFaces;
   final VoidCallback onDelete;
 
   @override
@@ -4542,14 +4486,6 @@ class _SelectionBar extends StatelessWidget {
               onResize();
             },
             child: Text(l10n.resizeOption),
-          ),
-          CupertinoActionSheetAction(
-            key: const ValueKey('selectionAnalyzeFaces'),
-            onPressed: () {
-              Navigator.of(sheetContext).pop();
-              onAnalyzeFaces();
-            },
-            child: Text(l10n.analyzeFacesAction),
           ),
           CupertinoActionSheetAction(
             onPressed: () {

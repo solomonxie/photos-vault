@@ -8,6 +8,7 @@ import 'package:path/path.dart' as p;
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/album_suggestions.dart';
+import '../photos/date_guess.dart';
 import '../photos/merge_suggestions.dart';
 import '../photos/library_custody.dart';
 import '../photos/person_store.dart';
@@ -24,6 +25,7 @@ import 'album_suggestions_screen.dart';
 import 'back_swipe_edge.dart';
 import 'merge_people_screen.dart';
 import 'started_suggestions_screen.dart';
+import 'dates_to_check_screen.dart';
 import 'family_suggestions_screen.dart';
 import 'suggestion_action_screen.dart';
 import 'suggestion_copy.dart';
@@ -285,10 +287,12 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
             PhotoLibraryService.libraryIdOf(r) != null)
           r,
     ];
+    final dates = datesToCheck(all).length;
     if (mounted) {
       setState(() {
         _archivedOnPhone = archived;
         _keptInPhotos = keptInPhotos;
+        _datesToCheck = dates;
       });
     }
     final albums = widget.albumStore;
@@ -354,7 +358,20 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
     await _loadSuggestions();
   }
 
+  /// Photos whose date looks wrong; see [datesToCheck].
+  int _datesToCheck = 0;
+
+  Future<void> _openDates() async {
+    await Navigator.of(context).push(
+      CupertinoPageRoute<void>(
+        builder: (_) => DatesToCheckScreen(store: widget.store),
+      ),
+    );
+    await _loadSuggestions();
+  }
+
   bool get _organizing =>
+      _datesToCheck > 0 ||
       _suggestions.isNotEmpty ||
       _merges.isNotEmpty ||
       _started > 0 ||
@@ -379,6 +396,17 @@ class _SuggestionsScreenState extends State<SuggestionsScreen> {
           style: settingsHintStyle,
         ),
       ),
+      if (_datesToCheck > 0)
+        card(
+          _ActionRow(
+            key: const ValueKey('suggestions-dates-to-check'),
+            icon: CupertinoIcons.calendar_badge_minus,
+            title: l10n.datesCheckTitle,
+            body: l10n.datesCheckHow,
+            amount: l10n.datesCheckAmount(_datesToCheck),
+            onTap: _openDates,
+          ),
+        ),
       if (_suggestions.isNotEmpty)
         card(
           _ActionRow(

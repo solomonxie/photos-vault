@@ -594,11 +594,22 @@ void main() {
     await tester.pump();
     await _scrollToInfoPanel(tester);
 
-    // Round-trips through the sheet without corrupting the value (dragging
-    // the picker's wheels to a specific date isn't exercised here).
-    await _tapInPanel(tester, find.textContaining('2026'));
+    // Round-trips through the editor without corrupting the value.
+    // The camera date is read from the file, on the real clock.
+    final adjust = find.byKey(const ValueKey('detailAdjustDate'));
+    await tester.ensureVisible(adjust);
+    await tester.pumpAndSettle();
+    await tester.runAsync(() async {
+      await tester.tap(adjust);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
     expect(find.text('Date & Time'), findsOneWidget);
-    await tester.tap(find.text('Save'));
+    // Opened on the real clock, so it finishes there too.
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('dateEditSave')));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
     await tester.pumpAndSettle();
 
     final saved = await assetRecordStore.getByLocalId('a');
@@ -634,11 +645,23 @@ void main() {
     await tester.pump();
     await _scrollToInfoPanel(tester);
 
-    await _tapInPanel(tester, find.textContaining('2026'));
-    // The year wheel, one row back.
-    await tester.drag(find.text('2026'), const Offset(0, 40));
+    // The camera date is read from the file, on the real clock.
+    final adjust = find.byKey(const ValueKey('detailAdjustDate'));
+    await tester.ensureVisible(adjust);
     await tester.pumpAndSettle();
-    await tester.tap(find.text('Save'));
+    await tester.runAsync(() async {
+      await tester.tap(adjust);
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
+    await tester.pumpAndSettle();
+    // Typed, not spun.
+    await tester.enterText(find.byKey(const ValueKey('dateEdit:year')), '2025');
+    await tester.pump();
+    // Opened on the real clock, so it finishes there too.
+    await tester.runAsync(() async {
+      await tester.tap(find.byKey(const ValueKey('dateEditSave')));
+      await Future<void>.delayed(const Duration(milliseconds: 200));
+    });
     await tester.pumpAndSettle();
 
     expect(find.textContaining('2025'), findsOneWidget);

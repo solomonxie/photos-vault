@@ -22,10 +22,10 @@ import '../photos/derived_asset.dart';
 import '../photos/person.dart';
 import '../photos/person_store.dart';
 import '../photos/ai_analysis_store.dart';
-import '../photos/face_analyzer.dart';
+import '../photos/date_guess.dart';
+import '../upload/capture_date.dart';
 import '../photos/face_crops.dart';
 import '../photos/face_identity.dart';
-import '../photos/on_device_analysis.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
 import '../photos/place_search.dart';
@@ -57,7 +57,7 @@ import 'place_screen.dart';
 import 'travel_entry_editor.dart';
 import 'search_picker_sheet.dart';
 import 'video_controls.dart';
-import 'date_time_sheet.dart';
+import 'date_editor.dart';
 
 /// Matches `CupertinoThemeData.scaffoldBackgroundColor` in app.dart — pure
 /// black looked out of place next to every other screen's dark grey.
@@ -125,7 +125,6 @@ class DetailScreen extends StatefulWidget {
     this.resolvePlaceName,
     this.restoreOriginal,
     this.restoreThumbnail,
-    this.onDeviceAnalysis,
     this.travelStore,
   });
 
@@ -199,10 +198,6 @@ class DetailScreen extends StatefulWidget {
   /// Re-downloads just the cached thumbnail — see
   /// [OriginalRestore.restoreThumbnail]. Same defaulting, same reason.
   final Future<String?> Function(AssetRecord record)? restoreThumbnail;
-
-  /// Backs "Auto Suggest" in the info panel. Built on first use, so a test
-  /// that doesn't tap it never constructs a database or a platform channel.
-  final OnDeviceAnalysisService? onDeviceAnalysis;
 
   @override
   State<DetailScreen> createState() => _DetailScreenState();
@@ -286,21 +281,6 @@ class _DetailScreenState extends State<DetailScreen> {
     // taking it back here would cut the opening animation short.
     if (!(route.animation?.isCompleted ?? true)) return;
     route.overlayEntries.first.opaque = visible ? false : route.opaque;
-  }
-
-  @override
-  void initState() {
-    super.initState();
-    _analyzeShown();
-  }
-
-  /// The photo on screen gets its faces looked for, behind any already
-  /// under way. Never a hidden one: hiding drops its faces.
-  void _analyzeShown() {
-    if (_records.isEmpty) return;
-    final record = _records[_index.clamp(0, _records.length - 1)];
-    if (record.isVideo || record.passcodeHash != null) return;
-    FaceAnalyzer.shared?.add([record.localId]);
   }
 
   @override
@@ -771,10 +751,7 @@ class _DetailScreenState extends State<DetailScreen> {
                 physics: _zoomed || _pulling
                     ? const NeverScrollableScrollPhysics()
                     : null,
-                onPageChanged: (i) {
-                  setState(() => _index = i);
-                  _analyzeShown();
-                },
+                onPageChanged: (i) => setState(() => _index = i),
                 // Keyed by photo: after a delete the next page must not
                 // inherit the deleted one's loaded file or video.
                 findChildIndexCallback: (key) =>
@@ -794,7 +771,6 @@ class _DetailScreenState extends State<DetailScreen> {
                   travelStore: widget.travelStore,
                   restoreOriginal: widget.restoreOriginal,
                   restoreThumbnail: widget.restoreThumbnail,
-                  onDeviceAnalysis: widget.onDeviceAnalysis,
                   assetRecordStore: widget.assetRecordStore,
                   personStore: _personStore,
                   onRecordChanged: _updateRecord,
@@ -903,7 +879,6 @@ class _MediaPage extends StatefulWidget {
     required this.onZoomChanged,
     required this.motionPlayback,
     this.current = true,
-    this.onDeviceAnalysis,
     this.resolveFile,
     this.resolveLiveVideo,
     this.resolvePlaceName,
@@ -961,9 +936,6 @@ class _MediaPage extends StatefulWidget {
   /// Tells the pager this page is zoomed, so it stops taking the drags that
   /// are meant to move the photo around.
   final ValueChanged<bool> onZoomChanged;
-
-  /// See [DetailScreen.onDeviceAnalysis].
-  final OnDeviceAnalysisService? onDeviceAnalysis;
 
   /// How Live Photos and GIFs behave, shared by every page in the pager
   /// and remembered between launches.
@@ -1680,7 +1652,6 @@ class _MediaPageState extends State<_MediaPage>
                   cloudOnly: _localDeleted,
                   restoring: _restoring,
                   onRestoreOriginal: _restoreOriginal,
-                  onDeviceAnalysis: widget.onDeviceAnalysis,
                   resolvePlaceName: widget.resolvePlaceName,
                   travelStore: widget.travelStore,
                   resolvedPath: _path,
@@ -1906,7 +1877,6 @@ class _InfoPanel extends StatefulWidget {
     required this.cloudOnly,
     required this.restoring,
     required this.onRestoreOriginal,
-    required this.onDeviceAnalysis,
     required this.resolvePlaceName,
     required this.travelStore,
     required this.resolvedPath,
@@ -1943,9 +1913,6 @@ class _InfoPanel extends StatefulWidget {
 
   /// See [DetailScreen.travelStore].
   final TravelStore? travelStore;
-
-  /// See [DetailScreen.onDeviceAnalysis].
-  final OnDeviceAnalysisService? onDeviceAnalysis;
 
   final VideoPlayerController? videoController;
   final AssetRecordStore assetRecordStore;
@@ -2081,15 +2048,7 @@ class _InfoPanelState extends State<_InfoPanel> {
     _loadAlbums();
     _fillLocationFromMetadata();
     _loadTravel();
-    _analyzed = FaceAnalyzer.shared?.finished.listen((id) {
-      if (id == widget.record.localId && mounted) {
-        _loadFoundFaces();
-        _loadNamedFaces();
-      }
-    });
   }
-
-  StreamSubscription<String>? _analyzed;
 
   /// Faces come after the people: whether to show them at all depends on
   /// whether anyone here is already named (see [_loadFoundFaces]).
@@ -2276,7 +2235,6 @@ class _InfoPanelState extends State<_InfoPanel> {
 
   @override
   void dispose() {
-    _analyzed?.cancel();
     _description.dispose();
     super.dispose();
   }
@@ -2300,9 +2258,7 @@ class _InfoPanelState extends State<_InfoPanel> {
     if (path == null) return;
     final Map<FaceRect, String> named;
     try {
-      named = await _onDeviceAnalysis.analysisStore.namedFacesIn(
-        widget.record.localId,
-      );
+      named = await _analysisStore.namedFacesIn(widget.record.localId);
     } catch (_) {
       return;
     }
@@ -2338,9 +2294,7 @@ class _InfoPanelState extends State<_InfoPanel> {
   /// if the face is what put it there. [byHand]: untagged outright.
   Future<void> _unname(String personId, {bool byHand = false}) async {
     try {
-      await _onDeviceAnalysis.analysisStore.forgetPersonOn(personId, [
-        widget.record.localId,
-      ]);
+      await _analysisStore.forgetPersonOn(personId, [widget.record.localId]);
     } catch (_) {}
     if (byHand) {
       await widget.personStore.removeAsset(personId, widget.record.localId);
@@ -2415,25 +2369,18 @@ class _InfoPanelState extends State<_InfoPanel> {
 
   List<FaceRect> _faceRects = const [];
 
-  late final OnDeviceAnalysisService _onDeviceAnalysis =
-      widget.onDeviceAnalysis ??
-      OnDeviceAnalysisService(
-        analysisStore: AiAnalysisStore(),
-        onReoriented: widget.personStore.reorientAvatars,
-      );
+  late final AiAnalysisStore _analysisStore = AiAnalysisStore();
 
   /// Remembers which face is whose once it's named.
   late final FaceIdentityService _faceIdentity = FaceIdentityService(
-    analysisStore: _onDeviceAnalysis.analysisStore,
+    analysisStore: _analysisStore,
   );
 
   /// [faces] minus those already named here: asking again about a face
   /// that's somebody is asking a settled question.
   Future<List<FaceRect>> _unnamed(List<FaceRect> faces) async {
     try {
-      final named = await _onDeviceAnalysis.analysisStore.namedFacesIn(
-        widget.record.localId,
-      );
+      final named = await _analysisStore.namedFacesIn(widget.record.localId);
       return [
         for (final f in faces)
           if (!named.containsKey(f)) f,
@@ -2443,15 +2390,8 @@ class _InfoPanelState extends State<_InfoPanel> {
     }
   }
 
-  /// Shows what the analyze pass already found here, rather than making
-  /// the user ask for a scan that has already happened. Reads the stored
-  /// boxes and cuts the crops — no Vision call, no cost.
-  ///
-  /// Skipped once somebody in this photo has a name: iOS won't say whose
-  /// face is whose, so the app can't tell which of the boxes is the person
-  /// already tagged, and offering them all again is an invitation to tag
-  /// the same face twice under two names. Find Faces is still there for
-  /// anyone who wants to go through them anyway.
+  /// The faces stored for this photo (from the face import) that nobody
+  /// is named on yet, cut out to be named.
   Future<void> _loadFoundFaces() async {
     final path = widget.resolvedPath;
     // Named faces are left out below, so anyone tagged here with a named
@@ -2459,9 +2399,7 @@ class _InfoPanelState extends State<_InfoPanel> {
     if (path == null || _faces.isNotEmpty) return;
     final List<FaceRect> stored;
     try {
-      stored = await _onDeviceAnalysis.analysisStore.facesFor(
-        widget.record.localId,
-      );
+      stored = await _analysisStore.facesFor(widget.record.localId);
     } catch (_) {
       // No analysis database (a widget test, a fresh install) — the button
       // is the fallback, same as for a photo never scanned.
@@ -2508,35 +2446,6 @@ class _InfoPanelState extends State<_InfoPanel> {
           ),
         ],
       ),
-    );
-  }
-
-  /// A spinner while the analyzer looks for faces in this photo; nothing
-  /// otherwise. Opening a photo queues it, so there's no button to press.
-  Widget _detectingRow(AppLocalizations l10n) {
-    final working = FaceAnalyzer.shared?.working;
-    if (working == null) return const SizedBox.shrink();
-    return ValueListenableBuilder<Set<String>>(
-      valueListenable: working,
-      builder: (_, ids, _) => !ids.contains(widget.record.localId)
-          ? const SizedBox.shrink()
-          : Padding(
-              key: const ValueKey('detectingFaces'),
-              padding: const EdgeInsets.symmetric(vertical: 4),
-              child: Row(
-                children: [
-                  const CupertinoActivityIndicator(radius: 8),
-                  const SizedBox(width: 8),
-                  Text(
-                    l10n.detailDetectingFaces,
-                    style: const TextStyle(
-                      fontSize: 13,
-                      color: CupertinoColors.systemGrey,
-                    ),
-                  ),
-                ],
-              ),
-            ),
     );
   }
 
@@ -2656,14 +2565,45 @@ class _InfoPanelState extends State<_InfoPanel> {
   }
 
   Future<void> _editDateTime() async {
-    final picked = await showDateTimeSheet(
-      context,
-      initial: widget.record.createdAt.toLocal(),
-    );
-    if (picked == null || !mounted) return;
+    final l10n = AppLocalizations.of(context)!;
     final record = widget.record;
+    final guesses = <DateGuess>[
+      if (originalFileName(record) case final name?)
+        if (dateInFileName(name) case final at?)
+          (label: l10n.dateGuessFileName, date: at),
+      if (await _cameraDate() case final at?)
+        (label: l10n.dateGuessCamera, date: at),
+    ];
+    if (!mounted) return;
+    final change = await showDateEditor(
+      context,
+      initial: record.createdAt,
+      guesses: [
+        for (final g in guesses)
+          if (g.date != record.createdAt.toLocal()) g,
+      ],
+    );
+    if (change == null || !mounted) return;
+    final picked = change(record.createdAt.toLocal());
     await setCreatedAtEverywhere(widget.assetRecordStore, {record: picked});
     widget.onRecordChanged(record.withCreatedAt(picked));
+  }
+
+  /// The camera's own date from the file's EXIF, where it's on the phone.
+  /// Its head only: the date sits in the first few hundred kilobytes.
+  Future<DateTime?> _cameraDate() async {
+    final path = widget.resolvedPath;
+    if (path == null || widget.record.isVideo) return null;
+    try {
+      final file = await File(path).open();
+      try {
+        return stillCaptureDate(await file.read(512 * 1024));
+      } finally {
+        await file.close();
+      }
+    } catch (_) {
+      return null;
+    }
   }
 
   /// Same "search existing, or type to create" drop-down used for education/
@@ -2886,15 +2826,39 @@ class _InfoPanelState extends State<_InfoPanel> {
             child: Column(
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
-                Text(
-                  DateFormat.yMMMMEEEEd().add_jm().format(
-                    record.createdAt.toLocal(),
-                  ),
-                  style: const TextStyle(
-                    color: CupertinoColors.white,
-                    fontSize: 20,
-                    fontWeight: FontWeight.w600,
-                  ),
+                Row(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Expanded(
+                      child: Text(
+                        DateFormat.yMMMMEEEEd().add_jm().format(
+                          record.createdAt.toLocal(),
+                        ),
+                        style: const TextStyle(
+                          color: CupertinoColors.white,
+                          fontSize: 20,
+                          fontWeight: FontWeight.w600,
+                        ),
+                      ),
+                    ),
+                    CupertinoButton(
+                      key: const ValueKey('detailAdjustDate'),
+                      padding: const EdgeInsets.only(left: 8),
+                      minimumSize: Size.zero,
+                      onPressed: _editDateTime,
+                      child: Row(
+                        mainAxisSize: MainAxisSize.min,
+                        children: [
+                          const Icon(CupertinoIcons.calendar, size: 18),
+                          const SizedBox(width: 4),
+                          Text(
+                            AppLocalizations.of(context)!.detailAdjustDate,
+                            style: const TextStyle(fontSize: 15),
+                          ),
+                        ],
+                      ),
+                    ),
+                  ],
                 ),
                 if (path != null)
                   Padding(
@@ -3156,7 +3120,6 @@ class _InfoPanelState extends State<_InfoPanel> {
           // Below the people, apart from their remove buttons: a tap meant
           // for one shouldn't land on the other.
           const SizedBox(height: 14),
-          _detectingRow(l10n),
           // Only where the caller brought an album store: opened from a
           // person's page there's nothing to file into.
           // Albums are the owner's library's: not for someone else's photo.
