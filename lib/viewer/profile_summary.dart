@@ -52,9 +52,13 @@ class ProfileSummaryCard extends StatelessWidget {
     required this.facts,
     required this.since,
     required this.counts,
+    this.bio,
   });
 
   final List<String> facts;
+
+  /// Under the counts, inside the card: what they're like, in a line or two.
+  final Widget? bio;
 
   /// "Known since 2009 · Last contact 3 Oct 2026", either part optional.
   final List<String> since;
@@ -62,7 +66,7 @@ class ProfileSummaryCard extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    if (facts.isEmpty && since.isEmpty && counts.isEmpty) {
+    if (facts.isEmpty && since.isEmpty && counts.isEmpty && bio == null) {
       return const SizedBox.shrink();
     }
     return Padding(
@@ -100,6 +104,15 @@ class ProfileSummaryCard extends StatelessWidget {
                   runSpacing: 8,
                   children: [for (final c in counts) _chip(c)],
                 ),
+              ),
+            if (bio case final bio?)
+              Padding(
+                padding: EdgeInsets.only(
+                  top: facts.isEmpty && since.isEmpty && counts.isEmpty
+                      ? 0
+                      : 12,
+                ),
+                child: bio,
               ),
           ],
         ),

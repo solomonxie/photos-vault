@@ -5,9 +5,7 @@ import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/viewer/custom_fields_editor.dart';
 
 void main() {
-  testWidgets('more than five fields fold; adding one opens them', (
-    tester,
-  ) async {
+  testWidgets('every field shows, however many there are', (tester) async {
     await tester.pumpWidget(
       CupertinoApp(
         localizationsDelegates: AppLocalizations.localizationsDelegates,
@@ -25,16 +23,8 @@ void main() {
         ),
       ),
     );
-    expect(find.text('v4'), findsOneWidget);
-    expect(find.text('v5'), findsNothing);
-    await tester.tap(find.text('Show All (8)'));
-    await tester.pump();
+    expect(find.text('v0'), findsOneWidget);
     expect(find.text('v7'), findsOneWidget);
-    await tester.tap(find.text('Show Less'));
-    await tester.pump();
-    expect(find.text('v7'), findsNothing);
-    await tester.tap(find.byKey(customFieldsAddKey));
-    await tester.pump();
-    expect(find.text('v7'), findsOneWidget);
+    expect(find.text('Show All (8)'), findsNothing);
   });
 }

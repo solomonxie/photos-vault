@@ -1,4 +1,6 @@
+import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
+import 'package:photos_vault/l10n/app_localizations.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/viewer/profile_details.dart';
 
@@ -34,5 +36,41 @@ void main() {
     expect(records['First record'], ['2007-05-01']);
     expect(records['Last record'], ['2015-05-07']);
     expect(records['Messages'], ['SMS 20', 'QQ 61']);
+  });
+
+  testWidgets('details read as a sheet: label and value, rows shaded in turn', (
+    tester,
+  ) async {
+    await tester.pumpWidget(
+      CupertinoApp(
+        localizationsDelegates: AppLocalizations.localizationsDelegates,
+        supportedLocales: AppLocalizations.supportedLocales,
+        home: CupertinoPageScaffold(
+          child: ProfileDetails(
+            traits: const {},
+            fields: [
+              _f('Origin', 'Malaysia'),
+              _f('Location', 'Richmond'),
+              _f('Phones', '+1 604'),
+            ],
+            onTrait: (_) {},
+            onRow: (_) {},
+          ),
+        ),
+      ),
+    );
+    expect(find.byKey(const ValueKey('detailsSheet')), findsOneWidget);
+    Color fill(String label) => tester
+        .widget<ColoredBox>(
+          find
+              .descendant(
+                of: find.byKey(ValueKey('detail:$label')),
+                matching: find.byType(ColoredBox),
+              )
+              .first,
+        )
+        .color;
+    expect(fill('Origin'), isNot(fill('Location')));
+    expect(find.text('CONTACT'), findsOneWidget);
   });
 }

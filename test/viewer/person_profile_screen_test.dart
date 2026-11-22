@@ -748,7 +748,7 @@ void main() {
     expect(find.text('via Smiths', skipOffstage: false), findsNothing);
   });
 
-  testWidgets('a long relationship group shows five until opened', (
+  testWidgets('a long relationship group shows every one, unfolded', (
     tester,
   ) async {
     final personStore = FakePersonStore();
@@ -775,19 +775,11 @@ void main() {
     await tester.pumpAndSettle();
     await _tab(tester, 'people');
 
-    final showAll = find.text('Show All (7)');
-    await _scrollTo(tester, showAll);
-    expect(
-      find.textContaining('Friend ', skipOffstage: false),
-      findsNWidgets(5),
-    );
-    await tester.tap(showAll);
-    await tester.pumpAndSettle();
     expect(
       find.textContaining('Friend ', skipOffstage: false),
       findsNWidgets(7),
     );
-    expect(find.text('Show Less', skipOffstage: false), findsOneWidget);
+    expect(find.text('Show All (7)', skipOffstage: false), findsNothing);
   });
 
   testWidgets('typing a name and tapping create is the whole flow', (

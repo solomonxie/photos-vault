@@ -1753,15 +1753,15 @@ class _PeopleScreenState extends State<PeopleScreen> {
     // Its own controller, not the primary one: a tap just above the ⋯
     // button reads as a status-bar tap and scrolled the list to the top.
     controller: _scroll,
+    keyboardDismissBehavior: ScrollViewKeyboardDismissBehavior.onDrag,
     children: [
       if (_people.isNotEmpty)
         Padding(
           padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 8),
           child: CupertinoSearchTextField(
             autocorrect: false,
-            // Not autofocused: the page is a list you came to read,
-            // and a keyboard covering half of it on arrival is a
-            // dismissal to do before you can look at anything.
+            // Most visits are to find someone; scrolling puts it away.
+            autofocus: true,
             onChanged: (v) => setState(() => _query = v),
           ),
         ),

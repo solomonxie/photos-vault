@@ -2,7 +2,6 @@ import 'package:flutter/cupertino.dart';
 
 import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
-import 'fold_toggle.dart';
 import 'profile_section.dart';
 import 'undo_toast.dart';
 
@@ -71,7 +70,6 @@ class CustomFieldsEditorState extends State<CustomFieldsEditor> {
       ),
   ];
 
-  bool _expanded = false;
   bool _ownEditing = false;
   int _newest = -1;
   final _undo = UndoToast();
@@ -139,8 +137,6 @@ class CustomFieldsEditorState extends State<CustomFieldsEditor> {
         ),
       ];
       _newest = _rows.length - 1;
-      // The new row is last: open the list so it's on screen.
-      _expanded = true;
     });
     _emit();
   }
@@ -171,8 +167,7 @@ class CustomFieldsEditorState extends State<CustomFieldsEditor> {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    final folds = _rows.length > foldedCount;
-    final shown = folds && !_expanded ? foldedCount : _rows.length;
+    final shown = _rows.length;
     return Column(
       crossAxisAlignment: CrossAxisAlignment.stretch,
       children: [
@@ -195,15 +190,6 @@ class CustomFieldsEditorState extends State<CustomFieldsEditor> {
                 for (var i = 0; i < shown; i++)
                   _row(l10n, i, last: i == shown - 1),
               ],
-            ),
-          ),
-        if (folds)
-          Align(
-            alignment: AlignmentDirectional.centerStart,
-            child: FoldToggle(
-              total: _rows.length,
-              expanded: _expanded,
-              onPressed: () => setState(() => _expanded = !_expanded),
             ),
           ),
       ],

@@ -5,12 +5,11 @@ import 'package:photos_vault/photos/conversation_file.dart';
 import 'package:photos_vault/photos/person.dart';
 import 'package:photos_vault/photos/person_detail.dart';
 import 'package:photos_vault/photos/person_store.dart';
-import 'package:photos_vault/photos/writings_file.dart';
+import 'package:photos_vault/viewer/conversation_screen.dart';
 import 'package:photos_vault/viewer/person_page_screen.dart';
 import 'package:photos_vault/viewer/person_profile_screen.dart';
 import 'package:photos_vault/viewer/profile_previews.dart';
 import 'package:photos_vault/viewer/profile_relationships.dart';
-import 'package:photos_vault/viewer/profile_section.dart';
 import 'package:photos_vault/viewer/profile_summary.dart';
 
 import '../support/fake_asset_record_store.dart';
@@ -54,8 +53,6 @@ PersonRelationship _rel(
 );
 
 void main() {
-  tearDown(profileFolded.clear);
-
   test('closest first: drawn, then tie, then photos together, then name', () {
     final ranked = rankRelationships(
       [
@@ -159,34 +156,32 @@ void main() {
     expect(find.widgetWithText(CupertinoListTile, 'Friend 5'), findsNothing);
   });
 
-  testWidgets('a folded section stays folded on the next profile', (
-    tester,
-  ) async {
+  testWidgets('the bio sits in the top card, above the tabs', (tester) async {
     await _tall(tester);
     final store = FakePersonStore();
     final mia = await store.create(name: 'Mia');
-    Widget page() => _wrap(
-      PersonProfileScreen(
-        key: UniqueKey(),
-        person: mia,
-        personStore: store,
-        assetRecordStore: FakeAssetRecordStore(),
+    await tester.pumpWidget(
+      _wrap(
+        PersonProfileScreen(
+          person: mia,
+          personStore: store,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
       ),
     );
-    await tester.pumpWidget(page());
     await tester.pumpAndSettle();
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('profileSummary')),
+        matching: find.byKey(const ValueKey('profileBio')),
+      ),
+      findsOneWidget,
+    );
+    expect(find.byKey(profileSectionHeaderKey('About')), findsNothing);
     expect(find.text('No bio yet.'), findsOneWidget);
-
-    await tester.tap(find.byKey(profileSectionHeaderKey('About')));
-    await tester.pumpAndSettle();
-    expect(find.text('No bio yet.'), findsNothing);
-
-    await tester.pumpWidget(page());
-    await tester.pumpAndSettle();
-    expect(find.text('No bio yet.'), findsNothing);
   });
 
-  testWidgets('chats: count, the latest message, apps and a summary chip', (
+  testWidgets('the message count at the top opens the chats page', (
     tester,
   ) async {
     final people = FakePersonStore();
@@ -211,41 +206,12 @@ void main() {
 
     expect(find.byKey(const ValueKey('profileCountChats')), findsOneWidget);
     expect(find.text('3 messages'), findsOneWidget);
+    // No Chats section on the profile: the count is the one way in.
+    expect(find.byKey(profileSectionHeaderKey('Chats')), findsNothing);
     await tester.tap(find.byKey(const ValueKey('profileCountChats')));
     await tester.pumpAndSettle();
+    expect(find.byType(ConversationScreen), findsOneWidget);
     expect(find.text('see you soon'), findsOneWidget);
-    expect(find.text('WhatsApp 2'), findsOneWidget);
-    expect(find.text('iMessage 1'), findsOneWidget);
-    expect(find.byType(CustomPaint), findsWidgets);
-  });
-
-  testWidgets('words preview: latest pieces, then All N', (tester) async {
-    WritingSummary w(String id, String title) => WritingSummary(
-      id: id,
-      kind: WritingKind.blog,
-      title: title,
-      excerpt: 'first line',
-      chars: 10,
-      hasMedia: false,
-      at: DateTime(2012),
-    );
-    var all = 0;
-    await tester.pumpWidget(
-      _wrap(
-        CupertinoPageScaffold(
-          child: WritingsPreview(
-            latest: [w('a', 'One'), w('b', 'Two')],
-            total: 40,
-            onOpen: (_) {},
-            onOpenAll: () => all++,
-          ),
-        ),
-      ),
-    );
-    expect(find.text('One'), findsOneWidget);
-    expect(find.text('Blogs · 2012 · first line'), findsNWidgets(2));
-    await tester.tap(find.text('All 40'));
-    expect(all, 1);
   });
 
   testWidgets('the job timeline folds projects until tapped', (tester) async {

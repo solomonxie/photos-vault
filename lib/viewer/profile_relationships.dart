@@ -4,7 +4,6 @@ import '../l10n/app_localizations.dart';
 import '../photos/ego_net.dart';
 import '../photos/person.dart';
 import '../storage/asset_record_store.dart';
-import 'fold_toggle.dart';
 import 'person_avatar.dart';
 import 'profile_section.dart';
 import '../photos/name_sound.dart';
@@ -66,7 +65,6 @@ class ProfileRelationships extends StatefulWidget {
 }
 
 class _ProfileRelationshipsState extends State<ProfileRelationships> {
-  final _expanded = <RelationshipType>{};
   final _search = TextEditingController();
   RelationshipType? _filter;
   late List<PersonRelationship> _ranked;
@@ -144,7 +142,6 @@ class _ProfileRelationshipsState extends State<ProfileRelationships> {
       for (final type in RelationshipType.values) {
         final all = _byType[type];
         if (all == null) continue;
-        final open = _expanded.contains(type) || all.length <= foldedCount;
         slivers
           ..add(
             SliverToBoxAdapter(
@@ -161,23 +158,7 @@ class _ProfileRelationshipsState extends State<ProfileRelationships> {
               ),
             ),
           )
-          ..add(_rows(open ? all : all.sublist(0, foldedCount)));
-        if (all.length > foldedCount) {
-          slivers.add(
-            SliverToBoxAdapter(
-              child: Align(
-                alignment: AlignmentDirectional.centerStart,
-                child: FoldToggle(
-                  total: all.length,
-                  expanded: _expanded.contains(type),
-                  onPressed: () => setState(() {
-                    if (!_expanded.remove(type)) _expanded.add(type);
-                  }),
-                ),
-              ),
-            ),
-          );
-        }
+          ..add(_rows(all));
       }
     }
     return SliverMainAxisGroup(slivers: slivers);

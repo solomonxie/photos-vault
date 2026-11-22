@@ -4,7 +4,6 @@ import '../l10n/app_localizations.dart';
 import '../photos/person.dart';
 import '../photos/person_detail.dart';
 import 'person_traits_editor.dart';
-import 'profile_section.dart';
 
 enum DetailGroup { general, contact, records }
 
@@ -105,8 +104,9 @@ int _rank(String label) {
   return 2;
 }
 
-/// More Details as read: filled traits and merged fields in one card, then
-/// Contact and Records. Editing the raw list is the header's Edit.
+/// More Details as two-column cards: filled traits and merged fields, then
+/// Contact and Records each under its own heading, rows shaded in turn. Editing the
+/// raw list is the header's Edit.
 class ProfileDetails extends StatelessWidget {
   const ProfileDetails({
     super.key,
@@ -133,122 +133,123 @@ class ProfileDetails extends StatelessWidget {
       for (final t in personTraits)
         if ((traits[t.key] ?? '').isNotEmpty) t,
     ];
-    final general = [
+    final general = <Widget Function(bool)>[
       for (final t in filled)
-        _Row(
+        (odd) => _Row(
           key: traitRowKey(t.key),
           label: traitLabel(l10n, t.key),
           values: [traitValueLabel(l10n, t.key, traits[t.key]!)],
+          odd: odd,
           onTap: () => onTrait(t),
         ),
       for (final r in groups[DetailGroup.general] ?? const <DetailRow>[])
         _rowOf(r),
     ];
-    return Column(
-      crossAxisAlignment: CrossAxisAlignment.stretch,
-      children: [
-        if (general.isNotEmpty) _card(null, general),
-        for (final (group, title) in [
-          (DetailGroup.contact, l10n.traitContact),
-          (DetailGroup.records, l10n.profileDetailsRecords),
-        ])
-          if (groups[group] case final rows? when rows.isNotEmpty)
-            _card(title, [for (final r in rows) _rowOf(r)]),
-      ],
+    final sections = [
+      if (general.isNotEmpty) (null, general),
+      for (final (group, title) in [
+        (DetailGroup.contact, l10n.traitContact),
+        (DetailGroup.records, l10n.profileDetailsRecords),
+      ])
+        if (groups[group] case final rows? when rows.isNotEmpty)
+          (title, [for (final r in rows) _rowOf(r)]),
+    ];
+    return Padding(
+      key: const ValueKey('detailsSheet'),
+      padding: const EdgeInsets.symmetric(horizontal: 16),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.stretch,
+        children: [
+          for (final (i, (title, rows)) in sections.indexed) ...[
+            if (title != null)
+              Padding(
+                padding: EdgeInsets.fromLTRB(4, i == 0 ? 0 : 18, 4, 6),
+                child: Text(
+                  title.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    letterSpacing: 0.4,
+                    color: CupertinoColors.systemGrey,
+                  ),
+                ),
+              )
+            else if (i > 0)
+              const SizedBox(height: 18),
+            ClipRRect(
+              borderRadius: BorderRadius.circular(12),
+              child: Column(
+                crossAxisAlignment: CrossAxisAlignment.stretch,
+                children: [for (final (n, row) in rows.indexed) row(n.isOdd)],
+              ),
+            ),
+          ],
+        ],
+      ),
     );
   }
 
-  Widget _rowOf(DetailRow r) => _Row(
-    key: ValueKey('detail:${r.label}'),
-    label: r.label,
-    values: r.values,
-    onTap: () => onRow(r),
-  );
-
-  Widget _card(String? title, List<Widget> rows) => Padding(
-    padding: const EdgeInsets.fromLTRB(16, 0, 16, 12),
-    child: Column(
-      crossAxisAlignment: CrossAxisAlignment.start,
-      children: [
-        if (title != null)
-          Padding(
-            padding: const EdgeInsets.fromLTRB(16, 4, 16, 6),
-            child: Text(
-              title.toUpperCase(),
-              style: const TextStyle(
-                fontSize: 12,
-                color: CupertinoColors.systemGrey,
-              ),
-            ),
-          ),
-        Container(
-          decoration: profileCardDecoration,
-          child: Column(
-            children: [
-              for (var i = 0; i < rows.length; i++) ...[
-                if (i > 0)
-                  const Padding(
-                    padding: EdgeInsets.only(left: 16),
-                    child: SizedBox(
-                      height: 0.5,
-                      width: double.infinity,
-                      child: ColoredBox(color: CupertinoColors.separator),
-                    ),
-                  ),
-                rows[i],
-              ],
-            ],
-          ),
-        ),
-      ],
-    ),
-  );
+  Widget Function(bool odd) _rowOf(DetailRow r) =>
+      (odd) => _Row(
+        key: ValueKey('detail:${r.label}'),
+        label: r.label,
+        values: r.values,
+        odd: odd,
+        onTap: () => onRow(r),
+      );
 }
 
+/// One row: label, then value; every other row shaded.
 class _Row extends StatelessWidget {
   const _Row({
     super.key,
     required this.label,
     required this.values,
+    required this.odd,
     required this.onTap,
   });
 
   final String label;
   final List<String> values;
+  final bool odd;
   final VoidCallback onTap;
 
   @override
   Widget build(BuildContext context) => GestureDetector(
     behavior: HitTestBehavior.opaque,
     onTap: onTap,
-    child: Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16, vertical: 11),
-      child: Row(
-        crossAxisAlignment: CrossAxisAlignment.start,
-        children: [
-          Expanded(
-            flex: 2,
-            child: Text(
-              label,
-              style: const TextStyle(
-                fontSize: 15,
-                color: CupertinoColors.systemGrey,
+    child: ColoredBox(
+      color: odd ? const Color(0xFF242426) : const Color(0xFF1C1C1E),
+      child: Padding(
+        padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 11),
+        child: Row(
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            SizedBox(
+              width: 112,
+              child: Text(
+                label,
+                maxLines: 2,
+                overflow: TextOverflow.ellipsis,
+                style: const TextStyle(
+                  fontSize: 15,
+                  height: 1.3,
+                  color: CupertinoColors.systemGrey,
+                ),
               ),
             ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            flex: 3,
-            child: Text(
-              values.join('\n'),
-              textAlign: TextAlign.end,
-              style: const TextStyle(
-                fontSize: 15,
-                color: CupertinoColors.white,
+            const SizedBox(width: 12),
+            Expanded(
+              child: Text(
+                values.join('\n'),
+                style: const TextStyle(
+                  fontSize: 15,
+                  height: 1.3,
+                  color: CupertinoColors.white,
+                ),
               ),
             ),
-          ),
-        ],
+          ],
+        ),
       ),
     ),
   );

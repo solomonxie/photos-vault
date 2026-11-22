@@ -7,14 +7,10 @@ import '../l10n/app_localizations.dart';
 /// silently pointed at the wrong one.
 Key profileSectionAddKey(String title) => ValueKey('section-add:$title');
 
-/// The header itself: tapping it folds the section.
+/// The section's header line.
 Key profileSectionHeaderKey(String title) => ValueKey('section-header:$title');
 
 Key profileSectionEditKey(String title) => ValueKey('section-edit:$title');
-
-/// Folded sections, by id, for the rest of the session: folding Events on
-/// one profile folds it on the next one too.
-final profileFolded = <String>{};
 
 const profileCardBackground = Color(0xFF1C1C1E);
 const profileCardDecoration = BoxDecoration(
@@ -22,14 +18,12 @@ const profileCardDecoration = BoxDecoration(
   borderRadius: BorderRadius.all(Radius.circular(10)),
 );
 
-/// Title, count, then Edit and "+" on the right. The whole line folds.
+/// Title, count, then Edit and "+" on the right.
 class ProfileSectionHeader extends StatelessWidget {
   const ProfileSectionHeader({
     super.key,
     required this.title,
     this.count,
-    this.folded = false,
-    this.onToggle,
     this.onAdd,
     this.addKey,
     this.editing = false,
@@ -38,8 +32,6 @@ class ProfileSectionHeader extends StatelessWidget {
 
   final String title;
   final int? count;
-  final bool folded;
-  final VoidCallback? onToggle;
   final VoidCallback? onAdd;
 
   /// Instead of [profileSectionAddKey], for a "+" that tests already find
@@ -51,76 +43,61 @@ class ProfileSectionHeader extends StatelessWidget {
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
-    return GestureDetector(
+    return Padding(
       key: profileSectionHeaderKey(title),
-      behavior: HitTestBehavior.opaque,
-      onTap: onToggle,
-      child: Padding(
-        padding: const EdgeInsets.fromLTRB(16, 20, 8, 6),
-        // Title, count and chevron share one Expanded, so Edit and "+" sit
-        // at the right edge: a Flexible beside a Spacer splits the slack.
-        child: Row(
-          children: [
-            Expanded(
-              child: Row(
-                children: [
-                  Flexible(
-                    child: Text(
-                      title,
-                      maxLines: 1,
-                      overflow: TextOverflow.ellipsis,
-                      style: const TextStyle(
-                        fontWeight: FontWeight.bold,
-                        fontSize: 17,
-                      ),
+      padding: const EdgeInsets.fromLTRB(16, 20, 8, 6),
+      // Title and count share one Expanded, so Edit and "+" sit
+      // at the right edge: a Flexible beside a Spacer splits the slack.
+      child: Row(
+        children: [
+          Expanded(
+            child: Row(
+              children: [
+                Flexible(
+                  child: Text(
+                    title,
+                    maxLines: 1,
+                    overflow: TextOverflow.ellipsis,
+                    style: const TextStyle(
+                      fontWeight: FontWeight.bold,
+                      fontSize: 17,
                     ),
                   ),
-                  if (count case final n? when n > 0)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 6),
-                      child: Text(
-                        '$n',
-                        style: const TextStyle(
-                          fontSize: 15,
-                          color: CupertinoColors.systemGrey,
-                        ),
-                      ),
-                    ),
-                  if (onToggle != null)
-                    Padding(
-                      padding: const EdgeInsets.only(left: 4),
-                      child: Icon(
-                        folded
-                            ? CupertinoIcons.chevron_forward
-                            : CupertinoIcons.chevron_down,
-                        size: 14,
+                ),
+                if (count case final n? when n > 0)
+                  Padding(
+                    padding: const EdgeInsets.only(left: 6),
+                    child: Text(
+                      '$n',
+                      style: const TextStyle(
+                        fontSize: 15,
                         color: CupertinoColors.systemGrey,
                       ),
                     ),
-                ],
+                  ),
+              ],
+            ),
+          ),
+          if (onEdit != null)
+            CupertinoButton(
+              key: profileSectionEditKey(title),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, 32),
+              onPressed: onEdit,
+              child: Text(
+                editing ? l10n.actionDone : l10n.profileEdit,
+                style: const TextStyle(fontSize: 15),
               ),
             ),
-            if (onEdit != null && !folded)
-              CupertinoButton(
-                key: profileSectionEditKey(title),
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                minimumSize: const Size(0, 32),
-                onPressed: onEdit,
-                child: Text(
-                  editing ? l10n.actionDone : l10n.profileEdit,
-                  style: const TextStyle(fontSize: 15),
-                ),
-              ),
-            if (onAdd != null)
-              CupertinoButton(
-                key: addKey ?? profileSectionAddKey(title),
-                padding: const EdgeInsets.symmetric(horizontal: 8),
-                minimumSize: const Size(0, 32),
-                onPressed: onAdd,
-                child: const Icon(CupertinoIcons.add_circled),
-              ),
-          ],
-        ),
+          if (onAdd != null)
+            CupertinoButton(
+              key: addKey ?? profileSectionAddKey(title),
+              padding: const EdgeInsets.symmetric(horizontal: 8),
+              minimumSize: const Size(0, 32),
+              onPressed: onAdd,
+              child: const Icon(CupertinoIcons.add_circled),
+            ),
+        ],
       ),
     );
   }

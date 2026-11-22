@@ -56,6 +56,30 @@ void main() {
     expect(find.text('No people yet. Tap + to add someone.'), findsOneWidget);
   });
 
+  testWidgets('arriving puts the cursor in search, keyboard up', (
+    tester,
+  ) async {
+    final personStore = FakePersonStore();
+    await personStore.create(name: 'Ana');
+    await tester.pumpWidget(
+      _wrap(
+        PeopleScreen(
+          personStore: personStore,
+          assetRecordStore: FakeAssetRecordStore(),
+        ),
+      ),
+    );
+    await tester.pumpAndSettle();
+
+    final field = tester.widget<EditableText>(
+      find.descendant(
+        of: find.byType(CupertinoSearchTextField),
+        matching: find.byType(EditableText),
+      ),
+    );
+    expect(field.focusNode.hasFocus, isTrue);
+  });
+
   testWidgets('sorted by most photos, the most photographed is first', (
     tester,
   ) async {
@@ -214,9 +238,7 @@ void main() {
     expect(await personStore.listAll(), isEmpty);
   });
 
-  testWidgets('the search field filters the list, without grabbing focus', (
-    tester,
-  ) async {
+  testWidgets('the search field filters the list', (tester) async {
     final personStore = FakePersonStore();
     await personStore.create(name: 'Mia Chen');
     await personStore.create(name: 'Daniel Wong');
@@ -230,13 +252,6 @@ void main() {
       ),
     );
     await tester.pumpAndSettle();
-
-    final searchField = tester.widget<CupertinoSearchTextField>(
-      find.byType(CupertinoSearchTextField),
-    );
-    // The page is a list you came to read. A keyboard covering half of it
-    // on arrival is a dismissal to do before you can look at anything.
-    expect(searchField.autofocus, isFalse);
 
     await tester.enterText(find.byType(CupertinoSearchTextField), 'Mia');
     await tester.pump();

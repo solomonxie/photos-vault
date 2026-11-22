@@ -59,9 +59,9 @@ export 'profile_section.dart'
 
 /// The full editable profile behind a person page's name chevron.
 ///
-/// Name and a summary card, then three tabs: About (bio, chats, words,
-/// impression, details), Life (work, education, places, events,
-/// travels) and People (relationships, groups). A tab shows only sections
+/// Name and a summary card, whose message and writing counts open those
+/// pages, then three tabs: About (bio, impression, details), Life (work,
+/// education, places, events, travels) and People (relationships, groups). A tab shows only sections
 /// with something in them; one Add button opens the rest. Timeline, changes,
 /// graph and delete sit in the nav bar's ⋯ menu.
 ///
@@ -141,11 +141,9 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   late final ConversationStore _conversationStore =
       widget.conversationStore ?? ConversationStore();
   int _conversations = 0;
-  ChatsPreviewData _chats = ChatsPreviewData.empty;
   late final WritingsStore _writingsStore =
       widget.writingsStore ?? WritingsStore();
   Map<WritingKind, int> _writingCounts = const {};
-  List<WritingSummary> _latestWritings = const [];
   late final TravelStore _travelStore = widget.travelStore ?? TravelStore();
   late final PlaceSearch _placeSearch = widget.placeSearch ?? PlaceSearch();
   List<TravelRoute> _travelRoutes = const [];
@@ -168,16 +166,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   final _undo = UndoToast();
   final _scroll = ScrollController();
   final _anchors = {
-    for (final id in [
-      'about',
-      'chats',
-      'words',
-      'travels',
-      'people',
-      'work',
-      'life',
-    ])
-      id: GlobalKey(),
+    for (final id in ['travels', 'people', 'work', 'life']) id: GlobalKey(),
   };
   late final PersonOwner _owner = PersonOwner(widget.assetRecordStore);
 
@@ -244,15 +233,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   Future<void> _loadWritings() async {
     try {
       final counts = await _writingsStore.countsByKind(_person.id);
-      final latest = counts.isEmpty
-          ? const <WritingSummary>[]
-          : await _writingsStore.page(_person.id, limit: 3);
-      if (mounted) {
-        setState(() {
-          _writingCounts = counts;
-          _latestWritings = latest;
-        });
-      }
+      if (mounted) setState(() => _writingCounts = counts);
     } catch (_) {
       // No words database: nothing imported.
     }
@@ -266,17 +247,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   );
 
   int get _writingTotal => _writingCounts.values.fold(0, (n, v) => n + v);
-
-  Widget _writingsSection() => WritingsPreview(
-    latest: _latestWritings,
-    total: _writingTotal,
-    onOpenAll: _openWritings,
-    onOpen: (w) => Navigator.of(context).push(
-      CupertinoPageRoute<void>(
-        builder: (_) => WritingScreen(id: w.id, store: _writingsStore),
-      ),
-    ),
-  );
 
   /// Routes and entries they're linked to: two queries, a third for the
   /// entries' place names.
@@ -341,35 +311,10 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     onOpenEntry: _openTravelEntry,
   );
 
-  /// Count, newest message, per-app counts and per-year counts: four
-  /// queries for the person however many chats they have.
   Future<void> _loadChats() async {
     try {
       final n = await _conversationStore.countFor(_person.id);
-      if (n == 0) {
-        if (mounted && _conversations != 0) {
-          setState(() {
-            _conversations = 0;
-            _chats = ChatsPreviewData.empty;
-          });
-        }
-        return;
-      }
-      final last = await _conversationStore.page(_person.id, limit: 1);
-      final chats = await _conversationStore.chatsOf(_person.id);
-      final bySource = <String, int>{};
-      for (final c in chats) {
-        bySource[c.source] = (bySource[c.source] ?? 0) + c.count;
-      }
-      if (!mounted) return;
-      setState(() {
-        _conversations = n;
-        _chats = ChatsPreviewData(
-          total: n,
-          last: last.firstOrNull,
-          bySource: bySource,
-        );
-      });
+      if (mounted) setState(() => _conversations = n);
     } catch (_) {
       // No conversations database: nothing imported.
     }
@@ -1287,12 +1232,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     Navigator.of(context).pop();
   }
 
-  bool _folded(String id) => profileFolded.contains(id);
-
-  void _toggleFold(String id) => setState(() {
-    if (!profileFolded.remove(id)) profileFolded.add(id);
-  });
-
   void _toggleEdit(String id) => setState(() {
     if (!_editing.remove(id)) _editing.add(id);
   });
@@ -1323,8 +1262,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     );
   }
 
-  /// A section as slivers: the header and its body; folded, the header
-  /// alone.
+  /// A section as slivers: the header and its body.
   List<Widget> _section({
     required String id,
     required String title,
@@ -1338,22 +1276,19 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     Widget anchored(Widget child) => anchor == null
         ? child
         : KeyedSubtree(key: _anchors[anchor], child: child);
-    final folded = _folded(id);
     return [
       SliverToBoxAdapter(
         child: anchored(
           ProfileSectionHeader(
             title: title,
             count: count,
-            folded: folded,
-            onToggle: () => _toggleFold(id),
             onAdd: onAdd,
             editing: _editing.contains(id),
             onEdit: editable ? () => _toggleEdit(id) : null,
           ),
         ),
       ),
-      if (!folded) sliverBody ? body() : SliverToBoxAdapter(child: body()),
+      sliverBody ? body() : SliverToBoxAdapter(child: body()),
     ];
   }
 
@@ -1387,6 +1322,7 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     );
     final people = _manualRelationships.length;
     return ProfileSummaryCard(
+      bio: _bioField(l10n),
       facts: profileFacts(
         l10n,
         detail: _detail,
@@ -1412,14 +1348,14 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
             const ValueKey('profileCountChats'),
             CupertinoIcons.chat_bubble_2,
             l10n.profileCountMessages(_conversations),
-            () => _jump('chats'),
+            _openChats,
           ),
         if (_writingTotal > 0)
           ProfileCount(
             const ValueKey('profileCountWritings'),
             CupertinoIcons.doc_text,
             l10n.profileCountWritings(_writingTotal),
-            () => _jump('words'),
+            _openWritings,
           ),
         if (people > 0)
           ProfileCount(
@@ -1451,14 +1387,13 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
           child: Stack(
             alignment: Alignment.bottomRight,
             children: [
-              Hero(
-                tag: personAvatarHeroTag(_person.id),
-                child: PersonAvatar(
-                  assetRecordStore: widget.assetRecordStore,
-                  localId: _person.avatarLocalId,
-                  face: _person.avatarFace,
-                  size: 96,
-                ),
+              // No Hero: flying it while the page slides in left the
+              // photo standing still and the page moving under it.
+              PersonAvatar(
+                assetRecordStore: widget.assetRecordStore,
+                localId: _person.avatarLocalId,
+                face: _person.avatarFace,
+                size: 96,
               ),
               // Without this the circle is just a picture; people
               // don't try tapping pictures.
@@ -1541,22 +1476,16 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     ],
   );
 
-  Widget _bioField(AppLocalizations l10n) => Padding(
-    padding: const EdgeInsets.symmetric(horizontal: 16),
-    child: Container(
-      padding: const EdgeInsets.all(12),
-      decoration: profileCardDecoration,
-      child: CupertinoTextField.borderless(
-        controller: _bio,
-        readOnly: _loading,
-        maxLines: null,
-        padding: EdgeInsets.zero,
-        onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
-        placeholder: l10n.personProfileBioEmpty,
-        style: const TextStyle(fontSize: 15, color: CupertinoColors.white),
-        onChanged: (v) => _persistDetail(_detail.copyWith(bio: v)),
-      ),
-    ),
+  Widget _bioField(AppLocalizations l10n) => CupertinoTextField.borderless(
+    key: const ValueKey('profileBio'),
+    controller: _bio,
+    readOnly: _loading,
+    maxLines: null,
+    padding: EdgeInsets.zero,
+    onTapOutside: (_) => FocusManager.instance.primaryFocus?.unfocus(),
+    placeholder: l10n.personProfileBioEmpty,
+    style: const TextStyle(fontSize: 15, color: CupertinoColors.white),
+    onChanged: (v) => _persistDetail(_detail.copyWith(bio: v)),
   );
 
   Widget _placesSection(AppLocalizations l10n) {
@@ -1645,8 +1574,8 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   }
 
   /// The open tab's sections that have something in them, then one Add
-  /// button for the rest. Chats, Writings and Travels come from imports and
-  /// links, so empty they simply aren't there.
+  /// button for the rest. Travels come from links, so empty they simply
+  /// aren't there.
   List<Widget> _tabBody(AppLocalizations l10n) {
     final missing = <(String, VoidCallback)>[];
     List<Widget> only(
@@ -1668,37 +1597,6 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
     final people = _manualRelationships;
     final body = switch (_tab) {
       ProfileTab.about => [
-        ..._section(
-          id: 'about',
-          anchor: 'about',
-          title: l10n.profileAboutHeader,
-          body: () => _bioField(l10n),
-        ),
-        ...only(
-          'chats',
-          l10n.profileChatsHeader,
-          _conversations > 0,
-          addable: false,
-          () => _section(
-            id: 'chats',
-            anchor: 'chats',
-            title: l10n.profileChatsHeader,
-            body: () => ChatsPreview(data: _chats, onOpen: _openChats),
-          ),
-        ),
-        ...only(
-          'words',
-          l10n.writingsHeader,
-          _writingCounts.isNotEmpty,
-          addable: false,
-          () => _section(
-            id: 'words',
-            anchor: 'words',
-            title: l10n.writingsHeader,
-            count: _writingTotal,
-            body: _writingsSection,
-          ),
-        ),
         ...only(
           'impression',
           l10n.impressionHeader,
@@ -1975,41 +1873,34 @@ class _PersonProfileScreenState extends State<PersonProfileScreen> {
   /// raw list, "+" offers traits and the usual labels.
   List<Widget> _moreDetails(AppLocalizations l10n) {
     const id = 'details';
-    final folded = _folded(id);
     final editing = _editing.contains(id);
     return [
       SliverToBoxAdapter(
         child: ProfileSectionHeader(
           title: l10n.customFieldsHeader,
           count: ProfileDetails.rowCount(_detail.traits, _detail.customFields),
-          folded: folded,
-          onToggle: () => _toggleFold(id),
           addKey: customFieldsAddKey,
-          onAdd: () {
-            if (folded) _toggleFold(id);
-            _addDetail(l10n);
-          },
+          onAdd: () => _addDetail(l10n),
           editing: editing,
           onEdit: _detail.customFields.isEmpty ? null : () => _toggleEdit(id),
         ),
       ),
-      if (!folded)
-        SliverToBoxAdapter(
-          child: editing
-              ? CustomFieldsEditor(
-                  showHeader: false,
-                  editing: true,
-                  initialFields: _detail.customFields,
-                  onChanged: (fields) =>
-                      _persistDetail(_detail.copyWith(customFields: fields)),
-                )
-              : ProfileDetails(
-                  traits: _detail.traits,
-                  fields: _detail.customFields,
-                  onTrait: _editTrait,
-                  onRow: (row) => _editDetailRow(l10n, row),
-                ),
-        ),
+      SliverToBoxAdapter(
+        child: editing
+            ? CustomFieldsEditor(
+                showHeader: false,
+                editing: true,
+                initialFields: _detail.customFields,
+                onChanged: (fields) =>
+                    _persistDetail(_detail.copyWith(customFields: fields)),
+              )
+            : ProfileDetails(
+                traits: _detail.traits,
+                fields: _detail.customFields,
+                onTrait: _editTrait,
+                onRow: (row) => _editDetailRow(l10n, row),
+              ),
+      ),
     ];
   }
 
