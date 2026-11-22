@@ -5,7 +5,6 @@ import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/arrival_log.dart';
 import '../photos/conversation_store.dart';
-import '../photos/face_analyzer.dart';
 import '../photos/face_import.dart';
 import '../photos/person_store.dart';
 import '../settings/settings_section.dart';
@@ -176,7 +175,6 @@ class DeveloperOptionsScreen extends StatelessWidget {
                     personStore: personStore,
                     assetRecordStore: assetRecordStore,
                     analysisStore: analysisStore,
-                    analyzer: FaceAnalyzer.shared,
                   ),
                 ),
               ),

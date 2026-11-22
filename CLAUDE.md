@@ -65,8 +65,8 @@ scrolling the grid is a bug, not a polish item.
 
 The budget was 33 MB while a bundled face model (SFace, 9.3 MB) did
 recognition on the phone. It was removed: names come from the Mac import
-(`docs/design/face-recognition/MAC-PIPELINE.md`), and the phone only
-detects faces. Everything
+(`docs/design/face-recognition/MAC-PIPELINE.md`), and the phone finds no
+faces itself. Everything
 else still has to justify its megabyte. The engine is a fixed floor; everything above it is a choice. Check
 with `du -sh build/ios/Release-iphoneos/Runner.app` after a release build,
 and if a change adds more than a megabyte, justify it or drop it.

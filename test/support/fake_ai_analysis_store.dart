@@ -68,24 +68,6 @@ class FakeAiAnalysisStore implements AiAnalysisStore {
     _suggestions.remove(localId);
   }
 
-  @override
-  Future<void> reorientFaces(String localId, int orientation) async {
-    if (!legacy.remove(localId)) return;
-    final faces = _faces[localId];
-    if (faces != null) {
-      _faces[localId] = [for (final f in faces) f.oriented(orientation)];
-    }
-    final a = _analyses[localId];
-    if (a != null) {
-      _analyses[localId] = AiPhotoAnalysis(
-        localId: a.localId,
-        peopleCount: a.peopleCount,
-        analyzedAt: a.analyzedAt,
-      );
-    }
-    _moveDescriptors(localId, (f) => f.oriented(orientation));
-  }
-
   /// Seeds a row as a pre-v7 one: boxes measured on the raw buffer.
   void seedLegacy(String localId, List<FaceRect> faces) {
     _faces[localId] = faces;

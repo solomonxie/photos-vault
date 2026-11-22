@@ -2,7 +2,6 @@ import 'dart:async';
 import 'dart:io';
 import 'dart:isolate';
 
-import '../photos/on_device_vision.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/temp_renders.dart';
 import '../photos/thumbnail_cache.dart';
@@ -40,7 +39,6 @@ class SyncEngine {
     required this.records,
     required this.displayName,
     required this.hashFile,
-    this.analyze,
     this.kinds,
   });
 
@@ -61,10 +59,6 @@ class SyncEngine {
   /// What a queue row says for a record.
   final String Function(AssetRecord record) displayName;
   final Future<String> Function(String path) hashFile;
-
-  /// `analyzePhoto` jobs belong to the screen's on-device analysis, handed
-  /// a [visionSourceFor] source.
-  final Future<void> Function(AssetRecord record, String source)? analyze;
 
   late final SyncQueue syncQueue = SyncQueue(
     store: syncJobStore,
@@ -383,15 +377,6 @@ class SyncEngine {
           kind: DerivativeKind.thumbnail,
           filePath: path,
         );
-      case SyncJobKind.analyzePhoto:
-        // Videos have no still to look at, and Vision only reads images.
-        if (record.isVideo) return;
-        final source = await visionSourceFor(record);
-        if (source == null) {
-          unresolvable.add(record.localId);
-          return;
-        }
-        await analyze?.call(record, source);
     }
   }
 
@@ -758,21 +743,6 @@ class SyncEngine {
         // Gone is the camera roll's answer, not a moved date.
         if (at != null && at != baselines[id]) id,
     };
-  }
-
-  /// What Vision reads for [record]: the camera-roll asset itself, rendered
-  /// natively at the size Vision uses (BG-10), or the file for anything
-  /// with no PhotoKit asset (a held or hidden photo, a manual add).
-  Future<String?> visionSourceFor(AssetRecord record) async {
-    if (record.localDeleted) return null;
-    final id = record.libraryId;
-    if (record.sourcePath == null &&
-        record.passcodeHash == null &&
-        record.sourceType == AssetSourceType.photoManager &&
-        id != null) {
-      return OnDeviceVisionService.assetSource(id);
-    }
-    return filePathFor(record);
   }
 
   /// [AssetRecord.sourcePath] direct for `manualFile`; for `photoManager`

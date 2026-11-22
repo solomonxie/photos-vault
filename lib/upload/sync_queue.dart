@@ -36,7 +36,7 @@ class SyncQueue {
   /// on. Work is picked up a queueful at a time instead, topped up as it
   /// drains.
   ///
-  /// Per lane, so a hundred change checks or analyses left by a killed app
+  /// Per lane, so a hundred change checks left by a killed app
   /// can't turn away the uploads the background pass is there to make.
   static const capacity = 100;
 

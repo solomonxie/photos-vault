@@ -4,17 +4,14 @@ import 'package:flutter/foundation.dart';
 import 'package:image/image.dart' as img;
 
 import 'image_pipeline.dart';
-import 'on_device_vision.dart';
+import 'native_face_crops.dart';
 
 import 'person.dart' show FaceRect;
 
-/// Cuts the detected faces out of a photo so they can be shown and tapped.
-///
-/// The app can find faces for free (Vision); whose they are is the user's
-/// answer, helped by the bundled SFace model's guesses. Here's a face, who
-/// is this? One tap links it to a person.
+/// Cuts a photo's faces (boxes from the face import) out so they can be
+/// shown and tapped. One tap links one to a person.
 class FaceCrops {
-  /// How much room to leave around Vision's box. It hugs the features, and
+  /// How much room to leave around the box. It hugs the features, and
   /// a crop that tight is a nose and two eyes — hard to recognise at
   /// thumbnail size. Some hair and chin makes it a person.
   static const padding = 0.45;
@@ -25,20 +22,15 @@ class FaceCrops {
   /// Silently short on anything it can't decode — a missing crop is a face
   /// you can't tag, not an error worth a dialog.
   ///
-  /// Takes [FaceRect], the top-left form that gets stored and drawn, rather
-  /// than Vision's bottom-left `VisionFace`: these crops are made both from
-  /// a fresh scan and from boxes read back out of the database, and one of
-  /// the two would otherwise be flipped.
-  ///
   /// Cut natively where there's a platform (05#15): from the upright,
   /// downsampled picture, and HEIC too. The Dart decode is the fallback.
   static Future<List<Uint8List>> of(
     String path,
     List<FaceRect> faces, {
-    OnDeviceVisionService? vision,
+    NativeFaceCrops? channel,
   }) async {
     if (faces.isEmpty) return const [];
-    final native = await (vision ?? OnDeviceVisionService()).crops(
+    final native = await (channel ?? NativeFaceCrops()).crops(
       path,
       faces,
       padding: padding,

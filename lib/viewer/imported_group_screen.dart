@@ -3,7 +3,6 @@ import 'package:flutter/cupertino.dart';
 import '../l10n/app_localizations.dart';
 import '../photos/ai_analysis_store.dart';
 import '../photos/asset_removal.dart';
-import '../photos/face_analyzer.dart';
 import '../photos/face_import.dart';
 import '../photos/person.dart' show FaceRect;
 import '../photos/person_store.dart';
@@ -196,7 +195,6 @@ class _ImportedGroupScreenState extends State<ImportedGroupScreen> {
     personStore: widget.personStore,
     assetRecordStore: widget.assetRecordStore,
     analysisStore: widget.analysisStore,
-    analyzer: FaceAnalyzer.shared,
   );
 
   Future<void> _takeBack() async {

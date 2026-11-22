@@ -665,7 +665,6 @@ void main() {
         expect(await add(queue, 'c$i', SyncJobKind.checkChanges), isTrue);
       }
       expect(await add(queue, 'one-more', SyncJobKind.checkChanges), isFalse);
-      expect(await add(queue, 'z', SyncJobKind.analyzePhoto), isTrue);
 
       // A killed app's hundred checks don't turn away the night's uploads.
       expect(await add(queue, 'new', SyncJobKind.uploadThumbnail), isTrue);

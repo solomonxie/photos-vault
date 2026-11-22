@@ -31,7 +31,7 @@ class SyncJobStore {
     final db = await _databaseFactory.openDatabase(
       path,
       options: OpenDatabaseOptions(
-        version: 3,
+        version: 4,
         onCreate: (db, version) => db.execute('''
           CREATE TABLE $_table (
             id TEXT PRIMARY KEY,
@@ -61,6 +61,10 @@ class SyncJobStore {
               'ALTER TABLE $_table '
               'ADD COLUMN priority INTEGER NOT NULL DEFAULT 0',
             );
+          }
+          // The phone stopped finding faces itself; its jobs can't be read.
+          if (from < 4) {
+            await db.delete(_table, where: "kind = 'analyzePhoto'");
           }
         },
       ),

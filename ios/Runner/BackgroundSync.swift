@@ -72,7 +72,7 @@ enum BackgroundSync {
     }
     GeneratedPluginRegistrant.register(with: engine)
     // The channels the upload and thumbnail path reaches. Hidden photos,
-    // Vision and the privacy cover are not part of a background pass.
+    // Face crops and the privacy cover are not part of a background pass.
     if let registrar = engine.registrar(forPlugin: "ImageEncodeChannel") {
       ImageEncodeChannel.register(with: registrar)
     }

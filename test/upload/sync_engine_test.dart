@@ -1,9 +1,7 @@
 import 'dart:io';
-import 'dart:typed_data';
 
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photo_manager/photo_manager.dart';
-import 'package:photos_vault/photos/on_device_vision.dart';
 import 'package:photos_vault/photos/photo_library_service.dart';
 import 'package:photos_vault/photos/thumbnail_cache.dart';
 import 'package:photos_vault/settings/backup_targets_store.dart';
@@ -354,9 +352,9 @@ void main() {
 
       // A lane that never drains checks: the queue is read back, then
       // every job run by hand.
-      await engine(kinds: {SyncJobKind.analyzePhoto}).enqueueChangeChecks();
+      await engine(kinds: {SyncJobKind.uploadThumbnail}).enqueueChangeChecks();
       expect(await queuedChecks(), {'photo:3', 'photo:4', 'photo:5'});
-      final e = engine(kinds: {SyncJobKind.analyzePhoto});
+      final e = engine(kinds: {SyncJobKind.uploadThumbnail});
       for (final j in await jobs.all()) {
         await e.processJob(j);
       }
@@ -409,7 +407,7 @@ void main() {
         );
         edits('E');
         dates['E'] = 100;
-        final e = engine(kinds: {SyncJobKind.analyzePhoto});
+        final e = engine(kinds: {SyncJobKind.uploadThumbnail});
 
         await e.processJob(job('photo:e', SyncJobKind.uploadOriginal));
         var r = (await records.getByLocalId('photo:e'))!;
@@ -454,7 +452,7 @@ void main() {
           libraryId: 'U',
         );
         edits('U', edited: false);
-        await engine(kinds: {SyncJobKind.analyzePhoto})
+        await engine(kinds: {SyncJobKind.uploadThumbnail})
             .processJob(job('photo:u', SyncJobKind.uploadOriginal));
 
         final r = (await records.getByLocalId('photo:u'))!;
@@ -475,7 +473,7 @@ void main() {
       );
       edits('E');
       dates['E'] = 100;
-      final e = engine(kinds: {SyncJobKind.analyzePhoto});
+      final e = engine(kinds: {SyncJobKind.uploadThumbnail});
       await e.processJob(job('photo:e', SyncJobKind.uploadOriginal));
       await e.processJob(job('photo:e', SyncJobKind.uploadEdited));
       final sent = [...puts];
@@ -523,7 +521,7 @@ void main() {
               .copyWith(status: UploadStatus.pending),
         );
         edits('O');
-        final e = engine(kinds: {SyncJobKind.analyzePhoto});
+        final e = engine(kinds: {SyncJobKind.uploadThumbnail});
         final deleted = <String>[];
         final drain = PendingDeletes(
           store: records,
@@ -564,7 +562,7 @@ void main() {
         ),
       );
       hashes[file.path] = 'edit-hash';
-      final e = engine(kinds: {SyncJobKind.analyzePhoto});
+      final e = engine(kinds: {SyncJobKind.uploadThumbnail});
 
       await e.processJob(job('photo:b', SyncJobKind.checkChanges));
       expect((await records.getByLocalId('photo:b'))!.isFullyBackedUp, isTrue);
@@ -581,30 +579,5 @@ void main() {
       await e.processJob(job('photo:b', SyncJobKind.uploadEdited));
       expect(puts, ['edited/photo:b.heic']);
     });
-  });
-
-  test('Vision reads a camera-roll photo as its asset, a held one as its '
-      'file', () async {
-    final e = engine();
-    final roll = await records.upsert(
-      localId: 'photo:r',
-      contentHash: 'r',
-      platform: 'ios',
-      libraryId: 'R',
-    );
-    final file = File('${dir.path}/h.jpg')..writeAsBytesSync(Uint8List(3));
-    final held = await records.upsert(
-      localId: 'manual:h',
-      contentHash: 'h',
-      platform: 'ios',
-      sourceType: AssetSourceType.manualFile,
-      sourcePath: file.path,
-    );
-
-    expect(
-      await e.visionSourceFor(roll),
-      OnDeviceVisionService.assetSource('R'),
-    );
-    expect(await e.visionSourceFor(held), file.path);
   });
 }

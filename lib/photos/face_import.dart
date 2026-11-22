@@ -3,7 +3,6 @@ import 'package:path/path.dart' as p;
 import '../storage/asset_record.dart';
 import '../storage/asset_record_store.dart';
 import 'ai_analysis_store.dart';
-import 'face_analyzer.dart';
 import 'face_file.dart';
 import 'known_names.dart';
 import 'person.dart';
@@ -291,16 +290,11 @@ class FaceImport {
     required this.personStore,
     required this.assetRecordStore,
     required this.analysisStore,
-    this.analyzer,
   });
 
   final PersonStore personStore;
   final AssetRecordStore assetRecordStore;
   final AiAnalysisStore analysisStore;
-
-  /// Describes the imported faces in the background, so they join the
-  /// reference set.
-  final FaceAnalyzer? analyzer;
 
   Future<FaceImportPlan> plan(FaceFile file) async {
     final resolved = resolveFacePhotos(
@@ -451,9 +445,6 @@ class FaceImport {
           ),
         );
       }
-    }
-    if (result.linked.isNotEmpty) {
-      analyzer?.add(result.undescribed);
     }
   }
 }

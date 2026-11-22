@@ -5,6 +5,9 @@
 > now come only from the Mac import (`MAC-PIPELINE.md`). The phone keeps
 > Vision face *detection* (boxes, crops, profile photos, tap a face to name
 > it); `face_descriptor` rows are just face ↔ person links, vector empty.
+> **Detection removed too, 20 Nov 2026.** Vision boxes on the phone were
+> misleading and unreliable; every face now comes from the import. Boxes
+> already stored stay, and imported ones can still be named in the viewer.
 > Below is the record of what was built.
 
 ## Problem

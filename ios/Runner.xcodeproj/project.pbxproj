@@ -21,7 +21,7 @@
 		97C146FC1CF9000F007C117D /* Main.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FA1CF9000F007C117D /* Main.storyboard */; };
 		97C146FE1CF9000F007C117D /* Assets.xcassets in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FD1CF9000F007C117D /* Assets.xcassets */; };
 		97C147011CF9000F007C117D /* LaunchScreen.storyboard in Resources */ = {isa = PBXBuildFile; fileRef = 97C146FF1CF9000F007C117D /* LaunchScreen.storyboard */; };
-		A1B2C3D40001000000000001 /* VisionAnalysisChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40001000000000002 /* VisionAnalysisChannel.swift */; };
+		A1B2C3D40001000000000001 /* FaceCropChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40001000000000002 /* FaceCropChannel.swift */; };
 		A1B2C3D40001000000000003 /* ICloudDriveChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40001000000000004 /* ICloudDriveChannel.swift */; };
 		A1B2C3D40001000000000020 /* StillVideoChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D40001000000000021 /* StillVideoChannel.swift */; };
 		A1B2C3D400010000000000A0 /* VoiceClipChannel.swift in Sources */ = {isa = PBXBuildFile; fileRef = A1B2C3D400010000000000A1 /* VoiceClipChannel.swift */; };
@@ -96,7 +96,7 @@
 		97C146FD1CF9000F007C117D /* Assets.xcassets */ = {isa = PBXFileReference; lastKnownFileType = folder.assetcatalog; path = Assets.xcassets; sourceTree = "<group>"; };
 		97C147001CF9000F007C117D /* Base */ = {isa = PBXFileReference; lastKnownFileType = file.storyboard; name = Base; path = Base.lproj/LaunchScreen.storyboard; sourceTree = "<group>"; };
 		97C147021CF9000F007C117D /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist.xml; path = Info.plist; sourceTree = "<group>"; };
-		A1B2C3D40001000000000002 /* VisionAnalysisChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = VisionAnalysisChannel.swift; sourceTree = "<group>"; };
+		A1B2C3D40001000000000002 /* FaceCropChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = FaceCropChannel.swift; sourceTree = "<group>"; };
 		A1B2C3D40001000000000004 /* ICloudDriveChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ICloudDriveChannel.swift; sourceTree = "<group>"; };
 		A1B2C3D40001000000000005 /* Runner.entitlements */ = {isa = PBXFileReference; lastKnownFileType = text.plist.entitlements; path = Runner.entitlements; sourceTree = "<group>"; };
 		A1B2C3D40001000000000021 /* StillVideoChannel.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = StillVideoChannel.swift; sourceTree = "<group>"; };
@@ -214,7 +214,7 @@
 				1498D2331E8E89220040F4C2 /* GeneratedPluginRegistrant.m */,
 				74858FAE1ED2DC5600515810 /* AppDelegate.swift */,
 				7884E8672EC3CC0400C636F2 /* SceneDelegate.swift */,
-				A1B2C3D40001000000000002 /* VisionAnalysisChannel.swift */,
+				A1B2C3D40001000000000002 /* FaceCropChannel.swift */,
 				A1B2C3D40001000000000004 /* ICloudDriveChannel.swift */,
 				A1B2C3D40001000000000021 /* StillVideoChannel.swift */,
 				A1B2C3D400010000000000A1 /* VoiceClipChannel.swift */,
@@ -416,7 +416,7 @@
 				74858FAF1ED2DC5600515810 /* AppDelegate.swift in Sources */,
 				1498D2341E8E89220040F4C2 /* GeneratedPluginRegistrant.m in Sources */,
 				7884E8682EC3CC0700C636F2 /* SceneDelegate.swift in Sources */,
-				A1B2C3D40001000000000001 /* VisionAnalysisChannel.swift in Sources */,
+				A1B2C3D40001000000000001 /* FaceCropChannel.swift in Sources */,
 				A1B2C3D40001000000000003 /* ICloudDriveChannel.swift in Sources */,
 				A1B2C3D40001000000000020 /* StillVideoChannel.swift in Sources */,
 				A1B2C3D400010000000000A0 /* VoiceClipChannel.swift in Sources */,

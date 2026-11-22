@@ -1189,47 +1189,6 @@ class AiAnalysisStore {
     );
   }
 
-  /// Moves a photo's boxes from the raw sensor buffer they were measured
-  /// on to the upright picture, for the EXIF [orientation] (05#7).
-  /// Descriptors and guesses follow, so names stay on their faces.
-  Future<void> reorientFaces(String localId, int orientation) async {
-    final db = await _open();
-    await db.transaction((txn) async {
-      final rows = await txn.query(
-        _table,
-        columns: const ['faces', 'upright'],
-        where: 'local_id = ?',
-        whereArgs: [localId],
-        limit: 1,
-      );
-      if (rows.isEmpty || rows.single['upright'] == 1) return;
-      final faces = decodeFaces(rows.single['faces'] as String?);
-      await txn.update(
-        _table,
-        {
-          'faces': encodeFaces([
-            for (final f in faces) f.oriented(orientation),
-          ]),
-          'upright': 1,
-        },
-        where: 'local_id = ?',
-        whereArgs: [localId],
-      );
-      if (orientation <= 1 || orientation > 8) return;
-      await _carryDescriptors(
-        txn,
-        localId,
-        (old) => {for (final f in old) f: f.oriented(orientation)},
-      );
-      await _carryGroups(
-        txn,
-        localId,
-        (old) => {for (final f in old) f: f.oriented(orientation)},
-      );
-    });
-    _writes++;
-  }
-
   /// Where the faces are, per photo — for drawing one, which a count can't.
   /// Photos analyzed before v3 have none stored and simply aren't in here.
   Future<Map<String, List<FaceRect>>> facesByAsset() async {
