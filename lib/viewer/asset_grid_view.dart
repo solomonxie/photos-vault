@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/foundation.dart' show ValueListenable;
 import 'package:flutter/rendering.dart';
@@ -20,6 +22,34 @@ import 'photo_grid_layout.dart';
 ///    anchor is where a status-bar tap comes back to.
 ///  * **Carries the [DateScrubber]** — the right-edge handle that drags
 ///    years past in one gesture.
+enum PinKind { top, grid, past }
+
+final _epoch = DateTime.fromMillisecondsSinceEpoch(0);
+
+/// Where the page was left: a photo in the grid, a gap past the grid's end,
+/// or a raw offset above it — each holds still while the library grows.
+class ScrollPin {
+  const ScrollPin(this.kind, this.day, this.value);
+  final PinKind kind;
+  final DateTime day;
+  final double value;
+
+  String encode() => '${kind.index} ${day.millisecondsSinceEpoch} $value';
+
+  static ScrollPin? decode(String text) {
+    try {
+      final parts = text.trim().split(' ');
+      return ScrollPin(
+        PinKind.values[int.parse(parts[0])],
+        DateTime.fromMillisecondsSinceEpoch(int.parse(parts[1])),
+        double.parse(parts[2]),
+      );
+    } catch (_) {
+      return null;
+    }
+  }
+}
+
 class AssetGridView extends StatefulWidget {
   const AssetGridView({
     super.key,
@@ -42,7 +72,15 @@ class AssetGridView extends StatefulWidget {
     this.scrubberInsets = const EdgeInsets.symmetric(vertical: 12),
     this.dateOf = PhotoGridLayout.takenAt,
     this.imageFor,
+    this.initialPin,
+    this.onPinChanged,
   });
+
+  /// Where the last session left off; opens there instead of at the rest.
+  final ScrollPin? initialPin;
+
+  /// Debounced; null when the view came back to rest.
+  final void Function(ScrollPin? pin)? onPinChanged;
 
   /// See [AssetTile.imageFor].
   final Widget? Function(AssetRecord)? imageFor;
@@ -130,9 +168,66 @@ class AssetGridViewState extends State<AssetGridView> {
 
   ScrollController get scrollController => _scrollController;
 
+  Timer? _pinTimer;
+
+  /// Programmatic jumps (anchoring, restoring) must not overwrite the saved spot.
+  bool _userMoved = false;
+  ScrollPin? _pendingInitial;
+
+  @override
+  void initState() {
+    super.initState();
+    _pendingInitial = widget.initialPin;
+    if (widget.onPinChanged != null) {
+      _scrollController.addListener(_schedulePin);
+    }
+  }
+
+  ScrollPin? _currentPin() {
+    if (!_scrollController.hasClients || _layout.isEmpty || isAtNewest) {
+      return null;
+    }
+    final position = _scrollController.position;
+    if (!position.hasPixels) return null;
+    final inGrid = _viewportPin();
+    if (inGrid != null) {
+      return ScrollPin(PinKind.grid, inGrid.day, inGrid.within);
+    }
+    final past = _pastGridPin();
+    if (past != null) return ScrollPin(PinKind.past, _epoch, past);
+    return ScrollPin(PinKind.top, _epoch, position.pixels);
+  }
+
+  void _applyPin(ScrollPin pin) {
+    switch (pin.kind) {
+      case PinKind.grid:
+        _restore((day: pin.day, within: pin.value));
+      case PinKind.past:
+        _restorePastGrid(pin.value);
+      case PinKind.top:
+        WidgetsBinding.instance.addPostFrameCallback((_) {
+          if (!mounted || !_scrollController.hasClients) return;
+          final position = _scrollController.position;
+          _scrollController.jumpTo(
+            pin.value.clamp(position.minScrollExtent, position.maxScrollExtent),
+          );
+        });
+    }
+  }
+
+  void _schedulePin() {
+    if (!_userMoved) return;
+    _pinTimer?.cancel();
+    _pinTimer = Timer(const Duration(milliseconds: 300), () {
+      if (!mounted) return;
+      widget.onPinChanged?.call(_currentPin());
+    });
+  }
+
   @override
   void didUpdateWidget(AssetGridView oldWidget) {
     super.didUpdateWidget(oldWidget);
+    if (oldWidget.initialPin == null) _pendingInitial ??= widget.initialPin;
     if (oldWidget.restKey != widget.restKey ||
         oldWidget.restInset != widget.restInset) {
       final was = _restOf(oldWidget.restKey, oldWidget.restInset);
@@ -145,6 +240,7 @@ class AssetGridViewState extends State<AssetGridView> {
 
   @override
   void dispose() {
+    _pinTimer?.cancel();
     _scrollController.dispose();
     super.dispose();
   }
@@ -408,6 +504,19 @@ class AssetGridViewState extends State<AssetGridView> {
       _anchorAfterLayout();
     }
 
+    final pin = _pendingInitial;
+    if (pin != null &&
+        !_userMoved &&
+        !_layout.isEmpty &&
+        (pin.kind != PinKind.grid ||
+            !_layout.dateOf(_layout.records.first).isAfter(pin.day))) {
+      // Not before the list reaches back that far: the first read can hold
+      // only the newest photos, and a restore into it would land wrong.
+      _pendingInitial = null;
+      _touched = true;
+      _anchored = true;
+      _applyPin(pin);
+    }
     if (!_placed && !_layout.isEmpty) {
       // Shown from the next frame: this one's post-frame anchor has jumped.
       WidgetsBinding.instance.addPostFrameCallback((_) {
@@ -474,6 +583,9 @@ class AssetGridViewState extends State<AssetGridView> {
         ),
       ],
     );
-    return Listener(onPointerDown: (_) => _touched = true, child: stack);
+    return Listener(
+      onPointerDown: (_) => _touched = _userMoved = true,
+      child: stack,
+    );
   }
 }

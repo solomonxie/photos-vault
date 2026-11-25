@@ -830,4 +830,51 @@ void main() {
       expect(opacity(tester), 0);
     });
   });
+
+  group('remembers where it was left', () {
+    double offset = 0;
+
+    Future<ScrollPin?> leave(WidgetTester tester, double dy) async {
+      ScrollPin? saved;
+      final key = GlobalKey<AssetGridViewState>();
+      await tester.pumpWidget(
+        _wrap(
+          AssetGridView(
+            key: key,
+            records: _daily(200),
+            onTap: (_) {},
+            actionsFor: (_) => _actions,
+            onPinChanged: (pin) => saved = pin,
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      await tester.drag(find.byType(CustomScrollView), Offset(0, dy));
+      await tester.pumpAndSettle(const Duration(seconds: 1));
+      offset = key.currentState!.scrollController.offset;
+      return saved;
+    }
+
+    testWidgets('saves a spot in the grid and reopens there', (tester) async {
+      final pin = await leave(tester, 3000);
+      expect(pin, isNotNull);
+      expect(pin!.kind, PinKind.grid);
+
+      final key = GlobalKey<AssetGridViewState>();
+      await tester.pumpWidget(
+        _wrap(
+          AssetGridView(
+            key: key,
+            records: _daily(200),
+            onTap: (_) {},
+            actionsFor: (_) => _actions,
+            initialPin: ScrollPin.decode(pin.encode()),
+          ),
+        ),
+      );
+      await tester.pumpAndSettle();
+      expect(key.currentState!.isAtNewest, isFalse);
+      expect(key.currentState!.scrollController.offset, closeTo(offset, 1));
+    });
+  });
 }

@@ -775,9 +775,36 @@ class LibraryScreenState extends State<LibraryScreen>
     super.dispose();
   }
 
+  ScrollPin? _resumePin;
+
+  Future<File> _pinFile() async => File(
+    p.join((await getApplicationSupportDirectory()).path, 'library_position'),
+  );
+
+  /// Best-effort: a missing or unreadable file just opens at the rest. Read
+  /// before the library finishes loading, so the grid sees it at first layout.
+  Future<void> _loadResumePin() async {
+    try {
+      _resumePin = ScrollPin.decode(await (await _pinFile()).readAsString());
+    } catch (_) {}
+    if (mounted && _resumePin != null) setState(() {});
+  }
+
+  void _savePin(ScrollPin? pin) async {
+    try {
+      final file = await _pinFile();
+      if (pin == null) {
+        if (await file.exists()) await file.delete();
+      } else {
+        await file.writeAsString(pin.encode());
+      }
+    } catch (_) {}
+  }
+
   @override
   void initState() {
     super.initState();
+    unawaited(_loadResumePin());
     WidgetsBinding.instance.addObserver(this);
     CloudThumbnails.instance = CloudThumbnails(
       fetch: OriginalRestore(
@@ -3341,6 +3368,8 @@ class LibraryScreenState extends State<LibraryScreen>
                 AssetGridView(
                   key: _gridKey,
                   records: filtered,
+                  initialPin: _resumePin,
+                  onPinChanged: _savePin,
                   onTap: selection == null ? _openRecord : _toggleSelected,
                   onLongPress: _startSelecting,
                   onMissing: _onAssetMissing,
