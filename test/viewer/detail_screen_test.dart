@@ -594,22 +594,20 @@ void main() {
     await tester.pump();
     await _scrollToInfoPanel(tester);
 
-    // Round-trips through the editor without corrupting the value.
-    // The camera date is read from the file, on the real clock.
-    final adjust = find.byKey(const ValueKey('detailAdjustDate'));
-    await tester.ensureVisible(adjust);
+    // Opening the wheels and closing them leaves the value alone.
+    expect(find.byKey(const ValueKey('detailAdjustDate')), findsNothing);
+    // Clear of the top of the screen, where the viewer's bar sits.
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 150));
     await tester.pumpAndSettle();
-    await tester.runAsync(() async {
-      await tester.tap(adjust);
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-    });
+    final dateRow = find.byKey(const ValueKey('dateRow'));
+    await tester.tap(dateRow);
     await tester.pumpAndSettle();
-    expect(find.text('Date & Time'), findsOneWidget);
-    // Opened on the real clock, so it finishes there too.
-    await tester.runAsync(() async {
-      await tester.tap(find.byKey(const ValueKey('dateEditSave')));
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-    });
+    expect(find.byKey(const ValueKey('datePicker')), findsOneWidget);
+    await tester.tap(find.byKey(const ValueKey('timeRow')));
+    await tester.pumpAndSettle();
+    expect(find.byKey(const ValueKey('timePicker')), findsOneWidget);
+    expect(find.byKey(const ValueKey('datePicker')), findsNothing);
+    await tester.tap(find.byKey(const ValueKey('timeRow')));
     await tester.pumpAndSettle();
 
     final saved = await assetRecordStore.getByLocalId('a');
@@ -645,29 +643,30 @@ void main() {
     await tester.pump();
     await _scrollToInfoPanel(tester);
 
-    // The camera date is read from the file, on the real clock.
-    final adjust = find.byKey(const ValueKey('detailAdjustDate'));
-    await tester.ensureVisible(adjust);
+    // Clear of the top of the screen, where the viewer's bar sits.
+    await tester.drag(find.byType(CustomScrollView), const Offset(0, 150));
     await tester.pumpAndSettle();
-    await tester.runAsync(() async {
-      await tester.tap(adjust);
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-    });
+    final dateRow = find.byKey(const ValueKey('dateRow'));
+    await tester.tap(dateRow);
     await tester.pumpAndSettle();
-    // Typed, not spun.
-    await tester.enterText(find.byKey(const ValueKey('dateEdit:year')), '2025');
-    await tester.pump();
-    // Opened on the real clock, so it finishes there too.
-    await tester.runAsync(() async {
-      await tester.tap(find.byKey(const ValueKey('dateEditSave')));
-      await Future<void>.delayed(const Duration(milliseconds: 200));
-    });
+    final wheels = tester.getRect(find.byKey(const ValueKey('datePicker')));
+    await tester.dragFrom(
+      Offset(wheels.center.dx + 100, wheels.center.dy),
+      const Offset(0, 200),
+    );
+    // Saved once the wheel has rested.
+    await tester.pump(const Duration(seconds: 1));
     await tester.pumpAndSettle();
 
-    expect(find.textContaining('2025'), findsOneWidget);
-    expect(find.textContaining('2026'), findsNothing);
     final saved = await assetRecordStore.getByLocalId('a');
-    expect(saved!.createdAt, DateTime(2025, 1, 1));
+    expect(saved!.createdAt.year, isNot(2026));
+    expect(
+      find.descendant(
+        of: find.byKey(const ValueKey('dateRow')),
+        matching: find.textContaining('${saved.createdAt.year}'),
+      ),
+      findsOneWidget,
+    );
   });
 
   testWidgets('editing the location shows it in place of "No Location"', (
@@ -1100,6 +1099,9 @@ void main() {
     );
     await tester.pump();
 
+    await _scrollToInfoPanel(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('detailEditButton')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('detailEditButton')));
     await tester.pumpAndSettle();
 
@@ -1124,6 +1126,9 @@ void main() {
     );
     await tester.pump();
 
+    await _scrollToInfoPanel(tester);
+    await tester.ensureVisible(find.byKey(const ValueKey('detailEditButton')));
+    await tester.pumpAndSettle();
     await tester.tap(find.byKey(const ValueKey('detailEditButton')));
     await tester.pumpAndSettle();
 

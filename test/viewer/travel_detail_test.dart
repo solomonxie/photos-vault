@@ -1,10 +1,8 @@
 import 'package:flutter/cupertino.dart';
 import 'package:flutter_test/flutter_test.dart';
 import 'package:photos_vault/l10n/app_localizations.dart';
-import 'package:photos_vault/photos/travel.dart';
 import 'package:photos_vault/storage/asset_record.dart';
 import 'package:photos_vault/viewer/detail_screen.dart';
-import 'package:photos_vault/viewer/place_screen.dart';
 
 import '../support/fake_asset_record_store.dart';
 import '../support/fake_person_store.dart';
@@ -48,53 +46,26 @@ Future<void> _toPanel(WidgetTester tester) async {
 }
 
 void main() {
-  testWidgets('a photo with a place starts an impression there, itself in '
-      'it', (tester) async {
-    final travel = FakeTravelStore();
+  testWidgets('a photo with a place offers no impression row', (tester) async {
     await tester.pumpWidget(
       _detail(
         _photo(location: 'Kyoto, Japan', lat: 35, lng: 135.7),
-        travel: travel,
+        travel: FakeTravelStore(),
       ),
     );
     await _toPanel(tester);
-    final row = find.byKey(const ValueKey('detailTravel'));
-    expect(find.text('Add an Impression'), findsOne);
-    await tester.ensureVisible(row);
-    await tester.pumpAndSettle();
-    await tester.tap(row);
-    await tester.pumpAndSettle();
-    await tester.enterText(
-      find.byKey(const ValueKey('travelEntryText')),
-      'Golden afternoon',
-    );
-    await tester.tap(find.byKey(const ValueKey('travelEntrySave')));
-    await tester.pumpAndSettle();
-
-    final city = travel.placesById.values.singleWhere((p) => p.isCity);
-    expect((city.name, city.country, city.isCity), ('Kyoto', 'Japan', true));
-    final entry = travel.entriesById.values.single;
-    expect(entry.placeId, city.id);
-    expect(entry.at, DateTime(2024, 5, 4));
-    expect(entry.text, 'Golden afternoon');
-    expect(travel.links[(LinkOwner.entry, entry.id)] ?? const [], isEmpty);
-    expect(find.text('Impressions of Kyoto (1)'), findsOne);
-
-    await tester.ensureVisible(row);
-    await tester.pumpAndSettle();
-    await tester.tap(row);
-    await tester.pumpAndSettle();
-    expect(find.byType(PlaceScreen), findsOne);
+    expect(find.byKey(const ValueKey('detailTravel')), findsNothing);
+    expect(find.text('Add an Impression'), findsNothing);
   });
 
-  testWidgets('no travel diary to hand, or no place: no row', (tester) async {
-    await tester.pumpWidget(_detail(_photo(location: 'Kyoto, Japan')));
+  testWidgets('the file name is a row of the details table', (tester) async {
+    await tester.pumpWidget(_detail(_photo()));
     await _toPanel(tester);
-    expect(find.byKey(const ValueKey('detailTravel')), findsNothing);
-
-    await tester.pumpWidget(const SizedBox());
-    await tester.pumpWidget(_detail(_photo(), travel: FakeTravelStore()));
-    await _toPanel(tester);
-    expect(find.byKey(const ValueKey('detailTravel')), findsNothing);
+    final row = find.byKey(const ValueKey('detailFileName'));
+    await tester.ensureVisible(row);
+    expect(
+      find.descendant(of: row, matching: find.text('a.jpg')),
+      findsOneWidget,
+    );
   });
 }

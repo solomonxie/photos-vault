@@ -1,3 +1,5 @@
+import 'dart:async';
+
 import 'package:flutter/cupertino.dart';
 import 'package:flutter/services.dart';
 import 'package:intl/intl.dart';
@@ -48,6 +50,417 @@ DateTime shiftDate(
 
 enum _Mode { set, shift }
 
+enum _Open { date, time }
+
+/// The date and the time as two parts, either of which can be left alone
+/// (each photo then keeps its own). Reports what to do to a photo's date,
+/// or null when both parts are off.
+class SetDateParts extends StatefulWidget {
+  const SetDateParts({
+    super.key,
+    required this.initial,
+    required this.guesses,
+    required this.onChanged,
+  });
+
+  final DateTime initial;
+  final List<DateGuess> guesses;
+  final void Function(DateTime Function(DateTime)? change) onChanged;
+
+  @override
+  State<SetDateParts> createState() => _SetDatePartsState();
+}
+
+class _SetDatePartsState extends State<SetDateParts> {
+  late var _at = widget.initial;
+  _Open? _open;
+  var _dateOn = true;
+  var _timeOn = true;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addPostFrameCallback((_) => _report());
+  }
+
+  void _report() {
+    if (!mounted) return;
+    if (!_dateOn && !_timeOn) return widget.onChanged(null);
+    final picked = _at;
+    final date = _dateOn, time = _timeOn;
+    widget.onChanged((from) {
+      final f = from.toLocal();
+      return DateTime(
+        date ? picked.year : f.year,
+        date ? picked.month : f.month,
+        date ? picked.day : f.day,
+        time ? picked.hour : f.hour,
+        time ? picked.minute : f.minute,
+        f.second,
+      );
+    });
+  }
+
+  void _change(VoidCallback fn) {
+    setState(fn);
+    _report();
+  }
+
+  void _use(DateTime d) => _change(() {
+    _at = d;
+    _open = null;
+    _dateOn = _timeOn = true;
+  });
+
+  void _toggle(_Open which) =>
+      setState(() => _open = _open == which ? null : which);
+
+  @override
+  Widget build(BuildContext context) {
+    final l10n = AppLocalizations.of(context)!;
+    final format = DateFormat.yMMMMEEEEd().add_jm();
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        if (widget.guesses.isNotEmpty) ...[
+          Text(
+            l10n.dateEditSuggested.toUpperCase(),
+            style: const TextStyle(
+              fontSize: 12,
+              color: CupertinoColors.systemGrey,
+            ),
+          ),
+          const SizedBox(height: 6),
+          for (final g in widget.guesses) _guess(g, format),
+          const SizedBox(height: 12),
+        ],
+        _row(
+          key: 'dateRow',
+          part: l10n.dateEditDatePart,
+          on: _dateOn,
+          onToggle: (v) => _change(() {
+            _dateOn = v;
+            if (!v && _open == _Open.date) _open = null;
+          }),
+          open: _Open.date,
+          text: DateFormat.yMMMMEEEEd().format(_at),
+          picker: CupertinoDatePicker(
+            key: const ValueKey('datePicker'),
+            mode: CupertinoDatePickerMode.date,
+            initialDateTime: _at,
+            minimumYear: 1900,
+            maximumDate: DateTime.now(),
+            onDateTimeChanged: (d) => _change(
+              () => _at = DateTime(
+                d.year,
+                d.month,
+                d.day,
+                _at.hour,
+                _at.minute,
+                _at.second,
+              ),
+            ),
+          ),
+        ),
+        _row(
+          key: 'timeRow',
+          part: l10n.dateEditTimePart,
+          on: _timeOn,
+          onToggle: (v) => _change(() {
+            _timeOn = v;
+            if (!v && _open == _Open.time) _open = null;
+          }),
+          open: _Open.time,
+          text: DateFormat.jm().format(_at),
+          picker: CupertinoDatePicker(
+            key: const ValueKey('timePicker'),
+            mode: CupertinoDatePickerMode.time,
+            initialDateTime: _at,
+            onDateTimeChanged: (d) => _change(
+              () => _at = DateTime(
+                _at.year,
+                _at.month,
+                _at.day,
+                d.hour,
+                d.minute,
+                _at.second,
+              ),
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+
+  Widget _guess(DateGuess g, DateFormat format) => Padding(
+    padding: const EdgeInsets.only(bottom: 8),
+    child: CupertinoButton(
+      key: ValueKey('dateGuess:${g.label}'),
+      color: const Color(0xFF2C2C2E),
+      padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+      onPressed: () => _use(g.date),
+      child: Row(
+        children: [
+          Expanded(
+            child: Text(
+              g.label,
+              style: const TextStyle(
+                fontSize: 15,
+                color: CupertinoColors.systemGrey,
+              ),
+            ),
+          ),
+          Text(
+            format.format(g.date),
+            style: const TextStyle(fontSize: 15, color: CupertinoColors.white),
+          ),
+        ],
+      ),
+    ),
+  );
+
+  Widget _row({
+    required String key,
+    required String part,
+    required bool on,
+    required ValueChanged<bool> onToggle,
+    required _Open open,
+    required String text,
+    required Widget picker,
+  }) {
+    final shown = on && _open == open;
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Padding(
+          padding: const EdgeInsets.fromLTRB(4, 8, 4, 6),
+          child: Row(
+            children: [
+              Expanded(
+                child: Text(
+                  part.toUpperCase(),
+                  style: const TextStyle(
+                    fontSize: 12,
+                    color: CupertinoColors.systemGrey,
+                  ),
+                ),
+              ),
+              CupertinoSwitch(
+                key: ValueKey('${key}Switch'),
+                value: on,
+                onChanged: onToggle,
+              ),
+            ],
+          ),
+        ),
+        Opacity(
+          opacity: on ? 1 : 0.4,
+          child: Container(
+            decoration: BoxDecoration(
+              color: const Color(0xFF2C2C2E),
+              borderRadius: BorderRadius.circular(10),
+            ),
+            child: Column(
+              children: [
+                CupertinoButton(
+                  key: ValueKey(key),
+                  padding: const EdgeInsets.symmetric(
+                    horizontal: 14,
+                    vertical: 14,
+                  ),
+                  onPressed: () {
+                    if (!on) onToggle(true);
+                    _toggle(open);
+                  },
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Text(
+                          text,
+                          style: TextStyle(
+                            fontSize: 17,
+                            color: shown
+                                ? CupertinoColors.activeBlue
+                                : CupertinoColors.white,
+                          ),
+                        ),
+                      ),
+                      Icon(
+                        shown
+                            ? CupertinoIcons.chevron_up
+                            : CupertinoIcons.chevron_down,
+                        size: 16,
+                        color: CupertinoColors.systemGrey,
+                      ),
+                    ],
+                  ),
+                ),
+                if (shown) SizedBox(height: 200, child: picker),
+              ],
+            ),
+          ),
+        ),
+      ],
+    );
+  }
+}
+
+/// The photo's date and time on one line, in place: a tap on the date opens
+/// its wheels under the line, a tap on the time opens the time wheels.
+/// Every change is saved after a short rest of the wheel, and on closing —
+/// there is no Save button to forget.
+class InlineDateRow extends StatefulWidget {
+  const InlineDateRow({
+    super.key,
+    required this.at,
+    required this.onChanged,
+    this.loadGuesses,
+  });
+
+  final DateTime at;
+  final void Function(DateTime at) onChanged;
+
+  /// Likely dates, read the first time the wheels open.
+  final Future<List<DateGuess>> Function()? loadGuesses;
+
+  @override
+  State<InlineDateRow> createState() => _InlineDateRowState();
+}
+
+class _InlineDateRowState extends State<InlineDateRow> {
+  late var _at = widget.at.toLocal();
+  _Open? _open;
+  List<DateGuess>? _guesses;
+  Timer? _rest;
+  bool _dirty = false;
+
+  @override
+  void didUpdateWidget(InlineDateRow old) {
+    super.didUpdateWidget(old);
+    if (!_dirty && old.at != widget.at) _at = widget.at.toLocal();
+  }
+
+  @override
+  void dispose() {
+    _rest?.cancel();
+    if (_dirty) {
+      // After this frame: the page above is being torn down too.
+      final save = widget.onChanged, at = _at;
+      Future.microtask(() => save(at));
+    }
+    super.dispose();
+  }
+
+  void _flush() {
+    _rest?.cancel();
+    if (!_dirty) return;
+    _dirty = false;
+    widget.onChanged(_at);
+  }
+
+  void _set(DateTime at) {
+    setState(() => _at = at);
+    _dirty = true;
+    _rest?.cancel();
+    _rest = Timer(const Duration(milliseconds: 700), _flush);
+  }
+
+  Future<void> _toggle(_Open which) async {
+    final closing = _open == which;
+    if (closing) _flush();
+    setState(() => _open = closing ? null : which);
+    if (!closing && _guesses == null && widget.loadGuesses != null) {
+      final found = await widget.loadGuesses!();
+      if (mounted) setState(() => _guesses = found);
+    }
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    final guesses = [
+      for (final g in _guesses ?? const <DateGuess>[])
+        if (g.date != _at) g,
+    ];
+    Widget part(String key, String text, _Open which) => CupertinoButton(
+      key: ValueKey(key),
+      padding: EdgeInsets.zero,
+      minimumSize: Size.zero,
+      onPressed: () => _toggle(which),
+      child: Text(
+        text,
+        style: TextStyle(
+          fontSize: 20,
+          fontWeight: FontWeight.w600,
+          color: _open == which
+              ? CupertinoColors.activeBlue
+              : CupertinoColors.white,
+        ),
+      ),
+    );
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        Row(
+          children: [
+            part('dateRow', DateFormat.yMMMd().format(_at), _Open.date),
+            const SizedBox(width: 14),
+            part('timeRow', DateFormat.jm().format(_at), _Open.time),
+          ],
+        ),
+        if (_open != null) ...[
+          for (final g in guesses)
+            CupertinoButton(
+              key: ValueKey('dateGuess:${g.label}'),
+              padding: const EdgeInsets.only(top: 8),
+              minimumSize: Size.zero,
+              onPressed: () => _set(g.date),
+              child: Text(
+                '${g.label}  ·  ${DateFormat.yMMMd().add_jm().format(g.date)}',
+                style: const TextStyle(fontSize: 14),
+              ),
+            ),
+          SizedBox(
+            height: 200,
+            child: _open == _Open.date
+                ? CupertinoDatePicker(
+                    key: const ValueKey('datePicker'),
+                    mode: CupertinoDatePickerMode.date,
+                    initialDateTime: _at,
+                    minimumYear: 1900,
+                    maximumDate: DateTime.now(),
+                    onDateTimeChanged: (d) => _set(
+                      DateTime(
+                        d.year,
+                        d.month,
+                        d.day,
+                        _at.hour,
+                        _at.minute,
+                        _at.second,
+                      ),
+                    ),
+                  )
+                : CupertinoDatePicker(
+                    key: const ValueKey('timePicker'),
+                    mode: CupertinoDatePickerMode.time,
+                    initialDateTime: _at,
+                    onDateTimeChanged: (d) => _set(
+                      DateTime(
+                        _at.year,
+                        _at.month,
+                        _at.day,
+                        d.hour,
+                        d.minute,
+                        _at.second,
+                      ),
+                    ),
+                  ),
+          ),
+        ],
+      ],
+    );
+  }
+}
+
 class _DateEditor extends StatefulWidget {
   const _DateEditor({
     required this.initial,
@@ -66,34 +479,16 @@ class _DateEditor extends StatefulWidget {
 class _DateEditorState extends State<_DateEditor> {
   var _mode = _Mode.set;
   var _later = false;
-
-  late final _year = _field(widget.initial.year);
-  late final _month = _field(widget.initial.month);
-  late final _day = _field(widget.initial.day);
-  late final _hour = _field(widget.initial.hour);
-  late final _minute = _field(widget.initial.minute);
+  DateTime Function(DateTime)? _setChange;
 
   final _years = TextEditingController();
   final _months = TextEditingController();
   final _days = TextEditingController();
   final _hours = TextEditingController();
 
-  TextEditingController _field(int v) =>
-      TextEditingController(text: v.toString().padLeft(2, '0'));
-
   @override
   void dispose() {
-    for (final c in [
-      _year,
-      _month,
-      _day,
-      _hour,
-      _minute,
-      _years,
-      _months,
-      _days,
-      _hours,
-    ]) {
+    for (final c in [_years, _months, _days, _hours]) {
       c.dispose();
     }
     super.dispose();
@@ -101,22 +496,8 @@ class _DateEditorState extends State<_DateEditor> {
 
   int? _int(TextEditingController c) => int.tryParse(c.text.trim());
 
-  /// The typed date, or null when it isn't one (30 Feb, month 13).
-  DateTime? get _typed {
-    final y = _int(_year), mo = _int(_month), d = _int(_day);
-    final h = _int(_hour) ?? 0, mi = _int(_minute) ?? 0;
-    if (y == null || mo == null || d == null) return null;
-    if (y < 1800 || mo < 1 || mo > 12 || h > 23 || mi > 59) return null;
-    final at = DateTime(y, mo, d, h, mi, widget.initial.second);
-    if (at.month != mo || at.day != d) return null;
-    return at.isAfter(DateTime.now()) ? null : at;
-  }
-
   DateTime Function(DateTime)? get _result {
-    if (_mode == _Mode.set) {
-      final at = _typed;
-      return at == null ? null : (_) => at;
-    }
+    if (_mode == _Mode.set) return _setChange;
     final sign = _later ? 1 : -1;
     int n(TextEditingController c) => (_int(c) ?? 0) * sign;
     final years = n(_years), months = n(_months);
@@ -131,20 +512,10 @@ class _DateEditorState extends State<_DateEditor> {
     );
   }
 
-  void _use(DateTime d) => setState(() {
-    _mode = _Mode.set;
-    _year.text = '${d.year}';
-    _month.text = d.month.toString().padLeft(2, '0');
-    _day.text = d.day.toString().padLeft(2, '0');
-    _hour.text = d.hour.toString().padLeft(2, '0');
-    _minute.text = d.minute.toString().padLeft(2, '0');
-  });
-
   @override
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     final result = _result;
-    final preview = result?.call(widget.initial);
     final format = DateFormat.yMMMMEEEEd().add_jm();
     return CupertinoPageScaffold(
       navigationBar: CupertinoNavigationBar(
@@ -174,109 +545,43 @@ class _DateEditorState extends State<_DateEditor> {
         child: ListView(
           padding: const EdgeInsets.fromLTRB(16, 16, 16, 32),
           children: [
-            Text(
-              format.format(widget.initial),
-              style: const TextStyle(
-                fontSize: 15,
-                color: CupertinoColors.systemGrey,
+            if (widget.count > 1) ...[
+              CupertinoSlidingSegmentedControl<_Mode>(
+                groupValue: _mode,
+                onValueChanged: (m) => setState(() => _mode = m ?? _mode),
+                children: {
+                  _Mode.set: Text(l10n.dateEditSetAll),
+                  _Mode.shift: Text(l10n.dateEditShiftAll),
+                },
               ),
-            ),
-            const SizedBox(height: 4),
-            Text(
-              preview == null ? l10n.dateEditNotADate : format.format(preview),
-              key: const ValueKey('dateEditPreview'),
-              style: TextStyle(
-                fontSize: 20,
-                fontWeight: FontWeight.w600,
-                color: preview == null
-                    ? CupertinoColors.systemRed
-                    : CupertinoColors.white,
-              ),
-            ),
-            if (widget.count > 1)
-              Padding(
-                padding: const EdgeInsets.only(top: 16),
-                child: CupertinoSlidingSegmentedControl<_Mode>(
-                  groupValue: _mode,
-                  onValueChanged: (m) => setState(() => _mode = m ?? _mode),
-                  children: {
-                    _Mode.set: Text(l10n.dateEditSetAll),
-                    _Mode.shift: Text(l10n.dateEditShiftAll),
-                  },
-                ),
-              ),
-            const SizedBox(height: 20),
+              const SizedBox(height: 20),
+            ],
             if (_mode == _Mode.set)
-              ..._setFields(l10n)
-            else
-              ..._shiftFields(l10n),
-            if (widget.guesses.isNotEmpty) ...[
-              const SizedBox(height: 28),
+              SetDateParts(
+                initial: widget.initial,
+                guesses: widget.guesses,
+                onChanged: (c) => setState(() => _setChange = c),
+              )
+            else ...[
               Text(
-                l10n.dateEditSuggested.toUpperCase(),
+                result == null
+                    ? format.format(widget.initial)
+                    : format.format(result(widget.initial)),
+                key: const ValueKey('dateEditPreview'),
                 style: const TextStyle(
-                  fontSize: 12,
-                  color: CupertinoColors.systemGrey,
+                  fontSize: 17,
+                  fontWeight: FontWeight.w600,
+                  color: CupertinoColors.white,
                 ),
               ),
-              const SizedBox(height: 6),
-              for (final g in widget.guesses)
-                Padding(
-                  padding: const EdgeInsets.only(bottom: 8),
-                  child: CupertinoButton(
-                    key: ValueKey('dateGuess:${g.label}'),
-                    color: const Color(0xFF2C2C2E),
-                    padding: const EdgeInsets.symmetric(
-                      horizontal: 14,
-                      vertical: 12,
-                    ),
-                    onPressed: () => _use(g.date),
-                    child: Row(
-                      children: [
-                        Expanded(
-                          child: Text(
-                            g.label,
-                            style: const TextStyle(
-                              fontSize: 15,
-                              color: CupertinoColors.systemGrey,
-                            ),
-                          ),
-                        ),
-                        Text(
-                          format.format(g.date),
-                          style: const TextStyle(
-                            fontSize: 15,
-                            color: CupertinoColors.white,
-                          ),
-                        ),
-                      ],
-                    ),
-                  ),
-                ),
+              const SizedBox(height: 16),
+              ..._shiftFields(l10n),
             ],
           ],
         ),
       ),
     );
   }
-
-  List<Widget> _setFields(AppLocalizations l10n) => [
-    Row(
-      children: [
-        _box(l10n.dateEditYear, _year, 4, flex: 2, key: 'year'),
-        _box(l10n.dateEditMonth, _month, 2, key: 'month'),
-        _box(l10n.dateEditDay, _day, 2, key: 'day'),
-      ],
-    ),
-    const SizedBox(height: 12),
-    Row(
-      children: [
-        _box(l10n.dateEditHour, _hour, 2, key: 'hour'),
-        _box(l10n.dateEditMinute, _minute, 2, key: 'minute'),
-        const Spacer(),
-      ],
-    ),
-  ];
 
   List<Widget> _shiftFields(AppLocalizations l10n) => [
     CupertinoSlidingSegmentedControl<bool>(

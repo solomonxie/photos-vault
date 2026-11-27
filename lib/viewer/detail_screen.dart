@@ -10,7 +10,6 @@ import 'package:image/image.dart' as img;
 
 import '../photos/image_pipeline.dart';
 
-import 'package:intl/intl.dart';
 import 'package:path/path.dart' as p;
 import 'package:path_provider/path_provider.dart';
 import 'package:share_plus/share_plus.dart';
@@ -28,8 +27,6 @@ import '../photos/face_crops.dart';
 import '../photos/face_identity.dart';
 import '../photos/photo_library_service.dart';
 import '../photos/photo_location.dart';
-import '../photos/place_search.dart';
-import '../photos/travel.dart';
 import '../photos/travel_store.dart';
 import '../photos/temp_renders.dart';
 import '../settings/backup_targets_store.dart';
@@ -53,8 +50,6 @@ import 'motion_playback.dart';
 import 'link_text.dart';
 import 'photo_edit_screen.dart';
 import 'person_picker_sheet.dart';
-import 'place_screen.dart';
-import 'travel_entry_editor.dart';
 import 'search_picker_sheet.dart';
 import 'video_controls.dart';
 import 'date_editor.dart';
@@ -669,6 +664,7 @@ class _DetailScreenState extends State<DetailScreen> {
     VoidCallback onPressed, {
     Key? key,
     String? label,
+    Color color = CupertinoColors.white,
   }) => Expanded(
     child: Semantics(
       label: label,
@@ -678,7 +674,7 @@ class _DetailScreenState extends State<DetailScreen> {
         padding: EdgeInsets.zero,
         minimumSize: const Size.fromHeight(52),
         onPressed: onPressed,
-        child: Icon(icon, size: 30, color: CupertinoColors.white),
+        child: Icon(icon, size: 30, color: color),
       ),
     ),
   );
@@ -774,8 +770,7 @@ class _DetailScreenState extends State<DetailScreen> {
                   assetRecordStore: widget.assetRecordStore,
                   personStore: _personStore,
                   onRecordChanged: _updateRecord,
-                  onDelete: _delete,
-                  deleteLabel: widget.deleteLabel,
+                  onEdit: _showEditMenu,
                   scrollController: _scrollControllerFor(_records[i]),
                   onZoomChanged: (zoomed) {
                     if (zoomed != _zoomed) setState(() => _zoomed = zoomed);
@@ -820,10 +815,11 @@ class _DetailScreenState extends State<DetailScreen> {
                       ),
                     _barButton(CupertinoIcons.info_circle, _revealInfoPanel),
                     _barButton(
-                      CupertinoIcons.slider_horizontal_3,
-                      _showEditMenu,
-                      key: const ValueKey('detailEditButton'),
-                      label: l10n.detailEditButton,
+                      CupertinoIcons.trash,
+                      _delete,
+                      key: const ValueKey('detailDeleteButton'),
+                      label: widget.deleteLabel ?? l10n.actionDelete,
+                      color: CupertinoColors.systemRed,
                     ),
                   ],
                 ),
@@ -870,8 +866,7 @@ class _MediaPage extends StatefulWidget {
     required this.assetRecordStore,
     required this.personStore,
     required this.onRecordChanged,
-    required this.onDelete,
-    required this.deleteLabel,
+    required this.onEdit,
     required this.scrollController,
     required this.albumStore,
     required this.onPull,
@@ -893,8 +888,7 @@ class _MediaPage extends StatefulWidget {
   /// The page the pager is on. A Photos video is only exported for it —
   /// one swiped past is an iCloud download nobody watches.
   final bool current;
-  final VoidCallback onDelete;
-  final String? deleteLabel;
+  final VoidCallback onEdit;
   final Future<File?> Function(AssetRecord record)? resolveFile;
 
   /// See [DetailScreen.resolveLivePhotoVideo].
@@ -1660,8 +1654,7 @@ class _MediaPageState extends State<_MediaPage>
                   personStore: widget.personStore,
                   albumStore: widget.albumStore,
                   onRecordChanged: widget.onRecordChanged,
-                  onDelete: widget.onDelete,
-                  deleteLabel: widget.deleteLabel,
+                  onEdit: widget.onEdit,
                 ),
               ),
             ],
@@ -1885,8 +1878,7 @@ class _InfoPanel extends StatefulWidget {
     required this.personStore,
     required this.albumStore,
     required this.onRecordChanged,
-    required this.onDelete,
-    required this.deleteLabel,
+    required this.onEdit,
   });
 
   final AssetRecord record;
@@ -1894,8 +1886,7 @@ class _InfoPanel extends StatefulWidget {
   /// At the foot of the panel, not in the bar: the bar is what a thumb hits
   /// while flicking through photos, and delete is the one tap there that
   /// costs something.
-  final VoidCallback onDelete;
-  final String? deleteLabel;
+  final VoidCallback onEdit;
 
   /// Whether the original is gone and only the bucket has it. Read from
   /// `_MediaPage` rather than [record] because a restore that has just
@@ -2047,7 +2038,6 @@ class _InfoPanelState extends State<_InfoPanel> {
     _loadPeopleThenFaces();
     _loadAlbums();
     _fillLocationFromMetadata();
-    _loadTravel();
   }
 
   /// Faces come after the people: whether to show them at all depends on
@@ -2079,132 +2069,6 @@ class _InfoPanelState extends State<_InfoPanel> {
       _loadPeopleThenFaces();
       _loadAlbums();
       _fillLocationFromMetadata();
-    }
-    if (oldWidget.record.localId != widget.record.localId ||
-        oldWidget.record.location != widget.record.location) {
-      _loadTravel();
-    }
-  }
-
-  /// The travel diary's city for this photo, once written about.
-  Place? _travelCity;
-  int _travelEntries = 0;
-  bool _travelOpening = false;
-
-  bool get _offersTravel {
-    final r = widget.record;
-    return widget.travelStore != null &&
-        !r.isHidden &&
-        r.passcodeHash == null &&
-        (r.hasCoordinates || (r.location?.trim().isNotEmpty ?? false));
-  }
-
-  /// "Melbourne, Australia" as `PhotoLocationService` names it, split.
-  static (String, String)? _cityNamed(String? location) {
-    final text = location?.trim() ?? '';
-    if (text.isEmpty) return null;
-    final comma = text.lastIndexOf(',');
-    if (comma < 0) return (text, '');
-    return (text.substring(0, comma).trim(), text.substring(comma + 1).trim());
-  }
-
-  Future<void> _loadTravel() async {
-    _travelCity = null;
-    _travelEntries = 0;
-    final store = widget.travelStore;
-    final named = _cityNamed(widget.record.location);
-    if (store == null || !_offersTravel || named == null) return;
-    final id = widget.record.localId;
-    try {
-      final (name, country) = named;
-      final city = (await store.places())
-          .where(
-            (p) =>
-                p.isCity &&
-                p.name.toLowerCase() == name.toLowerCase() &&
-                (country.isEmpty ||
-                    p.country.isEmpty ||
-                    p.country.toLowerCase() == country.toLowerCase()),
-          )
-          .firstOrNull;
-      if (city == null) return;
-      final counts = await store.entryCountsByPlace();
-      if (!mounted || widget.record.localId != id) return;
-      setState(() {
-        _travelCity = city;
-        _travelEntries = counts[city.id]?.total ?? 0;
-      });
-    } catch (_) {
-      // No travel database here (a test): the row just says "write".
-    }
-  }
-
-  /// Opens the city's page once there's a diary, else a new entry there
-  /// with this photo in it.
-  Future<void> _openTravel() async {
-    final store = widget.travelStore;
-    if (store == null || _travelOpening) return;
-    final search = PlaceSearch();
-    if (_travelCity case final city? when _travelEntries > 0) {
-      await Navigator.of(context).push(
-        CupertinoPageRoute(
-          builder: (_) => PlaceScreen(
-            travelStore: store,
-            placeSearch: search,
-            placeId: city.id,
-            assetRecordStore: widget.assetRecordStore,
-            personStore: widget.personStore,
-          ),
-        ),
-      );
-      await _loadTravel();
-      if (mounted) setState(() {});
-      return;
-    }
-    _travelOpening = true;
-    try {
-      final record = widget.record;
-      var named = _cityNamed(record.location);
-      var lat = record.latitude;
-      var lng = record.longitude;
-      if (lat == null || lng == null) {
-        final found = await search.search(record.location!.trim());
-        final hit =
-            found.where((r) => r.isCity).firstOrNull ?? found.firstOrNull;
-        if (hit == null) return;
-        lat = hit.lat;
-        lng = hit.lng;
-      }
-      named ??= await search.cityAt(lat, lng);
-      if (named == null || !mounted) return;
-      final city =
-          _travelCity ??
-          await store.findOrCreateCity(
-            name: named.$1,
-            country: named.$2,
-            lat: lat,
-            lng: lng,
-          );
-      final taken = record.createdAt;
-      if (!mounted) return;
-      await Navigator.of(context).push<bool>(
-        CupertinoPageRoute(
-          builder: (_) => TravelEntryEditor(
-            travelStore: store,
-            entry: store.newEntry(
-              placeId: city.id,
-              kind: EntryKind.impression,
-              at: DateTime(taken.year, taken.month, taken.day),
-            ),
-            placeName: city.name,
-            isNew: true,
-          ),
-        ),
-      );
-      await _loadTravel();
-      if (mounted) setState(() {});
-    } finally {
-      _travelOpening = false;
     }
   }
 
@@ -2564,29 +2428,22 @@ class _InfoPanelState extends State<_InfoPanel> {
     setState(() => _people = people);
   }
 
-  Future<void> _editDateTime() async {
+  Future<List<DateGuess>> _dateGuesses() async {
     final l10n = AppLocalizations.of(context)!;
     final record = widget.record;
-    final guesses = <DateGuess>[
+    return [
       if (originalFileName(record) case final name?)
         if (dateInFileName(name) case final at?)
           (label: l10n.dateGuessFileName, date: at),
       if (await _cameraDate() case final at?)
         (label: l10n.dateGuessCamera, date: at),
     ];
-    if (!mounted) return;
-    final change = await showDateEditor(
-      context,
-      initial: record.createdAt,
-      guesses: [
-        for (final g in guesses)
-          if (g.date != record.createdAt.toLocal()) g,
-      ],
-    );
-    if (change == null || !mounted) return;
-    final picked = change(record.createdAt.toLocal());
+  }
+
+  Future<void> _saveDate(DateTime picked) async {
+    final record = widget.record;
     await setCreatedAtEverywhere(widget.assetRecordStore, {record: picked});
-    widget.onRecordChanged(record.withCreatedAt(picked));
+    if (mounted) widget.onRecordChanged(record.withCreatedAt(picked));
   }
 
   /// The camera's own date from the file's EXIF, where it's on the phone.
@@ -2821,58 +2678,10 @@ class _InfoPanelState extends State<_InfoPanel> {
               ),
             ),
           ),
-          GestureDetector(
-            onTap: _editDateTime,
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              children: [
-                Row(
-                  crossAxisAlignment: CrossAxisAlignment.start,
-                  children: [
-                    Expanded(
-                      child: Text(
-                        DateFormat.yMMMMEEEEd().add_jm().format(
-                          record.createdAt.toLocal(),
-                        ),
-                        style: const TextStyle(
-                          color: CupertinoColors.white,
-                          fontSize: 20,
-                          fontWeight: FontWeight.w600,
-                        ),
-                      ),
-                    ),
-                    CupertinoButton(
-                      key: const ValueKey('detailAdjustDate'),
-                      padding: const EdgeInsets.only(left: 8),
-                      minimumSize: Size.zero,
-                      onPressed: _editDateTime,
-                      child: Row(
-                        mainAxisSize: MainAxisSize.min,
-                        children: [
-                          const Icon(CupertinoIcons.calendar, size: 18),
-                          const SizedBox(width: 4),
-                          Text(
-                            AppLocalizations.of(context)!.detailAdjustDate,
-                            style: const TextStyle(fontSize: 15),
-                          ),
-                        ],
-                      ),
-                    ),
-                  ],
-                ),
-                if (path != null)
-                  Padding(
-                    padding: const EdgeInsets.only(top: 2),
-                    child: Text(
-                      p.basename(path),
-                      style: const TextStyle(
-                        color: CupertinoColors.systemGrey,
-                        fontSize: 13,
-                      ),
-                    ),
-                  ),
-              ],
-            ),
+          InlineDateRow(
+            at: record.createdAt,
+            onChanged: _saveDate,
+            loadGuesses: _dateGuesses,
           ),
           const SizedBox(height: 16),
           // A cloud-only photo's one real action, and the first thing in
@@ -2943,21 +2752,14 @@ class _InfoPanelState extends State<_InfoPanel> {
                       ),
                 onTap: _editLocation,
               ),
-              if (_offersTravel)
+              if (path != null)
                 CupertinoListTile(
-                  key: const ValueKey('detailTravel'),
-                  leading: const Icon(
-                    CupertinoIcons.book,
-                    color: CupertinoColors.activeBlue,
+                  key: const ValueKey('detailFileName'),
+                  title: Text(l10n.detailInfoFileName),
+                  additionalInfo: ConstrainedBox(
+                    constraints: const BoxConstraints(maxWidth: 220),
+                    child: Text(p.basename(path), textAlign: TextAlign.end),
                   ),
-                  title: Text(
-                    _travelCity != null && _travelEntries > 0
-                        ? l10n.travelDiaryFor(_travelCity!.name, _travelEntries)
-                        : l10n.travelWriteAboutPlace,
-                    style: const TextStyle(color: CupertinoColors.activeBlue),
-                  ),
-                  trailing: const CupertinoListTileChevron(),
-                  onTap: _openTravel,
                 ),
               if (_width != null && _height != null)
                 CupertinoListTile(
@@ -3143,20 +2945,20 @@ class _InfoPanelState extends State<_InfoPanel> {
           SizedBox(
             width: double.infinity,
             child: CupertinoButton(
-              key: const ValueKey('detailDeleteButton'),
+              key: const ValueKey('detailEditButton'),
               color: const Color(0xFF2C2C2E),
-              onPressed: widget.onDelete,
+              onPressed: widget.onEdit,
               child: Row(
                 mainAxisSize: MainAxisSize.min,
                 children: [
                   const Icon(
-                    CupertinoIcons.trash,
-                    color: CupertinoColors.systemRed,
+                    CupertinoIcons.slider_horizontal_3,
+                    color: CupertinoColors.white,
                   ),
                   const SizedBox(width: 8),
                   Text(
-                    widget.deleteLabel ?? l10n.actionDelete,
-                    style: const TextStyle(color: CupertinoColors.systemRed),
+                    l10n.detailEditButton,
+                    style: const TextStyle(color: CupertinoColors.white),
                   ),
                 ],
               ),
