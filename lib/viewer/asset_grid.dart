@@ -118,6 +118,7 @@ List<Widget> assetGridSlivers({
         (context, index) {
           final row = grid.rowAt(index);
           if (row.isHeader) {
+            if (grid.headerExtent == 0) return const SizedBox.shrink();
             return _DayHeader(
               label: dayLabel(l10n, grid.sections[row.section].day),
             );

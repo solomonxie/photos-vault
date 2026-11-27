@@ -1,5 +1,6 @@
 import 'dart:convert';
 import 'dart:async';
+import 'dart:math' show Random;
 import 'dart:io';
 
 import 'package:flutter/cupertino.dart';
@@ -49,6 +50,7 @@ import 'select_all.dart';
 import 'select_sweep.dart';
 import 'person_picker_sheet.dart';
 import 'private_album_gate.dart';
+import 'tap_to_top_bar.dart';
 import 'zoom_page_route.dart';
 import '../vault/hidden_backup.dart';
 
@@ -72,6 +74,8 @@ typedef LeftoverCarrier = Future<int> Function(
 /// "..." menu offers adding from the full library and clearing the group
 /// (every member's `passcodeHash` back to `null` — nothing is destroyed).
 /// See DESIGN.md.
+enum _AlbumSort { date, size, random }
+
 class PrivateAlbumScreen extends StatefulWidget {
   const PrivateAlbumScreen({
     super.key,
@@ -138,6 +142,7 @@ class PrivateAlbumScreen extends StatefulWidget {
 
 class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     with WidgetsBindingObserver, PrivateScreenLifecycle {
+  final _gridKey = GlobalKey<AssetGridViewState>();
   late final LibraryCustody _custody =
       widget.custody ?? LibraryCustody(store: widget.assetRecordStore);
   List<AssetRecord> _records = const [];
@@ -554,16 +559,74 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
         identical(was.$1, from.$1) &&
         identical(was.$2, from.$2) &&
         identical(was.$3, from.$3) &&
-        identical(was.$4, from.$4)) {
+        identical(was.$4, from.$4) &&
+        _gridSort == _sort &&
+        _gridSizeEpoch == _sizeEpoch) {
       return _grid;
     }
     final entries = _entriesWithoutRows;
+    _gridSort = _sort;
+    _gridSizeEpoch = _sizeEpoch;
     _standIns = {for (final e in entries) _standInId(e.objectKey): e};
     _gridFrom = from;
-    return _grid = entries.isEmpty
-        ? _records
-        : ([..._records, ...entries.map(_standIn)]
-            ..sort((a, b) => a.createdAt.compareTo(b.createdAt)));
+    return _grid = _ordered(
+      entries.isEmpty
+          ? _records
+          : ([..._records, ...entries.map(_standIn)]
+              ..sort((a, b) => a.createdAt.compareTo(b.createdAt))),
+    );
+  }
+
+  _AlbumSort _sort = _AlbumSort.date;
+  _AlbumSort? _gridSort;
+  int _sizeEpoch = 0;
+  int? _gridSizeEpoch;
+
+  /// [dated] is oldest-first. Size is smallest first, so the largest rest
+  /// at the bottom where the grid opens (bucket-only photos have no size
+  /// and come first); random reshuffles each time it is chosen.
+  List<AssetRecord> _ordered(List<AssetRecord> dated) {
+    switch (_sort) {
+      case _AlbumSort.date:
+        return dated;
+      case _AlbumSort.size:
+        int sizeOf(AssetRecord r) => _sizes[r.sourcePath] ?? 0;
+        return [...dated]..sort((a, b) => sizeOf(a).compareTo(sizeOf(b)));
+      case _AlbumSort.random:
+        return [...dated]..shuffle(Random(_shuffleSeed));
+    }
+  }
+
+  int _shuffleSeed = 0;
+
+  Future<void> _chooseSort() async {
+    final l10n = AppLocalizations.of(context)!;
+    final chosen = await showCupertinoModalPopup<_AlbumSort>(
+      context: context,
+      builder: (sheetContext) {
+        Widget option(_AlbumSort sort, String label) =>
+            CupertinoActionSheetAction(
+              onPressed: () => Navigator.of(sheetContext).pop(sort),
+              child: Text(_sort == sort ? '✓ $label' : label),
+            );
+        return CupertinoActionSheet(
+          actions: [
+            option(_AlbumSort.date, l10n.privateAlbumSortDate),
+            option(_AlbumSort.size, l10n.privateAlbumSortSize),
+            option(_AlbumSort.random, l10n.privateAlbumSortRandom),
+          ],
+          cancelButton: CupertinoActionSheetAction(
+            onPressed: () => Navigator.of(sheetContext).pop(),
+            child: Text(l10n.actionCancel),
+          ),
+        );
+      },
+    );
+    if (chosen == null || !mounted) return;
+    setState(() {
+      _sort = chosen;
+      _shuffleSeed = DateTime.now().microsecondsSinceEpoch;
+    });
   }
 
   (List<AssetRecord>, List<IndexEntry>, Set<String>, Set<String>)? _gridFrom;
@@ -840,7 +903,10 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
             }, onError: (_) => 0),
     ]);
     if (!mounted || !identical(records, _records)) return;
-    setState(() => _totalBytes = sizes.fold(0, (a, b) => a + b));
+    setState(() {
+      _totalBytes = sizes.fold(0, (a, b) => a + b);
+      _sizeEpoch++;
+    });
   }
 
   final _sizes = <String, int>{};
@@ -1461,8 +1527,8 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
         .push(
           ZoomPageRoute(
             builder: (_) => DetailScreen(
-              records: _records,
-              initialIndex: _records.indexOf(record),
+              records: _ordered(_records),
+              initialIndex: _ordered(_records).indexOf(record),
               assetRecordStore: widget.assetRecordStore,
               onDelete: _delete,
               onReplaceWithCopies: (originals, copies) =>
@@ -1553,6 +1619,14 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                 style: const TextStyle(fontSize: 13),
               ),
         actions: [
+          if (_records.isNotEmpty)
+            CupertinoActionSheetAction(
+              onPressed: () {
+                Navigator.of(sheetContext).pop();
+                _chooseSort();
+              },
+              child: Text(l10n.privateAlbumSort),
+            ),
           if (keys != null) ...[
             CupertinoActionSheetAction(
               onPressed: () {
@@ -1824,56 +1898,59 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
     final l10n = AppLocalizations.of(context)!;
     return withPrivacyCover(
       CupertinoPageScaffold(
-        navigationBar: CupertinoNavigationBar(
-          middle: Text(widget.title ?? l10n.privateAlbumScreenTitle),
-          leading: _selecting
-              ? SelectAllButton(
-                  total: _gridRecords.length,
-                  selectedCount: _selectedIds.length,
-                  onSelectNext: () => setState(
-                    () => _selectedIds = selectEverything(
-                      _gridRecords.reversed.map((r) => r.localId),
-                      _selectedIds,
+        navigationBar: TapToTopBar(
+          onTap: () => _gridKey.currentState?.jumpToOldest(),
+          bar: CupertinoNavigationBar(
+            middle: Text(widget.title ?? l10n.privateAlbumScreenTitle),
+            leading: _selecting
+                ? SelectAllButton(
+                    total: _gridRecords.length,
+                    selectedCount: _selectedIds.length,
+                    onSelectNext: () => setState(
+                      () => _selectedIds = selectEverything(
+                        _gridRecords.reversed.map((r) => r.localId),
+                        _selectedIds,
+                      ),
                     ),
-                  ),
-                  onDeselectAll: () => setState(() => _selectedIds = {}),
-                )
-              : null,
-          // Everything that acts on the *album* rather than on a photo is
-          // behind the one button: the backup switch, the passphrases, the
-          // delete. They are settings for this album, and a row of them
-          // across the top read as a toolbar of unrelated verbs — with
-          // "Delete Private Album" sitting in red next to "Add", a tap away
-          // from each other.
-          trailing: _selecting
-              ? SelectionDoneButton(
-                  key: const ValueKey('privateSelectionDone'),
-                  onPressed: _exitSelectMode,
-                )
-              : Row(
-                  mainAxisSize: MainAxisSize.min,
-                  children: [
-                    if (_gridRecords.isNotEmpty)
+                    onDeselectAll: () => setState(() => _selectedIds = {}),
+                  )
+                : null,
+            // Everything that acts on the *album* rather than on a photo is
+            // behind the one button: the backup switch, the passphrases, the
+            // delete. They are settings for this album, and a row of them
+            // across the top read as a toolbar of unrelated verbs — with
+            // "Delete Private Album" sitting in red next to "Add", a tap away
+            // from each other.
+            trailing: _selecting
+                ? SelectionDoneButton(
+                    key: const ValueKey('privateSelectionDone'),
+                    onPressed: _exitSelectMode,
+                  )
+                : Row(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      if (_gridRecords.isNotEmpty)
+                        CupertinoButton(
+                          padding: const EdgeInsets.symmetric(horizontal: 6),
+                          minimumSize: Size.zero,
+                          onPressed: _enterSelectMode,
+                          child: Text(
+                            l10n.privateAlbumSelectButton,
+                            style: const TextStyle(fontSize: 15),
+                          ),
+                        ),
                       CupertinoButton(
                         padding: const EdgeInsets.symmetric(horizontal: 6),
                         minimumSize: Size.zero,
-                        onPressed: _enterSelectMode,
-                        child: Text(
-                          l10n.privateAlbumSelectButton,
-                          style: const TextStyle(fontSize: 15),
+                        onPressed: _showAlbumMenu,
+                        child: const Icon(
+                          CupertinoIcons.ellipsis_circle,
+                          size: 22,
                         ),
                       ),
-                    CupertinoButton(
-                      padding: const EdgeInsets.symmetric(horizontal: 6),
-                      minimumSize: Size.zero,
-                      onPressed: _showAlbumMenu,
-                      child: const Icon(
-                        CupertinoIcons.ellipsis_circle,
-                        size: 22,
-                      ),
-                    ),
-                  ],
-                ),
+                    ],
+                  ),
+          ),
         ),
         child: SafeArea(
           child: Column(
@@ -1928,7 +2005,9 @@ class _PrivateAlbumScreenState extends State<PrivateAlbumScreen>
                   onLongPressMove: _onSweep,
                   onLongPressEnd: _sweep.end,
                   child: AssetGridView(
+                    key: _gridKey,
                     records: _gridRecords,
+                    flat: _sort != _AlbumSort.date,
                     imageFor: _imageFor,
                     onTap: _open,
                     selectedIds: _selecting ? _selectedIds : null,

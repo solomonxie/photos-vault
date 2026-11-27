@@ -20,6 +20,7 @@ import 'private_album_gate.dart';
 import 'search_picker_sheet.dart';
 import 'select_all.dart';
 import 'select_sweep.dart';
+import 'tap_to_top_bar.dart';
 import 'zoom_page_route.dart';
 
 /// One album's contents — same active-library set as the main grid, filtered
@@ -47,6 +48,7 @@ class AlbumScreen extends StatefulWidget {
 }
 
 class _AlbumScreenState extends State<AlbumScreen> {
+  final _gridKey = GlobalKey<AssetGridViewState>();
   late Album _album = widget.album;
   late final TextEditingController _description = TextEditingController(
     text: widget.album.description,
@@ -368,44 +370,47 @@ class _AlbumScreenState extends State<AlbumScreen> {
   Widget build(BuildContext context) {
     final l10n = AppLocalizations.of(context)!;
     return CupertinoPageScaffold(
-      navigationBar: CupertinoNavigationBar(
-        middle: Text(_album.name),
-        leading: _selecting
-            ? ValueListenableBuilder(
-                valueListenable: _picked,
-                builder: (context, picked, _) => SelectAllButton(
-                  total: _records.length,
-                  selectedCount: picked.length,
-                  onSelectNext: () => _picked.value = selectEverything(
-                    _records.reversed.map((r) => r.localId),
-                    picked,
-                  ),
-                  onDeselectAll: () => _picked.value = const {},
-                ),
-              )
-            : null,
-        trailing: _selecting
-            ? SelectionDoneButton(
-                key: const ValueKey('albumSelectionDone'),
-                onPressed: _endSelecting,
-              )
-            : Row(
-                mainAxisSize: MainAxisSize.min,
-                children: [
-                  if (_records.isNotEmpty)
-                    CupertinoButton(
-                      key: const ValueKey('albumSelect'),
-                      padding: const EdgeInsets.symmetric(horizontal: 8),
-                      onPressed: () => setState(() => _selecting = true),
-                      child: Text(l10n.albumSelect),
+      navigationBar: TapToTopBar(
+        onTap: () => _gridKey.currentState?.jumpToOldest(),
+        bar: CupertinoNavigationBar(
+          middle: Text(_album.name),
+          leading: _selecting
+              ? ValueListenableBuilder(
+                  valueListenable: _picked,
+                  builder: (context, picked, _) => SelectAllButton(
+                    total: _records.length,
+                    selectedCount: picked.length,
+                    onSelectNext: () => _picked.value = selectEverything(
+                      _records.reversed.map((r) => r.localId),
+                      picked,
                     ),
-                  CupertinoButton(
-                    padding: EdgeInsets.zero,
-                    onPressed: _addPhotos,
-                    child: const Icon(CupertinoIcons.add),
+                    onDeselectAll: () => _picked.value = const {},
                   ),
-                ],
-              ),
+                )
+              : null,
+          trailing: _selecting
+              ? SelectionDoneButton(
+                  key: const ValueKey('albumSelectionDone'),
+                  onPressed: _endSelecting,
+                )
+              : Row(
+                  mainAxisSize: MainAxisSize.min,
+                  children: [
+                    if (_records.isNotEmpty)
+                      CupertinoButton(
+                        key: const ValueKey('albumSelect'),
+                        padding: const EdgeInsets.symmetric(horizontal: 8),
+                        onPressed: () => setState(() => _selecting = true),
+                        child: Text(l10n.albumSelect),
+                      ),
+                    CupertinoButton(
+                      padding: EdgeInsets.zero,
+                      onPressed: _addPhotos,
+                      child: const Icon(CupertinoIcons.add),
+                    ),
+                  ],
+                ),
+        ),
       ),
       child: SafeArea(
         child: Stack(
@@ -467,6 +472,7 @@ class _AlbumScreenState extends State<AlbumScreen> {
             onLongPressMove: _onSelectDragUpdate,
             onLongPressEnd: _sweep.end,
             child: AssetGridView(
+              key: _gridKey,
               records: _records,
               onTap: _selecting ? _toggleSelected : _open,
               onLongPress: _startSelecting,

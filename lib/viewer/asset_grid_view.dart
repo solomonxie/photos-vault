@@ -25,6 +25,7 @@ import 'photo_grid_layout.dart';
 enum PinKind { top, grid, past }
 
 final _epoch = DateTime.fromMillisecondsSinceEpoch(0);
+DateTime _oneDay(AssetRecord _) => _epoch;
 
 /// Where the page was left: a photo in the grid, a gap past the grid's end,
 /// or a raw offset above it — each holds still while the library grows.
@@ -74,7 +75,12 @@ class AssetGridView extends StatefulWidget {
     this.imageFor,
     this.initialPin,
     this.onPinChanged,
+    this.flat = false,
   });
+
+  /// One run of tiles, no day headers or scrubber — for an order that isn't
+  /// by date, where days would repeat down the page.
+  final bool flat;
 
   /// Where the last session left off; opens there instead of at the rest.
   final ScrollPin? initialPin;
@@ -470,7 +476,8 @@ class AssetGridViewState extends State<AssetGridView> {
       _layout = PhotoGridLayout.of(
         records: widget.records,
         width: width,
-        dateOf: widget.dateOf,
+        dateOf: widget.flat ? _oneDay : widget.dateOf,
+        headerExtent: widget.flat ? 0 : 44,
       );
       _laidOut = widget.records;
       _laidOutWidth = width;
@@ -573,14 +580,15 @@ class AssetGridViewState extends State<AssetGridView> {
             ],
           ),
         ),
-        Positioned.fill(
-          child: DateScrubber(
-            insets: widget.scrubberInsets,
-            controller: _scrollController,
-            layout: _layout,
-            gridOffset: _gridStartOffset,
+        if (!widget.flat)
+          Positioned.fill(
+            child: DateScrubber(
+              insets: widget.scrubberInsets,
+              controller: _scrollController,
+              layout: _layout,
+              gridOffset: _gridStartOffset,
+            ),
           ),
-        ),
       ],
     );
     return Listener(
