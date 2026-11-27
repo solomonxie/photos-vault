@@ -1732,6 +1732,9 @@ class _ZoomableImageState extends State<_ZoomableImage>
     with SingleTickerProviderStateMixin {
   static const _zoomedScale = 3.0;
 
+  /// The double-tap stops at [_zoomedScale]; a pinch goes on from there.
+  static const _pinchLimit = 1000.0;
+
   final _transformation = TransformationController();
   late final AnimationController _animController = AnimationController(
     vsync: this,
@@ -1850,7 +1853,7 @@ class _ZoomableImageState extends State<_ZoomableImage>
       child: InteractiveViewer(
         transformationController: _transformation,
         minScale: 1,
-        maxScale: _zoomedScale,
+        maxScale: _pinchLimit,
         panEnabled: _isZoomed,
         child: Center(
           child: widget.child ?? (widget.frame ?? _bare)(_still(context)),

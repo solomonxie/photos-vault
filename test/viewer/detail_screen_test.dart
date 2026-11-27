@@ -1538,6 +1538,29 @@ void main() {
       );
     });
 
+    testWidgets('a pinch goes on past where the double-tap stopped', (
+      tester,
+    ) async {
+      await pumpPair(tester);
+      await zoom(tester);
+      final viewer = tester.widget<InteractiveViewer>(
+        find.byType(InteractiveViewer).first,
+      );
+      final controller = viewer.transformationController!;
+      expect(controller.value.getMaxScaleOnAxis(), closeTo(3, 0.01));
+
+      final centre = tester.getCenter(find.byType(InteractiveViewer).first);
+      final a = await tester.startGesture(centre - const Offset(20, 0));
+      final b = await tester.startGesture(centre + const Offset(20, 0));
+      await a.moveBy(const Offset(-60, 0));
+      await b.moveBy(const Offset(60, 0));
+      await a.up();
+      await b.up();
+      await tester.pumpAndSettle();
+
+      expect(controller.value.getMaxScaleOnAxis(), greaterThan(3.5));
+    });
+
     testWidgets('and zooming back out hands the page back', (tester) async {
       await pumpPair(tester);
       await zoom(tester);
